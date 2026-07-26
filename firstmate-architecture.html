@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>firstmate — Architecture</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #2a3140;
+    --ink: #e6edf3;
+    --muted: #9aa7b8;
+    --accent: #4aa8ff;
+    --accent-2: #7ee787;
+    --amber: #f0b429;
+    --pink: #ff7b9c;
+    --purple: #b392f0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6; font-size: 15px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 96px; }
+  header.hero {
+    border: 1px solid var(--border); border-radius: 14px;
+    background: linear-gradient(135deg, #12233a 0%, #161b22 60%);
+    padding: 36px 40px; margin-bottom: 40px;
+  }
+  header.hero h1 { margin: 0 0 6px; font-size: 40px; letter-spacing: -0.5px; }
+  header.hero .tag { color: var(--accent); font-family: var(--mono); font-size: 14px; }
+  header.hero p { color: var(--muted); margin: 14px 0 0; max-width: 70ch; }
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 12px;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--muted); margin: 4px 6px 0 0;
+  }
+  h2 {
+    font-size: 24px; margin: 52px 0 4px; letter-spacing: -0.3px;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .n { font-family: var(--mono); font-size: 15px; color: var(--accent); }
+  h2 + .lede { color: var(--muted); margin: 0 0 20px; max-width: 74ch; }
+  h3 { font-size: 17px; margin: 28px 0 8px; color: var(--ink); }
+  section { border-top: 1px solid var(--border); padding-top: 8px; }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--panel-2);
+    padding: 1px 6px; border-radius: 5px; color: var(--accent-2); border: 1px solid var(--border); }
+  p code { white-space: nowrap; }
+  .grid { display: grid; gap: 16px; margin: 18px 0; }
+  .grid.two { grid-template-columns: 1fr 1fr; }
+  .grid.three { grid-template-columns: repeat(3, 1fr); }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 15px; color: var(--accent); font-family: var(--mono); }
+  .card p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+  .card .role { color: var(--ink); font-weight: 600; }
+  pre.diagram {
+    background: #0a0e14; border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.45; color: var(--ink); margin: 20px 0;
+  }
+  .flow-you { color: var(--amber); }
+  .flow-fm { color: var(--accent); }
+  .flow-crew { color: var(--accent-2); }
+  .flow-dim { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td code { white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--panel);
+    padding: 12px 18px; border-radius: 0 8px 8px 0; margin: 18px 0; color: var(--muted);
+  }
+  .callout.key { border-left-color: var(--amber); }
+  .callout strong { color: var(--ink); }
+  ul.tight { margin: 10px 0; padding-left: 22px; }
+  ul.tight li { margin: 5px 0; color: var(--muted); }
+  ul.tight li b { color: var(--ink); }
+  .lifecycle { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 18px 0; }
+  .step {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 14px; font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+  }
+  .arrow { color: var(--muted); font-family: var(--mono); }
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+  .legend span::before { content: "■ "; }
+  .l-you::before { color: var(--amber); } .l-fm::before { color: var(--accent); }
+  .l-crew::before { color: var(--accent-2); }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 12.5px; }
+  a { color: var(--accent); }
+  .two-col-note { color: var(--muted); font-size: 13px; }
+  @media (max-width: 760px) { .grid.two, .grid.three { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="tag">agent distro · bash orchestration layer</div>
+  <h1>firstmate</h1>
+  <p><b>Talk to one agent. Ship with a crew.</b> firstmate turns a single terminal coding agent into a <em>fleet supervisor</em>. You chat only with the "first mate"; it spawns autonomous coding agents ("crewmates"), each in its own git worktree and terminal, watches them with a zero-token bash loop, and hands you finished PRs, approved merges, or investigation reports.</p>
+  <div style="margin-top:16px">
+    <span class="pill">no app to install — the repo IS the distro</span>
+    <span class="pill">bash + git + gh</span>
+    <span class="pill">tmux / herdr / zellij / orca / cmux</span>
+    <span class="pill">claude · codex · grok · pi · opencode</span>
+  </div>
+</header>
+
+<!-- 1. CORE IDEA -->
+<section>
+<h2><span class="n">01</span> The core idea</h2>
+<p class="lede">firstmate is <strong>not</strong> a model, harness, CLI, or MCP server. It is an <em>agent distro</em>: a directory of instructions (<code>AGENTS.md</code>), skills, and helper scripts (<code>bin/</code>) that any terminal agent reads to <em>become</em> a fleet supervisor.</p>
+
+<div class="grid three">
+  <div class="card"><h4>The captain</h4><p><span class="role">You.</span> You talk to exactly one agent, in plain language: "fix the flaky test and add dark mode." You make decisions and approve merges.</p></div>
+  <div class="card"><h4>The first mate</h4><p><span class="role">The agent you chat with.</span> It never edits your projects itself. It routes work, spawns crewmates, supervises, and reports outcomes.</p></div>
+  <div class="card"><h4>The crew</h4><p><span class="role">Autonomous agents it spawns.</span> Each gets a clean worktree + visible terminal and does the actual coding, then ships a PR or leaves a report.</p></div>
+</div>
+
+<div class="callout key"><strong>Prime directive:</strong> the first mate is <em>read-only</em> over your projects. Only crewmates change code, and only behind the configured merge authority. State lives on disk + the session backend, so any session can be killed and the next one reconciles and carries on.</div>
+</section>
+
+<!-- 2. END TO END FLOW -->
+<section>
+<h2><span class="n">02</span> End-to-end flow</h2>
+<p class="lede">One request travels from your chat message down to an isolated worker and back up as a finished outcome.</p>
+
+<pre class="diagram">
+<span class="flow-you">          YOU (the captain)</span>
+<span class="flow-dim">                │  "fix the flaky login test and add dark mode"</span>
+<span class="flow-dim">                ▼</span>
+<span class="flow-fm"> ┌─────────────────────────────────────────────┐</span>
+<span class="flow-fm"> │  THE FIRST MATE  (an agent reading AGENTS.md) │</span>
+<span class="flow-fm"> │  • resolves which project                     │</span>
+<span class="flow-fm"> │  • picks ship vs scout, picks delivery mode   │</span>
+<span class="flow-fm"> │  • writes a brief, spawns a crewmate          │</span>
+<span class="flow-fm"> │  reads projects/  ·  writes data/ state/ only │</span>
+<span class="flow-fm"> └──┬───────────────────┬────────────────────┬──┘</span>
+<span class="flow-dim">    │ spawn + steer      │ status files       │  (parallel, no collisions)</span>
+<span class="flow-dim">    ▼                   ▼                    ▼</span>
+<span class="flow-crew"> ┌─────────┐         ┌─────────┐          ┌─────────┐</span>
+<span class="flow-crew"> │ fm-task1│         │ fm-task2│   ...    │ fm-taskN│   ← visible terminal each</span>
+<span class="flow-crew"> │ crewmate│         │ crewmate│          │ crewmate│   ← one autonomous agent each</span>
+<span class="flow-crew"> └────┬────┘         └────┬────┘          └────┬────┘</span>
+<span class="flow-dim">      ▼                   ▼                     ▼</span>
+<span class="flow-dim">   clean git worktree (treehouse / orca) — never your checkout</span>
+<span class="flow-dim">      │</span>
+<span class="flow-dim">      ├─ SHIP  ► validate ► PR / local merge ► teardown</span>
+<span class="flow-dim">      └─ SCOUT ► data/&lt;id&gt;/report.md ► relay findings ► teardown</span>
+<span class="flow-dim">                                                    │</span>
+<span class="flow-dim">                                                    ▼</span>
+<span class="flow-fm">                     first mate relays the plain outcome ──►</span> <span class="flow-you">YOU</span>
+</pre>
+<div class="legend">
+  <span class="l-you">captain (you)</span>
+  <span class="l-fm">first mate (supervisor agent)</span>
+  <span class="l-crew">crewmates (worker agents)</span>
+</div>
+
+<div class="callout">Between the first mate and the crew sits a <strong>zero-token bash watcher</strong> — it sleeps on the fleet and only wakes the first mate's LLM when something is genuinely actionable. This is what makes running many agents cheap. Detailed in §05.</div>
+</section>
+
+<!-- 3. LAYERS -->
+<section>
+<h2><span class="n">03</span> The four layers</h2>
+<p class="lede">The system stacks cleanly. Each layer only knows about the one below it.</p>
+
+<table>
+  <thead><tr><th>Layer</th><th>What it is</th><th>Key pieces</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>1 · Instructions</b></td>
+      <td>The always-loaded operating contract the agent reads to become the first mate. Prime directives, task lifecycle, supervision rules, escalation etiquette.</td>
+      <td><code>AGENTS.md</code> (<code>CLAUDE.md</code> is a symlink), <code>.agents/skills/</code></td>
+    </tr>
+    <tr>
+      <td><b>2 · Toolbelt</b></td>
+      <td>~90 bash scripts the instructions call. Spawn, supervise, steer, classify wakes, tear down. The agent orchestrates by running these — it doesn't reimplement them.</td>
+      <td><code>bin/fm-*.sh</code></td>
+    </tr>
+    <tr>
+      <td><b>3 · Backend abstraction</b></td>
+      <td>A session-provider seam. Every "create a terminal / read it / send keys / probe if busy" call goes through one dispatcher to a pluggable adapter.</td>
+      <td><code>bin/fm-backend.sh</code> → <code>bin/backends/*.sh</code></td>
+    </tr>
+    <tr>
+      <td><b>4 · State on disk</b></td>
+      <td>All truth. Per-home directories hold the backlog, task metadata, status logs, and coordination locks. Nothing important lives only in conversation.</td>
+      <td><code>data/</code> <code>state/</code> <code>config/</code> <code>projects/</code></td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<!-- 4. LIFECYCLE -->
+<section>
+<h2><span class="n">04</span> A task's lifecycle</h2>
+<p class="lede">Every unit of work — a <strong>ship</strong> (changes code) or a <strong>scout</strong> (produces a report) — moves through the same arc. Each stage is owned by one script.</p>
+
+<div class="lifecycle">
+  <span class="step">brief</span><span class="arrow">→</span>
+  <span class="step">spawn</span><span class="arrow">→</span>
+  <span class="step">supervise</span><span class="arrow">→</span>
+  <span class="step">steer</span><span class="arrow">→</span>
+  <span class="step">validate</span><span class="arrow">→</span>
+  <span class="step">land / report</span><span class="arrow">→</span>
+  <span class="step">teardown</span>
+</div>
+
+<div class="grid two">
+  <div class="card"><h4>brief · fm-brief.sh</h4><p>Scaffolds <code>data/&lt;id&gt;/brief.md</code> — the contract handed to the crewmate. Defines the status vocabulary (<code>paused:</code> / <code>blocked:</code> / <code>done:</code>) the watcher later reads, and the delivery-mode "definition of done."</p></div>
+  <div class="card"><h4>spawn · fm-spawn.sh</h4><p>Creates a backend terminal + a clean worktree, writes <code>state/&lt;id&gt;.meta</code> (the record every other script keys off). Refuses to launch unless the worktree is genuinely isolated from your checkout.</p></div>
+  <div class="card"><h4>supervise · fm-watch.sh</h4><p>The zero-token loop. Classifies each wake in bash; surfaces to the LLM only when actionable. (§05)</p></div>
+  <div class="card"><h4>steer · fm-send.sh</h4><p>The actuator. Sends one line of text to a crewmate and confirms the backend accepted it — fails loudly if the keystroke was swallowed.</p></div>
+  <div class="card"><h4>validate</h4><p>Delivery mode owns rigor: <code>no-mistakes</code> runs a full gated pipeline → PR; <code>direct-PR</code> just opens a PR; <code>local-only</code> stops at a clean branch for an approved fast-forward merge.</p></div>
+  <div class="card"><h4>teardown · fm-teardown.sh</h4><p>Closes the lifecycle: returns the worktree, kills the terminal, clears state — but <strong>refuses if work hasn't landed</strong>. Uncommitted or unmerged work is never discarded without explicit authority.</p></div>
+</div>
+
+<h3>Two task shapes</h3>
+<div class="grid two">
+  <div class="card"><h4>SHIP  (default)</h4><p>Produces a project change through the selected delivery mode. Ends in a PR, an approved local merge, then cleanup.</p></div>
+  <div class="card"><h4>SCOUT</h4><p>Produces knowledge at <code>data/&lt;id&gt;/report.md</code> — investigation, diagnosis, planning, audit. <em>Never</em> pushes. A report can recommend a change but does not authorize one; it can later be "promoted" into a ship.</p></div>
+</div>
+</section>
+
+<!-- 5. SUPERVISION -->
+<section>
+<h2><span class="n">05</span> The supervision engine <span style="font-size:14px;color:var(--muted)">— the clever part</span></h2>
+<p class="lede">Running many agents naively means burning tokens polling each one. firstmate's answer: a bash watcher that does all the triage for free, and only spends an LLM turn on real events.</p>
+
+<div class="grid two">
+  <div class="card">
+    <h4>Normal mode · fm-watch.sh</h4>
+    <p>An always-on bash loop sleeps on the fleet. For each "wake," it classifies in bash: is this a real signal, a stale/stuck worker, an authenticated check result (PR merged?), or just a heartbeat? <b>Benign wakes are absorbed silently</b> — no LLM turn. Only actionable wakes go to a durable <code>state/.wake-queue</code> and wake the first mate.</p>
+  </div>
+  <div class="card">
+    <h4>Away mode · fm-supervise-daemon.sh</h4>
+    <p>When you type <code>/afk</code>, a daemon wraps the watcher and handles even <em>more</em> in bash — self-resolving routine notifications and batching only captain-relevant events into single-line digests injected into your pane. Gated by the <code>state/.afk</code> flag; any normal message you send ends it.</p>
+  </div>
+</div>
+
+<div class="callout key"><strong>Why it's "provably working":</strong> the watcher never trusts a stale status line. A crewmate's <code>state/&lt;id&gt;.status</code> is an append-only <em>event log</em>, not current truth. To decide whether a quiet worker is fine or wedged, it calls <code>fm-crew-state.sh</code> — the "truth oracle" — which reconciles the log against the <em>actual</em> running validation step and terminal busy-signature, matched by branch and code identity.</div>
+
+<h3>Shared brain, two engines</h3>
+<p class="two-col-note">Both the always-on watcher and the away-mode daemon source <strong>the same classifier</strong> (<code>fm-classify-lib.sh</code>) so triage policy can never drift between them. It defines what counts as "captain-relevant" (<code>done:</code>, <code>needs-decision:</code>, <code>blocked:</code>, <code>failed:</code>…) versus an absorbable heartbeat.</p>
+
+<h3>Restart-proof by construction</h3>
+<ul class="tight">
+  <li><b>Durable queue:</b> actionable wakes are written to <code>state/.wake-queue</code> <em>before</em> detector state advances, so a missed process exit is recovered by draining the queue.</li>
+  <li><b>Singleton lock:</b> a race-proof lock guarantees exactly one watcher per home; siblings self-evict.</li>
+  <li><b>Turn-end backstop:</b> on verified harnesses, a Stop-hook blocks a "blind" turn end while work is in flight and no live watcher exists.</li>
+  <li><b>Liveness beacon:</b> <code>state/.last-watcher-beat</code> is touched every poll; guard scripts alarm if it goes stale.</li>
+</ul>
+</section>
+
+<!-- 6. ISOLATION -->
+<section>
+<h2><span class="n">06</span> Isolation — worktrees, not branches in your checkout</h2>
+<p class="lede">Parallel work on one repo never collides because each crewmate gets its own git worktree. The first mate literally cannot spawn a task unless the worktree is proven distinct from your primary checkout.</p>
+
+<div class="grid three">
+  <div class="card"><h4>treehouse</h4><p>Pools clean, disposable git worktrees for tmux / herdr / zellij / cmux tasks. Returned and recycled at teardown.</p></div>
+  <div class="card"><h4>orca-managed</h4><p>When <code>backend=orca</code>, Orca owns both the worktree and the terminal, and removes worktrees via <code>orca worktree rm</code> after teardown checks pass.</p></div>
+  <div class="card"><h4>tangle guard</h4><p>Because firstmate can dispatch crewmates to work on <em>itself</em>, a dedicated check flags the one dangerous state: a named non-default branch checked out in the primary. It refuses to proceed and prints the repair.</p></div>
+</div>
+</section>
+
+<!-- 7. BACKENDS -->
+<section>
+<h2><span class="n">07</span> Runtime backends</h2>
+<p class="lede">The "where does a crewmate's terminal live" layer is pluggable. One dispatcher (<code>fm-backend.sh</code>) resolves selection and routes every terminal operation to an adapter. Selection order: <code>--backend</code> flag → <code>FM_BACKEND</code> → <code>config/backend</code> → runtime auto-detect → default <code>tmux</code>.</p>
+
+<table>
+  <thead><tr><th>Backend</th><th>Status</th><th>Worktree provider</th><th>Container shape</th></tr></thead>
+  <tbody>
+    <tr><td><b>tmux</b></td><td>Reference / default ✓</td><td>treehouse</td><td>one window per task</td></tr>
+    <tr><td><b>herdr</b></td><td>Experimental — auto-detect via <code>HERDR_ENV</code></td><td>treehouse</td><td>one workspace per home, one tab per task; native busy/blocked events</td></tr>
+    <tr><td><b>zellij</b></td><td>Experimental — explicit only</td><td>treehouse</td><td>one shared session, one tab per task</td></tr>
+    <tr><td><b>orca</b></td><td>Experimental — explicit only</td><td>orca (self)</td><td>owns both worktree + terminal lifecycle</td></tr>
+    <tr><td><b>cmux</b></td><td>Experimental — macOS, GUI-first</td><td>treehouse</td><td>one workspace per task</td></tr>
+  </tbody>
+</table>
+<p class="two-col-note">Most backends are <em>session providers only</em> — tmux/zellij/orca/cmux have no native "is it busy?" primitive, so the watcher's poll over pull primitives (capture text, list live windows, regex the pane tail) <em>is</em> the event source. Herdr is the exception: it exposes native working/idle/done/blocked state, so the watcher can wait on a real event instead of polling.</p>
+</section>
+
+<!-- 8. STATE -->
+<section>
+<h2><span class="n">08</span> State model — everything on disk</h2>
+<p class="lede"><code>FM_HOME</code> selects one first mate instance's private world. Scripts always run from the tracked <code>bin/</code>, but resolve <code>data/ state/ config/ projects/</code> under that home. This is also how a <strong>secondmate</strong> (a persistent second mate with its own isolated home) works.</p>
+
+<div class="grid two">
+  <div class="card"><h4>data/ — durable knowledge</h4><p><code>backlog.md</code> (the queue), <code>captain.md</code> (your prefs), <code>learnings.md</code> (fleet gotchas), <code>secondmates.md</code> (routes), <code>projects.md</code> (registry), and per-task <code>&lt;id&gt;/brief.md</code> + scout <code>&lt;id&gt;/report.md</code>.</p></div>
+  <div class="card"><h4>state/ — volatile runtime</h4><p><code>&lt;id&gt;.meta</code> (authoritative task record), <code>&lt;id&gt;.status</code> (append-only wake-event log), <code>.wake-queue</code>, watcher locks &amp; beacons, <code>.afk</code>, and X-mode inboxes.</p></div>
+  <div class="card"><h4>config/ — local choices</h4><p><code>backend</code>, <code>crew-harness</code>, <code>secondmate-harness</code>, <code>crew-dispatch.json</code> (natural-language routing rules), plus calm / wedge-alarm / x-mode knobs. All gitignored, per-home.</p></div>
+  <div class="card"><h4>projects/ — read-only clones</h4><p>The repos firstmate works on. Read freely; mutated only through the guarded init / sync / merge exceptions. Crewmates change code in worktrees, never here.</p></div>
+</div>
+
+<div class="callout"><strong>The backlog</strong> (<code>.tasks.toml</code>) is a markdown-file backend: live queue in <code>data/backlog.md</code>, completed items archived to <code>data/done-archive.md</code> keeping the last 10 inline. Routine edits go through the <code>tasks-axi</code> CLI (or hand-editing if <code>config/backlog-backend=manual</code>).</div>
+
+<div class="callout key"><strong>The golden rule of state:</strong> a <code>.status</code> line is a wake <em>event</em>, never current truth. Anytime the live state matters, the code re-derives it with <code>fm-crew-state.sh</code>. This single discipline is what makes restarts a non-event.</div>
+</section>
+
+<!-- 9. SKILLS + ADVANCED -->
+<section>
+<h2><span class="n">09</span> Skills &amp; advanced capabilities</h2>
+<p class="lede">Beyond the always-loaded <code>AGENTS.md</code>, behavior is packaged as <strong>skills</strong> loaded on demand at precise trigger points — keeping the base context lean.</p>
+
+<h3>Two-tier skill layout</h3>
+<div class="grid two">
+  <div class="card"><h4>.agents/skills/</h4><p>Agent-loaded skills, meaningful only inside a live firstmate home (flagged <code>metadata.internal: true</code> so installers ignore them). Some are <em>user-invocable</em> (<code>/afk</code>, <code>/ahoy</code>, <code>/bearings</code>, <code>/stow</code>, <code>/updatefirstmate</code>); most are <em>agent-only</em> playbooks loaded at their trigger (<code>harness-adapters</code>, <code>stuck-crewmate-recovery</code>, <code>secondmate-provisioning</code>, <code>diagnostic-reasoning</code>, <code>ask-user-authority</code>…).</p></div>
+  <div class="card"><h4>skills/</h4><p>Public, installer-facing skills that stand alone in <em>any</em> project with no dependency on firstmate. Today: <code>skills/stow</code>, a generic session-knowledge-sweep skill.</p></div>
+</div>
+
+<h3>Advanced capabilities (all optional)</h3>
+<ul class="tight">
+  <li><b>Secondmates:</b> persistent second mates running from their own isolated <code>FM_HOME</code>, with their own state, backlog, and projects. The primary launches and syncs them; they're idle by default and act only on routed work.</li>
+  <li><b>Dispatch profiles:</b> natural-language rules in <code>config/crew-dispatch.json</code> let the first mate choose which harness / model / effort handles each task, judged against live quota headroom.</li>
+  <li><b>Project modes &amp; <code>+yolo</code>:</b> per-project delivery posture (<code>no-mistakes</code> / <code>direct-PR</code> / <code>local-only</code>) plus an optional autonomy flag that lets the first mate clear routine gates within your original request.</li>
+  <li><b>X mode:</b> opt-in with one local token so the same fleet can answer public <code>@myfirstmate</code> mentions through the identical lifecycle as chat requests.</li>
+  <li><b>Self-update:</b> <code>/updatefirstmate</code> fast-forwards the running distro (and secondmates) from origin, then re-reads instructions — never touching your project clones.</li>
+</ul>
+</section>
+
+<!-- 10. PORTING NOTES -->
+<section>
+<h2><span class="n">10</span> Reading this for a port</h2>
+<p class="lede">If you're rebuilding this as Orca, here's the conceptual skeleton worth keeping — and the seams where your customizations will live.</p>
+
+<div class="grid two">
+  <div class="card"><h4>Keep — the load-bearing ideas</h4><p>① One liaison agent, read-only over projects. ② Zero-token bash triage that only wakes the LLM on real events. ③ Status-log-is-an-event-not-truth + a truth oracle. ④ Worktree isolation enforced at spawn. ⑤ All state on disk → restart-proof.</p></div>
+  <div class="card"><h4>Seams — where to customize</h4><p>The <strong>backend adapter</strong> interface (<code>fm-backend.sh</code>) is the cleanest plug-in point. The <strong>skills</strong> layer is where behavior is added without touching the core contract. The <strong>classifier</strong> (<code>fm-classify-lib.sh</code>) defines your escalation policy in one place.</p></div>
+</div>
+
+<div class="callout">The instruction contract (<code>AGENTS.md</code>) and the toolbelt (<code>bin/</code>) are deliberately separate: the agent <em>reasons</em> from the instructions and <em>acts</em> through the scripts. That split is what lets any harness (Claude, Codex, Grok…) drive the same fleet. Preserve it, and the rest is swappable.</div>
+</section>
+
+<footer>
+  Generated architecture overview of <code>firstmate/</code> · derived from <code>AGENTS.md</code>, <code>docs/architecture.md</code>, <code>docs/configuration.md</code>, and the <code>bin/</code> toolbelt.
+  For canonical depth see <code>firstmate/docs/architecture.md</code>.
+</footer>
+
+</div>
+</body>
+</html>
