@@ -113,8 +113,8 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="meta"><span class="tag">UPDATE_PLAN §8.2</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
 </a>
 <a class="card" href="08-vplan.html" style="--card-accent:#f0883e">
-  <div class="top"><span class="num">PLAN 08</span><span class="title">vplan — Standalone HTML Plan-Artifact Module</span></div>
-  <div class="desc">Our replacement for lavish-axi: a self-contained module (mx-vplan.sh) that renders rich HTML plan documents from a defined plan-input contract. Deliberately standalone — not folded into status/finding reporting.</div>
+  <div class="top"><span class="num">PLAN 08</span><span class="title">vplan — Plan Artifacts with an In-Page Review Loop</span></div>
+  <div class="desc">Our replacement for lavish-axi, redesigned 2026-07-27: the broker authors a diagram-rich HTML plan, mx-vplan.sh serves it on loopback with an injected comment overlay, the maintainer annotates any element, and one confirm writes the comments into the file itself and shuts the server down. Ports lavish's authoring playbooks; drops its daemon, polling, and hosting machinery.</div>
   <div class="meta"><span class="tag">UPDATE_PLAN §8.5</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
 </a>
 
