@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 03 — Validated Status Reporting · Computer Port</title>
+<title>Plan 03 — Validated Status Reporting · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -136,9 +136,9 @@ FM_CLASSIFY_RESOLVE_VERB_DEFAULT='resolved'
   <tr><td><code>firstmate/tests/fm-brief.test.sh</code></td><td>Asserts generated brief content, including the status-protocol rule text.</td></tr>
   <tr><td><code>firstmate/tests/fm-crew-state.test.sh</code>, <code>firstmate/tests/fm-watch-triage.test.sh</code></td><td>Cover reconciliation and classification over status files written in the existing grammar — the input-format contract this plan must not break.</td></tr>
 </table>
-<p>Note: firstmate has no <code>.mcp.json</code> today and no MCP tooling anywhere in the tree — the <code>report_status</code> tool is a genuinely new surface in Computer, not a port.</p>
+<p>Note: firstmate has no <code>.mcp.json</code> today and no MCP tooling anywhere in the tree — the <code>report_status</code> tool is a genuinely new surface in Multplx, not a port.</p>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>The closed enum, in one place</h3>
 <div class="callout ok">

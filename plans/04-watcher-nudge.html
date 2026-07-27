@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 04 — Low-Latency Nudge · Computer Port</title>
+<title>Plan 04 — Low-Latency Nudge · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -114,7 +114,7 @@ tr:nth-child(even) td{background:var(--surface)}
 </table>
 <p>Precedent worth noting: the herdr event-wait splice (<code>event_wait_or_sleep</code>) already establishes the pattern "replace the blind sleep with something interruptible, keep the poll loop as the permanent fail-closed backstop; the fast path only ever <em>shortens</em> latency, it can never drop an escalation." The nudge is the same idea for the local, backend-independent case.</p>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>Why not the HTTP daemon (decision record)</h3>
 <div class="callout danger">

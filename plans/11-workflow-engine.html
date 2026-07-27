@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 11 — Workflow Engine · Computer Port</title>
+<title>Plan 11 — Workflow Engine · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -54,9 +54,9 @@ tr:nth-child(even) td{background:var(--surface)}
 </head>
 <body>
 <header class="hero"><div class="wrap">
-  <div class="plan-num">Plan 11 · Computer Port</div>
+  <div class="plan-num">Plan 11 · Multplx Port</div>
   <h1>Workflow Engine — Deterministic Skeleton, Model-Driven Interior</h1>
-  <p class="subtitle">User-defined, repeatable multi-stage workflows the broker can execute like an extension of the maintainer: one shared engine (<code>mx-workflow.sh</code>) enforces stage order, gates, and output contracts from declarative definition files, while the model does the judgment work inside each stage. Includes the <code>create-workflow</code> skill so Computer can author new workflow definitions interactively with the maintainer.</p>
+  <p class="subtitle">User-defined, repeatable multi-stage workflows the broker can execute like an extension of the maintainer: one shared engine (<code>mx-workflow.sh</code>) enforces stage order, gates, and output contracts from declarative definition files, while the model does the judgment work inside each stage. Includes the <code>create-workflow</code> skill so Multplx can author new workflow definitions interactively with the maintainer.</p>
   <div class="badges">
     <span class="badge phase">Phase 8</span>
     <span class="badge effort">Effort: High</span>
@@ -68,7 +68,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <div class="wrap">
 
 <h2>Overview</h2>
-<p>Computer's primitives already let the broker emulate any process by hand: spawn an actor with a brief, watch statuses, escalate decisions, run the deep-review gate, hand off delivery. What's missing is a way to make a <i>specific, repeatable process</i> first-class — so the maintainer can define "how I build a feature" (or fix a bug, or run an optimization) once, and then invoke it by name with the broker driving every step the same way, every time.</p>
+<p>Multplx's primitives already let the broker emulate any process by hand: spawn an actor with a brief, watch statuses, escalate decisions, run the deep-review gate, hand off delivery. What's missing is a way to make a <i>specific, repeatable process</i> first-class — so the maintainer can define "how I build a feature" (or fix a bug, or run an optimization) once, and then invoke it by name with the broker driving every step the same way, every time.</p>
 <p>The motivating example (the maintainer's real feature workflow): ideate back-and-forth until an approach is agreed → produce a spec document → hand the spec to a <i>fresh</i> session that implements it end-to-end → run the code-review pipeline → ship. Each of those stages maps onto a primitive built by plans 03–10; this plan adds the composition layer that sequences them deterministically.</p>
 
 <div class="callout ok"><div class="label">Decided · 2026-07-26 — engine + definitions, not generated scripts</div>
@@ -100,7 +100,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <li>Not a re-expression of deep-review: the gate stays hardcoded with its own trust boundary; workflows <i>call</i> it as a stage.</li>
   <li>No automation of human judgment — <code>interactive</code> stages pause for the maintainer; the win is that everything <i>between</i> touchpoints self-advances and the run survives days/restarts.</li>
   <li>No parameter templating in v1 (decided 2026-07-26): the free-form run input covers feature/bugfix/optimization reuse.</li>
-  <li>No new long-running process — the watcher and wake queue Computer already has carry workflow wakes.</li>
+  <li>No new long-running process — the watcher and wake queue Multplx already has carry workflow wakes.</li>
 </ul>
 </td>
 </tr>
@@ -119,7 +119,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <tr><td>Headless one-shot agent turn (built by plan 10)</td><td><code>.agents/skills/harness-adapters</code> + <code>mx-deep-review-lib.sh</code></td><td>The "run one agent turn with prompt + JSON schema, capture structured output" primitive — reused verbatim for non-session <code>agent</code> stages.</td></tr>
 </table>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>The definition file: <code>workflows/&lt;name&gt;.workflow.md</code></h3>
 <p>YAML frontmatter is the machine-enforced skeleton; the markdown body carries one section per stage with the prompt/charter the model receives. The engine reads only the frontmatter for control flow; stage bodies are opaque prompt text to it.</p>

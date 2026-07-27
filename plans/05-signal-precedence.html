@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 05 — Explicit Signal Precedence · Computer Port</title>
+<title>Plan 05 — Explicit Signal Precedence · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -79,7 +79,7 @@ tr:nth-child(even) td{background:var(--surface)}
 </ul>
 <div class="callout ok">
   <div class="label">Decided · 2026-07-26</div>
-  <p style="margin:0">Backend pruning is settled: Computer keeps <strong>tmux, cmux, herdr</strong> only — zellij and orca are deleted in plan 01 (harnesses are likewise pruned to claude/codex/pi). For this plan that shrinks the heuristic tier's surface: the regex busy-signature path covers exactly two backends (tmux and cmux), and herdr stays the sole native-event producer. Where upstream-describing prose below enumerates tmux/zellij/orca/cmux, that records firstmate as-is; Computer's reality is tmux and cmux.</p>
+  <p style="margin:0">Backend pruning is settled: Multplx keeps <strong>tmux, cmux, herdr</strong> only — zellij and orca are deleted in plan 01 (harnesses are likewise pruned to claude/codex/pi). For this plan that shrinks the heuristic tier's surface: the regex busy-signature path covers exactly two backends (tmux and cmux), and herdr stays the sole native-event producer. Where upstream-describing prose below enumerates tmux/zellij/orca/cmux, that records firstmate as-is; Multplx's reality is tmux and cmux.</p>
 </div>
 <p>When two of these disagree about one task at the same moment, there is currently no single documented rule for which one wins — it's handled implicitly and inconsistently per backend. The reconciliation oracle <code>fm-crew-state.sh</code> has its own internal order (validation run-step, then pane, then status log), the herdr push-transition path has another (a declared <code>paused:</code> status line <em>absorbs</em> a native <code>blocked</code> event), and the watcher's stale path has a third ("an active run-step or busy pane outranks even a captain-relevant log line", per the <code>fm-watch.sh</code> header). Each order is locally reasonable; collectively they are three different answers to the same question.</p>
 <p>The fix, per UPDATE_PLAN §5: add <strong>one explicit precedence order</strong> to the classify library (<code>fm-classify-lib.sh</code> → <code>mx-classify-lib.sh</code>) — <em>harness-native event &gt; schema-validated self-report &gt; text/regex heuristic</em> — documented in the library header and applied uniformly regardless of which backend a given task happens to be running on. The classify lib is already the deliberate single home for shared triage policy ("the overlapping triage policy lives in one place instead of two copies that can drift apart", per its own header); this plan extends that charter from vocabulary to precedence.</p>
@@ -125,7 +125,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <p>So within the oracle there IS a precedence — pipeline evidence beats pane, pane beats log — but it is private to this script and it never had to rank a <em>native backend event</em> against anything, because those flow through an entirely different path:</p>
 
 <h3>How herdr native events are wired today</h3>
-<p>Herdr's <code>pane.agent_status_changed</code> events are normalized by <code>bin/backends/herdr.sh</code> (<code>fm_backend_herdr_wait_transition</code>) into the backend-neutral record shape owned by <code>bin/fm-transition-lib.sh</code> — <code>&lt;pane_id&gt;\t&lt;workspace_id&gt;\t&lt;from&gt;\t&lt;to&gt;\t&lt;agent&gt;</code> with the shared agent-state vocabulary <code>idle|working|blocked|done|unknown</code> and a single status→action policy table (<code>fm_transition_policy</code>). The watcher consumes them via <code>event_wait_or_sleep</code> → <code>handle_push_transition</code> in <code>bin/fm-push-transition-lib.sh</code>. Herdr also answers <code>fm_backend_busy_state</code> natively (semantic busy/idle/unknown in <code>bin/fm-backend.sh</code>); tmux/zellij/orca/cmux return <code>unknown</code>, which cues the watcher's pane-hash + <code>FM_BUSY_REGEX</code> fallback (in Computer, only tmux and cmux survive the plan 01 pruning).</p>
+<p>Herdr's <code>pane.agent_status_changed</code> events are normalized by <code>bin/backends/herdr.sh</code> (<code>fm_backend_herdr_wait_transition</code>) into the backend-neutral record shape owned by <code>bin/fm-transition-lib.sh</code> — <code>&lt;pane_id&gt;\t&lt;workspace_id&gt;\t&lt;from&gt;\t&lt;to&gt;\t&lt;agent&gt;</code> with the shared agent-state vocabulary <code>idle|working|blocked|done|unknown</code> and a single status→action policy table (<code>fm_transition_policy</code>). The watcher consumes them via <code>event_wait_or_sleep</code> → <code>handle_push_transition</code> in <code>bin/fm-push-transition-lib.sh</code>. Herdr also answers <code>fm_backend_busy_state</code> natively (semantic busy/idle/unknown in <code>bin/fm-backend.sh</code>); tmux/zellij/orca/cmux return <code>unknown</code>, which cues the watcher's pane-hash + <code>FM_BUSY_REGEX</code> fallback (in Multplx, only tmux and cmux survive the plan 01 pruning).</p>
 <p>And here is the inconsistency, live in <code>handle_push_transition</code>:</p>
 <pre><code># bin/fm-push-transition-lib.sh — a NATIVE herdr event arrives, but…
 if status_is_paused "$(last_status_line "$STATE/$task.status")"; then
@@ -142,11 +142,11 @@ fi</code></pre>
   <tr><td><code>firstmate/bin/backends/herdr.sh</code></td><td>The one native-event producer: normalizes <code>pane.agent_status_changed</code> into transition records; native busy/idle for <code>fm_backend_busy_state</code>.</td></tr>
   <tr><td><code>firstmate/bin/fm-push-transition-lib.sh</code></td><td><code>handle_push_transition</code>: consumes native events; contains the paused-absorbs-native check quoted above.</td></tr>
   <tr><td><code>firstmate/bin/fm-watch.sh</code></td><td>Stale/no-verb paths using <code>crew_is_provably_working</code>; <code>BUSY_REGEX</code> definition; the "busy pane outranks the log" stale rule.</td></tr>
-  <tr><td><code>firstmate/bin/fm-backend.sh</code></td><td><code>fm_backend_busy_state</code>: native for herdr, <code>unknown</code> for tmux/zellij/orca/cmux → regex fallback cue (tmux and cmux only in Computer).</td></tr>
+  <tr><td><code>firstmate/bin/fm-backend.sh</code></td><td><code>fm_backend_busy_state</code>: native for herdr, <code>unknown</code> for tmux/zellij/orca/cmux → regex fallback cue (tmux and cmux only in Multplx).</td></tr>
   <tr><td><code>firstmate/tests/fm-crew-state.test.sh</code>, <code>firstmate/tests/fm-watch-triage.test.sh</code></td><td>Existing oracle and triage coverage — the regression net for this change.</td></tr>
 </table>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>The rule (verbatim, one owner)</h3>
 <div class="callout ok">

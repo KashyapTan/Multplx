@@ -1,6 +1,6 @@
-# Porting firstmate → Computer
+# Porting firstmate → Multplx
 
-This document is the execution guide for porting the upstream `firstmate` project (vendored at `firstmate/`) into **Computer** — a standalone, customized orchestrator per the vision in `CLAUDE.md`. It sequences the eleven plan artifacts in `plans/`, explains how to port safely, and defines the testing discipline for every phase.
+This document is the execution guide for porting the upstream `firstmate` project (vendored at `firstmate/`) into **Multplx** — a standalone, customized orchestrator per the vision in `CLAUDE.md`. It sequences the eleven plan artifacts in `plans/`, explains how to port safely, and defines the testing discipline for every phase.
 
 **Sources of truth:**
 - `UPDATE_PLAN.md` — the architecture-review change spec each plan derives from.
@@ -16,11 +16,11 @@ This document is the execution guide for porting the upstream `firstmate` projec
 Recommended approach: **evolve a copy, don't edit the reference.**
 
 1. Keep `firstmate/` as the pristine upstream reference (read-only). It stays useful for diffing behavior and re-reading original implementations throughout the port.
-2. Create the Computer source tree at the repo root (`bin/`, `tests/`, `docs/`, `skills/`, `config/`) by copying `firstmate/` content in Phase 0, then applying each plan as ordered commits against that copy.
+2. Create the Multplx source tree at the repo root (`bin/`, `tests/`, `docs/`, `skills/`, `config/`) by copying `firstmate/` content in Phase 0, then applying each plan as ordered commits against that copy.
 3. Every phase lands as one or more commits with the full behavior suite green before and after (see §Testing discipline). Never batch two plans into one commit — bisectability is the point.
-4. When the port is complete and Computer is what you actually run, the `firstmate/` folder is **removed** (decided — see the Decisions record, §5.8). The end state is a single Computer tree at the repo root with no vendored upstream copy.
+4. When the port is complete and Multplx is what you actually run, the `firstmate/` folder is **removed** (decided — see the Decisions record, §5.8). The end state is a single Multplx tree at the repo root with no vendored upstream copy.
 
-### Phase 0 — Bootstrap the Computer tree (before Plan 01)
+### Phase 0 — Bootstrap the Multplx tree (before Plan 01)
 
 - Copy `firstmate/` → repo root (excluding `.git`): `bin/`, `tests/`, `docs/`, `config/`, `skills/`, `.agents/`, `AGENTS.md`, harness config dirs (`.claude/`, `.codex/`, etc.).
 - Run the full suite unmodified to establish the green baseline:
@@ -28,7 +28,7 @@ Recommended approach: **evolve a copy, don't edit the reference.**
   bin/fm-test-run.sh --all
   ```
   Record the result (total / failed / gate-skipped counts). Gate-skips for backends you don't have installed (herdr, zellij, cmux) are expected and fine — what matters is that this baseline is reproducible, because it's the reference every later phase is measured against.
-- Backend/harness posture (decided, §5.6): Computer keeps backends **tmux, cmux, herdr** and harnesses **claude, codex, pi**. The zellij/orca backends and grok/opencode harness support are deleted in plan 01. During the Phase-0 baseline run, tests for the doomed backends/harnesses may gate-skip or pass — either is fine; they're removed from the inventory in phase 1.
+- Backend/harness posture (decided, §5.6): Multplx keeps backends **tmux, cmux, herdr** and harnesses **claude, codex, pi**. The zellij/orca backends and grok/opencode harness support are deleted in plan 01. During the Phase-0 baseline run, tests for the doomed backends/harnesses may gate-skip or pass — either is fine; they're removed from the inventory in phase 1.
 
 ---
 
@@ -61,7 +61,7 @@ These apply to every phase:
 1. **Read the plan document end-to-end first**, then read the actual firstmate scripts it touches (per `CLAUDE.md`: read more than less). The plans cite real files — verify against the tree before editing, since upstream may have drifted.
 2. **One plan, one branch, ordered commits.** Suggested branch naming: `port/01-deletions`, `port/02-rebrand`, … Merge back to `main` only with the suite green.
 3. **Never weaken a kept invariant.** The "What NOT to rebuild" list (UPDATE_PLAN bottom of §5, mirrored in `plans/index.html`) is load-bearing: event-log-not-truth, the reconciliation oracle, the Stop-hook backstop, the zero-token classifier, the wake queue, the watcher lock, the liveness beacon. If a plan's implementation appears to require changing one of these, stop and re-read — it doesn't.
-4. **Old names die completely.** After plan 02, a grep for `captain|crew|mate|ship|fleet|fm_|fm-` (case-insensitive) across the Computer tree (excluding `firstmate/` and historical docs) must return zero hits — and stays enforced by a naming test from then on.
+4. **Old names die completely.** After plan 02, a grep for `captain|crew|mate|ship|fleet|fm_|fm-` (case-insensitive) across the Multplx tree (excluding `firstmate/` and historical docs) must return zero hits — and stays enforced by a naming test from then on.
 5. **New scripts are born `mx-`-prefixed** — never create an `fm-` file after phase 2 (UPDATE_PLAN §8.7).
 6. **Security-critical rules are ported verbatim, not re-derived.** The two that must not be "improved" during porting: the default-branch-only trust rule for code-executing config fields (plan 10, §6.3.1), and the no-remote-credentials-in-agent-context rule (plan 09).
 7. **Deterministic beats model-judged.** Wherever a plan gives a choice (test pass/fail, lint findings, gate decisions), the exit code / deterministic post-processor decides; the model only proposes. This is the no-mistakes design property the whole port preserves.
@@ -121,12 +121,12 @@ If a plan changes functionality an existing test asserts (e.g. brief text now in
 
 - All eleven plans landed; `plans/` updated with any deviations.
 - `bin/mx-test-run.sh --all` green; `--check-coverage` passes; naming test enforces zero old-vocabulary references (the `firstmate/` allowlist exception disappears with the folder itself).
-- No `-axi` binary, no `no-mistakes`, no `glab`, no relay code, no zellij/orca/grok/opencode support anywhere in the Computer tree; `treehouse` kept (pinned, verified) as the worktree provider.
+- No `-axi` binary, no `no-mistakes`, no `glab`, no relay code, no zellij/orca/grok/opencode support anywhere in the Multplx tree; `treehouse` kept (pinned, verified) as the worktree provider.
 - An actor session demonstrably cannot push (no credentials), and the push service demonstrably refuses unvalidated/stale branches.
 - deep-review runs end-to-end on a real sample change with an explicit `--intent`: findings → fix round → ask-user escalation → maintainer decision → validated local branch → credentialed push → remote CI watched. Config read from `.deep-review.yaml` on the default branch.
 - The `new-feature` workflow runs end-to-end through `mx-workflow.sh` (ideate → approved spec → fresh-session implement → deep-review with the spec as intent → approved delivery) — this doubles as the whole port's integration proof.
-- `AGENTS.md` reads correctly in the new voice (plan 02's checklist), and `README`/docs describe Computer, not firstmate.
-- `firstmate/` is deleted from the repo; the Computer tree at the root is the only copy.
+- `AGENTS.md` reads correctly in the new voice (plan 02's checklist), and `README`/docs describe Multplx, not firstmate.
+- `firstmate/` is deleted from the repo; the Multplx tree at the root is the only copy.
 
 ---
 
@@ -135,11 +135,12 @@ If a plan changes functionality an existing test asserts (e.g. brief text now in
 All open questions from the initial planning pass are resolved. The plan documents carry these as "Decided" callouts.
 
 1. **Treehouse (Plan 06): KEEP.** The §1-vs-§8 contradiction in UPDATE_PLAN resolves in favor of keeping treehouse as-is (pinned v2.0.1, SHA-verified installer). Building our own worktree provider is rejected for the port; the pooled `mx-worktree` design stays in plan 06 as reference only.
-2. **Script prefix (Plan 02): keep `mx-`.** Maintainer was open to `cr-` as well; `mx-` stays — already locked into UPDATE_PLAN §8.6, zero churn across the plan set, and `cr-` reads as "code review".
+2. **Script prefix (Plan 02): keep `mx-`.** Maintainer was open to `cr-` as well; `mx-` stays — already locked into UPDATE_PLAN §8.6, zero churn across the plan set, and `cr-` reads as "code review". (The 2026-07-27 rename to Multplx — see §5.10 — makes `mx-` the natural abbreviation of the project name.)
 3. **Headroom model (Plan 07): local machine resources + API rate headroom, combined.** A max-concurrent-actors-only cap is rejected as the primary model (a concurrency cap may still be derived from the resource signal). The concrete API-headroom source is the one remaining design detail inside plan 07.
 4. **Gate config (Plan 10): `.deep-review.yaml`.** Renamed, not drop-in; no `.no-mistakes.yaml` migration shim needed in a fresh port.
 5. **Intent (Plan 10): explicit `--intent` required** for every gated task. The intent-extraction-from-transcript path is not ported; its prompt remains in plan 10 as upstream reference only.
 6. **Backends/harnesses (Plan 01 scope, Phase 0 posture): prune.** Backends kept: **tmux, cmux, herdr**. Backends deleted: zellij, orca. Harnesses kept: **claude, codex, pi**. Harnesses deleted: grok, opencode. The deletions fold into plan 01; plans 02 and 05 shrink accordingly.
 7. **Status enum (Plan 03): use firstmate's full original vocabulary** — `working|paused|blocked|needs-decision|done|failed|resolved` (verified in `bin/fm-classify-lib.sh`; UPDATE_PLAN §3's five-state enum was incomplete). `mx-report` and the MCP `report_status` tool validate against this full set.
-8. **End state: `firstmate/` is removed** once the port is fully done. All renamed/rebranded files live in the root Computer directory — the vendored reference exists only for the duration of the port.
+8. **End state: `firstmate/` is removed** once the port is fully done. All renamed/rebranded files live at the repo root — the vendored reference exists only for the duration of the port. ("The Multplx tree" always means the repo root, not a subfolder.)
 9. **Workflow engine (Plan 11, decided 2026-07-26): one shared engine + declarative definitions, not per-workflow generated scripts.** `bin/mx-workflow.sh` interprets schema-validated `workflows/*.workflow.md` files (YAML frontmatter skeleton, markdown stage bodies); the model only authors definitions (data), never enforcement code. Every stage's gate is configurable (`approve` or `auto`, where auto still requires the output contract to be met); runs take one free-form task input instead of fixed parameters; definitions are repo-tracked and freely editable by any user; the `create-workflow` skill lets the broker author new definitions through a guided interview.
+10. **Project name (decided 2026-07-27): the project is named Multplx** (previously *Computer*) — a stylized form of UPDATE_PLAN §7.2's original "Multiplex" recommendation, so the `mx-` prefix now matches the name. Project name, GitHub repository, and local root folder all match: **Multplx**. Compatibility symlinks (`Computer -> Multplx` beside the repo, and the old encoded path in `~/.claude/projects/`) keep pre-rename Claude sessions and stale path references resolving; they can be removed once no old session needs resuming. Nothing in the codebase may hardcode either folder name.

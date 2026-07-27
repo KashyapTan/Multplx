@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 07 — Owning the Toolbelt — Replacing the -axi Dependencies · Computer Port</title>
+<title>Plan 07 — Owning the Toolbelt — Replacing the -axi Dependencies · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -58,7 +58,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="wrap">
     <div class="plan-num">Plan 07 / 10</div>
     <h1>Owning the Toolbelt — Replacing the -axi Dependencies</h1>
-    <p class="subtitle">Remove Computer's hard dependency on the upstream author's private npm toolbelt (<code>gh-axi</code>, <code>tasks-axi</code>, <code>quota-axi</code>, <code>chrome-devtools-axi</code>). Wrappers over real tools collapse to the real tool; real logic becomes small in-repo scripts we own. The fifth toolbelt member, <code>lavish-axi</code>, is a genuinely distinct capability and gets its own standalone module — see <a href="08-vplan.html" style="color:var(--accent)">Plan 08 (vplan)</a>.</p>
+    <p class="subtitle">Remove Multplx's hard dependency on the upstream author's private npm toolbelt (<code>gh-axi</code>, <code>tasks-axi</code>, <code>quota-axi</code>, <code>chrome-devtools-axi</code>). Wrappers over real tools collapse to the real tool; real logic becomes small in-repo scripts we own. The fifth toolbelt member, <code>lavish-axi</code>, is a genuinely distinct capability and gets its own standalone module — see <a href="08-vplan.html" style="color:var(--accent)">Plan 08 (vplan)</a>.</p>
     <div class="badges">
       <span class="badge phase">Phase 5</span>
       <span class="badge effort">Effort: Medium</span>
@@ -72,7 +72,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <div class="wrap">
 
 <h2>Overview</h2>
-<p>Firstmate leans on five npm-installed CLIs written and published by the upstream author — the <code>-axi</code> toolbelt. All five are probed by <code>bin/fm-bootstrap.sh</code> (its <code>COMMON_TOOLS</code> list at line 516 names <code>gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi</code>, with install commands in <code>install_cmd()</code> at lines 489–490), four of them as <em>required</em> tools. That means a fresh Computer home cannot even pass session-start bootstrap without installing someone else's private npm packages. These are the most firstmate-specific dependencies in the whole tree and the prime candidates to replace.</p>
+<p>Firstmate leans on five npm-installed CLIs written and published by the upstream author — the <code>-axi</code> toolbelt. All five are probed by <code>bin/fm-bootstrap.sh</code> (its <code>COMMON_TOOLS</code> list at line 516 names <code>gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi</code>, with install commands in <code>install_cmd()</code> at lines 489–490), four of them as <em>required</em> tools. That means a fresh Multplx home cannot even pass session-start bootstrap without installing someone else's private npm packages. These are the most firstmate-specific dependencies in the whole tree and the prime candidates to replace.</p>
 <p>This plan covers four of the five toolbelt members. <code>lavish-axi</code> (the HTML plan-artifact creator) is deliberately excluded: per UPDATE_PLAN §8.2 and §8.5 it is a genuinely distinct capability, replaced by our own standalone <strong>vplan</strong> module in <a href="08-vplan.html">Plan 08</a>. Everything else lands here.</p>
 <div class="callout">
   <div class="label">Guiding principle (UPDATE_PLAN §8.2)</div>
@@ -92,7 +92,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr>
     <td>
       <ul style="margin-bottom:0">
-        <li>Zero <code>-axi</code> npm packages required to bootstrap or run Computer.</li>
+        <li>Zero <code>-axi</code> npm packages required to bootstrap or run Multplx.</li>
         <li>PR merge path uses the official <code>gh</code> CLI directly (<code>gh pr merge</code> / <code>gh api</code>).</li>
         <li>An in-repo backlog library (<code>mx-backlog-lib.sh</code>) that reproduces the read/write/query surface firstmate consumes from <code>tasks-axi</code>.</li>
         <li>An in-repo headroom check (<code>mx-headroom.sh</code>) producing a machine-readable dispatch-capacity signal.</li>
@@ -130,18 +130,18 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td><code>tests/fm-bootstrap.test.sh</code></td><td>Fakes all five tools (<code>fm_fake_exit0 ... gh-axi chrome-devtools-axi lavish-axi</code>, <code>add_tasks_axi</code>, <code>add_quota_axi</code> helpers) and asserts the <code>MISSING:</code> matrix across versions/feature flags/backend modes.</td></tr>
 </table>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>1. gh-axi → official <code>gh</code> CLI (Low effort)</h3>
 <p><strong>Current state.</strong> <code>gh-axi</code> is described upstream as the "canonical GitHub interface", but firstmate uses it for exactly one thing: merging PRs at <code>bin/fm-pr-merge.sh:84</code>. Everything else GitHub-shaped already goes through the official <code>gh</code> CLI (<code>fm-pr-check.sh</code>, <code>fm-pr-poll.sh</code>, <code>gh auth status</code> in bootstrap). We keep <code>gh</code> anyway — it's genuine infrastructure (UPDATE_PLAN §8.3) — so the wrapper adds nothing.</p>
-<p><strong>Replacement design.</strong> This is the cleanest swap in the whole plan: drop the wrapper, call the tool it wraps. In Computer's <code>bin/mx-pr-merge.sh</code>, line 84 becomes:</p>
+<p><strong>Replacement design.</strong> This is the cleanest swap in the whole plan: drop the wrapper, call the tool it wraps. In Multplx's <code>bin/mx-pr-merge.sh</code>, line 84 becomes:</p>
 <pre><code># before (firstmate)
 gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"
 
-# after (Computer)
+# after (Multplx)
 gh pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"</code></pre>
 <p><code>gh pr merge</code> natively accepts <code>--squash</code>/<code>--merge</code>/<code>--rebase</code> and <code>--repo owner/repo</code>, so the existing default-method logic, repo-override rejection, and URL-parse flow survive intact; only argument shapes that differ between <code>gh-axi</code> and <code>gh</code> need adjustment during the port (verify against current <code>gh pr merge --help</code> rather than memory). Anything <code>gh pr merge</code> can't express falls back to <code>gh api</code> calls — still the official CLI, still the credentials <code>gh auth</code> already manages.</p>
-<p><strong>Plan 09 tie-in.</strong> Under Computer's least-privilege model (<a href="09-least-privilege-push.html">Plan 09</a>), merge and push are owned by a <em>separate, credentialed non-agent process</em> — an actor never holds remote write credentials. Moving the merge onto plain <code>gh</code> is a prerequisite: the credentialed process invokes a standard, auditable CLI rather than a third-party wrapper.</p>
+<p><strong>Plan 09 tie-in.</strong> Under Multplx's least-privilege model (<a href="09-least-privilege-push.html">Plan 09</a>), merge and push are owned by a <em>separate, credentialed non-agent process</em> — an actor never holds remote write credentials. Moving the merge onto plain <code>gh</code> is a prerequisite: the credentialed process invokes a standard, auditable CLI rather than a third-party wrapper.</p>
 <p><strong>Steps.</strong> (a) Swap the invocation in <code>mx-pr-merge.sh</code>; (b) remove <code>gh-axi</code> from bootstrap's <code>COMMON_TOOLS</code> and <code>install_cmd()</code>; (c) rewrite the <code>AGENTS.md</code> §3 line to "use <code>gh</code> for GitHub"; (d) adapt <code>tests/fm-pr-merge.test.sh</code> to mock <code>gh</code> instead of <code>gh-axi</code>.</p>
 
 <h3>2. tasks-axi → in-repo backlog lib (Medium)</h3>
@@ -173,7 +173,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 
 <h3>3. quota-axi → own headroom check (Medium — capacity model decided)</h3>
 <p><strong>Current state.</strong> <code>quota-axi</code> reports quota/headroom used for <em>dispatch decisions</em>. It is a required bootstrap tool (<code>COMMON_TOOLS</code>), and <code>AGENTS.md</code> §4 makes the broker-equivalent run <code>quota-axi --json</code> at every dispatch-profile intake, evaluate every configured harness/model candidate against the output, pick the candidate with the most real headroom, and stop-and-report rather than guess when any candidate's quota data can't be established — plus an interim "use the weakest applicable remaining headroom" rule for window interpretation.</p>
-<p><strong>Replacement design — <code>bin/mx-headroom.sh</code> <span class="pill new">new</span>.</strong> UPDATE_PLAN §8.2 is explicit that this is "a policy decision as much as a port": we first had to define what dispatch capacity <em>means for Computer</em> rather than copying upstream's model. Three candidate models were presented; the maintainer decided on 2026-07-26 (see the decided callout below):</p>
+<p><strong>Replacement design — <code>bin/mx-headroom.sh</code> <span class="pill new">new</span>.</strong> UPDATE_PLAN §8.2 is explicit that this is "a policy decision as much as a port": we first had to define what dispatch capacity <em>means for Multplx</em> rather than copying upstream's model. Three candidate models were presented; the maintainer decided on 2026-07-26 (see the decided callout below):</p>
 <table>
   <tr><th>Model</th><th>Signal source</th><th>Pros / Cons</th></tr>
   <tr><td><strong>A. Max concurrent actors</strong> — <em>rejected as the primary model</em></td><td>Count live actor endpoints (from <code>state/*.meta</code> + backend liveness) vs. a configured cap, e.g. <code>config/max-actors</code>.</td><td>Deterministic, zero external calls, trivially testable. Ignores that some actors are far heavier than others — which is why it lost; a concurrency cap may still be <em>derived</em> from the resource limits.</td></tr>
@@ -195,7 +195,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
   },
   "at_limit": false
 }</code></pre>
-<p>Consumers: (a) the dispatch-time check — the broker's intake contract in Computer's <code>AGENTS.md</code> §4 rewrites "run <code>quota-axi --json</code>" to "run <code>mx-headroom.sh --json</code>", keeping the account-for-every-candidate, stop-and-report-on-unknowns, and no-silent-downgrade rules; (b) bootstrap — the <code>quota-axi</code> presence probe is replaced by a self-check that <code>mx-headroom.sh --json</code> executes and emits valid JSON. At or over the limit, the signal says so (<code>"available": 0, "at_limit": true</code>) and dispatch must refuse rather than spawn.</p>
+<p>Consumers: (a) the dispatch-time check — the broker's intake contract in Multplx's <code>AGENTS.md</code> §4 rewrites "run <code>quota-axi --json</code>" to "run <code>mx-headroom.sh --json</code>", keeping the account-for-every-candidate, stop-and-report-on-unknowns, and no-silent-downgrade rules; (b) bootstrap — the <code>quota-axi</code> presence probe is replaced by a self-check that <code>mx-headroom.sh --json</code> executes and emits valid JSON. At or over the limit, the signal says so (<code>"available": 0, "at_limit": true</code>) and dispatch must refuse rather than spawn.</p>
 <p><strong>Steps.</strong> (a) Land <code>mx-headroom.sh</code> with the JSON contract, implementing the decided composite: local-resource readings (CPU/memory/load via <code>sysctl</code>/<code>vm_stat</code> on macOS, <code>/proc</code> on Linux) combined with the API-rate-headroom input; (b) rewrite the §4 dispatch contract; (c) replace the bootstrap probe; (d) settle the one remaining implementation detail — the concrete API-usage source (e.g. a configurable budget/counter) — and until it lands, the API side reports a conservative configured budget and dispatch says so rather than calling itself fully quota-informed (mirroring upstream's own stop-and-report ethic). The upstream interim weakest-headroom rule is dropped along with the tool it interpreted.</p>
 
 <h3>4. chrome-devtools-axi → defer / remove</h3>
@@ -220,7 +220,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
   <li><b>Land mx-headroom.sh with the fixed JSON contract <span class="pill new">new</span></b>
     New <code>bin/mx-headroom.sh</code>: <code>--json</code> output per the schema above, implementing the decided composite model — local machine resources (CPU/memory/load via <code>sysctl</code>/<code>vm_stat</code> on macOS, <code>/proc</code> on Linux) combined with an API-rate-headroom input (a configurable budget/counter until a richer usage source is settled); a concurrency cap may be derived from the resource limits. Refuses (non-zero, stderr) on unreadable signals rather than guessing — same stop-and-report ethic as the upstream §4 contract.</li>
   <li><b>Rewire dispatch and bootstrap onto mx-headroom <span class="pill mod">mod</span></b>
-    Rewrite Computer's <code>AGENTS.md</code> §4 intake contract: the broker runs <code>mx-headroom.sh --json</code> at every dispatch-profile intake, accounts for every candidate, stops and reports on unknowns, never silently downgrades the maintainer's strongest-reasoning class, and refuses dispatch at <code>at_limit</code>. Drop <code>quota-axi</code> from bootstrap (<code>COMMON_TOOLS</code>, <code>install_cmd()</code>, <code>add_quota_axi</code> test helper) and add the mx-headroom self-check probe. The capacity model is decided (composite: local resources + API headroom); only the concrete API-usage source remains to settle.</li>
+    Rewrite Multplx's <code>AGENTS.md</code> §4 intake contract: the broker runs <code>mx-headroom.sh --json</code> at every dispatch-profile intake, accounts for every candidate, stops and reports on unknowns, never silently downgrades the maintainer's strongest-reasoning class, and refuses dispatch at <code>at_limit</code>. Drop <code>quota-axi</code> from bootstrap (<code>COMMON_TOOLS</code>, <code>install_cmd()</code>, <code>add_quota_axi</code> test helper) and add the mx-headroom self-check probe. The capacity model is decided (composite: local resources + API headroom); only the concrete API-usage source remains to settle.</li>
   <li><b>Prose and doc sweep <span class="pill mod">mod</span></b>
     Grep the tree for <code>-axi</code> and clear every remaining reference this plan owns (leaving <code>lavish-axi</code> mentions to Plan 08): <code>AGENTS.md</code> §§3, 4, 10, <code>docs/configuration.md</code>, script headers, CI workflow. Upstream tool names survive only in decision-log/history prose describing what upstream does.</li>
 </ol>
@@ -281,7 +281,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 </div>
 <div class="callout ok">
   <div class="label">Decided · 2026-07-26 — dispatch-capacity model</div>
-  <p style="margin:0">"Quota" for Computer is the <strong>B + C composite</strong>: local machine resources (CPU/memory/load via <code>sysctl</code>/<code>vm_stat</code> on macOS, <code>/proc</code> on Linux) combined with API rate headroom. Rejected: <strong>A</strong> (max concurrent actors) as the primary model — though a concurrency cap may still be derived from the resource limits. The one item still open is an implementation detail, not the model: where the API-side usage data comes from without rebuilding the wrapper we removed (e.g. a configurable budget/counter) — that stays flagged as remaining design work.</p>
+  <p style="margin:0">"Quota" for Multplx is the <strong>B + C composite</strong>: local machine resources (CPU/memory/load via <code>sysctl</code>/<code>vm_stat</code> on macOS, <code>/proc</code> on Linux) combined with API rate headroom. Rejected: <strong>A</strong> (max concurrent actors) as the primary model — though a concurrency cap may still be derived from the resource limits. The one item still open is an implementation detail, not the model: where the API-side usage data comes from without rebuilding the wrapper we removed (e.g. a configurable budget/counter) — that stays flagged as remaining design work.</p>
 </div>
 <div class="callout warn">
   <div class="label">Open question — gh flag parity</div>
@@ -289,7 +289,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 </div>
 <div class="callout">
   <div class="label">Note — deferred capability</div>
-  <p style="margin:0">Removing <code>chrome-devtools-axi</code> leaves Computer with no browser-automation story. That is intentional: revisit with Playwright/Puppeteer or an MCP browser tool only when a concrete task needs it.</p>
+  <p style="margin:0">Removing <code>chrome-devtools-axi</code> leaves Multplx with no browser-automation story. That is intentional: revisit with Playwright/Puppeteer or an MCP browser tool only when a concrete task needs it.</p>
 </div>
 
 <div class="footer-nav">

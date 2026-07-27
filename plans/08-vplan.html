@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 08 — vplan — Standalone HTML Plan-Artifact Module · Computer Port</title>
+<title>Plan 08 — vplan — Standalone HTML Plan-Artifact Module · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -58,7 +58,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="wrap">
     <div class="plan-num">Plan 08 / 10</div>
     <h1>vplan — Standalone HTML Plan-Artifact Module</h1>
-    <p class="subtitle">Computer's replacement for upstream's <code>lavish-axi</code>, the HTML artifact / plan creator. The module is named <strong>vplan</strong>, its entry script is <code>bin/mx-vplan.sh</code>, and it is standalone by design: it renders self-contained HTML plan documents from a small plan-input contract, owns its own templates, and is deliberately <em>not</em> folded into the status/finding reporting mechanics.</p>
+    <p class="subtitle">Multplx's replacement for upstream's <code>lavish-axi</code>, the HTML artifact / plan creator. The module is named <strong>vplan</strong>, its entry script is <code>bin/mx-vplan.sh</code>, and it is standalone by design: it renders self-contained HTML plan documents from a small plan-input contract, owns its own templates, and is deliberately <em>not</em> folded into the status/finding reporting mechanics.</p>
     <div class="badges">
       <span class="badge phase">Phase 5</span>
       <span class="badge effort">Effort: Medium</span>
@@ -72,7 +72,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <div class="wrap">
 
 <h2>Overview</h2>
-<p>Upstream firstmate uses <code>lavish-axi</code>, one of the author's npm-installed <code>-axi</code> tools, as its "structured decisions or reports" surface — but UPDATE_PLAN §8.2 identifies what it actually is: an <strong>HTML artifact / plan creator</strong> that generates rich HTML plan documents, not a plain structured-report helper. It is a required bootstrap tool today, which means Computer would inherit a hard npm dependency on someone else's package for a capability we explicitly want to keep and customize.</p>
+<p>Upstream firstmate uses <code>lavish-axi</code>, one of the author's npm-installed <code>-axi</code> tools, as its "structured decisions or reports" surface — but UPDATE_PLAN §8.2 identifies what it actually is: an <strong>HTML artifact / plan creator</strong> that generates rich HTML plan documents, not a plain structured-report helper. It is a required bootstrap tool today, which means Multplx would inherit a hard npm dependency on someone else's package for a capability we explicitly want to keep and customize.</p>
 <p>Per §8.5 we keep the capability but rebuild it as our <strong>own separate, self-contained module named <code>vplan</code></strong>, owned by the project. Per §8.6 the naming is decided: the <em>module/product</em> name is <code>vplan</code>, and its script file carries the <code>mx-</code> prefix — <code>bin/mx-vplan.sh</code>, built under that name from the start (never an <code>fm-</code> file renamed later, per §8.7).</p>
 <div class="callout">
   <div class="label">Standalone by design (UPDATE_PLAN §8.5)</div>
@@ -118,7 +118,7 @@ tr:nth-child(even) td{background:var(--surface)}
 </table>
 <p>Because no script calls <code>lavish-axi</code>, there is no invocation surface to reverse-engineer — the port is defined by the capability contract (§8.5: HTML plan documents from plan data) rather than by call-site compatibility.</p>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>Module shape</h3>
 <pre><code>            plan input (JSON)                    self-contained HTML
@@ -195,7 +195,7 @@ exit 2  usage / IO error</code></pre>
 
 <h3>Integration points</h3>
 <ul>
-  <li><strong>Now:</strong> the broker generates plan artifacts for the maintainer — the direct successor to <code>AGENTS.md</code> §9's "use <code>lavish-axi</code> only when several options or a structured report benefit from a visual surface". Computer's rewritten §9 line points at vplan instead, same judgment rule: plain chat for a yes/no, a rendered artifact when structure genuinely helps.</li>
+  <li><strong>Now:</strong> the broker generates plan artifacts for the maintainer — the direct successor to <code>AGENTS.md</code> §9's "use <code>lavish-axi</code> only when several options or a structured report benefit from a visual surface". Multplx's rewritten §9 line points at vplan instead, same judgment rule: plain chat for a yes/no, a rendered artifact when structure genuinely helps.</li>
   <li><strong>Future (out of scope):</strong> the deep-review gate could emit a rendered findings/plan artifact for <code>ask-user</code> decisions, and backlog items could link generated plan documents as durable artifacts. Both are natural consumers of the same input contract; neither is wired in this plan.</li>
 </ul>
 

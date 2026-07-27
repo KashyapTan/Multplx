@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 02 — Full Rebrand · Computer Port</title>
+<title>Plan 02 — Full Rebrand · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -79,8 +79,8 @@ tr:nth-child(even) td{background:var(--surface)}
   <li><b>Mechanics (§7.4):</b> a repo-wide rename sweep — ~86 <code>bin/fm-*.sh</code> scripts plus <code>bin/backends/</code>, two <code>.mjs</code> policy files, ~100 test files, every <code>FM_*</code> env var, harness hook/plugin files, docs, on-disk naming conventions, and the log/error strings scripts emit (read by both the maintainer and the actors, so they are part of the theme too).</li>
 </ul>
 <div class="callout">
-  <div class="label">Project name — Computer (decided), prefix — mx- (decided)</div>
-  <p style="margin:0">UPDATE_PLAN §7.2 evaluated name candidates and recommended <b>Multiplex</b> (with suggested prefix <code>mx-</code>); the user has instead named the project <b>Computer</b>. The <code>mx-</code> script/env prefix nonetheless <b>stays as decided in §8.6</b> ("Script files are <code>mx-</code> prefixed (decided)") — all §7.4 renames and every new script in plans 03–10 use it. The residual question about the prefix's motivation was closed by the maintainer on 2026-07-26: <code>mx-</code> stays (see the decided callout under Risks &amp; open questions).</p>
+  <div class="label">Project name — Multplx (decided), prefix — mx- (decided)</div>
+  <p style="margin:0">UPDATE_PLAN §7.2 evaluated name candidates and recommended <b>Multiplex</b> (with suggested prefix <code>mx-</code>). The project was first named <i>Computer</i>, then renamed by the maintainer on 2026-07-27 to <b>Multplx</b> — a stylized form of that original recommendation, which means the <code>mx-</code> prefix (decided in §8.6 and re-confirmed 2026-07-26) now matches the project name exactly. All §7.4 renames and every new script in plans 03–11 use it. Project name, GitHub repository, and local root folder all match: <b>Multplx</b> (the folder was renamed 2026-07-27, with compatibility symlinks — <code>Computer -&gt; Multplx</code> beside the repo and the old encoded path in <code>~/.claude/projects/</code> — keeping pre-rename Claude sessions resolving). Nothing should hardcode either folder name.</p>
 </div>
 <p>Effort is High because the sweep touches nearly every file in the tree and because the AGENTS.md rewrite is editorial work, not mechanical. Risk is Medium: a rename this broad can silently break script-to-script sourcing, harness hook registrations, and the test runner's hardcoded name maps — mitigated by doing it as one atomic commit gated by a fully green suite on both sides, plus a permanent grep tripwire test. (The once-riskiest corner — the <i>global</i> <code>~/.grok/hooks/fm-turn-end.json</code> — no longer exists: grok harness support is deleted in <a href="01-deletions.html">plan 01</a>'s backend &amp; harness pruning before this sweep runs.)</p>
 
@@ -103,7 +103,7 @@ tr:nth-child(even) td{background:var(--surface)}
       <ul style="margin-bottom:0">
         <li>No behavior changes — this plan is pure renaming and rewriting of language; every code path works identically after.</li>
         <li>No new features (status reporting, gate, vplan, etc. are plans 03+; per §8.7 they are born <code>mx-</code>-prefixed and never appear in this sweep).</li>
-        <li>The read-only <code>firstmate/</code> reference folder is <b>not</b> renamed — it stays as upstream reference material and is allowlisted in the tripwire. (Per the 2026-07-26 maintainer decision this is <i>temporary</i>: once the port is fully done the folder is removed and all renamed files live in the root Computer dir; the allowlist entry is dropped with it.)</li>
+        <li>The read-only <code>firstmate/</code> reference folder is <b>not</b> renamed — it stays as upstream reference material and is allowlisted in the tripwire. (Per the 2026-07-26 maintainer decision this is <i>temporary</i>: once the port is fully done the folder is removed and all renamed files live in the root Multplx dir; the allowlist entry is dropped with it.)</li>
         <li>Upstream tool names stay as-is when describing upstream (no-mistakes, lavish-axi, treehouse) per §8.6.</li>
         <li>No backend/harness selection changes — herdr/tmux/claude configs keep their values; only firstmate-flavored key names change.</li>
       </ul>
@@ -127,7 +127,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td>Log strings</td><td>Scripts emit themed prose, e.g. <code>fm-supervise-daemon.sh</code>'s "firstmate: away-mode escalations WEDGED" notification title, <code>fm-test-run:</code> log prefix, watcher/daemon log lines mentioning crewmates and the fleet.</td></tr>
 </table>
 
-<h2>Target design in Computer</h2>
+<h2>Target design in Multplx</h2>
 
 <h3>Role vocabulary (§7.1 — adopted verbatim)</h3>
 <table>
@@ -217,7 +217,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 #   UPDATE_PLAN.md, firstmate_dependencies.md - historical specs
 #   upstream tool names  - "no-mistakes", "lavish-axi", "treehouse" when
 #                          describing upstream (per §8.6)</code></pre>
-<p>Per §7.4's own note: UPDATE_PLAN's sections 1–6 still use the old vocabulary; substituting those is a mechanical last pass done <i>after</i> 7.1–7.3 are settled — never before, so the rewrite isn't done twice against a moving target. Anything ported out of them into Computer's docs gets the new vocabulary at port time.</p>
+<p>Per §7.4's own note: UPDATE_PLAN's sections 1–6 still use the old vocabulary; substituting those is a mechanical last pass done <i>after</i> 7.1–7.3 are settled — never before, so the rewrite isn't done twice against a moving target. Anything ported out of them into Multplx's docs gets the new vocabulary at port time.</p>
 
 <h2>Implementation steps</h2>
 <ol class="steps">
@@ -258,7 +258,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
   <tr><td><code>data/projects.md</code>, <code>data/secondmates.md</code>, brief generator output</td><td>Modify</td><td>New vocabulary in stored/generated prose; <code>data/secondmates.md</code>→<code>data/daemons.md</code>.</td></tr>
   <tr><td><code>.github/workflows/ci.yml</code></td><td>Modify</td><td>Invoke <code>bin/mx-test-run.sh</code>; any remaining fm- path references updated.</td></tr>
   <tr><td><code>tests/mx-naming.test.sh</code></td><td>New</td><td>Permanent grep tripwire for old vocabulary / <code>fm-</code> references, with the firstmate/-reference + historical-docs allowlist.</td></tr>
-  <tr><td><code>firstmate/</code> (reference checkout)</td><td>None</td><td>Explicitly untouched by this sweep; allowlisted everywhere. Per the 2026-07-26 decision the folder is deleted outright once porting is fully done (all renamed files then live in the root Computer dir) and the allowlist entries are dropped.</td></tr>
+  <tr><td><code>firstmate/</code> (reference checkout)</td><td>None</td><td>Explicitly untouched by this sweep; allowlisted everywhere. Per the 2026-07-26 decision the folder is deleted outright once porting is fully done (all renamed files then live in the root Multplx dir) and the allowlist entries are dropped.</td></tr>
 </table>
 
 <h2>Test plan</h2>
@@ -286,13 +286,13 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
   <li><b>After <a href="01-deletions.html">plan 01 (deletions)</a>:</b> §8.7 sequences deletions first — the X-mode scripts, glab branches, lint gate, and <code>FMX_*</code> vars must be gone so they never enter the rename inventory.</li>
   <li><b>Before plans 03–10 in spirit:</b> the earlier this lands, the less old-name churn later plans inherit. Per §8.7's hard rule either way: every new script introduced by later plans (<code>mx-report</code>, <code>mx-deep-review.sh</code>, <code>mx-deep-review-lib.sh</code>, <code>mx-vplan.sh</code>, the backlog/headroom/pr-merge replacements) is born <code>mx-</code>-prefixed with new vocabulary — never <code>fm-</code>-prefixed files renamed later.</li>
   <li><b>Interacts with <a href="03-status-reporting.html">plan 03 (status reporting)</a>:</b> §3's proposed <code>bin/fm-report</code> becomes <code>bin/mx-report</code>; if plan 03 lands first, its script is created under the new name anyway and this sweep merely verifies it.</li>
-  <li><b>UPDATE_PLAN self-cleanup:</b> §7.4's own note — sections 1–6 of UPDATE_PLAN still use old vocabulary; the mechanical substitution pass over any of that text ported into Computer docs happens after 7.1–7.3 are locked, as the last step of this plan.</li>
+  <li><b>UPDATE_PLAN self-cleanup:</b> §7.4's own note — sections 1–6 of UPDATE_PLAN still use old vocabulary; the mechanical substitution pass over any of that text ported into Multplx docs happens after 7.1–7.3 are locked, as the last step of this plan.</li>
 </ul>
 
 <h2>Risks &amp; open questions</h2>
 <div class="callout ok">
   <div class="label">Decided · 2026-07-26</div>
-  <p style="margin:0"><b>The prefix stays <code>mx-</code>.</b> The maintainer was indifferent between <code>mx-</code> and the alternatives floated for the Computer name (<code>cpu-</code>/<code>co-</code>/<code>cr-</code>), so the incumbent wins: <code>mx-</code> is already locked in UPDATE_PLAN §8.6, switching would mean redoing the entire rename inventory for zero benefit, and the strongest alternative — <code>cr-</code> — reads as "code review". All §7.4 renames and every new script in plans 03–10 use <code>mx-</code>.</p>
+  <p style="margin:0"><b>The prefix stays <code>mx-</code>.</b> When the project was still named <i>Computer</i>, the maintainer was indifferent between <code>mx-</code> and alternatives (<code>cpu-</code>/<code>co-</code>/<code>cr-</code>), so the incumbent won: <code>mx-</code> was already locked in UPDATE_PLAN §8.6, switching would mean redoing the entire rename inventory for zero benefit, and the strongest alternative — <code>cr-</code> — reads as "code review". The 2026-07-27 rename to <b>Multplx</b> retroactively vindicates the choice: <code>mx-</code> is the natural abbreviation of the project name. All §7.4 renames and every new script in plans 03–11 use <code>mx-</code>.</p>
 </div>
 <div class="callout warn">
   <div class="label">Open question — mx-actor-state.sh vs mx-state.sh</div>
@@ -308,7 +308,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 </div>
 <div class="callout danger">
   <div class="label">Risk — live homes and on-disk state under old names</div>
-  <p style="margin:0">Any existing firstmate home has <code>config/crew-harness</code>, <code>data/secondmates.md</code>, and state written under old conventions. Computer is a fresh standalone project, so the default position is <b>no migration shim — fresh homes only</b>. If the maintainer wants to carry an existing home across, a one-shot migration script is a separate follow-up, not part of this sweep.</p>
+  <p style="margin:0">Any existing firstmate home has <code>config/crew-harness</code>, <code>data/secondmates.md</code>, and state written under old conventions. Multplx is a fresh standalone project, so the default position is <b>no migration shim — fresh homes only</b>. If the maintainer wants to carry an existing home across, a one-shot migration script is a separate follow-up, not part of this sweep.</p>
 </div>
 <div class="callout warn">
   <div class="label">Risk — grep false positives cause over-replacement</div>

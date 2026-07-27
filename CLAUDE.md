@@ -1,11 +1,16 @@
-# Computer
+# Multplx
 Smart Agent orcherstarter that is an extension of yourself.
 
+> **Naming note:** the project is named **Multplx** (formerly *Computer*). The root folder, GitHub repository,
+> and project name all match: Multplx. A compatibility symlink `Computer -> Multplx` exists beside the repo
+> (and in `~/.claude/projects/`) so pre-rename Claude sessions and stale path references keep resolving;
+> never hardcode either folder name in code or docs.
+
 ## Vision
-The goal of this project is to basically port firstmate (in side firstmate folder (Computer/firstmate))
+The goal of this project is to basically port firstmate (inside the firstmate folder at the repo root)
 into a full customized version for myself to use. I love the idea of firstmate (opensource project), 
 but I dont like the concept of the sailers, I want to add my own features to it, and customize it 
-to make it better,so that I can use it for my own work. Eventually, Computer should be a standalone project
+to make it better,so that I can use it for my own work. Eventually, Multplx should be a standalone project
 that I will be using fully instead of just modifying the current firstmate folder to match my preferences
 and customizations.
 

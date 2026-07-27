@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 06 — Worktree Provider — The Treehouse Decision · Computer Port</title>
+<title>Plan 06 — Worktree Provider — The Treehouse Decision · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -59,7 +59,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="wrap">
     <div class="plan-num">Plan 06 / 10</div>
     <h1>Worktree Provider — The Treehouse Decision</h1>
-    <p class="subtitle">Decide what Computer does about <code>treehouse</code>, firstmate's pooled git-worktree provider: keep it as the one deliberately-retained upstream tool, or build our own replacement. UPDATE_PLAN contained conflicting guidance on this exact question, so this plan is structured as a decision document with both paths fully planned. The maintainer resolved it on 2026-07-26: <strong>keep treehouse (Path K)</strong>; the build-our-own paths are retained below for reference only.</p>
+    <p class="subtitle">Decide what Multplx does about <code>treehouse</code>, firstmate's pooled git-worktree provider: keep it as the one deliberately-retained upstream tool, or build our own replacement. UPDATE_PLAN contained conflicting guidance on this exact question, so this plan is structured as a decision document with both paths fully planned. The maintainer resolved it on 2026-07-26: <strong>keep treehouse (Path K)</strong>; the build-our-own paths are retained below for reference only.</p>
     <div class="badges">
       <span class="badge phase">Phase 4</span>
       <span class="badge effort">Effort: Low (Path K — decided)</span>
@@ -81,11 +81,11 @@ tr:nth-child(even) td{background:var(--surface)}
 
 <p>Firstmate separates the <b>session provider</b> (tmux, herdr, zellij, cmux, orca — where an agent's terminal lives) from the <b>worktree provider</b> (where an agent's <em>checkout</em> lives). The worktree provider is <code>treehouse</code>, an external binary by the upstream author (<code>kunchenguid/treehouse</code>), pinned at v2.0.1 with SHA-256-verified release archives. Every backend except <code>orca</code> (which owns its own worktrees) depends on it.</p>
 
-<p>What treehouse actually is, per UPDATE_PLAN §1: <i>"a pooled set of disposable <code>git worktree</code>s, a locked on-disk state file tracking which are claimed, and process/lease-based 'in use' detection so a worktree isn't recycled out from under a live task."</i> Its real value-add is <b>pool reuse</b>: a recycled worktree keeps warm <code>node_modules</code> and build caches across tasks. Its hard part is the <b>reuse-vs-safe-reclaim logic</b> — §1 is explicit that <i>"durable leases for secondmates with no live process vs. safe-to-recycle orphans... is the one part not to shortcut."</i> (In Computer vocabulary: durable leases for <b>daemons</b> with no live process.)</p>
+<p>What treehouse actually is, per UPDATE_PLAN §1: <i>"a pooled set of disposable <code>git worktree</code>s, a locked on-disk state file tracking which are claimed, and process/lease-based 'in use' detection so a worktree isn't recycled out from under a live task."</i> Its real value-add is <b>pool reuse</b>: a recycled worktree keeps warm <code>node_modules</code> and build caches across tasks. Its hard part is the <b>reuse-vs-safe-reclaim logic</b> — §1 is explicit that <i>"durable leases for secondmates with no live process vs. safe-to-recycle orphans... is the one part not to shortcut."</i> (In Multplx vocabulary: durable leases for <b>daemons</b> with no live process.)</p>
 
-<p>The strategic question for Computer: treehouse is upstream-author-controlled, like the <code>-axi</code> toolbelt we are replacing (plan 07). But unlike the <code>-axi</code> wrappers, it is a real tool with genuinely hard concurrency logic, it is already pinned and checksum-verified (no floating-latest risk), and firstmate's integration with it is small and well-contained. That is why §8's "keep" stance is defensible even though §1's "own it" instinct is also right long-term.</p>
+<p>The strategic question for Multplx: treehouse is upstream-author-controlled, like the <code>-axi</code> toolbelt we are replacing (plan 07). But unlike the <code>-axi</code> wrappers, it is a real tool with genuinely hard concurrency logic, it is already pinned and checksum-verified (no floating-latest risk), and firstmate's integration with it is small and well-contained. That is why §8's "keep" stance is defensible even though §1's "own it" instinct is also right long-term.</p>
 
-<p>This plan documents where treehouse touches firstmate today, fully specifies both the keep path and the build path (including the two build sub-options), and recommends a sequencing that gets Computer standing first and revisits ownership later as an optional module.</p>
+<p>This plan documents where treehouse touches firstmate today, fully specifies both the keep path and the build path (including the two build sub-options), and recommends a sequencing that gets Multplx standing first and revisits ownership later as an optional module.</p>
 
 <h2 id="goals">Goals &amp; Non-goals</h2>
 
@@ -138,7 +138,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td><code>tests/fm-gotmp.test.sh</code></td><td>Per-task <code>/tmp/fm-&lt;id&gt;/</code> temp-root lifecycle across spawn/teardown (worktree-adjacent cleanup contract).</td></tr>
 </table>
 
-<h2 id="target">Target design in Computer</h2>
+<h2 id="target">Target design in Multplx</h2>
 
 <p>Path K is the decided plan (a rename). Path B — a build with two sub-options — is retained below for reference only: rejected for the port, with B2 at most a possible far-future optional module.</p>
 

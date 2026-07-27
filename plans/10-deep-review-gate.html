@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 10 — deep-review: the Local, Egress-Safe Validation Gate · Computer Port</title>
+<title>Plan 10 — deep-review: the Local, Egress-Safe Validation Gate · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -111,7 +111,7 @@ tr:nth-child(even) td{background:var(--surface)}
 </table>
 
 <h2 id="current">Current state in firstmate</h2>
-<p>Firstmate does not contain the no-mistakes pipeline — it contains the <em>integration surface</em>: config, contract docs, contract tests, and one defensive library that keeps a gate agent out of the fleet lifecycle. All paths below verified against the checkout at <code>/Users/ktanuku/Documents/github/Computer/firstmate</code>.</p>
+<p>Firstmate does not contain the no-mistakes pipeline — it contains the <em>integration surface</em>: config, contract docs, contract tests, and one defensive library that keeps a gate agent out of the fleet lifecycle. All paths below verified against the checkout at <code>/Users/ktanuku/Documents/github/Multplx/firstmate</code>.</p>
 <table>
   <tr><th>File</th><th>Role today</th></tr>
   <tr><td><code>firstmate/.no-mistakes.yaml</code></td><td>Tracked per-repo gate config. Sets <code>disable_project_settings: true</code> (a gate agent must never adopt the fleet-captain identity from AGENTS.md — honored only from the default-branch copy), pins <code>commands.lint: 'bin/fm-lint.sh'</code>, deliberately leaves <code>commands.test</code> empty (local Test is intent-targeted; CI owns broad regression), sets a trusted <code>document.instructions</code> pointer, and keeps test evidence out of the repo (<code>test.evidence.store_in_repo: false</code>).</td></tr>
@@ -123,7 +123,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td><code>firstmate/tests/fm-no-mistakes-ownership.test.sh</code></td><td>Static contract tests asserting AGENTS.md's Validate section assigns every <code>no-mistakes axi run</code>/<code>axi respond</code> call to the initiating task worker (crewmate), never firstmate.</td></tr>
   <tr><td><code>firstmate/tests/fm-gate-refuse.test.sh</code></td><td>Behavior tests for the gate-agent refusal: env-marker refuse, path-backstop refuse, and the no-regression case, per lifecycle entrypoint.</td></tr>
   <tr><td><code>firstmate/bin/fm-crew-state.sh</code></td><td>Reconciliation oracle; understands the no-mistakes run-step vocabulary (running / fixing / parked / passed / failed) when judging a validating crewmate's true state.</td></tr>
-  <tr><td><code>firstmate/.agents/skills/harness-adapters/</code></td><td>The existing per-harness seam (upstream verified adapters: claude, codex, opencode, pi, grok; Computer keeps claude, codex, pi — grok and opencode are deleted in plan 01). This is where the headless one-shot "run one agent turn with prompt + JSON schema" primitive gets wired per-harness. (<code>.claude/skills</code> is a symlink to <code>.agents/skills</code>.)</td></tr>
+  <tr><td><code>firstmate/.agents/skills/harness-adapters/</code></td><td>The existing per-harness seam (upstream verified adapters: claude, codex, opencode, pi, grok; Multplx keeps claude, codex, pi — grok and opencode are deleted in plan 01). This is where the headless one-shot "run one agent turn with prompt + JSON schema" primitive gets wired per-harness. (<code>.claude/skills</code> is a symlink to <code>.agents/skills</code>.)</td></tr>
   <tr><td><code>firstmate/bin/fm-lint.sh</code>, <code>firstmate/tests/fm-lint.test.sh</code></td><td>The single lint owner both CI and the upstream gate run; parity asserted by the test. Survives as a <code>commands.lint</code> target under deep-review (per §8.1, shellcheck stops being a separate top-level installer and lint flows only through the gate's configured-command path).</td></tr>
   <tr><td><code>firstmate/bin/fm-test-run.sh</code>, <code>firstmate/tests/lib.sh</code></td><td>The test runner (to become <code>mx-test-run.sh</code>) and the shared test lib with the <code>fm_fakebin</code> PATH-shim helper our mocked-harness fixtures will use.</td></tr>
 </table>

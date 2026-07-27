@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plan 01 — Delete the Dead Weight · Computer Port</title>
+<title>Plan 01 — Delete the Dead Weight · Multplx Port</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -58,7 +58,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="wrap">
     <div class="plan-num">Plan 01 / 10</div>
     <h1>Delete the Dead Weight — Outright Dependency Removal</h1>
-    <p class="subtitle">Rip out the firstmate subsystems that serve no purpose in Computer: the myfirstmate.io social relay (X mode), shellcheck as a standalone top-level lint gate and installer, glab/GitLab forge support, the macOS osascript wedge-alarm notifier — and, per the 2026-07-26 maintainer decision, the zellij and orca backend adapters plus grok and opencode harness support. Pure code removal — no replacements are built in this plan.</p>
+    <p class="subtitle">Rip out the firstmate subsystems that serve no purpose in Multplx: the myfirstmate.io social relay (X mode), shellcheck as a standalone top-level lint gate and installer, glab/GitLab forge support, the macOS osascript wedge-alarm notifier — and, per the 2026-07-26 maintainer decision, the zellij and orca backend adapters plus grok and opencode harness support. Pure code removal — no replacements are built in this plan.</p>
     <div class="badges">
       <span class="badge phase">Phase 1</span>
       <span class="badge effort">Effort: Low–Medium</span>
@@ -72,11 +72,11 @@ tr:nth-child(even) td{background:var(--surface)}
 
 <h2>Overview</h2>
 <p>UPDATE_PLAN §8.1 identifies four dependencies to <b>delete outright, with no replacement</b>. None of them is load-bearing for the core orchestration loop (watcher, classifier, state reconciliation, spawn/teardown, briefs). Removing them first — before any reimplementation work — shrinks the surface every later plan has to touch, which is exactly why §8.7 sequences the deletions ahead of everything else.</p>
-<p>The four targets, verified against the actual checkout at <code>/Users/ktanuku/Documents/github/Computer/firstmate</code>:</p>
+<p>The four targets, verified against the actual checkout at <code>/Users/ktanuku/Documents/github/Multplx/firstmate</code>:</p>
 <ul>
-  <li><b>myfirstmate.io social relay (X mode)</b> — a hosted HTTP relay for X.com/Twitter and Discord mentions. Ships inert; only activates when <code>FMX_PAIRING_TOKEN</code> is placed in the home's gitignored <code>.env</code>. Six <code>bin/fm-x-*.sh</code> scripts (the shared client <code>bin/fm-x-lib.sh</code> alone is 984 lines), plus <code>AGENTS.md</code> §14, the <code>.agents/skills/fmx-respond/</code> skill, <code>FMX_*</code> env handling in <code>bin/fm-bootstrap.sh</code>, and X-mode notes in <code>docs/configuration.md</code>. Computer will never run a public social persona.</li>
+  <li><b>myfirstmate.io social relay (X mode)</b> — a hosted HTTP relay for X.com/Twitter and Discord mentions. Ships inert; only activates when <code>FMX_PAIRING_TOKEN</code> is placed in the home's gitignored <code>.env</code>. Six <code>bin/fm-x-*.sh</code> scripts (the shared client <code>bin/fm-x-lib.sh</code> alone is 984 lines), plus <code>AGENTS.md</code> §14, the <code>.agents/skills/fmx-respond/</code> skill, <code>FMX_*</code> env handling in <code>bin/fm-bootstrap.sh</code>, and X-mode notes in <code>docs/configuration.md</code>. Multplx will never run a public social persona.</li>
   <li><b>shellcheck as a standalone gate + installer</b> — <code>bin/fm-lint.sh</code> (453 lines, the single lint owner both CI and the upstream no-mistakes gate invoke) and <code>bin/fm-install-shellcheck.sh</code> (36-line pinned-release installer). We delete the <i>standalone installer and mandatory top-level gate</i>, not the ability to lint — see the nuance callout below.</li>
-  <li><b>glab / GitLab support</b> — optional GitLab MR polling and head-commit reads (merge was never implemented upstream). Computer is a GitHub-only fork; deleting the GitLab branches collapses the dual-forge abstraction in <code>bin/fm-pr-check.sh</code>, <code>bin/fm-pr-poll.sh</code>, and <code>bin/fm-pr-lib.sh</code> down to GitHub-only, simplifying every PR code path.</li>
+  <li><b>glab / GitLab support</b> — optional GitLab MR polling and head-commit reads (merge was never implemented upstream). Multplx is a GitHub-only fork; deleting the GitLab branches collapses the dual-forge abstraction in <code>bin/fm-pr-check.sh</code>, <code>bin/fm-pr-poll.sh</code>, and <code>bin/fm-pr-lib.sh</code> down to GitHub-only, simplifying every PR code path.</li>
   <li><b>osascript wedge-alarm notifications</b> — the away-mode "wedge alarm" posts a macOS Notification Center banner when an escalation gets wedged. It is already optional (macOS + away-mode only); the generic <code>command:&lt;cmd&gt;</code> channel escape hatch in the same alarm system covers any future alert need without macOS-specific code.</li>
 </ul>
 <div class="callout">
@@ -107,7 +107,7 @@ tr:nth-child(even) td{background:var(--surface)}
         <li>No renaming — <code>fm-</code> → <code>mx-</code> and vocabulary changes are <a href="02-rebrand.html">plan 02</a>. Files modified here keep their current names.</li>
         <li>No changes to the <code>-axi</code> toolbelt (§8.2), treehouse (§1), or no-mistakes replacement (§6) — separate plans.</li>
         <li>Not removing <code>gh</code> (kept — genuine infra, §8.3) or the wedge-alarm system as a whole (only its osascript channel; see open questions).</li>
-        <li>Not touching the upstream <code>firstmate/</code> folder's git history — this work happens in Computer's own tree.</li>
+        <li>Not touching the upstream <code>firstmate/</code> folder's git history — this work happens in Multplx's own tree.</li>
       </ul>
     </td>
   </tr>
@@ -166,9 +166,9 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td><code>tests/fm-daemon.test.sh</code></td><td>Covers max-defer wedge alarms and wedge marker lifecycle; the osascript-channel-specific assertions must go, the wedge-marker logic tests stay.</td></tr>
 </table>
 
-<h2>Target design in Computer</h2>
-<p>After this plan, Computer's tree has no social relay, a single forge (GitHub via <code>gh</code>), no standalone lint gate, and a wedge alarm whose OS-notification channel is gone but whose durable-marker + generic-command escape hatch remain intact:</p>
-<pre><code>BEFORE (firstmate)                          AFTER (Computer, post-plan-01)
+<h2>Target design in Multplx</h2>
+<p>After this plan, Multplx's tree has no social relay, a single forge (GitHub via <code>gh</code>), no standalone lint gate, and a wedge alarm whose OS-notification channel is gone but whose durable-marker + generic-command escape hatch remain intact:</p>
+<pre><code>BEFORE (firstmate)                          AFTER (Multplx, post-plan-01)
 ──────────────────────────                  ──────────────────────────
 PR watch ──► gh ──► GitHub                  PR watch ──► gh ──► GitHub
          └─► glab ─► GitLab                          (single provider, no branching)
