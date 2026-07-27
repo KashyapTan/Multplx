@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 11 — Workflow Engine · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#f778ba; --accent-dim:rgba(247,120,186,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 11 · Computer Port</div>
+  <h1>Workflow Engine — Deterministic Skeleton, Model-Driven Interior</h1>
+  <p class="subtitle">User-defined, repeatable multi-stage workflows the broker can execute like an extension of the maintainer: one shared engine (<code>mx-workflow.sh</code>) enforces stage order, gates, and output contracts from declarative definition files, while the model does the judgment work inside each stage. Includes the <code>create-workflow</code> skill so Computer can author new workflow definitions interactively with the maintainer.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 8</span>
+    <span class="badge effort">Effort: High</span>
+    <span class="badge risk">Risk: Medium</span>
+    <span class="badge">New feature — no UPDATE_PLAN section (maintainer request, 2026-07-26)</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Computer's primitives already let the broker emulate any process by hand: spawn an actor with a brief, watch statuses, escalate decisions, run the deep-review gate, hand off delivery. What's missing is a way to make a <i>specific, repeatable process</i> first-class — so the maintainer can define "how I build a feature" (or fix a bug, or run an optimization) once, and then invoke it by name with the broker driving every step the same way, every time.</p>
+<p>The motivating example (the maintainer's real feature workflow): ideate back-and-forth until an approach is agreed → produce a spec document → hand the spec to a <i>fresh</i> session that implements it end-to-end → run the code-review pipeline → ship. Each of those stages maps onto a primitive built by plans 03–10; this plan adds the composition layer that sequences them deterministically.</p>
+
+<div class="callout ok"><div class="label">Decided · 2026-07-26 — engine + definitions, not generated scripts</div>
+<p style="margin:0">Two implementation shapes were discussed. <b>Rejected:</b> the broker generates a new bash script per workflow that enforces that workflow's sequence. Every generated script would be its own copy of the state machine (drift, N-copies maintenance, untestable surface), and it inverts the port's core safety principle — the model would be authoring its own enforcement layer. <b>Chosen:</b> one shared, hand-written, tested engine (<code>bin/mx-workflow.sh</code>) that interprets <i>declarative definition files</i> (<code>workflows/*.workflow.md</code>). The model — via the <code>create-workflow</code> skill — only ever authors <b>data</b>, which the engine schema-validates before first use. The model proposes; deterministic code decides. Same principle as <a href="10-deep-review-gate.html">deep-review</a>.</p>
+</div>
+
+<div class="callout"><div class="label">Design principle</div>
+<p style="margin:0"><b>Deterministic skeleton, model-driven interior.</b> A workflow written as free-form prose for the broker to "follow" drifts: stages get skipped, merged, or reordered when context runs long. A fully hardcoded pipeline is too rigid to be user-definable. So the sequence, gates, and output contracts are owned by the engine (the model cannot advance a stage); the <i>content</i> of each stage — the prompt, the charter, the "how I would do it" voice — is markdown the model executes within.</p>
+</div>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td>
+<ul style="margin-bottom:0">
+  <li>One engine, <code>bin/mx-workflow.sh</code> + <code>bin/mx-workflow-lib.sh</code>, owning stage sequencing, gates, contracts, and resume.</li>
+  <li>Declarative, schema-validated definitions in <code>workflows/*.workflow.md</code> — versioned, diffable, freely editable by any user of the checkout.</li>
+  <li>Per-stage gate config: <code>approve</code> (maintainer sign-off) or <code>auto</code> (advance when the output contract is met). Configurable on every stage.</li>
+  <li>Free-form run input: one task description (feature idea, bug report, optimization target) — no fixed parameter schema, so one workflow serves many task types.</li>
+  <li>Three stage types: <code>interactive</code>, <code>agent</code>, <code>command</code> — human judgment, model judgment, and deterministic execution each get an honest home.</li>
+  <li>Restart-reconstructable run state under <code>state/&lt;id&gt;.workflow/</code> — kill anything, the next invocation reconciles. No daemon, no DB.</li>
+  <li>The <code>create-workflow</code> skill: broker-guided interview that emits a definition, validates it, and offers a dry-run.</li>
+</ul>
+</td>
+<td>
+<ul style="margin-bottom:0">
+  <li>No per-workflow generated scripts (rejected — see decision above).</li>
+  <li>Not a re-expression of deep-review: the gate stays hardcoded with its own trust boundary; workflows <i>call</i> it as a stage.</li>
+  <li>No automation of human judgment — <code>interactive</code> stages pause for the maintainer; the win is that everything <i>between</i> touchpoints self-advances and the run survives days/restarts.</li>
+  <li>No parameter templating in v1 (decided 2026-07-26): the free-form run input covers feature/bugfix/optimization reuse.</li>
+  <li>No new long-running process — the watcher and wake queue Computer already has carry workflow wakes.</li>
+</ul>
+</td>
+</tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>Upstream firstmate has <b>no workflow primitive</b> — process knowledge lives in AGENTS.md prose and per-task briefs, and multi-step processes are re-driven by the orchestrator agent from memory each time. What it does have are the building blocks a workflow engine composes:</p>
+<table>
+<tr><th>Primitive</th><th>File(s)</th><th>Role in a workflow</th></tr>
+<tr><td>Task brief generation</td><td><code>bin/fm-brief.sh</code>, <code>data/&lt;id&gt;/brief.md</code></td><td>An <code>agent</code> stage that spawns an actor delivers its stage prompt + inherited artifacts as the brief.</td></tr>
+<tr><td>Actor spawn / send</td><td><code>bin/fm-spawn.sh</code>, <code>bin/fm-send.sh</code></td><td>Fresh-session stage execution; prompt injection for interactive-session stages.</td></tr>
+<tr><td>Status event log + reconciliation</td><td><code>state/&lt;id&gt;.status</code>, <code>bin/fm-crew-state.sh</code>, <code>bin/fm-classify-lib.sh</code></td><td>How the engine learns an agent stage finished (validated via <a href="03-status-reporting.html">plan 03</a>'s <code>mx-report</code>).</td></tr>
+<tr><td>Decision hold / escalation</td><td><code>bin/fm-decision-hold.sh</code>, <code>needs-decision:</code> lifecycle</td><td><code>approve</code> gates and <code>interactive</code> stages park here; the maintainer's answer resumes the run.</td></tr>
+<tr><td>Wake queue + watcher</td><td><code>bin/fm-watch.sh</code>, <code>bin/fm-wake-lib.sh</code></td><td>Stage-completion wakes reach the broker with zero new processes.</td></tr>
+<tr><td>Skills seam</td><td><code>.agents/skills/</code></td><td>Where <code>create-workflow</code> lives and how the broker recognizes "I want to make a new workflow".</td></tr>
+<tr><td>Headless one-shot agent turn (built by plan 10)</td><td><code>.agents/skills/harness-adapters</code> + <code>mx-deep-review-lib.sh</code></td><td>The "run one agent turn with prompt + JSON schema, capture structured output" primitive — reused verbatim for non-session <code>agent</code> stages.</td></tr>
+</table>
+
+<h2>Target design in Computer</h2>
+
+<h3>The definition file: <code>workflows/&lt;name&gt;.workflow.md</code></h3>
+<p>YAML frontmatter is the machine-enforced skeleton; the markdown body carries one section per stage with the prompt/charter the model receives. The engine reads only the frontmatter for control flow; stage bodies are opaque prompt text to it.</p>
+<pre><code>---
+workflow_version: 1
+name: new-feature
+description: Ideate, spec, implement in a fresh session, review, deliver.
+stages:
+  - id: ideate
+    title: Agree on the approach
+    type: interactive            # broker &lt;-&gt; maintainer back-and-forth
+    gate: approve                # ends only when the maintainer approves
+    output: data/{run}/approach.md
+  - id: spec
+    title: Write the spec document
+    type: agent
+    executor: broker             # broker writes it inline (or via vplan)
+    gate: approve                # maintainer signs off on the spec
+    output: data/{run}/spec.md
+  - id: implement
+    title: Implement end to end
+    type: agent
+    executor: actor              # spawn a task agent
+    fresh_session: true          # never inherits the ideation session
+    brief_from: [spec]           # stage artifacts injected into the brief
+    gate: auto                   # advance when contract met
+    contract: local-commits      # engine-verifiable: commits exist on the task branch
+  - id: review
+    title: Validation gate
+    type: command
+    run: bin/mx-deep-review.sh {run} --intent data/{run}/spec.md
+    gate: auto                   # exit 0 = validated branch; ask-user findings
+                                 # escalate through the gate's own channel
+  - id: deliver
+    title: Ship it
+    type: command
+    run: bin/mx-deliver.sh --queue {run}
+    gate: approve                # maintainer approves the push (plan 09)
+---
+
+## ideate
+You are working with the maintainer to converge on an implementation
+approach for: {input}
+Ask clarifying questions, propose alternatives, push back where you
+disagree. Do not start writing the spec until the approach is agreed.
+Record the agreed approach in {output}.
+
+## spec
+Write a complete end-to-end implementation spec for the agreed
+approach in data/{run}/approach.md. ...
+
+## implement
+Read data/{run}/spec.md fully before writing code. Implement the
+feature end to end exactly as specified; deviations from the spec
+must be reported as needs-decision, not silently improvised. ...
+</code></pre>
+<p>Substitution variables are deliberately minimal and fixed by the engine: <code>{run}</code> (the run id), <code>{input}</code> (the free-form task description given at launch), <code>{output}</code> (the stage's declared output path). No user-defined parameters in v1 — the free-form <code>{input}</code> is what makes the same definition serve a feature, a bugfix, or an optimization.</p>
+
+<h3>Stage types</h3>
+<table>
+<tr><th>Type</th><th>Executed by</th><th>Completion signal</th></tr>
+<tr><td><code>interactive</code></td><td>Broker in conversation with the maintainer (the stage body is the broker's charter for the exchange)</td><td>Maintainer approval — always an implicit <code>approve</code> gate; the stage parks as a decision hold between exchanges.</td></tr>
+<tr><td><code>agent</code></td><td><code>executor: broker</code> — a headless one-shot turn via the harness-adapters primitive (claude, codex, or pi); <code>executor: actor</code> — a spawned task-agent session with <code>fresh_session</code> honored and the stage body + <code>brief_from</code> artifacts composed into the brief</td><td>Validated status report (<code>mx-report</code>, plan 03) plus the declared <code>contract</code> / <code>output</code> check — both must hold. A <code>failed:</code> report parks the run.</td></tr>
+<tr><td><code>command</code></td><td>The engine, as a plain subprocess — same rule as deep-review's Tier 1: captured stdout + <b>exit code is ground truth</b>, never a model self-report</td><td>Exit 0 and the output contract (if declared).</td></tr>
+</table>
+
+<h3>Gates and contracts</h3>
+<ul>
+  <li><code>gate: auto</code> — the engine advances the moment the stage's contract is met. <b>Auto never means unverified</b>: a stage with no verifiable contract cannot be <code>auto</code> (the validator rejects it).</li>
+  <li><code>gate: approve</code> — contract must be met <i>and</i> the maintainer must approve. Implemented as the existing <code>needs-decision:</code> lifecycle: the engine writes the hold, the watcher escalates it, the maintainer's answer (via the broker) resumes the run. No new escalation mechanism.</li>
+  <li>Contracts the engine can verify deterministically in v1: <code>output</code> file exists and is non-empty; <code>local-commits</code> (task branch head differs from its fork point); command exit 0. The contract vocabulary is closed and validated — extending it means extending the engine, not the definition.</li>
+</ul>
+
+<h3>The engine: <code>bin/mx-workflow.sh</code></h3>
+<pre><code>mx-workflow.sh validate workflows/new-feature.workflow.md   # schema + contract check, no execution
+mx-workflow.sh run new-feature --input "Add dark mode to the settings page"
+mx-workflow.sh status &lt;run-id&gt;        # current stage, gate state, artifacts
+mx-workflow.sh resume &lt;run-id&gt;        # reconcile + continue after restart/decision
+mx-workflow.sh abort &lt;run-id&gt;         # park the run permanently (state kept for audit)
+mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</code></pre>
+<p>Run state lives under <code>state/&lt;run-id&gt;.workflow/</code>: a <b>snapshot of the definition</b> taken at launch (mid-run edits to the tracked definition never mutate an in-flight run), the free-form input, current stage id, per-stage records (started/finished, artifacts, gate outcome, agent task ids). Everything is plain files; <code>resume</code> re-derives reality the same way the crew-state oracle does — check the recorded facts against what actually exists (does the artifact exist? is the actor task done per reconciliation? did the command's marker land?) and continue from the first unmet stage.</p>
+
+<h3>Trust posture</h3>
+<div class="callout warn"><div class="label">Command execution boundary</div>
+<p style="margin:0"><code>command</code> stages and <code>run:</code> fields are arbitrary code execution. Rule, inherited from deep-review's §6.3.1 posture: the engine executes commands <b>only from the repo-tracked definition file's launch-time snapshot</b> — never from any artifact produced mid-run, and never from text an agent stage returned. Definitions are maintainer-authored or maintainer-approved (the create-workflow skill ends with the maintainer reviewing the emitted file before first run). An agent stage that wants a new command in the workflow gets it by the maintainer editing the definition, not by writing it into an artifact.</p>
+</div>
+
+<h3>The <code>create-workflow</code> skill</h3>
+<p>A skill in <code>.agents/skills/create-workflow/</code> whose trigger description covers "I want to make a new workflow", "create a workflow for…", "automate my process for…". Flow:</p>
+<ol>
+  <li>Interview: what are the stages, in order? For each — who does it (you and me talking / an agent / a command)? Fresh session? What artifact proves it's done? Approve or auto-advance?</li>
+  <li>Draft <code>workflows/&lt;name&gt;.workflow.md</code> — frontmatter from the interview, stage bodies written in the maintainer's described voice ("how I would do it").</li>
+  <li>Run <code>mx-workflow.sh validate</code> on the draft; fix schema errors before showing it.</li>
+  <li>Walk the maintainer through the file, then offer <code>dry-run</code>.</li>
+</ol>
+<p>The broker recognizes the request through the normal skills seam (trigger description), with a one-line pointer in <code>AGENTS.md</code>'s capability inventory — consistent with how every other procedure is wired.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Write the definition schema spec</b> — <code>docs/workflows.md</code> <span class="pill new">new</span>: frontmatter fields, the closed stage-type and gate enums, the closed contract vocabulary, substitution variables, <code>workflow_version: 1</code> semantics. One authoritative owner for the format.</li>
+  <li><b>Build the validator in <code>bin/mx-workflow-lib.sh</code></b> <span class="pill new">new</span> — parse frontmatter (yaml via the same minimal parsing approach the repo already uses for config; if none exists, a constrained key-set parser — no new runtime dep), enforce enums, reject <code>auto</code> gates without verifiable contracts, reject unknown <code>workflow_version</code>. Pure functions, unit-testable first.</li>
+  <li><b>Run record + snapshot + resume</b> — create <code>state/&lt;run&gt;.workflow/</code> layout, definition snapshot at launch, per-stage record writer, and the <code>resume</code> reconciliation that re-derives current position from recorded facts vs. reality.</li>
+  <li><b><code>command</code> stage executor</b> — subprocess with captured stdout + exit code as truth; contract check; failure parks the run with the captured output attached to the hold.</li>
+  <li><b><code>agent</code> stage executor (broker/headless)</b> — reuse the harness-adapters headless one-shot primitive from <a href="10-deep-review-gate.html">plan 10</a> (claude, codex, pi); stage body + substituted variables as the prompt.</li>
+  <li><b><code>agent</code> stage executor (actor/spawned)</b> — compose stage body + <code>brief_from</code> artifacts into the brief, spawn with <code>fresh_session</code> honored, completion via plan 03's validated status + contract check.</li>
+  <li><b><code>interactive</code> stage + <code>approve</code> gates</b> — park as <code>needs-decision:</code> holds through the existing decision-hold lifecycle; maintainer's answer resumes.</li>
+  <li><b><code>mx-workflow.sh</code> CLI</b> <span class="pill new">new</span> — <code>validate / run / status / resume / abort / dry-run</code> subcommands over the lib.</li>
+  <li><b>Broker wiring</b> — <code>AGENTS.md</code> <span class="pill mod">mod</span>: the broker's "run workflow X" verb, and the rule that workflow runs are driven through the engine, never re-improvised from prose.</li>
+  <li><b><code>create-workflow</code> skill</b> <span class="pill new">new</span> — interview → draft → validate → review → offer dry-run, per the flow above.</li>
+  <li><b>Ship the example</b> — <code>workflows/new-feature.workflow.md</code> <span class="pill new">new</span>: the maintainer's feature workflow as the reference definition and the v1 proving case (build the engine minimally <i>around</i> this one consumer).</li>
+  <li><b>End-to-end proof</b> — run <code>new-feature</code> on a real small feature: ideate → spec approved → fresh-session implement → deep-review with the spec as intent → approved delivery via plan 09.</li>
+</ol>
+
+<h2>File impact</h2>
+<table>
+<tr><th>File</th><th>Action</th><th>Notes</th></tr>
+<tr><td><code>bin/mx-workflow.sh</code></td><td>New</td><td>Engine CLI: validate / run / status / resume / abort / dry-run.</td></tr>
+<tr><td><code>bin/mx-workflow-lib.sh</code></td><td>New</td><td>Frontmatter parsing, schema validation, contract checks, stage executors, run-record helpers.</td></tr>
+<tr><td><code>workflows/new-feature.workflow.md</code></td><td>New</td><td>Reference definition; the v1 proving case.</td></tr>
+<tr><td><code>.agents/skills/create-workflow/SKILL.md</code></td><td>New</td><td>Interview → draft → validate → review flow.</td></tr>
+<tr><td><code>docs/workflows.md</code></td><td>New</td><td>Definition format spec — single owner of the schema contract.</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>Modify</td><td>Broker verb + create-workflow trigger pointer.</td></tr>
+<tr><td><code>state/&lt;run&gt;.workflow/</code></td><td>New (runtime)</td><td>Snapshot, input, stage records. Same lifecycle/teardown rules as other state dirs.</td></tr>
+<tr><td><code>tests/mx-workflow-lib.test.sh</code>, <code>tests/mx-workflow.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<h3>(a) Existing tests that must keep passing</h3>
+<p>Everything — this plan is purely additive. Specifically unchanged: the crew-state/classify reconciliation tests, decision-hold lifecycle tests, spawn/brief tests, wake-queue tests. The engine consumes those mechanisms; it must not modify them.</p>
+<h3>(b) Existing tests needing changes</h3>
+<p>None expected. If wiring the broker verb touches instruction-ownership tests (<code>fm-instruction-owners.test.sh</code>'s successor), update the ownership map in the same commit.</p>
+<h3>(c) New tests</h3>
+<ul>
+  <li><b><code>tests/mx-workflow-lib.test.sh</code></b> — valid definition passes; unknown stage type / gate / contract rejected with a clear error; <code>auto</code> gate without a verifiable contract rejected; unknown <code>workflow_version</code> rejected; substitution variables resolved correctly; frontmatter/body stage-id mismatch rejected.</li>
+  <li><b><code>tests/mx-workflow.test.sh</code></b> — stage order enforced (engine refuses out-of-order advance); <code>auto</code> gate advances only when the contract is actually met (artifact missing → no advance); <code>approve</code> gate parks a <code>needs-decision:</code> hold and resumes on the recorded answer; <code>command</code> stage non-zero exit parks the run with captured output; restart-reconstruction — kill mid-run, <code>resume</code> continues from the correct stage; definition-snapshot immutability — editing the tracked definition mid-run does not change the in-flight run; commands executed only from the snapshot, never from a mid-run artifact (the security test); <code>fresh_session</code> stage gets a distinct session/task id from the prior stage; <code>abort</code> parks permanently and <code>run</code> refuses to reuse the id. Agent stages mocked with the <code>tests/lib.sh</code> fakebin pattern (fake headless harness returning canned JSON; fake spawn recording its brief), consistent with plan 10's fixtures.</li>
+  <li><b>Skill output check</b> — a fixture-driven test asserting a definition emitted by the create-workflow flow passes <code>validate</code> (golden interview transcript → golden definition), keeping the skill's output format honest against the schema.</li>
+</ul>
+<p>Register all new tests in the <code>mx-test-run.sh</code> family map in the same commit.</p>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>After <a href="03-status-reporting.html">plan 03</a></b> — agent-stage completion rides on validated status reports.</li>
+  <li><b>After <a href="10-deep-review-gate.html">plan 10</a></b> — reuses the headless one-shot harness primitive, and the reference workflow's review stage calls <code>mx-deep-review.sh</code>.</li>
+  <li><b>After <a href="09-least-privilege-push.html">plan 09</a></b> — the reference workflow's deliver stage queues into the push service.</li>
+  <li><b>Soft dependency on <a href="08-vplan.html">plan 08</a></b> — the spec stage <i>may</i> emit its artifact via vplan; plain markdown is fine without it.</li>
+  <li>This is the final phase (Phase 8) — it composes everything and is the first thing that exercises the whole ported system end-to-end.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout danger"><div class="label">Risk — engine scope creep in bash</div>
+<p style="margin:0">A workflow engine can grow conditionals, loops, parallel branches, and sub-workflows until it's a bad programming language in YAML. v1 is a <b>strictly linear</b> stage list — no branching, no parallelism, no includes. If a workflow needs branching, that's a signal the branch belongs inside a stage (model judgment) or in two separate workflows. Revisit only with a concrete case in hand.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — interactive-stage ergonomics</div>
+<p style="margin:0">The ideate stage parks and resumes across potentially many maintainer exchanges. The decision-hold lifecycle handles one question cleanly; a long back-and-forth is many holds. Acceptable for v1 (the broker keeps the conversation, the engine only needs the final approval), but watch for friction in the end-to-end proof and adjust there, not speculatively.</p>
+</div>
+<div class="callout"><div class="label">Open question — user-local definitions</div>
+<p style="margin:0">v1 keeps all definitions repo-tracked in <code>workflows/</code> (shareable, diffable, satisfies "changeable for all users"). If a private per-user overlay is ever wanted (e.g. <code>~/.computer/workflows/</code>), it must still pass the same validator and the same launch-snapshot trust rule. Deferred until someone actually wants it.</p>
+</div>
+<div class="callout"><div class="label">Open question — contract vocabulary growth</div>
+<p style="margin:0">v1 ships three verifiable contracts (<code>output</code> exists, <code>local-commits</code>, command exit 0). Likely early additions: "tests pass for path X", "PR exists". Each addition is engine code + a validator entry + tests — deliberately not definable in the definition file itself.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="10-deep-review-gate.html">← Plan 10: deep-review gate</a>
+  <a href="index.html">Index</a>
+</div>
+
+</div>
+</body>
+</html>

@@ -46,7 +46,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <header class="hero"><div class="wrap">
   <div class="plan-num">Computer · Port Master Plan</div>
   <h1>Porting firstmate → Computer</h1>
-  <p class="subtitle">Ten ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Computer</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
+  <p class="subtitle">Eleven ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Computer</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
 </div></header>
 
 <div class="wrap">
@@ -63,7 +63,8 @@ tr:nth-child(even) td{background:var(--surface)}
 <b>Phase 4</b> Foundation    → 06 worktree provider decision (treehouse keep vs. build)<br>
 <b>Phase 5</b> Own the tools → 07 -axi replacements (gh, backlog, headroom) → 08 vplan module<br>
 <b>Phase 6</b> Safe delivery → 09 least-privilege push service<br>
-<b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)
+<b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)<br>
+<b>Phase 8</b> Compose       → 11 workflow engine (user-defined multi-stage workflows, create-workflow skill)
 </div>
 
 <div class="phase-label">Phase 1 · Shrink the surface</div>
@@ -128,6 +129,13 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="top"><span class="num">PLAN 10</span><span class="title">deep-review — the Local, Egress-Safe Validation Gate</span></div>
   <div class="desc">Replaces the upstream no-mistakes tool with an in-repo pipeline (mx-deep-review.sh) run by the already-approved harness: fixed step order, schema-forced findings, deterministic gate decisions, default-branch-only command trust, delivery stopping at a validated local branch.</div>
   <div class="meta"><span class="tag">UPDATE_PLAN §6 + §8.6</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: High</span></div>
+</a>
+
+<div class="phase-label">Phase 8 · Compose everything</div>
+<a class="card" href="11-workflow-engine.html" style="--card-accent:#f778ba">
+  <div class="top"><span class="num">PLAN 11</span><span class="title">Workflow Engine — Deterministic Skeleton, Model-Driven Interior</span></div>
+  <div class="desc">User-defined, repeatable multi-stage workflows: one shared engine (mx-workflow.sh) enforces stage order, gates (approve/auto), and output contracts from schema-validated definition files, while the model does the judgment work inside each stage. Includes the create-workflow skill — the broker interviews the maintainer and authors new definitions itself.</div>
+  <div class="meta"><span class="tag">New feature (maintainer request)</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
 </a>
 
 <h2>What we deliberately keep (no plan needed)</h2>

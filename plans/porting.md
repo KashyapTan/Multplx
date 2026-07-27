@@ -1,6 +1,6 @@
 # Porting firstmate → Computer
 
-This document is the execution guide for porting the upstream `firstmate` project (vendored at `firstmate/`) into **Computer** — a standalone, customized orchestrator per the vision in `CLAUDE.md`. It sequences the ten plan artifacts in `plans/`, explains how to port safely, and defines the testing discipline for every phase.
+This document is the execution guide for porting the upstream `firstmate` project (vendored at `firstmate/`) into **Computer** — a standalone, customized orchestrator per the vision in `CLAUDE.md`. It sequences the eleven plan artifacts in `plans/`, explains how to port safely, and defines the testing discipline for every phase.
 
 **Sources of truth:**
 - `UPDATE_PLAN.md` — the architecture-review change spec each plan derives from.
@@ -47,9 +47,10 @@ Execute the plans in numeric order. Each plan document contains the full design,
 | 07 | [07-axi-replacements.html](07-axi-replacements.html) | §8.2 -axi toolbelt | gh-axi→`gh` swap (low effort, do first within the phase), then the in-repo backlog lib and headroom check. The `gh`-based merge path is a prerequisite for plan 09's push service. |
 | 08 | [08-vplan.html](08-vplan.html) | §8.5 vplan | Standalone HTML plan-artifact module replacing lavish-axi. Independent of everything else — can run parallel to 07 if desired. |
 | 09 | [09-least-privilege-push.html](09-least-privilege-push.html) | §2 least-privilege push | The delivery seam plan 10 hands off to. Needs plan 07's direct-`gh` tooling. Actors lose push credentials; a separate credentialed service owns push/PR-open. |
-| 10 | [10-deep-review-gate.html](10-deep-review-gate.html) | §6 + §8.6 deep-review | The flagship and biggest build. Last because it composes everything: worktrees (06), escalation via validated statuses (03), delivery handoff (09), and the harness-adapter seam. |
+| 10 | [10-deep-review-gate.html](10-deep-review-gate.html) | §6 + §8.6 deep-review | The flagship gate. Composes worktrees (06), escalation via validated statuses (03), delivery handoff (09), and the harness-adapter seam. |
+| 11 | [11-workflow-engine.html](11-workflow-engine.html) | Workflow engine (new feature, maintainer request 2026-07-26) | Last because it composes everything: one shared `mx-workflow.sh` engine runs user-defined multi-stage workflow definitions (`workflows/*.workflow.md`), reusing plan 03's validated statuses, plan 10's headless harness primitive and gate, and plan 09's delivery. Includes the `create-workflow` skill. Its end-to-end proof doubles as the whole port's integration test. |
 
-Parallelization notes: 03/04/05 are a strict chain; 07 and 08 are independent of each other; 08 can be built any time after 02. Everything else respects the numeric order.
+Parallelization notes: 03/04/05 are a strict chain; 07 and 08 are independent of each other; 08 can be built any time after 02; 11 is strictly last. Everything else respects the numeric order.
 
 ---
 
@@ -104,6 +105,7 @@ Each plan document carries the authoritative per-file list; summary of the patte
 - **Plan 08 (vplan):** purely additive. New: `mx-vplan.test.sh` (golden-file render, input validation, output self-containment).
 - **Plan 09 (push):** PR-watch tests keep passing; merge tests adapt to the service split. New: `mx-push-service.test.sh` including the two security negatives (no credentials in actor env; refuse to push if the branch head moved past the validated SHA).
 - **Plan 10 (deep-review):** upstream no-mistakes-contract tests (`fm-nm-test-contract`, `no-mistakes-required-workflow`, `fm-no-mistakes-ownership`, gate-refuse) are **retired and replaced** by the deep-review suite: `mx-deep-review-lib.test.sh` + `mx-deep-review.test.sh` with mocked headless-harness fixtures. The default-branch config-trust test is mandatory before the gate is ever pointed at a real branch.
+- **Plan 11 (workflow engine):** purely additive — reconciliation, decision-hold, spawn, and wake tests must pass unmodified. New: `mx-workflow-lib.test.sh` (schema validation: closed enums, auto-gate-requires-contract, version gating), `mx-workflow.test.sh` (stage-order enforcement, gate/contract semantics, restart-reconstruction, definition-snapshot immutability, and the security test: commands execute only from the launch-time snapshot, never from mid-run artifacts), plus a golden-interview test keeping the `create-workflow` skill's output valid against the schema.
 
 ### 3.4 Writing new tests
 
@@ -117,11 +119,12 @@ If a plan changes functionality an existing test asserts (e.g. brief text now in
 
 ## 4. Definition of done (for the whole port)
 
-- All ten plans landed; `plans/` updated with any deviations.
+- All eleven plans landed; `plans/` updated with any deviations.
 - `bin/mx-test-run.sh --all` green; `--check-coverage` passes; naming test enforces zero old-vocabulary references (the `firstmate/` allowlist exception disappears with the folder itself).
 - No `-axi` binary, no `no-mistakes`, no `glab`, no relay code, no zellij/orca/grok/opencode support anywhere in the Computer tree; `treehouse` kept (pinned, verified) as the worktree provider.
 - An actor session demonstrably cannot push (no credentials), and the push service demonstrably refuses unvalidated/stale branches.
 - deep-review runs end-to-end on a real sample change with an explicit `--intent`: findings → fix round → ask-user escalation → maintainer decision → validated local branch → credentialed push → remote CI watched. Config read from `.deep-review.yaml` on the default branch.
+- The `new-feature` workflow runs end-to-end through `mx-workflow.sh` (ideate → approved spec → fresh-session implement → deep-review with the spec as intent → approved delivery) — this doubles as the whole port's integration proof.
 - `AGENTS.md` reads correctly in the new voice (plan 02's checklist), and `README`/docs describe Computer, not firstmate.
 - `firstmate/` is deleted from the repo; the Computer tree at the root is the only copy.
 
@@ -139,3 +142,4 @@ All open questions from the initial planning pass are resolved. The plan documen
 6. **Backends/harnesses (Plan 01 scope, Phase 0 posture): prune.** Backends kept: **tmux, cmux, herdr**. Backends deleted: zellij, orca. Harnesses kept: **claude, codex, pi**. Harnesses deleted: grok, opencode. The deletions fold into plan 01; plans 02 and 05 shrink accordingly.
 7. **Status enum (Plan 03): use firstmate's full original vocabulary** — `working|paused|blocked|needs-decision|done|failed|resolved` (verified in `bin/fm-classify-lib.sh`; UPDATE_PLAN §3's five-state enum was incomplete). `mx-report` and the MCP `report_status` tool validate against this full set.
 8. **End state: `firstmate/` is removed** once the port is fully done. All renamed/rebranded files live in the root Computer directory — the vendored reference exists only for the duration of the port.
+9. **Workflow engine (Plan 11, decided 2026-07-26): one shared engine + declarative definitions, not per-workflow generated scripts.** `bin/mx-workflow.sh` interprets schema-validated `workflows/*.workflow.md` files (YAML frontmatter skeleton, markdown stage bodies); the model only authors definitions (data), never enforcement code. Every stage's gate is configurable (`approve` or `auto`, where auto still requires the output contract to be met); runs take one free-form task input instead of fixed parameters; definitions are repo-tracked and freely editable by any user; the `create-workflow` skill lets the broker author new definitions through a guided interview.
