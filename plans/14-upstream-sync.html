@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 14 — Upstream Sync · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#e3b341; --accent-dim:rgba(227,179,65,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 14 · Multplx</div>
+  <h1>Upstream Sync — Don't Fork and Forget</h1>
+  <p class="subtitle">The moment Multplx forks, <code>kunchenguid/firstmate</code> keeps evolving without us. This plan makes staying informed a deliberate, cheap, recorded process: a tracked fork-point record, a read-only diff/triage script (<code>mx-upstream-diff.sh</code>), and an <code>upstream-sync</code> workflow definition for the plan-11 engine — review-and-reimplement, never git merge, run on a cadence the maintainer chooses, with an explicit retirement path when triage stops paying for itself.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 9 (post-port)</span>
+    <span class="badge effort">Effort: Low</span>
+    <span class="badge risk">Risk: Low</span>
+    <span class="badge">Post-port improvement (maintainer request, 2026-07-27)</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Multplx is a hard fork. The port renames everything (<code>fm-</code>→<code>mx-</code>, the full vocabulary sweep of plan 02), deletes whole subsystems (X-mode relay, glab, zellij/orca backends, grok/opencode harnesses, the no-mistakes pipeline, the -axi toolbelt), and — per porting decision #8 — <b>removes the vendored <code>firstmate/</code> folder entirely</b> when the port is done. From that day forward, upstream bug fixes stop arriving. Silently.</p>
+<p>That matters because the port deliberately keeps several subtle mechanisms <i>verbatim</i> — the "What NOT to rebuild" list: the reconciliation oracle (<code>fm-crew-state.sh</code> lineage), the watcher lock, the liveness beacon, the turn-end guard, the wake queue. These are exactly the kind of code where upstream will keep finding and fixing rare race conditions, and exactly the kind of code where Multplx would never notice it inherited a latent bug. A fork that never looks back accumulates upstream's already-fixed bugs as its own unknown unknowns.</p>
+<p>At the same time, a git-level sync is off the table forever. Every file is renamed, every identifier is reworded, and whole directories upstream still patches don't exist in the Multplx tree. An upstream commit will <b>never apply cleanly</b> — not with <code>git merge</code>, not with <code>cherry-pick</code>, not with <code>patch -p1</code>. The only honest sync model is <b>review-and-reimplement</b>: read what upstream changed, decide whether the change matters to a mechanism Multplx kept, and if so reimplement it against the <code>mx-</code> equivalent as an ordinary task through the normal deep-review gate.</p>
+<p>This plan builds the smallest apparatus that makes that sustainable: (1) a tracked <b>fork-point record</b> so we always know exactly which upstream commit Multplx diverged from and which upstream commit was last reviewed; (2) a <b>review procedure</b> backed by a read-only script that fetches upstream into a scratch directory and filters the diff through a subsystem relevance map; (3) the procedure packaged as a <b>workflow definition</b> for the plan-11 engine, so every sync run is stage-gated, resumable, and recorded rather than improvised. And because upstream divergence only grows, the design includes an explicit, recorded way to <b>retire</b> the sync when triage cost exceeds value — a decision, not a lapse.</p>
+
+<div class="callout danger"><div class="label">Time-critical — one step belongs to the port, not to this plan</div>
+<p style="margin:0">The fork-point commit SHA of the vendored <code>firstmate/</code> copy must be captured <b>before that folder is deleted</b> (porting decision #8 removes it at end of port). Once <code>firstmate/</code> is gone, reconstructing the exact divergence point means archaeology against upstream history. The capture is a five-minute step — see Implementation step 1 — and the port's Phase 0 checklist and definition of done in <code>plans/porting.md</code> should reference it. Everything else in this plan is genuinely post-port; this one step is not.</p>
+</div>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td>
+<ul style="margin-bottom:0">
+  <li>A tracked fork-point record (<code>docs/upstream.md</code>): upstream repo URL, fork-point SHA, last-reviewed SHA, sync status (<code>active</code>/<code>retired</code>), and the subsystem relevance map.</li>
+  <li>A read-only fetch/diff/report script <code>bin/mx-upstream-diff.sh</code> that clones/fetches upstream into a scratch directory only — never into the Multplx tree — and emits a relevance-filtered review report.</li>
+  <li>A per-change triage discipline with a closed classification: <b>port</b> / <b>skip</b> / <b>flag</b>.</li>
+  <li>Delivery as <code>workflows/upstream-sync.workflow.md</code> for the plan-11 engine — the sync is a gated, resumable workflow run, not a prose ritual.</li>
+  <li>Ported fixes land as <b>ordinary Multplx tasks</b> with the normal deep-review gate — no special fast lane for "it came from upstream".</li>
+  <li>A recorded retirement path: downgrading to release-notes-only watching is a state written into the record file.</li>
+</ul>
+</td>
+<td>
+<ul style="margin-bottom:0">
+  <li><b>No git merge / cherry-pick / patch flow</b> — structurally impossible across the rename and deletions, and attempting one would corrupt the tree.</li>
+  <li>No re-vendoring of upstream — <code>firstmate/</code> stays deleted; upstream lives only in a throwaway scratch clone during a sync run.</li>
+  <li><b>No new daemon</b>, no poller, no webhook listener. Runs are maintainer-invoked on a cadence (or nudged by an external reminder); the engine and existing watcher/wake machinery carry the run itself.</li>
+  <li>No obligation to track upstream features — this is a bug-fix conduit for <i>kept</i> mechanisms; features are skip-by-default.</li>
+  <li>No automation of the port decision — the maintainer approves the triage before any code is written.</li>
+  <li>Does not gate the port: the 11 port plans land without this one (except the fork-point capture step flagged above).</li>
+</ul>
+</td>
+</tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>Upstream firstmate has no fork-maintenance story — it is the upstream. What exists today, and what this plan must account for, is the <i>relationship</i> between the vendored copy and the mechanisms Multplx keeps:</p>
+<table>
+<tr><th>What exists</th><th>File(s)</th><th>Relevance to this plan</th></tr>
+<tr><td>Vendored upstream copy</td><td><code>firstmate/</code> (repo-root subfolder, read-only reference)</td><td>The only local witness of the fork point. Deleted at end of port (porting decision #8) — the fork-point SHA must be captured from/for it first.</td></tr>
+<tr><td>Reconciliation oracle</td><td><code>firstmate/bin/fm-crew-state.sh</code>, <code>firstmate/bin/fm-classify-lib.sh</code></td><td>Kept verbatim (as <code>mx-</code> equivalents). Prime candidate for inheriting upstream race-condition fixes.</td></tr>
+<tr><td>Watcher, watcher lock, liveness beacon</td><td><code>firstmate/bin/fm-watch.sh</code>, <code>fm-watch-arm.sh</code>, <code>fm-watch-checkpoint.sh</code>, <code>fm-lock-lib.sh</code>, <code>fm-lock.sh</code></td><td>Kept. Subtle single-instance and liveness semantics — high-value upstream fixes.</td></tr>
+<tr><td>Turn-end guard</td><td><code>firstmate/bin/fm-turnend-guard.sh</code></td><td>Kept (the grok variant <code>fm-turnend-guard-grok.sh</code> is deleted in plan 01).</td></tr>
+<tr><td>Wake queue</td><td><code>firstmate/bin/fm-wake-lib.sh</code>, <code>fm-wake-drain.sh</code></td><td>Kept verbatim.</td></tr>
+<tr><td>Spawn / brief / send / decision-hold</td><td><code>firstmate/bin/fm-spawn.sh</code>, <code>fm-brief.sh</code>, <code>fm-send.sh</code>, <code>fm-decision-hold.sh</code></td><td>Kept with plan 03–05 additive extensions — upstream fixes usually still portable.</td></tr>
+<tr><td>Deleted subsystems</td><td><code>firstmate/bin/fm-x-*.sh</code> (X-mode relay), glab branches of <code>fm-pr-*.sh</code>, zellij/orca under <code>firstmate/bin/backends/</code>, grok/opencode harness files, no-mistakes pipeline, <code>fm-tasks-axi-lib.sh</code>, <code>fm-install-shellcheck.sh</code></td><td>Upstream changes touching only these paths are noise — the relevance map exists to filter them out mechanically.</td></tr>
+<tr><td>Test suite mirror</td><td><code>firstmate/tests/fm-*.test.sh</code></td><td>Upstream test changes often <i>explain</i> a fix (a new regression test names the bug). The relevance map covers tests, not just <code>bin/</code>.</td></tr>
+</table>
+
+<h2>Target design in Multplx</h2>
+
+<h3>Part 1 — The fork-point record: <code>docs/upstream.md</code></h3>
+<p>One tracked markdown file, human-readable prose around a machine-parseable header block (same constrained key-set style the workflow frontmatter uses — no new parser dependency):</p>
+<pre><code>---
+upstream_repo: https://github.com/kunchenguid/firstmate
+fork_point: &lt;sha&gt;        # upstream commit the vendored firstmate/ copy matched
+last_reviewed: &lt;sha&gt;     # upstream commit covered by the most recent completed sync run
+status: active           # active | retired
+retired_reason:          # required when status: retired
+---
+</code></pre>
+<ul>
+  <li><b><code>fork_point</code></b> is written once, during the port (step 1 below), and never changes. It is the anchor for the very first sync run's diff range.</li>
+  <li><b><code>last_reviewed</code></b> advances only through the workflow's final, maintainer-approved <code>record</code> stage — never by hand-edit convention, and <code>mx-upstream-diff.sh</code> refuses to advance it any other way. This is what makes "did we look at that change?" answerable from the repo.</li>
+  <li><b><code>status: retired</code></b> is the recorded off-switch (see "When to stop" below). When set, <code>mx-upstream-diff.sh</code> exits with a clear "upstream sync retired: &lt;reason&gt;" message and does nothing — the decision is visible, not a silent lapse.</li>
+</ul>
+<p>Below the header, the file carries the <b>subsystem relevance map</b> — the triage filter, maintained as a table:</p>
+<table>
+<tr><th>Upstream path (glob)</th><th>Class</th><th>Multplx counterpart / reason</th></tr>
+<tr><td><code>bin/fm-crew-state.sh</code>, <code>bin/fm-classify-lib.sh</code></td><td>relevant</td><td><code>mx-state</code> — the reconciliation oracle (kept verbatim; ported with plan 05's precedence addition)</td></tr>
+<tr><td><code>bin/fm-watch.sh</code>, <code>bin/fm-watch-arm.sh</code>, <code>bin/fm-watch-checkpoint.sh</code></td><td>relevant</td><td><code>mx-watch</code> — watcher, watcher lock, liveness beacon</td></tr>
+<tr><td><code>bin/fm-lock.sh</code>, <code>bin/fm-lock-lib.sh</code>, <code>bin/fm-session-lock-lib.sh</code></td><td>relevant</td><td><code>mx-lock</code> family — locking semantics kept verbatim</td></tr>
+<tr><td><code>bin/fm-turnend-guard.sh</code></td><td>relevant</td><td><code>mx-turnend-guard</code> (the Stop-hook backstop)</td></tr>
+<tr><td><code>bin/fm-wake-lib.sh</code>, <code>bin/fm-wake-drain.sh</code></td><td>relevant</td><td><code>mx-wake</code> — the wake queue</td></tr>
+<tr><td><code>bin/fm-spawn.sh</code>, <code>bin/fm-brief.sh</code>, <code>bin/fm-send.sh</code>, <code>bin/fm-decision-hold.sh</code></td><td>relevant</td><td><code>mx-spawn</code>/<code>mx-brief</code>/<code>mx-send</code>/<code>mx-decision-hold</code> — kept with additive plan 03–05 changes; port with care</td></tr>
+<tr><td><code>tests/fm-*.test.sh</code> for the paths above</td><td>relevant</td><td>Upstream regression tests document the bug being fixed — read them even when only reimplementing</td></tr>
+<tr><td><code>bin/fm-x-*.sh</code></td><td>deleted</td><td>X-mode relay removed in plan 01</td></tr>
+<tr><td>glab code paths in <code>bin/fm-pr-*.sh</code></td><td>deleted</td><td>glab support removed in plan 01; the <code>gh</code>-side of those files may still be relevant</td></tr>
+<tr><td><code>bin/backends/</code> zellij + orca entries, <code>bin/fm-turnend-guard-grok.sh</code>, grok/opencode harness files</td><td>deleted</td><td>Backend/harness pruning, plan 01 (decision #6)</td></tr>
+<tr><td>no-mistakes pipeline files, <code>bin/fm-tasks-axi-lib.sh</code>, <code>bin/fm-install-shellcheck.sh</code></td><td>deleted</td><td>Replaced by deep-review (plan 10), the in-repo backlog lib (plan 07), and lint relocation (plan 01)</td></tr>
+<tr><td>everything else</td><td>flag</td><td>Unmapped paths are never silently dropped — they surface in the report for a one-time classification, which then gets added to the map</td></tr>
+</table>
+<div class="callout"><div class="label">Map maintenance rule</div>
+<p style="margin:0">The map's default for unmapped paths is <b>flag, not skip</b>. Every sync run that flags an unmapped path ends by adding that path to the map (relevant / irrelevant / deleted) so the next run is quieter. The map converges; the triage cost goes down over time, not up — until upstream refactors, which is the divergence signal the "when to stop" section watches for.</p>
+</div>
+
+<h3>Part 2 — The review procedure</h3>
+<p><code>bin/mx-upstream-diff.sh</code> is the deterministic half of the procedure. Contract:</p>
+<pre><code>mx-upstream-diff.sh --out &lt;dir&gt;              # full run: fetch, diff, filter, report
+mx-upstream-diff.sh --since &lt;sha&gt; --out &lt;dir&gt; # override the from-SHA (default: last_reviewed)
+mx-upstream-diff.sh --record-reviewed &lt;sha&gt;   # the ONLY writer of last_reviewed (workflow record stage)
+mx-upstream-diff.sh --status                  # print record-file state; exit 3 if status: retired</code></pre>
+<ul>
+  <li><b>Fetch, read-only:</b> shallow-clone (or fetch into a cached scratch clone of) the upstream repo under the scratch directory. The script never writes anything outside <code>--out</code> and its scratch clone dir — hard rule, enforced by test. The Multplx working tree is not touched.</li>
+  <li><b>Diff range:</b> <code>last_reviewed..upstream/HEAD</code> (first run: <code>fork_point..upstream/HEAD</code>). Emits per-commit <code>log --stat</code> plus per-file diffs into <code>&lt;out&gt;/</code>.</li>
+  <li><b>Filter:</b> classify every touched path against the relevance map. Commits touching only <code>deleted</code>/<code>irrelevant</code> paths are listed one-line-each in a "skipped mechanically" appendix; commits touching any <code>relevant</code> path get their full diff in the report body; unmapped paths land in a "needs mapping" section.</li>
+  <li><b>Report:</b> a single <code>report-input.md</code> — the raw material for triage: upstream HEAD SHA, commit list grouped by relevance, full diffs for relevant changes, the unmapped list, and counts.</li>
+</ul>
+<p>The judgment half is triage. For each relevant change, exactly one classification:</p>
+<table>
+<tr><th>Class</th><th>Meaning</th><th>What happens</th></tr>
+<tr><td><b>port</b></td><td>A bug fix (or safety tightening) in a mechanism Multplx kept</td><td>Reimplement against the <code>mx-</code> counterpart, in Multplx vocabulary, as an <b>ordinary task</b> — brief cites the upstream commit; the change goes through the normal deep-review gate like any other code. Upstream's regression test is reimplemented too.</td></tr>
+<tr><td><b>skip</b></td><td>A feature, a change to a subsystem Multplx deleted, or a fix to behavior Multplx intentionally replaced</td><td>One line in the triage report with the reason. Recorded, so the same commit is never re-triaged.</td></tr>
+<tr><td><b>flag</b></td><td>Unclear whether Multplx wants it — design-level change, or touches a mechanism Multplx modified (plans 03–05 additive changes), or an unmapped path</td><td>Escalates to the maintainer in the workflow's review stage; the maintainer's ruling converts it to port or skip, and updates the relevance map if a mapping was missing.</td></tr>
+</table>
+
+<h3>Part 3 — Delivery as a workflow definition (the showpiece)</h3>
+<p>The whole procedure ships as <code>workflows/upstream-sync.workflow.md</code> for the <a href="11-workflow-engine.html">plan-11 engine</a> — which is exactly the composition the engine was built for: deterministic fetch, model-judged triage, human gate, fresh-session implementation, deterministic record. Sketch (final field names must match the shipped <code>docs/workflows.md</code> schema):</p>
+<pre><code>---
+workflow_version: 1
+name: upstream-sync
+description: Review upstream firstmate changes since the last sync; port relevant fixes.
+stages:
+  - id: fetch
+    title: Fetch upstream and build the filtered diff report
+    type: command                      # deterministic; exit code is ground truth
+    run: bin/mx-upstream-diff.sh --out data/{run}/upstream/
+    gate: auto
+    output: data/{run}/upstream/report-input.md
+  - id: triage
+    title: Classify each relevant change (port / skip / flag)
+    type: agent
+    executor: broker                   # headless one-shot turn; structured report out
+    gate: auto
+    output: data/{run}/triage.md       # every commit: class + one-line reason;
+                                       # flags carry the question for the maintainer
+  - id: review
+    title: Maintainer reviews the triage
+    type: interactive                  # broker walks the maintainer through triage.md;
+    gate: approve                      # flags get ruled; approved port list is the output
+    output: data/{run}/approved-ports.md
+  - id: port
+    title: Implement the approved ports
+    type: agent
+    executor: actor
+    fresh_session: true                # implementer never inherits triage context
+    brief_from: [review]               # approved-ports.md + upstream diffs in the brief
+    gate: auto
+    contract: local-commits            # one commit per approved fix; each goes through
+                                       # the normal deep-review gate before delivery
+  - id: record
+    title: Record the new last-reviewed upstream SHA
+    type: command
+    run: bin/mx-upstream-diff.sh --record-reviewed data/{run}/upstream/head-sha
+    gate: approve                      # the SHA advances only on maintainer sign-off
+---</code></pre>
+<ul>
+  <li><b>Stage 1 (fetch)</b> is a <code>command</code> stage: fully deterministic, no model in the loop, exit code + declared output are the contract. Zero approved changes is a valid, fast path — the report says so and the maintainer approves straight through to <code>record</code>.</li>
+  <li><b>Stage 2 (triage)</b> is where the model earns its keep: reading diffs of subtle bash and judging "is this a fix to a mechanism we kept?" The output is a structured report, not code — the model proposes, nothing executes.</li>
+  <li><b>Stage 3 (review)</b> is the human gate. Nothing gets reimplemented without the maintainer having seen the classification. This is also where relevance-map updates get ruled.</li>
+  <li><b>Stage 4 (port)</b> honors <code>fresh_session</code> — the implementing actor gets the approved list and the relevant upstream diffs as its brief, one task per approved fix, each landing as an ordinary commit through the normal deep-review gate. (v1 workflows are linear, so one actor session works the approved list sequentially; if a sync ever approves a large batch, the maintainer can instead spawn the fixes as independent ordinary tasks and let the workflow's port stage cover the remainder — noted under open questions.)</li>
+  <li><b>Stage 5 (record)</b> is the only path that advances <code>last_reviewed</code>, and it sits behind an <code>approve</code> gate. A run that dies mid-way leaves the SHA untouched — the next run simply re-covers the same range.</li>
+</ul>
+<div class="callout"><div class="label">Cadence — maintainer-chosen, no daemon</div>
+<p style="margin:0">Run <code>mx-workflow.sh run upstream-sync --input "monthly sync, &lt;date&gt;"</code> monthly or quarterly — manually, or nudged by whatever external reminder the maintainer already uses (calendar, cron <code>reminder</code>, a note in the weekly review). Explicitly <b>no new daemon, poller, or webhook</b>: the sync is a workflow run like any other, and the existing watcher/wake machinery carries it once launched. If upstream announces a security-relevant fix out of band, run it off-cadence — the diff range self-adjusts.</p>
+</div>
+
+<h3>When to stop — retirement is a recorded decision</h3>
+<div class="callout warn"><div class="label">Honest expectation</div>
+<p style="margin:0">Upstream divergence only grows. Every Multplx phase and every upstream release makes the trees less comparable; eventually upstream refactors the very files the relevance map points at, and triage cost exceeds the value of the occasional inherited fix. That point is <b>expected, not a failure</b>. When a couple of consecutive sync runs produce mostly flags and no ports — or a single triage takes longer than reimplementing a fix from scratch would — the maintainer should downgrade to watching upstream release notes only, and record it: set <code>status: retired</code> (with <code>retired_reason</code>) in <code>docs/upstream.md</code>. From then on <code>mx-upstream-diff.sh</code> refuses to run (clear message, distinct exit code), the workflow's fetch stage fails loudly rather than silently skipping, and anyone reading the record file sees <i>when</i> and <i>why</i> the fork stopped looking back. Retirement is reversible the same way — flip the status, and the diff range picks up from the still-recorded <code>last_reviewed</code>.</p>
+</div>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Capture the fork-point SHA — during the port, before <code>firstmate/</code> is deleted</b> <span class="pill mod">mod</span> — Add to the port's Phase 0 checklist and definition of done in <code>plans/porting.md</code>: record the upstream commit SHA that the vendored <code>firstmate/</code> copy corresponds to. If the vendored copy carries no git metadata, determine it by cloning <code>kunchenguid/firstmate</code> to a scratch dir and finding the commit whose tree matches the vendored content (diff candidate commits against <code>firstmate/</code>; if local modifications exist, record the nearest matching ancestor plus a note listing the local deltas). Write it into <code>docs/upstream.md</code> <span class="pill new">new</span> immediately — the record file can exist from Phase 0 even though everything else here is post-port.</li>
+  <li><b>Write the relevance map</b> <span class="pill mod">mod</span> — Fill <code>docs/upstream.md</code>'s map table from the port's actual outcome: every kept mechanism with its <code>mx-</code> counterpart, every plan-01 deletion as <code>deleted</code>, the plan 03–05-modified files marked "port with care", tests included. Source of truth for the mappings is the plan set itself (01 for deletions, 02 for renames, 03–05 for modified-but-kept).</li>
+  <li><b>Build <code>bin/mx-upstream-diff.sh</code></b> <span class="pill new">new</span> — Fetch/diff/filter/report per the contract above. Hard write boundary: scratch clone dir + <code>--out</code> only. Reads the record header (repo URL, <code>last_reviewed</code>/<code>fork_point</code>, <code>status</code>); honors <code>retired</code> with a distinct exit code; <code>--record-reviewed</code> is the sole writer of <code>last_reviewed</code> and refuses to move it backwards. Filtering is pure path-glob matching against the map — no model in this script, ever.</li>
+  <li><b>Author <code>workflows/upstream-sync.workflow.md</code></b> <span class="pill new">new</span> — The five-stage definition above, validated with <code>mx-workflow.sh validate</code> before first use. Stage bodies carry the triage charter (the port/skip/flag rubric, verbatim), the review-stage walk-through script, and the port-stage brief template (cite upstream commit, reimplement in Multplx vocabulary, reimplement the regression test, normal deep-review gate).</li>
+  <li><b>Write the tests</b> <span class="pill new">new</span> — <code>tests/mx-upstream-diff.test.sh</code> (see test plan) plus the workflow-definition validate fixture; register both in the <code>mx-test-run.sh</code> family map in the same commit.</li>
+  <li><b>First live sync run as validation</b> — Run the workflow for real against whatever upstream has accumulated since the fork point. This proves the fetch boundary, the filter quality, the report ergonomics, and the record-stage gate on real data — and its output doubles as the first entry in the sync log. Expect the relevance map to gain a few entries; that's the map-maintenance rule working.</li>
+</ol>
+
+<h2>File impact</h2>
+<table>
+<tr><th>File</th><th>Action</th><th>Notes</th></tr>
+<tr><td><code>docs/upstream.md</code></td><td>New</td><td>Fork-point record: header block (repo, <code>fork_point</code>, <code>last_reviewed</code>, <code>status</code>), relevance map, sync log. Created at port Phase 0 (fork-point capture); completed post-port.</td></tr>
+<tr><td><code>bin/mx-upstream-diff.sh</code></td><td>New</td><td>Read-only fetch/diff/filter/report; scratch-dir-only writes; sole writer of <code>last_reviewed</code> via <code>--record-reviewed</code>.</td></tr>
+<tr><td><code>workflows/upstream-sync.workflow.md</code></td><td>New</td><td>Five-stage definition for the plan-11 engine: fetch → triage → review → port → record.</td></tr>
+<tr><td><code>plans/porting.md</code></td><td>Modify</td><td>Phase 0 checklist + definition of done gain the fork-point-SHA capture step (the one port-time obligation of this plan).</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>Modify</td><td>One line in the broker's capability inventory: the sync cadence and "run the upstream-sync workflow" verb (rides on plan 11's generic workflow wiring).</td></tr>
+<tr><td><code>tests/mx-upstream-diff.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
+<tr><td><code>tests/fixtures/upstream-sync/</code></td><td>New</td><td>Fixture upstream repo + fixture diffs (relevant / irrelevant / deleted-subsystem paths), golden report, and the workflow-validate fixture.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<h3>(a) Existing tests that must keep passing</h3>
+<p>Everything — this plan is purely additive and post-port, so the full ported suite is the baseline: the renamed reconciliation/classify tests, watch/lock tests, wake tests, decision-hold tests, and both workflow-engine suites (<code>tests/mx-workflow-lib.test.sh</code>, <code>tests/mx-workflow.test.sh</code> from plan 11). The naming test (<code>tests/mx-naming.test.sh</code>) must also stay green — note that <code>docs/upstream.md</code> and the sync fixtures legitimately contain <code>fm-</code> names and firstmate vocabulary (they describe <i>upstream</i>), so those paths join the naming test's allowlist deliberately and narrowly.</p>
+<h3>(b) Existing tests needing changes</h3>
+<p>Only the naming-test allowlist addition above (same commit as the files that need it, with the reason in the commit message). Nothing else: no ported mechanism is modified by this plan.</p>
+<h3>(c) New tests</h3>
+<ul>
+  <li><b><code>tests/mx-upstream-diff.test.sh</code></b> — run under <code>bin/mx-test-run.sh</code>, house pattern (<code>tests/lib.sh</code>, fakebin shims, deterministic git fixtures — the "upstream" is a local fixture repo, so no network in tests):
+    <ul>
+      <li><b>Relevance-map filtering:</b> a fixture diff touching a relevant path (<code>bin/fm-watch.sh</code>), an irrelevant/deleted-subsystem path (<code>bin/fm-x-poll.sh</code>), a glab-only change, and an unmapped path → the report classifies each correctly (full diff / mechanical-skip appendix / needs-mapping section) and a commit touching <i>only</i> deleted paths never appears in the report body.</li>
+      <li><b>Report format golden test:</b> fixture repo + fixture map → byte-stable <code>report-input.md</code> against a golden file (headers, grouping, counts, head-SHA line the record stage consumes).</li>
+      <li><b>The safety test — never writes outside the scratch dir:</b> run the script against the fixture with the Multplx tree snapshotted (recursive checksum) → zero changes outside the scratch clone dir and <code>--out</code>; also assert the scratch clone has no push remote configured/used.</li>
+      <li><b>Record-file state transitions:</b> <code>last_reviewed</code> changes <i>only</i> via <code>--record-reviewed</code> (a plain run never writes the record file); <code>--record-reviewed</code> refuses a SHA not reachable in the fetched range and refuses to move backwards; <code>status: retired</code> → every subcommand except <code>--status</code> exits with the distinct retired code and touches nothing; flipping back to <code>active</code> resumes from the preserved <code>last_reviewed</code>.</li>
+    </ul>
+  </li>
+  <li><b>Workflow-definition fixture test</b> — <code>workflows/upstream-sync.workflow.md</code> passes <code>mx-workflow.sh validate</code> (asserted as a fixture case, so schema drift in the engine breaks this plan's definition loudly, not at the next quarterly run). Also assert the definition's gate/contract choices survive validation: <code>auto</code> stages all carry verifiable contracts, and the <code>record</code> stage is <code>approve</code>-gated.</li>
+</ul>
+<p>Register the new test file in the <code>mx-test-run.sh</code> family map in the same commit; <code>--check-coverage</code> must pass.</p>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>After <a href="11-workflow-engine.html">plan 11</a></b> — the delivery vehicle is a workflow definition; the engine, its schema, gates, and <code>fresh_session</code> semantics must exist first. The triage and port stages also lean on plan 10's headless-turn primitive and deep-review gate, and plan 03's validated statuses — all already prerequisites of plan 11.</li>
+  <li><b>One step belongs to the port itself:</b> the fork-point-SHA capture (Implementation step 1) must run during <b>port Phase 0 / before <code>firstmate/</code> is deleted</b> per porting decision #8. Flagged in the danger callout at the top; <code>plans/porting.md</code>'s Phase 0 checklist and definition of done should reference it.</li>
+  <li><b>Does not gate the port.</b> All eleven port plans land and the port's definition of done is met without this plan (except that one capture step). This is Phase 9 — post-port maintenance infrastructure.</li>
+  <li>Independent of the other post-port improvement plans; it can land any time after plan 11 is proven.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout danger"><div class="label">Risk — the capture step gets missed</div>
+<p style="margin:0">If the port finishes and <code>firstmate/</code> is deleted without the fork-point SHA recorded, the first sync run's diff range has no anchor. Recovery is possible (git history of this repo still contains the vendored tree at the pre-deletion commit; match it against upstream history from a scratch clone) but tedious. Mitigation: the step lives in the port's Phase 0 checklist <i>and</i> its definition of done, and <code>docs/upstream.md</code> is created at Phase 0 so its absence is visible for the whole port.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — triage misclassification</div>
+<p style="margin:0">The model could classify a subtle fix as <b>skip</b>, silently losing it. Mitigations already in the design: the map defaults unmapped paths to <b>flag</b> (never silent), the maintainer reviews the <i>entire</i> triage report — including the skip lines with reasons — at the approve gate, and skips are recorded per-commit so a wrong call is auditable and correctable at the next run. The residual risk is accepted: this process is a net gain over the alternative, which is reviewing nothing.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — reimplemented fix diverges from upstream's intent</div>
+<p style="margin:0">Reimplementing against renamed, partially modified code can miss the point of the original fix — especially in files plans 03–05 extended. Mitigations: the relevance map marks those files "port with care"; the port-stage brief requires reimplementing upstream's regression test, which encodes the bug independent of the fix's shape; and the normal deep-review gate applies. Never weaken a kept invariant to make an upstream patch "fit" — if a fix appears to require that, it's a <b>flag</b>, not a port.</p>
+</div>
+<div class="callout"><div class="label">Open question — batch size in the port stage</div>
+<p style="margin:0">v1 workflows are strictly linear, so the port stage is one fresh actor session working the approved list sequentially. Fine for the expected steady state (a few small fixes per quarter). If a sync ever approves a large batch, the better shape may be the workflow ending at the review stage and the fixes fanning out as independent ordinary tasks. Decide when it actually happens — do not pre-build parallelism into the workflow engine for this (plan 11's scope-creep risk stands).</p>
+</div>
+<div class="callout"><div class="label">Open question — exact fork-point identification if the vendored copy was locally modified</div>
+<p style="margin:0">If <code>firstmate/</code> drifted from any single upstream commit before Phase 0 (stray local edits), the record stores the nearest matching ancestor plus a delta note. Whether any such drift exists is checked, not assumed, at capture time. This is a record-keeping detail, not a design fork — carried here so the capture step doesn't silently paper over it.</p>
+</div>
+<div class="callout"><div class="label">Open question — retirement threshold</div>
+<p style="margin:0">"A couple of consecutive low-value runs" is a heuristic, not a rule. Deliberately left to maintainer judgment — the design's job is only to make the decision cheap to take and impossible to take silently (<code>status: retired</code> + reason in the tracked record).</p>
+</div>
+
+<div class="footer-nav">
+  <a href="13-doctor.html">← Plan 13: doctor</a>
+  <a href="index.html">Index</a>
+</div>
+
+</div>
+</body>
+</html>

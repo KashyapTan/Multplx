@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 13 — mx-doctor · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#56d364; --accent-dim:rgba(86,211,100,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 13 · Multplx</div>
+  <h1>mx-doctor — One Command to Check Every Invariant</h1>
+  <p class="subtitle">A read-only, idempotent health sweep of every system invariant — locks, liveness, worktrees, PIDs, queues, holds, run records, tools, symlinks — printed as one categorized OK/WARN/FAIL report. An optional <code>--fix</code> applies only the provably-safe remediations, using the same liveness proofs the watcher already trusts; everything else is report-only with the exact suggested command.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 9 (post-port)</span>
+    <span class="badge effort">Effort: Low-Medium</span>
+    <span class="badge risk">Risk: Low</span>
+    <span class="badge">Post-port improvement (maintainer request, 2026-07-27)</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Multplx already knows how to check its own health — it just knows it in scattered places, at scattered times. Bootstrap (<code>firstmate/bin/fm-bootstrap.sh</code>) runs a rich probe pass, but only at session start, emitting structured lines its header documents precisely: <code>MISSING: &lt;tool&gt; (install: &lt;command&gt;)</code>, <code>MISSING_MANUAL: &lt;tool&gt; (instructions: &lt;url&gt;)</code>, <code>NEEDS_GH_AUTH</code>, <code>FLEET_SYNC: &lt;repo&gt;: skipped|recovered|STUCK: &lt;detail&gt;</code>, and <code>TANGLE: &lt;remediation&gt;</code> (the primary checkout stranded on a feature branch, with the exact restore command). The watcher (<code>fm-watch.sh</code>) checks its own singleton lock and heartbeat freshness — but only when a second watcher tries to arm. The guard (<code>fm-guard.sh</code>) checks the liveness beacon (<code>state/.last-watcher-beat</code>) — but only per turn, and only for the in-flight-tasks-without-watcher case. Recovery <i>procedures</i> live in skills (<code>stuck-crewmate-recovery</code>, <code>bootstrap-diagnostics</code>) as prose for an agent to follow.</p>
+<p>What no single artifact provides is the maintainer's on-demand question: <b>"is everything consistent right now, and if not, what exactly do I run?"</b> After a crash, a laptop sleep, a force-killed session, or just weeks of accumulated state, the answer today is re-reading skills and spot-checking <code>state/</code> by hand.</p>
+<p><code>bin/mx-doctor.sh</code> is that one command: a read-only sweep of every invariant the system depends on, one categorized report, deterministic exit code, and a <code>--fix</code> mode whose scope is a short whitelist of reversible cleanups grounded in proofs the codebase already trusts — <code>fm-lock-lib.sh</code>'s "provably abandoned" decision procedure (lock exists + lsof shows no live holder + mtime older than threshold, with <i>any</i> uncertainty meaning NOT stale) and <code>fm-wake-lib.sh</code>'s <code>fm_pid_alive</code> / <code>fm_pid_identity</code> (PID liveness with start-time+cmdline identity, so a reused PID never counts as the original process).</p>
+<div class="callout ok"><div class="label">Design rule — reuse, don't re-derive</div>
+<p style="margin:0">Doctor invents <b>zero new liveness or staleness logic</b>. Every "is this dead?" question is answered by the exact primitives the watcher and teardown already trust (<code>mx-lock-lib.sh</code>, <code>mx-wake-lib.sh</code>). And bootstrap's probes are not duplicated: the shared checks are <b>extracted into a lib with a single owner</b>, which both <code>mx-bootstrap.sh</code> (session-start, unchanged output contract) and <code>mx-doctor.sh</code> (on-demand, richer rendering) call. Two copies of a probe is how probes drift.</p>
+</div>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td>
+<ul style="margin-bottom:0">
+  <li><code>bin/mx-doctor.sh</code>: idempotent, read-only by default, runs every check, prints OK/WARN/FAIL per check plus a summary.</li>
+  <li>Exit code reflects the worst finding: 0 all OK, 1 worst is WARN, 2 worst is FAIL.</li>
+  <li><code>--fix</code>: applies only the whitelisted, reversible remediations; prints everything else as a recommended manual action with the exact command.</li>
+  <li>Extract the probes bootstrap and doctor share into <code>bin/mx-probe-lib.sh</code> — one owner, two callers.</li>
+  <li>Machine-readable twin: <code>--json</code> for scripting/CI.</li>
+</ul>
+</td>
+<td>
+<ul style="margin-bottom:0">
+  <li><b>Doctor never kills processes</b> and never deletes task state, worktrees, or holds — in any mode. Those stay with their owners (<code>mx-teardown.sh</code>, <code>mx-decision-hold.sh</code>, the recovery skill).</li>
+  <li>Not a daemon, not scheduled, not wired into the watcher — purely on-demand.</li>
+  <li>Does not replace bootstrap's session-start diagnostics (they keep their exact output contract for the agents that parse them).</li>
+  <li>No auto-repair beyond the whitelist; no "--force" escape hatch.</li>
+  <li>Does not read the plan-12 journal for any decision (display-only context at most).</li>
+</ul>
+</td>
+</tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>Verified against the vendored checkout — these are the scattered owners of today's health knowledge:</p>
+<table>
+<tr><th>File</th><th>What it checks / owns today</th><th>When</th></tr>
+<tr><td><code>firstmate/bin/fm-bootstrap.sh</code></td><td>Tool presence + version compatibility (treehouse, jq, gh…) → <code>MISSING:</code>/<code>MISSING_MANUAL:</code> lines; <code>gh auth status</code> → <code>NEEDS_GH_AUTH</code>; fleet clone refresh → <code>FLEET_SYNC: &lt;repo&gt;: skipped|recovered|STUCK</code>; primary checkout stranded on a feature branch → <code>TANGLE:</code> with the exact <code>git checkout</code> remediation.</td><td>Session start only</td></tr>
+<tr><td><code>firstmate/bin/fm-watch.sh</code></td><td>Singleton watcher lock (<code>state/.watch.lock</code>) acquisition; refuses to arm when the lock is held by a live pid — and distinguishes "live pid, stale heartbeat for &gt;grace" and "live pid, no heartbeat" with explicit operator messages. Touches the liveness beacon every poll cycle; self-evicts if the lock stops naming it.</td><td>Only when a watcher (re)arms</td></tr>
+<tr><td><code>firstmate/bin/fm-guard.sh</code></td><td>Liveness beacon freshness (<code>state/.last-watcher-beat</code> mtime vs. grace) crossed with in-flight task count — warns once per staleness episode.</td><td>Per turn-end, one scenario only</td></tr>
+<tr><td><code>firstmate/bin/fm-lock-lib.sh</code></td><td>The one owner of the "provably abandoned lock" proof (exists + no lsof holder on lock or companion dir + mtime ≥ threshold; any uncertainty → NOT stale). Used by teardown and fleet-sync.</td><td>Only inside those two operations</td></tr>
+<tr><td><code>firstmate/bin/fm-wake-lib.sh</code></td><td><code>fm_pid_alive</code>, <code>fm_pid_identity</code> (proc starttime + cmdline, PID-reuse-proof), durable wake queue <code>state/.wake-queue</code> + lock helpers.</td><td>Library — no sweep caller</td></tr>
+<tr><td><code>firstmate/bin/fm-decision-hold.sh</code></td><td><code>verify</code> subcommand: read-only check that a hold's completion gate succeeded (called by scout teardown).</td><td>Per teardown</td></tr>
+<tr><td><code>firstmate/.agents/skills/stuck-crewmate-recovery/</code>, <code>.agents/skills/bootstrap-diagnostics/</code></td><td>Prose recovery procedures an agent follows by hand.</td><td>When someone remembers to invoke them</td></tr>
+</table>
+<p>Nothing sweeps <i>all</i> of this on demand, and several invariants have no checker at all today: orphaned worktrees, dead PIDs recorded in state files, wake-queue entries whose task metadata is gone, gate/workflow run records stuck non-terminal, or the post-rename compatibility symlinks.</p>
+
+<h2>Target design in Multplx</h2>
+
+<h3>Command shape</h3>
+<pre><code>mx-doctor.sh                # read-only sweep, human report, exit 0/1/2
+mx-doctor.sh --json         # same sweep, machine-readable findings
+mx-doctor.sh --fix          # sweep + apply ONLY whitelisted remediations, then re-report
+mx-doctor.sh --check &lt;name&gt; # run a single named check (debugging / scripting)</code></pre>
+<pre><code>== locks &amp; liveness =========================================
+OK    watcher-lock        lock names live pid 4711 (identity verified)
+WARN  watcher-beacon      state/.last-watcher-beat is 41m old (grace 120s)
+                          → suggest: inspect the watcher; re-arm with mx-watch-arm.sh
+== tasks &amp; worktrees ========================================
+FAIL  dangling-pid        state/fix-auth-42.meta records pid 3302: dead
+                          → suggest: mx-teardown.sh fix-auth-42   (doctor will not tear down)
+OK    orphan-worktrees    3 leases, 3 live tasks
+...
+summary: 9 OK · 1 WARN · 1 FAIL          exit 2</code></pre>
+
+<h3>The checks (each grounded in the real mechanism)</h3>
+<table>
+<tr><th>Check</th><th>Invariant &amp; mechanism</th><th><code>--fix</code>?</th></tr>
+<tr><td><code>watcher-lock</code></td><td><code>state/.watch.lock</code> either absent, or names a pid that is alive <i>with matching identity</i> (<code>fm_pid_identity</code>-style starttime+cmdline check from <code>mx-wake-lib.sh</code> — a reused PID is a stale lock, not a live watcher).</td><td>Yes — clear a <b>provably</b>-stale lock, using the same staleness proof <code>mx-lock-lib.sh</code> gives teardown (no live holder via lsof + mtime threshold; any uncertainty → report-only).</td></tr>
+<tr><td><code>watcher-beacon</code></td><td>If tasks are in flight, <code>state/.last-watcher-beat</code> mtime is within the grace window (the exact <code>fm-guard.sh</code> beacon semantics, run on demand instead of per turn).</td><td>No — suggests inspecting/re-arming the watcher (<code>mx-watch-arm.sh</code>). Doctor never starts or kills a watcher.</td></tr>
+<tr><td><code>orphan-worktrees</code></td><td>Every treehouse lease corresponds to a task with live <code>state/&lt;id&gt;.meta</code>; every task meta's recorded worktree path exists. Compares treehouse's lease inventory against the <code>state/</code> id set (plan 06 kept treehouse — porting.md decision 1).</td><td>No — suggests <code>mx-teardown.sh &lt;id&gt;</code> per orphan (teardown owns worktree release and its safety checks).</td></tr>
+<tr><td><code>dangling-pids</code></td><td>Every pid recorded in a state file (task metas, daemon records) is alive with matching identity. Dead-or-reused → finding.</td><td>No — pid fields are owned by their writers; doctor names the task and the owning cleanup command.</td></tr>
+<tr><td><code>wake-queue-orphans</code></td><td>Every entry in <code>state/.wake-queue</code> references a task that still has <code>state/&lt;id&gt;.meta</code>.</td><td>Yes — prune entries whose task metadata is provably gone (file absent, not merely unreadable), under the queue's own lock (<code>state/.wake-queue.lock</code>) exactly as <code>mx-wake-lib.sh</code>'s drain path takes it.</td></tr>
+<tr><td><code>stateless-sessions</code></td><td>Every <code>state/&lt;id&gt;.*</code> family has a corresponding session/backend target (per the meta's recorded backend) — flags task state whose pane/session is gone but was never torn down.</td><td>No — suggests <code>mx-teardown.sh &lt;id&gt;</code>.</td></tr>
+<tr><td><code>open-holds</code></td><td>Every open decision hold's origin task either lives or has completed its attestation — wraps <code>mx-decision-hold.sh verify</code> (already read-only by contract) per origin id.</td><td>No — holds are durable maintainer decisions; resolution is the maintainer's, via <code>mx-decision-hold.sh resolve</code>.</td></tr>
+<tr><td><code>dispatch-queue-age</code></td><td>No entry in the plan-07 in-repo backlog (<code>data/backlog.md</code>, <code>mx-backlog-lib.sh</code>) has sat in the queued/dispatch-eligible state longer than a threshold (default 48h, configurable) — catches silently-stalled dispatch.</td><td>No — staleness of intent is a maintainer judgment; doctor lists the entries.</td></tr>
+<tr><td><code>gate-runs</code></td><td>No <code>state/&lt;id&gt;.gate/run.json</code> (plan 10) sits in a non-terminal step with no live gate process/task behind it.</td><td>No — suggests resuming or abandoning via the deep-review CLI.</td></tr>
+<tr><td><code>workflow-runs</code></td><td>No <code>state/&lt;run-id&gt;.workflow/</code> record (plan 11) sits in a non-terminal stage with no live run behind it (the engine's restart-reconstruction is the fix path).</td><td>No — suggests <code>mx-workflow.sh resume &lt;run-id&gt;</code> (or explicit abandon).</td></tr>
+<tr><td><code>tools</code></td><td>Required-tool presence and compatibility, via the extracted bootstrap probes: <code>gh</code> + <code>gh auth status</code> (bootstrap's <code>NEEDS_GH_AUTH</code>), treehouse present <i>and</i> version-compatible (bootstrap treats an incompatible version as MISSING), <code>jq</code>.</td><td>No — prints bootstrap's own install remediation lines (<code>MISSING: &lt;tool&gt; (install: …)</code>).</td></tr>
+<tr><td><code>compat-symlinks</code></td><td>The 2026-07-27 folder-rename compatibility links resolve: the sibling <code>Computer -&gt; Multplx</code> symlink and the old encoded path under <code>~/.claude/projects/</code> (porting.md decision 10) — present links must not dangle. Absent links are OK once retired; a <i>dangling</i> link is the finding.</td><td>No — suggests the one-line <code>ln -sfn</code> or removal; touching things outside the repo stays manual.</td></tr>
+</table>
+
+<div class="callout danger"><div class="label">The --fix contract</div>
+<p style="margin:0"><b>Default mode makes zero mutations</b> — enforced by test, not convention. <code>--fix</code> is a closed whitelist of exactly two remediations in v1: (1) clearing a provably-stale watcher lock, (2) pruning provably-orphaned wake-queue entries. Both are reversible (a cleared stale lock is re-created by the next watcher arm; a pruned orphan wake references a task that no longer exists), and both reuse the exact staleness/liveness proofs the watcher and teardown already trust — with the lib's fail-safe posture inherited verbatim: <i>any uncertainty means no action, report only</i>. Doctor never kills a process, never deletes task state, never tears down a worktree, never closes a hold. Every non-whitelisted finding prints the exact suggested command and the name of the owner that should run it.</p>
+</div>
+
+<h3>The extraction: <code>bin/mx-probe-lib.sh</code></h3>
+<p>Bootstrap keeps emitting its exact session-start lines (agents and tests parse them), but the probe <i>logic</i> — tool presence + version compatibility, <code>gh</code> auth, tangle detection — moves to a shared <code>bin/mx-probe-lib.sh</code> that returns structured results; <code>mx-bootstrap.sh</code> renders them in its legacy line format, <code>mx-doctor.sh</code> renders them as report rows. Naming note: <code>mx-check-lib.sh</code> is <b>taken</b> — upstream <code>fm-check-lib.sh</code>/<code>fm-check-register.sh</code> are the watcher's runnable-check registry, an unrelated subsystem — hence <i>probe</i>-lib. This extraction is the one genuinely risky edit in the plan (see Risks); bootstrap's behavior tests are the safety net.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Inventory + extract the shared probes.</b> Read <code>mx-bootstrap.sh</code>'s probe pass end-to-end; move tool-presence/version, gh-auth, and tangle probes into <code>bin/mx-probe-lib.sh</code> <span class="pill new">new</span>; re-point <code>mx-bootstrap.sh</code> <span class="pill mod">mod</span> at the lib with byte-identical output. Land alone, with <code>mx-bootstrap.test.sh</code> green unmodified — this commit must be behavior-invisible.</li>
+<li><b>Skeleton + report renderer.</b> <code>bin/mx-doctor.sh</code> <span class="pill new">new</span>: check registry (name, category, run function), OK/WARN/FAIL renderer, summary line, exit-code policy (0/1/2), <code>--json</code>, <code>--check &lt;name&gt;</code>.</li>
+<li><b>Checks, group 1 — locks &amp; liveness.</b> <code>watcher-lock</code>, <code>watcher-beacon</code>, sourcing <code>mx-lock-lib.sh</code> + <code>mx-wake-lib.sh</code> for the proofs. No new liveness code.</li>
+<li><b>Checks, group 2 — tasks &amp; worktrees.</b> <code>orphan-worktrees</code>, <code>dangling-pids</code>, <code>stateless-sessions</code>.</li>
+<li><b>Checks, group 3 — queues, holds &amp; runs.</b> <code>wake-queue-orphans</code>, <code>open-holds</code> (wrapping <code>mx-decision-hold.sh verify</code>), <code>dispatch-queue-age</code>, <code>gate-runs</code>, <code>workflow-runs</code>.</li>
+<li><b>Checks, group 4 — tools &amp; environment.</b> <code>tools</code> (via <code>mx-probe-lib.sh</code>), <code>compat-symlinks</code>.</li>
+<li><b>--fix whitelist.</b> Implement the two remediations behind <code>--fix</code>; both re-verify their proof immediately before acting (TOCTOU guard) and log exactly what was changed; re-run the affected checks afterward so the report shows post-fix state.</li>
+<li><b>Docs + pointer.</b> <code>docs/doctor.md</code> <span class="pill new">new</span> (checks, severities, the --fix contract); AGENTS.md <span class="pill mod">mod</span> one-liner ("system feels wrong → run <code>mx-doctor.sh</code>"); the recovery skill gains "run doctor first" as step zero <span class="pill mod">mod</span>. Register <code>tests/mx-doctor.test.sh</code> in <code>mx-test-run.sh</code>'s family map <span class="pill mod">mod</span>.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+<tr><th>File</th><th>Action</th><th>Notes</th></tr>
+<tr><td><code>bin/mx-doctor.sh</code></td><td>New</td><td>The sweep: check registry, renderer, <code>--json</code>/<code>--fix</code>/<code>--check</code>, exit-code policy.</td></tr>
+<tr><td><code>bin/mx-probe-lib.sh</code></td><td>New</td><td>Shared probes extracted from bootstrap (single owner). Named "probe" because <code>mx-check-lib.sh</code> is the watcher's unrelated check registry.</td></tr>
+<tr><td><code>bin/mx-bootstrap.sh</code></td><td>Modify</td><td>Re-pointed at <code>mx-probe-lib.sh</code>; session-start output contract byte-identical.</td></tr>
+<tr><td><code>bin/mx-lock-lib.sh</code>, <code>bin/mx-wake-lib.sh</code></td><td>—</td><td>Consumed unchanged — doctor reuses their proofs, adds nothing to them.</td></tr>
+<tr><td><code>docs/doctor.md</code></td><td>New</td><td>Check catalog, severity meanings, the --fix contract.</td></tr>
+<tr><td><code>AGENTS.md</code>, recovery skill (<code>stuck-crewmate-recovery</code>'s post-rebrand successor)</td><td>Modify</td><td>Pointers only: doctor as the first diagnostic step.</td></tr>
+<tr><td><code>bin/mx-test-run.sh</code></td><td>Modify</td><td>Register the new test file in family/lane maps.</td></tr>
+<tr><td><code>tests/mx-doctor.test.sh</code></td><td>New</td><td>See Test plan.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<p>Runner: <code>bin/mx-test-run.sh</code>; <code>--check-coverage</code> must pass after registering the new file.</p>
+
+<h3>(a) Existing tests that must keep passing</h3>
+<p><b><code>mx-bootstrap.test.sh</code></b> (upstream <code>fm-bootstrap.test.sh</code>) is the headline: it must pass <b>unmodified</b> after step 1's probe extraction — that is the proof the refactor changed nothing observable. Also unmodified: <code>mx-watcher-lock.test.sh</code> (from <code>fm-watcher-lock.test.sh</code> — doctor reads the same lock the watcher owns, and must not perturb its semantics), <code>mx-wake-queue.test.sh</code>, <code>mx-guard-stale-banner.test.sh</code>, <code>mx-decision-hold-lifecycle.test.sh</code>, <code>mx-teardown.test.sh</code>, and the plan 07/10/11 suites whose records doctor inspects read-only.</p>
+
+<h3>(b) Existing tests needing changes</h3>
+<p>None expected. If the probe extraction forces a change to <code>mx-bootstrap.test.sh</code>, that is a signal the extraction altered bootstrap's output contract — fix the extraction, not the test. The only sanctioned exception: a test that asserted probe logic <i>by sourcing bootstrap internals directly</i> (none known upstream) would re-point at the lib, declared per porting.md §3.5 in the same commit.</p>
+
+<h3>(c) New tests — <code>tests/mx-doctor.test.sh</code></h3>
+<table>
+<tr><th>Case</th><th>Asserts</th></tr>
+<tr><td>Fixture classification</td><td>Each check classifies a crafted fixture correctly, using <code>tests/lib.sh</code>'s temp root + fakebin shims: a stale watcher lock (dead-pid lockfile, old mtime, fakebin <code>lsof</code> reporting no holder) → FAIL from <code>watcher-lock</code>; an orphan worktree lease (fakebin treehouse inventory vs. empty <code>state/</code>) → FAIL from <code>orphan-worktrees</code>; a meta recording a dead pid → FAIL from <code>dangling-pids</code>; a wake-queue entry with no task meta → FAIL from <code>wake-queue-orphans</code>; plus one clean fixture where every check reports OK.</td></tr>
+<tr><td>Zero mutations by default</td><td>Snapshot the fixture tree (recursive file list + hashes + mtimes) before and after <code>mx-doctor.sh</code> on a dirty fixture; byte-identical. This is the read-only guarantee as a test, not a comment.</td></tr>
+<tr><td>--fix whitelist &amp; idempotence</td><td>On a fixture containing both whitelisted findings (stale lock, orphan queue entry) and non-whitelisted ones (dead pid, orphan worktree): <code>--fix</code> repairs exactly the two whitelisted findings and nothing else (snapshot-diff shows only those paths changed); a second <code>--fix</code> run reports the whitelisted checks OK and changes nothing (idempotent); non-whitelisted findings still reported with their suggested commands.</td></tr>
+<tr><td>Fail-safe uncertainty</td><td>With fakebin <code>lsof</code> erroring (the lib's "cannot tell" path), <code>--fix</code> does NOT clear the lock and the report says why — inheriting <code>mx-lock-lib.sh</code>'s any-uncertainty-means-not-stale posture.</td></tr>
+<tr><td>Exit codes</td><td>Clean fixture → 0; WARN-only fixture (stale beacon, live tasks) → 1; any FAIL → 2. <code>--json</code> output parses and its worst-severity field matches the exit code.</td></tr>
+</table>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>Strictly after the port completes</b> — doctor inspects records that only exist post-port: plan 07's backlog (<code>dispatch-queue-age</code>), <a href="10-deep-review-gate.html">plan 10</a>'s <code>state/&lt;id&gt;.gate/</code>, <a href="11-workflow-engine.html">plan 11</a>'s <code>state/&lt;run-id&gt;.workflow/</code>, and the <code>mx-</code> names throughout. It must not gate the port itself.</li>
+  <li><a href="12-event-journal.html">Plan 12</a> (mx-journal) is a soft, optional enhancement: when a journal exists, doctor <i>may</i> show the last few events next to a finding for context ("last event for fix-auth-42: gate.step.finished 3d ago") — display only, never an input to any check's verdict, per plan 12's observability-only invariant. Doctor must work fully with no journal present.</li>
+  <li>Order within the plan is strict only at step 1: the probe extraction lands alone, first, with bootstrap tests green, before any doctor code exists.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout warn"><div class="label">Risk — the probe extraction (the one risky bit)</div>
+<p style="margin:0">Refactoring a working bootstrap is the only edit here that can break existing behavior. Bootstrap's output lines are a parsed contract (session-start agents and <code>mx-bootstrap.test.sh</code> both consume them), and its probes have subtle branches — e.g. treehouse/no-mistakes-era version-compatibility reporting as <code>MISSING</code>, and the fleet-sync timeout wording. Mitigations: the extraction is its own commit with zero doctor code in it; acceptance is <code>mx-bootstrap.test.sh</code> green <i>unmodified</i>; where a probe is awkward to extract cleanly (fleet-sync's timeout plumbing), leave it in bootstrap and have doctor call a narrower probe — extraction scope follows safety, not symmetry.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — --fix scope creep</div>
+<p style="margin:0">Every future stale-state annoyance will lobby to join the whitelist ("doctor should just tear that down"). The contract is structural: the whitelist is a named list in one place, each entry must cite the pre-existing proof primitive it reuses, and the snapshot-diff test enumerates the exact paths <code>--fix</code> may touch — adding a remediation without extending the test fails CI.</p>
+</div>
+<div class="callout"><div class="label">Open question — WARN/FAIL severity boundaries</div>
+<p style="margin:0">Which findings are WARN vs FAIL is a judgment call per check (a stale beacon with zero in-flight tasks is arguably OK, with in-flight tasks it's the guard's alarm case). v1 ships conservative defaults documented in <code>docs/doctor.md</code>; tune from real use rather than debating up front.</p>
+</div>
+<div class="callout"><div class="label">Open question — dispatch-age threshold</div>
+<p style="margin:0">48h default for <code>dispatch-queue-age</code> is a guess. Make it a config knob (env or config file, consistent with how plan 07 exposes its headroom knobs) and revisit after a few weeks of live use.</p>
+</div>
+<div class="callout"><div class="label">Open question — compat-symlink retirement</div>
+<p style="margin:0">Porting.md decision 10 says the <code>Computer -&gt; Multplx</code> links "can be removed once no old session needs resuming." Doctor treats absent as OK and dangling as WARN — but should it eventually nudge removal once the links are old and unused? Deferred; report-only either way.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="12-event-journal.html">← Plan 12: mx-journal</a>
+  <a href="index.html">Index</a>
+  <a href="14-upstream-sync.html">Plan 14: upstream sync →</a>
+</div>
+
+</div>
+</body>
+</html>

@@ -46,7 +46,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <header class="hero"><div class="wrap">
   <div class="plan-num">Multplx · Port Master Plan</div>
   <h1>Porting firstmate → Multplx</h1>
-  <p class="subtitle">Eleven ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
+  <p class="subtitle">Fourteen ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Plans 01–11 are the port; plans 12–14 are post-port improvements that don't gate it. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
 </div></header>
 
 <div class="wrap">
@@ -64,7 +64,8 @@ tr:nth-child(even) td{background:var(--surface)}
 <b>Phase 5</b> Own the tools → 07 -axi replacements (gh, backlog, headroom) → 08 vplan module<br>
 <b>Phase 6</b> Safe delivery → 09 least-privilege push service<br>
 <b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)<br>
-<b>Phase 8</b> Compose       → 11 workflow engine (user-defined multi-stage workflows, create-workflow skill)
+<b>Phase 8</b> Compose       → 11 workflow engine (user-defined multi-stage workflows, create-workflow skill)<br>
+<b>Phase 9</b> Post-port     → 12 event journal → 13 mx-doctor → 14 upstream sync
 </div>
 
 <div class="phase-label">Phase 1 · Shrink the surface</div>
@@ -136,6 +137,23 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="top"><span class="num">PLAN 11</span><span class="title">Workflow Engine — Deterministic Skeleton, Model-Driven Interior</span></div>
   <div class="desc">User-defined, repeatable multi-stage workflows: one shared engine (mx-workflow.sh) enforces stage order, gates (approve/auto), and output contracts from schema-validated definition files, while the model does the judgment work inside each stage. Includes the create-workflow skill — the broker interviews the maintainer and authors new definitions itself.</div>
   <div class="meta"><span class="tag">New feature (maintainer request)</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
+</a>
+
+<div class="phase-label">Phase 9 · Post-port improvements (don't gate the port)</div>
+<a class="card" href="12-event-journal.html" style="--card-accent:#79c0ff">
+  <div class="top"><span class="num">PLAN 12</span><span class="title">mx-journal — One Timeline per Task</span></div>
+  <div class="desc">An append-only observability journal every writer also emits to (spawns, status transitions, classification verdicts with the winning signal tier, gate rounds, decisions, workflow stages, delivery). mx-timeline &lt;id&gt; reconstructs any task's life in one command. Never read for control flow — the scattered state files remain the operational truth.</div>
+  <div class="meta"><span class="tag">Post-port (maintainer request)</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
+</a>
+<a class="card" href="13-doctor.html" style="--card-accent:#56d364">
+  <div class="top"><span class="num">PLAN 13</span><span class="title">mx-doctor — One Command to Check Every Invariant</span></div>
+  <div class="desc">A read-only health sweep of every system invariant (stale locks, orphaned worktrees, dead PIDs, dangling queue entries, open holds with no task, tool/auth presence, compat-symlink health) with a whitelisted --fix mode for provably-safe cleanups. Reuses bootstrap's probe logic via a shared check lib.</div>
+  <div class="meta"><span class="tag">Post-port (maintainer request)</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Low</span></div>
+</a>
+<a class="card" href="14-upstream-sync.html" style="--card-accent:#e3b341">
+  <div class="top"><span class="num">PLAN 14</span><span class="title">Upstream Sync — Don't Fork and Forget</span></div>
+  <div class="desc">A fork-point record, a subsystem relevance map, and a review-and-reimplement procedure so upstream firstmate bug fixes to kept mechanisms still reach Multplx. Shipped as a workflow definition for the plan-11 engine — its first recurring consumer. Includes an explicit retirement path when triage stops paying for itself.</div>
+  <div class="meta"><span class="tag">Post-port (maintainer request)</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span></div>
 </a>
 
 <h2>What we deliberately keep (no plan needed)</h2>
