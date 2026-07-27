@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 09 — Least-Privilege Push — Agents Never Hold Remote Credentials · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#f85149; --accent-dim:rgba(248,81,73,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 09 / 10</div>
+    <h1>Least-Privilege Push — Agents Never Hold Remote Credentials</h1>
+    <p class="subtitle">Split "the work is done" from "the work leaves the machine." Actors commit locally only — the local commit is the verifiable "artifact exists" signal for a done task. A separate, non-agent process with its own service credentials owns <code>git push</code> and PR-open, and it fires only after validation passes and/or the maintainer approves.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 6</span>
+      <span class="badge effort">Effort: Medium</span>
+      <span class="badge risk">Risk: Medium</span>
+      <span class="badge">UPDATE_PLAN §2</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2 id="overview">Overview</h2>
+
+<p>UPDATE_PLAN §2 states the principle plainly: actors (firstmate's crewmates) <i>"should never hold remote write credentials — this isn't a workaround for an org policy, it's the correct shape regardless."</i> The two halves of the design, verbatim from §2:</p>
+
+<ul>
+  <li>An actor commits <b>locally only</b> — <i>"no remote permission needed, and it's our verifiable 'artifact exists' signal for a done task."</i></li>
+  <li>A <b>separate, non-agent process</b> with its own service credentials owns the actual <code>git push</code> / PR-open step, <i>"triggered only after validation passes and/or the [maintainer] approves."</i></li>
+</ul>
+
+<p>Today, delivery in firstmate is agent-adjacent: whichever session runs <code>fm-pr-merge.sh</code> uses whatever GitHub credentials are ambient in that environment, and the push that precedes a PR happens from inside the crewmate's own session with the crewmate's own token. A prompt-injected or simply confused agent can therefore push anything, anywhere its token reaches, at any time. The fix is structural, not behavioral: <b>take the capability away</b>. Agent processes run with no push-capable credential at all (read-only token or none), so "the actor decided to push early" becomes "the actor <em>cannot</em> push," enforced by the credential boundary rather than by prompt discipline.</p>
+
+<p>This plan designs the concrete mechanism: a new <b><code>mx-push-service</code></b> (working name; entry script <code>bin/mx-deliver.sh</code>) that runs <em>outside any agent session</em> — invoked directly by the maintainer, or by a credentialed launchd/cron context — reads a queue of validated branches (<code>state/&lt;id&gt;.ready-to-push</code> records written by the deep-review gate, <a href="10-deep-review-gate.html">plan 10</a>), performs the push and <code>gh pr create</code>, and records the resulting PR URL back into task state where the existing watcher machinery picks it up.</p>
+
+<p>UPDATE_PLAN §6.4 confirms this is the load-bearing end of the gate design: the local pipeline deliberately stops at <i>"a clean, validated branch committed locally — nothing has left the machine,"</i> and delivery <i>"ties directly into §2 (least-privilege push): the crewmate never pushes."</i> §6.4 also notes the consequence we inherit for free: the system becomes <i>"egress-safe and push-guard-compatible by construction"</i> — the single outbound <code>git push</code> goes through one normal, approved, human-or-service-controlled path.</p>
+
+<h2 id="goals">Goals &amp; Non-goals</h2>
+
+<table>
+  <tr><th style="width:50%">Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Actor and daemon processes hold <b>zero push-capable credentials</b> — enforced by environment construction, not prompts.</li>
+        <li>Local commit on the task branch is the canonical "artifact exists" signal for a done task.</li>
+        <li>A non-agent <code>mx-push-service</code> owns push + PR-open, gated on a validated <code>.ready-to-push</code> record and the maintainer's approval chain.</li>
+        <li>Push refuses if the branch head moved after validation (approved-SHA pinning).</li>
+        <li>PR URL flows back into task state so the existing PR-check/poll watchers work unchanged.</li>
+        <li>Merge goes through plain <code>gh</code> (plan 07's gh-axi→gh swap), invoked from the same credentialed non-agent context.</li>
+      </ul>
+    </td>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Reimplementing the deep-review gate itself — plan 10 owns validation; this plan only consumes its verdict.</li>
+        <li>A push-proxy remote or any no-mistakes-style git proxy (explicitly rejected in UPDATE_PLAN §6.5).</li>
+        <li>A long-running push daemon with in-memory state — the queue is on disk and every run is restart-reconstructable, per firstmate's core design virtue.</li>
+        <li>Local-only delivery (<code>fm-merge-local.sh</code>'s fast-forward path) — it never touches a remote and needs no credentials; it survives as-is (renamed).</li>
+        <li>GitLab support — the fork is GitHub-only (UPDATE_PLAN §8.1 deletes glab).</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2 id="current">Current state in firstmate</h2>
+
+<p>Firstmate already has strong <em>merge</em> discipline but no push-side credential separation. The pieces (all paths verified against the checkout):</p>
+
+<ul>
+  <li><b><code>bin/fm-pr-merge.sh</code></b> — the one sanctioned path to merge a task's PR. Parses the canonical PR URL via <code>fm-pr-lib.sh</code>, records <code>pr=</code>/<code>pr_head=</code> into the task meta first (so teardown's landed-check has a reference), then merges via <b>gh-axi</b>: <code>gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" ...</code> (line 84). GitHub-only; refuses non-GitHub providers. Defaults to <code>--squash</code>.</li>
+  <li><b><code>bin/fm-pr-check.sh</code></b> — records a PR-ready task: validates and stores one canonical <code>pr=&lt;url&gt;</code> plus the forge's exact <code>pr_head=&lt;sha&gt;</code>, then atomically arms a static merge poll. Task/PR data live in a private sidecar, never interpolated into shell source.</li>
+  <li><b><code>bin/fm-pr-poll.sh</code></b> — the static watcher program for a validated PR poll sidecar: emits exactly one <code>merged</code> line when the PR merges and stays silent otherwise (including on every error, so a failed lookup can never read as a merge). Reads GitHub via <code>gh</code> (and GitLab via <code>glab</code> — the branch plan 07/§8.1 deletes).</li>
+  <li><b><code>bin/fm-pr-lib.sh</code></b> — shared URL parsing/validation (task-id validity, canonical URL, owner/repo/number extraction, provider tagging).</li>
+  <li><b><code>bin/fm-push-transition-lib.sh</code></b> — shared owner of the watcher's native push-transition escalation (<code>handle_push_transition</code>): how the watcher reacts when a crewmate's work transitions to pushed/PR state. Sources <code>fm-wake-lib.sh</code>, <code>fm-classify-lib.sh</code>, <code>fm-backend.sh</code>, <code>fm-transition-lib.sh</code>.</li>
+  <li><b><code>bin/fm-merge-local.sh</code></b> — the local-only delivery path: after captain approval, fast-forwards the project's default branch to the crewmate's <code>fm/&lt;id&gt;</code> branch. Refuses diverged branches. Never touches a remote.</li>
+</ul>
+
+<p><b>The gap:</b> nothing separates <em>who can push</em> from <em>who does the work</em>. The crewmate pushes its own branch with ambient credentials; <code>fm-pr-merge.sh</code> runs wherever it's invoked with whatever token is in scope. There is no on-disk record of "validated and approved at SHA X" that delivery is conditioned on.</p>
+
+<table>
+  <tr><th>File (relative to <code>firstmate/</code>)</th><th>Role today</th></tr>
+  <tr><td><code>bin/fm-pr-merge.sh</code></td><td>Merge via <code>gh-axi pr merge</code> (line 84); records <code>pr=</code>/<code>pr_head=</code> first; GitHub-only; squash default.</td></tr>
+  <tr><td><code>bin/fm-pr-check.sh</code></td><td>Validates + records the PR URL/head SHA; arms the static merge poll sidecar.</td></tr>
+  <tr><td><code>bin/fm-pr-poll.sh</code></td><td>Static poll program; one <code>merged</code> line, silent on all errors.</td></tr>
+  <tr><td><code>bin/fm-pr-lib.sh</code></td><td>PR URL parsing/validation shared by check/poll/merge.</td></tr>
+  <tr><td><code>bin/fm-push-transition-lib.sh</code></td><td>Watcher-side push-transition escalation (<code>handle_push_transition</code>).</td></tr>
+  <tr><td><code>bin/fm-merge-local.sh</code></td><td>Approved local fast-forward merge for local-only tasks (no remote).</td></tr>
+  <tr><td><code>tests/fm-pr-merge.test.sh</code></td><td>Merge records meta before merging; refusal when gh-axi fails; arg forwarding.</td></tr>
+  <tr><td><code>tests/fm-pr-check-security.test.sh</code></td><td>PR-check input validation / injection safety.</td></tr>
+</table>
+
+<h2 id="target">Target design in Computer</h2>
+
+<h3>The delivery pipeline, end to end</h3>
+
+<pre><code>  ACTOR (no push credential)                NON-AGENT PUSH SERVICE (service credential)
+  ─────────────────────────                 ──────────────────────────────────────────
+  work in worktree
+       │
+  git commit (local only)  ──── "artifact exists" signal; task can be done:
+       │                        without anything leaving the machine
+  deep-review gate (plan 10)
+  validates the branch
+       │
+  gate writes state/&lt;id&gt;.ready-to-push ──┐
+  (branch, approved SHA, verdict)         │
+       │                                  ▼
+  maintainer approves            bin/mx-deliver.sh  (maintainer-invoked, or
+  (or standing +yolo,            credentialed launchd/cron context — never
+  per the gate's ask-user        inside an agent session)
+  authority chain)                        │
+                                  re-verify: record approved? head SHA unchanged?
+                                          │
+                                  git push origin &lt;branch&gt;          }  the ONLY
+                                  gh pr create                       }  egress
+                                          │
+                                  write pr=&lt;url&gt; / pr_head=&lt;sha&gt; back into state
+                                  (feeds mx-pr-check.sh → static merge poll)
+                                          │
+                                  merge (maintainer-approved) via plain `gh`
+                                  (plan 07's gh-axi → gh swap), same context
+</code></pre>
+
+<h3>1. Actors commit locally only</h3>
+
+<p>An actor's definition of done for a ship task becomes: <b>a clean, validated branch committed locally in its worktree</b>. The local commit is the verifiable "artifact exists" signal — the broker (and teardown's landed-work check) can confirm the artifact by inspecting the local repo, with no remote round-trip and no remote permission. The deep-review gate (plan 10) ends at <code>lint</code> with exactly this state, per UPDATE_PLAN §6.4.</p>
+
+<h3>2. The ready-to-push queue</h3>
+
+<p>The deep-review gate, on a passing run, writes one record per task — the queue is just files in <code>state/</code>, restart-reconstructable like everything else:</p>
+
+<pre><code># state/&lt;id&gt;.ready-to-push        (written by mx-deep-review.sh; consumed by mx-deliver.sh)
+worktree=/path/to/worktree
+branch=mx/&lt;id&gt;
+approved_sha=&lt;head SHA at the moment validation passed&gt;
+base=main
+gate_run=state/&lt;id&gt;.gate/            # pointer to the gate's run record (findings, rounds)
+approval=pending|approved            # flipped by the maintainer's decision (or standing +yolo)
+title/body source                    # PR title + body assembled from the gate's summary + risk line
+</code></pre>
+
+<ul>
+  <li><b><code>approved_sha</code> is the contract.</b> It pins exactly what was validated. If the branch head moves after validation (actor kept working, anything), the record is stale and the service refuses — the branch must be re-validated.</li>
+  <li><b><code>approval</code> plugs into the existing authority chain.</b> A gate run that parks <code>ask-user</code> findings surfaces them as <code>needs-decision:</code> to the maintainer (UPDATE_PLAN §6.3); only after the maintainer approves (or a standing <code>+yolo</code> auto-approves) does the record flip to <code>approved</code>. The push service never interprets findings itself — it only checks the flag.</li>
+</ul>
+
+<h3>3. <code>mx-push-service</code> — the non-agent deliverer</h3>
+
+<p>Entry script <b><code>bin/mx-deliver.sh</code></b> <span class="pill new">new</span> (with shared logic in <b><code>bin/mx-deliver-lib.sh</code></b> <span class="pill new">new</span>). It is a plain script, not a daemon: each invocation scans <code>state/*.ready-to-push</code>, delivers eligible records, and exits. Two sanctioned invocation contexts, both outside any agent session:</p>
+
+<ul>
+  <li><b>Maintainer-invoked:</b> the maintainer runs <code>mx-deliver.sh [&lt;id&gt;]</code> from their own shell, with their own credentials, as the explicit "ship it" act.</li>
+  <li><b>Credentialed scheduler context:</b> a launchd (macOS) / cron job whose environment carries the service credential, delivering any record that is already <code>approved</code>. This gives unattended delivery without ever putting the credential in an agent's environment.</li>
+</ul>
+
+<p>Per record, the service:</p>
+<ol>
+  <li><b>Re-verifies eligibility:</b> record parses, <code>approval=approved</code>, and <code>git -C &lt;worktree&gt; rev-parse HEAD</code> still equals <code>approved_sha</code>. Any mismatch → refuse loudly, mark the record stale, escalate to the maintainer; never "push whatever is there now."</li>
+  <li><b>Refuses agent ambience:</b> aborts if agent-session markers are present in its own environment (e.g. <code>CLAUDECODE=1</code> and the other harness env markers) — a belt-and-braces check that it is not being run from inside an actor/broker/daemon session.</li>
+  <li><b>Pushes:</b> <code>git push origin &lt;branch&gt;</code> — a normal push to the real remote through the approved credential path. No force-push, no proxy remote (§6.5's rejection).</li>
+  <li><b>Opens the PR:</b> <code>gh pr create</code> with the deterministically-assembled title/body from the gate's run record (summary + risk line — assembled by code, not by an agent prompt, mirroring upstream no-mistakes' deterministic PR assembly noted in §6.2).</li>
+  <li><b>Records the result back into state:</b> feeds the PR URL through <code>mx-pr-check.sh</code> (today's <code>fm-pr-check.sh</code>), which validates it, records <code>pr=</code>/<code>pr_head=</code>, and arms the static merge poll — so the entire existing watcher chain (poll → merged line → push-transition handling in <code>mx-push-transition-lib.sh</code> → teardown) works untouched. The <code>.ready-to-push</code> record is archived to <code>state/&lt;id&gt;.delivered</code>.</li>
+</ol>
+
+<h3>4. Credential separation</h3>
+
+<table>
+  <tr><th>Process</th><th>Credential</th><th>Can push?</th></tr>
+  <tr><td>Actor sessions (task agents)</td><td><b>None, or read-only token</b> (fetch/clone/PR-read only). Spawn (<code>mx-spawn.sh</code>) constructs the environment without <code>GH_TOKEN</code>/<code>GITHUB_TOKEN</code>; git remotes resolve through a read-only path.</td><td>No — structurally.</td></tr>
+  <tr><td>Broker / daemon sessions</td><td>Same as actors. The broker coordinates; it does not deliver.</td><td>No.</td></tr>
+  <tr><td><code>mx-deliver.sh</code> (push service)</td><td><b>Its own service credential</b> (fine-grained PAT or service-account <code>gh auth</code>), scoped to <code>contents:write</code> + <code>pull_requests:write</code> on the target repos only. Lives only in the maintainer's shell / the scheduler context's keychain — never in any agent-visible file or env.</td><td>Yes — the only process that can.</td></tr>
+  <tr><td>Merge step (via plan 07's plain <code>gh</code>)</td><td>Same service/maintainer credential, same non-agent context.</td><td>Merge only after maintainer approval.</td></tr>
+</table>
+
+<div class="callout ok">
+  <div class="label">Why this is the correct shape (not a policy workaround)</div>
+  <p style="margin-bottom:0">UPDATE_PLAN §2 is explicit: <i>"this isn't a workaround for an org policy, it's the correct shape regardless."</i> The blast radius of any agent failure — prompt injection, hallucinated "done", runaway loop — is capped at the local worktree. Nothing an agent can do results in remote writes, because no agent process possesses the capability. §6.4 adds the corollary: the single outbound push goes through <i>"the normal approved remote path a human/service account controls — not an AI-driven force-push to a proxy remote."</i></p>
+</div>
+
+<h3>5. What happens to the merge path</h3>
+
+<p><code>fm-pr-merge.sh</code> → <code>bin/mx-pr-merge.sh</code> <span class="pill mod">mod</span> keeps its exact contract (record <code>pr=</code>/<code>pr_head=</code> into meta <em>before</em> merging; squash default; refuse non-GitHub; no <code>--repo</code>/<code>-R</code> in extra args) but swaps <code>gh-axi pr merge</code> for plain <code>gh pr merge</code> (<a href="07-axi-replacements.html">plan 07</a>) and is documented as a <b>push-service-context command</b>: it runs where the service credential lives, on the maintainer's merge approval — never inside an agent session. <code>fm-merge-local.sh</code> → <code>mx-merge-local.sh</code> is untouched by this plan (local-only, credential-free by nature).</p>
+
+<h2 id="steps">Implementation steps</h2>
+
+<ol class="steps">
+  <li><b>Define the <code>.ready-to-push</code> record schema.</b> Document the fields above (worktree, branch, <code>approved_sha</code>, base, gate_run pointer, approval flag, PR title/body source) in the state-file reference doc <span class="pill mod">mod</span>. Coordinate with plan 10 so <code>mx-deep-review.sh</code> writes exactly this record on a passing run.</li>
+  <li><b>Build <code>bin/mx-deliver-lib.sh</code>.</b> <span class="pill new">new</span> Record parsing/validation, eligibility check (approval flag + <code>approved_sha</code> == current head), agent-ambience refusal (harness env markers), deterministic PR title/body assembly from the gate run record, and state write-back helpers.</li>
+  <li><b>Build <code>bin/mx-deliver.sh</code>.</b> <span class="pill new">new</span> The entry point: scan <code>state/*.ready-to-push</code> (or take one <code>&lt;id&gt;</code>), per eligible record do push → <code>gh pr create</code> → <code>mx-pr-check.sh &lt;id&gt; &lt;pr-url&gt;</code> → archive record to <code>state/&lt;id&gt;.delivered</code>. Stale/ineligible records are reported, never pushed. Exit non-zero if any record was refused, so schedulers surface it.</li>
+  <li><b>Strip push capability from agent environments.</b> <code>mx-spawn.sh</code> <span class="pill mod">mod</span>: construct actor/daemon environments without <code>GH_TOKEN</code>/<code>GITHUB_TOKEN</code>/push-capable <code>gh</code> auth; document the read-only-token option for repos that need authenticated reads. Update the generated brief (<code>mx-brief.sh</code> <span class="pill mod">mod</span>) to state the new contract: commit locally, never push, the gate + push service own delivery.</li>
+  <li><b>Swap the merge to plain <code>gh</code> and re-home it.</b> <code>bin/fm-pr-merge.sh</code> → <code>bin/mx-pr-merge.sh</code> <span class="pill mod">mod</span>: <code>gh-axi pr merge ...</code> → <code>gh pr merge ...</code> (plan 07), keep the record-meta-first contract, document it as push-service-context only.</li>
+  <li><b>Wire the scheduler context (optional, maintainer's choice).</b> Provide a sample launchd plist / crontab line <span class="pill new">new</span> (docs only) that runs <code>mx-deliver.sh</code> with the service credential sourced from the keychain/credential store — never from a repo file.</li>
+  <li><b>Update the watcher docs for the new boundary.</b> <code>mx-push-transition-lib.sh</code> <span class="pill mod">mod</span> (rename + comment pass): the push transition it escalates now always originates from the push service, not from an actor; classification/escalation logic itself is unchanged.</li>
+  <li><b>Write <code>tests/mx-push-service.test.sh</code> and the actor-cannot-push negative test.</b> <span class="pill new">new</span> See Test plan (c). Land tests with the scripts, not after.</li>
+</ol>
+
+<h2 id="impact">File impact table</h2>
+
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/mx-deliver.sh</code></td><td>New</td><td>The push service entry point (non-agent context only): queue scan, re-verify, push, <code>gh pr create</code>, state write-back.</td></tr>
+  <tr><td><code>bin/mx-deliver-lib.sh</code></td><td>New</td><td>Record schema parsing, eligibility + approved-SHA check, agent-ambience refusal, deterministic PR body assembly.</td></tr>
+  <tr><td><code>bin/fm-pr-merge.sh</code> → <code>bin/mx-pr-merge.sh</code></td><td>Modify</td><td>gh-axi → plain <code>gh pr merge</code> (plan 07); contract unchanged; documented as push-service-context.</td></tr>
+  <tr><td><code>bin/fm-pr-check.sh</code> → <code>bin/mx-pr-check.sh</code></td><td>Modify</td><td>Rename + GitHub-only simplification (plan 07 drops glab). Now fed by <code>mx-deliver.sh</code> instead of an agent.</td></tr>
+  <tr><td><code>bin/fm-pr-poll.sh</code> → <code>bin/mx-pr-poll.sh</code></td><td>Modify</td><td>Rename + drop glab branch. Poll semantics unchanged.</td></tr>
+  <tr><td><code>bin/fm-pr-lib.sh</code> → <code>bin/mx-pr-lib.sh</code></td><td>Modify</td><td>Rename; GitHub-only parse path.</td></tr>
+  <tr><td><code>bin/fm-push-transition-lib.sh</code> → <code>bin/mx-push-transition-lib.sh</code></td><td>Modify</td><td>Rename + comment/vocabulary pass; escalation logic unchanged.</td></tr>
+  <tr><td><code>bin/fm-spawn.sh</code> → <code>bin/mx-spawn.sh</code></td><td>Modify</td><td>Construct agent environments without push-capable credentials.</td></tr>
+  <tr><td><code>bin/fm-merge-local.sh</code> → <code>bin/mx-merge-local.sh</code></td><td>Modify (rename only)</td><td>Local-only fast-forward path; no remote, no credential — out of this plan's scope beyond the rename.</td></tr>
+  <tr><td><code>tests/mx-push-service.test.sh</code></td><td>New</td><td>See Test plan (c).</td></tr>
+  <tr><td>Docs: delivery/state-file reference, sample launchd/cron entry</td><td>New/Modify</td><td>Record schema, invocation contexts, credential-scoping guidance.</td></tr>
+</table>
+
+<h2 id="tests">Test plan</h2>
+
+<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>).</p>
+
+<h3>(a) Existing tests that must keep passing</h3>
+<ul>
+  <li><code>tests/fm-pr-merge.test.sh</code> — meta recorded before merge; merge refused when the CLI fails (no silent success); extra-arg forwarding; refusal on missing meta.</li>
+  <li><code>tests/fm-pr-check-security.test.sh</code> — PR URL/task-id validation and injection safety, unchanged by this plan.</li>
+</ul>
+
+<h3>(b) Existing tests needing changes</h3>
+<ul>
+  <li><code>tests/fm-pr-merge.test.sh</code> — the mechanical rename (<code>mx-pr-merge.sh</code>) plus its stubbed CLI changes from <code>gh-axi</code> to <code>gh</code> with adjusted argument shapes (plan 07's swap). The four asserted behaviors stay identical.</li>
+  <li><code>tests/fm-pr-check-security.test.sh</code> — rename pass; drop GitLab-URL acceptance cases once plan 07's glab removal lands (GitHub-only parse).</li>
+</ul>
+
+<h3>(c) New tests to write</h3>
+<ul>
+  <li><code>tests/mx-push-service.test.sh</code> — against a fake remote and stubbed <code>gh</code>, asserts:
+    <ul>
+      <li><b>Push fires only on a validated + approved record:</b> no <code>.ready-to-push</code> file → no push; record with <code>approval=pending</code> → no push; valid approved record → exactly one push + one <code>gh pr create</code> + PR URL recorded back into state via the pr-check path.</li>
+      <li><b>Approved-SHA pinning:</b> if the branch head no longer equals <code>approved_sha</code> (simulate a post-validation commit), the service refuses, pushes nothing, marks the record stale, and exits non-zero.</li>
+      <li><b>No agent env leaks into the service:</b> run the service under a polluted parent environment (agent markers, fake <code>GH_TOKEN</code>) and assert (i) the agent-ambience refusal triggers on harness markers, and (ii) the environment handed to the push/gh subprocesses contains only the service's own credential variables, none of the agent's.</li>
+      <li><b>Idempotence:</b> re-running after a successful delivery (record archived to <code>.delivered</code>) performs no second push.</li>
+    </ul>
+  </li>
+  <li><b>Negative test — actor sessions cannot push</b> (either a section of <code>mx-push-service.test.sh</code> or a companion): in a spawn-shaped environment with credentials absent (as <code>mx-spawn.sh</code> now constructs it), <code>git push</code> to an auth-requiring remote fails and <code>gh</code> reports unauthenticated — proving the capability, not just the instruction, is missing.</li>
+</ul>
+
+<h2 id="deps">Dependencies &amp; ordering</h2>
+
+<ul>
+  <li><b>Consumes <a href="10-deep-review-gate.html">plan 10 — deep-review gate</a>:</b> the gate writes the <code>.ready-to-push</code> record and owns the <code>ask-user</code> → maintainer-approval chain that flips <code>approval=approved</code>. The record schema must be agreed between the two plans before either ships; the service can be built first against a hand-written record.</li>
+  <li><b>Pairs with <a href="07-axi-replacements.html">plan 07 — -axi replacements</a>:</b> the gh-axi → plain <code>gh</code> swap in <code>mx-pr-merge.sh</code> lands there; this plan re-homes that command into the push-service context. The glab deletion (plan 07 / §8.1) simplifies pr-check/poll/lib to GitHub-only.</li>
+  <li><b>Rides on plan 08 (rebrand)</b> for the mechanical <code>fm-</code>→<code>mx-</code> renames of the existing PR scripts.</li>
+  <li><b>Interacts with <a href="06-worktree-provider.html">plan 06 — worktree provider</a>:</b> teardown's landed-work refusal is what protects the local-commit artifact between "done" and "delivered" — a worktree must never be recycled while its branch is queued but unpushed. The <code>.ready-to-push</code> record gives teardown one more explicit signal to refuse on.</li>
+</ul>
+
+<h2 id="risks">Risks &amp; open questions</h2>
+
+<div class="callout danger">
+  <div class="label">Risk — credential hygiene is the whole ballgame</div>
+  <p style="margin-bottom:0">If the service credential ever lands in a file an agent can read (repo, worktree, shared env file), the separation is theater. The credential must live only in the maintainer's shell session or the scheduler context's credential store, and the test suite's env-leak assertions guard the other direction (agent env never reaches the service's subprocesses). Review every state/doc write the service makes to ensure no token material is ever serialized.</p>
+</div>
+
+<div class="callout warn">
+  <div class="label">Open question — read-only token vs. no token for actors</div>
+  <p style="margin-bottom:0">UPDATE_PLAN §2 allows either ("read-only token or no token"). No token is simplest but breaks authenticated reads (private-repo fetch, PR-status reads an actor might legitimately need). A fine-grained read-only token restores those but is one more secret in agent scope. Per-project choice, maintainer to decide; default proposal: no token, add read-only per project only when a real need appears.</p>
+</div>
+
+<div class="callout warn">
+  <div class="label">Open question — delivery latency and the scheduler</div>
+  <p style="margin-bottom:0">Maintainer-invoked delivery is zero-infrastructure but means approved work waits for a human keystroke. The launchd/cron context removes the wait for already-approved records but adds a standing credentialed job on the machine. UPDATE_PLAN §2 says "triggered only after validation passes <b>and/or</b> the [maintainer] approves" — that and/or is a real policy knob (auto-deliver on gate-pass vs. always require explicit approval), possibly per-project alongside the existing delivery-mode/autonomy registry. Maintainer decision; default proposal: explicit approval required until trust is established.</p>
+</div>
+
+<div class="callout warn">
+  <div class="label">Open question — where does the branch get pushed <em>from</em>?</div>
+  <p style="margin-bottom:0">The service pushes from the actor's worktree path recorded in the <code>.ready-to-push</code> record. That worktree must still exist and be at <code>approved_sha</code> at delivery time — which orders delivery <em>before</em> teardown. Alternative: the gate could bundle the validated commits (e.g. <code>git bundle</code>) into state so delivery survives early teardown. Extra machinery; deferred unless worktree-lifetime coupling proves painful in practice.</p>
+</div>
+
+<div class="callout">
+  <div class="label">Risk — two sources of push-transition truth during migration</div>
+  <p style="margin-bottom:0">Until every project is on the new flow, the watcher may see pushes from both old-style (agent-pushed) and new-style (service-pushed) tasks. <code>mx-push-transition-lib.sh</code>'s classification is agnostic to the pusher, so this is a doc/expectations issue rather than a code one — but call it out in the migration notes so a legacy agent push isn't mistaken for a service failure.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="08-vplan.html">&larr; 08 — vplan</a>
+  <a href="index.html">Index</a>
+  <a href="10-deep-review-gate.html">10 — Deep-Review Gate &rarr;</a>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Computer — Firstmate Port Master Plan</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --accent-dim:rgba(88,166,255,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --orange:#f0883e; --cyan:#39c5cf;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:56px 0 36px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:38px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:780px}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+p{margin:0 0 14px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+.phase-label{font-family:var(--mono);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin:32px 0 12px}
+.card{display:block;text-decoration:none;color:var(--text);border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:10px;background:var(--surface);padding:18px 22px;margin-bottom:12px;transition:background .15s,transform .15s}
+.card:hover{background:var(--surface2);transform:translateX(4px)}
+.card .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.card .num{font-family:var(--mono);font-size:13px;color:var(--card-accent,var(--accent));font-weight:700}
+.card .title{font-size:17px;font-weight:600}
+.card .desc{color:var(--muted);font-size:14px;margin-top:4px}
+.card .meta{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tag{font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.tag.effort-low{color:var(--green)} .tag.effort-med{color:var(--yellow)} .tag.effort-high{color:var(--red)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.flow{font-family:var(--mono);font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;overflow-x:auto;line-height:1.9;color:var(--muted);margin-bottom:20px}
+.flow b{color:var(--text)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Computer · Port Master Plan</div>
+  <h1>Porting firstmate → Computer</h1>
+  <p class="subtitle">Ten ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Computer</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
+</div></header>
+
+<div class="wrap">
+
+<div class="callout"><div class="label">How to read these plans</div>
+<p>Each plan is a self-contained HTML document derived from a section of <code>UPDATE_PLAN.md</code>, grounded against the real firstmate sources in <code>firstmate/</code>. Plans are numbered in recommended execution order — dependencies flow downward. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream firstmate; target designs use the new terms: <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), <b>daemon</b> (persistent domain agent). All new scripts carry the <code>mx-</code> prefix.</p>
+</div>
+
+<h2>Execution flow</h2>
+<div class="flow">
+<b>Phase 1</b> Shrink        → 01 deletions (social relay, glab, shellcheck installer, wedge alarm, zellij/orca/grok/opencode)<br>
+<b>Phase 2</b> Rename        → 02 rebrand (vocabulary, AGENTS.md rewrite, fm-→mx- sweep)<br>
+<b>Phase 3</b> Harden core   → 03 validated status reporting → 04 watcher nudge → 05 signal precedence<br>
+<b>Phase 4</b> Foundation    → 06 worktree provider decision (treehouse keep vs. build)<br>
+<b>Phase 5</b> Own the tools → 07 -axi replacements (gh, backlog, headroom) → 08 vplan module<br>
+<b>Phase 6</b> Safe delivery → 09 least-privilege push service<br>
+<b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)
+</div>
+
+<div class="phase-label">Phase 1 · Shrink the surface</div>
+<a class="card" href="01-deletions.html" style="--card-accent:#58a6ff">
+  <div class="top"><span class="num">PLAN 01</span><span class="title">Delete the Dead Weight — Outright Dependency Removal</span></div>
+  <div class="desc">Remove the myfirstmate.io X/Discord social relay, GitLab (glab) support, the standalone shellcheck installer/gate, and the macOS osascript wedge alarm — plus the decided backend/harness pruning: drop zellij &amp; orca backends and grok &amp; opencode harnesses (keep tmux, cmux, herdr / claude, codex, pi).</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §8.1 + pruning</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Low</span></div>
+</a>
+
+<div class="phase-label">Phase 2 · Rename everything</div>
+<a class="card" href="02-rebrand.html" style="--card-accent:#bc8cff">
+  <div class="top"><span class="num">PLAN 02</span><span class="title">Full Rebrand — Ship Metaphor Out, Computer Vocabulary In</span></div>
+  <div class="desc">maintainer / broker / actor / daemon role vocabulary, a real rewrite of AGENTS.md (verbs, not just nouns), and the repo-wide fm-→mx- rename sweep across scripts, env vars, docs, state paths, and log strings.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §7</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
+</a>
+
+<div class="phase-label">Phase 3 · Harden the core loop</div>
+<a class="card" href="03-status-reporting.html" style="--card-accent:#3fb950">
+  <div class="top"><span class="num">PLAN 03</span><span class="title">Validated Status Reporting — Enforce the Schema at Write-Time</span></div>
+  <div class="desc">New mx-report wrapper + MCP report_status tool validate every status line against the closed state enum before it hits disk, so malformed reports fail loudly on the model's own turn instead of silently degrading downstream.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §3</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
+</a>
+<a class="card" href="04-watcher-nudge.html" style="--card-accent:#3fb950">
+  <div class="top"><span class="num">PLAN 04</span><span class="title">Low-Latency Nudge — Wake the Watcher Without a Daemon</span></div>
+  <div class="desc">mx-report optionally signals the live watcher as a pure fast-path wake; the durable status write happens every time regardless, and with no listener it's a silent no-op back to normal polling. No new persistent process.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §4</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span></div>
+</a>
+<a class="card" href="05-signal-precedence.html" style="--card-accent:#3fb950">
+  <div class="top"><span class="num">PLAN 05</span><span class="title">Explicit Signal Precedence in the Classifier</span></div>
+  <div class="desc">One documented rule in the classify lib for conflicting signals about the same task: harness-native event &gt; schema-validated self-report &gt; text/regex heuristic — applied uniformly across every backend.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §5</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Medium</span></div>
+</a>
+
+<div class="phase-label">Phase 4 · Foundation decision</div>
+<a class="card" href="06-worktree-provider.html" style="--card-accent:#d29922">
+  <div class="top"><span class="num">PLAN 06</span><span class="title">Worktree Provider — The Treehouse Decision</span></div>
+  <div class="desc">Decided: keep treehouse as-is (Path K). The §1-vs-§8 contradiction is resolved by maintainer decision; this phase reduces to the rebrand rename of the installer and probes. The build-our-own designs remain in the plan as reference only.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §1 + §8</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span><span class="tag" style="color:var(--green);border-color:var(--green)">Decided: keep</span></div>
+</a>
+
+<div class="phase-label">Phase 5 · Own the toolbelt</div>
+<a class="card" href="07-axi-replacements.html" style="--card-accent:#f0883e">
+  <div class="top"><span class="num">PLAN 07</span><span class="title">Owning the Toolbelt — Replacing the -axi Dependencies</span></div>
+  <div class="desc">gh-axi collapses to the official gh CLI; tasks-axi becomes an in-repo markdown backlog lib; quota-axi becomes our own headroom check (capacity model to be decided); chrome-devtools-axi is deferred out.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §8.2</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
+</a>
+<a class="card" href="08-vplan.html" style="--card-accent:#f0883e">
+  <div class="top"><span class="num">PLAN 08</span><span class="title">vplan — Standalone HTML Plan-Artifact Module</span></div>
+  <div class="desc">Our replacement for lavish-axi: a self-contained module (mx-vplan.sh) that renders rich HTML plan documents from a defined plan-input contract. Deliberately standalone — not folded into status/finding reporting.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §8.5</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
+</a>
+
+<div class="phase-label">Phase 6 · Safe delivery</div>
+<a class="card" href="09-least-privilege-push.html" style="--card-accent:#f85149">
+  <div class="top"><span class="num">PLAN 09</span><span class="title">Least-Privilege Push — Agents Never Hold Remote Credentials</span></div>
+  <div class="desc">Actors commit locally only; a separate non-agent process with its own service credentials owns git push and PR-open, triggered only after validation passes and the maintainer approves.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §2</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
+</a>
+
+<div class="phase-label">Phase 7 · The flagship gate</div>
+<a class="card" href="10-deep-review-gate.html" style="--card-accent:#39c5cf">
+  <div class="top"><span class="num">PLAN 10</span><span class="title">deep-review — the Local, Egress-Safe Validation Gate</span></div>
+  <div class="desc">Replaces the upstream no-mistakes tool with an in-repo pipeline (mx-deep-review.sh) run by the already-approved harness: fixed step order, schema-forced findings, deterministic gate decisions, default-branch-only command trust, delivery stopping at a validated local branch.</div>
+  <div class="meta"><span class="tag">UPDATE_PLAN §6 + §8.6</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: High</span></div>
+</a>
+
+<h2>What we deliberately keep (no plan needed)</h2>
+<table>
+  <tr><th>Kept as-is</th><th>Why</th></tr>
+  <tr><td>Status-log-is-an-event-not-truth + the crew-state reconciliation oracle</td><td>Core design virtue — plans 03/05 feed it better input, never replace it.</td></tr>
+  <tr><td>Stop-hook turn-end backstop</td><td>Actively blocks blind turn-ends while work is in flight — stronger than passive detection.</td></tr>
+  <tr><td>Herdr native busy/idle/done/blocked events</td><td>Real event source instead of polling; becomes the top precedence tier in plan 05.</td></tr>
+  <tr><td>Zero-token bash classifier, durable wake-queue, singleton watcher lock, liveness beacon</td><td>Verified solid in the architecture review.</td></tr>
+  <tr><td>jq, git, curl, gh, node, python3, coreutils</td><td>Genuine infrastructure (UPDATE_PLAN §8.3).</td></tr>
+</table>
+
+<p style="color:var(--muted);font-family:var(--mono);font-size:13px;margin-top:40px">Source of truth: <code>UPDATE_PLAN.md</code> · Dependency catalog: <code>firstmate_dependencies.md</code> · Execution guide: <code>plans/porting.md</code></p>
+</div>
+</body>
+</html>

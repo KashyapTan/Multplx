@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 04 — Low-Latency Nudge · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#3fb950; --accent-dim:rgba(63,185,80,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 04 / 10</div>
+    <h1>Low-Latency Nudge — Wake the Watcher Without a Daemon</h1>
+    <p class="subtitle">After its durable status append, <code>mx-report</code> sends a pure fast-path nudge — a liveness-verified <code>SIGUSR1</code> to the watcher's advertised PID — so the watcher wakes immediately instead of at its next poll. If nobody is listening it is a silent no-op and the normal <code>MX_POLL</code> polling (default 15s) picks the event up unchanged. No HTTP daemon, no new persistent process, no new restart-proofing burden.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 3</span>
+      <span class="badge effort">Effort: Low</span>
+      <span class="badge risk">Risk: Low</span>
+      <span class="badge">UPDATE_PLAN §4</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Every status event today waits for the watcher's poll cycle: <code>bin/fm-watch.sh</code> sleeps <code>FM_POLL</code> (default 15s, becoming <code>MX_POLL</code>) between scans, so a status append lands on average ~7.5 seconds before anyone reads it. UPDATE_PLAN §4 records the <strong>rejected</strong> idea for closing that gap: a standalone HTTP status-ingest listener. It would cut the latency, but it reintroduces a long-running stateful process — and that cuts directly against the design virtue this codebase is built around: <em>everything is reconstructable from disk; kill any process and the next one reconciles with zero daemon state to restore</em>.</p>
+<p>The better fit, chosen by UPDATE_PLAN §4: have <code>mx-report</code> (the validated status writer from <a href="03-status-reporting.html">Plan 03</a>) optionally send a signal (or write to a named pipe) to the watcher's PID as a <strong>pure fast-path nudge</strong>. The durable write to <code>state/&lt;id&gt;.status</code> happens every time regardless; the nudge just wakes the watcher immediately instead of it waiting for its next poll. If nobody's listening, it's a silent no-op and the event falls back to normal polling.</p>
+<p>This works with the grain of the existing architecture rather than around it: the watcher already advertises its identity durably on disk (the singleton lock at <code>state/.watch.lock/</code> stores the holder's <code>pid</code> and a PID-reuse-proof <code>pid-identity</code> record, and <code>state/.last-watcher-beat</code> is touched every cycle as a liveness beacon). The nudge only has to <em>read</em> what is already there, verify liveness carefully, and signal. The one real design constraint is race safety — <strong>a stale PID must never be signaled</strong> — and the existing identity machinery in <code>bin/fm-wake-lib.sh</code> (<code>fm_pid_alive</code>, <code>fm_pid_identity</code>) already solves exactly that problem for the lock; the nudge reuses it verbatim.</p>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+  <tr><th>Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul>
+        <li>Sub-poll wake latency for status events reported through <code>mx-report</code> (both the shell path and the MCP <code>report_status</code> path, which execs the same wrapper).</li>
+        <li>Durable-first: the <code>state/&lt;id&gt;.status</code> append always happens, and always <em>before</em> any nudge attempt; nudge failure never changes <code>mx-report</code>'s exit status.</li>
+        <li>Silent no-op fallback: no watcher, dead watcher, stale lock, unsupported platform — all degrade to today's <code>MX_POLL</code> polling with zero errors surfaced to the actor.</li>
+        <li>Race safety: never signal a PID that cannot be proven to be the live watcher (liveness + stored-identity match immediately before <code>kill</code>).</li>
+        <li>Keep the restart-reconstructable-from-disk property intact: the nudge carries no payload and creates no state the watcher must recover.</li>
+      </ul>
+    </td>
+    <td>
+      <ul>
+        <li>No HTTP daemon or socket listener of any kind (explicitly rejected in UPDATE_PLAN §4).</li>
+        <li>No payload in the nudge: the wake reason still comes from the watcher's own scan of <code>state/</code>. The signal means only "scan now".</li>
+        <li>No change to what the watcher surfaces vs. absorbs — classification is untouched (that's <a href="05-signal-precedence.html">Plan 05</a>).</li>
+        <li>No nudge for hand-written appends: only the instructed <code>mx-report</code> path gets the fast path; raw appends keep pure polling.</li>
+        <li>No nudging of the away-mode daemon (<code>fm-supervise-daemon.sh</code>'s successor) in this plan — polling cadence there is unchanged.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>The pieces the nudge builds on all exist and were verified in source:</p>
+<table>
+  <tr><th>File</th><th>What it provides today</th></tr>
+  <tr><td><code>firstmate/bin/fm-watch.sh</code></td><td>The always-on watcher. <code>POLL=${FM_POLL:-15}</code>; each cycle touches the liveness beacon <code>state/.last-watcher-beat</code>, scans signals/stales/checks, then blocks in <code>event_wait_or_sleep</code> — a plain <code>sleep "$POLL"</code> for every backend except a push-capable herdr session, where a bounded native event wait replaces the blind sleep. Self-eviction check: each cycle re-reads <code>state/.watch.lock/pid</code> and exits if it no longer names this process.</td></tr>
+  <tr><td><code>firstmate/bin/fm-wake-lib.sh</code></td><td>The singleton lock and identity machinery. <code>fm_lock_try_acquire</code>/<code>fm_lock_claim</code> record the holder's <code>${BASHPID:-$$}</code> in <code>state/.watch.lock/pid</code>; <code>fm_pid_alive</code> (a <code>kill -0</code> probe); <code>fm_pid_identity</code> — a PID-reuse-proof identity string (Linux: <code>/proc/&lt;pid&gt;/stat</code> field 22 starttime + full cmdline hex; macOS/fallback: <code>LC_ALL=C ps -o lstart= -o command=</code>). The watcher writes this identity to <code>state/.watch.lock/pid-identity</code> at startup, alongside <code>fm-home</code> and <code>watcher-path</code>.</td></tr>
+  <tr><td><code>state/.watch.lock/</code> (runtime artifact)</td><td>The watcher's on-disk PID advertisement: <code>pid</code>, <code>pid-identity</code>, <code>fm-home</code>, <code>watcher-path</code>. Already consumed by the lock-steal logic and the "already running pid N" diagnostics.</td></tr>
+  <tr><td><code>state/.last-watcher-beat</code> (runtime artifact)</td><td>Liveness beacon touched every poll cycle; guard scripts already read it (stale grace <code>FM_WATCHER_STALE_GRACE</code>, default 300s).</td></tr>
+  <tr><td><code>firstmate/bin/fm-wake-drain.sh</code>, <code>state/.wake-queue</code></td><td>The durable wake queue the watcher appends to before exiting on an actionable wake; unchanged here, listed because the nudge shortens time-to-enqueue, not the queue contract.</td></tr>
+  <tr><td><code>firstmate/tests/fm-watcher-lock.test.sh</code></td><td>Existing coverage of lock acquisition, stale-holder eviction, pid-identity matching, and beacon staleness — the exact liveness semantics the nudge sender must reuse.</td></tr>
+  <tr><td><code>firstmate/tests/fm-wake-queue.test.sh</code>, <code>firstmate/tests/fm-watch-triage.test.sh</code></td><td>Durable-queue safety matrix and watcher triage behavior; must keep passing since the nudge only shortens the wait between cycles.</td></tr>
+</table>
+<p>Precedent worth noting: the herdr event-wait splice (<code>event_wait_or_sleep</code>) already establishes the pattern "replace the blind sleep with something interruptible, keep the poll loop as the permanent fail-closed backstop; the fast path only ever <em>shortens</em> latency, it can never drop an escalation." The nudge is the same idea for the local, backend-independent case.</p>
+
+<h2>Target design in Computer</h2>
+
+<h3>Why not the HTTP daemon (decision record)</h3>
+<div class="callout danger">
+  <div class="label">Rejected — standalone HTTP status-ingest listener</div>
+  It would reduce latency (avg. ~7.5s against a 15s poll interval) but reintroduces a long-running stateful process, which cuts against the system's actual design virtue: everything is reconstructable from disk — kill any process and the next one reconciles with zero daemon state to restore. A listener also adds a port, an auth story, and a second wake path that could disagree with the durable one. Rejected per UPDATE_PLAN §4.
+</div>
+
+<h3>The chosen shape</h3>
+<pre><code>actor turn
+──────────
+mx-report --id t1 --state blocked --message "…"
+  │
+  ├─ 1. validate (Plan 03) ── invalid → exit ≠0, NOTHING below runs
+  ├─ 2. DURABLE: append line to state/t1.status          (always)
+  └─ 3. NUDGE (best-effort, silent):
+        read state/.watch.lock/pid + pid-identity
+        pid alive?  identity matches stored?  ──no──▶ no-op (poll picks it up ≤ MX_POLL)
+                    │yes
+                    ▼
+        kill -USR1 &lt;pid&gt;   ──▶ watcher's `wait` returns early → immediate re-scan
+                                → wake enqueued + watcher exits within ~1s, not ~15s</code></pre>
+
+<h3>Sender side — <code>mx_nudge_watcher</code> in <code>mx-report</code></h3>
+<ul>
+  <li>Runs only after a successful durable append; wrapped so any failure is swallowed (<code>|| true</code>) and never alters exit status or prints to the actor unless <code>MX_NUDGE_DEBUG=1</code>.</li>
+  <li><strong>PID discovery:</strong> read <code>state/.watch.lock/pid</code> under the same home resolution the append used. Missing lock dir or unreadable pid → no-op.</li>
+  <li><strong>Liveness + identity verification (the stale-PID rule):</strong> a stale PID must never be signaled. Verify, immediately before <code>kill</code>: (1) <code>fm_pid_alive "$pid"</code> — the process exists; (2) <code>fm_pid_identity "$pid"</code> output equals the stored <code>state/.watch.lock/pid-identity</code> — the process is <em>the same process</em> that claimed the lock, not a PID-reuse impostor. Either check failing, or the identity file missing, → no-op. This matters doubly for signals: <code>SIGUSR1</code>'s default disposition <em>terminates</em> a process that hasn't trapped it, so signaling a reused PID could kill an innocent process — the identity match is the guard.</li>
+  <li><strong>Signal:</strong> <code>kill -USR1 "$pid" 2&gt;/dev/null || true</code>. No payload, no retry, no waiting for acknowledgment — the durable file is the message; the signal is only "look now".</li>
+  <li><strong>Opt-out:</strong> <code>MX_NUDGE=0</code> disables the sender entirely (useful in tests that want deterministic pure-poll behavior).</li>
+</ul>
+
+<h3>Receiver side — interruptible wait in <code>mx-watch.sh</code></h3>
+<p>The one subtlety: bash runs a trap handler only after the current foreground command completes, so a bare <code>sleep "$POLL"</code> would still block the full interval even with a <code>USR1</code> trap installed. The fix is the standard background-sleep pattern — the <code>wait</code> builtin <em>is</em> interruptible by a trapped signal:</p>
+<pre><code># at watcher startup (after the lock is claimed):
+trap ':' USR1          # nudge = "wake from wait"; handler body deliberately empty
+
+# in event_wait_or_sleep, every `sleep "$POLL"` becomes:
+mx_interruptible_sleep() {  # &lt;secs&gt;
+  sleep "$1" &amp;
+  local sp=$!
+  wait "$sp"           # returns immediately (&gt;128) when USR1 arrives
+  kill "$sp" 2&gt;/dev/null || true   # reap the sleeper on early wake
+}</code></pre>
+<ul>
+  <li>An early return from <code>wait</code> simply falls through to the next loop iteration — the same scan that a natural poll expiry runs. No new code path decides <em>what</em> to do; the nudge only decides <em>when</em>.</li>
+  <li>The trap is installed only in the main watcher process, after the singleton lock is claimed and <code>pid</code>/<code>pid-identity</code> are written — so the advertised PID and the trap-holding PID are the same process by construction.</li>
+  <li>The <code>SIGNAL_GRACE</code> linger (30s coalescing window after a signal) and the herdr event-wait branch are untouched; on a push-capable herdr session the native event path is already sub-second and the nudge is simply redundant there.</li>
+  <li>Coalescing is free: multiple nudges during one scan collapse into at most one extra wakeup, and a nudge that lands mid-scan is absorbed by the next <code>wait</code> returning instantly once — the scan is idempotent over <code>state/</code>.</li>
+</ul>
+
+<h3>Signal vs. named pipe (design decision)</h3>
+<table>
+  <tr><th>Option</th><th>For</th><th>Against</th><th>Verdict</th></tr>
+  <tr><td><code>SIGUSR1</code> to the lock-advertised PID</td><td>Zero new on-disk artifacts; reuses the existing pid/pid-identity advertisement verbatim; one-line receiver pattern; portable POSIX semantics.</td><td>Default disposition kills an untrapped process — requires the identity guard (which we need anyway).</td><td><strong>Chosen.</strong></td></tr>
+  <tr><td>Named pipe (e.g. <code>state/.watch-nudge.fifo</code>)</td><td>Cannot possibly touch an unrelated process.</td><td>Awkward in bash: opening a FIFO for write blocks until a reader exists, so the no-listener case needs a non-blocking open dance; adds an artifact to create/clean on every watcher start; the reader end complicates the single blocking wait.</td><td>Fallback option if signal delivery proves unreliable on some platform; recorded in open questions.</td></tr>
+</table>
+
+<h3>Portability notes (macOS / Linux)</h3>
+<ul>
+  <li><code>kill -0</code>, <code>kill -USR1</code>, <code>trap … USR1</code>, and background-<code>sleep</code>+<code>wait</code> are POSIX and work identically on macOS bash 3.2 and Linux bash 4/5 — matching the repo's existing bash-3.2 floor (see the portable folds in <code>fm-classify-lib.sh</code>).</li>
+  <li>PID-identity portability is already solved by <code>fm_pid_identity</code>: Linux uses <code>/proc</code> starttime + cmdline hex (immune to wall-clock steps); macOS uses locale-pinned <code>ps lstart</code>+command. The nudge inherits both branches for free by sourcing <code>mx-wake-lib.sh</code>.</li>
+  <li><code>kill</code> across users fails with EPERM — harmlessly caught by the <code>|| true</code>; the nudge is only expected to work within one maintainer's own session, which is the only supported topology anyway.</li>
+</ul>
+
+<div class="callout ok">
+  <div class="label">Invariant</div>
+  The durable append happens every time, before any nudge, and the poll loop remains the permanent fail-closed backstop at <code>MX_POLL</code> (default 15s). The nudge can only ever <em>shorten</em> latency; a lost, blocked, or skipped signal changes nothing about which events are surfaced — only when.
+</div>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Extract the nudge sender into <code>mx-report</code> <span class="pill mod">mod</span></b>
+  Add <code>mx_nudge_watcher()</code> to <code>bin/mx-report</code> (created in <a href="03-status-reporting.html">Plan 03</a>): source <code>mx-wake-lib.sh</code> for <code>fm_pid_alive</code>/<code>fm_pid_identity</code>, read <code>state/.watch.lock/pid</code> and <code>pid-identity</code>, verify both, <code>kill -USR1</code>, everything best-effort and silent. Honor <code>MX_NUDGE=0</code>. Call it only after the successful append.</li>
+  <li><b>Install the <code>USR1</code> trap in <code>mx-watch.sh</code> <span class="pill mod">mod</span></b>
+  <code>trap ':' USR1</code> in the main entry, after <code>fm_lock_try_acquire</code> succeeds and the lock's <code>pid</code>/<code>pid-identity</code> files are written — guaranteeing the advertised PID is the trap holder. Document in the header that <code>USR1</code> means "re-scan now" and is sent by <code>mx-report</code>.</li>
+  <li><b>Make the poll sleep interruptible <span class="pill mod">mod</span></b>
+  Add <code>mx_interruptible_sleep()</code> (background <code>sleep</code> + <code>wait</code> + reap, as specified above) and replace the three <code>sleep "$POLL"</code> call sites inside <code>event_wait_or_sleep</code> with it. The <code>SIGNAL_GRACE</code> linger sleep stays a plain sleep deliberately — it exists to <em>coalesce</em> trailing signals, and cutting it short would defeat that.</li>
+  <li><b>Keep the herdr event branch as-is <span class="pill mod">mod</span></b>
+  No change to <code>fm_backend_wait_transition</code>'s successor; verify only that an incoming <code>USR1</code> during the event wait either interrupts it harmlessly or is ignored until the bounded wait returns (both acceptable — the subsequent scan reads the status file either way). Add a header note recording this.</li>
+  <li><b>Rename the poll knob with the §7.4 sweep <span class="pill mod">mod</span></b>
+  <code>FM_POLL</code> → <code>MX_POLL</code> (default unchanged at 15s) lands with the Plan 02 rebrand; this plan only depends on the name. Reference it as <code>MX_POLL</code> in all new text.</li>
+  <li><b>Write <code>tests/mx-nudge.test.sh</code> <span class="pill new">new</span></b>
+  Full case list in the Test plan below; wire into the runner (<code>bin/fm-test-run.sh</code> → <code>mx-test-run.sh</code>).</li>
+  <li><b>Document the mechanism <span class="pill mod">mod</span></b>
+  One paragraph each in the watcher header (receiver contract) and the <code>mx-report</code> header (sender contract + stale-PID rule); the architecture doc's supervision section gains the "nudge is latency-only, poll is truth" sentence.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/mx-report</code></td><td>Modify</td><td>Add <code>mx_nudge_watcher()</code> post-append hook: PID discovery, liveness + identity verification, <code>kill -USR1</code>, silent no-op fallback, <code>MX_NUDGE=0</code> opt-out.</td></tr>
+  <tr><td><code>bin/mx-watch.sh</code></td><td>Modify</td><td><code>trap ':' USR1</code> after lock claim; <code>mx_interruptible_sleep()</code> replacing the <code>sleep "$POLL"</code> call sites in <code>event_wait_or_sleep</code>; header docs.</td></tr>
+  <tr><td><code>bin/mx-wake-lib.sh</code></td><td>—</td><td>No change; <code>fm_pid_alive</code>/<code>fm_pid_identity</code> (their <code>mx_</code> successors) are reused as-is by the sender.</td></tr>
+  <tr><td><code>tests/mx-nudge.test.sh</code></td><td>New</td><td>Latency, no-listener, stale-PID, and durability cases (below).</td></tr>
+  <tr><td><code>docs/architecture.md</code></td><td>Modify</td><td>Record the nudge as a latency optimization over the unchanged poll backstop, and the rejected-daemon rationale.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>). The watcher tests already have the harness for driving a real watcher subprocess with tight knobs (see <code>tests/fm-watch-triage.test.sh</code> and <code>tests/wake-helpers.sh</code>); <code>mx-nudge.test.sh</code> reuses it.</p>
+
+<h3>(a) Existing tests that must keep passing — unchanged</h3>
+<ul>
+  <li><code>tests/fm-watcher-lock.test.sh</code> — lock claim, stale-holder eviction, pid-identity semantics, beacon staleness. The nudge adds a reader of these artifacts but changes none of their writers.</li>
+  <li><code>tests/fm-watch-triage.test.sh</code> — absorb/surface classification is untouched; the interruptible sleep must be behaviorally invisible to every existing case (same scans, same queue entries, same exits).</li>
+  <li><code>tests/fm-wake-queue.test.sh</code> — durable queue safety matrix; unchanged.</li>
+  <li><code>tests/fm-crew-state.test.sh</code> — unrelated, listed as the regression canary for accidental sourcing changes.</li>
+</ul>
+
+<h3>(b) Existing tests needing changes</h3>
+<ul>
+  <li>None expected. If any watch-triage case turns out to assert exact sleep timing (none found in the header contract), it gets <code>MX_NUDGE=0</code> plus the existing tight-poll knobs rather than a semantic change.</li>
+</ul>
+
+<h3>(c) New tests to write — <code>tests/mx-nudge.test.sh</code></h3>
+<ul>
+  <li><strong>Nudge wakes a running watcher early:</strong> start a real watcher with a deliberately long <code>MX_POLL</code> (e.g. 30s) and no pending work; from a second process run <code>mx-report --state blocked …</code>; assert the actionable wake is enqueued and the watcher exits in well under the poll interval (measure wall-clock; assert &lt; MX_POLL/2, generous against CI jitter).</li>
+  <li><strong>No listener → silent no-op:</strong> no watcher running (no <code>state/.watch.lock/</code>): <code>mx-report</code> exits 0, stderr empty, status line present; then with only a stale lock dir left behind by a killed watcher: same result.</li>
+  <li><strong>Stale PID is never signaled:</strong> construct a lock dir whose <code>pid</code> names (1) a dead PID, and (2) a live decoy process whose identity does not match the stored <code>pid-identity</code> — the decoy traps <code>USR1</code> and records delivery to a file; run <code>mx-report</code>; assert the decoy never received the signal, <code>mx-report</code> exited 0, and the append happened. This is the direct test of the "verify liveness before kill" rule.</li>
+  <li><strong>Durable write happens in all cases:</strong> for each scenario above (live watcher, no listener, stale lock, <code>MX_NUDGE=0</code>, identity mismatch), assert the status line landed byte-identically — the nudge outcome never affects the write.</li>
+  <li><strong>Opt-out:</strong> with <code>MX_NUDGE=0</code> and a live watcher, assert no early wake (watcher still blocking after a short delay) and the event is picked up by the natural poll (run with a short <code>MX_POLL</code> for this case).</li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><strong>Depends on <a href="03-status-reporting.html">Plan 03 — Validated status reporting</a>:</strong> <code>mx-report</code> is the sender; the nudge is a post-append hook inside it. The MCP <code>report_status</code> path inherits the nudge for free because it execs the same wrapper.</li>
+  <li><strong>Depends on <a href="02-rebrand.html">Plan 02 — Rebrand</a></strong> for the <code>mx-watch.sh</code>/<code>MX_POLL</code> names this plan edits.</li>
+  <li><strong>Independent of <a href="05-signal-precedence.html">Plan 05</a>:</strong> the nudge changes when the watcher looks, Plan 05 changes how it judges what it sees; they touch different functions and can land in either order after 03 (numbered order preferred).</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout">
+  <div class="label">Risk — TOCTOU between identity check and kill (accepted, negligible)</div>
+  A theoretical window exists where the watcher dies and the OS reuses its PID between the identity verification and the <code>kill</code>. The identity check runs immediately before the signal, the OS does not reuse PIDs at microsecond scale, and the same window exists (and is accepted) in the lock-steal logic in <code>fm-wake-lib.sh</code> today. Consequence is bounded to one spurious <code>USR1</code> to a process that would have to have spawned in that instant.</div>
+<div class="callout warn">
+  <div class="label">Open question — should the away-mode daemon also listen?</div>
+  While <code>state/.afk</code> exists the daemon owns triage and the watcher runs one-shot. UPDATE_PLAN §4 names only the watcher. Extending the nudge to the daemon (its own PID advertisement + trap) is mechanical but out of scope here; decide when the daemon is ported.</div>
+<div class="callout warn">
+  <div class="label">Open question — FIFO fallback trigger</div>
+  If a supported platform ever proves signal delivery unreliable (e.g. exotic sandboxing that blocks <code>kill</code> between sibling processes), the named-pipe design (<code>state/.watch-nudge.fifo</code>, non-blocking write, reader integrated into the interruptible wait) is the recorded fallback. No evidence today warrants building it; revisit only on a concrete failure.</div>
+<div class="callout">
+  <div class="label">Risk — trap interaction with the herdr event wait (verify in step 4)</div>
+  On a push-capable herdr session the terminal wait is a reader subprocess, not <code>sleep</code>. A <code>USR1</code> to the main shell during that wait is deferred until the foreground reader returns (bounded at ~<code>MX_POLL</code>), which merely equals today's latency for that branch — and herdr's native events already beat the nudge there. Confirm with the existing eventwait smoke test (<code>tests/fm-backend-herdr-eventwait-smoke.test.sh</code>) that nothing regresses.</div>
+
+<div class="footer-nav">
+  <a href="03-status-reporting.html">← 03 · Status reporting</a>
+  <a href="index.html">Index</a>
+  <a href="05-signal-precedence.html">05 · Signal precedence →</a>
+</div>
+
+</div>
+</body>
+</html>

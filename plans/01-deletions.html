@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 01 — Delete the Dead Weight · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --accent-dim:rgba(88,166,255,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 01 / 10</div>
+    <h1>Delete the Dead Weight — Outright Dependency Removal</h1>
+    <p class="subtitle">Rip out the firstmate subsystems that serve no purpose in Computer: the myfirstmate.io social relay (X mode), shellcheck as a standalone top-level lint gate and installer, glab/GitLab forge support, the macOS osascript wedge-alarm notifier — and, per the 2026-07-26 maintainer decision, the zellij and orca backend adapters plus grok and opencode harness support. Pure code removal — no replacements are built in this plan.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 1</span>
+      <span class="badge effort">Effort: Low–Medium</span>
+      <span class="badge risk">Risk: Low</span>
+      <span class="badge">UPDATE_PLAN §8.1</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>UPDATE_PLAN §8.1 identifies four dependencies to <b>delete outright, with no replacement</b>. None of them is load-bearing for the core orchestration loop (watcher, classifier, state reconciliation, spawn/teardown, briefs). Removing them first — before any reimplementation work — shrinks the surface every later plan has to touch, which is exactly why §8.7 sequences the deletions ahead of everything else.</p>
+<p>The four targets, verified against the actual checkout at <code>/Users/ktanuku/Documents/github/Computer/firstmate</code>:</p>
+<ul>
+  <li><b>myfirstmate.io social relay (X mode)</b> — a hosted HTTP relay for X.com/Twitter and Discord mentions. Ships inert; only activates when <code>FMX_PAIRING_TOKEN</code> is placed in the home's gitignored <code>.env</code>. Six <code>bin/fm-x-*.sh</code> scripts (the shared client <code>bin/fm-x-lib.sh</code> alone is 984 lines), plus <code>AGENTS.md</code> §14, the <code>.agents/skills/fmx-respond/</code> skill, <code>FMX_*</code> env handling in <code>bin/fm-bootstrap.sh</code>, and X-mode notes in <code>docs/configuration.md</code>. Computer will never run a public social persona.</li>
+  <li><b>shellcheck as a standalone gate + installer</b> — <code>bin/fm-lint.sh</code> (453 lines, the single lint owner both CI and the upstream no-mistakes gate invoke) and <code>bin/fm-install-shellcheck.sh</code> (36-line pinned-release installer). We delete the <i>standalone installer and mandatory top-level gate</i>, not the ability to lint — see the nuance callout below.</li>
+  <li><b>glab / GitLab support</b> — optional GitLab MR polling and head-commit reads (merge was never implemented upstream). Computer is a GitHub-only fork; deleting the GitLab branches collapses the dual-forge abstraction in <code>bin/fm-pr-check.sh</code>, <code>bin/fm-pr-poll.sh</code>, and <code>bin/fm-pr-lib.sh</code> down to GitHub-only, simplifying every PR code path.</li>
+  <li><b>osascript wedge-alarm notifications</b> — the away-mode "wedge alarm" posts a macOS Notification Center banner when an escalation gets wedged. It is already optional (macOS + away-mode only); the generic <code>command:&lt;cmd&gt;</code> channel escape hatch in the same alarm system covers any future alert need without macOS-specific code.</li>
+</ul>
+<div class="callout">
+  <div class="label">Nuance — shellcheck's function survives, its plumbing does not</div>
+  <p style="margin:0">Per UPDATE_PLAN §8.1: shellcheck is "not deleted-and-forgotten — its <i>function</i> moves into our <code>deep-review</code> gate (§6)." The lint step of the deep-review gate (<a href="10-deep-review-gate.html">plan 10</a>) owns linting from now on, via the §6.3.1 <code>commands.lint</code> configured-command mechanic or the Tier-2 agent-lint fallback. What this plan deletes is shellcheck as a <i>separate top-level dependency</i>: the pinned installer, the mandatory standalone gate wiring, and the CI step. A project that wants shell linting later simply declares its linter as its <code>commands.lint</code>.</p>
+</div>
+<p>Risk is low because all four subsystems are either opt-in (X mode, wedge alarm), optional (glab), or self-contained with a single well-known consumer (the lint gate's only callers are CI and the upstream contribution pipeline we are dropping anyway). The main care point is the test suite and the test runner's hardcoded file maps, covered in detail below.</p>
+<p>A fifth deletion group was added by maintainer decision on 2026-07-26: the zellij and orca backend adapters and the grok and opencode harness support are pruned as well — see the dedicated <b>Backend &amp; harness pruning</b> section below.</p>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+  <tr><th>Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Remove the entire X-mode subsystem: scripts, skill, env handling, docs, AGENTS.md §14.</li>
+        <li>Remove <code>bin/fm-install-shellcheck.sh</code> and the standalone <code>bin/fm-lint.sh</code> gate wiring (CI step, test-runner map entries, mandatory-gate test).</li>
+        <li>Strip every glab/GitLab branch from the PR check/poll/lib scripts; collapse to GitHub-only.</li>
+        <li>Remove the osascript wedge-alarm branch and its docs.</li>
+        <li>Prune backends to tmux/cmux/herdr and harnesses to claude/codex/pi: delete the zellij and orca adapters and all grok/opencode harness support (maintainer decision 2026-07-26; see the pruning section).</li>
+        <li>Delete or trim the tests that cover the removed code, and update <code>bin/fm-test-run.sh</code>'s file maps to match.</li>
+        <li>Leave the tree fully green: full suite passes after the removal.</li>
+      </ul>
+    </td>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>No replacement functionality is built here — lint's new home is <a href="10-deep-review-gate.html">plan 10 (deep-review)</a>.</li>
+        <li>No renaming — <code>fm-</code> → <code>mx-</code> and vocabulary changes are <a href="02-rebrand.html">plan 02</a>. Files modified here keep their current names.</li>
+        <li>No changes to the <code>-axi</code> toolbelt (§8.2), treehouse (§1), or no-mistakes replacement (§6) — separate plans.</li>
+        <li>Not removing <code>gh</code> (kept — genuine infra, §8.3) or the wedge-alarm system as a whole (only its osascript channel; see open questions).</li>
+        <li>Not touching the upstream <code>firstmate/</code> folder's git history — this work happens in Computer's own tree.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>Everything below was verified against the live checkout (paths relative to <code>firstmate/</code>).</p>
+
+<h3>Subsystem 1 — myfirstmate.io social relay (X mode)</h3>
+<table>
+  <tr><th>File</th><th>What it is</th></tr>
+  <tr><td><code>bin/fm-x-lib.sh</code></td><td>Shared X-mode config, relay client, and reply-threading helpers. 984 lines — the biggest single deletion in this plan. Bearer-token auth over curl to <code>https://myfirstmate.io</code> (override: <code>FMX_RELAY_URL</code>).</td></tr>
+  <tr><td><code>bin/fm-x-poll.sh</code></td><td>One bounded relay poll: stashes newly offered mentions, emits their once-only wake.</td></tr>
+  <tr><td><code>bin/fm-x-reply.sh</code></td><td>Post or dry-run preview a composed reply/follow-up.</td></tr>
+  <tr><td><code>bin/fm-x-dismiss.sh</code></td><td>Dismiss a skipped mention at the relay without replying.</td></tr>
+  <tr><td><code>bin/fm-x-followup.sh</code></td><td>Detect, post, and cap completion follow-ups for an X-mode-linked task.</td></tr>
+  <tr><td><code>bin/fm-x-link.sh</code></td><td>Link a spawned task to its originating mention in task meta.</td></tr>
+  <tr><td><code>bin/fm-bootstrap.sh</code></td><td><code>FMX_*</code> handling: header contract at line 58, opt-in probe at lines 607–628 (<code>fmx_env_get FMX_PAIRING_TOKEN</code> against the home's <code>.env</code>); sources <code>fm-x-lib.sh</code> (~line 99).</td></tr>
+  <tr><td><code>AGENTS.md</code></td><td>§14 "X mode" (line 484+), the <code>fmx-respond</code> skill reference in §13 (line 480), and the X-mode mention in §8 (line 334).</td></tr>
+  <tr><td><code>.agents/skills/fmx-respond/</code></td><td>Agent-only playbook for handling X-mode mentions and follow-ups.</td></tr>
+  <tr><td><code>docs/configuration.md</code>, <code>docs/architecture.md</code>, <code>docs/scripts.md</code></td><td>X-mode notes; <code>docs/scripts.md</code> lines 89–94 catalogue all six <code>fm-x-*.sh</code> scripts.</td></tr>
+  <tr><td><code>tests/fm-x-mode.test.sh</code></td><td>Test coverage for the whole subsystem.</td></tr>
+</table>
+
+<h3>Subsystem 2 — shellcheck standalone gate + installer</h3>
+<table>
+  <tr><th>File</th><th>What it is</th></tr>
+  <tr><td><code>bin/fm-lint.sh</code></td><td>453-line standalone lint gate. Probes <code>command -v shellcheck</code> (line 128), pins one exact shellcheck version, and is the single lint owner that both CI and the upstream no-mistakes gate run.</td></tr>
+  <tr><td><code>bin/fm-install-shellcheck.sh</code></td><td>36-line pinned-release installer (SHA-verified download).</td></tr>
+  <tr><td><code>.github/workflows/ci.yml</code></td><td>Line 25: <code>- run: bin/fm-lint.sh</code> — the mandatory CI lint step.</td></tr>
+  <tr><td><code>tests/fm-lint.test.sh</code></td><td>Asserts <code>bin/fm-lint.sh</code> exists, is executable, and is the single canonical lint owner for both CI and the gate.</td></tr>
+  <tr><td><code>bin/fm-test-run.sh</code></td><td>Hardcodes the lint test in its family map (line 125) and shard lists (lines 249, 305), and maps <code>bin/fm-lint.sh|bin/fm-install-shellcheck.sh</code> in its changed-file → family map (line 685).</td></tr>
+</table>
+<div class="callout warn">
+  <div class="label">Verification finding — no bootstrap probe</div>
+  <p style="margin:0">UPDATE_PLAN §8.1 says to "drop the shellcheck bootstrap probe in <code>fm-bootstrap.sh</code>", but a grep of the current checkout finds <b>no shellcheck probe in <code>bin/fm-bootstrap.sh</code></b> — only <code># shellcheck source=…</code> directive comments (which stay; they are inert lint annotations). The real wiring is <code>fm-lint.sh</code> + <code>fm-install-shellcheck.sh</code> + <code>ci.yml:25</code> + the <code>fm-test-run.sh</code> maps. Treat the bootstrap item as already-satisfied; re-verify at implementation time in case upstream moves.</p>
+</div>
+
+<h3>Subsystem 3 — glab / GitLab support</h3>
+<table>
+  <tr><th>File</th><th>What it is</th></tr>
+  <tr><td><code>bin/fm-pr-check.sh</code></td><td>Lines 50–66: refuses to arm a GitLab watch without <code>glab</code> on PATH (<code>[ "$PROVIDER" = gitlab ] &amp;&amp; ! command -v glab</code>) and documents glab's field-selection quirk.</td></tr>
+  <tr><td><code>bin/fm-pr-poll.sh</code></td><td>Line 7 (dual-provider contract: "gh for GitHub and glab…") and lines 96–104: the glab poll branch (<code>glab mr view "$number" -R "https://$host/$path"</code>) with host/state-parsing workarounds.</td></tr>
+  <tr><td><code>bin/fm-pr-lib.sh</code></td><td>GitLab record validation: <code>fm_pr_gitlab_host_valid</code> (line 119), <code>fm_pr_gitlab_path_valid</code> (line 141), the gitlab arm of URL parsing setting <code>FM_PR_PROVIDER=gitlab</code> (lines 201–203), plus the merge-shape note at line 165.</td></tr>
+  <tr><td><code>docs/gitlab-merge-watch.md</code></td><td>GitLab merge-watch documentation.</td></tr>
+  <tr><td><code>tests/fm-pr-check-security.test.sh</code></td><td>Heavy GitLab coverage — 65 <code>gitlab|glab</code> matches (host/path validation, injection-safety of the glab invocation).</td></tr>
+  <tr><td><code>tests/fm-pr-merge.test.sh</code></td><td>Contains gitlab references (asserts merge behavior around the GitHub-only merge path vs. GitLab watch records).</td></tr>
+</table>
+
+<h3>Subsystem 4 — osascript wedge alarm</h3>
+<table>
+  <tr><th>File</th><th>What it is</th></tr>
+  <tr><td><code>bin/fm-supervise-daemon.sh</code></td><td><code>wedge_alarm_via_osascript()</code> at ~lines 770–785 (UPDATE_PLAN cites 770–783; the function body spans slightly further in the current checkout — anchor on the function, not the line numbers). Also: header docs for <code>FM_WEDGE_ALARM_CHANNEL</code> (lines 107–120), the auto channel-selection logic (~line 667), and the no-channel fallback log at line 860. Sibling channels <code>wedge_alarm_via_herdr()</code> and the <code>command:&lt;cmd&gt;</code> override stay.</td></tr>
+  <tr><td><code>config/wedge-alarm</code></td><td>Local, gitignored channel config — one channel directive per line (<code>osascript</code>, <code>herdr</code>, <code>command:&lt;cmd&gt;</code>, <code>discard</code>).</td></tr>
+  <tr><td><code>docs/wedge-alarm.md</code></td><td>Wedge-alarm documentation (documents the osascript channel among others).</td></tr>
+  <tr><td><code>tests/fm-daemon.test.sh</code></td><td>Covers max-defer wedge alarms and wedge marker lifecycle; the osascript-channel-specific assertions must go, the wedge-marker logic tests stay.</td></tr>
+</table>
+
+<h2>Target design in Computer</h2>
+<p>After this plan, Computer's tree has no social relay, a single forge (GitHub via <code>gh</code>), no standalone lint gate, and a wedge alarm whose OS-notification channel is gone but whose durable-marker + generic-command escape hatch remain intact:</p>
+<pre><code>BEFORE (firstmate)                          AFTER (Computer, post-plan-01)
+──────────────────────────                  ──────────────────────────
+PR watch ──► gh ──► GitHub                  PR watch ──► gh ──► GitHub
+         └─► glab ─► GitLab                          (single provider, no branching)
+
+lint: fm-lint.sh (mandatory CI gate)        lint: none at top level
+      fm-install-shellcheck.sh                    (deep-review gate owns lint via
+      ci.yml step                                  commands.lint — plan 10)
+
+X mode: fm-x-*.sh ◄──► myfirstmate.io       (deleted — no social subsystem)
+        FMX_PAIRING_TOKEN opt-in
+
+wedge alarm channels:                       wedge alarm channels:
+  osascript │ herdr │ command: │ discard      herdr │ command: │ discard
+                                              (durable marker unchanged)</code></pre>
+<p>Design invariants preserved: the append-only status/event-log model, the watcher/classifier, and the PR-poll registration format are untouched except for the removal of the <code>gitlab</code> provider value. Everything that remains is exactly what <a href="02-rebrand.html">plan 02</a> renames.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Delete the X-mode scripts and skill.</b>
+    Remove <code>bin/fm-x-lib.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-poll.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-reply.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-dismiss.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-followup.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-link.sh</code> <span class="pill del">del</span>, and the whole <code>.agents/skills/fmx-respond/</code> directory <span class="pill del">del</span>.</li>
+  <li><b>Gut FMX handling in bootstrap.</b>
+    In <code>bin/fm-bootstrap.sh</code> <span class="pill mod">mod</span>: remove the <code>fm-x-lib.sh</code> source line (~line 99), the X-mode opt-in probe (lines 607–628, the <code>fmx_env_get FMX_PAIRING_TOKEN</code> block and its curl+jq requirement escalation), and the header-contract mention at line 58. Grep the file afterward for <code>FMX_</code> and <code>fmx_</code> — zero hits expected.</li>
+  <li><b>Strip X mode from the docs and AGENTS.md.</b>
+    <code>AGENTS.md</code> <span class="pill mod">mod</span>: delete §14 entirely, the <code>fmx-respond</code> bullet in §13 (line 480), and the X-mode sentence in §8 (line 334); renumber nothing (leave a section-numbering pass to <a href="02-rebrand.html">plan 02</a>'s full rewrite). <code>docs/configuration.md</code> <span class="pill mod">mod</span>, <code>docs/architecture.md</code> <span class="pill mod">mod</span>, <code>docs/scripts.md</code> <span class="pill mod">mod</span> (drop the six-row X-mode block at lines 89–94).</li>
+  <li><b>Remove the standalone lint gate and installer.</b>
+    Delete <code>bin/fm-install-shellcheck.sh</code> <span class="pill del">del</span> and <code>bin/fm-lint.sh</code> <span class="pill del">del</span>. Remove the <code>- run: bin/fm-lint.sh</code> step from <code>.github/workflows/ci.yml</code> <span class="pill mod">mod</span> (line 25). The lint <i>capability</i> returns in <a href="10-deep-review-gate.html">plan 10</a> as the deep-review gate's <code>commands.lint</code> path — a project may declare any linter (including a shellcheck invocation) there.</li>
+  <li><b>Collapse the PR forge abstraction to GitHub-only.</b>
+    <code>bin/fm-pr-check.sh</code> <span class="pill mod">mod</span>: remove the glab PATH guard and GitLab commentary (lines 50–66). <code>bin/fm-pr-poll.sh</code> <span class="pill mod">mod</span>: remove the glab poll branch (lines 96–104) and rewrite the header contract (line 7) as GitHub-only. <code>bin/fm-pr-lib.sh</code> <span class="pill mod">mod</span>: remove <code>fm_pr_gitlab_host_valid</code>, <code>fm_pr_gitlab_path_valid</code>, and the gitlab URL-parse arm that sets <code>FM_PR_PROVIDER=gitlab</code> (lines 119–203 region); make an unrecognized-host URL a hard validation error instead of a GitLab record. Delete <code>docs/gitlab-merge-watch.md</code> <span class="pill del">del</span>. Check <code>bin/fm-pr-check-migrate.sh</code> and <code>bin/fm-pr-merge.sh</code> for provider references while in there.</li>
+  <li><b>Remove the osascript wedge-alarm channel.</b>
+    <code>bin/fm-supervise-daemon.sh</code> <span class="pill mod">mod</span>: delete <code>wedge_alarm_via_osascript()</code> (~lines 770–785), remove <code>osascript</code> from the channel dispatch/auto-selection (~line 667) and from the header docs (lines 107–120); keep the <code>herdr</code>, <code>command:&lt;cmd&gt;</code>, and <code>discard</code> channels and the durable wedge marker untouched. Delete <code>docs/wedge-alarm.md</code> <span class="pill del">del</span> and update <code>config/wedge-alarm</code> documentation references (the file itself is local/gitignored — see open questions on whether the channel config survives).</li>
+  <li><b>Delete/trim the covering tests.</b>
+    Delete <code>tests/fm-x-mode.test.sh</code> <span class="pill del">del</span> and <code>tests/fm-lint.test.sh</code> <span class="pill del">del</span>. Trim <code>tests/fm-pr-check-security.test.sh</code> <span class="pill mod">mod</span> (strip the 65-hit GitLab half; keep every GitHub-side security assertion), <code>tests/fm-pr-merge.test.sh</code> <span class="pill mod">mod</span> (drop GitLab-record assertions), and <code>tests/fm-daemon.test.sh</code> <span class="pill mod">mod</span> (drop osascript-channel assertions; keep wedge-marker lifecycle and max-defer coverage).</li>
+  <li><b>Update the test runner's hardcoded maps.</b>
+    <code>bin/fm-test-run.sh</code> <span class="pill mod">mod</span> is the single owner of test-family and changed-file maps and references deleted files in at least six places: family map entries for <code>fm-lint.test.sh</code> (line 125) and <code>fm-x-mode.test.sh</code> (line 169), shard lists (lines 249, 264, 295, 305), and the changed-file → family cases <code>bin/fm-x-*</code> (line 668) and <code>bin/fm-lint.sh|bin/fm-install-shellcheck.sh</code> (line 685). Remove every reference; the runner must not map to nonexistent tests.</li>
+  <li><b>Repo-wide leftover sweep, then full suite.</b>
+    Run <code>grep -rniE 'fmx_|fm-x-|myfirstmate|glab|gitlab|osascript|shellcheck' bin/ tests/ docs/ AGENTS.md .github/ .agents/</code> and clear every hit except (a) <code># shellcheck</code> lint directives inside scripts, which stay, and (b) historical references in this planning material. Then run the full suite via <code>bin/fm-test-run.sh</code> — green is the exit criterion.</li>
+</ol>
+
+<h2>Backend &amp; harness pruning (maintainer decision 2026-07-26)</h2>
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26</div>
+  <p style="margin:0">Backends are pruned to <b>tmux, cmux, herdr</b> only; harnesses to <b>claude, codex, pi</b> only. The rejected alternative — carrying zellij/orca and grok/opencode through the port unchanged "in case they're wanted later" — would have kept two backends and two harnesses the maintainer never uses in the rename sweep (<a href="02-rebrand.html">plan 02</a>), the test matrix, and the harness-adapters docs. <code>codex-app</code> remains excluded exactly as before; this decision does not reopen it.</p>
+</div>
+<p>This adds a fifth deletion group, verified against the checkout like the other four.</p>
+
+<h3>Backend adapters — zellij and orca</h3>
+<table>
+  <tr><th>File</th><th>Action / what it is</th></tr>
+  <tr><td><code>bin/backends/zellij.sh</code>, <code>bin/backends/orca.sh</code></td><td>Delete — the two pruned backend adapters. <code>bin/backends/{tmux,herdr,cmux}.sh</code> and the herdr <code>.py</code> helpers stay.</td></tr>
+  <tr><td><code>bin/fm-backend.sh</code></td><td>Modify — the registry constant <code>FM_BACKEND_KNOWN="tmux herdr zellij orca cmux"</code> (line 69) shrinks to <code>"tmux herdr cmux"</code>; the unknown-backend error (line 283) self-updates via the constant. Remove any zellij/orca autodetect or dispatch branches.</td></tr>
+  <tr><td><code>docs/zellij-backend.md</code>, <code>docs/orca-backend.md</code></td><td>Delete — docs for the pruned backends (both verified present in <code>docs/</code>).</td></tr>
+  <tr><td><code>.agents/skills/firstmate-orca/</code></td><td>Delete — the orca-specific skill directory (verified path).</td></tr>
+  <tr><td><code>tests/fm-backend-zellij.test.sh</code>, <code>tests/fm-backend-zellij-smoke.test.sh</code>, <code>tests/zellij-test-safety.sh</code>, <code>tests/fm-backend-orca.test.sh</code></td><td>Delete — cover only the pruned adapters (names verified against <code>tests/</code>).</td></tr>
+</table>
+
+<h3>Harness support — grok and opencode</h3>
+<table>
+  <tr><th>File</th><th>Action / what it is</th></tr>
+  <tr><td><code>bin/fm-turnend-guard-grok.sh</code></td><td>Delete — the grok-specific turn-end guard.</td></tr>
+  <tr><td><code>.grok/</code>, <code>.opencode/</code></td><td>Delete — the harness config dirs (grok hooks, opencode plugins; both verified present). Also remove the installer path for the <b>global</b> <code>~/.grok/hooks/fm-turn-end.json</code> and document a one-time cleanup of any already-installed copy.</td></tr>
+  <tr><td><code>bin/fm-harness.sh</code></td><td>Modify — drop the grok/opencode detection branches (the <code>GROK_AGENT=1</code> probe at line 37 and the <code>*opencode*</code>/<code>*grok*</code> cases at lines 45–46 and 54–55); the header contract becomes <code>claude|codex|pi|unknown</code>.</td></tr>
+  <tr><td><code>bin/fm-spawn.sh</code></td><td>Modify — remove grok/opencode from the bare-adapter list (line 62) and the grok global-hook install logic (~line 105).</td></tr>
+  <tr><td><code>tests/fm-grok-continuity-live-e2e.test.sh</code>, <code>tests/fm-grok-harness.test.sh</code>, <code>tests/fm-opencode-primary-live-e2e.test.sh</code></td><td>Delete — grok/opencode coverage only. The pi harness is <b>kept</b>: <code>tests/fm-pi-primary-live-e2e.test.sh</code>, <code>tests/fm-pi-primary-types.test.sh</code>, <code>tests/fm-pi-watch-extension.test.sh</code>, <code>tests/fm-calm-pi-extension.test.sh</code>, and <code>tests/fm-afk-pi-herdr-return-e2e.test.sh</code> all stay.</td></tr>
+  <tr><td><code>.agents/skills/harness-adapters/</code>, <code>docs/*</code></td><td>Modify — drop grok/opencode sections and any zellij/orca mentions from the per-harness docs; <code>bin/fm-test-run.sh</code>'s family maps and shard lists lose the deleted test basenames (same care point as step 8).</td></tr>
+</table>
+
+<h2>File impact table</h2>
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/fm-x-lib.sh</code></td><td>Delete</td><td>984-line relay client — largest single removal.</td></tr>
+  <tr><td><code>bin/fm-x-poll.sh</code>, <code>bin/fm-x-reply.sh</code>, <code>bin/fm-x-dismiss.sh</code>, <code>bin/fm-x-followup.sh</code>, <code>bin/fm-x-link.sh</code></td><td>Delete</td><td>The rest of the X-mode surface.</td></tr>
+  <tr><td><code>.agents/skills/fmx-respond/</code></td><td>Delete</td><td>X-mode agent playbook (whole directory).</td></tr>
+  <tr><td><code>bin/fm-install-shellcheck.sh</code></td><td>Delete</td><td>Pinned shellcheck installer (36 lines).</td></tr>
+  <tr><td><code>bin/fm-lint.sh</code></td><td>Delete</td><td>Standalone gate (453 lines). Lint function reappears via deep-review <code>commands.lint</code> (plan 10).</td></tr>
+  <tr><td><code>docs/gitlab-merge-watch.md</code>, <code>docs/wedge-alarm.md</code></td><td>Delete</td><td>Docs for removed subsystems.</td></tr>
+  <tr><td><code>tests/fm-x-mode.test.sh</code>, <code>tests/fm-lint.test.sh</code></td><td>Delete</td><td>Cover only deleted code; nothing to salvage.</td></tr>
+  <tr><td><code>bin/backends/zellij.sh</code>, <code>bin/backends/orca.sh</code></td><td>Delete</td><td>Pruned backend adapters (decision 2026-07-26).</td></tr>
+  <tr><td><code>bin/fm-turnend-guard-grok.sh</code></td><td>Delete</td><td>Grok-specific turn-end guard.</td></tr>
+  <tr><td><code>.grok/</code>, <code>.opencode/</code></td><td>Delete</td><td>Harness config dirs (hooks/plugins); plus global <code>~/.grok/hooks/fm-turn-end.json</code> cleanup.</td></tr>
+  <tr><td><code>docs/zellij-backend.md</code>, <code>docs/orca-backend.md</code></td><td>Delete</td><td>Docs for pruned backends.</td></tr>
+  <tr><td><code>.agents/skills/firstmate-orca/</code></td><td>Delete</td><td>Orca skill directory (whole directory).</td></tr>
+  <tr><td><code>tests/fm-backend-zellij.test.sh</code>, <code>tests/fm-backend-zellij-smoke.test.sh</code>, <code>tests/zellij-test-safety.sh</code>, <code>tests/fm-backend-orca.test.sh</code>, <code>tests/fm-grok-continuity-live-e2e.test.sh</code>, <code>tests/fm-grok-harness.test.sh</code>, <code>tests/fm-opencode-primary-live-e2e.test.sh</code></td><td>Delete</td><td>Cover only pruned backends/harnesses; all <code>fm-pi-*</code> tests stay.</td></tr>
+  <tr><td><code>bin/fm-backend.sh</code></td><td>Modify</td><td><code>FM_BACKEND_KNOWN</code> (line 69) → <code>"tmux herdr cmux"</code>; drop zellij/orca branches.</td></tr>
+  <tr><td><code>bin/fm-harness.sh</code>, <code>bin/fm-spawn.sh</code></td><td>Modify</td><td>Remove grok/opencode detection and adapter/global-hook branches; contract becomes <code>claude|codex|pi</code>.</td></tr>
+  <tr><td><code>bin/fm-bootstrap.sh</code></td><td>Modify</td><td>Remove FMX handling (lines 58, ~99, 607–628). No shellcheck probe found to remove (see finding).</td></tr>
+  <tr><td><code>bin/fm-pr-check.sh</code></td><td>Modify</td><td>Drop glab guard, lines 50–66.</td></tr>
+  <tr><td><code>bin/fm-pr-poll.sh</code></td><td>Modify</td><td>Drop glab branch (96–104) + dual-provider header (7).</td></tr>
+  <tr><td><code>bin/fm-pr-lib.sh</code></td><td>Modify</td><td>Remove GitLab validators + <code>FM_PR_PROVIDER=gitlab</code> arm (119–203 region).</td></tr>
+  <tr><td><code>bin/fm-supervise-daemon.sh</code></td><td>Modify</td><td>Remove <code>wedge_alarm_via_osascript()</code> + osascript channel wiring; keep herdr/<code>command:</code>/discard + durable marker.</td></tr>
+  <tr><td><code>bin/fm-test-run.sh</code></td><td>Modify</td><td>Remove deleted tests/scripts from family maps + shard lists (lines 125, 169, 249, 264, 295, 305, 668, 685).</td></tr>
+  <tr><td><code>.github/workflows/ci.yml</code></td><td>Modify</td><td>Remove the <code>bin/fm-lint.sh</code> step (line 25).</td></tr>
+  <tr><td><code>AGENTS.md</code></td><td>Modify</td><td>Delete §14, §13 fmx-respond bullet (line 480), §8 X-mode sentence (line 334).</td></tr>
+  <tr><td><code>docs/configuration.md</code>, <code>docs/architecture.md</code>, <code>docs/scripts.md</code></td><td>Modify</td><td>Remove X-mode notes and the fm-x script catalogue rows (scripts.md 89–94); audit for glab/wedge-alarm/lint references.</td></tr>
+  <tr><td><code>tests/fm-pr-check-security.test.sh</code></td><td>Modify</td><td>Strip GitLab assertions (65 hits); keep GitHub security coverage.</td></tr>
+  <tr><td><code>tests/fm-pr-merge.test.sh</code></td><td>Modify</td><td>Drop GitLab-record assertions.</td></tr>
+  <tr><td><code>tests/fm-daemon.test.sh</code></td><td>Modify</td><td>Drop osascript-channel assertions only.</td></tr>
+  <tr><td><code>tests/mx-removed-deps.test.sh</code></td><td>New</td><td>Regression tripwire: greps <code>bin/ tests/ docs/ AGENTS.md</code> for <code>FMX_|fm-x-|myfirstmate|glab|gitlab</code>, the osascript wedge channel, and the pruned <code>zellij|orca|grok|opencode</code> backend/harness references; fails on any hit (allowlisting <code># shellcheck</code> directives).</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<h3>(a) Existing tests that must keep passing, unchanged</h3>
+<p>The core-loop suite is untouched by these removals and is the primary regression signal, run via <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code> in <a href="02-rebrand.html">plan 02</a>). In particular:</p>
+<ul>
+  <li><code>tests/fm-watch-triage.test.sh</code>, <code>tests/fm-crew-state.test.sh</code>, <code>tests/fm-wake-queue.test.sh</code>, <code>tests/fm-watcher-lock.test.sh</code> — watcher/classifier/state loop.</li>
+  <li><code>tests/fm-bootstrap.test.sh</code> — must stay green after the FMX gutting (any FMX-specific cases inside it move to bucket b).</li>
+  <li><code>tests/fm-spawn-batch.test.sh</code>, <code>tests/fm-teardown.test.sh</code>, <code>tests/fm-brief.test.sh</code>, <code>tests/fm-send-strict.test.sh</code> — lifecycle paths that never touched the removed subsystems.</li>
+  <li><code>tests/fm-test-run.test.sh</code> — the runner's own contract test; proves the map edits in step 8 kept the runner coherent.</li>
+  <li>The kept-harness and kept-backend suites stay green untouched: all <code>tests/fm-pi-*</code> tests (<code>fm-pi-primary-live-e2e</code>, <code>fm-pi-primary-types</code>, <code>fm-pi-watch-extension</code>, <code>fm-calm-pi-extension</code>, <code>fm-afk-pi-herdr-return-e2e</code>) and the tmux/herdr/cmux backend coverage.</li>
+</ul>
+<h3>(b) Existing tests needing changes</h3>
+<ul>
+  <li><code>tests/fm-pr-check-security.test.sh</code> — 65 <code>gitlab|glab</code> matches. The GitLab host/path-validation and glab-invocation-safety cases are deleted; every GitHub-side assertion (record validation, injection safety of the <code>gh</code> path) must survive verbatim.</li>
+  <li><code>tests/fm-pr-merge.test.sh</code> — remove assertions about GitLab watch records / unimplemented-merge refusal; GitHub merge coverage unchanged.</li>
+  <li><code>tests/fm-daemon.test.sh</code> — remove osascript-channel cases; wedge-marker lifecycle, max-defer, and pause-vs-wedge semantics (lines 155–171 area) keep passing.</li>
+  <li><code>tests/fm-bootstrap.test.sh</code> — remove any X-mode opt-in / FMX diagnostic cases.</li>
+  <li>Deleted outright (bucket of their own): <code>tests/fm-x-mode.test.sh</code>, <code>tests/fm-lint.test.sh</code>; and per the 2026-07-26 pruning decision: <code>tests/fm-backend-zellij.test.sh</code>, <code>tests/fm-backend-zellij-smoke.test.sh</code>, <code>tests/zellij-test-safety.sh</code>, <code>tests/fm-backend-orca.test.sh</code>, <code>tests/fm-grok-continuity-live-e2e.test.sh</code>, <code>tests/fm-grok-harness.test.sh</code>, <code>tests/fm-opencode-primary-live-e2e.test.sh</code>.</li>
+</ul>
+<h3>(c) New tests to write</h3>
+<ul>
+  <li><code>tests/mx-removed-deps.test.sh</code> — asserts the removed subsystems stay dead: no <code>FMX_</code>/<code>fm-x-</code>/<code>myfirstmate</code> strings, no <code>glab</code>/<code>gitlab</code> provider branches, no osascript wedge channel, no <code>fm-lint.sh</code>/<code>fm-install-shellcheck.sh</code> files, no CI lint step in <code>.github/workflows/ci.yml</code>, and — per the pruning decision — no <code>zellij</code>/<code>orca</code> backend references and no <code>grok</code>/<code>opencode</code> harness branches (including <code>FM_BACKEND_KNOWN</code> containing exactly <code>tmux herdr cmux</code>). Allowlist: <code># shellcheck</code> source/disable directives and the read-only <code>firstmate/</code> reference folder. Register it in the runner's family map (it is the first <code>mx-</code>-named test; plan 02 renames the rest).</li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>Lands first.</b> UPDATE_PLAN §8.7: "Do the deletions (8.1) first — they only remove code, shrinking the surface before we reimplement anything." Nothing blocks this plan.</li>
+  <li><b>Before <a href="02-rebrand.html">plan 02 (rebrand)</a>:</b> every file deleted here is a file the rename sweep never has to touch — six <code>fm-x-*.sh</code> scripts, the zellij/orca adapters, the grok/opencode harness files (including their hook/plugin dirs), nine tests, five docs, and the <code>FMX_*</code> env family disappear from the rename inventory.</li>
+  <li><b>Feeds <a href="10-deep-review-gate.html">plan 10 (deep-review gate)</a>:</b> the lint function deleted here is reintroduced there via the §6.3.1 <code>commands.lint</code> configured-command path (with its default-branch-only trust rule). Until plan 10 lands, the repo has no lint gate — acceptable for the interim per §8.1.</li>
+  <li><b>Unrelated to</b> plans 03–09 (status reporting, precedence, worktrees, least-privilege push, -axi replacements, vplan) except that all of them inherit a smaller tree.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout warn">
+  <div class="label">Open question — does config/wedge-alarm survive?</div>
+  <p style="margin:0">UPDATE_PLAN §8.1's file column says to remove "the <code>config/wedge-alarm</code> config", but its rationale keeps the generic <code>command:&lt;cmd&gt;</code> escape hatch — which is <i>configured through</i> <code>config/wedge-alarm</code> directives. These can't both hold fully. Recommended reading: remove only the <code>osascript</code> channel; keep <code>config/wedge-alarm</code> as the channel selector for <code>herdr</code> / <code>command:</code> / <code>discard</code>. Confirm with the maintainer before implementation.</p>
+</div>
+<div class="callout warn">
+  <div class="label">Open question — lint gap until plan 10</div>
+  <p style="margin:0">Between this plan and <a href="10-deep-review-gate.html">plan 10</a>, no lint gate runs anywhere (CI or local). If that window is long, consider keeping the <code>ci.yml</code> lint step pointed at a plain <code>shellcheck</code> invocation as a temporary bridge — but that re-adds the dependency §8.1 removes, so default is: accept the gap.</p>
+</div>
+<div class="callout danger">
+  <div class="label">Risk — test-runner map drift</div>
+  <p style="margin:0"><code>bin/fm-test-run.sh</code> hardcodes deleted test/script names in at least eight locations. Missing one leaves the runner selecting nonexistent shards. Mitigation: step 8 is its own commit-reviewable change, and <code>tests/fm-test-run.test.sh</code> plus a full-suite run gate the merge.</p>
+</div>
+<div class="callout ok">
+  <div class="label">Low blast radius</div>
+  <p style="margin:0">X mode ships inert (token opt-in), glab is optional (GitLab watches only), the wedge alarm's osascript channel is macOS/away-mode only, and lint's only mandatory consumer is the upstream contribution CI we are not keeping. No core-loop behavior changes.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="index.html">← Index</a>
+  <a href="02-rebrand.html">Plan 02: Full Rebrand →</a>
+</div>
+
+</div>
+</body>
+</html>

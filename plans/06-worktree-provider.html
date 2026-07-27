@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 06 — Worktree Provider — The Treehouse Decision · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#d29922; --accent-dim:rgba(210,153,34,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+.path-tag{font-family:var(--mono);font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);background:var(--accent-dim)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 06 / 10</div>
+    <h1>Worktree Provider — The Treehouse Decision</h1>
+    <p class="subtitle">Decide what Computer does about <code>treehouse</code>, firstmate's pooled git-worktree provider: keep it as the one deliberately-retained upstream tool, or build our own replacement. UPDATE_PLAN contained conflicting guidance on this exact question, so this plan is structured as a decision document with both paths fully planned. The maintainer resolved it on 2026-07-26: <strong>keep treehouse (Path K)</strong>; the build-our-own paths are retained below for reference only.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 4</span>
+      <span class="badge effort">Effort: Low (Path K — decided)</span>
+      <span class="badge risk">Risk: Medium</span>
+      <span class="badge">UPDATE_PLAN §1 (+ §8 conflict)</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26</div>
+  <p><b>The §1-vs-§8 contradiction is resolved by maintainer decision in favor of KEEP (Path K).</b> UPDATE_PLAN.md contradicted itself: §1 ("Dependency removal") is titled <i>"treehouse → build our own"</i> and sketches a reimplementation, while §8 ("Removing / replacing the remaining external dependencies") says the opposite, verbatim: <i>"<b>treehouse</b> — kept as-is. It's the one upstream tool we like and want to keep using (worktree provider, §1). No change."</i> §8.3 repeats it.</p>
+  <p style="margin-bottom:0">The maintainer settled it in §8's favor: <b>treehouse stays as-is</b> — pinned v2.0.1, SHA-256-verified, rebrand rename only. The rejected alternative, building our own (Path B / B1 / B2), is <b>off the port's roadmap</b>; its material is retained below for reference, with a pooled <code>mx-worktree</code> remaining only a possible far-future optional module.</p>
+</div>
+
+<h2 id="overview">Overview</h2>
+
+<p>Firstmate separates the <b>session provider</b> (tmux, herdr, zellij, cmux, orca — where an agent's terminal lives) from the <b>worktree provider</b> (where an agent's <em>checkout</em> lives). The worktree provider is <code>treehouse</code>, an external binary by the upstream author (<code>kunchenguid/treehouse</code>), pinned at v2.0.1 with SHA-256-verified release archives. Every backend except <code>orca</code> (which owns its own worktrees) depends on it.</p>
+
+<p>What treehouse actually is, per UPDATE_PLAN §1: <i>"a pooled set of disposable <code>git worktree</code>s, a locked on-disk state file tracking which are claimed, and process/lease-based 'in use' detection so a worktree isn't recycled out from under a live task."</i> Its real value-add is <b>pool reuse</b>: a recycled worktree keeps warm <code>node_modules</code> and build caches across tasks. Its hard part is the <b>reuse-vs-safe-reclaim logic</b> — §1 is explicit that <i>"durable leases for secondmates with no live process vs. safe-to-recycle orphans... is the one part not to shortcut."</i> (In Computer vocabulary: durable leases for <b>daemons</b> with no live process.)</p>
+
+<p>The strategic question for Computer: treehouse is upstream-author-controlled, like the <code>-axi</code> toolbelt we are replacing (plan 07). But unlike the <code>-axi</code> wrappers, it is a real tool with genuinely hard concurrency logic, it is already pinned and checksum-verified (no floating-latest risk), and firstmate's integration with it is small and well-contained. That is why §8's "keep" stance is defensible even though §1's "own it" instinct is also right long-term.</p>
+
+<p>This plan documents where treehouse touches firstmate today, fully specifies both the keep path and the build path (including the two build sub-options), and recommends a sequencing that gets Computer standing first and revisits ownership later as an optional module.</p>
+
+<h2 id="goals">Goals &amp; Non-goals</h2>
+
+<table>
+  <tr><th style="width:50%">Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Record the §1-vs-§8 contradiction and its resolution: <b>keep (Path K)</b>, decided 2026-07-26.</li>
+        <li>Fully plan <b>Path K</b>: keep treehouse v2.0.1 pinned + SHA-256-verified, rebrand rename only.</li>
+        <li>Document <b>Path B</b> for reference — <b>B1</b> (no pool) and <b>B2</b> (pooled reuse with lease logic) — rejected for the port.</li>
+        <li>Keep the port unblocked: Path K costs only the rebrand rename.</li>
+        <li>Preserve the isolation guarantee that plan 10's deep-review gate assumes ("you are in an isolated git worktree").</li>
+      </ul>
+    </td>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Re-litigating keep-vs-build — the maintainer decided 2026-07-26 (keep); B2 survives only as a possible far-future optional module.</li>
+        <li>Touching the <code>orca</code> backend's worktree handling — orca owns its own worktrees and never uses treehouse.</li>
+        <li>Rewriting treehouse feature-for-feature. If we build, we build for <em>our</em> workflow (per §8.2's guiding principle for reimplementations).</li>
+        <li>Changing the session-provider (backend) abstraction — that is out of scope here.</li>
+        <li>Vendoring or forking treehouse's source.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2 id="current">Current state in firstmate</h2>
+
+<p>Treehouse is installed either manually (<code>curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh</code>, the hint printed by <code>fm-bootstrap.sh</code>) or via the pinned CI installer. The pinned installer (<code>bin/fm-install-treehouse.sh</code>) downloads the exact v2.0.1 release asset for the platform (linux/darwin, amd64/arm64), enforces a bounded download ceiling (15&nbsp;MB), verifies a hardcoded per-platform SHA-256, and runs a post-install version check — never a floating package-manager latest.</p>
+
+<p>Runtime touchpoints:</p>
+
+<ul>
+  <li><b>Bootstrap probe + lease-capability check</b> — <code>bin/fm-bootstrap.sh</code> probes <code>command -v treehouse</code> and additionally reports treehouse as <code>MISSING</code> when the installed version lacks <code>treehouse get --lease</code> support (function <code>treehouse_supports_lease()</code>, ~line 528; the check only fires when the resolved backend actually requires treehouse — every backend except orca).</li>
+  <li><b>Task spawn</b> — <code>bin/fm-spawn.sh</code> sends <code>treehouse get</code> into the new pane and runs a 60-iteration settle loop waiting for the pane's cwd to move from the project into the acquired worktree, then validates the result via <code>validate_spawn_worktree</code>. A known WSL/tmux race (transient stale <code>pane_current_path</code>) is handled here and regression-tested by <code>tests/fm-spawn-worktree-settle.test.sh</code>.</li>
+  <li><b>Daemon home leasing</b> — <code>bin/fm-home-seed.sh</code> acquires a fresh firstmate home via <code>treehouse get --lease --lease-holder &lt;id&gt;</code> (function <code>acquire_treehouse_home()</code>), which durably leases the worktree until teardown or rollback returns it via <code>treehouse return</code>. This is the "durable lease with no live process" case §1 warns about.</li>
+  <li><b>Teardown / return</b> — <code>bin/fm-teardown.sh</code> returns the worktree via <code>treehouse return --force</code>, with a landed-work safety check first (return hard-resets the worktree, so unlanded commits must be refused) and a bounded retry loop for the transient <code>.git/index.lock</code> "File exists" race (<code>FM_TREEHOUSE_RETURN_LOCK_RETRIES</code>, default 3).</li>
+</ul>
+
+<table>
+  <tr><th>File (relative to <code>firstmate/</code>)</th><th>Role</th></tr>
+  <tr><td><code>bin/fm-install-treehouse.sh</code></td><td>Pinned v2.0.1 installer: exact release asset, bounded download, per-platform SHA-256, post-install version check.</td></tr>
+  <tr><td><code>bin/fm-bootstrap.sh</code></td><td><code>command -v treehouse</code> probe; <code>treehouse_supports_lease()</code> upgrade check; install-hint string; only enforced for non-orca backends.</td></tr>
+  <tr><td><code>bin/fm-spawn.sh</code></td><td>Sends <code>treehouse get</code> into the spawned pane; 60s worktree-settle loop; <code>validate_spawn_worktree</code>; records <code>worktree=</code> in <code>state/&lt;id&gt;.meta</code>.</td></tr>
+  <tr><td><code>bin/fm-home-seed.sh</code></td><td><code>acquire_treehouse_home()</code>: <code>treehouse get --lease --lease-holder &lt;id&gt;</code> for persistent daemon homes; <code>seed_return_treehouse_home()</code> on rollback.</td></tr>
+  <tr><td><code>bin/fm-teardown.sh</code></td><td><code>teardown_treehouse_return()</code>: <code>treehouse return --force</code> with landed-work refusal and index.lock retry logic.</td></tr>
+  <tr><td><code>tests/fm-spawn-worktree-settle.test.sh</code></td><td>Regression test for the treehouse-get settle loop (stale <code>pane_current_path</code> race).</td></tr>
+  <tr><td><code>tests/fm-teardown.test.sh</code></td><td>Landed-work safety and stale-lock recovery around <code>treehouse return</code>.</td></tr>
+  <tr><td><code>tests/fm-gotmp.test.sh</code></td><td>Per-task <code>/tmp/fm-&lt;id&gt;/</code> temp-root lifecycle across spawn/teardown (worktree-adjacent cleanup contract).</td></tr>
+</table>
+
+<h2 id="target">Target design in Computer</h2>
+
+<p>Path K is the decided plan (a rename). Path B — a build with two sub-options — is retained below for reference only: rejected for the port, with B2 at most a possible far-future optional module.</p>
+
+<h3><span class="path-tag">PATH K</span>&nbsp; Keep treehouse (per §8) — decided 2026-07-26</h3>
+
+<p>Treehouse stays exactly as it is: external binary, pinned v2.0.1, SHA-256-verified via the installer. The only changes are the mechanical rebrand renames from plan 08's <code>mx-</code> sweep (UPDATE_PLAN §7.4):</p>
+
+<ul>
+  <li><code>bin/fm-install-treehouse.sh</code> → <code>bin/mx-install-treehouse.sh</code>; internal <code>FM_TREEHOUSE_CI_*</code> variables → <code>MX_TREEHOUSE_CI_*</code>.</li>
+  <li>Treehouse call sites move with their host scripts: <code>mx-spawn.sh</code>, <code>mx-teardown.sh</code>, <code>mx-home-seed.sh</code>, <code>mx-bootstrap.sh</code>. Env knobs <code>FM_TREEHOUSE_RETURN_LOCK_RETRIES</code> / <code>FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS</code> → <code>MX_TREEHOUSE_*</code>.</li>
+  <li><b>No functional change</b>: same <code>get</code> / <code>get --lease --lease-holder</code> / <code>return --force</code> command surface, same settle loop, same landed-work refusal, same lease-capability bootstrap check.</li>
+</ul>
+
+<div class="callout ok">
+  <div class="label">Why K — the deciding rationale</div>
+  <p style="margin-bottom:0">Path K costs near-zero effort, keeps the pool-reuse value-add (warm <code>node_modules</code>/build caches) and the hard lease logic that already works, and — critically — does not put a high-effort concurrency rewrite on the port's critical path. The remaining downside (a dependency on an upstream-author binary) is mitigated by the pin + checksum: upstream cannot change what we run without us changing the hash.</p>
+</div>
+
+<h3><span class="path-tag">PATH B</span>&nbsp; Build our own (per §1) — rejected for the port; retained for reference</h3>
+
+<p><b>B1 — no pool (simple).</b> Per §1: <i>"Easy to reimplement if we don't need pool reuse: plain <code>git worktree add</code>/<code>remove</code> per task, no pool at all."</i></p>
+<ul>
+  <li>A small <code>bin/mx-worktree.sh</code> with two verbs: <code>claim &lt;id&gt;</code> runs <code>git worktree add</code> on a fresh path (e.g. <code>worktrees/&lt;id&gt;</code>) and prints it; <code>release &lt;id&gt;</code> runs <code>git worktree remove</code> (after the same landed-work check teardown does today).</li>
+  <li>No state file, no leases, no reclaim logic — the worktree's existence <em>is</em> the state, reconcilable from <code>git worktree list</code>. This matches firstmate's "everything reconstructable from disk" virtue.</li>
+  <li><b>Cost:</b> loses treehouse's entire value-add — every task cold-starts <code>node_modules</code> and build caches. For JS/TS-heavy projects that is minutes per task, multiplied across the fleet.</li>
+</ul>
+
+<p><b>B2 — pooled reuse with lease logic (the real replacement).</b> This is the option §1 says is <i>"worth real design time"</i>, and its reclaim logic is <i>"the one part not to shortcut."</i> Sketch:</p>
+
+<pre><code>bin/mx-worktree.sh &lt;verb&gt;                     # the pooled provider
+  claim   [--lease --lease-holder &lt;id&gt;]       # acquire: reuse a free pooled worktree, else git worktree add
+  release [--force] &lt;path|id&gt;                 # return to pool: reset --hard + clean, mark free
+  status                                      # dump pool state (debugging / bearings)
+  reclaim                                     # sweep: recycle orphans, never live claims or durable leases
+
+state/worktree-pool.json                      # locked on-disk claim table
+  { "worktrees": [ { "path": "...", "state": "free|claimed|leased",
+      "holder": "&lt;task-or-daemon-id&gt;", "pid": 12345,
+      "lease": true|false, "claimed_at": "&lt;iso8601&gt;" } ] }
+</code></pre>
+
+<ul>
+  <li><b>Locked state file.</b> All mutations of <code>state/worktree-pool.json</code> go through firstmate's existing perl-Fcntl lock helper (<code>fm-lock-lib.sh</code> → <code>mx-lock-lib.sh</code>) so two concurrent <code>claim</code>s cannot hand out the same worktree.</li>
+  <li><b>In-use detection is process/lease-based, not trust-based.</b> A <code>claimed</code> entry records the claimer's PID; <code>reclaim</code> treats a claimed worktree whose PID is dead as an <b>orphan</b> (safe to recycle). A <code>leased</code> entry (<code>--lease</code>) is <b>durable</b>: it is held by a daemon that legitimately has no continuously-live process (daemon homes survive process restarts), so <code>reclaim</code> must <em>never</em> recycle it — only an explicit <code>release</code> by holder id frees it. This claimed-vs-leased split is exactly the reuse-vs-safe-reclaim logic §1 flags as the part not to shortcut, and it mirrors today's <code>treehouse get</code> vs. <code>treehouse get --lease --lease-holder</code> distinction that <code>fm-spawn.sh</code> and <code>fm-home-seed.sh</code> already rely on.</li>
+  <li><b>Recycle = reset, keep caches.</b> <code>release</code> runs <code>git checkout</code>/<code>reset --hard</code> + a <em>selective</em> clean that preserves ignored build artifacts (<code>node_modules</code>, build caches) — that retention is the entire point of the pool. Same landed-work refusal as today's teardown before any reset.</li>
+  <li><b>Command-surface compatibility.</b> Keep the verbs close enough to treehouse's (<code>claim</code>/<code>get</code>, <code>release</code>/<code>return</code>) that <code>mx-spawn.sh</code>, <code>mx-teardown.sh</code>, and <code>mx-home-seed.sh</code> only swap the binary name and flag spellings, not their logic (settle loop, retry-on-index.lock, rollback paths all survive unchanged).</li>
+</ul>
+
+<h3>Decision</h3>
+
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26</div>
+  <p><b>Path K wins</b> — treehouse is kept as-is for the port: it honors §8's explicit "kept as-is" decision, costs only the rename, and keeps the port's critical path free of a hard concurrency build. Building our own (Path B) is <b>rejected for the port</b>; a pooled <code>mx-worktree</code> (B2) remains only a <em>possible far-future optional module</em> — if ever green-lit, the treehouse call sites are already isolated behind four scripts, so swapping the provider would be a contained change validated against a working system instead of on paper.</p>
+  <p style="margin-bottom:0">B1 was likewise rejected as a destination (it discards the pool's value-add); it stays documented only as an emergency fallback if treehouse ever becomes uninstallable. This resolves the §1/§8 conflict in §8's favor — not just for sequencing, but as the port's decision of record.</p>
+</div>
+
+<h2 id="steps">Implementation steps</h2>
+
+<p>Steps 1–4 are Path K — the active plan. Step 5 records the far-future B2 charter. Steps 6–8 are Path B2 material, rejected for the port and retained for reference only (they run only if the far-future optional module is ever green-lit).</p>
+
+<ol class="steps">
+  <li><b>Record the decision in the port's decision log.</b> The §1-vs-§8 conflict (quoted above) was settled by the maintainer on 2026-07-26: <b>keep treehouse (Path K)</b>; Path B is rejected for the port, with pooled B2 at most a far-future optional module. Log that outcome, then proceed with the Path K steps below.</li>
+  <li><b>Rename the installer.</b> <code>bin/fm-install-treehouse.sh</code> → <code>bin/mx-install-treehouse.sh</code> <span class="pill mod">mod</span> — rename only: keep the v2.0.1 pin, the per-platform SHA-256 table, the 15&nbsp;MB bounded download, and the post-install version check byte-for-byte. Internal vars <code>FM_TREEHOUSE_CI_*</code> → <code>MX_TREEHOUSE_CI_*</code>.</li>
+  <li><b>Carry treehouse call sites through the rebrand.</b> As part of plan 08's sweep, the treehouse logic in <code>bin/fm-spawn.sh</code> <span class="pill mod">mod</span>, <code>bin/fm-teardown.sh</code> <span class="pill mod">mod</span>, <code>bin/fm-home-seed.sh</code> <span class="pill mod">mod</span>, and <code>bin/fm-bootstrap.sh</code> <span class="pill mod">mod</span> moves unchanged into their <code>mx-</code> counterparts. Env knobs <code>FM_TREEHOUSE_RETURN_LOCK_RETRIES</code> / <code>FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS</code> → <code>MX_TREEHOUSE_*</code>. Comment/log vocabulary updates to maintainer/actor/daemon per §7.</li>
+  <li><b>Verify Path K end-to-end.</b> Run the worktree-related suite (see Test plan) under the renamed scripts; spawn one real actor task and one daemon home-seed on a treehouse-backed backend and confirm claim → work → return round-trips cleanly.</li>
+  <li><b>Record the far-future B2 charter.</b> Add a short "possible far-future optional module: mx-worktree" note to the port's decision log capturing the B2 sketch above (verbs, pool-state schema, claimed-vs-leased reclaim rule) so a later build — if ever green-lit — doesn't re-derive it. No code.</li>
+  <li><b>[Path B2 — rejected for the port; far-future reference] Build <code>bin/mx-worktree.sh</code>.</b> <span class="pill new">new</span> Implement <code>claim / release / status / reclaim</code> against a locked <code>state/worktree-pool.json</code> using <code>mx-lock-lib.sh</code>. Durable-lease entries are exempt from <code>reclaim</code> permanently; dead-PID claimed entries are orphans and recyclable. <code>release</code> preserves ignored build artifacts.</li>
+  <li><b>[Path B2 — rejected for the port; far-future reference] Swap the provider behind the existing call sites.</b> <code>mx-spawn.sh</code> <span class="pill mod">mod</span> sends <code>mx-worktree.sh claim</code> instead of <code>treehouse get</code> (settle loop unchanged); <code>mx-teardown.sh</code> <span class="pill mod">mod</span> calls <code>release --force</code> (landed-work refusal and index.lock retries unchanged); <code>mx-home-seed.sh</code> <span class="pill mod">mod</span> uses <code>claim --lease --lease-holder &lt;id&gt;</code>; <code>mx-bootstrap.sh</code> <span class="pill mod">mod</span> drops the external-binary probe in favor of an in-repo self-check. Then delete <code>bin/mx-install-treehouse.sh</code> <span class="pill del">del</span>.</li>
+  <li><b>[Path B2 — rejected for the port; far-future reference] Write and pass <code>tests/mx-worktree.test.sh</code></b> <span class="pill new">new</span> (see Test plan) before the swap ships; the existing spawn-settle/teardown/gotmp tests must also pass against the new provider.</li>
+</ol>
+
+<h2 id="impact">File impact table</h2>
+
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/fm-install-treehouse.sh</code> → <code>bin/mx-install-treehouse.sh</code></td><td>Modify (rename)</td><td>Path K: rename + var-prefix only. Pin, SHA-256 table, bounded download, version check unchanged.</td></tr>
+  <tr><td><code>bin/fm-spawn.sh</code> → <code>bin/mx-spawn.sh</code></td><td>Modify</td><td>Path K: treehouse-get + settle loop unchanged (rebrand pass only). Path B2: swap to <code>mx-worktree.sh claim</code>.</td></tr>
+  <tr><td><code>bin/fm-teardown.sh</code> → <code>bin/mx-teardown.sh</code></td><td>Modify</td><td>Path K: <code>treehouse return --force</code> + retry logic unchanged. Path B2: swap to <code>release --force</code>.</td></tr>
+  <tr><td><code>bin/fm-home-seed.sh</code> → <code>bin/mx-home-seed.sh</code></td><td>Modify</td><td>Path K: <code>get --lease --lease-holder</code> unchanged. Path B2: swap to <code>claim --lease --lease-holder</code>.</td></tr>
+  <tr><td><code>bin/fm-bootstrap.sh</code> → <code>bin/mx-bootstrap.sh</code></td><td>Modify</td><td>Path K: probe + <code>treehouse_supports_lease()</code> unchanged. Path B2: drop external probe.</td></tr>
+  <tr><td><code>bin/mx-worktree.sh</code></td><td>New (Path B2 only — rejected for the port; far-future reference)</td><td>Pooled provider: claim/release/status/reclaim, locked <code>state/worktree-pool.json</code>, claimed-vs-leased reclaim rule.</td></tr>
+  <tr><td><code>tests/mx-worktree.test.sh</code></td><td>New (Path B2 only — rejected for the port; far-future reference)</td><td>See Test plan (c).</td></tr>
+  <tr><td><code>tests/fm-spawn-worktree-settle.test.sh</code>, <code>tests/fm-teardown.test.sh</code>, <code>tests/fm-gotmp.test.sh</code></td><td>Modify (rename)</td><td>Rename to <code>mx-</code> in plan 08's sweep; behavior contracts unchanged under Path K.</td></tr>
+</table>
+
+<h2 id="tests">Test plan</h2>
+
+<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>).</p>
+
+<h3>(a) Existing tests that must keep passing</h3>
+<ul>
+  <li><code>tests/fm-spawn-worktree-settle.test.sh</code> — the treehouse-get settle-loop regression (stale <code>pane_current_path</code> race) must still pass under Path K's renamed scripts.</li>
+  <li><code>tests/fm-teardown.test.sh</code> — landed-work refusal and stale-lock (<code>index.lock</code>) recovery around worktree return.</li>
+  <li><code>tests/fm-gotmp.test.sh</code> — per-task temp-root creation at spawn and removal at teardown, alongside the worktree lifecycle.</li>
+</ul>
+
+<h3>(b) Existing tests needing changes</h3>
+<ul>
+  <li>All three above take the mechanical <code>fm-</code>→<code>mx-</code> rename (script paths, env-var prefixes) from plan 08 — no behavioral edits under Path K.</li>
+  <li>Under the far-future Path B2 only: <code>tests/mx-spawn-worktree-settle.test.sh</code> and <code>tests/mx-teardown.test.sh</code> swap their fake-treehouse stubs for fake-<code>mx-worktree</code> stubs (same observable contract: prints a worktree path on claim; return refuses unlanded work).</li>
+</ul>
+
+<h3>(c) New tests to write</h3>
+<ul>
+  <li><code>tests/mx-worktree.test.sh</code> (far-future Path B2 only) — asserts:
+    <ul>
+      <li><b>claim/release round-trip:</b> claim yields a real distinct worktree path recorded as <code>claimed</code> in the pool file; release resets it and marks it <code>free</code>; a second claim reuses it (ignored build artifacts survive the recycle).</li>
+      <li><b>lease not recycled under a live process:</b> a <code>claimed</code> entry whose PID is alive is never touched by <code>reclaim</code>; a <code>leased</code> (durable) entry is never touched by <code>reclaim</code> even with no live process — only explicit <code>release</code> by holder id frees it.</li>
+      <li><b>orphan reclaim:</b> a <code>claimed</code> (non-lease) entry whose PID is dead is swept back to <code>free</code> by <code>reclaim</code>.</li>
+      <li><b>concurrent claim safety:</b> N parallel <code>claim</code> calls against a smaller pool never hand the same worktree to two callers (lock contention test via the pool-file lock).</li>
+    </ul>
+  </li>
+</ul>
+
+<h2 id="deps">Dependencies &amp; ordering</h2>
+
+<ul>
+  <li><b>Before this plan:</b> nothing hard — Path K is self-contained. The rename step rides on the rebrand sweep (plan 08), so land them together or sequence the rename inside that pass.</li>
+  <li><b>After / interacts with:</b>
+    <ul>
+      <li><a href="07-axi-replacements.html">Plan 07 — -axi replacements</a>: shares the "collapse or own upstream-author tools" theme; treehouse is the one deliberate exception under Path K (§8.3).</li>
+      <li><a href="10-deep-review-gate.html">Plan 10 — deep-review gate</a>: the gate runs <em>inside the actor's existing worktree</em> and its prompts assert worktree isolation ("its <code>.git</code> is a pointer file") — whichever provider wins must keep supplying that isolation.</li>
+      <li><a href="09-least-privilege-push.html">Plan 09 — least-privilege push</a>: teardown's landed-work refusal is what makes a local commit a durable artifact until the push service delivers it; the provider's return/reset semantics must keep honoring it.</li>
+      <li>Plan 08 (rebrand) owns the mechanical renames listed here.</li>
+    </ul>
+  </li>
+  <li><b>Far-future B2</b> (if ever green-lit) depends on the port being functional end-to-end first.</li>
+</ul>
+
+<h2 id="risks">Risks &amp; open questions</h2>
+
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26 — the §1 / §8 contradiction</div>
+  <p style="margin-bottom:0">UPDATE_PLAN §1 said <i>"treehouse → build our own"</i>; UPDATE_PLAN §8 said <i>"treehouse — kept as-is. It's the one upstream tool we like and want to keep using. No change."</i> The maintainer confirmed §8's answer: <b>keep treehouse</b>. Rejected alternative: Path B (build our own, per §1) — off the port's roadmap entirely; pooled B2 survives only as a possible far-future optional module.</p>
+</div>
+
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26 — B2 status (formerly the timing-trigger question)</div>
+  <p style="margin-bottom:0">B2 is not on the roadmap, so no trigger is scheduled — it is at most a possible far-future optional module. The candidate triggers recorded while this was open (treehouse upstream going stale/unavailable, pool semantics treehouse can't support, post-port capacity) remain the only sensible reasons to ever reopen it.</p>
+</div>
+
+<div class="callout danger">
+  <div class="label">Risk — B2's reclaim logic is the dangerous part</div>
+  <p style="margin-bottom:0">§1 is explicit: the durable-lease vs. orphan-reclaim distinction is <i>"the one part not to shortcut."</i> Getting it wrong recycles a daemon's home out from under it (data loss) or leaks worktrees forever (pool exhaustion). This was the single strongest argument for Path K, and it carried the 2026-07-26 decision: we keep treehouse's working lease logic, and any far-future replacement would be built and tested entirely off the critical path.</p>
+</div>
+
+<div class="callout">
+  <div class="label">Risk — upstream dependency under Path K</div>
+  <p style="margin-bottom:0">Path K keeps a binary controlled by the upstream author. Mitigations already in place: exact version pin (v2.0.1), hardcoded SHA-256 per platform, bounded download, post-install version check — upstream cannot silently change what we execute. Residual risk is availability (release assets disappearing), for which B1 exists as a documented emergency fallback.</p>
+</div>
+
+<div class="callout">
+  <div class="label">Risk — orca asymmetry</div>
+  <p style="margin-bottom:0">Orca owns its own worktrees and bypasses this whole decision. Any future B2 work must preserve that asymmetry (bootstrap only requires the provider for non-orca backends), or orca spawns will start failing a probe they never needed.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="05-signal-precedence.html">&larr; 05 — Signal Precedence</a>
+  <a href="index.html">Index</a>
+  <a href="07-axi-replacements.html">07 — -axi Replacements &rarr;</a>
+</div>
+
+</div>
+</body>
+</html>

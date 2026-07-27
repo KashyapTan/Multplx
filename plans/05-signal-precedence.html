@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 05 — Explicit Signal Precedence · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#3fb950; --accent-dim:rgba(63,185,80,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 05 / 10</div>
+    <h1>Explicit Signal Precedence in the Classifier</h1>
+    <p class="subtitle">Different backends produce different-quality signals about the same actor. Add one documented precedence rule to the classify library — <strong>harness-native event &gt; schema-validated self-report &gt; text/regex heuristic</strong> — and apply it uniformly across every backend, replacing today's implicit, per-backend handling.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 3</span>
+      <span class="badge effort">Effort: Low–Medium</span>
+      <span class="badge risk">Risk: Medium — touches the state oracle; regressions here misroute escalations</span>
+      <span class="badge">UPDATE_PLAN §5</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>The supervision loop judges each actor from up to three signal sources of very different reliability:</p>
+<ul>
+  <li><strong>Harness-native events — near ground truth.</strong> Herdr's native <code>done</code>/<code>blocked</code> agent-state events, already wired in for that backend: the runtime itself reports the agent's state over its event stream, no inference involved.</li>
+  <li><strong>Schema-validated self-report — good, but still self-reported.</strong> A status line written through <code>mx-report</code> / the MCP <code>report_status</code> tool (from <a href="03-status-reporting.html">Plan 03</a>): guaranteed well-formed, but the agent can still be wrong about itself.</li>
+  <li><strong>Regex busy-signature on pane text — weakest, most prone to false positives.</strong> For tmux and cmux, which have no native busy primitive (upstream also zellij and orca, both deleted in plan 01), the watcher matches pane text against <code>BUSY_REGEX</code> (default <code>'esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'</code> in <code>fm-watch.sh</code>) — literally grepping the screen for the harness's "busy" UI hint.</li>
+</ul>
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26</div>
+  <p style="margin:0">Backend pruning is settled: Computer keeps <strong>tmux, cmux, herdr</strong> only — zellij and orca are deleted in plan 01 (harnesses are likewise pruned to claude/codex/pi). For this plan that shrinks the heuristic tier's surface: the regex busy-signature path covers exactly two backends (tmux and cmux), and herdr stays the sole native-event producer. Where upstream-describing prose below enumerates tmux/zellij/orca/cmux, that records firstmate as-is; Computer's reality is tmux and cmux.</p>
+</div>
+<p>When two of these disagree about one task at the same moment, there is currently no single documented rule for which one wins — it's handled implicitly and inconsistently per backend. The reconciliation oracle <code>fm-crew-state.sh</code> has its own internal order (validation run-step, then pane, then status log), the herdr push-transition path has another (a declared <code>paused:</code> status line <em>absorbs</em> a native <code>blocked</code> event), and the watcher's stale path has a third ("an active run-step or busy pane outranks even a captain-relevant log line", per the <code>fm-watch.sh</code> header). Each order is locally reasonable; collectively they are three different answers to the same question.</p>
+<p>The fix, per UPDATE_PLAN §5: add <strong>one explicit precedence order</strong> to the classify library (<code>fm-classify-lib.sh</code> → <code>mx-classify-lib.sh</code>) — <em>harness-native event &gt; schema-validated self-report &gt; text/regex heuristic</em> — documented in the library header and applied uniformly regardless of which backend a given task happens to be running on. The classify lib is already the deliberate single home for shared triage policy ("the overlapping triage policy lives in one place instead of two copies that can drift apart", per its own header); this plan extends that charter from vocabulary to precedence.</p>
+<p>Risk is Medium and deserves respect: this library and its consumers are the state oracle for the whole system. A wrong precedence call misroutes escalations — either the maintainer gets woken for work that is genuinely still running, or a finished/stuck actor is silently absorbed. The mitigation is a conflict-matrix test suite that pins every pairing before any consumer is rewired.</p>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+  <tr><th>Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul>
+        <li>One documented precedence order in <code>mx-classify-lib.sh</code>'s header: native event &gt; schema-validated self-report &gt; regex heuristic.</li>
+        <li>One shared decision function implementing it, used by every consumer (the crew-state oracle's successor, the push-transition handler, the watcher's stale/no-verb paths, the away-mode daemon).</li>
+        <li>Uniformity across backends: the same task state, observed through herdr or through a tmux pane, resolves conflicts by the same rule.</li>
+        <li>Conflict-matrix tests covering every same-moment disagreement pairing, plus a documentation assertion that the header states the order.</li>
+      </ul>
+    </td>
+    <td>
+      <ul>
+        <li>No change to the signal <em>sources</em> themselves: the herdr event stream, <code>mx-report</code>, and the busy regex are all produced exactly as before.</li>
+        <li>No change to the event-log model: status stays an append-only event stream; <code>status_open_decisions</code>' keyed fold is untouched.</li>
+        <li>No change to wake latency or the poll/nudge mechanics (<a href="04-watcher-nudge.html">Plan 04</a>).</li>
+        <li>No new backend capabilities — backends without native events simply have an empty tier 1.</li>
+        <li>Not a rewrite of <code>mx-crew-state.sh</code>: its run-step attribution, CI log-tail override, and meta resolution stay as-is; only the conflict-resolution seams change.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+
+<h3>How classification works today</h3>
+<p><code>bin/fm-classify-lib.sh</code> (414 lines) is the shared wake classifier sourced by both the always-on watcher (<code>bin/fm-watch.sh</code>) and the away-mode daemon (<code>bin/fm-supervise-daemon.sh</code>). It owns the verb vocabulary (<code>done:/needs-decision:/blocked:/failed:</code> = captain-relevant; <code>working:/paused:/resolved:</code> = nonterminal), the keyed-decision fold, and the absorb classification: <code>crew_absorb_class &lt;id&gt;</code> delegates to <code>bin/fm-crew-state.sh</code> for one authoritative current-state line and maps it to <code>working</code> / <code>paused</code> / <code>none</code>; <code>crew_is_provably_working</code> is the predicate behind "absorb only when provably working".</p>
+<p><code>bin/fm-crew-state.sh</code> (629 lines) derives that line in a fixed internal order, documented in its header:</p>
+<pre><code>1. state/&lt;id&gt;.meta → worktree, backend target, kind
+2. attributed validation run-step (branch AND code identity must match)
+       — AUTHORITATIVE when present: running/fixing/ci → working,
+         awaiting_approval/fix_review → parked, passed → done, failed → failed
+3. status-log reconcile: a needs-decision/blocked last line that the run
+   moved past is flagged "superseded" (stale), never trusted
+4. no run at all → pane busy state, then the status log's last verb
+5. missing meta / torn-down worktree → unknown · none</code></pre>
+<p>So within the oracle there IS a precedence — pipeline evidence beats pane, pane beats log — but it is private to this script and it never had to rank a <em>native backend event</em> against anything, because those flow through an entirely different path:</p>
+
+<h3>How herdr native events are wired today</h3>
+<p>Herdr's <code>pane.agent_status_changed</code> events are normalized by <code>bin/backends/herdr.sh</code> (<code>fm_backend_herdr_wait_transition</code>) into the backend-neutral record shape owned by <code>bin/fm-transition-lib.sh</code> — <code>&lt;pane_id&gt;\t&lt;workspace_id&gt;\t&lt;from&gt;\t&lt;to&gt;\t&lt;agent&gt;</code> with the shared agent-state vocabulary <code>idle|working|blocked|done|unknown</code> and a single status→action policy table (<code>fm_transition_policy</code>). The watcher consumes them via <code>event_wait_or_sleep</code> → <code>handle_push_transition</code> in <code>bin/fm-push-transition-lib.sh</code>. Herdr also answers <code>fm_backend_busy_state</code> natively (semantic busy/idle/unknown in <code>bin/fm-backend.sh</code>); tmux/zellij/orca/cmux return <code>unknown</code>, which cues the watcher's pane-hash + <code>FM_BUSY_REGEX</code> fallback (in Computer, only tmux and cmux survive the plan 01 pruning).</p>
+<p>And here is the inconsistency, live in <code>handle_push_transition</code>:</p>
+<pre><code># bin/fm-push-transition-lib.sh — a NATIVE herdr event arrives, but…
+if status_is_paused "$(last_status_line "$STATE/$task.status")"; then
+  triage_log "absorbed push $to (declared pause, awaiting external): $window"
+  …return   # ← the SELF-REPORTED paused: line outranks the native event
+fi</code></pre>
+<p>…while the watcher's stale path does the opposite ranking: "a provably-working stale is ALWAYS absorbed … an active run-step or <em>busy pane</em> outranks even a captain-relevant log line" (<code>fm-watch.sh</code> header) — there the <em>weakest</em> signal (regex pane-busy) outranks a self-reported terminal verb. Two consumers, two opposite implicit orders.</p>
+
+<table>
+  <tr><th>File</th><th>Role today</th></tr>
+  <tr><td><code>firstmate/bin/fm-classify-lib.sh</code></td><td>Shared classifier: vocabulary, keyed folds, <code>crew_absorb_class</code>/<code>crew_is_provably_working</code>. Where the precedence rule will live.</td></tr>
+  <tr><td><code>firstmate/bin/fm-crew-state.sh</code></td><td>The reconciliation oracle; private internal order run-step &gt; pane &gt; log; never sees native events.</td></tr>
+  <tr><td><code>firstmate/bin/fm-transition-lib.sh</code></td><td>Backend-neutral transition record shape + the status→action policy table for push-capable backends.</td></tr>
+  <tr><td><code>firstmate/bin/backends/herdr.sh</code></td><td>The one native-event producer: normalizes <code>pane.agent_status_changed</code> into transition records; native busy/idle for <code>fm_backend_busy_state</code>.</td></tr>
+  <tr><td><code>firstmate/bin/fm-push-transition-lib.sh</code></td><td><code>handle_push_transition</code>: consumes native events; contains the paused-absorbs-native check quoted above.</td></tr>
+  <tr><td><code>firstmate/bin/fm-watch.sh</code></td><td>Stale/no-verb paths using <code>crew_is_provably_working</code>; <code>BUSY_REGEX</code> definition; the "busy pane outranks the log" stale rule.</td></tr>
+  <tr><td><code>firstmate/bin/fm-backend.sh</code></td><td><code>fm_backend_busy_state</code>: native for herdr, <code>unknown</code> for tmux/zellij/orca/cmux → regex fallback cue (tmux and cmux only in Computer).</td></tr>
+  <tr><td><code>firstmate/tests/fm-crew-state.test.sh</code>, <code>firstmate/tests/fm-watch-triage.test.sh</code></td><td>Existing oracle and triage coverage — the regression net for this change.</td></tr>
+</table>
+
+<h2>Target design in Computer</h2>
+
+<h3>The rule (verbatim, one owner)</h3>
+<div class="callout ok">
+  <div class="label">Precedence — to be stated in the mx-classify-lib.sh header</div>
+  When signals about one task disagree at the same moment:<br>
+  <strong>1. harness-native event</strong> (the runtime's own agent-state stream, e.g. herdr <code>done</code>/<code>blocked</code>)<br>
+  <strong>&gt; 2. schema-validated self-report</strong> (a status event written through <code>mx-report</code> / <code>report_status</code>)<br>
+  <strong>&gt; 3. text/regex heuristic</strong> (pane busy-signature match, <code>MX_BUSY_REGEX</code>)<br>
+  Applied uniformly across all backends. A backend without a tier simply contributes nothing at that tier.
+</div>
+
+<h3>Where it slots in</h3>
+<p>One new pure function in <code>mx-classify-lib.sh</code>, alongside the existing predicates:</p>
+<pre><code># mx_signal_resolve: rank same-moment signals about one task.
+#   $1 native      - harness-native agent state (idle|working|blocked|done|unknown, '' if none)
+#   $2 self_report - last schema-valid status verb (working|paused|blocked|needs-decision|done|failed|resolved, '' if none)
+#   $3 heuristic   - regex/pane verdict (busy|idle|unknown, '' if none)
+# Prints the winning tier and verdict, e.g. "native:done", "self-report:blocked",
+# "heuristic:busy", or "none". Pure function of its arguments - no file reads -
+# so the conflict matrix tests it exhaustively without a live backend.</code></pre>
+<p>Consumers are then rewired to route their existing readings through it instead of hand-ordering them:</p>
+<ul>
+  <li><strong><code>mx-crew-state.sh</code> (the oracle):</strong> gains a native-event tier at the top of its fallback chain — before the pane read, it asks <code>mx_backend_busy_state</code>/the backend's level-read for a <em>native</em> agent state and, when one exists, resolves conflicts with the log via <code>mx_signal_resolve</code>. Its deterministic run-step attribution stays above all three tiers (see the open question on run-step ranking below — the run-step is pipeline evidence, not one of §5's three signal classes, and today it already outranks everything).</li>
+  <li><strong><code>handle_push_transition</code> (push path):</strong> the paused-absorbs-native check is replaced by <code>mx_signal_resolve native="$to" self_report="$last_verb" …</code> — under the documented rule a native <code>blocked</code> now outranks a self-reported <code>paused:</code> and surfaces. This is a deliberate behavior change (see Risks); the declared-pause cadence still applies when the <em>only</em> evidence of idling is the pause line itself.</li>
+  <li><strong>Watcher stale/no-verb paths:</strong> <code>crew_absorb_class</code> keeps its shape but its verdict now reflects the shared ranking: a regex-only busy match no longer overrides a schema-valid terminal self-report (<code>done:</code>/<code>blocked:</code> surfaces even if the pane still matches the busy signature); a native working state still absorbs.</li>
+  <li><strong>Away-mode daemon:</strong> no separate wiring — it already consumes <code>crew_absorb_class</code> and the shared predicates, so it inherits the rule, which is exactly why the rule lives in the classify lib.</li>
+</ul>
+
+<h3>What counts as a "schema-validated self-report"</h3>
+<p>UPDATE_PLAN §5 defines tier 2 by reference to §3. The simplest faithful reading, proposed here: a status line whose leading verb parses (via <code>status_line_verb</code>) into the Plan 03 closed enum counts as tier 2 — no wire-format change, no per-line provenance marker. Since Plan 03 makes <code>mx-report</code> the only instructed write path, well-formed lines are validated lines in practice; a malformed line has no verb tier and simply never outranks anything (today's behavior). Whether to add an explicit provenance marker instead is carried as an open question.</p>
+
+<h3>Resolution examples (the conflict matrix, prose form)</h3>
+<table>
+  <tr><th>Native event</th><th>Self-report (validated)</th><th>Regex heuristic</th><th>Resolved</th><th>Why</th></tr>
+  <tr><td><code>done</code></td><td>—</td><td>busy</td><td><strong>done</strong> → surface</td><td>Native beats heuristic; a stale busy hint on a settled pane is a known false positive.</td></tr>
+  <tr><td><code>blocked</code></td><td><code>paused:</code> (declared wait)</td><td>—</td><td><strong>blocked</strong> → surface</td><td>Native beats self-report. Changes today's push-path absorb.</td></tr>
+  <tr><td>—</td><td><code>blocked:</code></td><td>busy</td><td><strong>blocked</strong> → surface</td><td>Self-report beats heuristic; the pane may just be redrawing.</td></tr>
+  <tr><td>—</td><td><code>done:</code></td><td>busy</td><td><strong>done</strong> → surface</td><td>Same tier logic; changes today's stale-path "busy pane outranks the log".</td></tr>
+  <tr><td>—</td><td>—</td><td>busy</td><td><strong>working</strong> → absorb</td><td>Regex-only: the heuristic is used when nothing better exists — exactly its job on tmux and cmux.</td></tr>
+  <tr><td><code>working</code></td><td><code>done:</code></td><td>—</td><td><strong>working</strong> → absorb</td><td>Native beats self-report symmetrically: an actor that reported done but whose runtime says it is still mid-turn is not done yet.</td></tr>
+</table>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Document the rule in the library header <span class="pill mod">mod</span></b>
+  Add the precedence statement (exact text from the callout above) to <code>bin/mx-classify-lib.sh</code>'s header comment, alongside the existing vocabulary docs, making the header greppable for the ordered phrase <code>native event &gt; schema-validated self-report &gt; text/regex heuristic</code> — the documentation-assertion test keys on this.</li>
+  <li><b>Implement <code>mx_signal_resolve</code> <span class="pill mod">mod</span></b>
+  The pure three-argument ranking function in <code>mx-classify-lib.sh</code>, bash-3.2-portable like the existing folds, with the tier-2 definition from the target design (verb parses into the Plan 03 enum). No file reads, no globals beyond existing overrides.</li>
+  <li><b>Wire the oracle <span class="pill mod">mod</span></b>
+  In <code>bin/mx-crew-state.sh</code>: on the no-run fallback path, read the backend's native agent state first (herdr: native; others: empty tier), then resolve against pane heuristic and log verb through <code>mx_signal_resolve</code>. Run-step attribution and the CI log-tail override remain above the resolver, unchanged.</li>
+  <li><b>Wire the push path <span class="pill mod">mod</span></b>
+  In <code>bin/mx-push-transition-lib.sh</code>'s <code>handle_push_transition</code>: replace the <code>status_is_paused</code> short-circuit with a resolver call; a native <code>blocked</code>/<code>done</code> now surfaces past a declared pause, with the triage log recording the overruled tier for debuggability.</li>
+  <li><b>Wire the watcher stale/no-verb paths <span class="pill mod">mod</span></b>
+  In <code>bin/mx-watch.sh</code>: the stale path's absorb decision consults the resolver's verdict rather than raw <code>crew_is_provably_working</code> alone, so a regex-only busy still absorbs (tier 3 unopposed) but a validated terminal self-report now surfaces against it. Update the header's stale-path prose, which currently documents the old ranking.</li>
+  <li><b>Sweep for stragglers <span class="pill mod">mod</span></b>
+  Grep every consumer of <code>crew_absorb_class</code>, <code>fm_backend_busy_state</code>, <code>status_is_paused</code>, and <code>fm_transition_policy</code> (watcher, daemon, backends, fleet snapshot) for remaining hand-ordered conflict handling; route each through the resolver or record in its header why it is conflict-free (e.g. the fleet snapshot is display-only).</li>
+  <li><b>Write the conflict-matrix tests <span class="pill new">new</span></b>
+  <code>tests/mx-signal-precedence.test.sh</code> — full case list below; register with <code>bin/fm-test-run.sh</code> → <code>mx-test-run.sh</code>.</li>
+  <li><b>Revalidate the regression net <span class="pill mod">mod</span></b>
+  Run the crew-state, watch-triage, daemon, and herdr-eventwait suites; for the two deliberate behavior changes (native-over-pause, self-report-over-busy-pane), update only the specific assertions that encoded the old implicit order, each with a comment citing this plan.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/mx-classify-lib.sh</code></td><td>Modify</td><td>Header precedence statement + <code>mx_signal_resolve</code> pure ranking function; tier-2 (validated verb) definition.</td></tr>
+  <tr><td><code>bin/mx-crew-state.sh</code></td><td>Modify</td><td>Native-state tier on the no-run fallback path, resolved via the shared function; run-step logic untouched.</td></tr>
+  <tr><td><code>bin/mx-push-transition-lib.sh</code></td><td>Modify</td><td><code>handle_push_transition</code>: resolver replaces the paused-absorbs-native short-circuit; triage log records overruled tiers.</td></tr>
+  <tr><td><code>bin/mx-watch.sh</code></td><td>Modify</td><td>Stale/no-verb absorb decisions consult the resolver; header prose updated to the documented order.</td></tr>
+  <tr><td><code>bin/fm-transition-lib.sh</code> / <code>mx-transition-lib.sh</code>, <code>bin/backends/herdr.sh</code>, <code>bin/mx-backend.sh</code></td><td>—</td><td>Unchanged producers: record shape, policy table, native busy-state reads stay as-is.</td></tr>
+  <tr><td><code>tests/mx-signal-precedence.test.sh</code></td><td>New</td><td>Conflict matrix + documentation assertion (below).</td></tr>
+  <tr><td><code>tests/fm-watch-triage.test.sh</code> (→ <code>mx-</code>)</td><td>Modify</td><td>Only the assertions encoding the old "busy pane outranks terminal log line" order for the <em>regex-only</em>-vs-validated-terminal case.</td></tr>
+  <tr><td><code>tests/fm-backend-herdr-eventwait-smoke.test.sh</code>, <code>tests/fm-backend-herdr-eventwait.test.py</code></td><td>Modify</td><td>Only if they assert the paused-absorbs-native behavior; verify and update the specific case.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>). Because this plan touches the state oracle, the order of work is tests-first: land the conflict matrix red where it pins new behavior, then rewire consumers.</p>
+
+<h3>(a) Existing tests that must keep passing — unchanged</h3>
+<ul>
+  <li><code>tests/fm-crew-state.test.sh</code> — every existing case involves at most one signal tier or the run-step (which stays authoritative), so the full suite passes unchanged; it is the primary guard that the oracle rewiring did not disturb single-signal behavior.</li>
+  <li><code>tests/fm-watch-triage.test.sh</code> — all classifier-predicate and absorb/surface cases except the specific pairing noted in (b); notably "terminal-looking stale status lines overridden by an active run" keeps passing, because the run-step remains above all three tiers.</li>
+  <li><code>tests/fm-daemon.test.sh</code> — daemon-side classification inherits the rule through the shared lib; its cases are single-tier and unchanged.</li>
+  <li><code>tests/fm-wake-queue.test.sh</code>, <code>tests/fm-watcher-lock.test.sh</code> — untouched machinery, regression canaries.</li>
+</ul>
+
+<h3>(b) Existing tests needing changes (and why)</h3>
+<ul>
+  <li><code>tests/fm-watch-triage.test.sh</code> — any case asserting that a busy <em>pane</em> (regex tier, not a run-step) absorbs a stale whose log ends in a validated terminal verb must flip to "surfaces": that is precisely the implicit order this plan replaces. Each flipped assertion gets a comment citing the documented precedence.</li>
+  <li>Herdr eventwait tests (<code>tests/fm-backend-herdr-eventwait-smoke.test.sh</code>, <code>fm-backend-herdr-eventwait.test.py</code>) — if they pin the declared-pause absorb of a native <code>blocked</code> event, that case flips to surface-with-overruled-tier-logged. Verify during step 8; producers and record shapes are untouched, so nothing else there moves.</li>
+</ul>
+
+<h3>(c) New tests to write — <code>tests/mx-signal-precedence.test.sh</code></h3>
+<ul>
+  <li><strong>Pure-function conflict matrix</strong> over <code>mx_signal_resolve</code> (sourced directly, like the classify predicates in the triage tests) — every pairing and the three-way case:
+    <ul>
+      <li>native <code>done</code> + regex busy → <code>done</code> (native wins over heuristic);</li>
+      <li>native <code>blocked</code> + self-report <code>paused</code>/<code>working</code> → <code>blocked</code> (native wins over self-report);</li>
+      <li>self-report <code>blocked</code> + regex busy → <code>blocked</code> (self-report wins over heuristic);</li>
+      <li>self-report <code>done</code> + regex busy → <code>done</code>;</li>
+      <li>regex-only busy → heuristic used (<code>working</code>/absorb) — the fallback still functions on tmux and cmux;</li>
+      <li>native <code>working</code> + self-report <code>done</code> → <code>working</code> (precedence is symmetric, not surface-biased);</li>
+      <li>all three present and disagreeing → native wins; empty tiers skipped; all-empty → <code>none</code>.</li>
+    </ul>
+  </li>
+  <li><strong>Behavioral spot-checks</strong> through the real consumers, using the existing stub seams (<code>FM_CREW_STATE_BIN</code>, the wake-helpers watcher harness): the push path surfaces a native <code>blocked</code> past a declared pause; the stale path surfaces a validated <code>done:</code> despite a busy-regex pane; a regex-only busy stale is still absorbed.</li>
+  <li><strong>Documentation assertion:</strong> grep <code>bin/mx-classify-lib.sh</code>'s header comment block for the stated order (the phrase <code>native event &gt; schema-validated self-report &gt; text/regex heuristic</code>), failing if the rule is implemented but undocumented — the doc is part of the contract.</li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><strong>Depends on <a href="03-status-reporting.html">Plan 03 — Validated status reporting</a>:</strong> tier 2 is defined by the Plan 03 closed enum and instructed write path; without it, "schema-validated self-report" has no meaning.</li>
+  <li><strong>Depends on <a href="02-rebrand.html">Plan 02 — Rebrand</a></strong> for the <code>mx-</code> script names edited here.</li>
+  <li><strong>Orthogonal to <a href="04-watcher-nudge.html">Plan 04 — Watcher nudge</a></strong> (when vs. how the watcher judges); land in numbered order for simplicity.</li>
+  <li><strong>Feeds later phases:</strong> any future push-capable backend beyond herdr plugs its native tier into the same resolver — the rule is written once.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout danger">
+  <div class="label">Risk — this is the state oracle (the reason for the Medium rating)</div>
+  Every escalation-routing decision flows through the classify lib and its consumers. A precedence bug either wakes the maintainer for actors that are genuinely mid-work (noise, erodes trust in wakes) or silently absorbs a finished/stuck actor (the exact failure the absorb-only-when-provably-working design exists to prevent). Mitigations: pure-function resolver tested exhaustively before consumers move; tests-first landing order; the two deliberate behavior flips isolated to named assertions; the run-step tier untouched.
+</div>
+<div class="callout warn">
+  <div class="label">Deliberate behavior change — native events now pierce a declared pause</div>
+  Today <code>handle_push_transition</code> absorbs a native <code>blocked</code> when the log declares <code>paused:</code>; under the documented rule it surfaces. Rationale: the pause declaration is a self-report about the <em>future</em> ("expect me to idle"), while the native event is ground truth about <em>now</em> ("the agent is waiting on a human") — and a paused actor whose runtime says blocked is exactly a case worth one look. If this proves noisy for legitimately paused actors whose harness idles as "blocked", the maintainer can revisit with evidence; flagged rather than silently decided.
+</div>
+<div class="callout warn">
+  <div class="label">Open question — where does the validation run-step rank?</div>
+  UPDATE_PLAN §5 names exactly three signal classes; the deterministic validation run-step (deep-review pipeline evidence in <code>mx-crew-state.sh</code>) is none of them, and today it outranks everything. This plan keeps it above tier 1 — it is externally observed process state, not an agent signal — but that placement is an interpretation, not spec. Confirm with the maintainer before step 3 lands.
+</div>
+<div class="callout warn">
+  <div class="label">Open question — tier-2 membership without provenance</div>
+  Proposed: any well-formed enum verb counts as schema-validated (no wire change). Alternative: <code>mx-report</code> stamps a provenance marker per line so hand-written well-formed lines rank lower. The marker adds wire-format churn the reconciliation stack would need to tolerate; recommend the simple reading unless abuse is observed. Maintainer call.
+</div>
+
+<div class="footer-nav">
+  <a href="04-watcher-nudge.html">← 04 · Watcher nudge</a>
+  <a href="index.html">Index</a>
+  <a href="06-worktree-provider.html">06 · Worktree provider →</a>
+</div>
+
+</div>
+</body>
+</html>

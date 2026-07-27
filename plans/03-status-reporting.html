@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 03 — Validated Status Reporting · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#3fb950; --accent-dim:rgba(63,185,80,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 03 / 10</div>
+    <h1>Validated Status Reporting — Enforce the Schema at Write-Time</h1>
+    <p class="subtitle">Give actors a validated write path for status events: a new <code>bin/mx-report</code> shell wrapper that rejects any state outside the closed enum before a single byte is written, and a JSON-schema-validated MCP <code>report_status</code> tool for harnesses that support MCP. Both paths still append to the same <code>state/&lt;id&gt;.status</code> event log; the downstream reconciliation oracle is untouched.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 3</span>
+      <span class="badge effort">Effort: Medium</span>
+      <span class="badge risk">Risk: Low</span>
+      <span class="badge">UPDATE_PLAN §3</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Firstmate's status channel is an append-only <em>event log</em> at <code>state/&lt;id&gt;.status</code>, deliberately never trusted as current-state truth. <code>bin/fm-crew-state.sh</code> is the reconciliation oracle that re-derives real state from the authoritative sources (an attributed validation run step, then the pane busy signal), and <code>bin/fm-classify-lib.sh</code> classifies each event line against a documented verb vocabulary (<code>done:</code>, <code>needs-decision:</code>, <code>blocked:</code>, <code>failed:</code>, <code>working:</code>, <code>paused:</code>, <code>resolved:</code>). That architecture is sound and is explicitly on UPDATE_PLAN's "do not rebuild" list.</p>
+<p>The actual gap: the vocabulary is enforced <em>nowhere on the write side</em>. The generated brief instructs the task agent to hand-write status lines with a raw shell append — <code>echo "{state}: {one short line}" &gt;&gt; state/&lt;id&gt;.status</code> (see <code>bin/fm-brief.sh</code>, the "Report status by appending one line" rule in both the ship and scout scaffolds). Nothing validates that line before it lands. A typo'd verb (<code>blocekd: need help</code>) or a free-form line is parsed by <code>status_line_verb</code>, matches no known verb, and is silently bucketed downstream as an unclassified no-verb heartbeat — no escalation, and crucially <em>no error back to the model</em>, so the agent believes it reported and the broker never hears the intended signal.</p>
+<p>The fix, verbatim from UPDATE_PLAN §3: <strong>add validation upstream of the write, not after it.</strong> Two validated write paths, one enum:</p>
+<ul>
+  <li><strong><code>bin/mx-report</code></strong> (UPDATE_PLAN names it <code>fm-report</code>; built directly with the decided <code>mx-</code> prefix per §7.2/§8.6) — a thin wrapper actors call instead of hand-writing to the status file. It validates <code>--state</code> against the closed enum <code>working|paused|blocked|needs-decision|done|failed|resolved</code> (the full firstmate classifier vocabulary — decided 2026-07-26, see below) client-side; on invalid input it <em>writes nothing</em>, exits non-zero, and prints the valid options to stderr — so the model sees the failure in its own tool output on the same turn and can retry immediately.</li>
+  <li><strong>MCP <code>report_status</code> tool</strong> — for harnesses that support MCP: a real JSON-schema-validated tool. The harness itself rejects a malformed call before it ever executes, which is stronger enforcement than a shell wrapper's own checking.</li>
+</ul>
+<p>This is additive to the existing event-log model, not a replacement. Both paths write the exact same line grammar to the exact same file; <code>mx-crew-state.sh</code> and the whole reconciliation logic do not change — they just receive better-validated input.</p>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+  <tr><th>Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul>
+        <li>Ship <code>bin/mx-report</code> with fail-loud client-side enum validation (nothing written, non-zero exit, valid options on stderr on invalid input).</li>
+        <li>Ship an MCP <code>report_status</code> tool whose JSON schema encodes the same closed enum, registered in the harness's own MCP config (e.g. <code>.mcp.json</code>) so its lifecycle is tied to that harness session.</li>
+        <li>Put per-harness wiring (MCP tool vs. <code>mx-report</code> fallback) in <code>.agents/skills/harness-adapters</code> — the existing seam for per-harness quirks.</li>
+        <li>Update the generated <code>data/&lt;id&gt;/brief.md</code> (via the brief generator, <code>fm-brief.sh</code> → <code>mx-brief.sh</code>) from "write status lines in this format" to "call <code>mx-report</code> / the <code>report_status</code> tool instead of writing directly."</li>
+        <li>Preserve the invariant: both paths append to <code>state/&lt;id&gt;.status</code> in the existing line grammar; reconciliation is unchanged.</li>
+      </ul>
+    </td>
+    <td>
+      <ul>
+        <li>No change to <code>fm-crew-state.sh</code> / <code>mx-crew-state.sh</code> reconciliation logic or to <code>mx-classify-lib.sh</code> classification semantics (signal precedence is <a href="05-signal-precedence.html">Plan 05</a>).</li>
+        <li>No removal of the raw-append path's <em>tolerance</em>: a legacy or hand-written line still lands and still classifies exactly as today. Enforcement is at the instructed write path, not a write-deny on the file.</li>
+        <li>Not part of the watcher: the MCP server is <em>not</em> wired into <code>mx-watch.sh</code> or any always-on process — entirely separate lifecycle.</li>
+        <li>No low-latency wake mechanics — that is <a href="04-watcher-nudge.html">Plan 04</a>, which extends <code>mx-report</code> with an optional nudge.</li>
+        <li>No new daemon, DB, or HTTP listener.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>How a status event flows today, end to end:</p>
+<pre><code>crewmate turn                          firstmate side
+─────────────                          ──────────────
+echo "done: PR …" &gt;&gt; state/&lt;id&gt;.status ──▶ watcher wake (fm-watch.sh)
+        ▲                                   │ classify (fm-classify-lib.sh):
+        │ instruction comes from            │   status_line_verb → captain-relevant?
+        │ data/&lt;id&gt;/brief.md rule 4         │ absorb or queue + exit
+        │ (generated by fm-brief.sh)        ▼
+   NO VALIDATION ANYWHERE            fm-crew-state.sh reconciles current state
+   on this write path                (run-step &gt; pane &gt; status log)</code></pre>
+<p>The classify vocabulary is real and documented — but only in library comments and brief prose. From <code>bin/fm-classify-lib.sh</code>:</p>
+<pre><code>FM_CLASSIFY_CAPTAIN_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
+FM_CLASSIFY_PAUSED_VERB_DEFAULT='paused'
+FM_CLASSIFY_RESOLVE_VERB_DEFAULT='resolved'
+# keyed decision grammar: needs-decision [key=api-shape]: &lt;summary&gt;</code></pre>
+<p>And the write-side instruction, from the generated brief (<code>bin/fm-brief.sh</code>, ship and scout scaffolds):</p>
+<pre><code>4. Report status by appending one line:
+   echo "{state}: {one short line}" &gt;&gt; state/&lt;id&gt;.status
+   States: working, needs-decision, blocked, paused, done, failed.</code></pre>
+<table>
+  <tr><th>File</th><th>Role today</th></tr>
+  <tr><td><code>firstmate/bin/fm-brief.sh</code></td><td>Generates <code>data/&lt;id&gt;/brief.md</code>; its scaffolds carry the raw <code>echo … &gt;&gt;</code> status instruction and the state list as prose.</td></tr>
+  <tr><td><code>firstmate/bin/fm-classify-lib.sh</code></td><td>The classification vocabulary (verbs, captain-relevant regex, paused/resolved/captain-held verbs, keyed-decision grammar, <code>status_open_decisions</code> fold). Read-side only; validates nothing at write time.</td></tr>
+  <tr><td><code>firstmate/bin/fm-crew-state.sh</code></td><td>Reconciliation oracle: derives current state from run-step, then pane, then status log. Emits <code>state: &lt;s&gt; · source: &lt;src&gt; · &lt;detail&gt;</code>. Unchanged by this plan.</td></tr>
+  <tr><td><code>firstmate/bin/fm-watch.sh</code></td><td>Always-on watcher; consumes status-file signals. Explicitly <em>not</em> where the MCP server lives.</td></tr>
+  <tr><td><code>firstmate/bin/fm-secondmate-report.sh</code></td><td>Precedent: an existing optional helper that appends a correlated status line for a secondmate (the closest thing to a write-path helper today; no enum validation).</td></tr>
+  <tr><td><code>firstmate/.agents/skills/harness-adapters/</code></td><td>The existing per-harness seam (spawn, trust dialogs, skill invocation shapes per harness). Where per-harness report wiring belongs.</td></tr>
+  <tr><td><code>firstmate/tests/fm-brief.test.sh</code></td><td>Asserts generated brief content, including the status-protocol rule text.</td></tr>
+  <tr><td><code>firstmate/tests/fm-crew-state.test.sh</code>, <code>firstmate/tests/fm-watch-triage.test.sh</code></td><td>Cover reconciliation and classification over status files written in the existing grammar — the input-format contract this plan must not break.</td></tr>
+</table>
+<p>Note: firstmate has no <code>.mcp.json</code> today and no MCP tooling anywhere in the tree — the <code>report_status</code> tool is a genuinely new surface in Computer, not a port.</p>
+
+<h2>Target design in Computer</h2>
+
+<h3>The closed enum, in one place</h3>
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26</div>
+  The closed enum is firstmate's <b>full original classifier vocabulary</b>, verified in <code>bin/fm-classify-lib.sh</code>: <code>working|paused|blocked|needs-decision|done|failed|resolved</code>. UPDATE_PLAN §3's five-state enum was incomplete and is extended to match the real vocabulary per maintainer decision — <code>paused</code> is the expected-idle pause verb (a deliberate external wait, distinct from <code>blocked</code>) and <code>resolved</code> closes an open keyed decision; both are actor-written verbs the wrapper must accept, or actors would be forced to hand-append exactly the lines the brief tells them never to hand-write. The rejected alternative — keeping the §3 five-state enum literally and leaving <code>paused</code>/<code>resolved</code> on the raw-append path — is dropped. The broker-side transfer verb <code>captain-held</code> stays out of the enum: it is never actor-written.
+</div>
+<p>Both write paths validate against the same seven-state list, defined once (a small shared constant in <code>mx-report</code> that the MCP server reuses — see step 2).</p>
+
+<h3>Path 1 — <code>bin/mx-report</code> (shell wrapper, works on every harness)</h3>
+<pre><code>usage: mx-report --id &lt;task-id&gt; --state &lt;state&gt; --message "&lt;one short line&gt;" [--key &lt;slug&gt;]
+
+  --state   one of: working | paused | blocked | needs-decision | done | failed
+            | resolved   (closed enum — the full classifier vocabulary)
+  --key     optional keyed-decision slug; emits the existing
+            "&lt;state&gt; [key=&lt;slug&gt;]: &lt;message&gt;" grammar (mx-classify-lib's
+            status_open_decisions contract), slug charset [A-Za-z0-9._-]
+
+behavior:
+  valid    → append "&lt;state&gt;: &lt;message&gt;" (or keyed form) to state/&lt;id&gt;.status; exit 0
+  invalid  → write NOTHING; exit non-zero; stderr:
+             "mx-report: invalid state '&lt;input&gt;'. Valid states: working, paused,
+              blocked, needs-decision, done, failed, resolved"</code></pre>
+<p>Design points:</p>
+<ul>
+  <li><strong>Fail-loud on the same turn.</strong> The whole point is that the model sees the rejection in its own tool output immediately and retries with a valid state — instead of the malformed line vanishing into an unclassified heartbeat.</li>
+  <li><strong>Message passthrough.</strong> The message is written as given (newlines stripped/rejected so one call is one event line); <code>mx-report</code> never rewrites or summarizes it.</li>
+  <li><strong>Same file, same grammar.</strong> The output line is byte-compatible with what a hand-written append produces today, so every downstream reader — <code>mx-classify-lib.sh</code>, <code>mx-crew-state.sh</code>, the watcher, the daemon — needs zero changes.</li>
+  <li><strong>Home resolution as elsewhere:</strong> resolves the status path through the standard <code>MX_HOME</code>/<code>MX_STATE_OVERRIDE</code> chain (firstmate's <code>FM_HOME</code>/<code>FM_STATE_OVERRIDE</code> pattern), so tests can point it at a temp state dir.</li>
+  <li><strong>Plan 04 seam:</strong> after a successful durable append, <code>mx-report</code> will attempt the optional watcher nudge (<a href="04-watcher-nudge.html">Plan 04</a>). In this plan that hook is a no-op.</li>
+</ul>
+
+<h3>Path 2 — MCP <code>report_status</code> tool (harnesses with MCP support)</h3>
+<pre><code>{
+  "name": "report_status",
+  "description": "Report a task status event to the broker. The only supported
+                  way to report status; states outside the enum are rejected
+                  by schema before execution.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "state":   { "type": "string",
+                   "enum": ["working", "paused", "blocked", "needs-decision",
+                            "done", "failed", "resolved"] },
+      "message": { "type": "string", "maxLength": 300 },
+      "key":     { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+    },
+    "required": ["state", "message"],
+    "additionalProperties": false
+  }
+}</code></pre>
+<ul>
+  <li><strong>Schema is the gate.</strong> The harness validates the call against the JSON schema before the tool ever executes — a malformed state never reaches our code at all. Stronger than the shell wrapper's own checking.</li>
+  <li><strong>Implementation:</strong> a small stdio MCP server, <code>bin/mx-report-mcp.mjs</code> (node stays a kept runtime per UPDATE_PLAN §8.3, and the repo already ships <code>.mjs</code> command-policy scripts as precedent). Its tool handler execs <code>bin/mx-report</code> — one owner for the append, the enum constant, and (later) the Plan 04 nudge; the MCP layer adds only the schema gate and the session lifecycle.</li>
+  <li><strong>Task identity:</strong> the server is launched per task session with the task id and home baked into its registration (env/args in the MCP config entry), so the tool schema needs no <code>task_id</code> parameter the model could get wrong.</li>
+  <li><strong>Lifecycle:</strong> registered in the harness's own MCP config (e.g. <code>.mcp.json</code> for Claude Code, placed in the actor's worktree by the spawn path), so the server starts and stops with that harness session automatically. It is <em>not</em> part of <code>mx-watch.sh</code> or any always-on watcher process — entirely separate lifecycle, exactly as UPDATE_PLAN §3 requires.</li>
+</ul>
+
+<h3>Per-harness wiring — <code>.agents/skills/harness-adapters</code></h3>
+<p>The harness-adapters skill is already the one seam for per-harness quirks (spawn shapes, trust dialogs, skill invocation). It gains a "status reporting" section stating, per verified harness: MCP-capable → the spawn path writes/merges the <code>report_status</code> entry into that harness's MCP config and the brief names the tool; not MCP-capable → the brief instructs <code>bin/mx-report</code> directly. The generated brief always documents <code>mx-report</code> as the universal fallback, so a harness whose MCP session failed to start can still report validly.</p>
+
+<h3>Brief generator update — <code>mx-brief.sh</code></h3>
+<p>Rule 4 of the ship and scout scaffolds changes from the raw append to the validated path (keeping every existing behavioral instruction about sparse reporting, <code>paused:</code> vs <code>blocked:</code>, keyed decisions, and resolved-closure intact):</p>
+<pre><code>4. Report status with the report_status tool when available, otherwise:
+   bin/mx-report --id &lt;id&gt; --state {state} --message "{one short line}"
+   States: working, paused, needs-decision, blocked, done, failed, resolved
+   (mx-report rejects anything else and prints the valid options — fix and
+   retry). Never write to the status file by hand.</code></pre>
+
+<div class="callout ok">
+  <div class="label">Invariant — must hold at review time</div>
+  Both write paths append to <code>state/&lt;id&gt;.status</code> in the existing line grammar. <code>mx-crew-state.sh</code> (firstmate's <code>fm-crew-state.sh</code>) and the reconciliation logic are byte-for-byte unchanged by this plan; the existing crew-state and classify test suites pass without modification. This change is additive to the event-log model, not a replacement.
+</div>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Create <code>bin/mx-report</code> <span class="pill new">new</span></b>
+  Argument parsing (<code>--id</code>, <code>--state</code>, <code>--message</code>, <code>--key</code>), the closed-enum constant <code>MX_REPORT_STATES="working paused blocked needs-decision done failed resolved"</code> (the full classifier vocabulary, per the 2026-07-26 decision), validation before any filesystem touch, the stderr enum listing on rejection with a distinct non-zero exit code (2, matching the repo's usage-error convention in <code>fm-crew-state.sh</code>), newline rejection in the message, keyed-grammar emission, and the single atomic <code>&gt;&gt;</code> append. Include the header-comment contract in the repo's style (the header is the doc).</li>
+  <li><b>Expose the enum for reuse <span class="pill new">new</span></b>
+  Keep the enum readable by other tooling without sourcing bash: <code>mx-report --list-states</code> prints one state per line, exit 0. The MCP server and tests consume this instead of duplicating the list, so the enum has exactly one owner.</li>
+  <li><b>Create the MCP server <code>bin/mx-report-mcp.mjs</code> <span class="pill new">new</span></b>
+  A minimal stdio MCP server exposing <code>report_status</code> with the JSON schema above (enum sourced from <code>mx-report --list-states</code> at startup). The handler execs <code>bin/mx-report</code> with the task id/home from its launch environment and relays stdout/stderr and exit status back as the tool result. No state of its own, no background behavior — it exists only while the harness session runs it.</li>
+  <li><b>Wire registration into the spawn path <span class="pill mod">mod</span></b>
+  For MCP-capable harnesses, the spawn/scaffold path (<code>mx-spawn.sh</code>, firstmate's <code>fm-spawn.sh</code>) writes or merges the <code>report_status</code> server entry into the harness's own MCP config in the actor's worktree (e.g. <code>.mcp.json</code>), with <code>MX_TASK_ID</code> and <code>MX_HOME</code> in the entry's env. Merging must preserve any project-committed MCP config rather than clobbering it.</li>
+  <li><b>Document per-harness wiring in <code>.agents/skills/harness-adapters</code> <span class="pill mod">mod</span></b>
+  Add the status-reporting section: which verified harnesses get the MCP tool, which use the <code>mx-report</code> fallback, and the rule that the fallback is always valid. This skill remains the only place per-harness differences live.</li>
+  <li><b>Update the brief generator <code>mx-brief.sh</code> <span class="pill mod">mod</span></b>
+  Replace the raw-append instruction in the ship, scout, and secondmate-charter scaffolds with the <code>report_status</code>-tool-or-<code>mx-report</code> instruction (text as in the target design above). The secondmate charter's correlated-reply guidance updates its helper mention accordingly (its <code>corr=&lt;id&gt;</code> token rides in <code>--message</code> unchanged).</li>
+  <li><b>Write the new tests <span class="pill new">new</span></b>
+  <code>tests/mx-report.test.sh</code>, an MCP tool schema test, and the brief-content assertion — full specification in the Test plan below. Register them with the runner (<code>bin/fm-test-run.sh</code>, to become <code>mx-test-run.sh</code>).</li>
+  <li><b>Prove the invariant <span class="pill mod">mod</span></b>
+  Run the untouched crew-state and classify suites (<code>tests/fm-crew-state.test.sh</code>, <code>tests/fm-watch-triage.test.sh</code> — their <code>mx-</code> successors) against status files produced <em>by</em> <code>mx-report</code> to demonstrate the input format is unchanged. No assertions in those suites change.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/mx-report</code></td><td>New</td><td>Validated status write wrapper; owns the closed enum and the append; <code>--list-states</code> introspection; Plan 04's nudge hook lands here later.</td></tr>
+  <tr><td><code>bin/mx-report-mcp.mjs</code></td><td>New</td><td>Stdio MCP server exposing <code>report_status</code>; execs <code>mx-report</code>; lifecycle owned by the harness session, never the watcher.</td></tr>
+  <tr><td><code>bin/mx-spawn.sh</code></td><td>Modify</td><td>Write/merge the MCP config entry (e.g. <code>.mcp.json</code>) into the actor worktree for MCP-capable harnesses, carrying task id + home in env.</td></tr>
+  <tr><td><code>bin/mx-brief.sh</code></td><td>Modify</td><td>Scaffold rule 4 (ship + scout) and the secondmate-charter reply guidance: report via the tool / <code>mx-report</code>, never a hand append.</td></tr>
+  <tr><td><code>.agents/skills/harness-adapters/SKILL.md</code></td><td>Modify</td><td>New status-reporting section: per-harness MCP vs. fallback wiring.</td></tr>
+  <tr><td><code>tests/mx-report.test.sh</code></td><td>New</td><td>Wrapper contract tests (below).</td></tr>
+  <tr><td><code>tests/mx-report-mcp.test.sh</code></td><td>New</td><td>MCP tool schema test (below).</td></tr>
+  <tr><td><code>tests/mx-brief.test.sh</code> (successor of <code>tests/fm-brief.test.sh</code>)</td><td>Modify</td><td>Brief-content assertion: generated briefs instruct <code>mx-report</code>/<code>report_status</code>, and no scaffold still emits the raw <code>echo … &gt;&gt;</code> instruction.</td></tr>
+  <tr><td><code>bin/mx-crew-state.sh</code>, <code>bin/mx-classify-lib.sh</code>, <code>bin/mx-watch.sh</code></td><td>—</td><td>Deliberately untouched. Listed to make the invariant reviewable.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>), colocated tests under <code>tests/</code> per repo convention.</p>
+
+<h3>(a) Existing tests that must keep passing — unchanged</h3>
+<ul>
+  <li><code>tests/fm-crew-state.test.sh</code> — reconciliation over status files; the input format is unchanged, so every case passes as-is.</li>
+  <li><code>tests/fm-watch-triage.test.sh</code> — classifier predicates and watcher absorb/surface behavior over status lines; same input contract.</li>
+  <li><code>tests/fm-wake-queue.test.sh</code> — durable queue safety; untouched by this plan.</li>
+</ul>
+
+<h3>(b) Existing tests needing changes</h3>
+<ul>
+  <li><code>tests/fm-brief.test.sh</code> (→ <code>mx-brief.test.sh</code>) — its assertions on the scaffold's rule-4 text must change with the generator: they now assert the <code>mx-report</code>/<code>report_status</code> instruction and the absence of the raw-append instruction. Why: the scaffold text is the contract under test and this plan deliberately changes it.</li>
+</ul>
+
+<h3>(c) New tests to write</h3>
+<ul>
+  <li><code>tests/mx-report.test.sh</code>
+    <ul>
+      <li><strong>Valid states append correctly:</strong> for each of <code>working</code>, <code>paused</code>, <code>blocked</code>, <code>needs-decision</code>, <code>done</code>, <code>failed</code>, <code>resolved</code>: exit 0, exactly one new line in <code>state/&lt;id&gt;.status</code>, line equals <code>"&lt;state&gt;: &lt;message&gt;"</code>; with <code>--key api-shape</code>, line equals <code>"&lt;state&gt; [key=api-shape]: &lt;message&gt;"</code> and <code>status_open_decisions</code> parses it.</li>
+      <li><strong>Invalid state → nothing written:</strong> <code>--state blocekd</code>, <code>--state paused-ish</code>, and <code>--state captain-held</code> (broker-only verb, deliberately outside the actor enum): non-zero exit, status file byte-identical before/after (also when the file did not exist: it is not created), stderr contains every enum member.</li>
+      <li><strong>Message payload passthrough:</strong> messages with colons, brackets, quotes, and <code>[key=…]</code>-looking prose land verbatim after the verb; a message containing a newline is rejected without a write.</li>
+      <li><strong>Introspection:</strong> <code>--list-states</code> prints exactly the seven states, one per line.</li>
+      <li><strong>Missing args:</strong> no <code>--id</code>/<code>--state</code>/<code>--message</code> → usage error, non-zero, nothing written.</li>
+    </ul>
+  </li>
+  <li><code>tests/mx-report-mcp.test.sh</code> — MCP tool schema test: drive <code>bin/mx-report-mcp.mjs</code> over stdio with raw JSON-RPC; assert <code>tools/list</code> exposes <code>report_status</code> whose <code>inputSchema.properties.state.enum</code> equals exactly the wrapper's <code>--list-states</code> output; a <code>tools/call</code> with a valid state appends the line; a call with an out-of-enum state or an extra property is rejected without a write (schema/validation error surfaced to the caller).</li>
+  <li>Brief-content test (in <code>tests/mx-brief.test.sh</code>) — generated ship and scout briefs instruct agents to use <code>mx-report</code> (and the <code>report_status</code> tool when available) and contain no <code>echo "… " &gt;&gt; …status</code> instruction.</li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><strong>After <a href="02-rebrand.html">Plan 02 — Rebrand</a>:</strong> this plan creates <code>mx-</code>-prefixed scripts directly and edits the renamed <code>mx-brief.sh</code>/<code>mx-spawn.sh</code>; landing it after the rename sweep avoids creating <code>fm-</code> files that immediately need renaming (UPDATE_PLAN §8.7's rule for new scripts).</li>
+  <li><strong>Before <a href="04-watcher-nudge.html">Plan 04 — Watcher nudge</a>:</strong> Plan 04's sender is <code>mx-report</code>; the nudge is a post-append hook inside the wrapper created here.</li>
+  <li><strong>Before <a href="05-signal-precedence.html">Plan 05 — Signal precedence</a>:</strong> the "schema-validated self-report" tier that Plan 05 ranks only exists once this plan lands.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26 — enum is the full vocabulary</div>
+  Maintainer decision: option (a) — the enum is extended to the full actor-writable classifier vocabulary, <code>working|paused|blocked|needs-decision|done|failed|resolved</code>, verified against <code>bin/fm-classify-lib.sh</code> (<code>paused</code> is the expected-idle pause verb; <code>resolved</code> closes an open keyed decision). Option (b) — keeping UPDATE_PLAN §3's five-state enum literally and leaving <code>paused</code>/<code>resolved</code> on the raw-append path — is rejected: it would force actors to hand-append exactly the lines we just told them never to hand-write. §3's five-state enum was simply incomplete. The broker-side <code>captain-held</code> transfer verb stays out of the enum; it is never actor-written.
+</div>
+<div class="callout warn">
+  <div class="label">Open question — MCP config placement and merging</div>
+  Exact per-harness MCP config filename/location (Claude Code's <code>.mcp.json</code> in the worktree vs. a home-level config) and the merge policy when a project already commits its own MCP config are per-harness facts to be verified and recorded in <code>harness-adapters</code> during implementation, not assumed here.
+</div>
+<div class="callout">
+  <div class="label">Risk — instructed-path drift (low)</div>
+  Agents can still bypass the wrapper with a raw append; the file stays writable by design (the whole model is append-only events plus reconciliation). Mitigation is instructional (brief text) plus Plan 05, which ranks schema-validated self-reports above heuristics — a hand-written malformed line simply keeps today's (unclassified) behavior, so the failure mode is never worse than the status quo.
+</div>
+<div class="callout">
+  <div class="label">Risk — MCP server availability (low)</div>
+  If the harness fails to start the MCP server, the tool is absent but <code>mx-report</code> still works — the brief names it as the universal fallback. No wake path depends on the MCP server existing.
+</div>
+
+<div class="footer-nav">
+  <a href="02-rebrand.html">← 02 · Rebrand</a>
+  <a href="index.html">Index</a>
+  <a href="04-watcher-nudge.html">04 · Watcher nudge →</a>
+</div>
+
+</div>
+</body>
+</html>

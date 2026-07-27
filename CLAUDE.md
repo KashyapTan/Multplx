@@ -1,11 +1,11 @@
-# Orca
+# Computer
 Smart Agent orcherstarter that is an extension of yourself.
 
 ## Vision
-The goal of this project is to basically port firstmate (in side firstmate folder (Orca/firstmate))
+The goal of this project is to basically port firstmate (in side firstmate folder (Computer/firstmate))
 into a full customized version for myself to use. I love the idea of firstmate (opensource project), 
 but I dont like the concept of the sailers, I want to add my own features to it, and customize it 
-to make it better,so that I can use it for my own work. Eventually, ORCA should be a standalone project
+to make it better,so that I can use it for my own work. Eventually, Computer should be a standalone project
 that I will be using fully instead of just modifying the current firstmate folder to match my preferences
 and customizations.
 

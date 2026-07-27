@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 08 — vplan — Standalone HTML Plan-Artifact Module · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#f0883e; --accent-dim:rgba(240,136,62,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 08 / 10</div>
+    <h1>vplan — Standalone HTML Plan-Artifact Module</h1>
+    <p class="subtitle">Computer's replacement for upstream's <code>lavish-axi</code>, the HTML artifact / plan creator. The module is named <strong>vplan</strong>, its entry script is <code>bin/mx-vplan.sh</code>, and it is standalone by design: it renders self-contained HTML plan documents from a small plan-input contract, owns its own templates, and is deliberately <em>not</em> folded into the status/finding reporting mechanics.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 5</span>
+      <span class="badge effort">Effort: Medium</span>
+      <span class="badge risk">Risk: Low</span>
+      <span class="badge">UPDATE_PLAN §8.5</span>
+      <span class="badge">UPDATE_PLAN §8.6 (naming)</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Upstream firstmate uses <code>lavish-axi</code>, one of the author's npm-installed <code>-axi</code> tools, as its "structured decisions or reports" surface — but UPDATE_PLAN §8.2 identifies what it actually is: an <strong>HTML artifact / plan creator</strong> that generates rich HTML plan documents, not a plain structured-report helper. It is a required bootstrap tool today, which means Computer would inherit a hard npm dependency on someone else's package for a capability we explicitly want to keep and customize.</p>
+<p>Per §8.5 we keep the capability but rebuild it as our <strong>own separate, self-contained module named <code>vplan</code></strong>, owned by the project. Per §8.6 the naming is decided: the <em>module/product</em> name is <code>vplan</code>, and its script file carries the <code>mx-</code> prefix — <code>bin/mx-vplan.sh</code>, built under that name from the start (never an <code>fm-</code> file renamed later, per §8.7).</p>
+<div class="callout">
+  <div class="label">Standalone by design (UPDATE_PLAN §8.5)</div>
+  <p style="margin:0">Unlike the other <code>-axi</code> replacements, vplan is <em>not</em> folded into the status/finding schema work (UPDATE_PLAN §3's write-time-validated status reporting or §6's deep-review findings). Rendering an HTML plan is a different job from validating a status line — keeping them separate lets vplan evolve its own output format and templates without touching the reporting mechanics, and lets the reporting mechanics stay schema-strict without growing a presentation layer.</p>
+</div>
+<p>Two things are in scope to port (§8.5): the <strong>plan-input contract</strong> (what data goes in — plan metadata, ordered steps/sections, per-step status, links/references) and the <strong>HTML generation/templating</strong> (what comes out). We reimplement the templating in-repo so we control the markup completely and can customize it freely — we are explicitly <em>not</em> cloning lavish-axi's exact output. Conveniently, we already have a proven target: the plan documents in <code>plans/</code> (including this very file) are self-contained single-file HTML artifacts with embedded CSS and no external requests. That artifact style becomes vplan's seed template.</p>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+  <tr><th style="width:50%">Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>A defined plan-input contract: metadata, ordered steps/sections, per-step status, links/references.</li>
+        <li><code>bin/mx-vplan.sh</code>: input file in → rendered HTML plan out.</li>
+        <li>Self-contained single-file HTML output: embedded CSS, no external dependencies or network references.</li>
+        <li>Templates owned in-repo, seeded from the <code>plans/</code> artifact style, freely customizable.</li>
+        <li><code>lavish-axi</code> fully removed from bootstrap and prose.</li>
+        <li>Fail-closed input validation: malformed input → non-zero exit + stderr diagnostics, no partial output.</li>
+      </ul>
+    </td>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Cloning lavish-axi's exact markup or feature set — we own the format.</li>
+        <li>Folding vplan into status/finding reporting (§3/§6 mechanics) — explicitly ruled out by §8.5.</li>
+        <li>A web server, live-preview daemon, or any long-running process — vplan is a one-shot renderer.</li>
+        <li>Interactive JS widgets in output — static documents first; scripting only if a future template needs it.</li>
+        <li>Wiring the deep-review gate or backlog items to auto-emit plan artifacts — noted as a future integration, out of scope here.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p><code>lavish-axi</code>'s footprint in the firstmate tree is small — it is a required tool with prose-level usage guidance, not a scripted call site — which is exactly why the replacement is low-risk. Verified references:</p>
+<table>
+  <tr><th>File</th><th>Role today</th></tr>
+  <tr><td><code>bin/fm-bootstrap.sh</code></td><td><code>install_cmd()</code> line 489: <code>gh-axi|chrome-devtools-axi|lavish-axi) echo "npm install -g $1 &amp;&amp; $1 setup hooks"</code>. <code>COMMON_TOOLS</code> line 516 lists <code>lavish-axi</code> as a required tool, so a missing binary emits a <code>MISSING:</code> bootstrap diagnostic and blocks dispatch until installed.</td></tr>
+  <tr><td><code>AGENTS.md</code> §3</td><td>"Use … <code>lavish-axi</code> for structured decisions or reports; consult current help rather than memorizing flags."</td></tr>
+  <tr><td><code>AGENTS.md</code> §9</td><td>"Use plain chat for a yes-or-no decision and <code>lavish-axi</code> only when several options or a structured report benefit from a visual surface." — this is the actual behavioral contract: a visual surface for multi-option decisions and structured reports for the captain.</td></tr>
+  <tr><td><code>tests/fm-bootstrap.test.sh</code></td><td>Fakes the tool via <code>fm_fake_exit0 "$fakebin" tmux node gh-axi chrome-devtools-axi lavish-axi</code> (line 41) so bootstrap's required-tool matrix passes in tests.</td></tr>
+  <tr><td><code>firstmate_dependencies.md</code> §3</td><td>Catalogs it: "lavish-axi — Structured decisions/reports — required — <code>bin/fm-bootstrap.sh</code>". No <code>bin/</code> script invokes it directly; usage is agent-driven per the AGENTS.md prose.</td></tr>
+</table>
+<p>Because no script calls <code>lavish-axi</code>, there is no invocation surface to reverse-engineer — the port is defined by the capability contract (§8.5: HTML plan documents from plan data) rather than by call-site compatibility.</p>
+
+<h2>Target design in Computer</h2>
+
+<h3>Module shape</h3>
+<pre><code>            plan input (JSON)                    self-contained HTML
+ broker ──► plan.vplan.json ──► bin/mx-vplan.sh ──► plans/NN-slug.html
+                                    │
+                                    ├── validates input against the contract (fail-closed)
+                                    ├── loads template (seed: the plans/ artifact style)
+                                    └── renders: embedded CSS, zero external requests
+</code></pre>
+<ul>
+  <li><strong><code>bin/mx-vplan.sh</code></strong> — the CLI entry point and one-shot renderer.</li>
+  <li><strong><code>bin/mx-vplan-lib.sh</code></strong> — sourced helpers: input validation, HTML escaping, template assembly. Split out so tests can exercise validation and rendering functions directly, matching the repo's <code>*-lib.sh</code> convention.</li>
+  <li><strong><code>templates/vplan/default.html</code></strong> — the seed template, derived from the <code>plans/</code> folder's visual system (the dark-theme token set, hero/badges/steps/callout/footer-nav structure of this document family). We control this markup outright and can evolve it freely.</li>
+</ul>
+
+<h3>Plan-input contract (design proposal)</h3>
+<p>The following JSON shape is a <strong>starting-point proposal</strong>, not a locked schema — UPDATE_PLAN §8.5 defines the scope ("plan steps, structure, metadata") but leaves the concrete format to us. JSON is proposed first because <code>jq</code> is already the repo's heaviest hard dependency (~305 uses), giving validation and field extraction for free in bash; a markdown-with-frontmatter alternative is sketched below it.</p>
+<pre><code>{
+  "vplan": 1,                            // contract version, required
+  "title": "Owning the Toolbelt",        // required
+  "subtitle": "One-paragraph framing.",  // optional
+  "plan_num": "07 / 10",                 // optional ordinal label
+  "meta": {                              // optional badge row
+    "phase": "5",
+    "effort": "Medium",                  // Low | Medium | High
+    "risk": "Medium",                    // Low | Medium | High
+    "source": "UPDATE_PLAN §8.2"
+  },
+  "sections": [                          // ordered prose/table sections
+    { "heading": "Overview", "body_md": "Plain prose. *Minimal* markdown subset." },
+    { "heading": "Current state", "table": { "columns": ["File","Role"], "rows": [["bin/x.sh","…"]] } }
+  ],
+  "steps": [                             // ordered implementation steps
+    {
+      "title": "Swap the merge call",
+      "detail": "Replace gh-axi with gh pr merge …",
+      "status": "pending",               // pending | in-progress | done | blocked
+      "files": [ { "path": "bin/mx-pr-merge.sh", "action": "mod" } ]   // new | mod | del
+    }
+  ],
+  "links": [                             // references / prev-next navigation
+    { "label": "Plan 07", "href": "07-axi-replacements.html", "rel": "prev" },
+    { "label": "Plan 09", "href": "09-least-privilege-push.html", "rel": "next" }
+  ]
+}</code></pre>
+<p>Validation rules (fail-closed, enforced by <code>mx-vplan-lib.sh</code> before any output is written): <code>vplan</code> and <code>title</code> are required; <code>steps[].status</code> and <code>files[].action</code> are closed enums; unknown top-level keys are an error (catches typos rather than silently dropping content); every value is HTML-escaped at render time so input can never inject markup or script into the artifact. A missing or invalid field exits non-zero with the offending path printed to stderr — the same write-nothing-and-say-why ethic as UPDATE_PLAN §3's status validation, applied here to documents.</p>
+<div class="callout warn">
+  <div class="label">Alternative input format (open, see Risks)</div>
+  <p style="margin:0">A markdown file with YAML/TOML frontmatter (metadata in frontmatter; <code>##</code> sections and ordered lists as the body) would be friendlier for hand-authoring but needs a frontmatter parser and a markdown subset definition, and is harder to validate strictly. Proposal: ship JSON first (machine-friendly, <code>jq</code>-validatable — and the broker, the primary producer, generates it anyway); add a frontmatter front-end later as a thin converter if hand-authoring demand appears.</p>
+</div>
+
+<h3>HTML generation / templating</h3>
+<p>Output is a <strong>self-contained single-file HTML document</strong>: all CSS embedded in one <code>&lt;style&gt;</code> block, no external fonts, images, scripts, or stylesheets, no <code>http(s)://</code> fetches of any kind — it must render correctly from <code>file://</code> forever. This mirrors the very artifact style these plan documents use, and the <code>plans/</code> template (token set: <code>--bg/--surface/--border/--accent…</code>; structures: hero, badges, <code>.steps</code> counter list, callouts, file-impact table, footer nav) is the seed template. Per-plan accent color comes from input (<code>meta</code> or a top-level <code>accent</code> field) with a sane default.</p>
+<p><strong>Engine choice — bash+heredoc vs. a small node script.</strong> Both are viable; the tradeoff is real and is carried as an open question rather than decided here:</p>
+<table>
+  <tr><th></th><th>Pure bash + heredoc (+ jq)</th><th>Small node script</th></tr>
+  <tr><td><strong>Consistency</strong></td><td>Matches the entire rest of the toolbelt (everything else in <code>bin/</code> is bash sourcing <code>*-lib.sh</code>); testable by the existing <code>tests/*.test.sh</code> harness with zero new runtime paths.</td><td>A second implementation language inside <code>bin/</code> for one tool (though precedent exists: the <code>.mjs</code> command-policy scripts).</td></tr>
+  <tr><td><strong>Dependency cost</strong></td><td>None — bash and jq are already required.</td><td>None in practice — per UPDATE_PLAN §8.3, node stays a runtime dependency anyway for the command-policy scripts, so using it adds no new install burden.</td></tr>
+  <tr><td><strong>Ergonomics</strong></td><td>Heredoc templating is workable but string-escaping HTML in bash is fiddly; loops over steps/sections need care.</td><td>Template literals, real JSON parsing, and trivial HTML escaping; markdown-subset rendering is much easier if <code>body_md</code> grows.</td></tr>
+</table>
+<p><strong>Lean: bash-first</strong>, for consistency with the rest of the toolbelt — <code>jq</code> handles parsing/validation, a small escape helper in <code>mx-vplan-lib.sh</code> handles entity encoding, and heredocs assemble the template. If the markdown-subset rendering or template complexity outgrows bash, the renderer core can move to a node script behind the same <code>mx-vplan.sh</code> CLI without changing the contract. Flagged as an open question for the maintainer below.</p>
+
+<h3>CLI</h3>
+<pre><code>mx-vplan.sh --input &lt;plan.json&gt; --out &lt;path.html&gt; [--template &lt;template.html&gt;]
+
+  --input     plan-input JSON (use '-' for stdin)
+  --out       output HTML path; parent dir must exist; written atomically
+              (temp file + rename) so a failed render never leaves a partial artifact
+  --template  optional template override; defaults to templates/vplan/default.html
+
+exit 0  rendered
+exit 1  invalid input (contract violation; offending field path on stderr)
+exit 2  usage / IO error</code></pre>
+
+<h3>Integration points</h3>
+<ul>
+  <li><strong>Now:</strong> the broker generates plan artifacts for the maintainer — the direct successor to <code>AGENTS.md</code> §9's "use <code>lavish-axi</code> only when several options or a structured report benefit from a visual surface". Computer's rewritten §9 line points at vplan instead, same judgment rule: plain chat for a yes/no, a rendered artifact when structure genuinely helps.</li>
+  <li><strong>Future (out of scope):</strong> the deep-review gate could emit a rendered findings/plan artifact for <code>ask-user</code> decisions, and backlog items could link generated plan documents as durable artifacts. Both are natural consumers of the same input contract; neither is wired in this plan.</li>
+</ul>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Specify the plan-input contract <span class="pill new">new</span></b>
+    Write the contract into <code>bin/mx-vplan-lib.sh</code>'s header (the repo convention: the script header owns its schema) using the JSON proposal above: required fields, closed enums for <code>status</code>/<code>action</code>/<code>effort</code>/<code>risk</code>, unknown-key rejection, escaping guarantees, and the contract-version field. Record the frontmatter alternative as a rejected-for-now option with rationale.</li>
+  <li><b>Decide (or provisionally pick) the templating engine <span class="pill new">new</span></b>
+    Present the bash-vs-node tradeoff to the maintainer (open question below). Default on no objection: bash + heredoc + jq, with the explicit escape hatch that the renderer core may later become a node script behind the unchanged CLI. Implement validation (<code>mx_vplan_validate</code>) and escaping (<code>mx_vplan_escape</code>) in <code>mx-vplan-lib.sh</code> first — these are engine-independent.</li>
+  <li><b>Seed the template from the plans/ artifact style <span class="pill new">new</span></b>
+    Create <code>templates/vplan/default.html</code>: the shared token set and section structures of the <code>plans/</code> documents, with substitution slots for title/subtitle/badges/sections/steps/links and a parameterized accent. Since we own the markup, this is a starting point to customize, not a fidelity target — no attempt to match lavish-axi's output.</li>
+  <li><b>Build mx-vplan.sh <span class="pill new">new</span></b>
+    The CLI per the spec above: arg parsing, stdin support, validate → render → atomic write. Renders <code>sections[]</code> (prose and table variants), the <code>.steps</code> list with status styling (pending/in-progress/done/blocked mapped to the pill/callout palette) and file-action pills, and the links row as footer navigation. Non-zero + stderr on any contract violation; no partial output ever.</li>
+  <li><b>Remove lavish-axi and rewrite the prose contract <span class="pill del">del</span></b>
+    Drop <code>lavish-axi</code> from <code>bin/mx-bootstrap.sh</code>'s <code>COMMON_TOOLS</code> and <code>install_cmd()</code> (coordinating with <a href="07-axi-replacements.html">Plan 07</a>'s edits to the same lines). Rewrite <code>AGENTS.md</code> §3 and §9: the maintainer-facing decision/report surface is vplan; the broker renders an artifact only when several options or a structured report benefit from a visual surface. Update <code>tests/fm-bootstrap.test.sh</code> to stop faking the tool and assert the probe is gone.</li>
+  <li><b>Document the module <span class="pill new">new</span></b>
+    <code>docs/vplan.md</code>: module purpose (lavish-axi replacement, standalone by design), input contract pointer (the lib header owns the schema; the doc points at it), CLI usage, template customization notes, and the §8.5 boundary — vplan never merges into status/finding reporting.</li>
+  <li><b>Write the test suite <span class="pill new">new</span></b>
+    <code>tests/mx-vplan.test.sh</code> with fixtures under <code>tests/fixtures/vplan/</code> — see test plan. Run under the standard runner.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/mx-vplan.sh</code></td><td>New</td><td>vplan entry script: input JSON → self-contained HTML; atomic write; fail-closed validation.</td></tr>
+  <tr><td><code>bin/mx-vplan-lib.sh</code></td><td>New</td><td>Contract owner (header schema), validation, HTML escaping, template assembly helpers.</td></tr>
+  <tr><td><code>templates/vplan/default.html</code></td><td>New</td><td>Seed template derived from the <code>plans/</code> artifact style; parameterized accent and slots.</td></tr>
+  <tr><td><code>bin/mx-bootstrap.sh</code></td><td>Modify</td><td>Remove <code>lavish-axi</code> from <code>COMMON_TOOLS</code> (upstream line 516) and <code>install_cmd()</code> (line 489); coordinate with Plan 07's edits.</td></tr>
+  <tr><td><code>AGENTS.md</code></td><td>Modify</td><td>§3 tool sentence and §9 visual-surface rule rewritten onto vplan (maintainer/broker vocabulary).</td></tr>
+  <tr><td><code>docs/vplan.md</code></td><td>New</td><td>Module doc: purpose, contract pointer, CLI, customization, standalone boundary.</td></tr>
+  <tr><td><code>tests/mx-vplan.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
+  <tr><td><code>tests/fixtures/vplan/</code></td><td>New</td><td>Fixed input JSON files + golden HTML outputs for the rendering tests.</td></tr>
+  <tr><td><code>tests/fm-bootstrap.test.sh</code></td><td>Modify</td><td>Stop faking <code>lavish-axi</code> (line 41's <code>fm_fake_exit0</code> list); assert its probe no longer appears.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>).</p>
+<h3>(a) Existing tests that must keep passing</h3>
+<ul>
+  <li><code>tests/fm-bootstrap.test.sh</code> — the full required-tool matrix keeps passing once <code>lavish-axi</code> leaves the fake list; no other bootstrap behavior changes in this plan.</li>
+  <li>vplan is additive and standalone, so no other existing suite (<code>tests/fm-session-start.test.sh</code>, <code>tests/fm-teardown.test.sh</code>, the reporting/classifier suites) is touched — that isolation is itself the §8.5 design property, and an unchanged pass across the suite is the evidence.</li>
+</ul>
+<h3>(b) Existing tests needing changes (and why)</h3>
+<ul>
+  <li><code>tests/fm-bootstrap.test.sh</code> — remove <code>lavish-axi</code> from the <code>fm_fake_exit0</code> fakebin seed (it would otherwise mask a stale probe) and add a negative assertion that bootstrap output contains no <code>MISSING: lavish-axi</code> line under any matrix row. This is the same file Plan 07 edits for the other three probes; land as one coordinated change.</li>
+</ul>
+<h3>(c) New tests to write</h3>
+<ul>
+  <li><code>tests/mx-vplan.test.sh</code> —
+    <ul>
+      <li><strong>Golden-file rendering:</strong> a fixed fixture input (covering metadata, both section variants, all four step statuses, all three file-action pills, and prev/next links) renders to byte-identical golden HTML. Deterministic output is a hard requirement: no timestamps, locale-dependent formatting, or environment leakage in the artifact; a second render of the same input is byte-equal to the first.</li>
+      <li><strong>Input validation:</strong> each contract violation — missing <code>title</code>, missing <code>vplan</code> version, invalid <code>status</code> enum, invalid <code>files[].action</code>, unknown top-level key, unparseable JSON — exits non-zero, names the offending field path on stderr, and writes nothing to <code>--out</code> (no partial artifact after a failed render).</li>
+      <li><strong>Output self-containment:</strong> the rendered artifact contains no external <code>http(s)://</code> references — no linked stylesheets, scripts, fonts, or images (relative hrefs between sibling plan documents are the allowed exception). Also asserts input text is entity-escaped: a fixture containing <code>&lt;script&gt;</code> and quote characters in every string field must appear escaped in the output, never as live markup.</li>
+    </ul>
+  </li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><strong>Before/with this plan:</strong> <a href="07-axi-replacements.html">Plan 07</a> — same UPDATE_PLAN section family (§8.2) and the same bootstrap lines; §8.7 sequences the toolbelt work as gh-swap first, "then the standalone vplan module (§8.5), then the medium-effort tasks/quota builds", so vplan can land in the middle of Plan 07's steps or immediately after. The two plans' <code>tests/fm-bootstrap.test.sh</code> and <code>bin/mx-bootstrap.sh</code> edits should be coordinated into coherent commits.</li>
+  <li><strong>Independent of:</strong> the §3 status-reporting and §6 deep-review plans — by design (§8.5's standalone rule). vplan neither blocks nor is blocked by them; the future deep-review/backlog integration ideas would be new plans of their own.</li>
+  <li><strong>After this plan:</strong> <a href="09-least-privilege-push.html">Plan 09</a> continues Phase 5 with the least-privilege push/merge process; no technical dependency on vplan.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout warn">
+  <div class="label">Open question — templating engine (maintainer decision)</div>
+  <p style="margin:0">Pure bash+heredoc+jq vs. a small node script. The plan leans bash-first for toolbelt consistency, but node stays a runtime dependency regardless (UPDATE_PLAN §8.3: the <code>.mjs</code> command-policy scripts), so the node option costs no new install burden and buys much easier escaping/templating. Decision needed by step 2; the CLI contract is engine-independent either way.</p>
+</div>
+<div class="callout warn">
+  <div class="label">Open question — input format second front-end</div>
+  <p style="margin:0">JSON is the proposed contract (broker-generated, jq-validatable). Whether a markdown-frontmatter front-end for hand-authoring is worth adding is deferred until real hand-authoring demand exists; if added, it converts to the JSON contract rather than becoming a second schema.</p>
+</div>
+<div class="callout warn">
+  <div class="label">Open question — how rich is body_md?</div>
+  <p style="margin:0">The proposal allows a minimal markdown subset inside section bodies (emphasis, inline code, lists). The exact subset — and whether step <code>detail</code> fields get the same treatment — is unspecified. Start with the smallest set the seed template needs and grow deliberately; a large subset is the strongest argument for the node engine.</p>
+</div>
+<div class="callout">
+  <div class="label">Risk — scope creep toward a reporting system</div>
+  <p style="margin:0">Low overall risk (additive module, no consumers in the critical loop), but the one real hazard is drift: once vplan exists, it will be tempting to route status updates or review findings through it. §8.5's boundary is the guardrail — vplan renders plan documents; the schema-validated reporting path (§3) and the deep-review gate (§6) never depend on it. The docs and the AGENTS.md rewrite state this boundary explicitly.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="07-axi-replacements.html">← Plan 07 · -axi Replacements</a>
+  <a href="index.html">Index</a>
+  <a href="09-least-privilege-push.html">Plan 09 · Least-Privilege Push →</a>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 02 — Full Rebrand · Computer Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#bc8cff; --accent-dim:rgba(188,140,255,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="plan-num">Plan 02 / 10</div>
+    <h1>Full Rebrand — Ship Metaphor Out, Computer Vocabulary In</h1>
+    <p class="subtitle">Replace every rank-coded nautical term (captain, crewmate, first mate, fleet, ship) with function-coded computer-science vocabulary — maintainer, broker, actor, daemon — and sweep the entire tree: script names (<code>fm-</code> → <code>mx-</code>), env vars (<code>FM_*</code> → <code>MX_*</code>), docs, on-disk paths, log strings, tests, and a genuine rewrite (not find-and-replace) of AGENTS.md.</p>
+    <div class="badges">
+      <span class="badge phase">Phase 2</span>
+      <span class="badge effort">Effort: High</span>
+      <span class="badge risk">Risk: Medium</span>
+      <span class="badge">UPDATE_PLAN §7 (7.1–7.4)</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>UPDATE_PLAN §7's goal, verbatim in spirit: remove all rank-coded language ("captain outranks crew, no way around that semantically") and replace it with <b>specific, low-collision computer-science terms</b> — deliberately not generic words like "process" or "operator" that would collide constantly with plain descriptions of the implementation. The human's coordinating role does not disappear (still final say on direction and merge approval), but the name for it must not imply command over the agents, and no agent may be framed as ranked above another.</p>
+<p>This is three distinct kinds of work bundled into one plan because they must land together atomically:</p>
+<ul>
+  <li><b>Vocabulary (§7.1):</b> a fixed role table — maintainer, broker, actor, daemon — plus killing the collective nouns ("the system" or "the run" instead of ship/fleet).</li>
+  <li><b>Voice (§7.3):</b> AGENTS.md needs a real rewrite. Hierarchy lives in the <i>verbs</i> ("ensure your crew completes the task without deviation", "report to you"), not just the nouns; a find-and-replace pass would leave commanding language intact wearing new labels.</li>
+  <li><b>Mechanics (§7.4):</b> a repo-wide rename sweep — ~86 <code>bin/fm-*.sh</code> scripts plus <code>bin/backends/</code>, two <code>.mjs</code> policy files, ~100 test files, every <code>FM_*</code> env var, harness hook/plugin files, docs, on-disk naming conventions, and the log/error strings scripts emit (read by both the maintainer and the actors, so they are part of the theme too).</li>
+</ul>
+<div class="callout">
+  <div class="label">Project name — Computer (decided), prefix — mx- (decided)</div>
+  <p style="margin:0">UPDATE_PLAN §7.2 evaluated name candidates and recommended <b>Multiplex</b> (with suggested prefix <code>mx-</code>); the user has instead named the project <b>Computer</b>. The <code>mx-</code> script/env prefix nonetheless <b>stays as decided in §8.6</b> ("Script files are <code>mx-</code> prefixed (decided)") — all §7.4 renames and every new script in plans 03–10 use it. The residual question about the prefix's motivation was closed by the maintainer on 2026-07-26: <code>mx-</code> stays (see the decided callout under Risks &amp; open questions).</p>
+</div>
+<p>Effort is High because the sweep touches nearly every file in the tree and because the AGENTS.md rewrite is editorial work, not mechanical. Risk is Medium: a rename this broad can silently break script-to-script sourcing, harness hook registrations, and the test runner's hardcoded name maps — mitigated by doing it as one atomic commit gated by a fully green suite on both sides, plus a permanent grep tripwire test. (The once-riskiest corner — the <i>global</i> <code>~/.grok/hooks/fm-turn-end.json</code> — no longer exists: grok harness support is deleted in <a href="01-deletions.html">plan 01</a>'s backend &amp; harness pruning before this sweep runs.)</p>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+  <tr><th>Goals</th><th>Non-goals</th></tr>
+  <tr>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>Adopt the §7.1 role vocabulary everywhere: maintainer / broker / actor / daemon; "the system" / "the run" for collectives.</li>
+        <li>Rewrite AGENTS.md per §7.3 — charter, verbs, and framing, not just nouns.</li>
+        <li>Rename all scripts <code>fm-*</code> → <code>mx-*</code> (with vocabulary-bearing filename fixes, e.g. <code>crew-state</code>, <code>fleet-*</code>, <code>secondmate-*</code>), all functions <code>fm_*</code> → <code>mx_*</code>, all env vars <code>FM_*</code> → <code>MX_*</code>.</li>
+        <li>Same voice pass (not just term substitution) across all docs listed in §7.4.</li>
+        <li>Rename on-disk path/state conventions, <code>data/projects.md</code>, generated <code>brief.md</code> text, and emitted log/error strings.</li>
+        <li>Rename the whole test suite and its runner; land everything in one atomic commit, green before and after.</li>
+        <li>Add a permanent naming tripwire test so old vocabulary can never creep back.</li>
+      </ul>
+    </td>
+    <td>
+      <ul style="margin-bottom:0">
+        <li>No behavior changes — this plan is pure renaming and rewriting of language; every code path works identically after.</li>
+        <li>No new features (status reporting, gate, vplan, etc. are plans 03+; per §8.7 they are born <code>mx-</code>-prefixed and never appear in this sweep).</li>
+        <li>The read-only <code>firstmate/</code> reference folder is <b>not</b> renamed — it stays as upstream reference material and is allowlisted in the tripwire. (Per the 2026-07-26 maintainer decision this is <i>temporary</i>: once the port is fully done the folder is removed and all renamed files live in the root Computer dir; the allowlist entry is dropped with it.)</li>
+        <li>Upstream tool names stay as-is when describing upstream (no-mistakes, lavish-axi, treehouse) per §8.6.</li>
+        <li>No backend/harness selection changes — herdr/tmux/claude configs keep their values; only firstmate-flavored key names change.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<h2>Current state in firstmate</h2>
+<p>The nautical theme is load-bearing across the tree, verified against the checkout:</p>
+<table>
+  <tr><th>Where</th><th>Real files / evidence</th></tr>
+  <tr><td>Role vocabulary in docs</td><td><code>AGENTS.md</code> — 14 sections built on captain/crewmate/secondmate/fleet framing: §9 "Escalation and captain etiquette", §11 "Crewmate briefs", §8 "Supervision protocol", etc.</td></tr>
+  <tr><td>Scripts (86 <code>bin/*.sh</code> + <code>bin/backends/</code> + 2 <code>.mjs</code>)</td><td>All <code>fm-</code>-prefixed; several carry the theme <i>inside</i> the name: <code>bin/fm-crew-state.sh</code>, <code>bin/fm-fleet-snapshot.sh</code>, <code>bin/fm-fleet-sync.sh</code>, <code>bin/fm-fleet-view.sh</code>, <code>bin/fm-secondmate-report.sh</code>, <code>bin/fm-bearings-snapshot.sh</code>.</td></tr>
+  <tr><td>Env vars</td><td>Counted by real invocation: <code>FM_HOME</code> (~289 uses), <code>FM_ROOT</code> (~197), <code>FM_ROOT_OVERRIDE</code> (~102), <code>FM_STATE_OVERRIDE</code> (~56), <code>FM_SHARED_CAPTAIN_REL</code> (~34 — theme in the var name itself), <code>FM_POLL</code> (<code>bin/fm-watch.sh:95</code>), <code>FM_STALE_ESCALATE_SECS</code> (<code>bin/fm-watch.sh:127</code>), <code>FM_BACKEND</code>, <code>FM_BUSY_REGEX</code>, <code>FM_GUARD_GRACE</code>, the <code>FM_PR_*</code> family, <code>FM_WAKE_QUEUE</code>, <code>FM_SUPERVISOR_*</code>, <code>FM_AFK_*</code>, and more. (<code>FMX_*</code> is already gone — deleted with X mode in <a href="01-deletions.html">plan 01</a>.)</td></tr>
+  <tr><td>Tests (~100 files)</td><td>All <code>tests/fm-*.test.sh</code>; theme-coded names include <code>tests/fm-crew-state.test.sh</code>, <code>tests/fm-captain-translation-contract.test.sh</code>, <code>tests/fm-shared-captain-inheritance.test.sh</code>, <code>tests/fm-secondmate-*.test.sh</code> (6 files). Shared lib <code>tests/lib.sh</code> guards re-sourcing with <code>FM_TEST_LIB_SOURCED</code> (lines 23–26); helpers <code>tests/secondmate-helpers.sh</code>, <code>tests/wake-helpers.sh</code>.</td></tr>
+  <tr><td>Test runner</td><td><code>bin/fm-test-run.sh</code> — the single owner of test topology: <code>family_for_basename()</code> (line ~118) enumerates every test basename into families; shard lists (~lines 249–305) and the changed-file → family map (~lines 660–700) enumerate <code>bin/</code> script names. Every renamed file must be re-mapped here.</td></tr>
+  <tr><td>Harness hooks/plugins</td><td>Per firstmate_dependencies.md §2: <code>.claude/settings.json</code> (SessionStart/PreToolUse/Stop hooks invoking <code>bin/fm-*.sh</code>), <code>.codex/hooks.json</code>, <code>.pi/extensions/fm-primary-*.ts</code> + <code>fm-calm.ts</code>. (The <code>.grok/</code> hook set — including the global <code>~/.grok/hooks/fm-turn-end.json</code> — and the <code>.opencode/</code> plugins are deleted in <a href="01-deletions.html">plan 01</a>'s pruning and never enter this sweep.)</td></tr>
+  <tr><td>Config / on-disk state</td><td><code>config/crew-harness</code>, <code>config/secondmate-harness</code>, <code>config/backend</code>, <code>data/projects.md</code>, <code>data/secondmates.md</code>, generated <code>data/&lt;id&gt;/brief.md</code> text, <code>state/&lt;id&gt;.status</code> conventions.</td></tr>
+  <tr><td>Skills</td><td><code>.agents/skills/</code>: theme-coded directories <code>stuck-crewmate-recovery</code>, <code>secondmate-provisioning</code>, <code>firstmate-coding-guidelines</code>, <code>firstmate-codexapp</code>, <code>updatefirstmate</code>, plus nautically-named <code>ahoy</code> and <code>bearings</code>. (<code>firstmate-orca</code> and <code>fmx-respond</code> are already deleted by <a href="01-deletions.html">plan 01</a>.)</td></tr>
+  <tr><td>Docs</td><td><code>docs/architecture.md</code>, <code>docs/configuration.md</code>, <code>docs/scripts.md</code>, and backend/guard docs (<code>tmux-backend.md</code>, <code>herdr-backend.md</code>, <code>cmux-backend.md</code>, <code>codex-app-backend.md</code>, <code>sessionstart-nudge.md</code>, <code>arm-pretool-check.md</code>, <code>cd-guard.md</code>, <code>decision-hold-lifecycle.md</code>, …) — all use the old voice and old script names.</td></tr>
+  <tr><td>Log strings</td><td>Scripts emit themed prose, e.g. <code>fm-supervise-daemon.sh</code>'s "firstmate: away-mode escalations WEDGED" notification title, <code>fm-test-run:</code> log prefix, watcher/daemon log lines mentioning crewmates and the fleet.</td></tr>
+</table>
+
+<h2>Target design in Computer</h2>
+
+<h3>Role vocabulary (§7.1 — adopted verbatim)</h3>
+<table>
+  <tr><th>Old term</th><th>New term</th><th>Why (from §7.1)</th></tr>
+  <tr><td>Captain (the human)</td><td><b>Maintainer</b></td><td>A specific, well-understood software term: final say on direction and merge approval — exactly the job — without reading as everyone's boss day to day. Contributors/maintainers is a functional split, not a rank ladder.</td></tr>
+  <tr><td>First mate (orchestrator agent)</td><td><b>Broker</b></td><td>A broker's whole function is arranging exchanges between independent parties, with zero authority over what those parties decide. Deliberately not "dispatcher" or "router" — both would collide constantly with everyday conversation about the actual system.</td></tr>
+  <tr><td>Crewmate (task agent)</td><td><b>Actor</b></td><td>Borrowed from the actor model (Erlang/Akka): a fully independent, autonomous unit interacting only via messages — a real named CS concept designed around having no built-in hierarchy, not just a nicer word for "worker."</td></tr>
+  <tr><td>Secondmate (persistent domain agent)</td><td><b>Daemon</b> (unchanged concept)</td><td>Already the correct term for a long-running background service, and already matches real script names (<code>fm-supervise-daemon.sh</code>) — the least invented option.</td></tr>
+  <tr><td>Ship / fleet</td><td><b>The system</b>, or just <b>"the run"</b></td><td>No single collective noun needed; avoid another word that quietly re-implies a vessel-and-captain structure.</td></tr>
+  <tr><td>"Your crew" / "assign to crew"</td><td>"the team" / "route to"</td><td>Verb choice carries hierarchy as much as the noun does (see the §7.3 voice pass).</td></tr>
+</table>
+<p>Explicitly avoided per §7.1: <b>"node"</b> for actors (overloaded — graph node, network node, Node.js) and <b>"root"/"admin"</b> for the maintainer (carries real privilege/authority connotations, reintroducing the rank problem through the side door).</p>
+
+<h3>AGENTS.md rewrite (§7.3 — a real rewrite, not find-and-replace)</h3>
+<p>Swapping nouns alone won't fix it: sentences like "ensure your crew completes the task without deviation" or "report to you" carry hierarchy in the <i>verb</i>. A find-and-replace pass would leave commanding language intact wearing new labels. The rewrite must:</p>
+<ul>
+  <li><b>Reframe the broker's charter</b> from "you supervise and command the crew" to "you coordinate and route work between independent actors" — with authority for direction changes and approvals living with the <i>maintainer</i>, not the broker.</li>
+  <li><b>Replace command verbs with coordination verbs</b>, systematically:
+    <table style="margin-top:8px">
+      <tr><th>Command verb (out)</th><th>Coordination verb (in)</th></tr>
+      <tr><td>assign, instruct, order, direct</td><td>route, relay to, brief</td></tr>
+      <tr><td>ensure compliance, enforce, make sure it obeys</td><td>check in with, verify against the brief, reconcile</td></tr>
+      <tr><td>report to (you/the captain)</td><td>sync with, surface to, relay to the maintainer</td></tr>
+      <tr><td>supervise, oversee, command</td><td>coordinate, track, monitor state</td></tr>
+    </table>
+  </li>
+  <li><b>Remove any "lesser-than" framing</b> — an actor or daemon is an equally capable agent doing a different job in the workflow, not a subordinate.</li>
+  <li><b>Keep the maintainer's real authority stated plainly and functionally</b> — final call on design/architecture and merge approval — without wrapping it in command language.</li>
+</ul>
+<p>Section-level consequences in the current <code>AGENTS.md</code>: §9 "Escalation and captain etiquette" → maintainer etiquette; §11 "Crewmate briefs" → actor briefs; §8's supervision protocol becomes coordination/monitoring language; §14 is already gone (plan 01). Every skill the file references gets its renamed identity (see inventory).</p>
+
+<h3>Rename inventory (§7.4 — the mapping pattern)</h3>
+<p>The default rule is mechanical: <code>bin/fm-&lt;name&gt;.sh → bin/mx-&lt;name&gt;.sh</code>, <code>fm_&lt;fn&gt; → mx_&lt;fn&gt;</code>, <code>FM_&lt;VAR&gt; → MX_&lt;VAR&gt;</code>, <code>tests/fm-&lt;name&gt;.test.sh → tests/mx-&lt;name&gt;.test.sh</code>. The exceptions are files whose <i>names</i> carry the old vocabulary — those get a vocabulary fix at the same time. Grouped by function (86 scripts total; representative members listed):</p>
+<div class="callout ok">
+  <div class="label">Inventory note — plan 01 pruning shrinks the sweep (2026-07-26)</div>
+  <p style="margin:0"><a href="01-deletions.html">Plan 01</a>'s backend &amp; harness pruning deletes <code>bin/backends/zellij.sh</code>, <code>bin/backends/orca.sh</code>, <code>bin/fm-turnend-guard-grok.sh</code>, the <code>.grok/</code> and <code>.opencode/</code> harness config dirs, the <code>firstmate-orca</code> skill, and their tests and docs <i>before</i> this sweep runs — none of them appears in the rename inventory. Counts elsewhere in this plan (86 scripts, ~100 tests, 17 skill dirs) are pre-pruning figures; the actual sweep is correspondingly smaller.</p>
+</div>
+<table>
+  <tr><th>Group</th><th>Members (current)</th><th>New name / pattern</th></tr>
+  <tr><td>Watcher &amp; classification loop</td><td><code>fm-watch.sh</code>, <code>fm-watch-arm.sh</code>, <code>fm-watch-checkpoint.sh</code>, <code>fm-classify-lib.sh</code>, <code>fm-wake-lib.sh</code>, <code>fm-wake-drain.sh</code></td><td>Prefix swap: <code>mx-watch.sh</code>, <code>mx-classify-lib.sh</code>, …</td></tr>
+  <tr><td>State oracle</td><td><code>fm-crew-state.sh</code></td><td><b><code>mx-actor-state.sh</code></b> (or <code>mx-state.sh</code>) — the crew→actor naming decision lives inside the filename itself; see open questions.</td></tr>
+  <tr><td>Supervision daemon</td><td><code>fm-supervise-daemon.sh</code>, <code>fm-supervision-instructions.sh</code>, <code>fm-supervision-lib.sh</code>, <code>fm-supervisor-target-lib.sh</code></td><td>Prefix swap: <code>mx-supervise-daemon.sh</code>, … ("daemon" already correct vocabulary).</td></tr>
+  <tr><td>Task lifecycle</td><td><code>fm-spawn.sh</code>, <code>fm-send.sh</code>, <code>fm-brief.sh</code>, <code>fm-teardown.sh</code>, <code>fm-peek.sh</code>, <code>fm-promote.sh</code>, <code>fm-merge-local.sh</code>, <code>fm-review-diff.sh</code></td><td>Prefix swap: <code>mx-spawn.sh</code>, <code>mx-brief.sh</code>, <code>mx-teardown.sh</code>, …</td></tr>
+  <tr><td>Fleet views → system views</td><td><code>fm-fleet-snapshot.sh</code>, <code>fm-fleet-sync.sh</code>, <code>fm-fleet-view.sh</code></td><td><b><code>mx-system-snapshot.sh</code></b>, <b><code>mx-system-sync.sh</code></b>, <b><code>mx-system-view.sh</code></b> — fleet→system per §7.1.</td></tr>
+  <tr><td>Daemon (secondmate) management</td><td><code>fm-secondmate-report.sh</code>, <code>fm-home-seed.sh</code>, <code>fm-backlog-handoff.sh</code></td><td><b><code>mx-daemon-report.sh</code></b>, <code>mx-home-seed.sh</code>, <code>mx-backlog-handoff.sh</code>.</td></tr>
+  <tr><td>Backend / session layer</td><td><code>fm-backend.sh</code>, <code>fm-backend-hometag-lib.sh</code>, <code>backends/{tmux,herdr,cmux}.sh</code> (zellij/orca deleted in plan 01), <code>fm-tmux-lib.sh</code>, <code>fm-transition-lib.sh</code>, <code>fm-session-start.sh</code>, <code>fm-session-lock-lib.sh</code>, <code>fm-harness.sh</code></td><td>Prefix swap; <code>bin/backends/*</code> keep their backend names (tmux is tmux).</td></tr>
+  <tr><td>Guards &amp; harness hooks</td><td><code>fm-turnend-guard.sh</code>, <code>fm-arm-pretool-check.sh</code>, <code>fm-cd-pretool-check.sh</code>, <code>fm-subagent-pretool-check.sh</code>, <code>fm-sessionstart-nudge.sh</code>, <code>fm-claude-stop-autoarm.sh</code>, <code>fm-guard.sh</code>, <code>fm-gate-refuse-lib.sh</code>, <code>fm-arm-command-policy.mjs</code>, <code>fm-cd-command-policy.mjs</code> (<code>fm-turnend-guard-grok.sh</code> deleted in plan 01)</td><td>Prefix swap, including the <code>.mjs</code> files: <code>mx-arm-command-policy.mjs</code>, …</td></tr>
+  <tr><td>PR / delivery</td><td><code>fm-pr-check.sh</code>, <code>fm-pr-check-migrate.sh</code>, <code>fm-pr-lib.sh</code>, <code>fm-pr-merge.sh</code>, <code>fm-pr-poll.sh</code>, <code>fm-push-transition-lib.sh</code>, <code>fm-config-push.sh</code></td><td>Prefix swap: <code>mx-pr-check.sh</code>, … (already GitHub-only after plan 01).</td></tr>
+  <tr><td>AFK / away mode</td><td><code>fm-afk-start.sh</code>, <code>fm-afk-launch.sh</code>, <code>fm-afk-return.sh</code></td><td>Prefix swap.</td></tr>
+  <tr><td>Bootstrap, install, update</td><td><code>fm-bootstrap.sh</code>, <code>fm-install-herdr.sh</code>, <code>fm-install-treehouse.sh</code>, <code>fm-update.sh</code>, <code>fm-herdr-lab.sh</code>, <code>fm-herdr-session-cleanup.sh</code>, <code>fm-herdr-ci-cleanup.sh</code></td><td>Prefix swap.</td></tr>
+  <tr><td>Shared libs &amp; utilities</td><td><code>fm-lock.sh</code>, <code>fm-lock-lib.sh</code>, <code>fm-marker-lib.sh</code>, <code>fm-check-lib.sh</code>, <code>fm-check-register.sh</code>, <code>fm-composer-lib.sh</code>, <code>fm-config-inherit-lib.sh</code>, <code>fm-ff-lib.sh</code>, <code>fm-tangle-lib.sh</code>, <code>fm-pending-reply-lib.sh</code>, <code>fm-primary-scope-lib.sh</code>, <code>fm-operational-input.sh</code>, <code>fm-decision-hold.sh</code>, <code>fm-project-mode.sh</code>, <code>fm-doc-audience-check.sh</code>, <code>fm-ensure-agents-md.sh</code>, <code>fm-tasks-axi-lib.sh</code></td><td>Prefix swap (<code>fm-tasks-axi-lib.sh</code> is replaced wholesale in plan 08 but is renamed here if it still exists at sweep time).</td></tr>
+  <tr><td>Snapshot / reporting</td><td><code>fm-bearings-snapshot.sh</code></td><td><code>mx-bearings-snapshot.sh</code> — but "bearings" is nautical; candidate <code>mx-status-snapshot.sh</code>. Open question.</td></tr>
+  <tr><td>Test infra</td><td><code>fm-test-run.sh</code>, <code>fm-test-isolation-proof.sh</code></td><td><b><code>mx-test-run.sh</code></b>, <code>mx-test-isolation-proof.sh</code> — the runner is the single owner of test topology; see test plan.</td></tr>
+  <tr><td>Skills</td><td><code>stuck-crewmate-recovery</code>, <code>secondmate-provisioning</code>, <code>firstmate-coding-guidelines</code>, <code>firstmate-codexapp</code>, <code>updatefirstmate</code>, <code>ahoy</code>, <code>bearings</code>, <code>harness-adapters</code>, … (<code>firstmate-orca</code> deleted in plan 01)</td><td><code>stuck-actor-recovery</code>, <code>daemon-provisioning</code>, <code>computer-coding-guidelines</code>, <code>computer-codexapp</code>, <code>updatecomputer</code>; <code>ahoy</code>/<code>bearings</code> are nautical — open question. Neutral names (<code>harness-adapters</code>, <code>stow</code>, <code>afk</code>) unchanged.</td></tr>
+</table>
+
+<h3>Env vars, config keys, and on-disk names</h3>
+<table>
+  <tr><th>Current</th><th>New</th><th>Notes</th></tr>
+  <tr><td><code>FM_HOME</code>, <code>FM_ROOT</code>, <code>FM_ROOT_OVERRIDE</code>, <code>FM_STATE_OVERRIDE</code>, <code>FM_DATA_OVERRIDE</code>, <code>FM_CONFIG_OVERRIDE</code>, <code>FM_PROJECTS_OVERRIDE</code></td><td><code>MX_HOME</code>, <code>MX_ROOT</code>, …</td><td>The heaviest vars (~289 and ~197 uses) — pure prefix swap.</td></tr>
+  <tr><td><code>FM_POLL</code>, <code>FM_STALE_ESCALATE_SECS</code>, <code>FM_BUSY_REGEX</code>, <code>FM_GUARD_GRACE</code></td><td><code>MX_POLL</code>, <code>MX_STALE_ESCALATE_SECS</code>, …</td><td>Watcher knobs, named explicitly in §7.4 (<code>bin/fm-watch.sh:95,127</code>).</td></tr>
+  <tr><td><code>FM_BACKEND</code>, <code>FM_BACKEND_KNOWN</code>, <code>FM_SUPERVISOR_TARGET</code>, <code>FM_SUPERVISOR_BACKEND</code>, <code>FM_WAKE_QUEUE</code>, <code>FM_PR_*</code> family, <code>FM_AFK_*</code> family, <code>FM_LOCK_*</code>, <code>FM_TREEHOUSE_CI_VERSION</code></td><td><code>MX_*</code> equivalents</td><td>Selection precedence (flag &gt; env &gt; <code>config/backend</code> file &gt; autodetect) is unchanged; only the env var name changes.</td></tr>
+  <tr><td><code>FM_SHARED_CAPTAIN_REL</code>, <code>FM_SNAPSHOT_SECONDMATES</code></td><td><b><code>MX_SHARED_MAINTAINER_REL</code></b>, <b><code>MX_SNAPSHOT_DAEMONS</code></b></td><td>Vocabulary inside the var name — prefix swap alone is not enough.</td></tr>
+  <tr><td><code>FMX_*</code></td><td>—</td><td>Already deleted with X mode in <a href="01-deletions.html">plan 01</a>; must not reappear.</td></tr>
+  <tr><td><code>config/crew-harness</code>, <code>config/secondmate-harness</code></td><td><code>config/actor-harness</code>, <code>config/daemon-harness</code></td><td>Config <i>file names</i> carry the theme.</td></tr>
+  <tr><td><code>data/secondmates.md</code>; crew/fleet wording in <code>data/projects.md</code> and generated <code>data/&lt;id&gt;/brief.md</code></td><td><code>data/daemons.md</code>; new-vocabulary wording via <code>mx-brief.sh</code></td><td>§7.4: on-disk paths and generated text are in scope, "anything literally named crew, fleet, ship, captain, mate."</td></tr>
+  <tr><td><code>tests/lib.sh</code> — <code>FM_TEST_LIB_SOURCED</code> (lines 23–26)</td><td><code>MX_TEST_LIB_SOURCED</code></td><td>Plus every <code>FM_*_OVERRIDE</code> the test lib exports.</td></tr>
+  <tr><td>Log/error strings, e.g. "firstmate: away-mode escalations WEDGED", <code>fm-test-run:</code> prefixes, crew/fleet prose in watcher logs</td><td>"computer: …", <code>mx-test-run:</code>, actor/system prose</td><td>§7.4: emitted strings are read by both the maintainer and the actors — part of the theme, not just docs.</td></tr>
+  <tr><td>Harness hook/plugin files: <code>.claude/settings.json</code> hook commands, <code>.codex/hooks.json</code>, <code>.pi/extensions/fm-primary-*.ts</code> (grok/opencode hook and plugin sets deleted in plan 01)</td><td><code>mx-primary-*</code> file names + updated <code>bin/mx-*.sh</code> paths inside them</td><td>High-risk corner: hooks reference script paths as strings. (The global <code>~/.grok/hooks/</code> reinstall problem disappeared with plan 01's grok deletion.)</td></tr>
+</table>
+
+<h3>Grep-driven completeness strategy (§7.4)</h3>
+<p>§7.4's stated method for full coverage: "grep for <code>captain|crew|mate|ship|fleet|fm_|fm-</code> (case-insensitive) across the whole tree and work through every hit."</p>
+<pre><code># The sweep driver — run repeatedly until the only hits are allowlisted:
+grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' \
+  --exclude-dir=firstmate --exclude-dir=.git --exclude-dir=plans .
+
+# Expect false positives from English words — inspect, don't blind-replace:
+#   "mate"  → estimate, ultimate, climate, intimate
+#   "ship"  → relationship, ownership, membership, shipping
+#   "crew"  → screwed (rare), but check
+# Allowlist (never rewritten):
+#   firstmate/           - the upstream reference checkout (TEMPORARY: removed
+#                          entirely once porting completes, per the 2026-07-26
+#                          maintainer decision — drop this allowlist entry then)
+#   plans/               - these historical planning docs
+#   UPDATE_PLAN.md, firstmate_dependencies.md - historical specs
+#   upstream tool names  - "no-mistakes", "lavish-axi", "treehouse" when
+#                          describing upstream (per §8.6)</code></pre>
+<p>Per §7.4's own note: UPDATE_PLAN's sections 1–6 still use the old vocabulary; substituting those is a mechanical last pass done <i>after</i> 7.1–7.3 are settled — never before, so the rewrite isn't done twice against a moving target. Anything ported out of them into Computer's docs gets the new vocabulary at port time.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Lock the naming decisions.</b>
+    (a) <b>Decided 2026-07-26:</b> the <code>mx-</code> prefix stays (see the decided callout under Risks &amp; open questions). Still to confirm with the maintainer: (b) <code>fm-crew-state.sh</code> → <code>mx-actor-state.sh</code> vs <code>mx-state.sh</code>; (c) fate of the nautical <code>ahoy</code>/<code>bearings</code> skill names and <code>fm-bearings-snapshot.sh</code>. Record the decisions in the repo so the sweep has a fixed target.</li>
+  <li><b>Rewrite AGENTS.md.</b> <span class="pill mod">mod</span>
+    The §7.3 editorial rewrite: broker charter reframed, command verbs → coordination verbs per the table above, no lesser-than framing, maintainer authority stated functionally. Update every script/skill/env-var name it references to the new (post-sweep) names so this file lands in the same atomic commit as the renames. Run the voice-pass checklist (below) before calling it done.</li>
+  <li><b>Rename all bin scripts with <code>git mv</code>.</b> <span class="pill mod">mod</span>
+    All 86 <code>bin/fm-*.sh</code> → <code>bin/mx-*.sh</code> plus the two <code>.mjs</code> policy files, applying the vocabulary-bearing exceptions: <code>fm-crew-state.sh</code>→<code>mx-actor-state.sh</code>, <code>fm-fleet-snapshot.sh</code>→<code>mx-system-snapshot.sh</code>, <code>fm-fleet-sync.sh</code>→<code>mx-system-sync.sh</code>, <code>fm-fleet-view.sh</code>→<code>mx-system-view.sh</code>, <code>fm-secondmate-report.sh</code>→<code>mx-daemon-report.sh</code>. Then fix every internal reference: <code>source</code>/dot-includes, <code># shellcheck source=</code> directives, dispatch strings (<code>bin/fm-backend.sh</code> routing, <code>fm-spawn.sh</code> launch commands), and doc-comment headers.</li>
+  <li><b>Rename functions and env vars.</b> <span class="pill mod">mod</span>
+    <code>fm_*</code> functions → <code>mx_*</code>; <code>FM_*</code> env vars → <code>MX_*</code> with the vocabulary exceptions (<code>FM_SHARED_CAPTAIN_REL</code>→<code>MX_SHARED_MAINTAINER_REL</code>, <code>FM_SNAPSHOT_SECONDMATES</code>→<code>MX_SNAPSHOT_DAEMONS</code>). This is repo-wide, including <code>tests/lib.sh</code> (<code>FM_TEST_LIB_SOURCED</code>→<code>MX_TEST_LIB_SOURCED</code>) and the <code>.mjs</code>/<code>.py</code> helpers.</li>
+  <li><b>Rename config keys, on-disk paths, and generated text.</b> <span class="pill mod">mod</span>
+    <code>config/crew-harness</code>→<code>config/actor-harness</code>, <code>config/secondmate-harness</code>→<code>config/daemon-harness</code>, <code>data/secondmates.md</code>→<code>data/daemons.md</code>; new-vocabulary text in <code>data/projects.md</code> and the <code>brief.md</code> generator (<code>mx-brief.sh</code>); sweep every emitted log/error string ("firstmate:" prefixes, crew/fleet prose, the wedge-alarm title).</li>
+  <li><b>Update harness hook and plugin files.</b> <span class="pill mod">mod</span>
+    <code>.claude/settings.json</code> hook commands → <code>bin/mx-*.sh</code>; rename+edit <code>.pi/extensions/fm-primary-*.ts</code> (+<code>fm-calm.ts</code>) → <code>mx-primary-*</code>; update <code>.codex/hooks.json</code> wrappers. (The <code>.grok/</code> hooks — including the global <code>~/.grok/hooks/fm-turn-end.json</code> — and <code>.opencode/</code> plugins are already gone via <a href="01-deletions.html">plan 01</a>; nothing to rename or reinstall there.)</li>
+  <li><b>Voice pass over all docs.</b> <span class="pill mod">mod</span>
+    Per §7.4, the same §7.3 voice pass — not just term substitution — over <code>docs/architecture.md</code>, <code>docs/configuration.md</code>, <code>docs/scripts.md</code>, and the backend/guard docs: <code>tmux-backend.md</code>, <code>herdr-backend.md</code>, <code>cmux-backend.md</code>, <code>codex-app-backend.md</code> (<code>zellij-backend.md</code> and <code>orca-backend.md</code> deleted in plan 01), <code>sessionstart-nudge.md</code>, <code>arm-pretool-check.md</code>, <code>cd-guard.md</code>, <code>decision-hold-lifecycle.md</code>, <code>turnend-guard.md</code>, <code>subagent-guard.md</code>, <code>watcher-continuity.md</code>, <code>calm.md</code>. Rename the skills directories and rewrite their SKILL.md voice.</li>
+  <li><b>Rename the test suite and rewire the runner.</b> <span class="pill mod">mod</span>
+    <code>git mv</code> every <code>tests/fm-*.test.sh</code> → <code>tests/mx-*.test.sh</code> with vocabulary fixes (<code>fm-crew-state.test.sh</code>→<code>mx-actor-state.test.sh</code>, <code>fm-captain-translation-contract.test.sh</code>→<code>mx-maintainer-translation-contract.test.sh</code>, <code>fm-shared-captain-inheritance.test.sh</code>→<code>mx-shared-maintainer-inheritance.test.sh</code>, <code>fm-secondmate-*.test.sh</code>→<code>mx-daemon-*.test.sh</code>); rename <code>tests/secondmate-helpers.sh</code>→<code>tests/daemon-helpers.sh</code>. Then update <code>bin/fm-test-run.sh</code>→<code>bin/mx-test-run.sh</code> as the <b>single owner</b> of the topology: every basename in <code>family_for_basename()</code>, every shard list entry, and every <code>bin/</code> path in the changed-file → family map must reflect the new names. <code>.github/workflows/ci.yml</code> updated to invoke <code>bin/mx-test-run.sh</code>.</li>
+  <li><b>Add the naming tripwire.</b> <span class="pill new">new</span>
+    New <code>tests/mx-naming.test.sh</code>: greps the tree (case-insensitive) for <code>captain|crew|crewmate|secondmate|firstmate|fleet|\bship\b|fm-|fm_|FM_</code> and fails on any hit outside the allowlist (the <code>firstmate/</code> reference folder, <code>plans/</code>, historical docs, upstream tool names). Register it in the runner's family map. This makes vocabulary regression a CI failure forever.</li>
+  <li><b>Atomic land: green → rename → green.</b>
+    Run the full suite on the pre-rename tree (must be green). Apply steps 2–9 as <b>one atomic commit</b> — no half-renamed intermediate states on the main branch. Run the full suite via <code>bin/mx-test-run.sh</code> (must be green), plus the §7.4 grep driver returning only allowlisted hits. Only then merge.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+  <tr><th>File</th><th>Action</th><th>Notes</th></tr>
+  <tr><td><code>bin/fm-*.sh</code> (86 files) + <code>bin/fm-*.mjs</code> (2)</td><td>Modify (git mv + content)</td><td>→ <code>bin/mx-*</code>; vocabulary-bearing exceptions: <code>crew-state</code>→<code>actor-state</code>, <code>fleet-*</code>→<code>system-*</code>, <code>secondmate-report</code>→<code>daemon-report</code>.</td></tr>
+  <tr><td><code>bin/backends/*.sh</code>, <code>bin/backends/*.py</code></td><td>Modify</td><td>Names keep their backend identity; internal <code>fm_</code>/<code>FM_</code> references and sourced paths updated.</td></tr>
+  <tr><td><code>AGENTS.md</code></td><td>Modify (rewrite)</td><td>Full §7.3 editorial rewrite — charter, verbs, framing — plus all new script/skill names.</td></tr>
+  <tr><td><code>docs/*.md</code> (architecture, configuration, scripts, all backend + guard docs)</td><td>Modify</td><td>Voice pass + new names; <code>docs/scripts.md</code> is a full catalogue and must match the new inventory exactly.</td></tr>
+  <tr><td><code>tests/fm-*.test.sh</code> (~100 files), <code>tests/lib.sh</code>, <code>tests/secondmate-helpers.sh</code>, <code>tests/wake-helpers.sh</code>, <code>tests/*-test-safety.sh</code></td><td>Modify (git mv + content)</td><td>→ <code>tests/mx-*.test.sh</code> etc.; <code>FM_TEST_LIB_SOURCED</code>→<code>MX_TEST_LIB_SOURCED</code>; assertions that grep for old names/strings updated.</td></tr>
+  <tr><td><code>bin/fm-test-run.sh</code></td><td>Modify (git mv)</td><td>→ <code>bin/mx-test-run.sh</code>; single owner of family labels + changed-file maps — every renamed basename re-mapped (current maps at ~lines 118–170, 249–305, 660–700).</td></tr>
+  <tr><td><code>.claude/settings.json</code>, <code>.codex/hooks.json</code>, <code>.pi/extensions/*</code></td><td>Modify</td><td>Hook/plugin filenames and embedded <code>bin/</code> paths. (<code>.grok/hooks/*</code>, the global grok hook, and <code>.opencode/plugins/*</code> are deleted by plan 01 — out of scope here.)</td></tr>
+  <tr><td><code>.agents/skills/*</code> (15 dirs after plan 01's deletions)</td><td>Modify (git mv + content)</td><td>Theme-coded dirs renamed (<code>stuck-crewmate-recovery</code>→<code>stuck-actor-recovery</code>, <code>secondmate-provisioning</code>→<code>daemon-provisioning</code>, <code>firstmate-*</code>→<code>computer-*</code>, <code>updatefirstmate</code>→<code>updatecomputer</code>); all SKILL.md voice-passed. <code>.claude/skills</code> symlink follows.</td></tr>
+  <tr><td><code>config/crew-harness</code>, <code>config/secondmate-harness</code></td><td>Modify (rename)</td><td>→ <code>config/actor-harness</code>, <code>config/daemon-harness</code>; readers updated in the same commit.</td></tr>
+  <tr><td><code>data/projects.md</code>, <code>data/secondmates.md</code>, brief generator output</td><td>Modify</td><td>New vocabulary in stored/generated prose; <code>data/secondmates.md</code>→<code>data/daemons.md</code>.</td></tr>
+  <tr><td><code>.github/workflows/ci.yml</code></td><td>Modify</td><td>Invoke <code>bin/mx-test-run.sh</code>; any remaining fm- path references updated.</td></tr>
+  <tr><td><code>tests/mx-naming.test.sh</code></td><td>New</td><td>Permanent grep tripwire for old vocabulary / <code>fm-</code> references, with the firstmate/-reference + historical-docs allowlist.</td></tr>
+  <tr><td><code>firstmate/</code> (reference checkout)</td><td>None</td><td>Explicitly untouched by this sweep; allowlisted everywhere. Per the 2026-07-26 decision the folder is deleted outright once porting is fully done (all renamed files then live in the root Computer dir) and the allowlist entries are dropped.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<h3>(a) Existing tests that must keep passing</h3>
+<p>All of them — this plan renames the <i>entire</i> suite but changes no behavior, so the whole suite is the regression gate. Run it green twice: once pre-rename under the old names via <code>bin/fm-test-run.sh</code>, once post-rename under the new names via <code>bin/mx-test-run.sh</code>, inside the same atomic change. Behavior-heavy anchors to watch especially: <code>tests/fm-watch-triage.test.sh</code>, <code>tests/fm-crew-state.test.sh</code>, <code>tests/fm-daemon.test.sh</code>, <code>tests/fm-backend.test.sh</code>, <code>tests/fm-spawn-batch.test.sh</code>, <code>tests/fm-teardown.test.sh</code>, <code>tests/fm-bootstrap.test.sh</code> (→ their <code>mx-</code> names after the sweep).</p>
+<h3>(b) Existing tests needing changes (and why)</h3>
+<ul>
+  <li><b>Every test file is renamed</b> <code>tests/fm-*.test.sh</code> → <code>tests/mx-*.test.sh</code>, and any test that shells out to a <code>bin/fm-*.sh</code> path, sets an <code>FM_*</code> var, or greps output for themed strings needs its content updated in lockstep.</li>
+  <li><code>bin/fm-test-run.sh</code> → <code>mx-test-run.sh</code> — the critical one: its <code>family_for_basename()</code> case map, shard lists, and changed-file → family map <b>encode script and test names as literal strings</b>. It is the single owner of that topology; every rename lands there or shard selection silently degrades. <code>tests/fm-test-run.test.sh</code> (→ <code>mx-test-run.test.sh</code>) is the contract test proving the runner survived.</li>
+  <li>Vocabulary-asserting tests need <i>content</i> rewrites, not just renames: <code>tests/fm-captain-translation-contract.test.sh</code> (asserts captain-facing translation behavior — the contract survives, addressed to the maintainer), <code>tests/fm-shared-captain-inheritance.test.sh</code> (asserts <code>FM_SHARED_CAPTAIN_REL</code> semantics → <code>MX_SHARED_MAINTAINER_REL</code>), <code>tests/fm-instruction-owners.test.sh</code> and <code>tests/fm-documentation-audiences.test.sh</code> (assert doc structure/ownership over files this plan rewrites), <code>tests/fm-brief.test.sh</code> and <code>tests/fm-ensure-agents-md.test.sh</code> (assert generated/required text that changes vocabulary).</li>
+  <li><code>tests/lib.sh</code> — <code>FM_TEST_LIB_SOURCED</code> guard and all <code>FM_*_OVERRIDE</code> exports → <code>MX_*</code>.</li>
+</ul>
+<h3>(c) New tests to write</h3>
+<ul>
+  <li><code>tests/mx-naming.test.sh</code> — the tripwire: case-insensitive grep across <code>bin/ tests/ docs/ config/ .agents/ AGENTS.md .github/</code> for <code>captain|crewmate|crew|secondmate|firstmate|fleet|fm-|fm_|FM_</code> (word-boundary care for "mate"/"ship" false positives), failing on any hit outside the allowlist (<code>firstmate/</code> reference folder, <code>plans/</code>, <code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, upstream tool names in prose). Asserts the rename is complete on day one and can never regress.</li>
+  <li><code>tests/mx-runner-topology.test.sh</code> (optional but recommended) — asserts every <code>tests/mx-*.test.sh</code> basename resolves to a known family in <code>mx-test-run.sh</code> (no unclassified strays) and every <code>bin/</code> path in the changed-file map points at an existing file — turning future map drift into a test failure rather than silent mis-sharding.</li>
+</ul>
+<div class="callout ok">
+  <div class="label">Landing rule</div>
+  <p style="margin:0">One atomic commit: suite green under old names immediately before, green under new names immediately after, <code>mx-naming.test.sh</code> green in the same commit. No partial-rename state ever exists on the main branch, so a bisect never lands in a broken tree.</p>
+</div>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>After <a href="01-deletions.html">plan 01 (deletions)</a>:</b> §8.7 sequences deletions first — the X-mode scripts, glab branches, lint gate, and <code>FMX_*</code> vars must be gone so they never enter the rename inventory.</li>
+  <li><b>Before plans 03–10 in spirit:</b> the earlier this lands, the less old-name churn later plans inherit. Per §8.7's hard rule either way: every new script introduced by later plans (<code>mx-report</code>, <code>mx-deep-review.sh</code>, <code>mx-deep-review-lib.sh</code>, <code>mx-vplan.sh</code>, the backlog/headroom/pr-merge replacements) is born <code>mx-</code>-prefixed with new vocabulary — never <code>fm-</code>-prefixed files renamed later.</li>
+  <li><b>Interacts with <a href="03-status-reporting.html">plan 03 (status reporting)</a>:</b> §3's proposed <code>bin/fm-report</code> becomes <code>bin/mx-report</code>; if plan 03 lands first, its script is created under the new name anyway and this sweep merely verifies it.</li>
+  <li><b>UPDATE_PLAN self-cleanup:</b> §7.4's own note — sections 1–6 of UPDATE_PLAN still use old vocabulary; the mechanical substitution pass over any of that text ported into Computer docs happens after 7.1–7.3 are locked, as the last step of this plan.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-26</div>
+  <p style="margin:0"><b>The prefix stays <code>mx-</code>.</b> The maintainer was indifferent between <code>mx-</code> and the alternatives floated for the Computer name (<code>cpu-</code>/<code>co-</code>/<code>cr-</code>), so the incumbent wins: <code>mx-</code> is already locked in UPDATE_PLAN §8.6, switching would mean redoing the entire rename inventory for zero benefit, and the strongest alternative — <code>cr-</code> — reads as "code review". All §7.4 renames and every new script in plans 03–10 use <code>mx-</code>.</p>
+</div>
+<div class="callout warn">
+  <div class="label">Open question — mx-actor-state.sh vs mx-state.sh</div>
+  <p style="margin:0"><code>fm-crew-state.sh</code> is the reconciliation oracle and its name carries "crew". <code>mx-actor-state.sh</code> keeps the role explicit (it reconciles <i>actor</i> state); <code>mx-state.sh</code> is shorter but vague (which state?). Recommended: <code>mx-actor-state.sh</code>. UPDATE_PLAN does not decide this — maintainer call in step 1.</p>
+</div>
+<div class="callout warn">
+  <div class="label">Open question — residual nautical names</div>
+  <p style="margin:0">§7.4 targets captain/crew/mate/ship/fleet, but <code>ahoy</code> and <code>bearings</code> (skill names, <code>fm-bearings-snapshot.sh</code>, <code>/bearings</code> reports) are nautical flavor it doesn't enumerate. They carry no rank semantics, so they could stay — but they keep the ship metaphor alive. Recommended: rename (<code>bearings</code>→<code>status</code> or <code>catchup</code>, <code>ahoy</code>→<code>recap</code>) for a clean break; maintainer call.</p>
+</div>
+<div class="callout danger">
+  <div class="label">Risk — string-referenced paths break silently</div>
+  <p style="margin:0">Script names live as strings in hook JSON/TS/JS files, <code># shellcheck source=</code> directives, the test runner's case maps, spawn/dispatch commands, and docs. <code>git mv</code> fixes none of those. Mitigations: the §7.4 grep driver run to zero non-allowlisted hits, <code>mx-naming.test.sh</code>, the optional runner-topology test, and a manual smoke of each remaining harness's hook registration (claude/codex/pi — the out-of-repo global <code>~/.grok/hooks/</code> file is no longer a concern after plan 01's grok deletion).</p>
+</div>
+<div class="callout danger">
+  <div class="label">Risk — live homes and on-disk state under old names</div>
+  <p style="margin:0">Any existing firstmate home has <code>config/crew-harness</code>, <code>data/secondmates.md</code>, and state written under old conventions. Computer is a fresh standalone project, so the default position is <b>no migration shim — fresh homes only</b>. If the maintainer wants to carry an existing home across, a one-shot migration script is a separate follow-up, not part of this sweep.</p>
+</div>
+<div class="callout warn">
+  <div class="label">Risk — grep false positives cause over-replacement</div>
+  <p style="margin:0">"mate" matches estimate/ultimate/climate; "ship" matches relationship/ownership. The sweep must be hit-by-hit review, never a blind <code>sed</code>. Budget real time for this — it is the bulk of the High effort rating along with the AGENTS.md rewrite.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="01-deletions.html">← Plan 01: Delete the Dead Weight</a>
+  <a href="03-status-reporting.html">Plan 03: Status Reporting →</a>
+</div>
+
+</div>
+</body>
+</html>
