@@ -712,26 +712,40 @@ esac
 SH
   chmod +x "$fakebin/ps"
 
+  lock_worker="$root/lock-worker.sh"
+  cat > "$lock_worker" <<'SH'
+#!/bin/bash
+home=$1
+ready=$2
+index=$3
+completed=$4
+fakebin=$5
+base_path=$6
+repo_root=$7
+winners=$8
+harness_pid=$$
+: > "$home/state/harness-$harness_pid"
+: > "$ready/$index"
+while [ "$(find "$ready" -type f | wc -l | tr -d ' ')" -lt 40 ]; do
+  sleep 0.01
+done
+if FM_HOME="$home" FM_FAKE_LOCK_STATE="$home/state" \
+  FM_FAKE_HARNESS_PID="$harness_pid" PATH="$fakebin:$base_path" \
+  "$repo_root/bin/fm-lock.sh" >/dev/null 2>&1; then
+  printf '%s\n' "$harness_pid" >> "$winners"
+fi
+: > "$completed/$index"
+while [ "$(find "$completed" -type f | wc -l | tr -d ' ')" -lt 40 ]; do
+  sleep 0.01
+done
+SH
+  chmod +x "$lock_worker"
+
   pids=
   i=1
   while [ "$i" -le 40 ]; do
-    (
-      harness_pid=$BASHPID
-      : > "$home/state/harness-$harness_pid"
-      : > "$ready/$i"
-      while [ "$(find "$ready" -type f | wc -l | tr -d ' ')" -lt 40 ]; do
-        sleep 0.01
-      done
-      if FM_HOME="$home" FM_FAKE_LOCK_STATE="$home/state" \
-        FM_FAKE_HARNESS_PID="$harness_pid" PATH="$fakebin:$BASE_PATH" \
-        "$ROOT/bin/fm-lock.sh" >/dev/null 2>&1; then
-        printf '%s\n' "$harness_pid" >> "$winners"
-      fi
-      : > "$completed/$i"
-      while [ "$(find "$completed" -type f | wc -l | tr -d ' ')" -lt 40 ]; do
-        sleep 0.01
-      done
-    ) &
+    "$lock_worker" "$home" "$ready" "$i" "$completed" "$fakebin" \
+      "$BASE_PATH" "$ROOT" "$winners" &
     pids="$pids $!"
     i=$((i + 1))
   done
