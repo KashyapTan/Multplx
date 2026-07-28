@@ -105,8 +105,40 @@ assert_meta_profile() {
   assert_grep "effort=$effort" "$meta" "meta missing effort=$effort"
 }
 
+assert_report_binding() {
+  local launch=$1 home=$2 state=$3 id=$4 state_real home_real
+  state_real=$(cd "$state" && pwd -P)
+  home_real=$(cd "$home" && pwd -P)
+  case "$launch" in
+    *"MX_HOME='$home'"*|*"MX_HOME='$home_real'"*) : ;;
+    *) fail "launch missing the actor's operational home"$'\n'"$launch" ;;
+  esac
+  assert_contains "$launch" "MX_TASK_ID='$id'" "launch missing the immutable task binding"
+  assert_contains "$launch" "MX_REPORT_STATE_OVERRIDE='$state_real'" \
+    "launch missing the exact parent status-state binding"
+}
+
+assert_claude_report_mcp_config() {
+  local launch=$1 home=$2 state=$3 id=$4 config="/tmp/mx-$4/report-mcp.json" state_real
+  state_real=$(cd "$state" && pwd -P)
+  assert_contains "$launch" "--mcp-config '$config'" \
+    "claude launch missing the per-task MCP config"
+  assert_present "$config" "claude per-task MCP config was not generated"
+  jq -e \
+    --arg id "$id" --arg home "$home" --arg state "$state_real" \
+    '.mcpServers.multplx_status |
+      .type == "stdio" and
+      (.command | type == "string" and length > 0) and
+      (.args | length == 1) and
+      (.args[0] | endswith("/bin/mx-report-mcp.mjs")) and
+      .env.MX_TASK_ID == $id and
+      .env.MX_HOME == $home and
+      .env.MX_REPORT_STATE_OVERRIDE == $state' \
+    "$config" >/dev/null || fail "claude MCP config has the wrong task-bound server entry"
+}
+
 test_no_profile_keeps_claude_profile_defaults() {
-  local rec id out status expected launch
+  local rec id out status launch
   id=profile-off-z1
   rec=$(make_spawn_case profile-off claude "$id")
   read_case_record "$rec"
@@ -118,8 +150,12 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/mx-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
-  [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_claude_report_mcp_config "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions" \
+    "no-profile claude launch lost its harness flags"
+  assert_contains "$launch" "mx-operational-input.sh' encode launch-brief" \
+    "no-profile claude launch did not use the canonical launch kind"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
@@ -169,7 +205,10 @@ test_active_dispatch_profile_allows_explicit_harness() {
   assert_contains "$out" "spawned $id harness=codex" "spawn did not report explicit codex harness"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 high
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "codex --model 'gpt-5' -c 'model_reasoning_effort=\"high\"' --dangerously-bypass-approvals-and-sandbox" \
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "codex -c 'mcp_servers.multplx_status=" \
+    "explicit codex launch did not receive the report_status MCP server"
+  assert_contains "$launch" "--model 'gpt-5' -c 'model_reasoning_effort=\"high\"' --dangerously-bypass-approvals-and-sandbox" \
     "explicit harness launch did not thread model and effort"
   pass "active actor-dispatch profile allows an explicit resolved harness"
 }
@@ -204,7 +243,9 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
   assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
   launch=$(cat "$LAUNCH_LOG")
-  [ "$launch" = "custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "custom-agent --flag" \
+    "raw launch command body changed"$'\n'"actual: $launch"
   pass "active actor-dispatch profile allows the raw launch-command escape hatch"
 }
 
@@ -219,7 +260,9 @@ test_claude_threads_model_and_effort() {
   expect_code 0 "$status" "claude spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude sonnet high
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'sonnet' --effort 'high'" \
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_claude_report_mcp_config "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "--model 'sonnet' --effort 'high'" \
     "claude launch did not thread model and effort flags"
   pass "claude receives --model and --effort profile flags"
 }
@@ -235,7 +278,10 @@ test_codex_threads_model_and_effort() {
   expect_code 0 "$status" "codex spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 high
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "codex --model 'gpt-5' -c 'model_reasoning_effort=\"high\"' --dangerously-bypass-approvals-and-sandbox" \
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "codex -c 'mcp_servers.multplx_status=" \
+    "codex launch did not receive the report_status MCP server"
+  assert_contains "$launch" "--model 'gpt-5' -c 'model_reasoning_effort=\"high\"' --dangerously-bypass-approvals-and-sandbox" \
     "codex launch did not thread model and reasoning effort config"
   pass "codex receives --model and model_reasoning_effort profile flags"
 }
@@ -251,7 +297,10 @@ test_codex_omits_invalid_max_effort() {
   expect_code 0 "$status" "codex spawn with unsupported max effort should omit the effort flag"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 max
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "codex --model 'gpt-5' --dangerously-bypass-approvals-and-sandbox" \
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "codex -c 'mcp_servers.multplx_status=" \
+    "codex max-effort launch lost the report_status MCP server"
+  assert_contains "$launch" "--model 'gpt-5' --dangerously-bypass-approvals-and-sandbox" \
     "codex launch did not preserve the model flag when max effort was omitted"
   assert_not_contains "$launch" "model_reasoning_effort" "codex launch must omit unsupported max reasoning effort"
   pass "codex omits unsupported max effort instead of passing a bad config value"
@@ -269,6 +318,7 @@ test_pi_threads_model_and_max_effort() {
   expect_code 0 "$status" "pi spawn with max effort should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" pi openai-codex/gpt-5.6-sol max
   launch=$(cat "$LAUNCH_LOG")
+  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
   assert_contains "$launch" "pi --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e" \
     "pi launch did not thread the requested model and max thinking level"
   assert_not_contains "$launch" "MX_MULTPLX_PI_LAUNCH_BRIEF=" \
@@ -298,7 +348,7 @@ test_batch_forwards_shared_profile_flags() {
 }
 
 test_active_dispatch_profile_does_not_block_daemon_launch() {
-  local rec id sm out status
+  local rec id sm out status launch
   id=profile-daemon-z16
   rec=$(make_spawn_case profile-daemon codex "$id")
   read_case_record "$rec"
@@ -312,6 +362,10 @@ test_active_dispatch_profile_does_not_block_daemon_launch() {
   assert_contains "$out" "spawned $id harness=codex kind=daemon" "daemon launch did not use daemon harness resolution"
   assert_grep "kind=daemon" "$HOME_DIR/state/$id.meta" "daemon meta missing kind=daemon"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex default default
+  launch=$(cat "$LAUNCH_LOG")
+  assert_report_binding "$launch" "$sm" "$HOME_DIR/state" "$id"
+  assert_contains "$launch" "codex -c 'mcp_servers.multplx_status=" \
+    "daemon codex launch did not receive the parent-bound report_status MCP server"
   pass "active actor-dispatch profile does not block daemon launches"
 }
 

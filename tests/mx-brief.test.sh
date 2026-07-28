@@ -226,7 +226,7 @@ test_daemon_no_projects_charter() {
     "project-less charter kept the with-projects operating-model line"
   assert_grep 'working [key=<work-slug>]' "$brief" \
     "daemon charter did not key material routed-work phases"
-  assert_grep 'resolved [key=<work-slug>]' "$brief" \
+  assert_grep 'report `resolved` with the same `--key <work-slug>`' "$brief" \
     "daemon charter did not close a quietly ended routed-work phase"
   assert_grep 'use the same key on its later' "$brief" \
     "daemon charter did not supersede working phases with later states"
@@ -263,7 +263,7 @@ test_daemon_marked_request_reporting_contract() {
     "daemon charter did not require the correlated answer after the work"
   assert_grep 'does not require a separate receipt or start acknowledgement' "$brief" \
     "daemon charter did not reject a separate receipt/start acknowledgement"
-  assert_grep "Never append \`working:\` merely to acknowledge receipt or announce that a marked request has started." "$brief" \
+  assert_grep "Never report \`working\` merely to acknowledge receipt or announce that a marked request has started." "$brief" \
     "daemon charter did not forbid a generic working acknowledgement"
   assert_no_grep "Give every routed-work phase a stable key: open it with \`working" "$brief" \
     "daemon charter retained the unconditional working opener"
@@ -273,21 +273,27 @@ test_daemon_marked_request_reporting_contract() {
     "daemon charter lost keyed working syntax for a reportable material phase"
   assert_grep "use the same key on its later \`paused\`, \`done\`, \`failed\`, \`needs-decision\`, or \`blocked\` event" "$brief" \
     "daemon charter lost same-key closure for a reportable material phase"
-  assert_grep 'resolved [key=<work-slug>]' "$brief" \
+  assert_grep 'report `resolved` with the same `--key <work-slug>`' "$brief" \
     "daemon charter lost resolved closure for a keyed material phase"
 
   assert_grep 'include that exact token in your parent status reply' "$brief" \
     "daemon charter lost correlated parent results"
   assert_grep 'For a terse result, a status line is the whole answer.' "$brief" \
     "daemon charter lost terse result reporting"
-  assert_grep 'append a status line that points to that doc' "$brief" \
+  assert_grep 'report a status that points to that doc' "$brief" \
     "daemon charter lost detailed document pointers"
   assert_grep 'Report only true maintainer-relevant outcomes or a declared external wait' "$brief" \
     "daemon charter lost declared external waits"
   assert_grep 'a maintainer decision, a real blocker, a failure, or work ready for review' "$brief" \
     "daemon charter lost decisions, blockers, failures, or ready outcomes"
-  assert_grep 'States: working, needs-decision, blocked, paused, done, failed.' "$brief" \
-    "daemon charter changed the preserved status vocabulary"
+  assert_grep 'States: working, paused, needs-decision, blocked, done, failed, resolved.' "$brief" \
+    "daemon charter does not expose the validated status vocabulary"
+  assert_grep 'report_status' "$brief" \
+    "daemon charter does not prefer the MCP status tool"
+  assert_grep 'bin/mx-report --id marked-request-reporting' "$brief" \
+    "daemon charter does not carry the universal validated fallback"
+  assert_no_grep 'echo "{state}:' "$brief" \
+    "daemon charter still instructs a raw status append"
   pass "mx-brief.sh: marked requests avoid generic acknowledgements and preserve material reporting"
 }
 
@@ -307,7 +313,7 @@ test_herdr_lab_contract_applies_to_scouts_but_not_daemons() {
   pass "mx-brief.sh: Herdr lab contract covers scouts and rejects daemon misuse"
 }
 
-test_pause_verb_override_renders_all_brief_scaffolds() {
+test_validated_status_vocabulary_renders_all_brief_scaffolds() {
   local home kind id brief
   home="$TMP_ROOT/pause-verb-home"
   mkdir -p "$home/data"
@@ -329,18 +335,26 @@ test_pause_verb_override_renders_all_brief_scaffolds() {
         ;;
     esac
     brief="$home/data/$id/brief.md"
-    assert_grep "States: working, needs-decision, blocked, awaiting, done, failed." "$brief" \
-      "$kind brief did not render the configured pause verb in its states list"
+    assert_grep "States: working, paused, needs-decision, blocked, done, failed, resolved." "$brief" \
+      "$kind brief did not render the fixed validated state vocabulary"
     # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
-    assert_grep 'Use `awaiting: {why}`' "$brief" \
-      "$kind brief did not instruct the configured pause status"
+    assert_grep 'Use `paused: {why}`' "$brief" \
+      "$kind brief did not instruct the validated pause state"
     # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
-    assert_no_grep '`paused: {why}`' "$brief" \
-      "$kind brief still instructs the default paused status"
+    assert_no_grep '`awaiting: {why}`' "$brief" \
+      "$kind brief leaked the read-side pause compatibility override into the writer contract"
+    assert_grep 'report_status' "$brief" \
+      "$kind brief does not prefer the report_status tool"
+    assert_grep "bin/mx-report --id $id" "$brief" \
+      "$kind brief does not include the task-bound shell fallback"
+    assert_no_grep 'echo "{state}:' "$brief" \
+      "$kind brief still instructs a raw status append"
+    assert_grep 'Never write to `' "$brief" \
+      "$kind brief does not forbid direct status-file writes"
     assert_grep 'or a blocker clears' "$brief" \
       "$kind brief did not require durable resolution when a blocker clears"
   done
-  pass "mx-brief.sh: custom pause verb renders in every scaffold"
+  pass "mx-brief.sh: every scaffold uses the fixed validated status vocabulary and write path"
 }
 
 test_scout_and_daemon_load_decision_hold_policy() {
@@ -394,6 +408,6 @@ test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_herdr_lab_contract_applies_to_scouts_but_not_daemons
 test_daemon_no_projects_charter
 test_daemon_marked_request_reporting_contract
-test_pause_verb_override_renders_all_brief_scaffolds
+test_validated_status_vocabulary_renders_all_brief_scaffolds
 test_scout_and_daemon_load_decision_hold_policy
 test_scout_and_daemon_scaffold

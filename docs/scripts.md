@@ -50,6 +50,8 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-marker-lib.sh`       | Compatibility entry point for the from-broker carrier owned by `mx-operational-input.sh` |
 | `mx-pending-reply-lib.sh` | Parent-owned daemon pending-reply expectations, recovery, and one-shot escalation |
 | `mx-daemon-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
+| `mx-report`           | Validate a task-bound status event and append it in the existing event-log grammar     |
+| `mx-report-mcp.mjs`   | Expose `report_status` over stdio MCP and delegate accepted calls to `mx-report`        |
 | `mx-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for system lifecycle entrypoints               |
 | `mx-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
 | `mx-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |

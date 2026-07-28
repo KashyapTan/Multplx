@@ -36,16 +36,22 @@ test_mx_home_parameterization() {
   MX_HOME="$home_one" "$ROOT/bin/mx-brief.sh" task-a app >/dev/null || fail "brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-a/brief.md"
   [ -f "$brief" ] || fail "brief was not written under MX_HOME/data"
-  grep -F ">> '$home_one/state/task-a.status'" "$brief" >/dev/null || fail "brief did not shell-quote MX_HOME state path"
+  grep -F "$ROOT/bin/mx-report --id task-a" "$brief" >/dev/null || fail "brief did not name the validated task-bound reporter"
+  grep -F "Never write to \`'$home_one/state/task-a.status'\` by hand." "$brief" >/dev/null \
+    || fail "brief did not forbid direct writes to the shell-quoted MX_HOME status path"
 
   MX_HOME="$home_one" "$ROOT/bin/mx-brief.sh" task-b app --scout >/dev/null || fail "scout brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-b/brief.md"
-  grep -F ">> '$home_one/state/task-b.status'" "$brief" >/dev/null || fail "scout brief did not shell-quote MX_HOME state path"
+  grep -F "$ROOT/bin/mx-report --id task-b" "$brief" >/dev/null || fail "scout brief did not name the validated task-bound reporter"
+  grep -F "Never write to \`'$home_one/state/task-b.status'\` by hand." "$brief" >/dev/null \
+    || fail "scout brief did not forbid direct writes to the shell-quoted MX_HOME status path"
 
   MX_HOME="$home_one" MX_DAEMON_CHARTER='ops domain' "$ROOT/bin/mx-brief.sh" task-c --daemon app >/dev/null \
     || fail "daemon brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-c/brief.md"
-  grep -F ">> '$home_one/state/task-c.status'" "$brief" >/dev/null || fail "daemon brief did not shell-quote MX_HOME state path"
+  grep -F "$ROOT/bin/mx-report --id task-c" "$brief" >/dev/null || fail "daemon brief did not name the validated task-bound reporter"
+  grep -F "Never write to \`'$home_one/state/task-c.status'\` by hand." "$brief" >/dev/null \
+    || fail "daemon brief did not forbid direct writes to the shell-quoted MX_HOME status path"
 
   printf 'project=x\n' > "$home_one/state/task-a.meta"
   MX_HOME="$home_one" MX_GUARD_GRACE=999999 "$ROOT/bin/mx-pr-check.sh" task-a https://github.com/example/repo/pull/1 >/dev/null 2>/dev/null \

@@ -130,7 +130,7 @@ test_brief_assertion_precedes_branch() {
   MX_HOME="$home" "$ROOT/bin/mx-brief.sh" tangle-brief-cc3 alpha >/dev/null 2>&1
   brief="$home/data/tangle-brief-cc3/brief.md"
   assert_present "$brief" "brief was not scaffolded"
-  assert_grep "blocked: launched in primary checkout, not an isolated worktree" "$brief" \
+  assert_grep 'report `blocked` through the validated status path' "$brief" \
     "brief is missing the isolation blocked-status contract"
   assert_grep "The path check is authoritative" "$brief" \
     "brief must make the path check authoritative"
@@ -138,7 +138,7 @@ test_brief_assertion_precedes_branch() {
     "brief must not present git-dir/common-dir as decisive"
   assert_no_grep "they are identical in the primary checkout" "$brief" \
     "brief must not claim the primary checkout has identical git dirs"
-  iso=$(grep -n 'launched in primary checkout, not an isolated worktree' "$brief" | head -1 | cut -d: -f1)
+  iso=$(grep -n 'report `blocked` through the validated status path' "$brief" | head -1 | cut -d: -f1)
   br=$(grep -n 'git checkout -b mx/' "$brief" | head -1 | cut -d: -f1)
   if [ -z "$iso" ] || [ -z "$br" ]; then
     fail "brief missing assertion ($iso) or branch step ($br)"

@@ -143,6 +143,25 @@ Natural language is acceptable if uncertain.
 - codex: `$<skill>`, for example `$no-mistakes`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command".
 - pi: no separate verified skill invocation beyond normal command behavior; use natural language if the exact skill command is uncertain.
 
+## Status reporting
+
+Every spawned session receives `MX_TASK_ID` and `MX_REPORT_STATE_OVERRIDE`.
+The first binds the writer to one task.
+The second keeps a daemon's parent-facing status channel separate from the daemon home's own operational `MX_HOME`.
+Actors and daemons use the `report_status` MCP tool when their verified harness wiring exposes it.
+The absolute `bin/mx-report` path written into the generated brief is always the fallback.
+Both paths append the same validated event grammar, and neither replaces current-state reconciliation.
+
+- `claude`: verified on Claude Code 2.1.220.
+  `claude mcp --help` identifies `.mcp.json` as project-scoped configuration and `claude --help` supports additional `--mcp-config` files.
+  `mx-spawn.sh` writes a mode-`0600` task fragment under `/tmp/mx-<id>/report-mcp.json` and passes it with `--mcp-config`.
+  Claude composes that fragment with existing user and project MCP configuration, so Multplx never edits or clobbers a project's committed `.mcp.json`.
+- `codex`: verified on codex-cli 0.146.0-alpha.3.1 and the current Codex configuration reference.
+  Codex supports trusted project `.codex/config.toml` files and `mcp_servers.<name>` configuration.
+  `mx-spawn.sh` supplies the `multplx_status` stdio server as a per-run `-c` override, so existing project configuration remains untouched and the binding expires with the session.
+- `pi`: use `mx-report`.
+  No project-scoped MCP registration contract has been verified for Pi, so Multplx does not guess or mutate Pi's user configuration.
+
 ## claude (VERIFIED)
 
 | Fact | Value |

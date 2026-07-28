@@ -304,6 +304,10 @@ behavior:
 
 <h2>Risks &amp; open questions</h2>
 <div class="callout ok">
+  <div class="label">Implemented deviation · 2026-07-28 — session-scoped MCP composition</div>
+  The implementation does not edit or merge a project's committed MCP files in its task worktree. Verified local harness surfaces provide a safer session-scoped composition seam: Claude Code 2.1.220 receives a generated mode-<code>0600</code> fragment at <code>/tmp/mx-&lt;id&gt;/report-mcp.json</code> through <code>--mcp-config</code>, while codex-cli 0.146.0-alpha.3.1 receives the equivalent <code>mcp_servers.multplx_status</code> table through per-run <code>-c</code> configuration. Both approaches compose with existing project configuration without dirtying or clobbering it and expire with the actor session. Pi remains on the universal <code>mx-report</code> fallback because no project-scoped Pi MCP registration contract was available to verify. Spawned sessions also receive <code>MX_REPORT_STATE_OVERRIDE</code> so a persistent daemon can keep its own operational <code>MX_HOME</code> while reporting to the parent task's status directory.
+</div>
+<div class="callout ok">
   <div class="label">Decided · 2026-07-26 — enum is the full vocabulary</div>
   Maintainer decision: option (a) — the enum is extended to the full actor-writable classifier vocabulary, <code>working|paused|blocked|needs-decision|done|failed|resolved</code>, verified against <code>bin/mx-classify-lib.sh</code> (<code>paused</code> is the expected-idle pause verb; <code>resolved</code> closes an open keyed decision). Option (b) — keeping UPDATE_PLAN §3's five-state enum literally and leaving <code>paused</code>/<code>resolved</code> on the raw-append path — is rejected: it would force actors to hand-append exactly the lines we just told them never to hand-write. §3's five-state enum was simply incomplete. The broker-side <code>maintainer-held</code> transfer verb stays out of the enum; it is never actor-written.
 </div>
