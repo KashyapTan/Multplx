@@ -60,7 +60,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <b>Phase 1</b> Shrink        → 01 deletions (social relay, glab, shellcheck installer, wedge alarm, zellij/orca/grok/opencode)<br>
 <b>Phase 2</b> Rename        → 02 rebrand (vocabulary, AGENTS.md rewrite, fm-→mx- sweep)<br>
 <b>Phase 3</b> Harden core   → 03 validated status reporting → 04 watcher nudge → 05 signal precedence<br>
-<b>Phase 4</b> Foundation    → 06 worktree provider decision (treehouse keep vs. build)<br>
+<b>Phase 4</b> Foundation    → 06 worktree provider (keep treehouse, carry it through the port)<br>
 <b>Phase 5</b> Own the tools → 07 -axi replacements (gh, backlog, headroom) → 08 vplan module<br>
 <b>Phase 6</b> Safe delivery → 09 least-privilege push service<br>
 <b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)<br>
@@ -77,7 +77,7 @@ tr:nth-child(even) td{background:var(--surface)}
 
 <div class="phase-label">Phase 2 · Rename everything</div>
 <a class="card" href="02-rebrand.html" style="--card-accent:#bc8cff">
-  <div class="top"><span class="num">PLAN 02</span><span class="title">Full Rebrand — Ship Metaphor Out, Computer Vocabulary In</span></div>
+  <div class="top"><span class="num">PLAN 02</span><span class="title">Full Rebrand — Ship Metaphor Out, Multplx Vocabulary In</span></div>
   <div class="desc">maintainer / broker / actor / daemon role vocabulary, a real rewrite of AGENTS.md (verbs, not just nouns), and the repo-wide fm-→mx- rename sweep across scripts, env vars, docs, state paths, and log strings.</div>
   <div class="meta"><span class="tag">UPDATE_PLAN §7</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
 </a>
@@ -101,8 +101,8 @@ tr:nth-child(even) td{background:var(--surface)}
 
 <div class="phase-label">Phase 4 · Foundation decision</div>
 <a class="card" href="06-worktree-provider.html" style="--card-accent:#d29922">
-  <div class="top"><span class="num">PLAN 06</span><span class="title">Worktree Provider — The Treehouse Decision</span></div>
-  <div class="desc">Decided: keep treehouse as-is (Path K). The §1-vs-§8 contradiction is resolved by maintainer decision; this phase reduces to the rebrand rename of the installer and probes. The build-our-own designs remain in the plan as reference only.</div>
+  <div class="top"><span class="num">PLAN 06</span><span class="title">Worktree Provider — Keep Treehouse</span></div>
+  <div class="desc">Treehouse stays: pinned v2.0.1, SHA-verified, functionally untouched. This phase carries it through the port — rebrand rename of the installer and call sites, an unconditional bootstrap requirement now that orca is gone, and the isolation/lease guarantees plans 09, 10, and 13 depend on. Build-our-own designs were removed from the plan (git history only).</div>
   <div class="meta"><span class="tag">UPDATE_PLAN §1 + §8</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span><span class="tag" style="color:var(--green);border-color:var(--green)">Decided: keep</span></div>
 </a>
 
