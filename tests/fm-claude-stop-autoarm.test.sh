@@ -279,9 +279,9 @@ test_inert_when_fleet_idle() {
   dir=$(make_primary_dir "$TMP_ROOT/idle")
   write_arm_fixture "$dir" actionable
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
-  expect_code 0 "$status" "hook must exit 0 in an idle home with no X-mode poll"
+  expect_code 0 "$status" "hook must exit 0 in an idle home"
   [ ! -e "$dir/state/arm-ran" ] || fail "hook armed an idle home"
-  pass "auto-arm: inert with nothing in flight and no X-mode need"
+  pass "auto-arm: inert with nothing in flight"
 }
 
 # --- the armed cycle ----------------------------------------------------------
@@ -327,17 +327,6 @@ test_clean_close_exits_silently() {
   [ -z "$out" ] || fail "clean close produced output: $out"
   [ "$(epoch_outcome "$dir")" = clean ] || fail "epoch must record outcome=clean, got: $(epoch_outcome "$dir")"
   pass "auto-arm: clean close exits silently with a clean epoch"
-}
-
-test_arms_for_x_mode_poll_need_without_inflight() {
-  local dir out status
-  dir=$(make_primary_dir "$TMP_ROOT/x-need")
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/state/x-watch.check.sh"
-  write_arm_fixture "$dir" actionable
-  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
-  expect_code 2 "$status" "an X-mode relay poll need must keep the auto-arm active with zero tasks in flight"
-  [ -e "$dir/state/arm-ran" ] || fail "hook did not arm for the X-mode poll need"
-  pass "auto-arm: X-mode poll need arms the cycle even with no tasks in flight"
 }
 
 test_single_flight_admits_exactly_one_owner() {
@@ -417,7 +406,6 @@ test_inert_when_fleet_idle
 test_actionable_close_rewakes_with_reason
 test_failed_close_rewakes_with_failure_banner
 test_clean_close_exits_silently
-test_arms_for_x_mode_poll_need_without_inflight
 test_single_flight_admits_exactly_one_owner
 test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake

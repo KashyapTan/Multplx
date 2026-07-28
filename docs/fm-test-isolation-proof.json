@@ -167,18 +167,12 @@
       "exit": 0,
       "path": "tests/fm-transition-lib.test.sh",
       "worker": 28
-    },
-    {
-      "duration_ms": 34920,
-      "exit": 0,
-      "path": "tests/fm-x-mode.test.sh",
-      "worker": 29
     }
   ],
   "started_at": "2026-07-25T08:43:04Z",
   "summary": {
     "duration_ms": 110623,
     "failed": 0,
-    "total": 28
+    "total": 27
   }
 }

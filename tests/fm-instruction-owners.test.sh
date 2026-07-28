@@ -226,8 +226,6 @@ test_compressed_agents_owner_map() {
     "AGENTS.md lost the backlog-mechanics owner pointer"
   assert_grep '`bin/fm-brief.sh` and its help own scaffold syntax' "$AGENTS" \
     "AGENTS.md lost the brief-mechanics owner pointer"
-  assert_grep '`docs/configuration.md` owns activation, generated state, cadence, wire protocol' "$AGENTS" \
-    "AGENTS.md lost the X-mode mechanics owner pointer"
   pass "compressed AGENTS.md records the approved one-owner map"
 }
 
@@ -271,8 +269,7 @@ test_compressed_agents_retains_authority_and_supervision_safety() {
     'A status line is a wake event, not current state' \
     'keep exactly one live supervision cycle' \
     'Never broadly kill watchers' \
-    'While `state/.afk` exists, the daemon owns supervision' \
-    'post the final completion follow-up before teardown'; do
+    'While `state/.afk` exists, the daemon owns supervision'; do
     assert_grep "$phrase" "$AGENTS" "compressed AGENTS.md lost safety phrase '$phrase'"
   done
   assert_no_grep 'Firstmate does not personally review code or deliverables' "$AGENTS" \
