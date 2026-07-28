@@ -317,6 +317,8 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
     def structured_row($line):
       ($line | test("^[-*][[:space:]]+\\[[ xX]\\][[:space:]]+[^[:space:]]+[[:space:]]+-[[:space:]]+"))
       or ($line | test("^[-*][[:space:]]+\\*\\*[^*]+\\*\\*[[:space:]]+-[[:space:]]+"));
+    def multplx_role:
+      if . == "captain" then "maintainer" else . end;
     def parse_row($line; $section; $order):
       row_match($line) as $m
       | if $m == null then
@@ -330,10 +332,10 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
              checked:($m.check | test("[xX]")),
              title:title_of($rest),
              repo:metadata($rest; "repo"),
-             kind:metadata($rest; "kind"),
+             kind:(metadata($rest; "kind") | multplx_role),
              priority:metadata($rest; "priority"),
              hold_reason:metadata($rest; "hold"),
-             hold_kind:metadata($rest; "hold-kind"),
+             hold_kind:(metadata($rest; "hold-kind") | multplx_role),
              blocked_by:cap($rest; ".*blocked-by:[[:space:]]*(?<v>[^[:space:])]+).*"),
              blocked_by_ids:blocked_by_ids($rest),
              blocked_reason:blocked_reason($rest),

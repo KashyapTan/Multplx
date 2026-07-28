@@ -10,7 +10,7 @@ The command runs tasks-axi in the active `MX_HOME`, so the existing backlog rema
 It never reads report bodies, review artifacts, terminal output, or chat.
 
 The `hold` subcommand maps an originating work id and stable decision key to `<origin-id>-decision-<decision-key>`.
-It creates a kind `maintainer` backlog item when absent and invokes `tasks-axi hold <id> --reason <reason> --kind maintainer` on every retry.
+It creates a Multplx kind `maintainer` backlog item when absent and invokes `tasks-axi hold` through the compatibility adapter on every retry; the adapter maps the legacy upstream role token at the CLI boundary and normalizes it back on reads.
 It rejects an identity collision, a changed title, and attempts to reopen an already resolved identity.
 
 The `complete` subcommand unions the reviewed keys into `decision_keys=` and appends `decisions_reviewed=1` while originating task metadata is live.

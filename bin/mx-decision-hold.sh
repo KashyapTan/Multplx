@@ -97,12 +97,23 @@ hold_id() {  # <origin-id> <decision-key>
 }
 
 tasks_axi() {
-  (cd "$MX_HOME" && tasks-axi "$@")
+  local previous='' argument
+  local -a translated=()
+  for argument in "$@"; do
+    if [ "$previous" = "--kind" ] && [ "$argument" = maintainer ]; then
+      argument=$TASKS_AXI_MAINTAINER_KIND
+    fi
+    translated[${#translated[@]}]=$argument
+    previous=$argument
+  done
+  (cd "$MX_HOME" && tasks-axi "${translated[@]}")
 }
+
+TASKS_AXI_MAINTAINER_KIND=captain
 
 require_tasks_axi() {
   mx_tasks_axi_compatible || fail "compatible tasks-axi is required"
-  tasks-axi hold --help 2>&1 | grep -F -- '--kind maintainer' >/dev/null \
+  tasks-axi hold --help 2>&1 | grep -F -- "--kind $TASKS_AXI_MAINTAINER_KIND" >/dev/null \
     || fail "tasks-axi does not expose the maintainer-hold contract"
 }
 
@@ -111,8 +122,13 @@ task_show() {  # <id>
 }
 
 show_field() {  # <show-output> <field>
-  local output=$1 field=$2
-  printf '%s\n' "$output" | sed -n "s/^  $field: //p" | head -1
+  local output=$1 field=$2 value
+  value=$(printf '%s\n' "$output" | sed -n "s/^  $field: //p" | head -1)
+  if { [ "$field" = kind ] || [ "$field" = hold_kind ]; } \
+    && [ "$value" = "$TASKS_AXI_MAINTAINER_KIND" ]; then
+    value=maintainer
+  fi
+  printf '%s\n' "$value"
 }
 
 origin_exists_here() {  # <origin-id>

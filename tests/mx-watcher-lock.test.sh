@@ -936,7 +936,7 @@ test_linux_pid_identity_ignores_wall_clock_and_detects_pid_reuse() {
 
   [ "$after_time_jump" = "$before" ] \
     || fail "Linux process identity changed with btime (before '$before', after '$after_time_jump')"
-  [ "$before" = 'linux-starttime=987654 cmdline-hex=62617368002f706174682077697468207370616365732f666d2d77617463682e7368002d2d666c616700' ] \
+  [ "$before" = 'linux-starttime=987654 cmdline-hex=62617368002f706174682077697468207370616365732f6d782d77617463682e7368002d2d666c616700' ] \
     || fail "Linux process identity did not combine parsed starttime field 22 with the full cmdline ('$before')"
   pass "Linux process identity ignores simulated btime changes"
 
