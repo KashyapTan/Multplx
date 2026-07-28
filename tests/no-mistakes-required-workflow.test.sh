@@ -86,7 +86,7 @@ test_security_and_signature_contract_is_preserved() {
   assert_grep "$MARKER" "$WORKFLOW" "signature marker changed"
   assert_grep "github.event.pull_request.user.login != 'github-actions[bot]'" "$WORKFLOW" "github-actions bot exemption changed"
   assert_grep "github.event.pull_request.user.login != 'dependabot[bot]'" "$WORKFLOW" "dependabot bot exemption changed"
-  assert_no_grep 'release-please[bot]' "$WORKFLOW" "Firstmate must not exempt release-please"
+  assert_no_grep 'release-please[bot]' "$WORKFLOW" "Multplx must not exempt release-please"
   pass "fork, permission, check-name, marker, and bot-exemption contracts are preserved"
 }
 

@@ -179,9 +179,9 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td>AFK / away mode</td><td><code>fm-afk-start.sh</code>, <code>fm-afk-launch.sh</code>, <code>fm-afk-return.sh</code></td><td>Prefix swap.</td></tr>
   <tr><td>Bootstrap, install, update</td><td><code>fm-bootstrap.sh</code>, <code>fm-install-herdr.sh</code>, <code>fm-install-treehouse.sh</code>, <code>fm-update.sh</code>, <code>fm-herdr-lab.sh</code>, <code>fm-herdr-session-cleanup.sh</code>, <code>fm-herdr-ci-cleanup.sh</code></td><td>Prefix swap.</td></tr>
   <tr><td>Shared libs &amp; utilities</td><td><code>fm-lock.sh</code>, <code>fm-lock-lib.sh</code>, <code>fm-marker-lib.sh</code>, <code>fm-check-lib.sh</code>, <code>fm-check-register.sh</code>, <code>fm-composer-lib.sh</code>, <code>fm-config-inherit-lib.sh</code>, <code>fm-ff-lib.sh</code>, <code>fm-tangle-lib.sh</code>, <code>fm-pending-reply-lib.sh</code>, <code>fm-primary-scope-lib.sh</code>, <code>fm-operational-input.sh</code>, <code>fm-decision-hold.sh</code>, <code>fm-project-mode.sh</code>, <code>fm-doc-audience-check.sh</code>, <code>fm-ensure-agents-md.sh</code>, <code>fm-tasks-axi-lib.sh</code></td><td>Prefix swap (<code>fm-tasks-axi-lib.sh</code> is replaced wholesale in plan 08 but is renamed here if it still exists at sweep time).</td></tr>
-  <tr><td>Snapshot / reporting</td><td><code>fm-bearings-snapshot.sh</code></td><td><code>mx-bearings-snapshot.sh</code> — but "bearings" is nautical; candidate <code>mx-status-snapshot.sh</code>. Open question.</td></tr>
+  <tr><td>Snapshot / reporting</td><td><code>fm-bearings-snapshot.sh</code></td><td><b><code>mx-status-snapshot.sh</code></b> — decided 2026-07-28 for a neutral, function-specific name.</td></tr>
   <tr><td>Test infra</td><td><code>fm-test-run.sh</code>, <code>fm-test-isolation-proof.sh</code></td><td><b><code>mx-test-run.sh</code></b>, <code>mx-test-isolation-proof.sh</code> — the runner is the single owner of test topology; see test plan.</td></tr>
-  <tr><td>Skills</td><td><code>stuck-crewmate-recovery</code>, <code>secondmate-provisioning</code>, <code>firstmate-coding-guidelines</code>, <code>firstmate-codexapp</code>, <code>updatefirstmate</code>, <code>ahoy</code>, <code>bearings</code>, <code>harness-adapters</code>, … (<code>firstmate-orca</code> deleted in plan 01)</td><td><code>stuck-actor-recovery</code>, <code>daemon-provisioning</code>, <code>multplx-coding-guidelines</code>, <code>multplx-codexapp</code>, <code>updatemultplx</code>; <code>ahoy</code>/<code>bearings</code> are nautical — open question. Neutral names (<code>harness-adapters</code>, <code>stow</code>, <code>afk</code>) unchanged.</td></tr>
+  <tr><td>Skills</td><td><code>stuck-crewmate-recovery</code>, <code>secondmate-provisioning</code>, <code>firstmate-coding-guidelines</code>, <code>firstmate-codexapp</code>, <code>updatefirstmate</code>, <code>ahoy</code>, <code>bearings</code>, <code>harness-adapters</code>, … (<code>firstmate-orca</code> deleted in plan 01)</td><td><code>stuck-actor-recovery</code>, <code>daemon-provisioning</code>, <code>multplx-coding-guidelines</code>, <code>multplx-codexapp</code>, <code>updatemultplx</code>, <code>recap</code>, and <code>catchup</code>. Neutral names (<code>harness-adapters</code>, <code>stow</code>, <code>afk</code>) remain unchanged.</td></tr>
 </table>
 
 <h3>Env vars, config keys, and on-disk names</h3>
@@ -222,7 +222,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 <h2>Implementation steps</h2>
 <ol class="steps">
   <li><b>Lock the naming decisions.</b>
-    (a) <b>Decided 2026-07-26:</b> the <code>mx-</code> prefix stays (see the decided callout under Risks &amp; open questions). Still to confirm with the maintainer: (b) <code>fm-crew-state.sh</code> → <code>mx-actor-state.sh</code> vs <code>mx-state.sh</code>; (c) fate of the nautical <code>ahoy</code>/<code>bearings</code> skill names and <code>fm-bearings-snapshot.sh</code>. Record the decisions in the repo so the sweep has a fixed target.</li>
+    <b>Decided:</b> keep the <code>mx-</code> prefix; use <code>mx-actor-state.sh</code> for the reconciliation oracle; rename <code>ahoy</code>→<code>recap</code>, <code>bearings</code>→<code>catchup</code>, and <code>fm-bearings-snapshot.sh</code>→<code>mx-status-snapshot.sh</code>. The remaining steps use these fixed targets.</li>
   <li><b>Rewrite AGENTS.md.</b> <span class="pill mod">mod</span>
     The §7.3 editorial rewrite: broker charter reframed, command verbs → coordination verbs per the table above, no lesser-than framing, maintainer authority stated functionally. Update every script/skill/env-var name it references to the new (post-sweep) names so this file lands in the same atomic commit as the renames. Run the voice-pass checklist (below) before calling it done.</li>
   <li><b>Rename all bin scripts with <code>git mv</code>.</b> <span class="pill mod">mod</span>
@@ -294,13 +294,13 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
   <div class="label">Decided · 2026-07-26</div>
   <p style="margin:0"><b>The prefix stays <code>mx-</code>.</b> When the project was still named <i>Computer</i>, the maintainer was indifferent between <code>mx-</code> and alternatives (<code>cpu-</code>/<code>co-</code>/<code>cr-</code>), so the incumbent won: <code>mx-</code> was already locked in UPDATE_PLAN §8.6, switching would mean redoing the entire rename inventory for zero benefit, and the strongest alternative — <code>cr-</code> — reads as "code review". The 2026-07-27 rename to <b>Multplx</b> retroactively vindicates the choice: <code>mx-</code> is the natural abbreviation of the project name. All §7.4 renames and every new script in plans 03–11 use <code>mx-</code>.</p>
 </div>
-<div class="callout warn">
-  <div class="label">Open question — mx-actor-state.sh vs mx-state.sh</div>
-  <p style="margin:0"><code>fm-crew-state.sh</code> is the reconciliation oracle and its name carries "crew". <code>mx-actor-state.sh</code> keeps the role explicit (it reconciles <i>actor</i> state); <code>mx-state.sh</code> is shorter but vague (which state?). Recommended: <code>mx-actor-state.sh</code>. UPDATE_PLAN does not decide this — maintainer call in step 1.</p>
+<div class="callout ok">
+  <div class="label">Decided 2026-07-28 — mx-actor-state.sh</div>
+  <p style="margin:0"><code>fm-crew-state.sh</code> becomes <code>mx-actor-state.sh</code>. The explicit role keeps the reconciliation oracle discoverable without the ambiguity of <code>mx-state.sh</code>.</p>
 </div>
-<div class="callout warn">
-  <div class="label">Open question — residual nautical names</div>
-  <p style="margin:0">§7.4 targets captain/crew/mate/ship/fleet, but <code>ahoy</code> and <code>bearings</code> (skill names, <code>fm-bearings-snapshot.sh</code>, <code>/bearings</code> reports) are nautical flavor it doesn't enumerate. They carry no rank semantics, so they could stay — but they keep the ship metaphor alive. Recommended: rename (<code>bearings</code>→<code>status</code> or <code>catchup</code>, <code>ahoy</code>→<code>recap</code>) for a clean break; maintainer call.</p>
+<div class="callout ok">
+  <div class="label">Decided 2026-07-28 — remove residual nautical names</div>
+  <p style="margin:0"><code>ahoy</code> becomes <code>recap</code>, <code>bearings</code> becomes <code>catchup</code>, and the snapshot helper becomes <code>mx-status-snapshot.sh</code>. This completes the metaphor break while preserving each function.</p>
 </div>
 <div class="callout danger">
   <div class="label">Risk — string-referenced paths break silently</div>

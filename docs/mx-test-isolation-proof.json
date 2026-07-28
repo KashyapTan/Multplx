@@ -1,0 +1,172 @@
+{
+  "concurrency": 4,
+  "finished_at": "2026-07-25T08:44:54Z",
+  "mx_test_run_jobs_enabled": false,
+  "kind": "isolation-proof",
+  "production_sharding_enabled": false,
+  "run_id": "mx-isolation-1784968984050-13742",
+  "scripts": [
+    {
+      "duration_ms": 26535,
+      "exit": 0,
+      "path": "tests/mx-arm-pretool-check.test.sh",
+      "worker": 1
+    },
+    {
+      "duration_ms": 29446,
+      "exit": 0,
+      "path": "tests/mx-backend-herdr.test.sh",
+      "worker": 2
+    },
+    {
+      "duration_ms": 973,
+      "exit": 0,
+      "path": "tests/mx-brief.test.sh",
+      "worker": 3
+    },
+    {
+      "duration_ms": 181,
+      "exit": 0,
+      "path": "tests/mx-maintainer-translation-contract.test.sh",
+      "worker": 4
+    },
+    {
+      "duration_ms": 17218,
+      "exit": 0,
+      "path": "tests/mx-cd-pretool-check.test.sh",
+      "worker": 5
+    },
+    {
+      "duration_ms": 1810,
+      "exit": 0,
+      "path": "tests/mx-composer-ghost.test.sh",
+      "worker": 6
+    },
+    {
+      "duration_ms": 66,
+      "exit": 0,
+      "path": "tests/mx-composer-lib.test.sh",
+      "worker": 7
+    },
+    {
+      "duration_ms": 15250,
+      "exit": 0,
+      "path": "tests/mx-actor-state.test.sh",
+      "worker": 8
+    },
+    {
+      "duration_ms": 18509,
+      "exit": 0,
+      "path": "tests/mx-decision-hold-lifecycle.test.sh",
+      "worker": 9
+    },
+    {
+      "duration_ms": 358,
+      "exit": 0,
+      "path": "tests/mx-ensure-agents-md.test.sh",
+      "worker": 10
+    },
+    {
+      "duration_ms": 11199,
+      "exit": 0,
+      "path": "tests/mx-herdr-lab.test.sh",
+      "worker": 12
+    },
+    {
+      "duration_ms": 297,
+      "exit": 0,
+      "path": "tests/mx-instruction-owners.test.sh",
+      "worker": 13
+    },
+    {
+      "duration_ms": 180,
+      "exit": 0,
+      "path": "tests/mx-nm-test-contract.test.sh",
+      "worker": 15
+    },
+    {
+      "duration_ms": 35,
+      "exit": 0,
+      "path": "tests/mx-no-mistakes-ownership.test.sh",
+      "worker": 16
+    },
+    {
+      "duration_ms": 1842,
+      "exit": 0,
+      "path": "tests/mx-pi-primary-types.test.sh",
+      "worker": 17
+    },
+    {
+      "duration_ms": 6630,
+      "exit": 0,
+      "path": "tests/mx-pr-merge.test.sh",
+      "worker": 18
+    },
+    {
+      "duration_ms": 2410,
+      "exit": 0,
+      "path": "tests/mx-review-diff.test.sh",
+      "worker": 19
+    },
+    {
+      "duration_ms": 4496,
+      "exit": 0,
+      "path": "tests/mx-send-popup-settle.test.sh",
+      "worker": 20
+    },
+    {
+      "duration_ms": 2179,
+      "exit": 0,
+      "path": "tests/mx-send-settle.test.sh",
+      "worker": 21
+    },
+    {
+      "duration_ms": 1390,
+      "exit": 0,
+      "path": "tests/mx-send-strict.test.sh",
+      "worker": 22
+    },
+    {
+      "duration_ms": 626,
+      "exit": 0,
+      "path": "tests/mx-spawn-batch.test.sh",
+      "worker": 23
+    },
+    {
+      "duration_ms": 52,
+      "exit": 0,
+      "path": "tests/mx-stow-contract.test.sh",
+      "worker": 24
+    },
+    {
+      "duration_ms": 336,
+      "exit": 0,
+      "path": "tests/mx-supervision-instructions.test.sh",
+      "worker": 25
+    },
+    {
+      "duration_ms": 8900,
+      "exit": 0,
+      "path": "tests/mx-test-run.test.sh",
+      "worker": 26
+    },
+    {
+      "duration_ms": 1845,
+      "exit": 0,
+      "path": "tests/mx-tmux-submit-busy.test.sh",
+      "worker": 27
+    },
+    {
+      "duration_ms": 96,
+      "exit": 0,
+      "path": "tests/mx-transition-lib.test.sh",
+      "worker": 28
+    }
+  ],
+  "started_at": "2026-07-25T08:43:04Z",
+  "summary": {
+    "duration_ms": 110623,
+    "failed": 0,
+    "total": 26
+  }
+}

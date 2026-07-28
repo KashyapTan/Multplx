@@ -34,7 +34,7 @@ Pi remained a generic `node` process and is intentionally inconclusive.
 The busy-queue behavior and the tmux fallback are pinned by:
 
 ```sh
-tests/fm-tmux-submit-busy.test.sh
+tests/mx-tmux-submit-busy.test.sh
 ```
 
 Expected matrix: pending plus busy is accepted as queued; pending plus idle remains pending; a cleared composer succeeds in either state.
@@ -72,7 +72,7 @@ The CLI matrix was checked directly:
 | Restart | guarded named-session stop then start | Workspace, tab, pane, and labels persisted; the agent process and registration did not. |
 | Close | `herdr pane close <pane> --session <name>` | The exact one-pane task tab closed; closing a final tab could remove the workspace. |
 
-All destructive verification used `bin/fm-herdr-lab.sh` with a non-default `fm-lab-` name and a byte-identical default-session tripwire.
+All destructive verification used `bin/mx-herdr-lab.sh` with a non-default `mx-lab-` name and a byte-identical default-session tripwire.
 No ambient `herdr server stop` command is a supported test operation.
 
 ### Prune and respawn
@@ -80,17 +80,17 @@ No ambient `herdr server stop` command is a supported test operation.
 The real label-collision reproduction is owned by:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-prune-safety-e2e.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-backend-herdr-prune-safety-e2e.test.sh
 ```
 
-Observed guarantee: a pre-existing captain-owned workspace with a seed-shaped tab was adopted for routing but its tab was never eligible for prune because the current create call did not return that seed id.
+Observed guarantee: a pre-existing maintainer-owned workspace with a seed-shaped tab was adopted for routing but its tab was never eligible for prune because the current create call did not return that seed id.
 
 Restart-husk replacement is owned by:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-respawn-idem-e2e.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-backend-herdr-respawn-idem-e2e.test.sh
 ```
 
 Observed guarantee: a restored no-agent tab was replaced create-before-close, while a registered live agent caused refusal.
@@ -100,27 +100,27 @@ Observed guarantee: a restored no-agent tab was replaced create-before-close, wh
 Per-home behavior is owned by:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-backend-herdr-workspace-per-home-e2e.test.sh
 ```
 
-Observed guarantee: the primary and secondmate used distinct home workspaces, a child launched by the secondmate stayed in that secondmate workspace, list-live remained home-scoped, and exact cleanup did not affect sibling homes.
+Observed guarantee: the primary and daemon used distinct home workspaces, a child launched by the daemon stayed in that daemon workspace, list-live remained home-scoped, and exact cleanup did not affect sibling homes.
 
 The complete projection suite ran on 2026-07-21 against Herdr 0.7.4 protocol 16:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-presentation-e2e.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-backend-herdr-presentation-e2e.test.sh
 ```
 
 Observed guarantees included:
 
 ```text
-ok - real Herdr lab: primary and two secondmate homes each own a top-level contiguous child block
+ok - real Herdr lab: primary and two daemon homes each own a top-level contiguous child block
 ok - real Herdr lab: concurrent primary/A/B spawns stay session-locked with zero focus drift
-ok - real Herdr lab: session lock contention from a secondmate home falls back flat with no journal
-ok - real Herdr lab: legacy projection labels and flat secondmate tabs are left unmigrated
-ok - real Herdr lab: multi-home exact-pane teardowns restore captain focus without workspace close authority
+ok - real Herdr lab: session lock contention from a daemon home falls back flat with no journal
+ok - real Herdr lab: legacy projection labels and flat daemon tabs are left unmigrated
+ok - real Herdr lab: multi-home exact-pane teardowns restore maintainer focus without workspace close authority
 ok - real Herdr lab validation completed on Herdr 0.7.4 with the default-session tripwire intact
 ```
 
@@ -129,15 +129,15 @@ The suite also covers lost or failed move responses, active-tab refusal, restart
 The mandatory projection suite ran again on 2026-07-24 against Herdr 0.7.5 protocol 16:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-presentation-e2e.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-backend-herdr-presentation-e2e.test.sh
 ```
 
 Observed restart-reclaim guarantees:
 
 ```text
 ok - real Herdr lab: Hi Bit and Wheelhouse-style same-identity restarts reclaim one nested space with exact focus and idempotence
-ok - real Herdr lab: secondmate restart binding and reclaim stay isolated to the exact child home and parent
+ok - real Herdr lab: daemon restart binding and reclaim stay isolated to the exact child home and parent
 ok - real Herdr lab: concurrent cross-home recoveries replace exact husks under one session lock with no focus drift
 ok - real Herdr lab: missing, renamed, and duplicate tokens trigger zero destructive or adoptive calls, and live duplicate risk refuses launch
 ok - real Herdr lab validation completed on Herdr 0.7.5 with the default-session tripwire intact
@@ -146,11 +146,11 @@ ok - real Herdr lab validation completed on Herdr 0.7.5 with the default-session
 The restored-shell session-start cleanup ran on 2026-07-24 against Herdr 0.7.5 protocol 17:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-herdr-session-cleanup-e2e.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-herdr-session-cleanup-e2e.test.sh
 ```
 
-Observed guarantee: one exact home-local, journal-correlated, one-tab and one-pane childless idle shell was closed after restoration while the exact non-target focus and default fleet session remained unchanged, and a repeat run was a no-op.
+Observed guarantee: one exact home-local, journal-correlated, one-tab and one-pane childless idle shell was closed after restoration while the exact non-target focus and default system session remained unchanged, and a repeat run was a no-op.
 
 ### Composer and operational input
 
@@ -162,12 +162,12 @@ Real captures verified these active distinctions:
 - Dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 
-`tests/fm-composer-ghost.test.sh`, `tests/fm-composer-lib.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.
+`tests/mx-composer-ghost.test.sh`, `tests/mx-composer-lib.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.
 The U+2063 operational and routed-request separators were exercised through a real Pi-on-Herdr path; the byte-exact active regression is:
 
 ```sh
-FM_SEND_MARKER_HERDR_E2E=1 \
-  tests/fm-send-secondmate-marker-herdr-e2e.test.sh
+MX_SEND_MARKER_HERDR_E2E=1 \
+  tests/mx-send-daemon-marker-herdr-e2e.test.sh
 ```
 
 ### Native blocked event
@@ -175,8 +175,8 @@ FM_SEND_MARKER_HERDR_E2E=1 \
 The protocol-16 event path was measured on 2026-07-11 with Herdr 0.7.3 and Python 3.13:
 
 ```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-eventwait-smoke.test.sh
+HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-backend-herdr-eventwait-smoke.test.sh
 ```
 
 Observed output:
@@ -194,17 +194,17 @@ Polling remained active and is covered as the fallback for capability, connect, 
 The Pi/Herdr return and injection path was reverified on Herdr 0.7.3 and Pi 0.80.7:
 
 ```sh
-FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-afk-pi-herdr-return-e2e.test.sh
+MX_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
+  tests/mx-afk-pi-herdr-return-e2e.test.sh
 ```
 
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
-The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
+The dedicated Herdr daemon workspace topology is covered by `tests/mx-afk-launch.test.sh` and preserves the maintainer tab's pane count.
 
 ## cmux
 
 The current compatibility floor is cmux 0.64, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.
-Real tests use only exact `fm-test-` workspaces guarded by `tests/cmux-test-safety.sh` and never quit or relaunch the captain's app.
+Real tests use only exact `mx-test-` workspaces guarded by `tests/cmux-test-safety.sh` and never quit or relaunch the maintainer's app.
 
 ```sh
 cmux version
@@ -220,14 +220,14 @@ cmux 0.64.17 (97) [9ed29d81a]
 Source and live checks established the five control modes:
 
 - `off` starts no listener.
-- `cmuxOnly` rejects an external Firstmate process by ancestry.
+- `cmuxOnly` rejects an external Multplx process by ancestry.
 - `automation` uses an owner-only 0600 socket with no handshake.
 - `password` uses the same 0600 socket plus `auth <password>`.
 - `allowAll` uses a 0666 socket with no authentication.
 
 The live default rejection was `Access denied - only processes started inside cmux can connect`.
 The live password challenge was `Authentication required - send auth <password> first`.
-The app configuration writer did not retain a hand-added socket password, which is why the operator guide requires Settings and a local Firstmate password source.
+The app configuration writer did not retain a hand-added socket password, which is why the operator guide requires Settings and a local Multplx password source.
 
 Current active CLI findings:
 
@@ -251,8 +251,8 @@ Recovery therefore remains title-based.
 The bundled Claude wrapper was observed stripping `CMUX_*` variables on its failed socket-probe path while retaining the app bundle id, supporting the macOS-only bundle-id and ancestry fallbacks.
 
 ```sh
-tests/fm-backend-cmux.test.sh
-tests/fm-backend-cmux-smoke.test.sh
+tests/mx-backend-cmux.test.sh
+tests/mx-backend-cmux-smoke.test.sh
 ```
 
 The real smoke proves socket access, fresh readiness, current-path probing, send and keys, bounded capture, title identity, and guarded exact cleanup.
@@ -267,12 +267,12 @@ The host-tool sequence was:
 1. list a saved project;
 2. create a Desktop-owned worktree thread;
 3. recover and read the thread while active and after completion;
-4. verify the thread appended a Firstmate status line and wrote its report;
+4. verify the thread appended a Multplx status line and wrote its report;
 5. send a follow-up to the same thread;
 6. read the completed follow-up;
 7. archive the exact thread;
 8. read the archived transcript with state `notLoaded`.
 
-Observed guarantee: a Desktop-owned thread can write Firstmate lifecycle files when the prompt provides an authorized absolute path, and create, send, read, and archive work at the Desktop host-tool layer.
-The missing guarantee remains a supported shell-callable bridge that lets Firstmate perform those operations against the same visible Desktop endpoint.
+Observed guarantee: a Desktop-owned thread can write Multplx lifecycle files when the prompt provides an authorized absolute path, and create, send, read, and archive work at the Desktop host-tool layer.
+The missing guarantee remains a supported shell-callable bridge that lets Multplx perform those operations against the same visible Desktop endpoint.
 App-server partial methods and raw socket experiments do not satisfy that bridge contract.
