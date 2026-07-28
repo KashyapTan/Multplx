@@ -201,61 +201,6 @@ FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
 The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
 
-## Zellij
-
-The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.
-All real tests use a uniquely named session and `tests/zellij-test-safety.sh`; they never touch a session named `firstmate` or call all-session deletion.
-
-| Guarantee | Command shape | Result |
-| --- | --- | --- |
-| Headless session | `zellij attach -b <name>` without a TTY | Created a persistent background session and returned. |
-| Session list | `zellij list-sessions --short --no-formatting` | Returned one plain name per line without starting a session. |
-| Create tab | `zellij action new-tab --cwd <dir> --name <title>` | Returned a numeric tab id and focused the new tab when a client was attached. |
-| Pane discovery | `zellij action list-panes --json` | Included terminal pane id, tab id, plugin flag, and top-level `pane_cwd`. |
-| Literal send | `zellij action paste --pane-id <id> -- <text>` | Left text unsubmitted. |
-| Keys | `send-keys --pane-id <id> Enter`, `Esc`, and one argument `Ctrl c` | All three shared operations worked. |
-| Capture | `dump-screen --pane-id <id>` or `--full` | Worked with no attached client; no line-bound flag exists. |
-| Close | `close-tab-by-id <id>` | Removed the live task pane and tab together. |
-| Failure exit | actions against missing targets | Returned exit 0, requiring structural preflight and output-shape validation. |
-
-`pane_cwd` stayed frozen when a foreground subshell changed directory.
-The marker-delimited `pwd` probe returned the live nested cwd and is covered by the real smoke.
-The focus mitigation restored the previously active tab after `new-tab`, with the unavoidable narrow race documented in the operator guide.
-
-```sh
-tests/fm-backend-zellij.test.sh
-tests/fm-backend-zellij-smoke.test.sh
-```
-
-The real lifecycle smoke proved spawn, metadata, nested-subshell worktree discovery, send, capture, unlanded-work refusal, approved local landing, exact tab cleanup, and session cleanup without retaining task-specific ids or branch names here.
-
-## Orca
-
-Real readiness was verified against `/usr/local/bin/orca` with `/Applications/Orca.app` bundle version 1.4.116.
-
-```sh
-orca status --json
-```
-
-Observed fields:
-
-```text
-result.runtime.reachable=true
-result.runtime.state=ready
-```
-
-`orca terminal create --json` returned `result.terminal.handle`.
-`orca worktree create` returned `result.worktree.id` and `result.worktree.path`.
-Speculative bare ids and nested terminal fields were deliberately rejected.
-
-```sh
-tests/fm-backend-orca.test.sh
-tests/fm-backend.test.sh
-tests/fm-bootstrap.test.sh
-```
-
-The fake-Orca suite covers readiness, registration, create response parsing, metadata routing, popup-safe submit, and path-matched release refusal.
-
 ## cmux
 
 The current compatibility floor is cmux 0.64, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.

@@ -2,7 +2,7 @@
 # tests/fm-backend-cmux.test.sh - fake-cmux-CLI unit tests for the cmux
 # session-provider adapter (bin/backends/cmux.sh), verified against the real
 # cmux 0.64.17 binary (docs/cmux-backend.md). Mirrors
-# tests/fm-backend-zellij.test.sh's/tests/fm-backend-herdr.test.sh's
+# tests/fm-backend-herdr.test.sh's
 # fakebin/command-log convention: a small, LOG-based, canned-response fake
 # `cmux` + real `jq` (jq is a real required tool for this backend, not
 # faked). The real-binary smoke test lives in
@@ -20,14 +20,12 @@ TMP_ROOT=$(fm_test_tmproot fm-backend-cmux-tests)
 # make_cmux_fakebin: a `cmux` stub that logs every invocation (one line,
 # unit-separated args, to $FM_CMUX_LOG) and returns the canned response for
 # that call read from $FM_CMUX_RESPONSES/<n>.out, consumed IN ORDER (call 1
-# reads 1.out, call 2 reads 2.out, ...), mirroring
-# tests/fm-backend-zellij.test.sh's make_zellij_fakebin. A missing response
+# reads 1.out, call 2 reads 2.out, ...). A missing response
 # file means "succeed with empty stdout" (new-workspace/send/send-key/
 # close-* are silent on success on the real CLI). `version` and `ping` are
 # handled specially (not call-counted, not consuming the ordered response
 # queue) since fm_backend_cmux_version_check/fm_backend_cmux_ping_state are
-# called at points a test may not want to hand-count, exactly mirroring
-# zellij's --version/list-sessions special-casing.
+# called at points a test may not want to hand-count.
 make_cmux_fakebin() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -321,7 +319,7 @@ test_dispatch_busy_state_unknown_for_cmux() {
   . "$ROOT/bin/fm-backend.sh"
   [ "$(fm_backend_busy_state cmux '11111111-1111-1111-1111-111111111111:22222222-2222-2222-2222-222222222222')" = unknown ] \
     || fail "fm_backend_busy_state should report unknown for cmux (no native agent-state primitive)"
-  pass "fm_backend_busy_state: cmux (no native primitive) always reports unknown, same as tmux/zellij/orca"
+  pass "fm_backend_busy_state: cmux (no native primitive) always reports unknown, same as tmux"
 }
 
 test_dispatch_composer_state_routes_cmux() {
@@ -637,7 +635,7 @@ test_send_literal_uses_separator_for_option_shaped_text() {
   pass "fm_backend_cmux_send_literal: calls send with an explicit workspace/surface and a -- separator"
 }
 
-# --- current_path: pwd-marker-probe (zellij-shape) ---------------------------
+# --- current_path: pwd-marker-probe (frozen-cwd shape) -----------------------
 
 test_current_path_probes_with_marker() {
   local dir fb out
@@ -666,7 +664,7 @@ test_current_path_probes_with_marker() {
   assert_contains "$(cat "$dir/log")" "pwd;" "current_path did not send the pwd probe"
   assert_contains "$(cat "$dir/log")" $'\x1f''send-key'$'\x1f''--workspace'$'\x1f''aaaaaaaa-0000-0000-0000-000000000000'$'\x1f''--surface'$'\x1f''bbbbbbbb-1111-1111-1111-111111111111'$'\x1f''enter' \
     "current_path did not submit the cwd probe with Enter"
-  pass "fm_backend_cmux_current_path: actively probes with marked begin/end lines (zellij-shape frozen cwd)"
+  pass "fm_backend_cmux_current_path: actively probes with marked begin/end lines (frozen cwd)"
 }
 
 # --- composer_state: structural border-row classification (adapted from herdr) ----
@@ -1000,7 +998,7 @@ test_secondmate_spawn_refuses_cmux_backend() {
   status=$?
   [ "$status" -ne 0 ] || fail "fm-spawn.sh should refuse a --secondmate spawn with --backend cmux"
   assert_contains "$out" "does not support --secondmate" "fm-spawn.sh did not report the cmux secondmate refusal"
-  pass "fm-spawn.sh: refuses backend=cmux for --secondmate spawns (mirrors Orca's refusal; no secondmate launch design exists yet)"
+  pass "fm-spawn.sh: refuses backend=cmux for --secondmate spawns (no secondmate launch design exists yet)"
 }
 
 # shellcheck source=/dev/null

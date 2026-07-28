@@ -1357,7 +1357,6 @@ test_projected_abort_cleanup_holds_presentation_lock() {
     HERDR_PROJECTION_ABORT_SESSION=fmtest
     HERDR_PROJECTION_ABORT_TASK_PANE=w9:p2
     HERDR_PROJECTION_ABORT_SEEDED_PANE=w9:p1
-    ORCA_ABORT_CLEANUP=0
     SPAWN_TASK_LOCK_HELD=0
     spawn_abort_cleanup
   ' &
@@ -2381,8 +2380,8 @@ test_dispatch_composer_state_routes_by_backend() {
   # fm_backend_composer_state (the generic per-backend composer/pending-input
   # classifier the away-mode daemon dispatches through - bin/fm-supervise-daemon.sh's
   # pane_input_pending) must route to each backend's OWN named classifier with
-  # the target passed through unchanged, fall back to unknown for a backend with
-  # no named classifier (zellij), and unknown for an unrecognized backend name.
+  # the target passed through unchanged, and fall back to unknown for an
+  # unrecognized backend name.
   # Sourced-guards are pre-set so fm_backend_source no-ops and these stubs are
   # never clobbered by the real per-backend files trying (and failing) a live call.
   (
@@ -2390,18 +2389,13 @@ test_dispatch_composer_state_routes_by_backend() {
     . "$ROOT/bin/fm-backend.sh"
     _FM_BACKEND_TMUX_SOURCED=1
     _FM_BACKEND_HERDR_SOURCED=1
-    _FM_BACKEND_ORCA_SOURCED=1
-    _FM_BACKEND_ZELLIJ_SOURCED=1
     fm_tmux_composer_state() { [ "$1" = "sess:win" ] || fail "tmux composer_state got wrong target: $1"; printf 'pending'; }
     fm_backend_herdr_composer_state() { [ "$1" = "default:w1:p2" ] || fail "herdr composer_state got wrong target: $1"; printf 'empty'; }
-    fm_backend_orca_composer_state() { [ "$1" = "term-1" ] || fail "orca composer_state got wrong target: $1"; printf 'empty'; }
     [ "$(fm_backend_composer_state tmux sess:win)" = pending ] || fail "composer_state did not dispatch to the tmux classifier"
     [ "$(fm_backend_composer_state herdr default:w1:p2)" = empty ] || fail "composer_state did not dispatch to the herdr classifier"
-    [ "$(fm_backend_composer_state orca term-1)" = empty ] || fail "composer_state did not dispatch to the orca classifier"
-    [ "$(fm_backend_composer_state zellij sess:win)" = unknown ] || fail "composer_state should report unknown for zellij (no named classifier yet)"
     [ "$(fm_backend_composer_state bogus x)" = unknown ] || fail "composer_state should report unknown for an unrecognized backend"
   ) || fail "composer_state dispatch subshell failed"
-  pass "fm_backend_composer_state dispatches tmux/herdr/orca to their named classifiers, unknown for zellij/unrecognized backends"
+  pass "fm_backend_composer_state dispatches tmux/herdr to their named classifiers, unknown for unrecognized backends"
 }
 
 test_scripts_route_explicit_target_through_meta_backend() {

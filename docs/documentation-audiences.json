@@ -27,8 +27,6 @@
     "docs/configuration.md",
     "docs/tmux-backend.md",
     "docs/herdr-backend.md",
-    "docs/zellij-backend.md",
-    "docs/orca-backend.md",
     "docs/cmux-backend.md"
   ],
   "requiredOwnerPointers": [
@@ -81,14 +79,6 @@
       "target": "docs/verification/runtime-backends.md"
     },
     {
-      "source": "docs/zellij-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/orca-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
       "source": "docs/cmux-backend.md",
       "target": "docs/verification/runtime-backends.md"
     },
@@ -132,10 +122,6 @@
     },
     {
       "path": ".agents/skills/firstmate-coding-guidelines/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/firstmate-orca/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -243,10 +229,6 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/orca-backend.md",
-      "audience": "operator-current"
-    },
-    {
       "path": "docs/scripts.md",
       "audience": "operator-current"
     },
@@ -304,10 +286,6 @@
     },
     {
       "path": "docs/watcher-continuity.md",
-      "audience": "operator-current"
-    },
-    {
-      "path": "docs/zellij-backend.md",
       "audience": "operator-current"
     },
     {

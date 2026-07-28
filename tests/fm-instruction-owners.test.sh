@@ -202,8 +202,6 @@ test_state_startup_and_ordinary_recovery_placement() {
     "stuck-crewmate-recovery lacks the dead ordinary direct-report procedure"
   assert_grep "treehouse status" "$RECOVERY" \
     "ordinary recovery lost treehouse inventory inspection"
-  assert_grep "recorded \`orca_worktree_id=\` and \`terminal=\`" "$RECOVERY" \
-    "ordinary recovery lost Orca inventory inspection"
   assert_grep "session-start digest reports an ordinary direct report's endpoint dead or its metadata has no window" "$AGENTS" \
     "AGENTS.md does not trigger ordinary dead-report recovery"
   pass "state, startup, and ordinary recovery have focused owners and triggers"

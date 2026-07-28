@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bin/fm-composer-lib.sh - the ONE fleet-wide owner of composer-content
 # classification, shared by every session-provider adapter: the tmux path
-# through bin/fm-tmux-lib.sh, and bin/backends/{herdr,orca,cmux}.sh directly.
+# through bin/fm-tmux-lib.sh, and bin/backends/{herdr,cmux}.sh directly.
 #
 # WHY THIS EXISTS (task fm-composer-shellglyph-safety): the four adapters each
 # carried their own copy of the "is this composer row empty / pending / not an
@@ -40,12 +40,12 @@
 #
 # Each adapter still owns its own CAPTURE and structural row-finding, because
 # those use genuinely different primitives (tmux's cursor-row read, herdr's ANSI
-# tail scan, orca/cmux's plain read-screen). Once an adapter has a candidate
+# tail scan, cmux's plain read-screen). Once an adapter has a candidate
 # composer row it hands the RAW styled row to fm_composer_strip_ghost for the
 # real-typed-content extraction, strips the box borders, trims, and hands the
 # result plus a <bordered> flag to fm_composer_classify_content for the shared
-# empty|pending|unknown verdict. orca/cmux read a plain (unstyled) screen so
-# they have no ghost styling to strip and rely on the idle-placeholder match
+# empty|pending|unknown verdict. cmux reads a plain (unstyled) screen so
+# it has no ghost styling to strip and relies on the idle-placeholder match
 # below. Re-sourcing is a cheap idempotent redefinition, so this file needs no
 # include guard (matching bin/fm-tmux-lib.sh).
 

@@ -133,12 +133,6 @@ exclusion_reason() {
     fm-backend-cmux.test.sh|fm-backend-cmux-smoke.test.sh)
       printf '%s\n' 'cmux GUI backend; never parallel with another cmux mutator'
       ;;
-    fm-backend-zellij.test.sh|fm-backend-zellij-smoke.test.sh)
-      printf '%s\n' 'zellij optional backend; keep out of pure parallel pool'
-      ;;
-    fm-backend-orca.test.sh)
-      printf '%s\n' 'orca backend surface; keep serial until dedicated isolation proof'
-      ;;
     *)
       return 1
       ;;

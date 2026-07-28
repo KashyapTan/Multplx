@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # tests/cmux-test-safety.sh - shared hard guard against a real-cmux test's
 # cleanup ever touching a workspace that is not one the test itself just
-# created. Mirrors tests/herdr-test-safety.sh's/tests/zellij-test-safety.sh's
-# guard, adapted to cmux's shape: unlike herdr/zellij, cmux has no isolated,
+# created. Mirrors tests/herdr-test-safety.sh's
+# guard, adapted to cmux's shape: unlike herdr, cmux has no isolated,
 # throwaway SESSION a test can spin up and tear down on its own - there is
 # just "the app", the SAME real running instance the captain uses day to day.
 # So the safety rule here is not about avoiding the wrong session name; it is
