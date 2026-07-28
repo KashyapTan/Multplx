@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-sessionstart-nudge.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-sessionstart-nudge.sh"
           }
         ]
       }
@@ -17,11 +17,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-arm-pretool-check.sh --claude"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-arm-pretool-check.sh --claude"
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-cd-pretool-check.sh --claude"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-cd-pretool-check.sh --claude"
           }
         ]
       },
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-subagent-pretool-check.sh --claude"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-subagent-pretool-check.sh --claude"
           }
         ]
       }
@@ -40,11 +40,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-turnend-guard.sh --claude"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-turnend-guard.sh --claude"
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-claude-stop-autoarm.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-claude-stop-autoarm.sh",
             "asyncRewake": true,
             "timeout": 28800
           }

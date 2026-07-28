@@ -1,37 +1,37 @@
 # cd-guard PreToolUse seatbelt
 
 This document is the authoritative human-readable contract for the cd-guard PreToolUse seatbelt.
-`bin/fm-cd-command-policy.mjs` is the single decision owner.
-`bin/fm-cd-pretool-check.sh` is the stable harness transport, primary-checkout scope, and output renderer.
+`bin/mx-cd-command-policy.mjs` is the single decision owner.
+`bin/mx-cd-pretool-check.sh` is the stable harness transport, primary-checkout scope, and output renderer.
 The tracked harness adapters forward command text without classifying it.
 
 It is the third member of a family of primary-session guards that share the same cross-harness hook machinery:
-the watcher-arm PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`, `docs/arm-pretool-check.md`) and the turn-end supervision guard (`bin/fm-turnend-guard.sh`, `docs/turnend-guard.md`).
+the watcher-arm PreToolUse seatbelt (`bin/mx-arm-pretool-check.sh`, `docs/arm-pretool-check.md`) and the turn-end supervision guard (`bin/mx-turnend-guard.sh`, `docs/turnend-guard.md`).
 
 ## Purpose and boundary
 
-The primary firstmate shell persists its working directory across tool calls.
-A stray persistent top-level `cd projects/<clone>` therefore silently relocates the shell, so the next firstmate-owned command - a backlog write, an `fm-*` lifecycle call, `tasks-axi` - runs inside a project clone instead of the home.
-That has actually happened: a persistent top-level `cd` caused a firstmate-owned backlog write to execute inside a project clone rather than the home.
+The primary broker shell persists its working directory across tool calls.
+A stray persistent top-level `cd projects/<clone>` therefore silently relocates the shell, so the next broker-owned command - a backlog write, an `mx-*` lifecycle call, `tasks-axi` - runs inside a project clone instead of the home.
+That has actually happened: a persistent top-level `cd` caused a broker-owned backlog write to execute inside a project clone rather than the home.
 The seatbelt denies exactly that command shape - a cwd change that persists to the primary shell - before it runs.
 
 This guard is not a general sandbox.
 It classifies shell command positions only; it never evaluates, expands, sources, or runs any byte of the submitted command.
 Its threat model is agent mistakes, the same as the watcher-arm seatbelt: an accidental bare `cd projects/foo`, not a deliberately obfuscated bypass.
 
-## Scope: plain firstmate checkouts only
+## Scope: plain broker checkouts only
 
-The guard fires only in a plain firstmate checkout where git-dir equals git-common-dir.
-It is a silent no-op (exit 0, no output) everywhere else, so it never interferes with a crewmate or scout that legitimately works inside its own project or firstmate task worktree.
+The guard fires only in a plain Multplx checkout where git-dir equals git-common-dir.
+It is a silent no-op (exit 0, no output) everywhere else, so it never interferes with an actor or scout that legitimately works inside its own project or broker task worktree.
 
-`bin/fm-cd-pretool-check.sh` owns its checkout detection; the turn-end guard's marker-aware scope is a separate contract (`docs/turnend-guard.md`).
+`bin/mx-cd-pretool-check.sh` owns its checkout detection; the turn-end guard's marker-aware scope is a separate contract (`docs/turnend-guard.md`).
 A plain, non-worktree checkout has `git rev-parse --git-dir` equal to `git rev-parse --git-common-dir`.
-A crewmate or scout task worktree - the shape `bin/fm-spawn.sh` always hands out - is a linked git worktree where the two differ, so the guard is inert there.
+an actor or scout task worktree - the shape `bin/mx-spawn.sh` always hands out - is a linked git worktree where the two differ, so the guard is inert there.
 The checkout must also carry `AGENTS.md` and `bin/`, and any failure to confirm the primary is treated as inert, never as a block.
 
-The cd-guard does not inspect `.fm-secondmate-home`.
-It therefore applies in a git-cloned secondmate home where git-dir equals git-common-dir, but remains inert in a treehouse-leased secondmate home that is itself a linked worktree.
-Secondmate child crew and scout worktrees are likewise inert under the linked-worktree test.
+The cd-guard does not inspect `.mx-daemon-home`.
+It therefore applies in a git-cloned daemon home where git-dir equals git-common-dir, but remains inert in a treehouse-leased daemon home that is itself a linked worktree.
+Daemon child actors and scout worktrees are likewise inert under the linked-worktree test.
 
 ## Block vs allow
 
@@ -74,7 +74,7 @@ It does not permit `cd /home/project`, because an absolute-path `cd` remains a p
 
 ## Transport and fail-open behavior
 
-`bin/fm-cd-pretool-check.sh` supports every harness entry shape used by the tracked adapters:
+`bin/mx-cd-pretool-check.sh` supports every harness entry shape used by the tracked adapters:
 
 - Claude sends stdin JSON at `.tool_input.command` and adds `--claude` to preserve Claude's stderr-only deny requirement.
 - Codex sends stdin JSON at `.tool_input.command` without `--claude`.
@@ -82,7 +82,7 @@ It does not permit `cd /home/project`, because an absolute-path `cd` remains a p
 
 Processing order is cheapest-first: a strict-superset prefilter, then the primary-checkout scope, then the Node policy owner.
 The prefilter removes ordinary single quotes, double quotes, backslashes, carriage returns, and newlines before fast-allowing any command that carries no `cd`, `pushd`, or `popd` substring and no quoting-decoder marker (`$'` ANSI-C or `$"` locale), so quoted or escaped command-word fragments delegate to the policy while most commands never pay for the git scoping calls or the Node process.
-The quoting-decoder marker set is coupled to the classifier's decoder set in `bin/fm-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending the prefilter marker set in the same change, or it stops being a strict superset.
+The quoting-decoder marker set is coupled to the classifier's decoder set in `bin/mx-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending the prefilter marker set in the same change, or it stops being a strict superset.
 
 Empty stdin, unparseable JSON, missing `jq` on the stdin path, missing Node, a missing policy owner, or an invalid policy response all fail open with exit 0 and no output.
 A broken hook must never deny every shell tool call.
@@ -100,46 +100,46 @@ Identical in shape to `docs/arm-pretool-check.md`:
 
 ## Shared classifier ownership
 
-`bin/fm-cd-command-policy.mjs` imports the shell tokenizer and command-position analysis (`Lexer`, `splitProgram`, `commandPosition`) from `bin/fm-arm-command-policy.mjs`, the sole owner of firstmate's shell classification.
+`bin/mx-cd-command-policy.mjs` imports the shell tokenizer and command-position analysis (`Lexer`, `splitProgram`, `commandPosition`) from `bin/mx-arm-command-policy.mjs`, the sole owner of broker's shell classification.
 `basename` remains a private helper of the shared arm classifier because the cd policy identifies shell builtins by exact cooked-word identity.
 The cd-guard never duplicates shell lexing; it adds only the cd-specific decision on top of that shared classifier.
-`bin/fm-arm-command-policy.mjs` runs its own CLI entry point only when invoked directly, never on import, so the two policies stay independent CLIs over one parser.
+`bin/mx-arm-command-policy.mjs` runs its own CLI entry point only when invoked directly, never on import, so the two policies stay independent CLIs over one parser.
 
 ## Harness wiring
 
 | Harness | Entry | Adapter behavior on checker exit 2 |
 | --- | --- | --- |
 | Claude | `.claude/settings.json` PreToolUse Bash hook forwarding stdin with `--claude` | Blocks the tool call; stderr deny object, stdout empty. |
-| Codex | `.codex/hooks.json` PreToolUse hook that anchors from `pwd -P`, verifies the hook-loaded firstmate root, and forwards the payload | Blocks on exit 2 and displays stderr. |
-| Pi | `.pi/extensions/fm-primary-turnend-guard.ts` `tool_call` handler | Returns `{block: true}`; piggybacks on the already-loaded primary extension so no extra `-e` flag is needed. |
+| Codex | `.codex/hooks.json` PreToolUse hook that anchors from `pwd -P`, verifies the hook-loaded Multplx root, and forwards the payload | Blocks on exit 2 and displays stderr. |
+| Pi | `.pi/extensions/mx-primary-turnend-guard.ts` `tool_call` handler | Returns `{block: true}`; piggybacks on the already-loaded primary extension so no extra `-e` flag is needed. |
 
 Each harness runs the cd-guard alongside the watcher-arm seatbelt; the two are independent checks, and either deny blocks the command.
 
 ## Automated validation
 
-`tests/fm-cd-pretool-check.test.sh` owns the acceptance matrix.
+`tests/mx-cd-pretool-check.test.sh` owns the acceptance matrix.
 Every block and allow case runs through Codex-shaped stdin, Claude-shaped stdin, and Pi-shaped CLI entry forms.
-The suite also proves the end-to-end cwd-leak regression (a firstmate-owned backlog write leaking into a project clone, then denied at the exact command), the checkout scoping (fires in a git-cloned secondmate fixture, inert in a crewmate/scout linked worktree, inert outside a firstmate checkout, inert outside a git repo), the fail-open transport behavior, the prefilter fast path, the policy CLI output contract, and the per-harness wiring.
+The suite also proves the end-to-end cwd-leak regression (a broker-owned backlog write leaking into a project clone, then denied at the exact command), the checkout scoping (fires in a git-cloned daemon fixture, inert in an actor/scout linked worktree, inert outside a Multplx checkout, inert outside a git repo), the fail-open transport behavior, the prefilter fast path, the policy CLI output contract, and the per-harness wiring.
 
 Run:
 
 ```sh
-bash -n bin/fm-cd-pretool-check.sh
-node --check bin/fm-cd-command-policy.mjs
-node --check bin/fm-arm-command-policy.mjs
-tests/fm-cd-pretool-check.test.sh
-tests/fm-arm-pretool-check.test.sh
+bash -n bin/mx-cd-pretool-check.sh
+node --check bin/mx-cd-command-policy.mjs
+node --check bin/mx-arm-command-policy.mjs
+tests/mx-cd-pretool-check.test.sh
+tests/mx-arm-pretool-check.test.sh
 ```
 
 ## Live validation record, 2026-07-11
 
-Each harness ran against a scratch primary-shaped firstmate checkout: a plain git repo with `AGENTS.md`, `bin/` holding the real `fm-cd-pretool-check.sh`, `fm-cd-command-policy.mjs`, and `fm-arm-command-policy.mjs` plus a no-op dummy `fm-arm-pretool-check.sh`, a `projects/foo/` stand-in clone, and the tracked harness hook config.
-No live watcher, fleet state, or the captain's real primary checkout was involved.
+Each harness ran against a scratch primary-shaped Multplx checkout: a plain git repo with `AGENTS.md`, `bin/` holding the real `mx-cd-pretool-check.sh`, `mx-cd-command-policy.mjs`, and `mx-arm-command-policy.mjs` plus a no-op dummy `mx-arm-pretool-check.sh`, a `projects/foo/` stand-in clone, and the tracked harness hook config.
+No live watcher, system state, or the maintainer's real primary checkout was involved.
 Each harness was told to run, as separate tool calls, a top-level `cd projects/foo && touch <abs>/BLOCKED` (must be denied) and a subshell `(cd projects/foo && touch <abs>/ALLOWED)` (must run), with the sentinel files as the observable.
 
 Harness versions and outcomes:
 
-- **Claude Code 2.1.207** - blocked. Claude reported the top-level command "denied by the `PreToolUse` hook (`fm-cd-pretool-check.sh`)", the `BLOCKED` sentinel was absent, and the subshell form was permitted to run. A prior control `touch` proved the harness executed commands.
+- **Claude Code 2.1.207** - blocked. Claude reported the top-level command "denied by the `PreToolUse` hook (`mx-cd-pretool-check.sh`)", the `BLOCKED` sentinel was absent, and the subshell form was permitted to run. A prior control `touch` proved the harness executed commands.
 - **codex-cli 0.144.0** - blocked. Codex logged `error=Command blocked by PreToolUse hook: {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[persistent-cd] a persistent top-level directory change ..."}`, the `BLOCKED` sentinel was absent, and the subshell `ALLOWED` sentinel was created. Both the arm and cd PreToolUse hooks ran per command (two `hook: PreToolUse Completed` lines), confirming Codex re-feeds the payload to each hook in the array.
 - **Pi 0.80.6** - blocked. The `BLOCKED` sentinel was absent while the subshell `ALLOWED` sentinel was created; that differential (top-level denied, subshell run, in the same session) can only come from the guard.
 
@@ -148,5 +148,5 @@ The launch commands mirrored `docs/arm-pretool-check.md`'s validation:
 ```sh
 claude -p "$PROMPT" --dangerously-skip-permissions --output-format text
 codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$PROMPT"
-pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"
+pi -p -e .pi/extensions/mx-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"
 ```

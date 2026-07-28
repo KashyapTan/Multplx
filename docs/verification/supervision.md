@@ -25,7 +25,7 @@ Observed result: the `SessionStart` hook completed and its stdout reached model 
 Pi command shape:
 
 ```sh
-pi -p -e .pi/extensions/fm-primary-turnend-guard.ts \
+pi -p -e .pi/extensions/mx-primary-turnend-guard.ts \
   --no-context-files --no-session \
   'After obeying any earlier session-start instruction, reply with exactly PI_SMOKE_DONE.'
 ```
@@ -36,13 +36,13 @@ The earlier `sendUserMessage` counterfactual raced the positional prompt; the cu
 Current deterministic and live entry points:
 
 ```sh
-tests/fm-sessionstart-nudge.test.sh
-tests/fm-captain-translation-contract.test.sh
-FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
+tests/mx-sessionstart-nudge.test.sh
+tests/mx-maintainer-translation-contract.test.sh
+MX_PI_LIVE_E2E=1 tests/mx-pi-primary-live-e2e.test.sh
 ```
 
-The Ahoy first-message boundary was reverified on 2026-07-22 with Pi 0.81.1.
-Marked current operational input and the two exact legacy compatibility shapes selected Bearings, while genuine near-miss captain messages remained real boundaries.
+The Recap first-message boundary was reverified on 2026-07-22 with Pi 0.81.1.
+Marked current operational input and the two exact legacy compatibility shapes selected Catchup, while genuine near-miss maintainer messages remained real boundaries.
 The detailed reconciliation and task chronology stay in the private audit report and PR evidence.
 
 ## Turn-end guard
@@ -55,14 +55,14 @@ The direct and passive mechanisms were validated across the supported harnesses 
 | Codex | 0.142.1 | Blocking `Stop` hook | Hook process root stayed anchored to the trusted checkout and one continuation ran. |
 | Pi | 0.80.5 | Passive `agent_settled` callback | Exactly one guard follow-up ran for an unhealthy cycle, with no recursion across tool turns. |
 
-The secondmate-home scope and manual-repair wake path were measured with Claude Code 2.1.207 on 2026-07-12, when a native background completion re-invoked the idle model with no human input.
-The current Stop-owned main/secondmate inclusion and child-worktree exclusion are covered deterministically by `tests/fm-claude-stop-autoarm.test.sh`.
+The daemon-home scope and manual-repair wake path were measured with Claude Code 2.1.207 on 2026-07-12, when a native background completion re-invoked the idle model with no human input.
+The current Stop-owned main/daemon inclusion and child-worktree exclusion are covered deterministically by `tests/mx-claude-stop-autoarm.test.sh`.
 
 The Claude product live path ran with Claude Code 2.1.219 on 2026-07-24:
 
 ```sh
 claude --version
-FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh
+MX_CLAUDE_LIVE_E2E=1 tests/mx-claude-stop-autoarm-live-e2e.test.sh
 ```
 
 Observed output:
@@ -75,9 +75,9 @@ ok - Claude 2.1.219 (Claude Code) live E2E reclaimed a stale session lock throug
 Current entry points:
 
 ```sh
-tests/fm-turnend-guard.test.sh
-tests/fm-supervision-instructions.test.sh
-FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
+tests/mx-turnend-guard.test.sh
+tests/mx-supervision-instructions.test.sh
+MX_PI_LIVE_E2E=1 tests/mx-pi-primary-live-e2e.test.sh
 ```
 
 ## Watcher continuity
@@ -93,20 +93,20 @@ Pi 0.80.10
 
 | Harness | Exact opt-in command | Observed guarantee |
 | --- | --- | --- |
-| Claude | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | Session start reclaimed a stale owner before two Stop-owned cycles, and a competing live owner prevented arm, rewake, epoch write, or lock replacement. |
-| Codex | `FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` | The one-second foreground checkpoint returned without switching to the arm wrapper. |
-| Pi | `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` | One initial tool call led to extension-owned successors and clean child retirement on exit. |
+| Claude | `MX_CLAUDE_LIVE_E2E=1 tests/mx-claude-stop-autoarm-live-e2e.test.sh` | Session start reclaimed a stale owner before two Stop-owned cycles, and a competing live owner prevented arm, rewake, epoch write, or lock replacement. |
+| Codex | `MX_CODEX_LIVE_E2E=1 tests/mx-codex-continuity-live-e2e.test.sh` | The one-second foreground checkpoint returned without switching to the arm wrapper. |
+| Pi | `MX_PI_LIVE_E2E=1 tests/mx-pi-primary-live-e2e.test.sh` | One initial tool call led to extension-owned successors and clean child retirement on exit. |
 
 Pi 0.81.1 repeated the continuity and clean-exit lifecycle on 2026-07-23 after the Calm presentation changes.
 
 Deterministic entry points:
 
 ```sh
-tests/fm-pi-watch-extension.test.sh
-tests/fm-watcher-lock.test.sh
-tests/fm-subagent-pretool-check.test.sh
-tests/fm-claude-stop-autoarm.test.sh
-tests/fm-turnend-guard.test.sh
+tests/mx-pi-watch-extension.test.sh
+tests/mx-watcher-lock.test.sh
+tests/mx-subagent-pretool-check.test.sh
+tests/mx-claude-stop-autoarm.test.sh
+tests/mx-turnend-guard.test.sh
 ```
 
 ## Wedge-alarm channels
@@ -117,8 +117,8 @@ Automated suites never execute this real notification command.
 Herdr command:
 
 ```sh
-herdr notification show 'FIRSTMATE TEST - IGNORE' \
-  --body 'FIRSTMATE TEST - IGNORE (wedge-alarm channel verification)' \
+herdr notification show 'MULTPLX TEST - IGNORE' \
+  --body 'MULTPLX TEST - IGNORE (wedge-alarm channel verification)' \
   --sound request
 ```
 
@@ -128,4 +128,4 @@ Observed output:
 {"id":"cli:notification:show","result":{"reason":"shown","shown":true,"type":"notification_show"}}
 ```
 
-The safe command-channel contract is covered without a notification by `tests/fm-daemon.test.sh`: the summary reaches both `$1` and stdin, every channel is process-group bounded, and a failed channel falls through.
+The safe command-channel contract is covered without a notification by `tests/mx-daemon.test.sh`: the summary reaches both `$1` and stdin, every channel is process-group bounded, and a failed channel falls through.

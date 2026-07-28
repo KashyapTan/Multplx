@@ -31,7 +31,7 @@
   ],
   "requiredOwnerPointers": [
     {
-      "source": ".agents/skills/firstmate-coding-guidelines/SKILL.md",
+      "source": ".agents/skills/multplx-coding-guidelines/SKILL.md",
       "target": "docs/documentation-audiences.md"
     },
     {
@@ -93,7 +93,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/ahoy/SKILL.md",
+      "path": ".agents/skills/recap/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -101,7 +101,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/bearings/SKILL.md",
+      "path": ".agents/skills/catchup/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -117,11 +117,11 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/firstmate-codexapp/SKILL.md",
+      "path": ".agents/skills/multplx-codexapp/SKILL.md",
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/firstmate-coding-guidelines/SKILL.md",
+      "path": ".agents/skills/multplx-coding-guidelines/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -133,7 +133,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/secondmate-provisioning/SKILL.md",
+      "path": ".agents/skills/daemon-provisioning/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -141,11 +141,11 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/stuck-crewmate-recovery/SKILL.md",
+      "path": ".agents/skills/stuck-actor-recovery/SKILL.md",
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/updatefirstmate/SKILL.md",
+      "path": ".agents/skills/updatemultplx/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -209,7 +209,7 @@
       "audience": "maintainer-architecture"
     },
     {
-      "path": "docs/examples/crew-dispatch.json",
+      "path": "docs/examples/actor-dispatch.json",
       "audience": "operator-example"
     },
     {
@@ -217,11 +217,11 @@
       "audience": "operator-example"
     },
     {
-      "path": "docs/fm-test-isolation-proof.md",
+      "path": "docs/mx-test-isolation-proof.md",
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/fm-test-portable-shards.md",
+      "path": "docs/mx-test-portable-shards.md",
       "audience": "maintainer-verification"
     },
     {

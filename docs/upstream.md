@@ -43,6 +43,13 @@ opt-ins) — expected per `plans/porting.md`.
 | `tests/fm-afk-launch.test.sh` | interrupted lifecycle resumed or retained its lock | signal/lock timing case; fails identically upstream |
 | `tests/fm-backend.test.sh` | old-vs-new conformance (`fm-send --key` log differs) | **branch topology, not environment**: the test rebuilds "old" scripts from `merge-base(HEAD, main)`, which is a docs-only commit until the port branch merges; heals on merge |
 
+Phase 2 intentionally resolves the Bash 3.2 brief parser failures and the
+session-lock test's `BASHPID` dependency because no later plan owns them.
+It also fixes the runner's first-completed-worker refill regression and makes
+that assertion scheduling-safe.
+Those resolved entries remain in the historical table above but are no longer
+accepted failures for phase-2 validation.
+
 This is the reference every later phase is measured against: a phase is green
 when the suite shows **no failures beyond these** and no new unexplained
 gate-skips.

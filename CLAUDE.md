@@ -1,18 +1,13 @@
 # Multplx
-Smart Agent orcherstarter that is an extension of yourself.
+Multplx is a personal agent coordination system built around a broker, independent actors, persistent daemons, and maintainer-owned decisions.
 
-> **Naming note:** the project is named **Multplx** (formerly *Computer*). The root folder, GitHub repository,
-> and project name all match: Multplx. A compatibility symlink `Computer -> Multplx` exists beside the repo
-> (and in `~/.claude/projects/`) so pre-rename Claude sessions and stale path references keep resolving;
-> never hardcode either folder name in code or docs.
+The root folder, GitHub repository, and project name are all `Multplx`.
+Never hardcode a local absolute checkout path in code or documentation.
 
 ## Vision
-The goal of this project is to basically port firstmate (inside the firstmate folder at the repo root)
-into a full customized version for myself to use. I love the idea of firstmate (opensource project), 
-but I dont like the concept of the sailers, I want to add my own features to it, and customize it 
-to make it better,so that I can use it for my own work. Eventually, Multplx should be a standalone project
-that I will be using fully instead of just modifying the current firstmate folder to match my preferences
-and customizations.
+Port the read-only upstream reference under `firstmate/` into a standalone system tailored for the maintainer.
+Preserve proven safety and lifecycle behavior while replacing rank-coded language and adding the features defined in `plans/index.html`.
+The root implementation must stand on its own rather than depending on the reference checkout.
 
 ## Workflow
 
@@ -27,8 +22,6 @@ raise them. Discussion and clarification lead to the best possible outcome.
 Enter plan mode for non-trivial tasks. Get the correct info and details before executing. 
 For trivial tasks this is unnecessary — don't over-engineer.
 
-### Sub-agents for Information Gathering
-Spawn as many sub-agents as you need **in parallel** for any read-only task that just needs a result — reading files, 
-searching for patterns, exploring the directory structure, checking how something is implemented. The goal is to keep 
-the main context window clean and focused. Do NOT use sub-agents when the reasoning process itself is needed in the main context.
-
+### Actors for Information Gathering
+Route parallel read-only exploration to actors when it keeps the main reasoning context focused.
+Keep work in the primary context when its reasoning is required for the final decision.
