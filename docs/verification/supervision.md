@@ -131,20 +131,8 @@ tests/fm-turnend-guard.test.sh
 
 ## Wedge-alarm channels
 
-The two real notification channels were bounded manually on 2026-07-10 on macOS 26.5.2 with Herdr 0.7.3.
-Automated suites never execute these real notification commands.
-
-Argv-safe Notification Center command:
-
-```sh
-/usr/bin/osascript \
-  -e 'on run argv' \
-  -e 'display notification (item 1 of argv) with title "FIRSTMATE TEST - IGNORE" sound name "Basso"' \
-  -e 'end run' \
-  'FIRSTMATE TEST - IGNORE (wedge-alarm channel verification)'
-```
-
-Observed output: no stdout, exit 0, and one banner with the supplied body.
+The real herdr notification channel was bounded manually on 2026-07-10 on macOS 26.5.2 with Herdr 0.7.3.
+Automated suites never execute this real notification command.
 
 Herdr command:
 

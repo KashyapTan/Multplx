@@ -106,11 +106,12 @@
 #                                   alarm fires (default 300; 0 disables)
 #          FM_WEDGE_ALARM_CHANNEL   override config/wedge-alarm with a single
 #                                   active-alert directive for that wedge alarm
-#                                   (off|auto|osascript|herdr|command:<cmd>). An
-#                                   absent file/var means auto: on macOS that is
-#                                   an OS-level notification, so the alarm is
-#                                   never silent. See wedge_alarm_notify below
-#                                   and docs/configuration.md.
+#                                   (off|auto|herdr|command:<cmd>). An absent
+#                                   file/var means auto: no platform has a
+#                                   built-in OS channel, so the durable marker
+#                                   is the only signal until the captain
+#                                   configures a channel. See wedge_alarm_notify
+#                                   below and docs/configuration.md.
 #          FM_WEDGE_ALARM_EXEC      notifier seam: when set, every notifier
 #                                   channel routes through this command as
 #                                   `<cmd> <channel> <summary>` instead of
@@ -643,8 +644,8 @@ escalate_flush() {  # <state>
 # signal - only the passive state/.subsuper-inject-wedged marker, which nothing
 # surfaces until the next fleet action (that night, 20 escalations sat buffered
 # for 8.5h). These helpers add a configurable active alert that does not depend
-# on any pane or its backend status-line: an OS-level macOS notification, a
-# herdr notification, or a captain-supplied command (push to a phone, etc.).
+# on any pane or its backend status-line: a herdr notification or a
+# captain-supplied command (push to a phone, etc.).
 # Every channel is best-effort - a missing or failing channel logs and is
 # skipped, never crashing the daemon loop - and the durable marker plus the tmux
 # flash stay exactly as before.
@@ -654,13 +655,13 @@ escalate_flush() {  # <state>
 # single directive. Directives:
 #   off              disable the active alert entirely, regardless of position
 #                    (marker + flash remain)
-#   auto | default   platform default: macOS -> osascript; otherwise none
-#   osascript        macOS Notification Center banner (backend-independent)
+#   auto | default   platform default: none on every platform (the marker is
+#                    the only signal until a channel is configured)
 #   herdr            herdr UI notification (herdr notification show)
 #   command:<cmd>    run <cmd> via `sh -c`, summary on $1 and on stdin
-# An absent config means auto, i.e. default-ON on macOS: the alarm's whole
-# purpose is to never be silent, so the reachable OS channel fires unless the
-# captain explicitly disables it.
+# An absent config means auto: no platform has a built-in OS channel, so
+# wedge_alarm_notify logs that the durable marker is the only signal until the
+# captain wires a herdr or command: directive.
 
 # Print the configured channel directives, one per line. FM_WEDGE_ALARM_CHANNEL
 # wins (a single directive); else each non-empty, non-comment line of
@@ -685,15 +686,11 @@ wedge_alarm_configured_channels() {
   [ -n "$found" ] || printf 'auto\n'
 }
 
-# Resolve the platform's default OS-level channel for `auto`. macOS reaches the
-# captain via an osascript Notification Center banner; other platforms have no
-# built-in OS channel (the captain wires a command: directive), so this prints
-# nothing and wedge_alarm_notify logs that the marker is the only signal.
+# Resolve the platform's default OS-level channel for `auto`. No platform has a
+# built-in OS channel (the captain wires a herdr or command: directive), so this
+# prints nothing and wedge_alarm_notify logs that the marker is the only signal.
 wedge_alarm_platform_default() {
-  case "$(uname)" in
-    Darwin) command -v osascript >/dev/null 2>&1 && printf 'osascript' ;;
-    *) : ;;
-  esac
+  :
 }
 
 wedge_alarm_run_bounded() {
@@ -742,8 +739,8 @@ wedge_alarm_stop_active_notifier() {
 
 # The single execution seam for every configured notifier channel.
 # FM_WEDGE_ALARM_EXEC, when set, REPLACES the real notifier: the resolved channel
-# name and summary are handed to that command instead of ever invoking osascript
-# or herdr or a captain-supplied command. This is the one injection point the test harness forces to a recorder
+# name and summary are handed to that command instead of ever invoking herdr or
+# a captain-supplied command. This is the one injection point the test harness forces to a recorder
 # so no test can post a real desktop notification - the library-mode guard at the
 # foot of this file defaults it to "discard" whenever the daemon is SOURCED
 # rather than executed, which is the only way a test reaches these functions. The
@@ -761,27 +758,6 @@ wedge_alarm_os_notifier_override() {  # <channel> <summary>
       log "wedge alarm: notifier override exited $rc for channel '$channel'"
       return 1 ;;
   esac
-}
-
-# Post a macOS Notification Center banner. `display notification` is OS-level,
-# independent of any terminal pane or multiplexer status-line. The summary is
-# passed as an argv item (never interpolated into the AppleScript source) so its
-# text can never break the script. Best-effort: logs and returns 1 on failure.
-wedge_alarm_via_osascript() {  # <summary>
-  local summary=$1 rc
-  wedge_alarm_os_notifier_override osascript "$summary"
-  rc=$?
-  case "$rc" in
-    0) return 0 ;;
-    1) return 1 ;;
-  esac
-  command -v osascript >/dev/null 2>&1 || {
-    log "wedge alarm: osascript not found; cannot post a macOS notification"; return 1; }
-  wedge_alarm_run_bounded osascript osascript -e 'on run argv' \
-    -e 'display notification (item 1 of argv) with title "firstmate: away-mode escalations WEDGED" sound name "Basso"' \
-    -e 'end run' "$summary" >/dev/null 2>&1 && return 0
-  log "wedge alarm: osascript notification failed"
-  return 1
 }
 
 # Post a herdr UI notification - herdr's own surface, separate from the pane and
@@ -833,7 +809,6 @@ wedge_alarm_emit() {  # <channel> <summary>
       return 1 ;;
   esac
   case "$channel" in
-    osascript) wedge_alarm_via_osascript "$summary" ;;
     herdr) wedge_alarm_via_herdr "$summary" ;;
     command) wedge_alarm_via_command "$cmd" "$summary" ;;
   esac
@@ -858,7 +833,7 @@ wedge_alarm_notify() {  # <summary> <marker>
     case "$ch" in auto|default) ch=$(wedge_alarm_platform_default) ;; esac
     case "$ch" in
       '') log "wedge alarm: no OS-level alert channel on $(uname); durable marker $marker is the only signal - set config/wedge-alarm (e.g. a command: directive)" ;;
-      osascript|herdr) wedge_alarm_emit "$ch" "$summary" || true ;;
+      herdr) wedge_alarm_emit "$ch" "$summary" || true ;;
       command:*) wedge_alarm_emit command "$summary" "${ch#command:}" || true ;;
       *) log "wedge alarm: unrecognized active-alert channel directive (redacted); marker still written" ;;
     esac

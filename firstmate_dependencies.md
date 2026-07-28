@@ -139,7 +139,7 @@ Installed via `npm install -g <name>` (some run `<name> setup hooks`). Detected/
 
 | Tool | Purpose | Status | Files |
 |---|---|---|---|
-| **osascript** (macOS) | Away-mode "wedge alarm" — posts an OS banner when escalations get wedged | optional (macOS, away-mode) | `bin/fm-supervise-daemon.sh:770–783`. Config: `config/wedge-alarm`; docs `docs/wedge-alarm.md`. Alternatives: `herdr`, or custom `command:<cmd>`. No third-party messaging (Slack/email/SMS) used |
+| **wedge-alarm channels** | Away-mode "wedge alarm" — fires a configured notifier when escalations get wedged | optional (away-mode) | `bin/fm-supervise-daemon.sh` (wedge_alarm_notify). Config: `config/wedge-alarm`; docs `docs/configuration.md` "Away-mode wedge alarm channels". Channels: `herdr`, or custom `command:<cmd>`. No third-party messaging (Slack/email/SMS) used |
 
 ---
 
@@ -173,7 +173,6 @@ Ordered by dependency weight (counts = real invocations, comment prose excluded)
 | **perl** | ~12 | Text munging + file locking (`-MFcntl=:DEFAULT`) | `bin/fm-lock-lib.sh` |
 | **node** | ~11 | Command-policy `.mjs` files | `bin/fm-*-command-policy.mjs` |
 | **lsof** | ~11 | Process/port/file-handle inspection | `bin/fm-watch.sh` |
-| **osascript** | ~8 | macOS notifications | `bin/fm-supervise-daemon.sh` |
 | **glab** | ~7 | GitLab CLI | `bin/fm-pr-check.sh` |
 | **timeout / gtimeout** | ~5 each | Bounded command execution (GNU / macOS) | `bin/fm-fleet-snapshot.sh`, `bin/fm-watch.sh` |
 | **base64** | ~5 | Encoding | lib scripts |

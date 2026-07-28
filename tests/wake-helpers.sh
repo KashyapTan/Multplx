@@ -20,11 +20,11 @@ if [ -z "${FM_ROOT_OVERRIDE:-}" ]; then
   export FM_ROOT_OVERRIDE
 fi
 
-# Wedge-alarm notifier recorder (safety seam). The away-mode wedge alarm fires a
-# real OS-level desktop notification by default. Point its FM_WEDGE_ALARM_EXEC
+# Wedge-alarm notifier recorder (safety seam). The away-mode wedge alarm fires
+# real notifiers when configured. Point its FM_WEDGE_ALARM_EXEC
 # seam at a recorder for every
-# daemon/wake suite, so no test - present or future - can post a real macOS,
-# herdr, or command: notification: it is impossible to forget, because sourcing this harness
+# daemon/wake suite, so no test - present or future - can post a real herdr
+# or command: notification: it is impossible to forget, because sourcing this harness
 # installs it. The recorder is an on-disk script (a real daemon a test spawns
 # inherits the path and records too). It logs "<channel>\t<summary>" to
 # $FM_WEDGE_ALARM_LOG, which a test sets to its own file to assert on; unset means
