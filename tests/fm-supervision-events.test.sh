@@ -21,7 +21,7 @@ mkdir -p "$STATE_DIR"
 export FM_STATE_OVERRIDE="$STATE_DIR"
 export FM_ROOT_OVERRIDE="$ROOT"
 # Production modules are independently linted canonical roots. Keep this test's
-# ShellCheck context local while preserving its unchanged runtime source path.
+# lint-directive context local while preserving its unchanged runtime source path.
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-watch.sh"
 
