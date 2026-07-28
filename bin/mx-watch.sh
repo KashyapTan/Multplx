@@ -42,6 +42,12 @@
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock.
+# A successful mx-report append may send USR1 to the PID and PID identity
+# advertised by this watcher's singleton lock. The main process traps that
+# payload-free nudge after publishing its identity; only non-native terminal
+# poll sleeps are interruptible, and every early return runs the ordinary scan.
+# Native Herdr waits remain bounded and unchanged, SIGNAL_GRACE remains a plain
+# coalescing sleep, and polling remains the permanent durable-state backstop.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -139,6 +145,7 @@ EVENT_CAP_FAIL_MAX=${MX_EVENT_CAP_FAIL_MAX:-3}
 _event_cap_key=""
 _event_cap_ok=0
 _event_cap_fails=0
+_interruptible_sleep_pid=""
 
 # afk_present: 0 while the away-mode flag exists. When set, the daemon wraps this
 # watcher and owns triage, so the watcher must behave one-shot (enqueue + exit on
@@ -520,6 +527,19 @@ heartbeat_scan_finds_actionable() {
   return 1
 }
 
+mx_interruptible_sleep() {  # <seconds>
+  local seconds=$1 wait_rc=0
+  sleep "$seconds" &
+  _interruptible_sleep_pid=$!
+  wait "$_interruptible_sleep_pid" || wait_rc=$?
+  if [ "$wait_rc" -ne 0 ]; then
+    kill "$_interruptible_sleep_pid" 2>/dev/null || true
+  fi
+  wait "$_interruptible_sleep_pid" 2>/dev/null || true
+  _interruptible_sleep_pid=""
+  return 0
+}
+
 # event_wait_or_sleep: the terminal wait of each supervision cycle. For a home
 # with push-capable windows (herdr), it replaces the blind `sleep POLL` with a
 # bounded wait on the backend's native transition stream, so an actor going
@@ -554,7 +574,7 @@ event_wait_or_sleep() {
   done < <(recorded_windows)
 
   if [ "${#windows[@]}" -eq 0 ]; then
-    sleep "$POLL"
+    mx_interruptible_sleep "$POLL"
     return
   fi
 
@@ -570,7 +590,7 @@ event_wait_or_sleep() {
     _event_cap_fails=0
   fi
   if [ "$_event_cap_ok" != 1 ]; then
-    sleep "$POLL"
+    mx_interruptible_sleep "$POLL"
     return
   fi
 
@@ -587,7 +607,7 @@ event_wait_or_sleep() {
       # pure polling for the rest of this watcher process.
       _event_cap_fails=$((_event_cap_fails + 1))
       [ "$_event_cap_fails" -ge "$EVENT_CAP_FAIL_MAX" ] && _event_cap_ok=0
-      sleep "$POLL"
+      mx_interruptible_sleep "$POLL"
       ;;
     *)
       # 1: a clean full-budget wait with no actionable edge - the reader already
@@ -632,6 +652,11 @@ if ! mx_lock_try_acquire "$WATCH_LOCK"; then
   exit 0
 fi
 watcher_cleanup() {
+  if [ -n "${_interruptible_sleep_pid:-}" ]; then
+    kill "$_interruptible_sleep_pid" 2>/dev/null || true
+    wait "$_interruptible_sleep_pid" 2>/dev/null || true
+    _interruptible_sleep_pid=""
+  fi
   mx_active_check_stop || return 1
   mx_check_output_cleanup
   mx_custom_check_snapshot_cleanup
@@ -646,6 +671,7 @@ WATCHER_PID=${BASHPID:-$$}
 printf '%s\n' "$MX_HOME" > "$WATCH_LOCK/mx-home" || true
 printf '%s\n' "$WATCH_PATH" > "$WATCH_LOCK/watcher-path" || true
 mx_pid_identity "$WATCHER_PID" > "$WATCH_LOCK/pid-identity" 2>/dev/null || true
+trap ':' USR1
 
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
 

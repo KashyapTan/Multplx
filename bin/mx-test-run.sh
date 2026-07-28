@@ -134,7 +134,7 @@ family_for_basename() {
       printf '%s\n' pure-contract-unit
       ;;
     mx-daemon.test.sh|mx-guard-stale-banner.test.sh|mx-pi-watch-extension.test.sh|\
-    mx-supervision-events.test.sh|mx-turnend-guard.test.sh|mx-wake-daemon-lifecycle-e2e.test.sh|\
+    mx-nudge.test.sh|mx-supervision-events.test.sh|mx-turnend-guard.test.sh|mx-wake-daemon-lifecycle-e2e.test.sh|\
     mx-wake-queue.test.sh|mx-watch-checkpoint.test.sh|mx-watch-triage.test.sh|\
     mx-watcher-lock.test.sh)
       printf '%s\n' watcher-wake-lock
@@ -627,6 +627,10 @@ families_for_changed_path() {
     bin/mx-classify-lib.sh|bin/mx-daemon*|bin/mx-turnend-guard*|bin/mx-guard.sh)
       printf '%s\n' watcher-wake-lock
       ;;
+    bin/mx-report)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' watcher-wake-lock
+      ;;
     bin/mx-afk*)
       printf '%s\n' afk
       printf '%s\n' real-herdr-gated
@@ -664,7 +668,7 @@ families_for_changed_path() {
       # lane's contract coverage re-runs.
       printf '%s\n' real-herdr-gated
       ;;
-    bin/mx-brief.sh|bin/mx-report|bin/mx-report-mcp.mjs|\
+    bin/mx-brief.sh|bin/mx-report-mcp.mjs|\
     bin/mx-ensure-agents-md.sh|bin/mx-actor-state.sh|\
     bin/mx-decision-hold.sh|bin/mx-supervision*|bin/mx-transition-lib.sh|\
     bin/mx-tmux-lib.sh|bin/mx-marker-lib.sh|bin/mx-operational-input.sh|bin/mx-tasks-axi-lib.sh|\
