@@ -276,7 +276,7 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
 <p style="margin:0">The ideate stage parks and resumes across potentially many maintainer exchanges. The decision-hold lifecycle handles one question cleanly; a long back-and-forth is many holds. Acceptable for v1 (the broker keeps the conversation, the engine only needs the final approval), but watch for friction in the end-to-end proof and adjust there, not speculatively.</p>
 </div>
 <div class="callout"><div class="label">Open question — user-local definitions</div>
-<p style="margin:0">v1 keeps all definitions repo-tracked in <code>workflows/</code> (shareable, diffable, satisfies "changeable for all users"). If a private per-user overlay is ever wanted (e.g. <code>~/.computer/workflows/</code>), it must still pass the same validator and the same launch-snapshot trust rule. Deferred until someone actually wants it.</p>
+<p style="margin:0">v1 keeps all definitions repo-tracked in <code>workflows/</code> (shareable, diffable, satisfies "changeable for all users"). If a private per-user overlay is ever wanted (e.g. <code>~/.multplx/workflows/</code>), it must still pass the same validator and the same launch-snapshot trust rule. Deferred until someone actually wants it.</p>
 </div>
 <div class="callout"><div class="label">Open question — contract vocabulary growth</div>
 <p style="margin:0">v1 ships three verifiable contracts (<code>output</code> exists, <code>local-commits</code>, command exit 0). Likely early additions: "tests pass for path X", "PR exists". Each addition is engine code + a validator entry + tests — deliberately not definable in the definition file itself.</p>
