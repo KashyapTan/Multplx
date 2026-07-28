@@ -32,6 +32,10 @@ Actors write status events through the task-bound `report_status` MCP tool when 
 The wrapper owns the closed actor-writable vocabulary `working|paused|blocked|needs-decision|done|failed|resolved`, rejects multiline events and cross-task writes before opening a status file, and emits the existing plain or keyed line grammar.
 Claude and Codex receive session-scoped MCP configuration from `mx-spawn.sh`; Pi uses the wrapper because no project-scoped MCP registration contract is verified for it.
 The MCP adapter delegates every accepted call to the wrapper, so validation and append behavior have one owner.
+After a successful durable append, `mx-report` may send a payload-free `USR1` nudge to the live watcher only when the PID and PID identity advertised by that home's singleton lock still match.
+The signal interrupts the watcher's ordinary terminal poll wait and causes the same scan loop to run early; native Herdr event waits remain bounded and unchanged.
+Missing, stale, disabled, or undeliverable nudges are silent, and the durable event plus the normal `MX_POLL` cycle remain authoritative.
+This is a latency optimization over the existing reconstructable disk state, not a status-ingest daemon, socket, or second supervision path.
 `bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a no-mistakes run, active or terminal, only when it matches the actor's branch and current code identity, then keeps that run-step authoritative even if the pane has closed.
 The script header owns the exact run-head ancestry rules.
 During no-mistakes' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.

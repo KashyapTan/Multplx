@@ -33,6 +33,13 @@ No adapter starts a replacement with shell `&`.
 
 The turn-end guard remains the final backstop rather than the normal continuity mechanism and cooperates with the auto-arm in its `--claude` mode.
 
+## Status-report latency nudge
+
+After `mx-report` durably appends an event, it may send `USR1` only to a live process whose current PID identity matches the watcher lock's recorded identity.
+The watcher traps that payload-free signal and interrupts only its ordinary terminal poll sleep so the existing scan runs early.
+No watcher, a stale or incomplete lock, an identity mismatch, disabled nudging, or failed signal delivery silently falls back to the unchanged `MX_POLL` cycle.
+The nudge creates no recoverable state and no listener process; the append-only event and polling path remain the source of truth.
+
 ## Arm-layer cycle contract
 
 `bin/mx-watch-arm.sh` never returns a clean empty success.
