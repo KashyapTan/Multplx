@@ -3,8 +3,8 @@
 # exact pr_head=<sha> when available, then atomically arm a static merge poll.
 # The watcher check source is byte-for-byte bin/fm-pr-poll.sh; task and PR data
 # live only in a private sidecar and are never interpolated into shell source.
-# A GitHub pull request URL and a GitLab merge request URL are both accepted,
-# including a merge request on a self-hosted GitLab instance.
+# Only a canonical GitHub pull request URL is accepted; any other host is a
+# hard validation error.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -47,25 +47,14 @@ fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || 
   exit 1
 }
 
-# Refuse to arm a GitLab watch with no glab on PATH. The poll is silent on
-# every error by design, so a missing CLI would be indistinguishable from a
-# merge request that is never merged. Arming is the one point where that can be
-# reported, so the absent tool stops the watch here instead of watching nothing.
-if [ "$PROVIDER" = gitlab ] && ! command -v glab >/dev/null 2>&1; then
-  echo "error: watching a GitLab merge request requires glab on PATH" >&2
-  exit 1
-fi
-
 # Neutralize any pre-fix poll before recording or arming this task. The
 # migration never executes legacy artifacts and holds watcher exclusion while
 # it quarantines or rebuilds them.
 "$SCRIPT_DIR/fm-pr-check-migrate.sh" --checks-safe || exit 1
 "$FM_ROOT/bin/fm-guard.sh" || true
 
-# pr_head is recorded only when the forge's CLI can supply it. gh exposes the
-# head commit as a selectable field; plain glab exposes it only inside its JSON
-# output, which would need a JSON processor firstmate does not require, so a
-# GitLab task records no pr_head. Both consumers already treat it as optional:
+# pr_head is recorded only when gh can supply it: it exposes the head commit
+# as a selectable field. Both consumers already treat it as optional:
 # bin/fm-teardown.sh reads the head from the forge at teardown rather than from
 # metadata and falls back to its provider-agnostic content check, and
 # bin/fm-review-diff.sh resolves the head from the remote when none is recorded.
