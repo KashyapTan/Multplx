@@ -7,7 +7,7 @@
 # the one shared ANSI-aware owner (fm_composer_strip_ghost, bin/fm-composer-lib.sh,
 # reached here through the fm_tmux_strip_ghost thin adapter):
 #   - DIM/FAINT (SGR 2): claude's rotating prompt suggestion, codex's idle tip.
-#   - a dark/muted TRUECOLOR foreground: grok's placeholder/hint text.
+#   - a dark/muted TRUECOLOR foreground: a harness placeholder/hint text.
 # These tests pin:
 #   1. fm_tmux_strip_ghost drops dim/faint AND dark-truecolor runs, keeping
 #      normal-intensity, brightly-coloured text.
@@ -99,8 +99,8 @@ test_strip_ghost_keeps_colored_text_with_2_payloads() {
   local out
   # These pin that the awk's truecolor/256-color `2` payload SELECTOR is not
   # mistaken for the SGR-2 dim attribute. The truecolor foregrounds use a BRIGHT
-  # colour (grok's real-input RGB 224,222,244, luminance ~225), because a DARK
-  # truecolor foreground is now itself a ghost signal (grok's placeholder) and is
+  # colour (real-input RGB 224,222,244, luminance ~225), because a DARK
+  # truecolor foreground is now itself a ghost signal (a harness placeholder) and is
   # covered by test_strip_ghost_drops_dark_truecolor_ghost below.
   out=$(printf '\033[38;5;2mgreen typed\033[0m\n' | fm_tmux_strip_ghost)
   [ "$out" = "green typed" ] || fail "8-bit color payload 2 was treated as dim: '$out'"
@@ -119,15 +119,14 @@ test_strip_ghost_keeps_colored_text_with_2_payloads() {
   pass "fm_tmux_strip_ghost keeps bright colored text with 2 payloads"
 }
 
-# --- Dark truecolor foreground is ghost (grok placeholder), dropped ----------
+# --- Dark truecolor foreground is ghost (harness placeholder), dropped -------
 
 test_strip_ghost_drops_dark_truecolor_ghost() {
   local out
-  # grok renders its placeholder/hint text with a dark, muted truecolor
+  # Some harnesses render placeholder/hint text with a dark, muted truecolor
   # foreground (empirically 38;2;50;47;70 .. 38;2;110;106;134, luminance ~51..110,
-  # verified live against grok 0.2.93; the pristine "Type a message..." placeholder
-  # was this shape in grok 0.2.82). The shared owner drops it while keeping the
-  # bright prompt glyph, so an idle grok composer never reads as pending.
+  # verified live). The shared owner drops it while keeping the
+  # bright prompt glyph, so an idle composer never reads as pending.
   out=$(printf '\xe2\x9d\xaf \033[38;2;50;47;70mType a message...\033[0m\n' | fm_tmux_strip_ghost)
   [ "$out" = "$(printf '\xe2\x9d\xaf ')" ] || fail "dark truecolor ghost not dropped: '$out'"
   out=$(printf '\033[38;2;110;106;134mplaceholder hint text\033[39m\n' | fm_tmux_strip_ghost)
@@ -135,7 +134,7 @@ test_strip_ghost_drops_dark_truecolor_ghost() {
   # The colon form drops too.
   out=$(printf '\xe2\x9d\xaf \033[38:2::86:82:110mmuted\033[0m\n' | fm_tmux_strip_ghost)
   [ "$out" = "$(printf '\xe2\x9d\xaf ')" ] || fail "dark colon-truecolor ghost not dropped: '$out'"
-  pass "fm_tmux_strip_ghost drops a dark/muted truecolor foreground (grok placeholder)"
+  pass "fm_tmux_strip_ghost drops a dark/muted truecolor foreground placeholder"
 }
 
 # --- fm_pane_input_pending: dim ghost is not pending ------------------------
@@ -207,18 +206,18 @@ test_colored_text_with_2_payload_still_pending() {
 
 test_dark_truecolor_ghost_only_composer_is_not_pending() {
   local dir fb capture
-  dir="$TMP_ROOT/grok-ghost"; mkdir -p "$dir"
+  dir="$TMP_ROOT/truecolor-ghost"; mkdir -p "$dir"
   fb=$(make_fake_tmux "$dir")
   capture="$dir/styled.txt"
-  # A grok-style pristine composer: bright prompt glyph + a dark/muted truecolor
-  # placeholder. It must read NOT pending (the grok TRUECOLOR gap, now covered by
+  # A pristine composer: bright prompt glyph + a dark/muted truecolor
+  # placeholder. It must read NOT pending (the TRUECOLOR gap, now covered by
   # the same ANSI-aware owner as claude's dim ghost).
   printf '\xe2\x9d\xaf \033[38;2;50;47;70mType a message...\033[0m\n' > "$capture"
   if PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=0 \
      fm_pane_input_pending "fakepane"; then
     fail "dark truecolor ghost-only composer falsely read as pending"
   fi
-  pass "fm_pane_input_pending: a dark truecolor ghost-only composer (grok placeholder) is NOT pending"
+  pass "fm_pane_input_pending: a dark truecolor ghost-only composer placeholder is NOT pending"
 }
 
 test_dark_truecolor_bare_shell_prompt_is_unknown() {

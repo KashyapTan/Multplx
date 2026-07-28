@@ -20,7 +20,7 @@ The archived proof JSON below still records the Phase 2 proof-time flags (`produ
 | `started_at` | `2026-07-25T08:43:04Z` |
 | `finished_at` | `2026-07-25T08:44:54Z` |
 | concurrency | **4** |
-| candidates | **28** |
+| candidates | **26** |
 | failed | **0** |
 | wall duration_ms | **110623** (~110.6s) |
 | `production_sharding_enabled` | `False` |
@@ -49,7 +49,6 @@ Sorted paths as selected by `bin/fm-test-isolation-proof.sh --list` at proof tim
 - `tests/fm-crew-state.test.sh`
 - `tests/fm-decision-hold-lifecycle.test.sh`
 - `tests/fm-ensure-agents-md.test.sh`
-- `tests/fm-grok-harness.test.sh`
 - `tests/fm-herdr-lab.test.sh`
 - `tests/fm-instruction-owners.test.sh`
 - `tests/fm-nm-test-contract.test.sh`
@@ -79,7 +78,6 @@ Sorted paths as selected by `bin/fm-test-isolation-proof.sh --list` at proof tim
 | 11199 | 0 | 12 | `tests/fm-herdr-lab.test.sh` |
 | 8900 | 0 | 26 | `tests/fm-test-run.test.sh` |
 | 6630 | 0 | 18 | `tests/fm-pr-merge.test.sh` |
-| 5276 | 0 | 11 | `tests/fm-grok-harness.test.sh` |
 | 4496 | 0 | 20 | `tests/fm-send-popup-settle.test.sh` |
 | 2410 | 0 | 19 | `tests/fm-review-diff.test.sh` |
 | 2179 | 0 | 21 | `tests/fm-send-settle.test.sh` |

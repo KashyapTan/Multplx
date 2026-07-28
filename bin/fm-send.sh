@@ -255,7 +255,7 @@ else
   # invocation, so a `$...` message to a codex target gets the same settle. That
   # `$` case is scoped to codex on purpose: unlike `/`, a leading `$` commonly
   # starts ordinary text ("$5/month", "$HOME"), so a universal `$` rule would
-  # needlessly slow plain text to claude/opencode/pi. The target backend's
+  # needlessly slow plain text to claude/pi. The target backend's
   # verified submit retry still backs the settle up either way.
   case "$*" in
     /*) settle=1.2 ;;

@@ -153,12 +153,7 @@ run_matrix_entry() {
       printf '%s' "$payload" | "$CHECK" --claude >"$out_file" 2>"$err_file"
       rc=$?
       ;;
-    grok)
-      payload=$(jq -cn --arg command "$cmd" '{toolName:"run_terminal_command",toolInput:{command:$command}}')
-      printf '%s' "$payload" | "$CHECK" >"$out_file" 2>"$err_file"
-      rc=$?
-      ;;
-    opencode|pi)
+    pi)
       "$CHECK" --command "$cmd" >"$out_file" 2>"$err_file"
       rc=$?
       ;;
@@ -179,19 +174,16 @@ run_matrix_entry() {
     || fail "$id via $entry deny must carry a stable reason code on stderr: $(cat "$err_file")"
   if [ "$entry" = claude ]; then
     [ ! -s "$out_file" ] || fail "$id via claude deny must leave stdout empty: $(cat "$out_file")"
-  elif [ "$entry" = grok ]; then
-    jq -e '.decision == "deny"' "$out_file" >/dev/null 2>&1 \
-      || fail "$id via grok deny must carry decision=deny on stdout: $(cat "$out_file")"
   fi
 }
 
 test_full_acceptance_matrix() {
   local i entry
   for ((i = 0; i < ${#MATRIX_IDS[@]}; i++)); do
-    for entry in codex claude grok opencode pi; do
+    for entry in codex claude pi; do
       run_matrix_entry "${MATRIX_IDS[$i]}" "${MATRIX_EXPECTED[$i]}" "$entry" "${MATRIX_COMMANDS[$i]}"
     done
-    pass "matrix ${MATRIX_IDS[$i]}: ${MATRIX_EXPECTED[$i]} through all five entry forms"
+    pass "matrix ${MATRIX_IDS[$i]}: ${MATRIX_EXPECTED[$i]} through all three entry forms"
   done
 }
 
@@ -257,15 +249,6 @@ test_unknown_flag_errors() {
 }
 
 # --- stdin JSON mode ----------------------------------------------------------
-
-test_stdin_grok_schema_deny() {
-  local out rc
-  out=$(printf '%s' '{"toolInput":{"command":"bin/fm-watch-arm.sh &","background":false},"toolName":"run_terminal_command"}' | "$CHECK" 2>/dev/null)
-  rc=$?
-  [ "$rc" -eq 2 ] || fail "grok toolInput.command schema must be read and denied, got exit $rc"
-  printf '%s' "$out" | jq -e '.decision == "deny"' >/dev/null 2>&1 || fail "stdout must carry Grok's {\"decision\":\"deny\",...} shape: $out"
-  pass "stdin grok schema (toolInput.command): denied with Grok-shaped stdout JSON"
-}
 
 test_stdin_claude_codex_schema_allow() {
   local rc
@@ -410,14 +393,14 @@ test_claude_mode_stdout_empty_on_deny() {
   pass "--claude: stdout empty, stderr carries hookSpecificOutput deny JSON"
 }
 
-test_default_mode_stdout_has_grok_json_on_deny() {
+test_default_mode_stdout_has_decision_json_on_deny() {
   local out rc
   out=$("$CHECK" --command 'bin/fm-watch-arm.sh &' 2>/dev/null)
   rc=$?
   [ "$rc" -eq 2 ] || fail "default deny must exit 2, got $rc"
   printf '%s' "$out" | jq -e '.decision == "deny"' >/dev/null 2>&1 \
-    || fail "default (non-claude) deny must put Grok's decision JSON on stdout: $out"
-  pass "default mode: stdout carries Grok-shaped decision JSON on deny"
+    || fail "default (non-claude) deny must put a decision JSON on stdout: $out"
+  pass "default mode: stdout carries a decision JSON on deny"
 }
 
 test_allow_is_silent_both_modes() {
@@ -430,35 +413,6 @@ test_allow_is_silent_both_modes() {
 }
 
 # --- harness wiring: each adapter invokes the shared checker -----------------
-
-test_grok_pretool_hook_wired() {
-  local settings command
-  settings="$ROOT/.grok/hooks/fm-primary-pretool-check.json"
-  [ -f "$settings" ] || fail "tracked grok primary PreToolUse hook config is missing"
-  command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command // empty' "$settings")
-  [ -n "$command" ] || fail "PreToolUse hook command is missing from grok primary hook config"
-  assert_contains "$command" 'GROK_WORKSPACE_ROOT' "grok pretool hook must anchor from GROK_WORKSPACE_ROOT"
-  assert_contains "$command" 'fm-arm-pretool-check.sh' "grok pretool hook must invoke the shared checker"
-  assert_contains "$command" 'exec "${GROK_WORKSPACE_ROOT:-}/bin/fm-arm-pretool-check.sh"' "grok pretool hook must forward its stdin payload unchanged to the checker"
-  # shellcheck disable=SC2016  # single quotes are deliberate: a literal needle string, not an expansion
-  assert_not_contains "$command" 'root=${GROK_WORKSPACE_ROOT' "grok pretool hook must not assign a bare \$root var (breaks grok's own \${VAR} pre-substitution; see docs/arm-pretool-check.md)"
-  local matcher
-  matcher=$(jq -r '.hooks.PreToolUse[0].matcher // empty' "$settings")
-  [ "$matcher" = "Bash" ] || fail "grok pretool hook must matcher-scope to Bash, got: $matcher"
-  pass ".grok primary hook: PreToolUse hook invokes the shared checker"
-}
-
-test_grok_turnend_hook_uses_safe_var_pattern() {
-  local settings command
-  settings="$ROOT/.grok/hooks/fm-primary-turnend-guard.json"
-  [ -f "$settings" ] || fail "tracked grok primary Stop hook config is missing"
-  command=$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$settings")
-  # shellcheck disable=SC2016  # single quotes are deliberate: literal needle strings, not expansions
-  assert_not_contains "$command" 'root=${GROK_WORKSPACE_ROOT' "grok Stop hook must not assign a bare \$root var either (regression fixed 2026-07-09, docs/arm-pretool-check.md)"
-  # shellcheck disable=SC2016
-  assert_contains "$command" '${GROK_WORKSPACE_ROOT:-}' "grok Stop hook must reference GROK_WORKSPACE_ROOT with an inline default every time"
-  pass ".grok primary hook: Stop hook uses the \${VAR:-} pattern throughout (no bare \$root)"
-}
 
 test_claude_settings_pretool_hook_wired() {
   local settings command
@@ -492,20 +446,6 @@ test_codex_hooks_pretool_wired() {
   pass ".codex/hooks.json: PreToolUse hook invokes the shared checker"
 }
 
-test_opencode_pretool_plugin_wired() {
-  local plugin content
-  plugin="$ROOT/.opencode/plugins/fm-primary-pretool-check.js"
-  [ -f "$plugin" ] || fail "tracked opencode primary pretool plugin is missing"
-  content=$(cat "$plugin")
-  assert_contains "$content" 'tool.execute.before' "opencode pretool plugin must hook tool.execute.before"
-  assert_contains "$content" 'fm-arm-pretool-check.sh' "opencode pretool plugin must invoke the shared checker"
-  assert_contains "$content" 'const command = output?.args?.command;' "opencode must extract output.args.command exactly"
-  assert_contains "$content" '["--command", command]' "opencode must forward the exact command as one CLI argument"
-  assert_contains "$content" 'if (result.code !== 2) return;' "opencode must throw only for checker exit 2"
-  assert_contains "$content" 'throw new Error' "opencode pretool plugin must throw to block the tool call"
-  pass ".opencode primary plugin: tool.execute.before invokes the shared checker and blocks by throwing"
-}
-
 test_pi_extension_carries_pretool_check() {
   local ext content
   ext="$ROOT/.pi/extensions/fm-primary-turnend-guard.ts"
@@ -525,7 +465,6 @@ test_direct_policy_contract
 test_command_equals_form
 test_background_flag_accepted_and_non_gating
 test_unknown_flag_errors
-test_stdin_grok_schema_deny
 test_stdin_claude_codex_schema_allow
 test_stdin_claude_codex_schema_deny
 test_stdin_unrelated_command_allowed
@@ -535,11 +474,8 @@ test_failopen_garbage_stdin
 test_failopen_missing_jq
 test_failopen_missing_node
 test_claude_mode_stdout_empty_on_deny
-test_default_mode_stdout_has_grok_json_on_deny
+test_default_mode_stdout_has_decision_json_on_deny
 test_allow_is_silent_both_modes
-test_grok_pretool_hook_wired
-test_grok_turnend_hook_uses_safe_var_pattern
 test_claude_settings_pretool_hook_wired
 test_codex_hooks_pretool_wired
-test_opencode_pretool_plugin_wired
 test_pi_extension_carries_pretool_check

@@ -46,7 +46,7 @@ Verify setup by spawning a small task and confirming its `fm-<id>` window appear
 
 A target-existence check proves only that the pane exists.
 The deeper tmux agent-liveness probe first verifies exact window membership, then reads `#{pane_current_command}` to distinguish a running harness process from a bare idle shell.
-It classifies recognized Claude, Codex, OpenCode, and Grok process names as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.
+It classifies recognized Claude and Codex process names as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.
 Only `dead` and `missing` authorize recovery because a false dead result could launch a duplicate agent.
 
 Pi runs through a generic `node` process name and cannot be attributed confidently from the tmux foreground-process field.
@@ -61,8 +61,8 @@ A bare shell prompt is `unknown`, so away-mode escalation is never injected into
 It types a message once and retries Enter only until the composer clears.
 A cleared composer is the positive delivery acknowledgement; text left in the composer remains `pending`, and `fm-send.sh` reports the failure instead of retyping.
 
-OpenCode 1.18.4 has one busy-queue exception.
-While OpenCode is mid-turn, Enter queues the message but leaves its text visible until the turn completes.
+There is one busy-queue exception.
+Some harness TUIs accept Enter mid-turn as a queued message but leave its text visible until the turn completes.
 After the normal retry budget, a provably busy pane is accepted as queued, while an idle pane remains `pending` as a genuine swallowed Enter.
 `tests/fm-tmux-submit-busy.test.sh` covers busy and idle panes with both pending and cleared composers.
 
@@ -70,7 +70,7 @@ After the normal retry budget, a provably busy pane is accepted as queued, while
 
 - tmux is the reference path and supports secondmate homes.
 - Existing Pi agent-process liveness is inconclusive, while an authoritatively missing Pi window can trigger recovery.
-- The OpenCode busy-queue exception is tmux-specific; Herdr retains its separately documented gap.
+- The busy-queue exception is tmux-specific; Herdr retains its separately documented gap.
 
 ```sh
 tests/fm-backend-tmux-smoke.test.sh

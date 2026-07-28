@@ -158,7 +158,7 @@ test_ahoy_is_an_internal_user_invocable_skill() {
 }
 
 test_ahoy_readme_uses_cross_harness_convention() {
-  assert_grep 'Claude and grok use the slash form shown here; codex uses the same names with `$`' "$README" \
+  assert_grep 'Claude uses the slash form shown here; codex uses the same names with `$`' "$README" \
     "README lost the cross-harness slash and dollar convention"
   assert_grep '| `/ahoy`' "$README" "README built-in skills table does not list /ahoy"
   pass "README lists ahoy under the shared cross-harness invocation convention"
@@ -235,11 +235,8 @@ test_ahoy_scans_visible_history_for_open_decisions() {
 }
 
 test_ahoy_user_role_injections_share_one_marker() {
-  local daemon grok_guard opencode_guard opencode_watch pi_guard pi_watch owner sessionstart spawn
+  local daemon pi_guard pi_watch owner sessionstart spawn
   daemon=$(cat "$ROOT/bin/fm-supervise-daemon.sh")
-  grok_guard=$(cat "$ROOT/bin/fm-turnend-guard-grok.sh")
-  opencode_guard=$(cat "$ROOT/.opencode/plugins/fm-primary-turnend-guard.js")
-  opencode_watch=$(cat "$ROOT/.opencode/plugins/fm-primary-watch-arm.js")
   pi_guard=$(cat "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts")
   pi_watch=$(cat "$ROOT/.pi/extensions/fm-primary-pi-watch.ts")
   owner=$(cat "$ROOT/bin/fm-operational-input.sh")
@@ -252,14 +249,6 @@ test_ahoy_user_role_injections_share_one_marker() {
     "session-start does not use the canonical typed constructor"
   assert_contains "$daemon" 'fm_operational_input_encode away-supervisor' \
     "away-mode does not use the canonical typed constructor"
-  assert_contains "$grok_guard" 'fm_operational_input_encode turn-end-guard' \
-    "Grok guard does not use the canonical typed constructor"
-  assert_contains "$opencode_guard" 'encodeFirstmateOperationalInput(' \
-    "OpenCode guard does not use the cross-language constructor"
-  assert_contains "$opencode_guard" '"turn-end-guard"' \
-    "OpenCode guard does not retain its exact current kind"
-  assert_contains "$opencode_watch" 'encodeFirstmateOperationalInput(paths.root, "watcher"' \
-    "OpenCode watcher does not retain its exact current kind"
   assert_contains "$pi_guard" 'encodeFirstmateOperationalInput(' \
     "Pi guard does not use the cross-language constructor"
   assert_contains "$pi_guard" '"turn-end-guard"' \
@@ -268,7 +257,7 @@ test_ahoy_user_role_injections_share_one_marker() {
     "Pi watcher does not retain its exact current kind"
   assert_contains "$spawn" 'encode launch-brief' \
     "cross-harness launches do not use the canonical launch-instruction kind"
-  for producer in "$daemon" "$grok_guard" "$opencode_guard" "$opencode_watch" "$pi_guard" "$pi_watch" "$sessionstart" "$spawn"; do
+  for producer in "$daemon" "$pi_guard" "$pi_watch" "$sessionstart" "$spawn"; do
     assert_not_contains "$producer" 'FIRSTMATE_OP: ' \
       "a current producer copied the canonical marker grammar"
   done

@@ -28,10 +28,10 @@ zsh
 ```
 
 A persistent parent shell waiting for a child remained reported as the parent process, while a shell that directly execed a simple command changed identity with the process itself.
-Claude, Codex, OpenCode, and Grok were observed under their own process names.
+Claude and Codex were observed under their own process names.
 Pi remained a generic `node` process and is intentionally inconclusive.
 
-The OpenCode 1.18.4 busy-queue behavior and the tmux fallback are pinned by:
+The busy-queue behavior and the tmux fallback are pinned by:
 
 ```sh
 tests/fm-tmux-submit-busy.test.sh
@@ -159,7 +159,7 @@ Real captures verified these active distinctions:
 - Claude and Codex use bare `❯` and `›` agent composers.
 - Pi uses content between complete separator rows and requires exact native Pi identity.
 - Dim or faint suggestion text is ghost content, while normally styled text is pending input.
-- Grok dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
+- Dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 
 `tests/fm-composer-ghost.test.sh`, `tests/fm-composer-lib.test.sh`, and the Herdr composer cases pin the exact captured ANSI bytes.

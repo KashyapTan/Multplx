@@ -1764,7 +1764,7 @@ fm_backend_herdr_strip_ansi() {  # <text>
 # whichever match comes LAST (scanning forward), so a shape earlier in
 # scrollback/a popup can never outrank the real (bottom-anchored) composer:
 #
-#   bordered - a boxed composer (verified grok 0.2.82): the row's TRIMMED
+#   bordered - a boxed composer: the row's TRIMMED
 #              content both STARTS and ENDS with the same border glyph (│, ┃,
 #              or a plain ASCII |). The box's own top/bottom rows use rounded
 #              corners (╭─…─╮ / ╰─…─╯), which never match; popup item rows and
@@ -1800,8 +1800,8 @@ fm_backend_herdr_strip_ansi() {  # <text>
 #              ambiguous-pane refusal.
 #
 #   empty   - blank, a bare prompt glyph, known ghost/placeholder text
-#             ("Type a message...", verified grok 0.2.82's empty-composer
-#             placeholder), or only de-emphasised ANSI ghost/placeholder text
+#             (an empty-composer "Type a message..." placeholder),
+#             or only de-emphasised ANSI ghost/placeholder text
 #             recognized by the shared fm_composer_strip_ghost extractor
 #             (dim/faint or dark-TRUECOLOR foreground). Safe to treat as
 #             submitted.
@@ -1809,7 +1809,7 @@ fm_backend_herdr_strip_ansi() {  # <text>
 #             also covers a slash-command popup that just closed but only
 #             auto-completed or filled an argument-hint placeholder into the
 #             composer (e.g. "/compact" -> "/compact compaction
-#             instructions", verified live against real grok 0.2.82) - that
+#             instructions") - that
 #             first Enter is a SELECTION, not a submission.
 #   unknown - the pane could not be read, or no composer row (of either shape)
 #             was found in the captured window.
@@ -1818,7 +1818,7 @@ fm_backend_herdr_strip_ansi() {  # <text>
 # de-emphasis styling, and the classifier extracts real typed content with the
 # shared fm_composer_strip_ghost (bin/fm-composer-lib.sh), which drops dim/faint
 # runs (claude's rotating prompt suggestion, codex's idle suggestion after the
-# bare `›` prompt) AND dark/muted truecolor foreground runs (grok's placeholder),
+# bare `›` prompt) AND dark/muted truecolor foreground placeholder runs,
 # while keeping non-de-emphasised real typed input. This is the same owner the
 # tmux adapter routes through, so the two backends cannot drift (task
 # afk-herdr-false-pending); it superseded a herdr-only faint byte-pattern check

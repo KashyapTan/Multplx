@@ -25,18 +25,18 @@
 # GHOST/PLACEHOLDER TEXT is the other half of this owner (task
 # afk-herdr-false-pending): a harness fills an otherwise-empty composer with
 # de-emphasized ghost text - claude's rotating prompt suggestion, codex's idle
-# suggestion, grok's placeholder - which a plain capture cannot tell apart from
+# suggestion, another harness's placeholder - which a plain capture cannot tell apart from
 # text a human typed, so the away-mode injector reads the idle pane as "pending
 # input" and defers every escalation (the overnight wedge that motivated this
 # consolidation). fm_composer_strip_ghost is the ONE ANSI-aware extractor of
 # "real typed content": it drops every de-emphasized run - dim/faint (SGR 2, how
 # claude and codex render ghost text) AND a dark/muted TRUECOLOR foreground (how
-# grok renders placeholder/hint text) - and keeps only normal-intensity,
+# some harnesses render placeholder/hint text) - and keeps only normal-intensity,
 # normally-coloured text. Consolidating it here means the two ANSI-capable
 # adapters (tmux via bin/fm-tmux-lib.sh, herdr via bin/backends/herdr.sh) cannot
 # drift into per-harness one-off strips again; the previous herdr-only faint
 # byte-pattern check missed claude's own dim ghost (its prompt glyph is not
-# bold-wrapped) and no adapter covered grok's truecolor placeholder at all.
+# bold-wrapped) and no adapter covered a truecolor placeholder at all.
 #
 # Each adapter still owns its own CAPTURE and structural row-finding, because
 # those use genuinely different primitives (tmux's cursor-row read, herdr's ANSI
@@ -69,8 +69,8 @@ fm_composer_strip_ansi() {
 #     A reset (SGR 0) or normal-intensity (SGR 22) ends a dim run.
 #   - dark/muted TRUECOLOR foreground runs (SGR 38;2;r;g;b or the colon form
 #     38:2::r:g:b) whose perceived luminance (0.299R + 0.587G + 0.114B) is below
-#     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
-#     and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
+#     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how some harnesses render their
+#     placeholder and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
 #     foreground colour (30-37 / 90-97), or a lighter 38;2 foreground ends the
 #     dark-foreground run. This assumes a DARK terminal theme, the firstmate
 #     fleet reality, where real typed input is bright and only de-emphasised UI
@@ -166,8 +166,8 @@ fm_composer_strip_ghost() {
 #              cursor line that carried no box border).
 #   <content>  the candidate composer content, already border-stripped and
 #              whitespace-trimmed by the caller.
-#   [idle_re]  optional per-harness idle-placeholder regex (e.g. grok's
-#              "Type a message...") that reads as empty; matched both before and
+#   [idle_re]  optional per-harness idle-placeholder regex (e.g. a
+#              "Type a message..." hint) that reads as empty; matched both before and
 #              after a leading prompt glyph is stripped, so a pattern written
 #              with or without the glyph both land.
 fm_composer_idle_matches() {

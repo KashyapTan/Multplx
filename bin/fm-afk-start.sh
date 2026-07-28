@@ -19,7 +19,7 @@
 #
 # This is the COMMON daemon entry for every backend. HOW it becomes a tracked
 # background process differs by harness/backend and is owned elsewhere:
-#   - Harnesses with a native in-pane tracked-background tool (e.g. claude, grok)
+#   - Harnesses with a native in-pane tracked-background tool (e.g. claude)
 #     run this directly via that tool, so the daemon inherits the captain pane's
 #     env and auto-discovers it.
 #   - Harnesses with NO native background mechanism (e.g. pi) run this THROUGH

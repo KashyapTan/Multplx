@@ -249,14 +249,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "docs/supervision-protocols/grok.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-protocols/opencode.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": "docs/supervision-protocols/pi.md",
       "audience": "agent-runtime"
     },

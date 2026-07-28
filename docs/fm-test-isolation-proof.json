@@ -67,12 +67,6 @@
       "worker": 10
     },
     {
-      "duration_ms": 5276,
-      "exit": 0,
-      "path": "tests/fm-grok-harness.test.sh",
-      "worker": 11
-    },
-    {
       "duration_ms": 11199,
       "exit": 0,
       "path": "tests/fm-herdr-lab.test.sh",
@@ -173,6 +167,6 @@
   "summary": {
     "duration_ms": 110623,
     "failed": 0,
-    "total": 27
+    "total": 26
   }
 }

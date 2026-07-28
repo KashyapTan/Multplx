@@ -16,14 +16,14 @@
 #   <PreToolUse JSON on stdin> | bin/fm-cd-pretool-check.sh
 #   bin/fm-cd-pretool-check.sh --command '<cmd>'
 #
-# Stdin mode extracts .toolInput.command for Grok or .tool_input.command for
-# Claude and Codex. CLI mode is used by OpenCode and Pi after their adapters
-# extract the exact command string.
+# Stdin mode extracts .tool_input.command for Claude and Codex (with a legacy
+# .toolInput.command fallback). CLI mode is used by Pi after its adapter
+# extracts the exact command string.
 #
 # Exit/output contract (identical shape to bin/fm-arm-pretool-check.sh):
 #   ALLOW - exit 0 and no output.
-#   DENY - exit 2, a Claude-shaped deny object on stderr, and a Grok-shaped
-#          deny object on stdout unless --claude was supplied.
+#   DENY - exit 2, a Claude-shaped deny object on stderr, and a plain
+#          {"decision":"deny",...} object on stdout unless --claude was supplied.
 #   INERT - not the real primary checkout (a crewmate/scout task worktree or a
 #           non-firstmate repo): exit 0 with no output, exactly like ALLOW.
 #   FAIL OPEN - malformed or empty stdin, missing jq for stdin transport,
@@ -31,8 +31,8 @@
 #
 # Claude requires stdout to remain empty on deny.
 # Codex blocks on exit 2 and displays stderr.
-# Grok consumes the stdout decision object.
-# OpenCode and Pi consume exit 2 plus stderr.
+# Pi consumes exit 2 plus stderr; the stdout decision object remains the
+# default-mode transport for adapters that consume a decision JSON.
 set -u
 
 CMD=""
@@ -43,12 +43,12 @@ usage() {
   cat <<'EOF'
 Usage: fm-cd-pretool-check.sh [--command <cmd>] [--claude]
 
-With no --command, reads a PreToolUse-style JSON payload on stdin (Grok
-toolInput.command, or Claude/Codex tool_input.command).
+With no --command, reads a PreToolUse-style JSON payload on stdin
+(Claude/Codex tool_input.command).
 Fires only in the real primary firstmate checkout; it is a silent no-op in a
 crewmate/scout task worktree or any non-firstmate repo.
 Exits 0 to allow and 2 to deny a persistent top-level cwd change.
-The deny reason is written to stderr, with a Grok decision object on stdout
+The deny reason is written to stderr, with a JSON decision object on stdout
 unless --claude is supplied.
 Malformed transport and an unavailable classifier runtime fail open.
 EOF

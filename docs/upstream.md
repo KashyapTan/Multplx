@@ -37,3 +37,9 @@ i.e. they are upstream/macOS-environment issues, not port regressions:
 This is the reference every later phase is measured against: a phase is green
 when the suite shows **no failures beyond these four** and no new unexplained
 gate-skips.
+
+### One-time cleanup
+
+The removed grok harness support previously installed a global
+`~/.grok/hooks/fm-turn-end.json` hook on operator machines via `fm-spawn.sh`.
+That file is inert without this repo's hooks and can be deleted manually.

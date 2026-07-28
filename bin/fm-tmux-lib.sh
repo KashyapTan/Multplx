@@ -31,17 +31,17 @@
 # benefits, and the herdr adapter routes through the same owner (task
 # afk-herdr-false-pending), so the two backends cannot drift.
 #
-# Busy-queued Enter (opencode 1.18.4, on the tmux backend only for now): when
-# the agent is mid-turn, opencode accepts Enter as a "send when the turn ends"
-# keystroke but does NOT clear the composer until then, so the composer keeps
-# showing the typed text the whole time. The plain "empty iff composer cleared"
+# Busy-queued Enter (on the tmux backend only for now): some harnesses accept
+# Enter while the agent is mid-turn as a "send when the turn ends" keystroke
+# but do NOT clear the composer until then, so the composer keeps showing the
+# typed text the whole time. The plain "empty iff composer cleared"
 # acknowledgement above false-positives on a swallowed Enter for every steer
-# sent to a busy opencode pane, and `fm-send` exits non-zero on a normal
+# sent to such a busy pane, and `fm-send` exits non-zero on a normal
 # captain instruction. The submit core now falls back to `fm_pane_is_busy` once
 # the Enter-retry budget is spent: a busy pane means the harness accepted and
 # queued the Enter (report `empty` so the caller does not re-send), while an
 # idle pane keeps the `pending` verdict (a genuine swallow). The herdr backend
-# observes the same opencode behavior but needs a separate fix; it is recorded
+# observes the same behavior but needs a separate fix; it is recorded
 # as a known gap in `docs/herdr-backend.md` rather than patched here, so the
 # tmux adapter does not paper over a herdr-specific shape.
 #
@@ -61,14 +61,13 @@
 . "$(dirname -- "${BASH_SOURCE[0]}")/fm-composer-lib.sh"
 
 # Busy footers per harness (mirror fm-watch.sh). claude/codex: "esc to
-# interrupt"; opencode: "esc interrupt"; pi: "Working..."; grok: "Ctrl+c:cancel"
-# (grok's mid-turn cancel hint, shown iff a turn is running - verified grok 0.2.73).
-FM_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'
+# interrupt"; pi: "Working...".
+FM_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.'
 
 # fm_tmux_strip_ghost: thin adapter over the shared, fleet-wide ghost extractor
 # fm_composer_strip_ghost (bin/fm-composer-lib.sh). It drops de-emphasised
 # ghost/placeholder runs - dim/faint (SGR 2, claude's/codex's ghost) AND a
-# dark/muted truecolor foreground (grok's placeholder) - from one captured,
+# dark/muted truecolor foreground placeholder - from one captured,
 # styled composer line and prints the plain, real-typed text. Kept as a named
 # tmux entry point (and for existing callers/tests) but owns no logic of its own,
 # so the tmux and herdr adapters cannot drift apart on what counts as ghost text.
@@ -89,7 +88,7 @@ fm_tmux_strip_ghost() { fm_composer_strip_ghost; }
 # read from the PLAIN row (fm_composer_strip_ansi keeps ghost text so the box
 # border is still visible), while the real-typed CONTENT is extracted with the
 # shared fm_composer_strip_ghost so dim/faint AND dark-truecolor ghost text drops
-# out before classification (grok's dark box border drops with the ghost, which
+# out before classification (a dark box border drops with the ghost, which
 # is why the bordered flag is read from the plain row, not the ghost-stripped
 # one). Both are internal only, never surfaced. The detector strips the harness's
 # box-drawing composer borders ("│ … │", heavy "┃", or a plain ASCII "|") using
@@ -156,7 +155,7 @@ fm_pane_is_busy() {  # <target>
 #     not be mistaken for a delivered escalation).
 #   - fm-send fails only on "pending" (lenient: a positively-confirmed swallow),
 #     so an unreadable pane never turns a normal steer into a false error.
-# Busy-queued Enter (opencode 1.18.4): the harness accepts Enter while mid-turn
+# Busy-queued Enter: some harnesses accept Enter while mid-turn
 # and queues it for after the current turn, but keeps the typed text visible in
 # the composer. Once the Enter-retry budget is spent and the composer still
 # reads "pending", the submit core falls back to `fm_pane_is_busy`: a busy pane

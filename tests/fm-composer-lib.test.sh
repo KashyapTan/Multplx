@@ -93,9 +93,9 @@ test_empty_content_is_empty() {
 
 test_idle_placeholder_is_empty() {
   local idle='^Type a message\.\.\.$' out
-  # Placeholder with no prompt glyph (grok's bordered empty composer).
+  # Placeholder with no prompt glyph (a bordered empty composer).
   out=$(classify 1 'Type a message...' "$idle")
-  [ "$out" = empty ] || fail "the grok idle placeholder should read empty, got '$out'"
+  [ "$out" = empty ] || fail "the idle placeholder should read empty, got '$out'"
   # Placeholder after an agent glyph (post-strip match).
   out=$(classify 0 '❯ Type a message...' "$idle")
   [ "$out" = empty ] || fail "the idle placeholder after a glyph should read empty, got '$out'"

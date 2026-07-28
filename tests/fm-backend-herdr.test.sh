@@ -1777,7 +1777,7 @@ test_composer_state_real_text_is_pending() {
   pass "fm_backend_herdr_composer_state: real composer text reads pending"
 }
 
-# Live-verified incident (2026-07-03, real grok 0.2.82 on herdr, isolated
+# Live-verified incident (2026-07-03, on herdr, isolated
 # session): typing "/compact" opens the completion popup; the FIRST Enter
 # closes the popup and EXPANDS the composer into an argument-hint placeholder
 # ("/compact compaction instructions") rather than submitting - the composer
@@ -1987,33 +1987,33 @@ test_composer_state_claude_dim_ghost_row_with_real_text_is_pending() {
   pass "fm_backend_herdr_composer_state: real typed text on the same claude prompt row still reads pending"
 }
 
-# grok's TRUECOLOR placeholder gap (harness-adapters "Known gap"), now covered by
-# the same owner. grok renders its composer inside a bordered box whose border
+# The TRUECOLOR placeholder gap, now covered by
+# the same owner: a harness renders its composer inside a bordered box whose border
 # and placeholder/hint text use a dark, muted truecolor foreground (verified live
-# against grok 0.2.93: border 38;2;86;82;110, muted 38;2;50;47;70, hint
+# live: border 38;2;86;82;110, muted 38;2;50;47;70, hint
 # 38;2;110;106;134; real input is the BRIGHT 38;2;224;222;244), while the "❯"
 # prompt glyph stays bright. The dark placeholder drops and the row reads empty.
-test_composer_state_grok_dark_truecolor_placeholder_is_empty() {
+test_composer_state_dark_truecolor_placeholder_is_empty() {
   local dir log resp fb out
-  dir="$TMP_ROOT/composer-grok-truecolor-ghost"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  dir="$TMP_ROOT/composer-truecolor-ghost"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   printf '  \x1b[38;2;86;82;110m\xe2\x95\xad\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xae\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[38;2;224;222;244m \xe2\x9d\xaf \x1b[38;2;50;47;70mType a message...\x1b[38;2;86;82;110m \xe2\x94\x82\x1b[39m\n  \x1b[38;2;86;82;110m\xe2\x95\xb0\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x95\xaf\x1b[39m\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
-  [ "$out" = empty ] || fail "a grok bordered composer whose only content is a dark-truecolor placeholder must read empty, got '$out'"
-  pass "fm_backend_herdr_composer_state: grok's dark-truecolor placeholder (the TRUECOLOR gap) reads empty"
+  [ "$out" = empty ] || fail "a bordered composer whose only content is a dark-truecolor placeholder must read empty, got '$out'"
+  pass "fm_backend_herdr_composer_state: a dark-truecolor placeholder (the TRUECOLOR gap) reads empty"
 }
 
-# grok's bordered composer with REAL bright typed input must still read pending.
-test_composer_state_grok_bright_truecolor_real_text_is_pending() {
+# A bordered composer with REAL bright typed input must still read pending.
+test_composer_state_bright_truecolor_real_text_is_pending() {
   local dir log resp fb out
-  dir="$TMP_ROOT/composer-grok-truecolor-real"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  dir="$TMP_ROOT/composer-truecolor-real"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   printf '  \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[38;2;224;222;244m \xe2\x9d\xaf fix the login bug \x1b[38;2;86;82;110m\xe2\x94\x82\x1b[39m\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
-  [ "$out" = pending ] || fail "real bright typed text in a grok bordered composer must read pending, got '$out'"
-  pass "fm_backend_herdr_composer_state: grok's real bright typed input still reads pending"
+  [ "$out" = pending ] || fail "real bright typed text in a bordered composer must read pending, got '$out'"
+  pass "fm_backend_herdr_composer_state: real bright typed input still reads pending"
 }
 
 test_composer_state_codex_bare_prompt_glyph_is_empty() {
@@ -3056,8 +3056,8 @@ test_composer_state_claude_unbordered_prompt_is_pending
 test_composer_state_bare_prompt_below_stale_bordered_banner_wins
 test_composer_state_claude_dim_prompt_suggestion_ghost_is_empty
 test_composer_state_claude_dim_ghost_row_with_real_text_is_pending
-test_composer_state_grok_dark_truecolor_placeholder_is_empty
-test_composer_state_grok_bright_truecolor_real_text_is_pending
+test_composer_state_dark_truecolor_placeholder_is_empty
+test_composer_state_bright_truecolor_real_text_is_pending
 test_composer_state_codex_bare_prompt_glyph_is_empty
 test_composer_state_codex_faint_suggestion_is_empty
 test_composer_state_codex_non_faint_same_text_is_pending

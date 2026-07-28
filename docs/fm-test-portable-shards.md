@@ -8,7 +8,7 @@ The proven-isolated candidate set remains owned by `bin/fm-test-isolation-proof.
 
 | Input | Owner / source |
 |---|---|
-| Proven-isolated set (29 scripts) | `bin/fm-test-isolation-proof.sh --list` and `docs/fm-test-isolation-proof.md` |
+| Proven-isolated set (26 scripts) | `bin/fm-test-isolation-proof.sh --list` and `docs/fm-test-isolation-proof.md` |
 | Phase 1 serial durations | CI timing artifacts `fm-test-timing` from main after #825 / #832 / #834 |
 | Real-Herdr family | `bin/fm-test-run.sh --family real-herdr-gated` (dedicated required CI lane) |
 
@@ -23,7 +23,6 @@ Phase 1 averages used for balance (mean of available serial `duration_ms` across
 | 6885 | `tests/fm-herdr-lab.test.sh` |
 | 5127 | `tests/fm-crew-state.test.sh` |
 | 4044 | `tests/fm-pr-merge.test.sh` |
-| 3922 | `tests/fm-grok-harness.test.sh` |
 | 2492 | `tests/fm-test-run.test.sh` |
 | 1901 | `tests/fm-send-popup-settle.test.sh` |
 | 1234 | `tests/fm-spawn-batch.test.sh` |
@@ -47,16 +46,16 @@ Phase 1 averages used for balance (mean of available serial `duration_ms` across
 ## Balancing history
 
 The original 30-script set used longest-processing-time (LPT) assignment onto two workers with the Phase 1 averages above.
-The current 27-script lanes retain that assignment after removed candidates left their lanes (one 283 ms candidate from `portable-parallel-1`, plus retired scripts from `portable-parallel-2` during the Multplx port).
-The current totals are therefore intentionally not a fresh LPT balance of the 27-script set.
+The current 26-script lanes retain that assignment after removed candidates left their lanes (one 283 ms candidate from `portable-parallel-1`, plus retired scripts from `portable-parallel-2` during the Multplx port).
+The current totals are therefore intentionally not a fresh LPT balance of the 26-script set.
 Do not rebalance alphabetically or by family intuition.
 Shard execution order remains longest-first within each retained lane.
 
 | Lane | Script count | Sum of Phase 1 averages |
 |---|---:|---:|
 | `portable-parallel-1` | 14 | 64296 ms (~64.3 s) |
-| `portable-parallel-2` | 13 | 45018 ms (~45.0 s) |
-| imbalance | | 19278 ms |
+| `portable-parallel-2` | 12 | 41096 ms (~41.1 s) |
+| imbalance | | 23200 ms |
 
 Exact ordered membership is the heredoc lists in `bin/fm-test-run.sh` (`list_portable_parallel_1` / `list_portable_parallel_2`).
 
