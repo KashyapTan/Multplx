@@ -22,7 +22,7 @@ Recommended approach: **evolve a copy, don't edit the reference.**
 
 ### Phase 0 — Bootstrap the Multplx tree (before Plan 01)
 
-- Copy `firstmate/` → repo root (excluding `.git`): `bin/`, `tests/`, `docs/`, `config/`, `skills/`, `.agents/`, `AGENTS.md`, harness config dirs (`.claude/`, `.codex/`, etc.).
+- Copy `firstmate/` → repo root (excluding `.git`): `bin/`, `tests/`, `docs/`, `config/`, `skills/`, `.agents/`, and harness config dirs (`.claude/`, `.codex/`, etc.); copy upstream `AGENTS.md` as the non-auto-loaded root template `example_agents.md`.
 - **Record the upstream fork point now** (required by plan 14): capture the vendored copy's upstream commit SHA and repo URL into a tracked `docs/upstream.md` before any porting begins — this record must exist before `firstmate/` is eventually deleted.
 - Run the full suite unmodified to establish the green baseline:
   ```
@@ -132,7 +132,8 @@ If a plan changes functionality an existing test asserts (e.g. brief text now in
 - An actor session demonstrably cannot push (no credentials), and the push service demonstrably refuses unvalidated/stale branches.
 - deep-review runs end-to-end on a real sample change with an explicit `--intent`: findings → fix round → ask-user escalation → maintainer decision → validated local branch → credentialed push → remote CI watched. Config read from `.deep-review.yaml` on the default branch.
 - The `new-feature` workflow runs end-to-end through `mx-workflow.sh` (ideate → approved spec → fresh-session implement → deep-review with the spec as intent → approved delivery) — this doubles as the whole port's integration proof.
-- `AGENTS.md` reads correctly in the new voice (plan 02's checklist), and `README`/docs describe Multplx, not firstmate.
+- `example_agents.md` reads correctly in the new voice (plan 02's checklist), and `README`/docs describe Multplx, not firstmate.
+- After every other definition-of-done item passes and the maintainer approves activation, rename `example_agents.md` to `AGENTS.md` so supported harnesses begin auto-loading the finished broker contract.
 - `firstmate/` is deleted from the repo; the Multplx tree at the root is the only copy. **Precondition:** the upstream fork-point SHA is recorded in `docs/upstream.md` (Phase 0 step, required by plan 14) before the folder goes.
 
 ---

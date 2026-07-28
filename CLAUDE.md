@@ -8,6 +8,8 @@ Never hardcode a local absolute checkout path in code or documentation.
 Port the read-only upstream reference under `firstmate/` into a standalone system tailored for the maintainer.
 Preserve proven safety and lifecycle behavior while replacing rank-coded language and adding the features defined in `plans/index.html`.
 The root implementation must stand on its own rather than depending on the reference checkout.
+While the port is incomplete, `example_agents.md` is the non-auto-loaded broker-contract template.
+Update `example_agents.md` whenever a plan changes broker behavior or documentation, and do not promote it to the auto-loaded `AGENTS.md` name until the port's definition of done is satisfied and the maintainer approves activation.
 
 ## Workflow
 

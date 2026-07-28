@@ -92,7 +92,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr>
     <td>
       <ul style="margin-bottom:0">
-        <li>Remove the entire X-mode subsystem: scripts, skill, env handling, docs, AGENTS.md §14.</li>
+        <li>Remove the entire X-mode subsystem: scripts, skill, env handling, docs, <code>example_agents.md</code> §14.</li>
         <li>Remove <code>bin/fm-install-shellcheck.sh</code> and the standalone <code>bin/fm-lint.sh</code> gate wiring (CI step, test-runner map entries, mandatory-gate test).</li>
         <li>Strip every glab/GitLab branch from the PR check/poll/lib scripts; collapse to GitHub-only.</li>
         <li>Remove the osascript wedge-alarm branch and its docs.</li>
@@ -191,8 +191,8 @@ wedge alarm channels:                       wedge alarm channels:
     Remove <code>bin/fm-x-lib.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-poll.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-reply.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-dismiss.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-followup.sh</code> <span class="pill del">del</span>, <code>bin/fm-x-link.sh</code> <span class="pill del">del</span>, and the whole <code>.agents/skills/fmx-respond/</code> directory <span class="pill del">del</span>.</li>
   <li><b>Gut FMX handling in bootstrap.</b>
     In <code>bin/fm-bootstrap.sh</code> <span class="pill mod">mod</span>: remove the <code>fm-x-lib.sh</code> source line (~line 99), the X-mode opt-in probe (lines 607–628, the <code>fmx_env_get FMX_PAIRING_TOKEN</code> block and its curl+jq requirement escalation), and the header-contract mention at line 58. Grep the file afterward for <code>FMX_</code> and <code>fmx_</code> — zero hits expected.</li>
-  <li><b>Strip X mode from the docs and AGENTS.md.</b>
-    <code>AGENTS.md</code> <span class="pill mod">mod</span>: delete §14 entirely, the <code>fmx-respond</code> bullet in §13 (line 480), and the X-mode sentence in §8 (line 334); renumber nothing (leave a section-numbering pass to <a href="02-rebrand.html">plan 02</a>'s full rewrite). <code>docs/configuration.md</code> <span class="pill mod">mod</span>, <code>docs/architecture.md</code> <span class="pill mod">mod</span>, <code>docs/scripts.md</code> <span class="pill mod">mod</span> (drop the six-row X-mode block at lines 89–94).</li>
+  <li><b>Strip X mode from the docs and <code>example_agents.md</code>.</b>
+    <code>example_agents.md</code> <span class="pill mod">mod</span>: delete §14 entirely, the <code>fmx-respond</code> bullet in §13 (line 480), and the X-mode sentence in §8 (line 334); renumber nothing (leave a section-numbering pass to <a href="02-rebrand.html">plan 02</a>'s full rewrite). <code>docs/configuration.md</code> <span class="pill mod">mod</span>, <code>docs/architecture.md</code> <span class="pill mod">mod</span>, <code>docs/scripts.md</code> <span class="pill mod">mod</span> (drop the six-row X-mode block at lines 89–94).</li>
   <li><b>Remove the standalone lint gate and installer.</b>
     Delete <code>bin/fm-install-shellcheck.sh</code> <span class="pill del">del</span> and <code>bin/fm-lint.sh</code> <span class="pill del">del</span>. Remove the <code>- run: bin/fm-lint.sh</code> step from <code>.github/workflows/ci.yml</code> <span class="pill mod">mod</span> (line 25). The lint <i>capability</i> returns in <a href="10-deep-review-gate.html">plan 10</a> as the deep-review gate's <code>commands.lint</code> path — a project may declare any linter (including a shellcheck invocation) there.</li>
   <li><b>Collapse the PR forge abstraction to GitHub-only.</b>
@@ -204,7 +204,7 @@ wedge alarm channels:                       wedge alarm channels:
   <li><b>Update the test runner's hardcoded maps.</b>
     <code>bin/fm-test-run.sh</code> <span class="pill mod">mod</span> is the single owner of test-family and changed-file maps and references deleted files in at least six places: family map entries for <code>fm-lint.test.sh</code> (line 125) and <code>fm-x-mode.test.sh</code> (line 169), shard lists (lines 249, 264, 295, 305), and the changed-file → family cases <code>bin/fm-x-*</code> (line 668) and <code>bin/fm-lint.sh|bin/fm-install-shellcheck.sh</code> (line 685). Remove every reference; the runner must not map to nonexistent tests.</li>
   <li><b>Repo-wide leftover sweep, then full suite.</b>
-    Run <code>grep -rniE 'fmx_|fm-x-|myfirstmate|glab|gitlab|osascript|shellcheck' bin/ tests/ docs/ AGENTS.md .github/ .agents/</code> and clear every hit except (a) <code># shellcheck</code> lint directives inside scripts, which stay, and (b) historical references in this planning material. Then run the full suite via <code>bin/fm-test-run.sh</code> — green is the exit criterion.</li>
+    Run <code>grep -rniE 'fmx_|fm-x-|myfirstmate|glab|gitlab|osascript|shellcheck' bin/ tests/ docs/ example_agents.md .github/ .agents/</code> and clear every hit except (a) <code># shellcheck</code> lint directives inside scripts, which stay, and (b) historical references in this planning material. Then run the full suite via <code>bin/fm-test-run.sh</code> — green is the exit criterion.</li>
 </ol>
 
 <h2>Backend &amp; harness pruning (maintainer decision 2026-07-26)</h2>
@@ -260,20 +260,20 @@ wedge alarm channels:                       wedge alarm channels:
   <tr><td><code>bin/fm-supervise-daemon.sh</code></td><td>Modify</td><td>Remove <code>wedge_alarm_via_osascript()</code> + osascript channel wiring; keep herdr/<code>command:</code>/discard + durable marker.</td></tr>
   <tr><td><code>bin/fm-test-run.sh</code></td><td>Modify</td><td>Remove deleted tests/scripts from family maps + shard lists (lines 125, 169, 249, 264, 295, 305, 668, 685).</td></tr>
   <tr><td><code>.github/workflows/ci.yml</code></td><td>Modify</td><td>Remove the <code>bin/fm-lint.sh</code> step (line 25).</td></tr>
-  <tr><td><code>AGENTS.md</code></td><td>Modify</td><td>Delete §14, §13 fmx-respond bullet (line 480), §8 X-mode sentence (line 334).</td></tr>
+  <tr><td><code>example_agents.md</code></td><td>Modify</td><td>Delete §14, §13 fmx-respond bullet (line 480), §8 X-mode sentence (line 334).</td></tr>
   <tr><td><code>docs/configuration.md</code>, <code>docs/architecture.md</code>, <code>docs/scripts.md</code></td><td>Modify</td><td>Remove X-mode notes and the fm-x script catalogue rows (scripts.md 89–94); audit for glab/wedge-alarm/lint references.</td></tr>
   <tr><td><code>tests/fm-pr-check-security.test.sh</code></td><td>Modify</td><td>Strip GitLab assertions (65 hits); keep GitHub security coverage.</td></tr>
   <tr><td><code>tests/fm-pr-merge.test.sh</code></td><td>Modify</td><td>Drop GitLab-record assertions.</td></tr>
   <tr><td><code>tests/fm-daemon.test.sh</code></td><td>Modify</td><td>Drop osascript-channel assertions only.</td></tr>
-  <tr><td><code>tests/mx-removed-deps.test.sh</code></td><td>New</td><td>Regression tripwire: greps <code>bin/ tests/ docs/ AGENTS.md</code> for <code>FMX_|fm-x-|myfirstmate|glab|gitlab</code>, the osascript wedge channel, and the pruned <code>zellij|orca|grok|opencode</code> backend/harness references; fails on any hit (allowlisting <code># shellcheck</code> directives).</td></tr>
+  <tr><td><code>tests/mx-removed-deps.test.sh</code></td><td>New</td><td>Regression tripwire: greps <code>bin/ tests/ docs/ example_agents.md</code> for <code>FMX_|fm-x-|myfirstmate|glab|gitlab</code>, the osascript wedge channel, and the pruned <code>zellij|orca|grok|opencode</code> backend/harness references; fails on any hit (allowlisting <code># shellcheck</code> directives).</td></tr>
 </table>
 
 <h2>Broker contract &amp; documentation updates</h2>
 <p>This deletion plan is not complete when code alone is removed; the broker's operating contract and every maintained reference must describe the reduced system in the same change.</p>
 <ul>
-  <li><code>AGENTS.md</code>: remove X mode, GitLab, pruned backend/harness, osascript wedge-channel, and standalone-lint instructions so the broker cannot request dependencies or paths that no longer exist.</li>
+  <li><code>example_agents.md</code>: remove X mode, GitLab, pruned backend/harness, osascript wedge-channel, and standalone-lint instructions so the future broker cannot request dependencies or paths that no longer exist.</li>
   <li><code>docs/configuration.md</code>, <code>docs/architecture.md</code>, <code>docs/scripts.md</code>, and backend-specific documents: remove the deleted configuration, topology, commands, and support claims; delete documents whose subject no longer exists.</li>
-  <li>Conditional procedures and exact mechanics: remove or update the owning skills and script headers instead of leaving stale detail duplicated in <code>AGENTS.md</code>.</li>
+  <li>Conditional procedures and exact mechanics: remove or update the owning skills and script headers instead of leaving stale detail duplicated in <code>example_agents.md</code>.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and the plan's removed-dependency grep after the implementation, documentation, and review-fix commits.</li>
 </ul>
 

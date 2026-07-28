@@ -264,7 +264,7 @@ title/body source                    # PR title + body assembled from the gate's
 <h2 id="docs">Broker contract &amp; documentation updates</h2>
 <p>The least-privilege delivery split changes who may push, create PRs, and hold credentials, so the broker contract is a required part of the security boundary.</p>
 <ul>
-  <li><code>AGENTS.md</code>: rewrite delivery, PR-ready, merge, and credential rules so actors stop at approved local commits, the non-agent delivery service owns push/PR creation, and merge authority remains with the maintainer or accepted yolo posture.</li>
+  <li><code>example_agents.md</code>: rewrite delivery, PR-ready, merge, and credential rules so actors stop at approved local commits, the non-agent delivery service owns push/PR creation, and merge authority remains with the maintainer or accepted yolo posture.</li>
   <li><code>docs/architecture.md</code>, <code>docs/configuration.md</code>, and a delivery/state-record reference: document queue ownership, credential scoping, launch context, restart recovery, and the local-only exception.</li>
   <li><code>bin/mx-deliver*.sh</code> and PR-script headers: own record schemas, exact verification, and invocation mechanics; generated briefs must remove all actor push instructions.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and add deterministic checks that no broker or actor instruction grants remote credentials or asks an actor to push.</li>

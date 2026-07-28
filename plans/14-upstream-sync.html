@@ -248,7 +248,7 @@ stages:
 <tr><td><code>bin/mx-upstream-diff.sh</code></td><td>New</td><td>Read-only fetch/diff/filter/report; scratch-dir-only writes; sole writer of <code>last_reviewed</code> via <code>--record-reviewed</code>.</td></tr>
 <tr><td><code>workflows/upstream-sync.workflow.md</code></td><td>New</td><td>Five-stage definition for the plan-11 engine: fetch → triage → review → port → record.</td></tr>
 <tr><td><code>plans/porting.md</code></td><td>Modify</td><td>Phase 0 checklist + definition of done gain the fork-point-SHA capture step (the one port-time obligation of this plan).</td></tr>
-<tr><td><code>AGENTS.md</code></td><td>Modify</td><td>One line in the broker's capability inventory: the sync cadence and "run the upstream-sync workflow" verb (rides on plan 11's generic workflow wiring).</td></tr>
+<tr><td><code>example_agents.md</code></td><td>Modify</td><td>One line in the broker's capability inventory: the sync cadence and "run the upstream-sync workflow" verb (rides on plan 11's generic workflow wiring).</td></tr>
 <tr><td><code>tests/mx-upstream-diff.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
 <tr><td><code>tests/fixtures/upstream-sync/</code></td><td>New</td><td>Fixture upstream repo + fixture diffs (relevant / irrelevant / deleted-subsystem paths), golden report, and the workflow-validate fixture.</td></tr>
 </table>
@@ -256,7 +256,7 @@ stages:
 <h2>Broker contract &amp; documentation updates</h2>
 <p>Upstream sync adds a recurring maintenance workflow, so the broker needs a durable trigger and the maintainer needs a single authoritative fork-point record.</p>
 <ul>
-  <li><code>AGENTS.md</code>: add the concise sync cadence and instruction to invoke <code>workflows/upstream-sync.workflow.md</code>; do not copy the full review procedure into the always-loaded contract.</li>
+  <li><code>example_agents.md</code>: add the concise sync cadence and instruction to invoke <code>workflows/upstream-sync.workflow.md</code>; do not copy the full review procedure into the future auto-loaded contract.</li>
   <li><code>docs/upstream.md</code>, <code>docs/workflows.md</code>, and <code>docs/architecture.md</code>: own the fork point, relevance map, review log, workflow linkage, retirement decision, and read-only diff boundary.</li>
   <li><code>bin/mx-upstream-diff.sh</code> header and the workflow definition: own exact fetch/filter/record mechanics and staged execution.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and keep any Firstmate names confined to the narrowly allowlisted upstream-history record and fixtures.</li>

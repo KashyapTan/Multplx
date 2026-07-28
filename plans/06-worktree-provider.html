@@ -148,7 +148,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <h2>Broker contract &amp; documentation updates</h2>
 <p>Keeping treehouse still defines how the broker provisions isolation and how daemons hold durable leases, so those responsibilities must remain current after the port.</p>
 <ul>
-  <li><code>AGENTS.md</code>: update spawn, daemon provisioning, and teardown references to the final <code>mx-*</code> paths and retain the isolation, lease, and unlanded-work safety rules.</li>
+  <li><code>example_agents.md</code>: update spawn, daemon provisioning, and teardown references to the final <code>mx-*</code> paths and retain the isolation, lease, and unlanded-work safety rules.</li>
   <li><code>docs/architecture.md</code>, <code>docs/configuration.md</code>, and <code>docs/upstream.md</code>: document treehouse's provider role, pin, lease capability, and relationship to session providers.</li>
   <li><code>daemon-provisioning</code> and the install/spawn/teardown script headers: own conditional lease procedures and exact command mechanics.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and verify that no broker instruction names a pre-rebrand treehouse caller.</li>

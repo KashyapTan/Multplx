@@ -4,7 +4,7 @@ How broker works, in depth.
 
 The [README](../README.md) carries the high-level diagram and a short synopsis.
 This document expands every part of it.
-broker's always-loaded operating contract and routing index for conditional procedures is [`AGENTS.md`](../AGENTS.md); this is the human-facing companion.
+The port's non-auto-loaded broker-contract template and routing index for conditional procedures is [`example_agents.md`](../example_agents.md); this is the human-facing companion.
 
 ## Event-driven supervision
 
@@ -129,7 +129,7 @@ Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show
 
 ## No-mistakes gate authority boundary
 
-Multplx's own no-mistakes gate runs agents inside a checkout that also contains the system-maintainer identity in `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
+Multplx's own no-mistakes gate runs agents inside a checkout that also contains the system-maintainer identity in `example_agents.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
 The tracked `.no-mistakes.yaml` sets `disable_project_settings: true`; no-mistakes honors that setting only from the trusted default-branch copy, so a pushed branch cannot enable its own project instructions during validation.
 Independently, `mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` source `bin/mx-gate-refuse-lib.sh` and exit with status 3 before system mutation when the gate environment marker is present or the current checkout matches the default no-mistakes gate-repository topology.
 A normal primary checkout or actor worktree has neither signal and remains unaffected.
@@ -138,12 +138,12 @@ The helper's header owns the exact signal detection, relocated-home limitation, 
 ## Two task shapes
 
 DELIVERY TASK change projects and delivery by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
-The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
+The intake and authority-contract template in `example_agents.md` owns when separate scout research is warranted.
 
 ## Dispatch profiles
 
 Actor and scout dispatch can stay on the static actor harness resolved by `config/actor-harness`, or it can use local dispatch profiles in `config/actor-dispatch.json`.
-The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
+The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `example_agents.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
 The shell scripts validate the JSON shape and verified harness/effort combinations, but they do not parse task intent, match natural-language rules, or own array selection.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses actor and scout launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
@@ -204,7 +204,7 @@ Durable project-intrinsic agent knowledge lives in each project's committed `AGE
 Delivery briefs prompt actors to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 Each project `AGENTS.md` carries a short `## Maintaining this file` self-governance section; `bin/mx-ensure-agents-md.sh` owns the canonical wording and injects it idempotently when creating the skeleton, promoting an existing `CLAUDE.md`, or reconciling an existing `AGENTS.md` that still lacks it.
 It refuses a case-variant real memory file such as a lowercase `agents.md`, whose `CLAUDE.md` symlink would carry an uppercase literal target that dangles on a case-sensitive filesystem, and surfaces the mismatch for manual reconciliation.
-The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned by [`AGENTS.md`](../AGENTS.md) (project and knowledge management).
+The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned by [`example_agents.md`](../example_agents.md) (project and knowledge management).
 
 ## Operational memory routing
 
@@ -229,7 +229,7 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 `/updatemultplx` fast-forwards the running Multplx repo and registered daemon homes from `origin`, then re-reads updated instructions and nudges updated daemons without touching project clones.
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 The origin-based updater and the local daemon sync share the same guarded fast-forward helper; only the origin mode fetches.
-The mechanics are owned by the `/updatemultplx` skill and broker's operating manual in [`AGENTS.md`](../AGENTS.md) (self-update).
+The mechanics are owned by the `/updatemultplx` skill and broker's operating-manual template in [`example_agents.md`](../example_agents.md) (self-update).
 
 ## Restart-proof
 

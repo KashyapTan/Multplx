@@ -257,9 +257,9 @@ behavior:
 <h2>Broker contract &amp; documentation updates</h2>
 <p>Validated reporting changes how every actor and daemon communicates with the broker, so the instructional contract must land with the write path.</p>
 <ul>
-  <li><code>AGENTS.md</code>: replace raw status-file append instructions with the <code>report_status</code>-when-available, <code>mx-report</code>-fallback contract; retain the event-log-is-not-current-truth and <code>mx-actor-state.sh</code> reconciliation rules.</li>
+  <li><code>example_agents.md</code>: replace raw status-file append instructions with the <code>report_status</code>-when-available, <code>mx-report</code>-fallback contract; retain the event-log-is-not-current-truth and <code>mx-actor-state.sh</code> reconciliation rules.</li>
   <li><code>docs/architecture.md</code> and <code>docs/scripts.md</code>: document the two validated write paths, task binding, fail-closed behavior, and the unchanged reconciliation boundary.</li>
-  <li><code>.agents/skills/harness-adapters/SKILL.md</code>, <code>bin/mx-report</code> headers, and generated briefs: own the per-harness wiring, exact CLI mechanics, and task-scoped reporting instructions without duplicating those details in <code>AGENTS.md</code>.</li>
+  <li><code>.agents/skills/harness-adapters/SKILL.md</code>, <code>bin/mx-report</code> headers, and generated briefs: own the per-harness wiring, exact CLI mechanics, and task-scoped reporting instructions without duplicating those details in <code>example_agents.md</code>.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and add assertions that generated briefs and broker instructions contain only the post-rebrand <code>mx-*</code> names.</li>
 </ul>
 

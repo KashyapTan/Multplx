@@ -149,7 +149,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "AGENTS.md",
+      "path": "example_agents.md",
       "audience": "agent-runtime"
     },
     {

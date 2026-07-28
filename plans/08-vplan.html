@@ -183,7 +183,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <p><code>docs/vplan-authoring.md</code> carries lavish's proven authoring guidance (extracted from its <code>skills/lavish/SKILL.md</code> and <code>src/playbooks.js</code> on 2026-07-27), adapted only where lavish's version assumed its own machinery:</p>
 <table>
 <tr><th>Ported rule</th><th>Adaptation for vplan</th></tr>
-<tr><td><b>When to reach for an artifact:</b> anything "easier to grasp visually than as prose" — plans, comparisons, diagrams, tables, reports, code reviews.</td><td>Verbatim, framed by the AGENTS.md doctrine: chat for yes/no, vplan for structure.</td></tr>
+<tr><td><b>When to reach for an artifact:</b> anything "easier to grasp visually than as prose" — plans, comparisons, diagrams, tables, reports, code reviews.</td><td>Framed by the <code>example_agents.md</code> doctrine: chat for yes/no, vplan for structure.</td></tr>
 <tr><td><b>Design-system priority:</b> (1) match the maintainer's stated design request; (2) inspect the documented project and reuse <i>its</i> design system (CSS tokens, component library, brand assets); (3) fall back to a default.</td><td>Steps 1–2 verbatim. Step 3's fallback changes: lavish falls back to Tailwind v4 + DaisyUI v5 <i>via CDN</i>; vplan falls back to the vendored seed template — CDN means an external fetch, and artifacts must render offline.</td></tr>
 <tr><td><b>Overflow prevention</b> at every nesting level: <code>minmax(0, 1fr)</code> in grids, <code>min-width: 0</code> on flex children; protect long paths in tables.</td><td>Verbatim — baked into the seed template's CSS, since we dropped the layout-audit gate that caught violations at review time.</td></tr>
 <tr><td><b>Visual hierarchy over prose:</b> cards, tables, diagrams, side-by-side comparisons instead of paragraphs; embed screenshots instead of describing UI; relative asset paths only (never root-relative).</td><td>Verbatim.</td></tr>
@@ -193,7 +193,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <h3>Invocation doctrine (ported from firstmate)</h3>
 <ul>
   <li><b>Broker-invoked, maintainer-facing.</b> The broker authors and serves artifacts when presenting plans, structured reports, or multi-option decisions. Actors don't run review sessions; their plans surface through the broker.</li>
-  <li>The AGENTS.md rule ports with new names: <i>"Use plain chat for a yes-or-no decision and vplan only when several options or a structured report benefit from a visual surface."</i></li>
+  <li>The <code>example_agents.md</code> rule ports with new names: <i>"Use plain chat for a yes-or-no decision and vplan only when several options or a structured report benefit from a visual surface."</i></li>
   <li>Artifacts live at <code>data/&lt;id&gt;/plan.html</code> for task-linked plans (replacing the <code>.lavish/*.html</code> convention); the bearings-equivalent report cites them as pickup pointers.</li>
   <li><b>Decision-hold integration:</b> ending a vplan review completes nothing by itself — unresolved maintainer decisions surfaced by the review must be registered through the ported decision-hold lifecycle, exactly as firstmate requires for Lavish reviews. vplan never owns a parallel completion policy.</li>
   <li>Synergies: plan 11 workflow spec stages may emit their artifact via vplan; plan 12's <code>mx-timeline --html</code> and plan 14's sync report reuse the template.</li>
@@ -206,7 +206,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <li><b>Build the comment SDK</b> — <code>share/vplan/sdk.js</code> + <code>sdk.css</code> <span class="pill new">new</span>: hover highlight, click-to-comment with selector/snippet/heading capture, text-selection anchoring, queue panel, existing-pin rendering (reads any present <code>#vplan-comments</code> block, dims resolved), Confirm &amp; Save → <code>POST /confirm</code>.</li>
   <li><b>Build the server</b> — <code>bin/mx-vplan-server.mjs</code> <span class="pill new">new</span>: loopback bind with the 4870–4889 fallback walk; serve artifact + injected SDK + assets; <code>POST /confirm</code> validates the payload shape, merges into the comments block (fresh block for a first review; append/update for later rounds), writes atomically, responds, exits 0. Idle-timeout self-shutdown.</li>
   <li><b>Build the CLI</b> — <code>bin/mx-vplan.sh</code> <span class="pill new">new</span>: <code>new / review / comments / stop</code>; <code>review</code> writes the <code>state/.vplan/</code> run record, launches the server, prints the bound URL; <code>comments</code> extracts and pretty-prints the JSON block (jq); <code>stop</code> kills by run record with liveness verification (reuse the PID-identity primitives).</li>
-  <li><b>Wire the doctrine</b> — Multplx <code>AGENTS.md</code> <span class="pill mod">mod</span>: the chat-vs-vplan rule, the <code>data/&lt;id&gt;/plan.html</code> convention, and the decision-hold completion requirement referencing the ported lifecycle skill.</li>
+  <li><b>Wire the doctrine</b> — Multplx <code>example_agents.md</code> <span class="pill mod">mod</span>: the chat-vs-vplan rule, the <code>data/&lt;id&gt;/plan.html</code> convention, and the decision-hold completion requirement referencing the ported lifecycle skill.</li>
   <li><b>Bootstrap cleanup</b> — remove <code>lavish-axi</code> from the required-tools probe and install hints <span class="pill mod">mod</span> (<code>COMMON_TOOLS</code>, <code>install_cmd()</code>); add a self-check that <code>mx-vplan.sh --help</code> works and the vendored assets are present.</li>
   <li><b>Docs</b> — <code>docs/vplan.md</code> <span class="pill new">new</span>: lifecycle, port behavior, comment format spec, and the run-record contract (which plan 13's doctor consumes for the orphan-server check).</li>
   <li><b>End-to-end proof</b> — author a real plan artifact with a Mermaid diagram, serve it, add comments including a text-range one, confirm, verify the file gained the block and the port freed, read it back with <code>comments</code>, resolve one, re-serve and verify the dimmed pin.</li>
@@ -221,7 +221,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <tr><td><code>share/vplan/mermaid.min.js</code></td><td>New</td><td>Pinned + hash-recorded diagram renderer.</td></tr>
 <tr><td><code>share/vplan/template.html</code></td><td>New</td><td>Seed artifact template.</td></tr>
 <tr><td><code>docs/vplan-authoring.md</code>, <code>docs/vplan.md</code></td><td>New</td><td>Ported playbook guide; module mechanics.</td></tr>
-<tr><td><code>AGENTS.md</code></td><td>Modify</td><td>Invocation doctrine + artifact-location convention.</td></tr>
+<tr><td><code>example_agents.md</code></td><td>Modify</td><td>Invocation doctrine + artifact-location convention.</td></tr>
 <tr><td><code>bin/mx-bootstrap.sh</code> (post-rename)</td><td>Modify</td><td>Drop lavish-axi probe/install; add vplan self-check.</td></tr>
 <tr><td><code>state/.vplan/</code></td><td>New (runtime)</td><td>Per-review run records; consumed by plan 13's doctor.</td></tr>
 <tr><td><code>tests/mx-vplan.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
@@ -230,9 +230,9 @@ tr:nth-child(even) td{background:var(--surface)}
 <h2>Broker contract &amp; documentation updates</h2>
 <p>vplan adds a maintainer-review surface and replaces lavish-axi, so the broker needs a clear trigger, artifact lifecycle, and decision-return contract.</p>
 <ul>
-  <li><code>AGENTS.md</code>: replace lavish-axi invocation with the <code>mx-vplan.sh</code> review doctrine, artifact-location convention, and rule for returning unresolved maintainer decisions to the normal hold lifecycle.</li>
+  <li><code>example_agents.md</code>: replace lavish-axi invocation with the <code>mx-vplan.sh</code> review doctrine, artifact-location convention, and rule for returning unresolved maintainer decisions to the normal hold lifecycle.</li>
   <li><code>docs/vplan.md</code> and <code>docs/vplan-authoring.md</code>: own module operation and authoring guidance; update <code>docs/architecture.md</code> and <code>docs/scripts.md</code> with concise current-behavior pointers.</li>
-  <li>CLI/server headers and any review skill: own exact commands, port selection, persistence, confirmation, and shutdown mechanics instead of expanding <code>AGENTS.md</code>.</li>
+  <li>CLI/server headers and any review skill: own exact commands, port selection, persistence, confirmation, and shutdown mechanics instead of expanding <code>example_agents.md</code>.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and grep current-behavior instructions for obsolete lavish-axi use.</li>
 </ul>
 

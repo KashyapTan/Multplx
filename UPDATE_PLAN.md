@@ -182,7 +182,7 @@ Drop no-mistakes' **push / pr / ci** steps from the local gate entirely. The loc
 - Where does the round-history record live — inline in `state/<id>.gate/` JSON (simplest, restart-safe) vs. a small SQLite (no, avoid the DB dependency we're trying to shed).
 
 ---
- 
+
 ## 7. Full rebrand: ship/captain → computer/team theme
  
 Goal: remove all rank-coded language (captain outranks crew, no way around that semantically) and replace it with function-coded, *specific* computer-science terms, not generic words like "process" or "operator" that would constantly collide with plain descriptions of the implementation itself. The human's coordinating role doesn't disappear (still final say on direction and merge approval), but the name for it shouldn't imply command over the agents, and no agent should be framed as ranked above another.
@@ -207,7 +207,7 @@ Explicitly avoided: **"node"** for actors (overloaded — graph node, network no
 - **Switchboard** — purely a connect-and-relay function with zero implied authority, but less distinctly "computer" than the other two.
 Pick one before starting the rename pass in 7.4; that section assumes `mx-` as the new prefix.
  
-### 7.3 AGENTS.md: needs a real rewrite, not just find-and-replace
+### 7.3 `example_agents.md`: needs a real rewrite, not just find-and-replace
  
 Swapping nouns alone won't fix it — a lot of the manual's current voice is built from command verbs. Sentences like "ensure your crew completes the task without deviation" or "report to you" carry hierarchy in the *verb*, not the noun. A find-and-replace pass would leave commanding language intact wearing new labels. The rewrite needs to:
 - Reframe the broker's charter from "you supervise and command the crew" to "you coordinate and route work between independent actors," with authority for direction changes and approvals living with the maintainer, not the broker.
@@ -219,7 +219,7 @@ Swapping nouns alone won't fix it — a lot of the manual's current voice is bui
 Everything that currently encodes the theme needs to change, including the new §6 gate design, not just the docs already edited in this file:
 - **Script names**: `bin/fm-*.sh` → `bin/mx-*.sh` — watch, brief, crew-state, classify-lib, supervise-daemon, pr-check, teardown, guard, backend, session-start, composer-lib, report, **and the new §6 scripts**: `fm-gate.sh` → `mx-gate.sh`, `fm-gate-lib.sh` → `mx-gate-lib.sh`.
 - **Config file**: if §6.6 lands on a renamed config (vs. drop-in `.no-mistakes.yaml`), name it `.mx-gate.yaml` to match the new prefix rather than inventing a third naming style.
-- **Docs**: `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md`, `docs/scripts.md`, backend-specific docs (`tmux-backend.md`, `herdr-backend.md`, `cmux-backend.md`, `codex-app-backend.md`, `sessionstart-nudge.md`, `arm-pretool-check.md`, `cd-guard.md`, `decision-hold-lifecycle.md`) — same voice pass as 7.3, not just term substitution.
+- **Docs**: `example_agents.md`, `docs/architecture.md`, `docs/configuration.md`, `docs/scripts.md`, backend-specific docs (`tmux-backend.md`, `herdr-backend.md`, `cmux-backend.md`, `codex-app-backend.md`, `sessionstart-nudge.md`, `arm-pretool-check.md`, `cd-guard.md`, `decision-hold-lifecycle.md`) — same voice pass as 7.3, not just term substitution.
 - **Env vars**: `FM_POLL`, `FM_STALE_ESCALATE_SECS`, and siblings → `MX_POLL`, etc.
 - **On-disk paths/state**: anything literally named `crew`, `fleet`, `ship`, `captain`, `mate` in directory or file naming conventions, including `data/projects.md` and generated `brief.md` text.
 - **Log/error strings emitted by scripts**: read by both the maintainer and the actors, so they're part of the theme too, not just the docs.
@@ -244,7 +244,7 @@ These serve no purpose in our fork; rip them out entirely rather than reimplemen
 
 | Tool / service | What it did in firstmate | Why we can delete it | Files to remove / gut |
 |---|---|---|---|
-| **myfirstmate.io social relay** (X/Twitter + Discord) | Hosted HTTP relay that received public @-mentions and posted firstmate's replies. Ships inert; only wakes up if `FMX_PAIRING_TOKEN` is set. | Not needed — we're not running a public-facing social persona. It's opt-in and inert already, so removal is low-risk. | `bin/fm-x-lib.sh` (~1400-line client), `bin/fm-x-poll.sh`, `bin/fm-x-reply.sh`, `bin/fm-x-dismiss.sh`, `bin/fm-x-followup.sh`, `bin/fm-x-link.sh`. Drop `FMX_*` env handling, the `AGENTS.md` §14 section, and X-mode notes in `docs/configuration.md`. |
+| **myfirstmate.io social relay** (X/Twitter + Discord) | Hosted HTTP relay that received public @-mentions and posted firstmate's replies. Ships inert; only wakes up if `FMX_PAIRING_TOKEN` is set. | Not needed — we're not running a public-facing social persona. It's opt-in and inert already, so removal is low-risk. | `bin/fm-x-lib.sh` (~1400-line client), `bin/fm-x-poll.sh`, `bin/fm-x-reply.sh`, `bin/fm-x-dismiss.sh`, `bin/fm-x-followup.sh`, `bin/fm-x-link.sh`. Drop `FMX_*` env handling, the copied `example_agents.md` §14 section, and X-mode notes in `docs/configuration.md`. |
 | **shellcheck** | Standalone shell-lint gate (`fm-lint.sh`), pinned/installed via `fm-install-shellcheck.sh`. | Not deleted-and-forgotten — its *function* moves into our `deep-review` gate (§6). The lint step of the §6 gate owns lint from now on (via the `commands.lint` mechanic in §6.3.1, or the Tier-2 agent lint fallback). So we remove shellcheck as a *separate top-level dependency and installer*, and let a project declare `bin/fm-lint.sh` (or any linter) as its `commands.lint` if it wants shell linting. | Remove `bin/fm-install-shellcheck.sh` and the standalone `fm-lint.sh` gate wiring / `tests/fm-lint.test.sh` as a mandatory step. Keep the *ability* to run a linter, but only through the §6 gate's configured-command path. Drop the shellcheck bootstrap probe in `fm-bootstrap.sh`. |
 | **glab** (GitLab CLI) | Optional GitLab MR polling / head-commit reads (merge was never implemented upstream). | GitHub-only fork — we will never target GitLab. Removing it also simplifies the PR-check/poll code paths (no dual-forge branching). | Strip the glab branches from `bin/fm-pr-check.sh:54`, `bin/fm-pr-poll.sh:8`, `bin/fm-pr-lib.sh`. Delete `docs/gitlab-merge-watch.md`. Collapse the GitHub/GitLab fork abstraction down to GitHub-only. |
 | **osascript** wedge-alarm notifications (macOS) | Away-mode "wedge alarm" — posts a macOS banner when an escalation gets wedged. | Not needed. It's already optional (macOS + away-mode only), so removal only affects that one alert path. | Remove the osascript branch in `bin/fm-supervise-daemon.sh:770–783`, the `config/wedge-alarm` config, and `docs/wedge-alarm.md`. If we ever want an alert later, the existing `command:<cmd>` escape hatch already covers it generically — no need to keep the macOS-specific code. |
@@ -301,4 +301,3 @@ Two upstream tools are being renamed as part of building our own versions. These
 - **Do the deletions (8.1) first** — they only remove code, shrinking the surface before we reimplement anything.
 - **Then the `-axi` replacements (8.2)**, starting with the low-effort gh-axi→gh swap, then the standalone `vplan` module (§8.5), then the medium-effort tasks/quota builds.
 - Like sections 1–6, this section still uses the old vocabulary (actor/crewmate, etc.). Once §7's naming is locked in, the new scripts introduced here (our backlog lib, headroom check, pr-merge, `deep-review`, `vplan`) must follow the new `mx-` prefix from the start — don't create `fm-`-prefixed files in this work only to rename them in the §7 sweep.
- 

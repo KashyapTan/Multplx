@@ -215,7 +215,7 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
   <li>Run <code>mx-workflow.sh validate</code> on the draft; fix schema errors before showing it.</li>
   <li>Walk the maintainer through the file, then offer <code>dry-run</code>.</li>
 </ol>
-<p>The broker recognizes the request through the normal skills seam (trigger description), with a one-line pointer in <code>AGENTS.md</code>'s capability inventory — consistent with how every other procedure is wired.</p>
+<p>The future broker recognizes the request through the normal skills seam (trigger description), with a one-line pointer in <code>example_agents.md</code>'s capability inventory — consistent with how every other procedure is wired.</p>
 
 <h2>Implementation steps</h2>
 <ol class="steps">
@@ -227,7 +227,7 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
   <li><b><code>agent</code> stage executor (actor/spawned)</b> — compose stage body + <code>brief_from</code> artifacts into the brief, spawn with <code>fresh_session</code> honored, completion via plan 03's validated status + contract check.</li>
   <li><b><code>interactive</code> stage + <code>approve</code> gates</b> — park as <code>needs-decision:</code> holds through the existing decision-hold lifecycle; maintainer's answer resumes.</li>
   <li><b><code>mx-workflow.sh</code> CLI</b> <span class="pill new">new</span> — <code>validate / run / status / resume / abort / dry-run</code> subcommands over the lib.</li>
-  <li><b>Broker wiring</b> — <code>AGENTS.md</code> <span class="pill mod">mod</span>: the broker's "run workflow X" verb, and the rule that workflow runs are driven through the engine, never re-improvised from prose.</li>
+  <li><b>Broker wiring</b> — <code>example_agents.md</code> <span class="pill mod">mod</span>: the broker's "run workflow X" verb, and the rule that workflow runs are driven through the engine, never re-improvised from prose.</li>
   <li><b><code>create-workflow</code> skill</b> <span class="pill new">new</span> — interview → draft → validate → review → offer dry-run, per the flow above.</li>
   <li><b>Ship the example</b> — <code>workflows/new-feature.workflow.md</code> <span class="pill new">new</span>: the maintainer's feature workflow as the reference definition and the v1 proving case (build the engine minimally <i>around</i> this one consumer).</li>
   <li><b>End-to-end proof</b> — run <code>new-feature</code> on a real small feature: ideate → spec approved → fresh-session implement → deep-review with the spec as intent → approved delivery via plan 09.</li>
@@ -241,7 +241,7 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
 <tr><td><code>workflows/new-feature.workflow.md</code></td><td>New</td><td>Reference definition; the v1 proving case.</td></tr>
 <tr><td><code>.agents/skills/create-workflow/SKILL.md</code></td><td>New</td><td>Interview → draft → validate → review flow.</td></tr>
 <tr><td><code>docs/workflows.md</code></td><td>New</td><td>Definition format spec — single owner of the schema contract.</td></tr>
-<tr><td><code>AGENTS.md</code></td><td>Modify</td><td>Broker verb + create-workflow trigger pointer.</td></tr>
+<tr><td><code>example_agents.md</code></td><td>Modify</td><td>Broker verb + create-workflow trigger pointer.</td></tr>
 <tr><td><code>state/&lt;run&gt;.workflow/</code></td><td>New (runtime)</td><td>Snapshot, input, stage records. Same lifecycle/teardown rules as other state dirs.</td></tr>
 <tr><td><code>tests/mx-workflow-lib.test.sh</code>, <code>tests/mx-workflow.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
 </table>
@@ -249,10 +249,10 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
 <h2>Broker contract &amp; documentation updates</h2>
 <p>The workflow engine adds a new execution primitive, so the broker must know when to invoke the engine and when to load the authoring procedure instead of improvising stages from prose.</p>
 <ul>
-  <li><code>AGENTS.md</code>: add the concise workflow run/resume contract and the <code>create-workflow</code> trigger pointer; keep schema and stage detail out of the always-loaded file.</li>
+  <li><code>example_agents.md</code>: add the concise workflow run/resume contract and the <code>create-workflow</code> trigger pointer; keep schema and stage detail out of the future auto-loaded file.</li>
   <li><code>docs/workflows.md</code>, <code>docs/architecture.md</code>, and <code>docs/scripts.md</code>: document the workflow schema owner, state layout, lifecycle, trust posture, and CLI surface.</li>
   <li><code>.agents/skills/create-workflow/SKILL.md</code> and workflow script headers: own the conditional interview/review procedure and exact engine mechanics.</li>
-  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and extend instruction-owner tests for the new <code>AGENTS.md</code> trigger.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and extend instruction-owner tests for the new <code>example_agents.md</code> trigger.</li>
 </ul>
 
 <h2>Test plan</h2>

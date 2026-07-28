@@ -191,7 +191,7 @@ mx-timeline &lt;id&gt; --html             # shareable artifact via the vplan mod
 <li><b>Instrument decision holds</b> — <code>mx-decision-hold.sh</code> <span class="pill mod">mod</span> emits <code>hold.opened</code> in <code>hold</code> and <code>hold.resolved</code> in <code>resolve</code> (after the final Done step, so the journal never claims a resolution that did not durably complete).</li>
 <li><b>Instrument delivery</b> — <code>mx-deliver.sh</code> <span class="pill mod">mod</span> emits <code>delivery.queued</code>/<code>delivery.pushed</code>/<code>delivery.pr_opened</code> alongside plan 09's attestations.</li>
 <li><b>Build the reader.</b> <code>bin/mx-timeline.sh</code> <span class="pill new">new</span>: render, <code>--since</code>, <code>--event</code>, <code>--json</code>, <code>--html</code> (vplan). Golden-file test fixture in the same commit.</li>
-<li><b>Docs + registration.</b> AGENTS.md gets a one-line pointer ("timeline of a task: <code>mx-timeline &lt;id&gt;</code>") <span class="pill mod">mod</span>; register <code>tests/mx-journal.test.sh</code> and <code>tests/mx-timeline.test.sh</code> in <code>mx-test-run.sh</code>'s family map <span class="pill mod">mod</span> in the same commits as the tests.</li>
+<li><b>Docs + registration.</b> <code>example_agents.md</code> gets a one-line pointer ("timeline of a task: <code>mx-timeline &lt;id&gt;</code>") <span class="pill mod">mod</span>; register <code>tests/mx-journal.test.sh</code> and <code>tests/mx-timeline.test.sh</code> in <code>mx-test-run.sh</code>'s family map <span class="pill mod">mod</span> in the same commits as the tests.</li>
 </ol>
 
 <h2>File impact table</h2>
@@ -208,14 +208,14 @@ mx-timeline &lt;id&gt; --html             # shareable artifact via the vplan mod
 <tr><td><code>bin/mx-decision-hold.sh</code></td><td>Modify</td><td>Hold opened/resolved emits.</td></tr>
 <tr><td><code>bin/mx-deliver.sh</code></td><td>Modify</td><td>Delivery emits.</td></tr>
 <tr><td><code>bin/mx-test-run.sh</code></td><td>Modify</td><td>Register the two new test files in the family/lane maps.</td></tr>
-<tr><td><code>AGENTS.md</code></td><td>Modify</td><td>One-line pointer to <code>mx-timeline</code>.</td></tr>
+<tr><td><code>example_agents.md</code></td><td>Modify</td><td>One-line pointer to <code>mx-timeline</code>.</td></tr>
 <tr><td><code>tests/mx-journal.test.sh</code>, <code>tests/mx-timeline.test.sh</code></td><td>New</td><td>See Test plan.</td></tr>
 </table>
 
 <h2>Broker contract &amp; documentation updates</h2>
 <p>The journal adds a cross-cutting task timeline, so its vocabulary, emit policy, and broker-facing inspection command need explicit owners.</p>
 <ul>
-  <li><code>AGENTS.md</code>: add only the operational pointer for inspecting a task with <code>mx-timeline.sh</code> and any always-needed rule about journal evidence not replacing authoritative current-state reconciliation.</li>
+  <li><code>example_agents.md</code>: add only the operational pointer for inspecting a task with <code>mx-timeline.sh</code> and any future always-needed rule about journal evidence not replacing authoritative current-state reconciliation.</li>
   <li><code>docs/journal-events.md</code>, <code>docs/architecture.md</code>, and <code>docs/scripts.md</code>: document the event vocabulary, detail schemas, best-effort emit behavior, timeline CLI, and retention/lifecycle relationship.</li>
   <li>Journal/timeline script headers: own exact append, locking, warning, and filtering mechanics; emitters cross-reference the journal owner instead of redefining event shapes.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and test both the broker pointer and the single-owner event-vocabulary contract.</li>

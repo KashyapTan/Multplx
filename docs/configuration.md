@@ -2,9 +2,9 @@
 
 The files and environment variables you set to operate broker.
 
-## Orchestrator behavior (AGENTS.md)
+## Orchestrator behavior (`example_agents.md`)
 
-The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md) - edit it like any prompt when the system is empty, or dispatch shared-repo edits to an actor while tasks are in flight.
+During the port, the shared orchestrator behavior template lives in [`example_agents.md`](../example_agents.md) so coding agents do not auto-load an unfinished broker contract.
 
 ## Operational home layout and state
 
@@ -12,7 +12,7 @@ This section is the single owner of the top-level operational-home layout; produ
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `MX_HOME` contains private operational directories.
 `data/` holds durable private system records such as the project and daemon registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and scout reports.
 `state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private daemon config-reread generations with their retry and quarantine state, and parent-owned daemon pending-reply records under `state/pending-replies/` (`bin/mx-pending-reply-lib.sh`).
-`config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions in `AGENTS.md`.
+`config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions defined in `example_agents.md`.
 
 `bin/mx-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 The producing PR and X helpers own the fields they append, `bin/mx-classify-lib.sh` owns status-event vocabulary, and `bin/mx-actor-state.sh` owns current-state reconciliation.
@@ -20,7 +20,7 @@ Wake, watcher, away-mode, and X-specific state mechanics remain with their named
 
 `bin/mx-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.
-`AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
+`example_agents.md` retains the future run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start once the template is activated.
 Ordinary dead-direct-report recovery is owned by `stuck-actor-recovery`, while persistent-daemon recovery is owned by `daemon-provisioning`.
 
 ## Pi Calm preference (config/calm)
@@ -189,11 +189,11 @@ For Pi daemon launches, `mx-spawn.sh` starts Pi with `-e` pointed at the daemon 
 ## Actors dispatch profiles (config/actor-dispatch.json)
 
 `config/actor-dispatch.json` is an optional local, gitignored file containing natural-language rules that broker reads before dispatching an actor or scout.
-The shell scripts do not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
+The shell scripts do not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating-contract template in `example_agents.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
 When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Daemon spawns are exempt and still resolve through `config/daemon-harness` and its optional model and effort tokens.
-This section is the single owner of the canonical schema and its per-field semantics; `AGENTS.md` section 4 owns the dispatch and array-selection procedure.
+This section is the single owner of the canonical schema and its per-field semantics; `example_agents.md` section 4 owns the future dispatch and array-selection procedure.
 
 ```json
 {

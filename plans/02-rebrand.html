@@ -58,7 +58,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="wrap">
     <div class="plan-num">Plan 02 / 10</div>
     <h1>Full Rebrand — Ship Metaphor Out, Multplx Vocabulary In</h1>
-    <p class="subtitle">Replace every rank-coded nautical term (captain, crewmate, first mate, fleet, ship) with function-coded computer-science vocabulary — maintainer, broker, actor, daemon — and sweep the entire tree: script names (<code>fm-</code> → <code>mx-</code>), env vars (<code>FM_*</code> → <code>MX_*</code>), docs, on-disk paths, log strings, tests, and a genuine rewrite (not find-and-replace) of AGENTS.md.</p>
+    <p class="subtitle">Replace every rank-coded nautical term (captain, crewmate, first mate, fleet, ship) with function-coded computer-science vocabulary — maintainer, broker, actor, daemon — and sweep the entire tree: script names (<code>fm-</code> → <code>mx-</code>), env vars (<code>FM_*</code> → <code>MX_*</code>), docs, on-disk paths, log strings, tests, and a genuine rewrite (not find-and-replace) of <code>example_agents.md</code>.</p>
     <div class="badges">
       <span class="badge phase">Phase 2</span>
       <span class="badge effort">Effort: High</span>
@@ -75,14 +75,14 @@ tr:nth-child(even) td{background:var(--surface)}
 <p>This is three distinct kinds of work bundled into one plan because they must land together atomically:</p>
 <ul>
   <li><b>Vocabulary (§7.1):</b> a fixed role table — maintainer, broker, actor, daemon — plus killing the collective nouns ("the system" or "the run" instead of ship/fleet).</li>
-  <li><b>Voice (§7.3):</b> AGENTS.md needs a real rewrite. Hierarchy lives in the <i>verbs</i> ("ensure your crew completes the task without deviation", "report to you"), not just the nouns; a find-and-replace pass would leave commanding language intact wearing new labels.</li>
+  <li><b>Voice (§7.3):</b> <code>example_agents.md</code> needs a real rewrite. Hierarchy lives in the <i>verbs</i> ("ensure your crew completes the task without deviation", "report to you"), not just the nouns; a find-and-replace pass would leave commanding language intact wearing new labels.</li>
   <li><b>Mechanics (§7.4):</b> a repo-wide rename sweep — ~86 <code>bin/fm-*.sh</code> scripts plus <code>bin/backends/</code>, two <code>.mjs</code> policy files, ~100 test files, every <code>FM_*</code> env var, harness hook/plugin files, docs, on-disk naming conventions, and the log/error strings scripts emit (read by both the maintainer and the actors, so they are part of the theme too).</li>
 </ul>
 <div class="callout">
   <div class="label">Project name — Multplx (decided), prefix — mx- (decided)</div>
   <p style="margin:0">UPDATE_PLAN §7.2 evaluated name candidates and recommended <b>Multiplex</b> (with suggested prefix <code>mx-</code>). The project was first named <i>Computer</i>, then renamed by the maintainer on 2026-07-27 to <b>Multplx</b> — a stylized form of that original recommendation, which means the <code>mx-</code> prefix (decided in §8.6 and re-confirmed 2026-07-26) now matches the project name exactly. All §7.4 renames and every new script in plans 03–11 use it. Project name, GitHub repository, and local root folder all match: <b>Multplx</b> (the folder was renamed 2026-07-27, with compatibility symlinks — <code>Computer -&gt; Multplx</code> beside the repo and the old encoded path in <code>~/.claude/projects/</code> — keeping pre-rename Claude sessions resolving). Nothing should hardcode either folder name.</p>
 </div>
-<p>Effort is High because the sweep touches nearly every file in the tree and because the AGENTS.md rewrite is editorial work, not mechanical. Risk is Medium: a rename this broad can silently break script-to-script sourcing, harness hook registrations, and the test runner's hardcoded name maps — mitigated by doing it as one atomic commit gated by a fully green suite on both sides, plus a permanent grep tripwire test. (The once-riskiest corner — the <i>global</i> <code>~/.grok/hooks/fm-turn-end.json</code> — no longer exists: grok harness support is deleted in <a href="01-deletions.html">plan 01</a>'s backend &amp; harness pruning before this sweep runs.)</p>
+<p>Effort is High because the sweep touches nearly every file in the tree and because the <code>example_agents.md</code> rewrite is editorial work, not mechanical. Risk is Medium: a rename this broad can silently break script-to-script sourcing, harness hook registrations, and the test runner's hardcoded name maps — mitigated by doing it as one atomic commit gated by a fully green suite on both sides, plus a permanent grep tripwire test. (The once-riskiest corner — the <i>global</i> <code>~/.grok/hooks/fm-turn-end.json</code> — no longer exists: grok harness support is deleted in <a href="01-deletions.html">plan 01</a>'s backend &amp; harness pruning before this sweep runs.)</p>
 
 <h2>Goals &amp; Non-goals</h2>
 <table>
@@ -91,7 +91,7 @@ tr:nth-child(even) td{background:var(--surface)}
     <td>
       <ul style="margin-bottom:0">
         <li>Adopt the §7.1 role vocabulary everywhere: maintainer / broker / actor / daemon; "the system" / "the run" for collectives.</li>
-        <li>Rewrite AGENTS.md per §7.3 — charter, verbs, and framing, not just nouns.</li>
+        <li>Rewrite <code>example_agents.md</code> per §7.3 — charter, verbs, and framing, not just nouns.</li>
         <li>Rename all scripts <code>fm-*</code> → <code>mx-*</code> (with vocabulary-bearing filename fixes, e.g. <code>crew-state</code>, <code>fleet-*</code>, <code>secondmate-*</code>), all functions <code>fm_*</code> → <code>mx_*</code>, all env vars <code>FM_*</code> → <code>MX_*</code>.</li>
         <li>Same voice pass (not just term substitution) across all docs listed in §7.4.</li>
         <li>Rename on-disk path/state conventions, <code>data/projects.md</code>, generated <code>brief.md</code> text, and emitted log/error strings.</li>
@@ -141,7 +141,7 @@ tr:nth-child(even) td{background:var(--surface)}
 </table>
 <p>Explicitly avoided per §7.1: <b>"node"</b> for actors (overloaded — graph node, network node, Node.js) and <b>"root"/"admin"</b> for the maintainer (carries real privilege/authority connotations, reintroducing the rank problem through the side door).</p>
 
-<h3>AGENTS.md rewrite (§7.3 — a real rewrite, not find-and-replace)</h3>
+<h3><code>example_agents.md</code> rewrite (§7.3 — a real rewrite, not find-and-replace)</h3>
 <p>Swapping nouns alone won't fix it: sentences like "ensure your crew completes the task without deviation" or "report to you" carry hierarchy in the <i>verb</i>. A find-and-replace pass would leave commanding language intact wearing new labels. The rewrite must:</p>
 <ul>
   <li><b>Reframe the broker's charter</b> from "you supervise and command the crew" to "you coordinate and route work between independent actors" — with authority for direction changes and approvals living with the <i>maintainer</i>, not the broker.</li>
@@ -157,7 +157,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <li><b>Remove any "lesser-than" framing</b> — an actor or daemon is an equally capable agent doing a different job in the workflow, not a subordinate.</li>
   <li><b>Keep the maintainer's real authority stated plainly and functionally</b> — final call on design/architecture and merge approval — without wrapping it in command language.</li>
 </ul>
-<p>Section-level consequences in the current <code>AGENTS.md</code>: §9 "Escalation and captain etiquette" → maintainer etiquette; §11 "Crewmate briefs" → actor briefs; §8's supervision protocol becomes coordination/monitoring language; §14 is already gone (plan 01). Every skill the file references gets its renamed identity (see inventory).</p>
+<p>Section-level consequences in the copied <code>example_agents.md</code> template: §9 "Escalation and captain etiquette" → maintainer etiquette; §11 "Crewmate briefs" → actor briefs; §8's supervision protocol becomes coordination/monitoring language; §14 is already gone (plan 01). Every skill the file references gets its renamed identity (see inventory).</p>
 
 <h3>Rename inventory (§7.4 — the mapping pattern)</h3>
 <p>The default rule is mechanical: <code>bin/fm-&lt;name&gt;.sh → bin/mx-&lt;name&gt;.sh</code>, <code>fm_&lt;fn&gt; → mx_&lt;fn&gt;</code>, <code>FM_&lt;VAR&gt; → MX_&lt;VAR&gt;</code>, <code>tests/fm-&lt;name&gt;.test.sh → tests/mx-&lt;name&gt;.test.sh</code>. The exceptions are files whose <i>names</i> carry the old vocabulary — those get a vocabulary fix at the same time. Grouped by function (86 scripts total; representative members listed):</p>
@@ -223,7 +223,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 <ol class="steps">
   <li><b>Lock the naming decisions.</b>
     <b>Decided:</b> keep the <code>mx-</code> prefix; use <code>mx-actor-state.sh</code> for the reconciliation oracle; rename <code>ahoy</code>→<code>recap</code>, <code>bearings</code>→<code>catchup</code>, and <code>fm-bearings-snapshot.sh</code>→<code>mx-status-snapshot.sh</code>. The remaining steps use these fixed targets.</li>
-  <li><b>Rewrite AGENTS.md.</b> <span class="pill mod">mod</span>
+  <li><b>Rewrite <code>example_agents.md</code>.</b> <span class="pill mod">mod</span>
     The §7.3 editorial rewrite: broker charter reframed, command verbs → coordination verbs per the table above, no lesser-than framing, maintainer authority stated functionally. Update every script/skill/env-var name it references to the new (post-sweep) names so this file lands in the same atomic commit as the renames. Run the voice-pass checklist (below) before calling it done.</li>
   <li><b>Rename all bin scripts with <code>git mv</code>.</b> <span class="pill mod">mod</span>
     All 86 <code>bin/fm-*.sh</code> → <code>bin/mx-*.sh</code> plus the two <code>.mjs</code> policy files, applying the vocabulary-bearing exceptions: <code>fm-crew-state.sh</code>→<code>mx-actor-state.sh</code>, <code>fm-fleet-snapshot.sh</code>→<code>mx-system-snapshot.sh</code>, <code>fm-fleet-sync.sh</code>→<code>mx-system-sync.sh</code>, <code>fm-fleet-view.sh</code>→<code>mx-system-view.sh</code>, <code>fm-secondmate-report.sh</code>→<code>mx-daemon-report.sh</code>. Then fix every internal reference: <code>source</code>/dot-includes, <code># shellcheck source=</code> directives, dispatch strings (<code>bin/fm-backend.sh</code> routing, <code>fm-spawn.sh</code> launch commands), and doc-comment headers.</li>
@@ -248,7 +248,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
   <tr><th>File</th><th>Action</th><th>Notes</th></tr>
   <tr><td><code>bin/fm-*.sh</code> (86 files) + <code>bin/fm-*.mjs</code> (2)</td><td>Modify (git mv + content)</td><td>→ <code>bin/mx-*</code>; vocabulary-bearing exceptions: <code>crew-state</code>→<code>actor-state</code>, <code>fleet-*</code>→<code>system-*</code>, <code>secondmate-report</code>→<code>daemon-report</code>.</td></tr>
   <tr><td><code>bin/backends/*.sh</code>, <code>bin/backends/*.py</code></td><td>Modify</td><td>Names keep their backend identity; internal <code>fm_</code>/<code>FM_</code> references and sourced paths updated.</td></tr>
-  <tr><td><code>AGENTS.md</code></td><td>Modify (rewrite)</td><td>Full §7.3 editorial rewrite — charter, verbs, framing — plus all new script/skill names.</td></tr>
+  <tr><td><code>example_agents.md</code></td><td>Modify (rewrite)</td><td>Full §7.3 editorial rewrite — charter, verbs, framing — plus all new script/skill names.</td></tr>
   <tr><td><code>docs/*.md</code> (architecture, configuration, scripts, all backend + guard docs)</td><td>Modify</td><td>Voice pass + new names; <code>docs/scripts.md</code> is a full catalogue and must match the new inventory exactly.</td></tr>
   <tr><td><code>tests/fm-*.test.sh</code> (~100 files), <code>tests/lib.sh</code>, <code>tests/secondmate-helpers.sh</code>, <code>tests/wake-helpers.sh</code>, <code>tests/*-test-safety.sh</code></td><td>Modify (git mv + content)</td><td>→ <code>tests/mx-*.test.sh</code> etc.; <code>FM_TEST_LIB_SOURCED</code>→<code>MX_TEST_LIB_SOURCED</code>; assertions that grep for old names/strings updated.</td></tr>
   <tr><td><code>bin/fm-test-run.sh</code></td><td>Modify (git mv)</td><td>→ <code>bin/mx-test-run.sh</code>; single owner of family labels + changed-file maps — every renamed basename re-mapped (current maps at ~lines 118–170, 249–305, 660–700).</td></tr>
@@ -264,7 +264,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 <h2>Broker contract &amp; documentation updates</h2>
 <p>The rebrand is complete only when the broker and all maintained documentation use the Multplx vocabulary and the final <code>mx-*</code> paths consistently.</p>
 <ul>
-  <li><code>AGENTS.md</code>: perform the full role-and-voice rewrite, update every script, environment variable, config, state, and skill reference, and preserve only the always-loaded operating contract.</li>
+  <li><code>example_agents.md</code>: perform the full role-and-voice rewrite, update every script, environment variable, config, state, and skill reference, and preserve only the future broker's base operating contract.</li>
   <li><code>docs/*.md</code>, <code>README.md</code>, and <code>CONTRIBUTING.md</code>: update current-behavior names and examples according to their documented audiences; historical upstream evidence may retain old names only in its narrow allowlist.</li>
   <li>Skills, generated briefs, hooks, script headers, and <code>--help</code>: update their owned conditional procedures and mechanics in the same rename commits so no broker path points at an obsolete name.</li>
   <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and <code>tests/mx-naming.test.sh</code> after all documentation and review-fix commits.</li>
@@ -282,7 +282,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 </ul>
 <h3>(c) New tests to write</h3>
 <ul>
-  <li><code>tests/mx-naming.test.sh</code> — the tripwire: case-insensitive grep across <code>bin/ tests/ docs/ config/ .agents/ AGENTS.md .github/</code> for <code>captain|crewmate|crew|secondmate|firstmate|fleet|fm-|fm_|FM_</code> (word-boundary care for "mate"/"ship" false positives), failing on any hit outside the allowlist (<code>firstmate/</code> reference folder, <code>plans/</code>, <code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, upstream tool names in prose). Asserts the rename is complete on day one and can never regress.</li>
+  <li><code>tests/mx-naming.test.sh</code> — the tripwire: case-insensitive grep across <code>bin/ tests/ docs/ config/ .agents/ example_agents.md .github/</code> for <code>captain|crewmate|crew|secondmate|firstmate|fleet|fm-|fm_|FM_</code> (word-boundary care for "mate"/"ship" false positives), failing on any hit outside the allowlist (<code>firstmate/</code> reference folder, <code>plans/</code>, <code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, upstream tool names in prose). Asserts the rename is complete on day one and can never regress.</li>
   <li><code>tests/mx-runner-topology.test.sh</code> (optional but recommended) — asserts every <code>tests/mx-*.test.sh</code> basename resolves to a known family in <code>mx-test-run.sh</code> (no unclassified strays) and every <code>bin/</code> path in the changed-file map points at an existing file — turning future map drift into a test failure rather than silent mis-sharding.</li>
 </ul>
 <div class="callout ok">
@@ -321,7 +321,7 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
 </div>
 <div class="callout warn">
   <div class="label">Risk — grep false positives cause over-replacement</div>
-  <p style="margin:0">"mate" matches estimate/ultimate/climate; "ship" matches relationship/ownership. The sweep must be hit-by-hit review, never a blind <code>sed</code>. Budget real time for this — it is the bulk of the High effort rating along with the AGENTS.md rewrite.</p>
+  <p style="margin:0">"mate" matches estimate/ultimate/climate; "ship" matches relationship/ownership. The sweep must be hit-by-hit review, never a blind <code>sed</code>. Budget real time for this — it is the bulk of the High effort rating along with the <code>example_agents.md</code> rewrite.</p>
 </div>
 
 <div class="footer-nav">
