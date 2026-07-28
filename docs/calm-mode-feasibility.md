@@ -245,9 +245,6 @@ ok - Pi calm native E2E keeps Working and captain turns visible, hides exact ope
 $ tests/fm-pi-primary-types.test.sh
 ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.81.1
 
-$ bin/fm-lint.sh
-fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
-
 $ bin/fm-test-run.sh --changed --base origin/main
 FM_TEST_SUMMARY total=38 failed=0 skipped_gate=7 duration_ms=166881
 FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=7 duration_ms=192 failed=0

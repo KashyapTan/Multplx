@@ -80,9 +80,6 @@ ok - fm-brief.sh: investigation and visual-review completions load the shared de
 $ bash tests/fm-teardown.test.sh
 all teardown safety cases passed
 
-$ bin/fm-lint.sh
-fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
-
 $ git diff --check
 (no output)
 

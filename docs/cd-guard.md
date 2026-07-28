@@ -131,7 +131,6 @@ Run:
 
 ```sh
 bash -n bin/fm-cd-pretool-check.sh
-shellcheck bin/fm-cd-pretool-check.sh tests/fm-cd-pretool-check.test.sh
 node --check bin/fm-cd-command-policy.mjs
 node --check bin/fm-arm-command-policy.mjs
 tests/fm-cd-pretool-check.test.sh

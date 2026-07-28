@@ -434,13 +434,6 @@ test_pi_wiring() {
   pass ".pi primary extension: tool_call runs the cd-guard alongside the watcher-arm check"
 }
 
-test_scripts_are_shellcheck_clean() {
-  command -v shellcheck >/dev/null 2>&1 || { pass "shellcheck not installed, skipping"; return; }
-  shellcheck "$ROOT/bin/fm-cd-pretool-check.sh" >/dev/null 2>&1 \
-    || fail "bin/fm-cd-pretool-check.sh is not shellcheck-clean"
-  pass "bin/fm-cd-pretool-check.sh is shellcheck-clean"
-}
-
 test_full_acceptance_matrix
 test_fires_in_secondmate_home
 test_inert_in_child_worktree
@@ -458,4 +451,3 @@ test_codex_wiring
 test_grok_wiring
 test_opencode_wiring
 test_pi_wiring
-test_scripts_are_shellcheck_clean

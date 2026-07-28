@@ -63,9 +63,9 @@ test_family_selection() {
 
 test_single_script_selection() {
   local listed
-  listed=$("$RUNNER" --list tests/fm-lint.test.sh)
-  [ "$listed" = "tests/fm-lint.test.sh" ] \
-    || fail "single-script list expected tests/fm-lint.test.sh, got: $listed"
+  listed=$("$RUNNER" --list tests/fm-transition-lib.test.sh)
+  [ "$listed" = "tests/fm-transition-lib.test.sh" ] \
+    || fail "single-script list expected tests/fm-transition-lib.test.sh, got: $listed"
   pass "single-script selection lists exactly that path"
 }
 
@@ -344,7 +344,7 @@ test_exclude_family() {
   listed=$("$RUNNER" --list --all --exclude-family real-herdr-gated)
   printf '%s\n' "$listed" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
     && fail "exclude-family real-herdr-gated left a real-herdr script"
-  printf '%s\n' "$listed" | grep -Fq 'tests/fm-lint.test.sh' \
+  printf '%s\n' "$listed" | grep -Fq 'tests/fm-transition-lib.test.sh' \
     || fail "exclude-family must retain pure-contract-unit scripts"
   # Explicit family mode still works; exclude of a different family is a no-op.
   listed=$("$RUNNER" --list --family real-herdr-gated)
@@ -524,7 +524,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   fake_bin="$tmp/fake-bin"
   a=tests/fm-no-mistakes-ownership.test.sh
   b=tests/fm-stow-contract.test.sh
-  c=tests/fm-lint.test.sh
+  c=tests/fm-transition-lib.test.sh
   d=tests/fm-supervision-instructions.test.sh
   mkdir -p "$repo/bin" "$repo/tests" "$evidence" "$fake_bin"
   cp "$RUNNER" "$runner"

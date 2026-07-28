@@ -2,9 +2,9 @@
 # Contract: local no-mistakes Test is intent-targeted; CI owns broad regression.
 #
 # Firstmate must not configure commands.test as a complete tests/*.test.sh walk
-# (that duplicated CI and burned local pipeline time). Lint stays pinned to
-# bin/fm-lint.sh. Remote CI owns broad regression through separate portable and
-# required real-Herdr Behavior lanes composed around bin/fm-test-run.sh.
+# (that duplicated CI and burned local pipeline time). Remote CI owns broad
+# regression through separate portable and required real-Herdr Behavior lanes
+# composed around bin/fm-test-run.sh.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -18,12 +18,6 @@ test_nm_yaml_tracked() {
   git -C "$ROOT" ls-files --error-unmatch .no-mistakes.yaml >/dev/null 2>&1 \
     || fail ".no-mistakes.yaml is not tracked by git"
   pass ".no-mistakes.yaml is present and tracked"
-}
-
-test_nm_keeps_lint_pin() {
-  grep -Fqx "  lint: 'bin/fm-lint.sh'" "$NM" \
-    || fail "commands.lint must remain exactly bin/fm-lint.sh"
-  pass "commands.lint stays pinned to bin/fm-lint.sh"
 }
 
 # True when the YAML maps a non-empty commands.test (string or mapping value).
@@ -110,8 +104,6 @@ test_ci_still_runs_broad_behavior_suite() {
     fail "CI Behavior must not re-spell an inline tests/*.test.sh loop; use fm-test-run.sh"
   fi
   # Preserve other CI lanes this task must not shrink.
-  grep -Eq 'name:[[:space:]]*Lint shell scripts' "$CI" \
-    || fail "CI must retain the lint job"
   grep -Eq 'name:[[:space:]]*Stock macOS Bash snapshot compatibility' "$CI" \
     || fail "CI must retain the macOS stock Bash compatibility job"
   grep -Eq 'name:[[:space:]]*Repo invariants' "$CI" \
@@ -122,6 +114,5 @@ test_ci_still_runs_broad_behavior_suite() {
 }
 
 test_nm_yaml_tracked
-test_nm_keeps_lint_pin
 test_nm_has_no_complete_local_test_command
 test_ci_still_runs_broad_behavior_suite

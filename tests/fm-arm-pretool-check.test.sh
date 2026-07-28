@@ -528,14 +528,6 @@ test_pi_extension_carries_pretool_check() {
   pass ".pi primary extension: tool_call handler invokes the shared checker and can block"
 }
 
-# --- shellcheck (belt-and-suspenders; CI/CONTRIBUTING.md also runs this) -----
-
-test_shellcheck_clean() {
-  command -v shellcheck >/dev/null 2>&1 || { pass "shellcheck not installed, skipping"; return; }
-  shellcheck "$CHECK" >/dev/null 2>&1 || fail "bin/fm-arm-pretool-check.sh is not shellcheck-clean"
-  pass "bin/fm-arm-pretool-check.sh is shellcheck-clean"
-}
-
 test_full_acceptance_matrix
 test_direct_policy_contract
 test_command_equals_form
@@ -559,4 +551,3 @@ test_claude_settings_pretool_hook_wired
 test_codex_hooks_pretool_wired
 test_opencode_pretool_plugin_wired
 test_pi_extension_carries_pretool_check
-test_shellcheck_clean

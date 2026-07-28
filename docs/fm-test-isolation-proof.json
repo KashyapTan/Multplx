@@ -85,12 +85,6 @@
       "worker": 13
     },
     {
-      "duration_ms": 4882,
-      "exit": 0,
-      "path": "tests/fm-lint.test.sh",
-      "worker": 14
-    },
-    {
       "duration_ms": 180,
       "exit": 0,
       "path": "tests/fm-nm-test-contract.test.sh",
@@ -185,6 +179,6 @@
   "summary": {
     "duration_ms": 110623,
     "failed": 0,
-    "total": 29
+    "total": 28
   }
 }
