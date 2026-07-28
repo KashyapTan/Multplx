@@ -28,6 +28,10 @@ After each drain, `mx-wake-drain.sh` runs the same liveness guard as the supervi
 Routine watcher polling, supervision no-ops, elapsed waiting time, and absorbed benign wakes stay silent.
 A declared external wait trades that silence for one bounded recheck per pause window, so a forgotten pause cannot remain invisible indefinitely.
 Actor status files are append-only wake-event logs, not current-state fields.
+Actors write status events through the task-bound `report_status` MCP tool when their harness exposes it or through `bin/mx-report` as the universal fallback.
+The wrapper owns the closed actor-writable vocabulary `working|paused|blocked|needs-decision|done|failed|resolved`, rejects multiline events and cross-task writes before opening a status file, and emits the existing plain or keyed line grammar.
+Claude and Codex receive session-scoped MCP configuration from `mx-spawn.sh`; Pi uses the wrapper because no project-scoped MCP registration contract is verified for it.
+The MCP adapter delegates every accepted call to the wrapper, so validation and append behavior have one owner.
 `bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a no-mistakes run, active or terminal, only when it matches the actor's branch and current code identity, then keeps that run-step authoritative even if the pane has closed.
 The script header owns the exact run-head ancestry rules.
 During no-mistakes' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.

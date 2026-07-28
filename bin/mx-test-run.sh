@@ -124,6 +124,7 @@ family_for_basename() {
     mx-documentation-audiences.test.sh|mx-ensure-agents-md.test.sh|mx-naming.test.sh|\
     mx-herdr-lab.test.sh|mx-instruction-owners.test.sh|\
     mx-install-herdr.test.sh|mx-nm-test-contract.test.sh|mx-no-mistakes-ownership.test.sh|\
+    mx-report.test.sh|mx-report-mcp.test.sh|\
     mx-removed-deps.test.sh|\
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
     mx-send-popup-settle.test.sh|mx-send-settle.test.sh|mx-stow-contract.test.sh|\
@@ -663,7 +664,8 @@ families_for_changed_path() {
       # lane's contract coverage re-runs.
       printf '%s\n' real-herdr-gated
       ;;
-    bin/mx-brief.sh|bin/mx-ensure-agents-md.sh|bin/mx-actor-state.sh|\
+    bin/mx-brief.sh|bin/mx-report|bin/mx-report-mcp.mjs|\
+    bin/mx-ensure-agents-md.sh|bin/mx-actor-state.sh|\
     bin/mx-decision-hold.sh|bin/mx-supervision*|bin/mx-transition-lib.sh|\
     bin/mx-tmux-lib.sh|bin/mx-marker-lib.sh|bin/mx-operational-input.sh|bin/mx-tasks-axi-lib.sh|\
     bin/mx-primary-scope-lib.sh|bin/mx-project-mode.sh|bin/mx-promote.sh|\
@@ -683,6 +685,9 @@ families_for_changed_path() {
       ;;
     .github/*|.tasks.toml|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|\
     docs/configuration.md|docs/supervision-protocols/*)
+      printf '%s\n' pure-contract-unit
+      ;;
+    plans/*)
       printf '%s\n' pure-contract-unit
       ;;
     tests/lib.sh|tests/*-helpers.sh)

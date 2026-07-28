@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# Append one validated, task-bound status event.
+#
+# Usage:
+#   mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>]
+#   mx-report --list-states
+#
+# The closed actor-writable state vocabulary lives here.
+# `--list-states` is the machine-readable interface used by the MCP adapter and
+# tests, so no other writer duplicates the enum.
+#
+# A write is accepted only when the caller is bound to the same task.
+# Spawned sessions carry MX_TASK_ID and MX_REPORT_STATE_OVERRIDE.
+# For compatibility with an already-running session that lacks MX_TASK_ID, the
+# caller's physical cwd may resolve to exactly one worktree= entry in state/*.meta.
+# Missing, ambiguous, or mismatched bindings fail before the status file is opened.
+#
+# State directory precedence:
+#   MX_REPORT_STATE_OVERRIDE -> MX_STATE_OVERRIDE -> MX_HOME/state -> repo/state
+#
+# Every successful call performs one append in the existing event grammar:
+#   <state>: <message>
+#   <state> [key=<slug>]: <message>
+#
+# This script deliberately does not wake the watcher.
+# Plan 04 adds that optional post-append fast path without changing this durable
+# write contract.
+set -eu
+
+MX_REPORT_STATES="working paused blocked needs-decision done failed resolved"
+
+usage() {
+  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2
+}
+
+list_states() {
+  local state
+  for state in $MX_REPORT_STATES; do
+    printf '%s\n' "$state"
+  done
+}
+
+die_usage() {
+  printf 'mx-report: %s\n' "$1" >&2
+  usage
+  exit 2
+}
+
+die_binding() {
+  printf 'mx-report: %s\n' "$1" >&2
+  exit 3
+}
+
+state_is_valid() {
+  local want=$1 state
+  for state in $MX_REPORT_STATES; do
+    [ "$state" = "$want" ] && return 0
+  done
+  return 1
+}
+
+ID=
+STATE_NAME=
+MESSAGE=
+MESSAGE_SET=0
+KEY=
+LIST_ONLY=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --id)
+      [ "$#" -ge 2 ] || die_usage "--id requires a value"
+      ID=$2
+      shift 2
+      ;;
+    --state)
+      [ "$#" -ge 2 ] || die_usage "--state requires a value"
+      STATE_NAME=$2
+      shift 2
+      ;;
+    --message)
+      [ "$#" -ge 2 ] || die_usage "--message requires a value"
+      MESSAGE=$2
+      MESSAGE_SET=1
+      shift 2
+      ;;
+    --key)
+      [ "$#" -ge 2 ] || die_usage "--key requires a value"
+      KEY=$2
+      shift 2
+      ;;
+    --list-states)
+      LIST_ONLY=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die_usage "unknown argument '$1'"
+      ;;
+  esac
+done
+
+if [ "$LIST_ONLY" -eq 1 ]; then
+  [ -z "$ID$STATE_NAME$KEY" ] && [ "$MESSAGE_SET" -eq 0 ] \
+    || die_usage "--list-states cannot be combined with write arguments"
+  list_states
+  exit 0
+fi
+
+[ -n "$ID" ] || die_usage "--id is required"
+[ -n "$STATE_NAME" ] || die_usage "--state is required"
+[ "$MESSAGE_SET" -eq 1 ] || die_usage "--message is required"
+
+if ! state_is_valid "$STATE_NAME"; then
+  printf "mx-report: invalid state '%s'. Valid states: %s\n" \
+    "$STATE_NAME" "$(printf '%s' "$MX_REPORT_STATES" | sed 's/ /, /g')" >&2
+  exit 2
+fi
+
+case "$MESSAGE" in
+  *$'\n'*|*$'\r'*)
+    printf 'mx-report: message must be exactly one line\n' >&2
+    exit 2
+    ;;
+esac
+
+case "$KEY" in
+  ''|*[!A-Za-z0-9._-]*)
+    [ -z "$KEY" ] || {
+      printf "mx-report: invalid key '%s'. Keys may contain only A-Z, a-z, 0-9, dot, underscore, and dash\n" "$KEY" >&2
+      exit 2
+    }
+    ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-pr-lib.sh
+. "$SCRIPT_DIR/mx-pr-lib.sh"
+mx_task_id_creation_valid "$ID" || die_usage "invalid task id '$ID'"
+
+MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
+STATE_DIR="${MX_REPORT_STATE_OVERRIDE:-${MX_STATE_OVERRIDE:-$MX_HOME/state}}"
+BOUND_ID=${MX_TASK_ID:-}
+
+if [ -n "$BOUND_ID" ]; then
+  mx_task_id_creation_valid "$BOUND_ID" \
+    || die_binding "calling session has an invalid task binding"
+else
+  CWD_REAL=$(pwd -P)
+  MATCHED_ID=
+  MATCH_COUNT=0
+  if [ -d "$STATE_DIR" ]; then
+    for META in "$STATE_DIR"/*.meta; do
+      [ -f "$META" ] || continue
+      META_ID=$(basename "$META" .meta)
+      mx_task_id_creation_valid "$META_ID" || continue
+      WORKTREE=$(sed -n 's/^worktree=//p' "$META" | head -n 1)
+      [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ] || continue
+      WORKTREE_REAL=$(cd "$WORKTREE" 2>/dev/null && pwd -P) || continue
+      case "$CWD_REAL" in
+        "$WORKTREE_REAL"|"$WORKTREE_REAL"/*)
+          MATCHED_ID=$META_ID
+          MATCH_COUNT=$((MATCH_COUNT + 1))
+          ;;
+      esac
+    done
+  fi
+  case "$MATCH_COUNT" in
+    1) BOUND_ID=$MATCHED_ID ;;
+    0) die_binding "no task binding found; MX_TASK_ID is unset and cwd matches no recorded worktree" ;;
+    *) die_binding "task binding is ambiguous; cwd matches more than one recorded worktree" ;;
+  esac
+fi
+
+if [ "$BOUND_ID" != "$ID" ]; then
+  die_binding "task binding mismatch: calling session is '$BOUND_ID', requested '$ID'"
+fi
+
+[ -d "$STATE_DIR" ] || die_binding "status state directory does not exist: $STATE_DIR"
+
+if [ -n "$KEY" ]; then
+  LINE="$STATE_NAME [key=$KEY]: $MESSAGE"
+else
+  LINE="$STATE_NAME: $MESSAGE"
+fi
+printf '%s\n' "$LINE" >> "$STATE_DIR/$ID.status"

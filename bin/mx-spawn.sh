@@ -100,6 +100,8 @@
 #     __PITURNEND__ absolute path to .pi/extensions/mx-primary-turnend-guard.ts in a pi daemon home
 #     __PIWATCH__   absolute path to .pi/extensions/mx-primary-pi-watch.ts in a pi daemon home
 #     __OPINPUT__   absolute path to the canonical operational-input encoder
+#     __REPORTMCPCLAUDE__ optional per-run Claude --mcp-config argument
+#     __REPORTMCPCODEX__  optional per-run Codex mcp_servers config override
 # Per-harness turn-end hooks are installed automatically; some live outside the worktree.
 # On success prints: spawned <id> harness=<name> kind=<delivery|scout|daemon> mode=<mode> yolo=<on|off> window=<backend-target> worktree=<path>
 # mode/yolo are resolved per-project from data/projects.md for delivery/scout tasks;
@@ -365,12 +367,12 @@ launch_template() {
     # does NOT suppress the interactive ghost text (verified empirically), so the env
     # var is the correct control. The dim-aware composer reader in mx-tmux-lib.sh is
     # the defense-in-depth backstop for any pane this flag cannot reach.
-    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __REPORTMCPCLAUDE____MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     codex)
       if [ "$kind" = daemon ]; then
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __REPORTMCPCODEX____MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __REPORTMCPCODEX____MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
     pi)
@@ -502,6 +504,10 @@ effort_flag_for_harness() {
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+toml_basic_string() {
+  jq -Rrn --arg value "$1" '$value | tojson'
 }
 
 resolved_existing_dir() {
@@ -1157,8 +1163,56 @@ sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/mx-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/mx-primary-pi-watch.ts")
 sq_opinput=$(shell_quote "$MX_ROOT/bin/mx-operational-input.sh")
+REPORT_MCP_CLAUDE=
+REPORT_MCP_CODEX=
+REPORT_RUNTIME_HOME=$MX_HOME
+[ "$KIND" != daemon ] || REPORT_RUNTIME_HOME=$PROJ_ABS
+REPORT_MCP_SERVER="$MX_ROOT/bin/mx-report-mcp.mjs"
+if case "$HARNESS" in claude|codex) true ;; *) false ;; esac; then
+  NODE_BIN=$(command -v node || true)
+  if [ -n "$NODE_BIN" ] && [ -f "$REPORT_MCP_SERVER" ] && command -v jq >/dev/null 2>&1; then
+    if [ "$HARNESS" = claude ]; then
+      REPORT_MCP_CONFIG="$TASK_TMP/report-mcp.json"
+      if jq -n \
+        --arg node "$NODE_BIN" \
+        --arg server "$REPORT_MCP_SERVER" \
+        --arg id "$ID" \
+        --arg home "$REPORT_RUNTIME_HOME" \
+        --arg state "$STATE_REAL" \
+        '{mcpServers:{multplx_status:{
+          type:"stdio",
+          command:$node,
+          args:[$server],
+          env:{
+            MX_TASK_ID:$id,
+            MX_HOME:$home,
+            MX_REPORT_STATE_OVERRIDE:$state
+          }
+        }}}' > "$REPORT_MCP_CONFIG.tmp"; then
+        mv "$REPORT_MCP_CONFIG.tmp" "$REPORT_MCP_CONFIG"
+        chmod 600 "$REPORT_MCP_CONFIG"
+        REPORT_MCP_CLAUDE="--mcp-config $(shell_quote "$REPORT_MCP_CONFIG") "
+      else
+        rm -f "$REPORT_MCP_CONFIG.tmp"
+        echo "warning: report_status MCP config could not be generated for claude; mx-report remains available" >&2
+      fi
+    else
+      NODE_TOML=$(toml_basic_string "$NODE_BIN")
+      SERVER_TOML=$(toml_basic_string "$REPORT_MCP_SERVER")
+      ID_TOML=$(toml_basic_string "$ID")
+      HOME_TOML=$(toml_basic_string "$REPORT_RUNTIME_HOME")
+      STATE_TOML=$(toml_basic_string "$STATE_REAL")
+      REPORT_MCP_CODEX_VALUE="mcp_servers.multplx_status={command=$NODE_TOML,args=[$SERVER_TOML],env={MX_TASK_ID=$ID_TOML,MX_HOME=$HOME_TOML,MX_REPORT_STATE_OVERRIDE=$STATE_TOML}}"
+      REPORT_MCP_CODEX="-c $(shell_quote "$REPORT_MCP_CODEX_VALUE") "
+    fi
+  else
+    echo "warning: report_status MCP requires node, jq, and bin/mx-report-mcp.mjs; mx-report remains available" >&2
+  fi
+fi
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
+LAUNCH=${LAUNCH//__REPORTMCPCLAUDE__/$REPORT_MCP_CLAUDE}
+LAUNCH=${LAUNCH//__REPORTMCPCODEX__/$REPORT_MCP_CODEX}
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
@@ -1167,9 +1221,13 @@ LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
+sq_task_id=$(shell_quote "$ID")
+sq_report_state=$(shell_quote "$STATE_REAL")
+sq_runtime_home=$(shell_quote "$REPORT_RUNTIME_HOME")
 if [ "$KIND" = daemon ]; then
-  sq_home=$(shell_quote "$PROJ_ABS")
-  LAUNCH="MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= MX_HOME=$sq_home $LAUNCH"
+  LAUNCH="MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= MX_HOME=$sq_runtime_home MX_TASK_ID=$sq_task_id MX_REPORT_STATE_OVERRIDE=$sq_report_state $LAUNCH"
+else
+  LAUNCH="MX_HOME=$sq_runtime_home MX_TASK_ID=$sq_task_id MX_REPORT_STATE_OVERRIDE=$sq_report_state $LAUNCH"
 fi
 # Export GOTMPDIR into the actor's pane shell so the agent and every child
 # process (go build, go test, ...) inherit it. Sent before the launch command so

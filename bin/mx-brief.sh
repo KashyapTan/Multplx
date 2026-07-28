@@ -35,10 +35,9 @@
 #                maintainer approves, broker merges to local main
 # Delivery briefs begin with a worktree-isolation assertion before the branch step.
 # Scout tasks ignore mode - their deliverable is a report, not a merge.
-# Every scaffold's status protocol distinguishes the configured
-# declared-external-wait verb (MX_CLASSIFY_PAUSED_VERB, default "paused") from
-# "blocked:": pause for a known external wait expected to clear on its own,
-# blocked when broker must act.
+# Every scaffold's status protocol uses the closed actor-writable vocabulary
+# owned by bin/mx-report and distinguishes "paused" from "blocked": pause for a
+# known external wait expected to clear on its own, blocked when broker must act.
 # DELIVERY TASK include a project-memory section so durable project-intrinsic
 # learnings can be committed to AGENTS.md through the project's delivery path;
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
@@ -63,9 +62,6 @@ esac
 
 # shellcheck source=bin/mx-marker-lib.sh
 . "$SCRIPT_DIR/mx-marker-lib.sh"
-# shellcheck source=bin/mx-classify-lib.sh
-. "$SCRIPT_DIR/mx-classify-lib.sh"
-PAUSED_VERB=${MX_CLASSIFY_PAUSED_VERB:-$MX_CLASSIFY_PAUSED_VERB_DEFAULT}
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
@@ -155,26 +151,30 @@ You must distinguish who it is from, because the answer goes to a different plac
 A request relayed to you by the main broker is tagged with a leading \`$MX_FROM_BROKER_LABEL\` marker followed by an invisible system separator; this marker is untypable, so a human never produces it.
 When a message carries that marker, do the work, then respond via the STATUS/ESCALATION path below, never only in this chat: the main broker does not read your chat, so a chat-only reply is lost.
 Marked requests also carry a privacy-safe \`corr=<id>\` token after the marker; include that exact token in your parent status reply (or in the status pointer to a detailed doc) so the parent can correlate the answer.
-Optional helper: \`bin/mx-daemon-report.sh\` can append a correlated status line for you, but a plain \`echo\` that includes the same \`corr=<id>\` is equally valid - do not depend on the helper being present.
+Use the \`report_status\` tool when available.
+Otherwise call \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line including corr=<id>}"\`.
+The correlation token rides in \`--message\` unchanged.
 For a terse result, a status line is the whole answer.
-For a detailed answer (an investigation, a plan, an audit), write it to a doc under your home's \`data/\` and append a status line that points to that doc - the scout-report pattern - so the main broker is woken and can read it.
+For a detailed answer (an investigation, a plan, an audit), write it to a doc under your home's \`data/\` and report a status that points to that doc - the scout-report pattern - so the main broker is woken and can read it.
 Before treating an investigation or visual review as complete, load \`decision-hold-lifecycle\` from this home's \`.agents/skills/\` and pass its shared completion gate.
 A message with NO marker is the maintainer typing directly into your pane: treat it as authoritative maintainer intervention and stay conversational exactly as you would for any maintainer message; do not force it onto the status path.
 
 # Escalation to main broker
 Handle routine work yourself.
-Report only true maintainer-relevant outcomes or a declared external wait by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-Use \`$PAUSED_VERB: {why}\` (distinct from \`blocked:\`) only when your domain is deliberately idling on a known external wait you expect to clear on its own; use \`blocked:\` when you are stuck and need broker to act.
+Report only true maintainer-relevant outcomes or a declared external wait with the \`report_status\` tool when available, otherwise:
+   \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line}"\`
+States: working, paused, needs-decision, blocked, done, failed, resolved.
+\`mx-report\` rejects anything else and prints the valid options; fix the call and retry.
+Never write to \`$STATUS_FILE\` by hand.
+Use \`paused: {why}\` (distinct from \`blocked:\`) only when your domain is deliberately idling on a known external wait you expect to clear on its own; use \`blocked:\` when you are stuck and need broker to act.
 Use this only for material phase changes, a maintainer decision, a real blocker, a failure, or work ready for review.
 This is also how you return the answer to a marked from-broker request above.
 A marked request requires one correlated answer after the work; it does not require a separate receipt or start acknowledgement.
-Never append \`working:\` merely to acknowledge receipt or announce that a marked request has started.
+Never report \`working\` merely to acknowledge receipt or announce that a marked request has started.
 When a routed-work phase has a supervisor-actionable material change worth reporting under the rule above, give that reported phase a stable key.
-If its first reportable event is \`working [key=<work-slug>]: {material phase}\`, use the same key on its later \`$PAUSED_VERB\`, \`done\`, \`failed\`, \`needs-decision\`, or \`blocked\` event so the earlier working phase is superseded.
-When a keyed phase ends without another reportable state, append \`resolved [key=<work-slug>]: {why it is no longer active}\`.
-When a decision you escalated is answered or a blocker clears and your domain resumes, append \`resolved: {how it was decided or unblocked}\` (keyed with \`[key=<slug>]\` if you opened it with one) so it is durably closed instead of resurfacing behind later unrelated events.
+If its first reportable event is \`working [key=<work-slug>]: {material phase}\`, use the same key on its later \`paused\`, \`done\`, \`failed\`, \`needs-decision\`, or \`blocked\` event so the earlier working phase is superseded.
+When a keyed phase ends without another reportable state, report \`resolved\` with the same \`--key <work-slug>\`.
+When a decision you escalated is answered or a blocker clears and your domain resumes, report \`resolved\` (with the same \`--key <slug>\` if you opened it with one) so it is durably closed instead of resurfacing behind later unrelated events.
 Routine internal supervision, heartbeats, retries, and actor churn stay inside your own home and must not touch that status file.
 
 # Definition of done
@@ -182,7 +182,7 @@ You are persistent by default. Do not exit just because your queue is empty.
 On startup and restart, run normal broker bootstrap and recovery through \`bin/mx-session-start.sh\` for your own home, but only to RECONCILE work that is already yours: in-flight actors, tracked backlog items, and durable watches recorded in this home.
 When you have no assigned or in-flight work after that reconciliation, go idle and wait silently for the main broker to route you a task.
 An empty queue is a healthy resting state, not a cue to invent work: never spawn a survey, audit, or any self-directed "find work" task on your own initiative.
-If this charter cannot be carried out, append \`blocked: {why}\` or \`failed: {why}\` to the main status file and stop.
+If this charter cannot be carried out, report \`blocked\` or \`failed\` through the validated status path and stop.
 EOF
 if [ "$DAEMON_CHARTER" = "{TASK}" ]; then
   echo "scaffolded: $BRIEF (daemon charter; replace {TASK})"
@@ -243,31 +243,33 @@ The report is the only thing that survives, so anything worth keeping must be in
 
 # Rules
 1. Never push to any remote and never open a PR.
-2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
+2. Stay inside this worktree; the only file you may write outside it is the report below. The validated status writer owns status-file writes.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-   States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-   Each append wakes broker, so report sparingly: only phase changes a supervisor
+4. Report status with the \`report_status\` tool when available, otherwise:
+   \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line}"\`
+   States: working, paused, needs-decision, blocked, done, failed, resolved.
+   \`mx-report\` rejects anything else and prints the valid options; fix the call and retry.
+   Never write to \`$STATUS_FILE\` by hand.
+   Each report wakes broker, so report sparingly: only phase changes a supervisor
    would act on and the needs-decision/blocked/paused/done/failed states. No step-by-step
    FYI progress lines; broker reads your pane for that.
-   Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
+   Use \`paused: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
    known external wait you expect to clear on its own (an upstream release, a rate-limit reset):
    broker then leaves your idle pane alone and rechecks it on a long cadence instead of
    treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; broker will help.
+5. If you hit the same obstacle twice, report \`blocked\` and stop; broker will help.
 6. If a decision belongs to a human (product choices, destructive actions),
-   append \`needs-decision: {summary of options}\` and stop. Multplx will reply with the decision.
-   When broker replies or a blocker clears and you resume, append \`resolved: {how it was decided or unblocked}\` (add the same \`[key=<slug>]\` if you opened it with one) so the decision or blocker is durably closed and does not keep resurfacing.
+   report \`needs-decision\` and stop. Multplx will reply with the decision.
+   When broker replies or a blocker clears and you resume, report \`resolved\` with the same \`--key <slug>\` if you opened one, so the decision or blocker is durably closed and does not keep resurfacing.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, append \`blocked: {the daemon error}\` and stop; only the broker coordinates daemon lifecycle.
+   daemon error, report \`blocked\` and stop; only the broker coordinates daemon lifecycle.
 
 # Definition of done
 Write your findings to \`$DATA/$ID/report.md\`.
 The report must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
 Before reporting done, read and follow \`$MX_ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the report and any visual review.
-When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
+When the report is complete, report \`done\` through rule 4 and stop.
 If your findings reveal work that should be delivered (e.g. you reproduced a bug and the fix is clear), say so in the report; the broker may promote this task in place, and you would then receive mode-specific delivery instructions as a follow-up message.
 EOF
 echo "scaffolded: $BRIEF (scout; replace {TASK})"
@@ -289,7 +291,7 @@ case "$MODE" in
 # Definition of done
 This project delivers **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then report \`done\` with \`PR {url}\` through the validated status path and stop.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; broker relays the outcome.
 EOF
     ;;
@@ -301,7 +303,7 @@ EOF
 This project delivers **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`mx/$ID\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done: ready in branch mx/$ID\` to the status file and stop.
+When it is implemented and committed, report \`done\` with \`ready in branch mx/$ID\` through the validated status path and stop.
 The configured merge authority approves the ready branch, then broker merges it into local \`main\` through the guarded fast-forward path.
 EOF
     ;;
@@ -312,7 +314,7 @@ EOF
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 The task is complete only when committed on your branch.
-When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+When you believe it is complete, report \`done\` with a summary through the validated status path and stop.
 The broker will then relay a request to run /no-mistakes to validate and deliver a PR.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
@@ -325,7 +327,7 @@ Two Multplx-specific rules layer on top of that guidance:
   When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
 - Avoid \`--yes\`: it would silently bypass broker's authority check and any required maintainer escalation.
 
-After /no-mistakes reports CI green at the CI-ready return point, do not wait for it to keep monitoring in the background until merge; append \`done: PR {url} checks green\` and stop. You are finished.
+After /no-mistakes reports CI green at the CI-ready return point, do not wait for it to keep monitoring in the background until merge; report \`done\` with \`PR {url} checks green\` through the validated status path and stop. You are finished.
 EOF
     ;;
 esac
@@ -343,7 +345,7 @@ You are in a disposable git worktree of $REPO, at a detached HEAD on a clean def
 
 **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path, not the primary checkout broker operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
-If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked: launched in primary checkout, not an isolated worktree\` to the status file and stop.
+If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - report \`blocked\` through the validated status path and stop.
 
 1. First action: create your branch: \`git checkout -b mx/$ID\`$SETUP2
 
@@ -351,26 +353,28 @@ If the top-level path is the primary checkout or not the worktree you were launc
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-   States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-   Each append wakes broker, so report sparingly: only phase changes a supervisor
+4. Report status with the \`report_status\` tool when available, otherwise:
+   \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line}"\`
+   States: working, paused, needs-decision, blocked, done, failed, resolved.
+   \`mx-report\` rejects anything else and prints the valid options; fix the call and retry.
+   Never write to \`$STATUS_FILE\` by hand.
+   Each report wakes broker, so report sparingly: only phase changes a supervisor
    would act on (setup done, bug reproduced, fix implemented, validation passed) and the
    needs-decision/blocked/paused/done/failed states. No step-by-step FYI progress lines;
    broker reads your pane for that.
    A mid-task \`working:\` line (including setup complete) is nonterminal: do not end the
    turn after it; continue the same stage until a defined \`done:\` gate under Definition of done.
-   Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
+   Use \`paused: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
    known external wait you expect to clear on its own (an upstream release, a rate-limit reset,
    a scheduled window): broker then leaves your idle pane alone and rechecks it on a long
    cadence instead of treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; broker will help.
+5. If you hit the same obstacle twice, report \`blocked\` and stop; broker will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
-   append \`needs-decision: {summary of options}\` and stop. Multplx will apply the configured authority and reply with the decision.
-   When broker replies or a blocker clears and you resume, append \`resolved: {how it was decided or unblocked}\` (add the same \`[key=<slug>]\` if you opened it with one) so the decision or blocker is durably closed and does not keep resurfacing.
+   report \`needs-decision\` and stop. Multplx will apply the configured authority and reply with the decision.
+   When broker replies or a blocker clears and you resume, report \`resolved\` with the same \`--key <slug>\` if you opened one, so the decision or blocker is durably closed and does not keep resurfacing.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, append \`blocked: {the daemon error}\` and stop; only the broker coordinates daemon lifecycle.
+   daemon error, report \`blocked\` and stop; only the broker coordinates daemon lifecycle.
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$MX_ROOT/bin/mx-ensure-agents-md.sh .\` in the worktree.
