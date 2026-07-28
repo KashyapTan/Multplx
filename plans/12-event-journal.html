@@ -212,6 +212,15 @@ mx-timeline &lt;id&gt; --html             # shareable artifact via the vplan mod
 <tr><td><code>tests/mx-journal.test.sh</code>, <code>tests/mx-timeline.test.sh</code></td><td>New</td><td>See Test plan.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>The journal adds a cross-cutting task timeline, so its vocabulary, emit policy, and broker-facing inspection command need explicit owners.</p>
+<ul>
+  <li><code>AGENTS.md</code>: add only the operational pointer for inspecting a task with <code>mx-timeline.sh</code> and any always-needed rule about journal evidence not replacing authoritative current-state reconciliation.</li>
+  <li><code>docs/journal-events.md</code>, <code>docs/architecture.md</code>, and <code>docs/scripts.md</code>: document the event vocabulary, detail schemas, best-effort emit behavior, timeline CLI, and retention/lifecycle relationship.</li>
+  <li>Journal/timeline script headers: own exact append, locking, warning, and filtering mechanics; emitters cross-reference the journal owner instead of redefining event shapes.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and test both the broker pointer and the single-owner event-vocabulary contract.</li>
+</ul>
+
 <h2>Test plan</h2>
 <p>Runner: <code>bin/mx-test-run.sh</code> (the ported <code>fm-test-run.sh</code>); new files registered in its family map in the same commit, <code>--check-coverage</code> green at the phase boundary.</p>
 

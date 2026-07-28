@@ -268,6 +268,15 @@ wedge alarm channels:                       wedge alarm channels:
   <tr><td><code>tests/mx-removed-deps.test.sh</code></td><td>New</td><td>Regression tripwire: greps <code>bin/ tests/ docs/ AGENTS.md</code> for <code>FMX_|fm-x-|myfirstmate|glab|gitlab</code>, the osascript wedge channel, and the pruned <code>zellij|orca|grok|opencode</code> backend/harness references; fails on any hit (allowlisting <code># shellcheck</code> directives).</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>This deletion plan is not complete when code alone is removed; the broker's operating contract and every maintained reference must describe the reduced system in the same change.</p>
+<ul>
+  <li><code>AGENTS.md</code>: remove X mode, GitLab, pruned backend/harness, osascript wedge-channel, and standalone-lint instructions so the broker cannot request dependencies or paths that no longer exist.</li>
+  <li><code>docs/configuration.md</code>, <code>docs/architecture.md</code>, <code>docs/scripts.md</code>, and backend-specific documents: remove the deleted configuration, topology, commands, and support claims; delete documents whose subject no longer exists.</li>
+  <li>Conditional procedures and exact mechanics: remove or update the owning skills and script headers instead of leaving stale detail duplicated in <code>AGENTS.md</code>.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and the plan's removed-dependency grep after the implementation, documentation, and review-fix commits.</li>
+</ul>
+
 <h2>Test plan</h2>
 <h3>(a) Existing tests that must keep passing, unchanged</h3>
 <p>The core-loop suite is untouched by these removals and is the primary regression signal, run via <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code> in <a href="02-rebrand.html">plan 02</a>). In particular:</p>

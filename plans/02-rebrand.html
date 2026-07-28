@@ -261,6 +261,15 @@ grep -rniE 'captain|crew|mate|ship|fleet|fm_|fm-|firstmate|secondmate|crewmate' 
   <tr><td><code>firstmate/</code> (reference checkout)</td><td>None</td><td>Explicitly untouched by this sweep; allowlisted everywhere. Per the 2026-07-26 decision the folder is deleted outright once porting is fully done (all renamed files then live in the root Multplx dir) and the allowlist entries are dropped.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>The rebrand is complete only when the broker and all maintained documentation use the Multplx vocabulary and the final <code>mx-*</code> paths consistently.</p>
+<ul>
+  <li><code>AGENTS.md</code>: perform the full role-and-voice rewrite, update every script, environment variable, config, state, and skill reference, and preserve only the always-loaded operating contract.</li>
+  <li><code>docs/*.md</code>, <code>README.md</code>, and <code>CONTRIBUTING.md</code>: update current-behavior names and examples according to their documented audiences; historical upstream evidence may retain old names only in its narrow allowlist.</li>
+  <li>Skills, generated briefs, hooks, script headers, and <code>--help</code>: update their owned conditional procedures and mechanics in the same rename commits so no broker path points at an obsolete name.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and <code>tests/mx-naming.test.sh</code> after all documentation and review-fix commits.</li>
+</ul>
+
 <h2>Test plan</h2>
 <h3>(a) Existing tests that must keep passing</h3>
 <p>All of them — this plan renames the <i>entire</i> suite but changes no behavior, so the whole suite is the regression gate. Run it green twice: once pre-rename under the old names via <code>bin/fm-test-run.sh</code>, once post-rename under the new names via <code>bin/mx-test-run.sh</code>, inside the same atomic change. Behavior-heavy anchors to watch especially: <code>tests/fm-watch-triage.test.sh</code>, <code>tests/fm-crew-state.test.sh</code>, <code>tests/fm-daemon.test.sh</code>, <code>tests/fm-backend.test.sh</code>, <code>tests/fm-spawn-batch.test.sh</code>, <code>tests/fm-teardown.test.sh</code>, <code>tests/fm-bootstrap.test.sh</code> (→ their <code>mx-</code> names after the sweep).</p>

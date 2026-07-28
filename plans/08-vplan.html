@@ -227,6 +227,15 @@ tr:nth-child(even) td{background:var(--surface)}
 <tr><td><code>tests/mx-vplan.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>vplan adds a maintainer-review surface and replaces lavish-axi, so the broker needs a clear trigger, artifact lifecycle, and decision-return contract.</p>
+<ul>
+  <li><code>AGENTS.md</code>: replace lavish-axi invocation with the <code>mx-vplan.sh</code> review doctrine, artifact-location convention, and rule for returning unresolved maintainer decisions to the normal hold lifecycle.</li>
+  <li><code>docs/vplan.md</code> and <code>docs/vplan-authoring.md</code>: own module operation and authoring guidance; update <code>docs/architecture.md</code> and <code>docs/scripts.md</code> with concise current-behavior pointers.</li>
+  <li>CLI/server headers and any review skill: own exact commands, port selection, persistence, confirmation, and shutdown mechanics instead of expanding <code>AGENTS.md</code>.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and grep current-behavior instructions for obsolete lavish-axi use.</li>
+</ul>
+
 <h2>Test plan</h2>
 <h3>(a) Existing tests that must keep passing</h3>
 <p>All — this module is additive. Nothing existing changes behavior except the bootstrap probe swap below.</p>

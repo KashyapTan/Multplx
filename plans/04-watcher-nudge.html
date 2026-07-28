@@ -212,6 +212,15 @@ mx_interruptible_sleep() {  # &lt;secs&gt;
   <tr><td><code>docs/architecture.md</code></td><td>Modify</td><td>Record the nudge as a latency optimization over the unchanged poll backstop, and the rejected-daemon rationale.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>The nudge is a new latency path inside supervision, so the broker documentation must explain both the optimization and the durable polling fallback.</p>
+<ul>
+  <li><code>AGENTS.md</code>: update the supervision contract only where the broker's expected wake behavior changes; preserve the rule that status remains durable even when the nudge is absent or lost.</li>
+  <li><code>docs/architecture.md</code> and <code>docs/watcher-continuity.md</code>: document sender identity checks, <code>USR1</code> interruption, polling fallback, and the no-new-daemon decision.</li>
+  <li><code>bin/mx-report</code> and <code>bin/mx-watch.sh</code> headers: own exact PID discovery, signal, opt-out, and sleep-interruption mechanics.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and keep a regression assertion for the broker-facing fallback guarantee.</li>
+</ul>
+
 <h2>Test plan</h2>
 <p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>). The watcher tests already have the harness for driving a real watcher subprocess with tight knobs (see <code>tests/fm-watch-triage.test.sh</code> and <code>tests/wake-helpers.sh</code>); <code>mx-nudge.test.sh</code> reuses it.</p>
 

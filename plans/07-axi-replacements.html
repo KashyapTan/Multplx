@@ -255,6 +255,15 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
   <tr><td><code>tests/mx-dispatch-queue.test.sh</code></td><td>New</td><td>Scope addition 2026-07-27 — see test plan.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>Replacing the <code>-axi</code> toolbelt changes startup, dispatch, backlog, browser, and merge behavior, so removing the binaries without rewriting the broker contract would leave the system inoperable.</p>
+<ul>
+  <li><code>AGENTS.md</code>: rewrite the tool, dispatch-headroom, backlog, and GitHub instructions to use <code>gh</code>, <code>mx-headroom.sh</code>, and <code>mx-backlog-lib.sh</code>; remove every requirement for the retired <code>-axi</code> tools.</li>
+  <li><code>docs/configuration.md</code>, <code>docs/architecture.md</code>, and <code>docs/scripts.md</code>: document the new capacity model, parked-dispatch queue, backlog owner, manual fallback, and bootstrap requirements.</li>
+  <li>Script headers and relevant skills: own exact queue records, backlog schema mechanics, and conditional dispatch procedures; <code>AGENTS.md</code> keeps only the always-needed decisions and trigger pointers.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and grep maintained current-behavior surfaces for retired <code>-axi</code> dependency instructions.</li>
+</ul>
+
 <h2>Test plan</h2>
 <p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>). All mocks use the <code>tests/lib.sh</code> fakebin/PATH-shim pattern (<code>fm_fakebin</code>, <code>fm_fake_exit0</code>).</p>
 <h3>(a) Existing tests that must keep passing (adapted expectations)</h3>

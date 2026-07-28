@@ -331,6 +331,15 @@ Plan 09 broker: credentialed push + PR-open   →   remote CI, watched by
   <tr><td><code>docs/architecture.md</code>, <code>docs/configuration.md</code>, <code>CONTRIBUTING.md</code> (ported)</td><td>Modify</td><td>Replace the no-mistakes gate-authority and proxy-flow sections with deep-review's local-gate + Plan-09 delivery flow.</td></tr>
 </table>
 
+<h2 id="docs">Broker contract &amp; documentation updates</h2>
+<p>deep-review replaces the validation and delivery gate, so all no-mistakes-era operating instructions must be removed in the same implementation.</p>
+<ul>
+  <li><code>AGENTS.md</code>: rewrite validation ownership, gate states, decision handling, completion criteria, and delivery handoff for <code>mx-deep-review.sh</code>; remove no-mistakes commands, proxy assumptions, and PR-signature rules.</li>
+  <li><code>docs/architecture.md</code>, <code>docs/configuration.md</code>, and <code>CONTRIBUTING.md</code>: document the local egress-safe gate, trusted config source, supported commands, run records, and Plan 09 delivery boundary.</li>
+  <li><code>harness-adapters</code>, generated briefs, and deep-review script headers: own per-harness one-shot execution, exact gate commands, and run-record mechanics.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and grep maintained current-behavior surfaces for obsolete no-mistakes dependencies and commands.</li>
+</ul>
+
 <h2 id="tests">Test plan</h2>
 <p>This is the most test-heavy plan in the port: the gate is a security boundary, so its tests are part of the deliverable, not an afterthought. Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>); shared helpers from <code>tests/lib.sh</code>, whose <code>fm_fakebin</code> PATH-shim pattern backs all mocked-harness fixtures.</p>
 

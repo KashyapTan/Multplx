@@ -246,6 +246,15 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
 <tr><td><code>tests/mx-workflow-lib.test.sh</code>, <code>tests/mx-workflow.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>The workflow engine adds a new execution primitive, so the broker must know when to invoke the engine and when to load the authoring procedure instead of improvising stages from prose.</p>
+<ul>
+  <li><code>AGENTS.md</code>: add the concise workflow run/resume contract and the <code>create-workflow</code> trigger pointer; keep schema and stage detail out of the always-loaded file.</li>
+  <li><code>docs/workflows.md</code>, <code>docs/architecture.md</code>, and <code>docs/scripts.md</code>: document the workflow schema owner, state layout, lifecycle, trust posture, and CLI surface.</li>
+  <li><code>.agents/skills/create-workflow/SKILL.md</code> and workflow script headers: own the conditional interview/review procedure and exact engine mechanics.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and extend instruction-owner tests for the new <code>AGENTS.md</code> trigger.</li>
+</ul>
+
 <h2>Test plan</h2>
 <h3>(a) Existing tests that must keep passing</h3>
 <p>Everything — this plan is purely additive. Specifically unchanged: the crew-state/classify reconciliation tests, decision-hold lifecycle tests, spawn/brief tests, wake-queue tests. The engine consumes those mechanisms; it must not modify them.</p>

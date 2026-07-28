@@ -176,10 +176,19 @@ summary: 9 OK · 1 WARN · 1 FAIL          exit 2</code></pre>
 <tr><td><code>bin/mx-bootstrap.sh</code></td><td>Modify</td><td>Re-pointed at <code>mx-probe-lib.sh</code>; session-start output contract byte-identical.</td></tr>
 <tr><td><code>bin/mx-lock-lib.sh</code>, <code>bin/mx-wake-lib.sh</code></td><td>—</td><td>Consumed unchanged — doctor reuses their proofs, adds nothing to them.</td></tr>
 <tr><td><code>docs/doctor.md</code></td><td>New</td><td>Check catalog, severity meanings, the --fix contract.</td></tr>
-<tr><td><code>AGENTS.md</code>, recovery skill (<code>stuck-crewmate-recovery</code>'s post-rebrand successor)</td><td>Modify</td><td>Pointers only: doctor as the first diagnostic step.</td></tr>
+<tr><td><code>AGENTS.md</code>, <code>.agents/skills/stuck-actor-recovery/SKILL.md</code></td><td>Modify</td><td>Pointers only: doctor as the first diagnostic step.</td></tr>
 <tr><td><code>bin/mx-test-run.sh</code></td><td>Modify</td><td>Register the new test file in family/lane maps.</td></tr>
 <tr><td><code>tests/mx-doctor.test.sh</code></td><td>New</td><td>See Test plan.</td></tr>
 </table>
+
+<h2>Broker contract &amp; documentation updates</h2>
+<p><code>mx-doctor.sh</code> changes the first response to system-health problems, so diagnosis and recovery instructions must route through it without duplicating its check catalog.</p>
+<ul>
+  <li><code>AGENTS.md</code>: add the concise trigger to run doctor when the system feels inconsistent, then follow the named recovery procedure for any actionable result.</li>
+  <li><code>docs/doctor.md</code>, <code>docs/architecture.md</code>, and <code>docs/scripts.md</code>: own the check catalog, severities, safe <code>--fix</code> scope, JSON output, and relation to bootstrap.</li>
+  <li><code>.agents/skills/stuck-actor-recovery/SKILL.md</code> and probe/doctor script headers: own conditional recovery routing and exact probe/remediation mechanics.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and test that the broker pointer names <code>mx-doctor.sh</code> and the post-rebrand recovery skill.</li>
+</ul>
 
 <h2>Test plan</h2>
 <p>Runner: <code>bin/mx-test-run.sh</code>; <code>--check-coverage</code> must pass after registering the new file.</p>

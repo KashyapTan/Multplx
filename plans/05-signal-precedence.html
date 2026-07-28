@@ -222,6 +222,15 @@ fi</code></pre>
   <tr><td><code>tests/fm-backend-herdr-eventwait-smoke.test.sh</code>, <code>tests/fm-backend-herdr-eventwait.test.py</code></td><td>Modify</td><td>Only if they assert the paused-absorbs-native behavior; verify and update the specific case.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>Signal precedence changes what the broker treats as current truth, so its ordering must be explicit in the always-loaded contract and stated in full in only one owner.</p>
+<ul>
+  <li><code>AGENTS.md</code>: state the concise precedence rule and point to the classification owner; update every monitoring and reconciliation instruction that currently implies the old ordering.</li>
+  <li><code>docs/architecture.md</code> and <code>docs/watcher-continuity.md</code>: explain how run state, validated reports, native events, and regex heuristics interact at the system level.</li>
+  <li><code>bin/mx-classify-lib.sh</code> header: remain the full owner of the resolver contract; other scripts and docs cross-reference it instead of restating a competing state machine.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and test the <code>AGENTS.md</code> pointer plus the conflict matrix.</li>
+</ul>
+
 <h2>Test plan</h2>
 <p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>). Because this plan touches the state oracle, the order of work is tests-first: land the conflict matrix red where it pins new behavior, then rewire consumers.</p>
 

@@ -253,6 +253,15 @@ stages:
 <tr><td><code>tests/fixtures/upstream-sync/</code></td><td>New</td><td>Fixture upstream repo + fixture diffs (relevant / irrelevant / deleted-subsystem paths), golden report, and the workflow-validate fixture.</td></tr>
 </table>
 
+<h2>Broker contract &amp; documentation updates</h2>
+<p>Upstream sync adds a recurring maintenance workflow, so the broker needs a durable trigger and the maintainer needs a single authoritative fork-point record.</p>
+<ul>
+  <li><code>AGENTS.md</code>: add the concise sync cadence and instruction to invoke <code>workflows/upstream-sync.workflow.md</code>; do not copy the full review procedure into the always-loaded contract.</li>
+  <li><code>docs/upstream.md</code>, <code>docs/workflows.md</code>, and <code>docs/architecture.md</code>: own the fork point, relevance map, review log, workflow linkage, retirement decision, and read-only diff boundary.</li>
+  <li><code>bin/mx-upstream-diff.sh</code> header and the workflow definition: own exact fetch/filter/record mechanics and staged execution.</li>
+  <li>Documentation verification: run <code>bin/mx-doc-audience-check.sh</code> and keep any Firstmate names confined to the narrowly allowlisted upstream-history record and fixtures.</li>
+</ul>
+
 <h2>Test plan</h2>
 <h3>(a) Existing tests that must keep passing</h3>
 <p>Everything — this plan is purely additive and post-port, so the full ported suite is the baseline: the renamed reconciliation/classify tests, watch/lock tests, wake tests, decision-hold tests, and both workflow-engine suites (<code>tests/mx-workflow-lib.test.sh</code>, <code>tests/mx-workflow.test.sh</code> from plan 11). The naming test (<code>tests/mx-naming.test.sh</code>) must also stay green — note that <code>docs/upstream.md</code> and the sync fixtures legitimately contain <code>fm-</code> names and firstmate vocabulary (they describe <i>upstream</i>), so those paths join the naming test's allowlist deliberately and narrowly.</p>
