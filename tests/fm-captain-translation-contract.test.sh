@@ -14,7 +14,6 @@ DECISION="$ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md"
 RECOVERY="$ROOT/.agents/skills/stuck-crewmate-recovery/SKILL.md"
 HARNESS="$ROOT/.agents/skills/harness-adapters/SKILL.md"
 CODEXAPP="$ROOT/.agents/skills/firstmate-codexapp/SKILL.md"
-FMX="$ROOT/.agents/skills/fmx-respond/SKILL.md"
 UPDATE="$ROOT/.agents/skills/updatefirstmate/SKILL.md"
 AHOY="$ROOT/.agents/skills/ahoy/SKILL.md"
 README="$ROOT/README.md"
@@ -132,8 +131,6 @@ test_outward_facing_skill_points_reference_section_9_owner() {
     "runtime fallback permits waiting on future verification or launching an unverified adapter"
   assert_grep "translate status prefixes and return-channel evidence through \`AGENTS.md\` section 9" "$CODEXAPP" \
     "Codex Desktop result reporting does not reference section 9"
-  assert_grep "It supplements \`AGENTS.md\` section 9; apply both, and this public-channel rule wins wherever it is stricter." "$FMX" \
-    "X reply safety does not state that it supplements section 9"
   assert_grep "under \`AGENTS.md\` section 9 without firstmate's internal vocabulary" "$UPDATE" \
     "Firstmate update reporting does not reference section 9"
   pass "outward-facing skill handoffs point to the section 9 owner"

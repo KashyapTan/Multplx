@@ -8,8 +8,6 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-pr-lib.sh"
 # shellcheck source=/dev/null
-. "$ROOT/bin/fm-x-lib.sh"
-# shellcheck source=/dev/null
 . "$ROOT/bin/fm-check-lib.sh"
 
 PR_CHECK="$ROOT/bin/fm-pr-check.sh"
@@ -119,11 +117,6 @@ write_ambiguous_poll() {
     'pr=https://github.com/o/r/pull/10' \
     'window=unexpected-after-pr'
   printf 'legacy ambiguous bytes\n' > "$dir/home/state/$id.check.sh"
-}
-
-write_v1_x_shim() {
-  local file=$1 home=$2 root=$3
-  fmx_poll_shim_v1_content "$home" "$root" > "$file"
 }
 
 write_manual_poll_pair() {
@@ -620,10 +613,6 @@ SH
     [ -d "$dir/home/state/$id.check.sh" ] \
       || fail "legacy task teardown changed the unsafe direct artifact"
     rmdir "$dir/home/state/$id.check.sh"
-    FM_HOME="$dir/home" "$ROOT/bin/fm-x-link.sh" "$id" req-legacy \
-      --carry-count 0 --carry-ts 1700000000 --carry-platform x --carry-max 280 \
-      > "$dir/x-link.out" 2> "$dir/x-link.err" \
-      || fail "path-safe legacy task ID could not link an X request"
     run_merge_entry "$dir" "$id" https://github.com/o/r/pull/4 \
       > "$dir/merge.out" 2> "$dir/merge.err" \
       || fail "path-safe legacy task ID could not use the PR merge flow"
@@ -1606,21 +1595,6 @@ test_complete_single_link_validation() {
     [ -e "$alias" ] || fail "$artifact hard-link refusal removed the external alias"
   done
 
-  dir=$(make_case single-link-x-shim)
-  state="$dir/home/state"
-  fmx_poll_shim_content "$dir/home" "$ROOT" > "$state/x-watch.check.sh"
-  chmod 0700 "$state/x-watch.check.sh"
-  FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" >/dev/null 2>/dev/null \
-    || fail "could not publish X-shim marker fixture"
-  alias="$dir/x-shim.alias"
-  ln "$state/x-watch.check.sh" "$alias"
-  set +e
-  FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" --checks-safe > "$dir/retry.out" 2> "$dir/retry.err"
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "hard-linked X shim passed marker-aware migration"
-  [ -e "$alias" ] || fail "X-shim hard-link refusal removed the external alias"
-
   dir=$(make_case single-link-custom-check-registration)
   state="$dir/home/state"
   printf '#!/usr/bin/env bash\nprintf "custom-ready\\n"\n' > "$state/custom.check.sh"
@@ -1989,7 +1963,7 @@ SH
 }
 
 test_nonexecuting_migration() {
-  local dir state marker x_before x_after snap_before snap_after rc
+  local dir state marker snap_before snap_after rc
   dir=$(make_case migration)
   state="$dir/home/state"
   marker="$dir/legacy-marker"
@@ -1999,9 +1973,6 @@ test_nonexecuting_migration() {
     'pr=https://github.com/o/r/pull/9'
   printf 'printf legacy > %q\n' "$marker" > "$state/task-a.check.sh"
   chmod 0644 "$state/task-a.check.sh"
-  fmx_poll_shim_content "$dir/home" "$ROOT" > "$state/x-watch.check.sh"
-  chmod 0700 "$state/x-watch.check.sh"
-  x_before=$(state_snapshot "$state" | grep 'x-watch.check.sh')
 
   FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
     || fail "canonical legacy migration failed"
@@ -2019,8 +1990,6 @@ test_nonexecuting_migration() {
   assert_valid_migration_marker "$state/.pr-check-migration-v1"
   find "$state/.pr-check-quarantine" -name 'task-a.check.*' -type f | grep . >/dev/null \
     || fail "legacy check was not quarantined"
-  x_after=$(state_snapshot "$state" | grep 'x-watch.check.sh')
-  [ "$x_after" = "$x_before" ] || fail "migration changed the X-mode shim"
 
   snap_before=$(state_snapshot "$state")
   FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err" \
@@ -2035,27 +2004,6 @@ test_nonexecuting_migration() {
   FM_HOME="$dir/home" "$MIGRATE" >/dev/null 2>/dev/null || fail "completed migration rerun failed"
   snap_after=$(state_snapshot "$state")
   [ "$snap_after" = "$snap_before" ] || fail "completed migration changed a later custom check"
-
-  dir=$(make_case migration-x-linked)
-  state="$dir/home/state"
-  fm_write_meta "$state/task-x.meta" \
-    'window=fm-task-x' \
-    'pr=https://github.com/o/r/pull/12' \
-    'pr_head=0123456789abcdef0123456789abcdef01234567' \
-    'x_request=req-42' \
-    'x_request_ts=1700000000' \
-    'x_followups=1' \
-    'x_platform=discord' \
-    'x_reply_max_chars=1900'
-  printf 'legacy X-linked bytes\n' > "$state/task-x.check.sh"
-  snap_before=$(cat "$state/task-x.meta")
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
-    || fail "X-linked migration failed"
-  [ "$(cat "$dir/migrate.out")" = 'PR_CHECK_MIGRATION: canonical polls rebuilt and armed; resume supervision for this home' ] \
-    || fail "X-linked migration did not report an armed canonical poll"
-  fm_pr_poll_artifacts_valid "$state" task-x "$POLL" || fail "X-linked migration did not arm a valid pair"
-  snap_after=$(cat "$state/task-x.meta")
-  [ "$snap_after" = "$snap_before" ] || fail "X-linked migration changed task metadata"
 
   dir=$(make_case migration-ambiguous)
   state="$dir/home/state"
@@ -2091,203 +2039,7 @@ test_nonexecuting_migration() {
   assert_grep 'noncanonical task artifact quarantined and unarmed' "$state/.pr-check-migration.log" \
     "noncanonical artifact outcome diagnostic was missing"
   assert_valid_migration_marker "$state/.pr-check-migration-v1"
-  pass "migration never executes legacy checks, preserves X mode, quarantines ambiguity, and is idempotent"
-}
-
-test_historical_x_shim_transition_matrix() {
-  local dir state shim marker_kind executed rc variant target alias
-  for marker_kind in unmarked completed safe-scan; do
-    dir=$(make_case "historical-x-transition-$marker_kind")
-    state="$dir/home/state"
-    shim="$state/x-watch.check.sh"
-    executed="$dir/x-poll-executed"
-    cat > "$dir/root/bin/fm-x-poll.sh" <<SH
-#!/usr/bin/env bash
-touch '$executed'
-SH
-    chmod 0700 "$dir/root/bin/fm-x-poll.sh"
-    write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-    chmod 0755 "$shim"
-    case "$marker_kind" in
-      completed)
-        printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
-        chmod 0600 "$state/.pr-check-migration-v1"
-        ;;
-      safe-scan)
-        printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
-        chmod 0600 "$state/.pr-check-migration-scan-v1"
-        ;;
-    esac
-
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" "$MIGRATE" >/dev/null 2> "$dir/migrate.err" \
-      || fail "$marker_kind historical X shim transition failed: $(cat "$dir/migrate.err")"
-    fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-      || fail "$marker_kind historical X shim was not replaced with the current identity"
-    [ "$(file_mode "$shim")" = 700 ] || fail "$marker_kind current X shim mode was not 0700"
-    [ ! -e "$executed" ] || fail "$marker_kind historical X shim was executed during migration"
-    assert_valid_migration_marker "$state/.pr-check-migration-v1"
-    assert_valid_scan_marker "$state/.pr-check-migration-scan-v1"
-    ! find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f 2>/dev/null | grep . >/dev/null \
-      || fail "$marker_kind historical X shim was quarantined"
-  done
-
-  dir=$(make_case historical-x-transition-watcher)
-  state="$dir/home/state"
-  shim="$state/x-watch.check.sh"
-  executed="$dir/x-poll-executed"
-  cat > "$dir/root/bin/fm-x-poll.sh" <<SH
-#!/usr/bin/env bash
-touch '$executed'
-SH
-  chmod 0700 "$dir/root/bin/fm-x-poll.sh"
-  write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-  chmod 0755 "$shim"
-  touch "$state/.last-check"
-  printf 'done: synthetic transition wake\n' > "$state/transition.status"
-  set +e
-  FM_TEST_CHECK_INTERVAL=999999 FM_TEST_WATCH_ROOT="$dir/root" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "standalone watcher did not complete the historical X transition"
-  fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-    || fail "standalone watcher did not publish the current X identity"
-  [ "$(file_mode "$shim")" = 700 ] || fail "standalone watcher X shim mode was not 0700"
-  [ ! -e "$executed" ] || fail "standalone watcher executed the historical X shim"
-
-  for variant in linked symlink byte-mismatch mode-0700 mode-0750 mode-0777; do
-    dir=$(make_case "historical-x-negative-$variant")
-    state="$dir/home/state"
-    shim="$state/x-watch.check.sh"
-    executed="$dir/x-poll-executed"
-    cat > "$dir/root/bin/fm-x-poll.sh" <<SH
-#!/usr/bin/env bash
-touch '$executed'
-SH
-    chmod 0700 "$dir/root/bin/fm-x-poll.sh"
-    case "$variant" in
-      symlink)
-        target="$dir/historical-x-target"
-        write_v1_x_shim "$target" "$dir/home" "$dir/root"
-        chmod 0755 "$target"
-        ln -s "$target" "$shim"
-        ;;
-      *)
-        write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-        chmod 0755 "$shim"
-        ;;
-    esac
-    case "$variant" in
-      linked)
-        alias="$dir/historical-x-alias"
-        ln "$shim" "$alias"
-        ;;
-      byte-mismatch) printf '# different identity\n' >> "$shim" ;;
-      mode-0700) chmod 0700 "$shim" ;;
-      mode-0750) chmod 0750 "$shim" ;;
-      mode-0777) chmod 0777 "$shim" ;;
-    esac
-    printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
-    printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
-    chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
-
-    set +e
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" "$MIGRATE" --checks-safe \
-      > "$dir/migrate.out" 2> "$dir/migrate.err"
-    rc=$?
-    set -e
-    case "$variant" in
-      linked)
-        [ "$rc" -ne 0 ] || fail "linked historical X lookalike did not fail closed"
-        cmp -s "$alias" <(fmx_poll_shim_v1_content "$dir/home" "$dir/root") \
-          || fail "linked historical X lookalike changed through its alias"
-        [ "$(file_mode "$alias")" = 755 ] || fail "linked historical X alias mode changed"
-        ;;
-      symlink)
-        [ "$rc" -ne 0 ] || fail "symlinked historical X lookalike did not fail closed"
-        [ -L "$shim" ] || fail "symlinked historical X lookalike was replaced"
-        cmp -s "$target" <(fmx_poll_shim_v1_content "$dir/home" "$dir/root") \
-          || fail "symlinked historical X target changed"
-        [ "$(file_mode "$target")" = 755 ] || fail "symlinked historical X target mode changed"
-        ;;
-      *)
-        [ "$rc" -eq 0 ] || fail "$variant historical X lookalike was not safely quarantined"
-        [ ! -e "$shim" ] && [ ! -L "$shim" ] \
-          || fail "$variant historical X lookalike remained live after migration"
-        find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f | grep . >/dev/null \
-          || fail "$variant historical X lookalike was not quarantined"
-        ;;
-    esac
-    ! fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-      || fail "$variant historical X lookalike became a current identity"
-    [ ! -e "$executed" ] || fail "$variant historical X lookalike was executed"
-  done
-  pass "historical X shims migrate only from the exact single-link mode-0755 identity"
-}
-
-test_direct_registration_refreshes_v1_x_shim() {
-  local dir state shim quarantined marker_kind number snapshot_before snapshot_after
-  number=20
-  for marker_kind in unmarked completed safe-scan; do
-    number=$((number + 1))
-    dir=$(make_case "direct-registration-x-transition-$marker_kind")
-    state="$dir/home/state"
-    shim="$state/x-watch.check.sh"
-    fm_write_meta "$state/task-a.meta" 'window=fm-task-a'
-    write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-    chmod 0755 "$shim"
-    case "$marker_kind" in
-      completed)
-        printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
-        chmod 0600 "$state/.pr-check-migration-v1"
-        ;;
-      safe-scan)
-        printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
-        chmod 0600 "$state/.pr-check-migration-scan-v1"
-        ;;
-    esac
-
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-      PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" task-a "https://github.com/o/r/pull/$number" \
-      > "$dir/register.out" 2> "$dir/register.err" \
-      || fail "$marker_kind direct registration did not preserve the v1 X shim: $(cat "$dir/register.err")"
-    fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-      || fail "$marker_kind direct registration did not refresh the v1 X shim identity"
-    [ "$(file_mode "$shim")" = 700 ] || fail "$marker_kind refreshed X shim was not private and executable"
-    fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
-      || fail "$marker_kind X shim refresh suppressed direct PR registration"
-    assert_valid_migration_marker "$state/.pr-check-migration-v1"
-    assert_valid_scan_marker "$state/.pr-check-migration-scan-v1"
-    quarantined=$(find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f 2>/dev/null || true)
-    [ -z "$quarantined" ] || fail "$marker_kind authenticated v1 X shim was quarantined"
-
-    snapshot_before=$(state_snapshot "$state")
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" "$MIGRATE" --checks-safe >/dev/null \
-      || fail "$marker_kind current X shim marker rerun failed"
-    snapshot_after=$(state_snapshot "$state")
-    [ "$snapshot_after" = "$snapshot_before" ] \
-      || fail "$marker_kind current X shim marker rerun changed state"
-  done
-
-  dir=$(make_case direct-registration-x-lookalike)
-  state="$dir/home/state"
-  shim="$state/x-watch.check.sh"
-  fm_write_meta "$state/task-a.meta" 'window=fm-task-a'
-  write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-  printf '# unrecognized version\n' >> "$shim"
-  chmod 0755 "$shim"
-
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-    PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" task-a https://github.com/o/r/pull/22 \
-    >/dev/null 2> "$dir/register.err" \
-    || fail "direct registration failed after quarantining an X shim lookalike: $(cat "$dir/register.err")"
-  [ ! -e "$shim" ] && [ ! -L "$shim" ] \
-    || fail "unrecognized X shim lookalike remained armed"
-  find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f | grep . >/dev/null \
-    || fail "unrecognized X shim lookalike was not quarantined"
-  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
-    || fail "lookalike quarantine suppressed direct PR registration"
-  pass "direct registration refreshes authenticated v1 X shims across marker states"
+  pass "migration never executes legacy checks, quarantines ambiguity, and is idempotent"
 }
 
 test_bootstrap_migrates_before_other_mutations() {
@@ -2308,12 +2060,11 @@ test_bootstrap_migrates_before_other_mutations() {
 }
 
 test_bootstrap_isolates_incomplete_poll_migration() {
-  local dir state fakebin fleet_marker x_poll_marker rc
+  local dir state fakebin fleet_marker rc
   dir=$(make_case bootstrap-migration-isolation)
   state="$dir/home/state"
   fakebin="$dir/fakebin"
   fleet_marker="$dir/fleet-ran"
-  x_poll_marker="$dir/x-poll-ran"
   fm_write_meta "$state/task-a.meta" \
     'window=fm-task-a' \
     'pr=https://github.com/o/r/pull/12'
@@ -2328,7 +2079,6 @@ test_bootstrap_isolates_incomplete_poll_migration() {
     'kind=secondmate' \
     'harness=codex' \
     'backend=tmux'
-  printf 'FMX_PAIRING_TOKEN=test-token\n' > "$dir/home/.env"
   mkdir -p "$dir/home/projects"
   fm_fake_exit0 "$fakebin" curl jq
   cat > "$fakebin/tmux" <<'SH'
@@ -2343,11 +2093,7 @@ SH
 : > "${FM_TEST_FLEET_MARKER:?}"
 printf 'alpha: recovered: continued after isolated migration failure\n'
 SH
-  cat > "$dir/root/bin/fm-x-poll.sh" <<'SH'
-#!/usr/bin/env bash
-: > "${FM_TEST_X_POLL_MARKER:?}"
-SH
-  chmod +x "$fakebin/tmux" "$dir/root/bin/fm-fleet-sync.sh" "$dir/root/bin/fm-x-poll.sh"
+  chmod +x "$fakebin/tmux" "$dir/root/bin/fm-fleet-sync.sh"
 
   set +e
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_FLEET_MARKER="$fleet_marker" \
@@ -2369,30 +2115,25 @@ SH
     "incomplete poll migration suppressed secondmate sync"
   assert_grep 'SECONDMATE_LIVENESS: secondmate secondmate-a: skipped: existing endpoint has ambiguous agent process' "$dir/bootstrap.out" \
     "incomplete poll migration suppressed persistent supervisor recovery"
-  assert_grep 'FMX: X mode on - relay poll armed' "$dir/bootstrap.out" \
-    "incomplete poll migration suppressed X mention setup"
-  fmx_poll_shim_valid "$state/x-watch.check.sh" "$dir/home" "$dir/root" \
-    || fail "incomplete poll migration did not arm a private authenticated X relay shim"
   [ -e "$fleet_marker" ] || fail "incomplete poll migration suppressed fleet refresh"
   assert_grep 'FLEET_SYNC: alpha: recovered: continued after isolated migration failure' "$dir/bootstrap.out" \
     "continued fleet refresh was not operator-visible"
   printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' replacement-ran" > "$state/a-replaced.check.sh"
   chmod 0600 "$state/a-replaced.check.sh"
   set +e
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_X_POLL_MARKER="$x_poll_marker" \
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" \
     FM_TEST_GH_STATE=MERGED FM_POLL=0 FM_CHECK_INTERVAL=0 FM_SIGNAL_GRACE=0 \
     PATH="$fakebin:$BASE_PATH" "$WATCH" > "$dir/watch.out" 2> "$dir/watch.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "watcher remained blocked after unsafe legacy check exclusion: $(cat "$dir/watch.err")"
-  [ -e "$x_poll_marker" ] || fail "watcher did not continue X mention polling after isolated migration failure"
   assert_no_grep 'replacement-ran' "$dir/watch.out" \
     "watcher executed an unauthenticated check created after scan completion"
   assert_grep "check: $state/z-healthy.check.sh: merged" "$dir/watch.out" \
     "watcher did not continue the healthy authenticated poll"
   [ ! -e "$state/task-a.check.sh" ] && [ ! -L "$state/task-a.check.sh" ] \
     || fail "watcher continuation rearmed the unsafe legacy check"
-  rm -f "$state/a-replaced.check.sh" "$state/.last-check" "$x_poll_marker"
+  rm -f "$state/a-replaced.check.sh" "$state/.last-check"
   printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' custom-ready" > "$state/b-custom.check.sh"
   chmod 0700 "$state/b-custom.check.sh"
   FM_HOME="$dir/home" "$REGISTER" b-custom > "$dir/register.out" \
@@ -2400,7 +2141,7 @@ SH
   assert_grep 'registered: state/b-custom.check.sh' "$dir/register.out" \
     "custom check registration was not visible"
   set +e
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_X_POLL_MARKER="$x_poll_marker" \
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" \
     FM_TEST_GH_STATE=OPEN FM_POLL=0 FM_CHECK_INTERVAL=0 FM_SIGNAL_GRACE=0 \
     PATH="$fakebin:$BASE_PATH" "$WATCH" > "$dir/watch-custom.out" 2> "$dir/watch-custom.err"
   rc=$?
@@ -2410,9 +2151,9 @@ SH
     "registered custom check output did not wake the watcher"
   printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' custom-replacement-ran" > "$state/b-custom.check.sh"
   chmod 0700 "$state/b-custom.check.sh"
-  rm -f "$state/.last-check" "$x_poll_marker"
+  rm -f "$state/.last-check"
   set +e
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_X_POLL_MARKER="$x_poll_marker" \
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" \
     FM_TEST_GH_STATE=OPEN FM_POLL=0 FM_CHECK_INTERVAL=0 FM_SIGNAL_GRACE=0 \
     PATH="$fakebin:$BASE_PATH" "$WATCH" > "$dir/watch-custom-replaced.out" 2> "$dir/watch-custom-replaced.err"
   rc=$?
@@ -2420,32 +2161,10 @@ SH
   [ "$rc" -eq 0 ] || fail "watcher failed while rejecting a replaced custom check: $(cat "$dir/watch-custom-replaced.err")"
   assert_no_grep 'custom-replacement-ran' "$dir/watch-custom-replaced.out" \
     "watcher executed a custom check after its registered bytes changed"
-  [ -e "$x_poll_marker" ] || fail "custom replacement rejection suppressed the trusted X poll"
   [ ! -e "$state/b-custom.check.sh" ] && [ ! -L "$state/b-custom.check.sh" ] \
     || fail "marker-aware scan left the replaced custom check runnable"
   find "$state/.pr-check-quarantine" -name 'b-custom.check.*' -type f | grep . >/dev/null \
     || fail "marker-aware scan did not quarantine the replaced custom check"
-  printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' forged-x-ran" > "$state/x-watch.check.sh"
-  chmod 0700 "$state/x-watch.check.sh"
-  rm -f "$state/.last-check" "$x_poll_marker"
-  set +e
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_X_POLL_MARKER="$x_poll_marker" \
-    FM_TEST_GH_STATE=OPEN FM_POLL=0 FM_CHECK_INTERVAL=0 FM_SIGNAL_GRACE=0 \
-    PATH="$fakebin:$BASE_PATH" "$WATCH" > "$dir/watch-replaced.out" 2> "$dir/watch-replaced.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "watcher failed while rejecting a replaced X shim: $(cat "$dir/watch-replaced.err")"
-  assert_no_grep 'forged-x-ran' "$dir/watch-replaced.out" \
-    "watcher executed a filename-only X shim replacement"
-  [ ! -e "$x_poll_marker" ] || fail "watcher trusted the replaced X shim identity"
-  [ ! -e "$state/b-custom.check.sh" ] && [ ! -L "$state/b-custom.check.sh" ] \
-    || fail "locked X-shim scan left the replaced custom check runnable"
-  [ ! -e "$state/x-watch.check.sh" ] && [ ! -L "$state/x-watch.check.sh" ] \
-    || fail "locked X-shim scan left the forged X shim runnable"
-  find "$state/.pr-check-quarantine" -name 'b-custom.check.*' -type f | grep . >/dev/null \
-    || fail "locked X-shim scan did not quarantine the replaced custom check"
-  find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f | grep . >/dev/null \
-    || fail "locked X-shim scan did not quarantine the forged X shim"
   [ -f "$state/.pr-check-quarantine/task-a.diagnostic.failure-canonical" ] \
     || fail "watcher continuation lost the durable repair obligation"
   pass "bootstrap isolates incomplete poll migration from unrelated recovery sweeps"
@@ -3350,8 +3069,6 @@ test_complete_single_link_validation
 test_canonical_publication_failure_recovers_only_on_retry
 test_obligation_namespace_compatibility
 test_nonexecuting_migration
-test_historical_x_shim_transition_matrix
-test_direct_registration_refreshes_v1_x_shim
 test_bootstrap_migrates_before_other_mutations
 test_bootstrap_isolates_incomplete_poll_migration
 test_custom_snapshot_cleanup_on_signal

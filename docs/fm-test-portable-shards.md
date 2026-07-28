@@ -18,7 +18,6 @@ Phase 1 averages used for balance (mean of available serial `duration_ms` across
 |---:|---|
 | 29639 | `tests/fm-arm-pretool-check.test.sh` |
 | 25402 | `tests/fm-decision-hold-lifecycle.test.sh` |
-| 19428 | `tests/fm-x-mode.test.sh` |
 | 14979 | `tests/fm-cd-pretool-check.test.sh` |
 | 9339 | `tests/fm-backend-herdr.test.sh` |
 | 6885 | `tests/fm-herdr-lab.test.sh` |
@@ -37,7 +36,6 @@ Phase 1 averages used for balance (mean of available serial `duration_ms` across
 | 189 | `tests/fm-ensure-agents-md.test.sh` |
 | 175 | `tests/fm-supervision-instructions.test.sh` |
 | 138 | `tests/fm-instruction-owners.test.sh` |
-| 133 | `tests/fm-lint.test.sh` |
 | 108 | `tests/fm-pi-primary-types.test.sh` |
 | 106 | `tests/fm-nm-test-contract.test.sh` |
 | 67 | `tests/fm-transition-lib.test.sh` |
@@ -49,16 +47,16 @@ Phase 1 averages used for balance (mean of available serial `duration_ms` across
 ## Balancing history
 
 The original 30-script set used longest-processing-time (LPT) assignment onto two workers with the Phase 1 averages above.
-The current 29-script lanes retain that assignment after one 283 ms candidate was removed from `portable-parallel-1`.
-The current totals are therefore intentionally not a fresh LPT balance of the 29-script set.
+The current 27-script lanes retain that assignment after removed candidates left their lanes (one 283 ms candidate from `portable-parallel-1`, plus retired scripts from `portable-parallel-2` during the Multplx port).
+The current totals are therefore intentionally not a fresh LPT balance of the 27-script set.
 Do not rebalance alphabetically or by family intuition.
 Shard execution order remains longest-first within each retained lane.
 
 | Lane | Script count | Sum of Phase 1 averages |
 |---|---:|---:|
 | `portable-parallel-1` | 14 | 64296 ms (~64.3 s) |
-| `portable-parallel-2` | 15 | 64579 ms (~64.6 s) |
-| imbalance | | 283 ms |
+| `portable-parallel-2` | 13 | 45018 ms (~45.0 s) |
+| imbalance | | 19278 ms |
 
 Exact ordered membership is the heredoc lists in `bin/fm-test-run.sh` (`list_portable_parallel_1` / `list_portable_parallel_2`).
 

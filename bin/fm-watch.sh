@@ -57,8 +57,6 @@ mkdir -p "$STATE"
 . "$SCRIPT_DIR/fm-push-transition-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=bin/fm-x-lib.sh
-. "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
 # Parent-owned secondmate missed-report guards: durable pending-reply
@@ -697,37 +695,26 @@ while :; do
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
       is_pr_poll=0
-      if [ "$(basename "$c")" = x-watch.check.sh ]; then
-        if fmx_poll_shim_valid "$c" "$FM_HOME" "$FM_ROOT" \
-          && [ -f "$FM_ROOT/bin/fm-x-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-x-poll.sh" ]; then
-          FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-x-poll.sh" || exit 1
-          out=$FM_CHECK_RESULT
-        else
-          rejected_checks="$rejected_checks $c"
-          continue
-        fi
+      id=$(basename "$c" .check.sh)
+      if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
+        is_pr_poll=1
+        provider=$FM_PR_POLL_SNAPSHOT_PROVIDER
+        url=$FM_PR_POLL_SNAPSHOT_URL
+        host=$FM_PR_POLL_SNAPSHOT_HOST
+        path=$FM_PR_POLL_SNAPSHOT_PATH
+        number=$FM_PR_POLL_SNAPSHOT_NUMBER
+        run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
+          "$provider" "$url" "$host" "$path" "$number" || exit 1
+        out=$FM_CHECK_RESULT
+      elif fm_custom_check_snapshot_prepare "$STATE" "$id"; then
+        custom_snapshot=$FM_CUSTOM_CHECK_SNAPSHOT
+        run_check_capture "$custom_snapshot" || exit 1
+        out=$FM_CHECK_RESULT
+        fm_custom_check_snapshot_cleanup
       else
-        id=$(basename "$c" .check.sh)
-        if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
-          is_pr_poll=1
-          provider=$FM_PR_POLL_SNAPSHOT_PROVIDER
-          url=$FM_PR_POLL_SNAPSHOT_URL
-          host=$FM_PR_POLL_SNAPSHOT_HOST
-          path=$FM_PR_POLL_SNAPSHOT_PATH
-          number=$FM_PR_POLL_SNAPSHOT_NUMBER
-          run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
-            "$provider" "$url" "$host" "$path" "$number" || exit 1
-          out=$FM_CHECK_RESULT
-        elif fm_custom_check_snapshot_prepare "$STATE" "$id"; then
-          custom_snapshot=$FM_CUSTOM_CHECK_SNAPSHOT
-          run_check_capture "$custom_snapshot" || exit 1
-          out=$FM_CHECK_RESULT
-          fm_custom_check_snapshot_cleanup
-        else
-          fm_custom_check_snapshot_cleanup
-          rejected_checks="$rejected_checks $c"
-          continue
-        fi
+        fm_custom_check_snapshot_cleanup
+        rejected_checks="$rejected_checks $c"
+        continue
       fi
       if [ -n "$out" ]; then
         reason="check: $c: $out"

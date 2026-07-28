@@ -4,8 +4,7 @@
 # Pending validated merged-poll retirements finish first. Canonical polls are
 # then rebuilt from validated metadata, remaining provenance-bound polls and
 # registered custom checks remain armed, and every other task poll is
-# quarantined for private review. A current X-mode shim is preserved by exact
-# content, while the recognized older byte-static shim is refreshed in place.
+# quarantined for private review.
 # Usage: fm-pr-check-migrate.sh [--checks-safe]
 set -u
 
@@ -35,8 +34,6 @@ fi
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=bin/fm-x-lib.sh
-. "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
 
@@ -80,10 +77,6 @@ current_checks_authenticated() {
   local check id
   for check in "$STATE"/*.check.sh; do
     [ -e "$check" ] || [ -L "$check" ] || continue
-    if [ "$(basename "$check")" = x-watch.check.sh ] \
-      && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
     fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE" || return 1
@@ -247,19 +240,10 @@ migration_complete() {
   migration_marker_content_valid "$MARKER"
 }
 
-x_shim_locked_scan_needed() {
-  local shim="$STATE/x-watch.check.sh"
-  [ -e "$shim" ] || [ -L "$shim" ] || return 1
-  fmx_poll_shim_valid "$shim" "$FM_HOME" "$FM_ROOT" && return 1
-  return 0
-}
-
 # Marker short-circuits apply only when generated artifact identities are current.
 # Otherwise watcher exclusion comes before every check scan and state mutation.
-if ! x_shim_locked_scan_needed; then
-  migration_complete && exit 0
-  [ "$ALLOW_INCOMPLETE_REPAIRS" -eq 1 ] && scan_complete && exit 0
-fi
+migration_complete && exit 0
+[ "$ALLOW_INCOMPLETE_REPAIRS" -eq 1 ] && scan_complete && exit 0
 
 # shellcheck source=bin/fm-wake-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-wake-lib.sh"
@@ -298,7 +282,7 @@ while [ "$i" -lt 100 ]; do
   # Its validated marker proves the old watcher crossed the boundary, so this
   # process can continue to the normal watcher singleton instead of competing
   # with the newly started watcher for a second migration lock.
-  if migration_complete && ! x_shim_locked_scan_needed; then
+  if migration_complete; then
     exit 0
   fi
   sleep 0.05
@@ -314,10 +298,8 @@ MIGRATION_SCAN_MARKER_TMP=
 MIGRATION_LOG_TMP=
 MIGRATION_OBLIGATION_TMP=
 MIGRATION_QUARANTINE_TMP=
-MIGRATION_X_SHIM_TMP=
 migration_cleanup() {
   fm_pr_poll_cleanup
-  [ -z "$MIGRATION_X_SHIM_TMP" ] || rm -f -- "$MIGRATION_X_SHIM_TMP"
   [ -z "$MIGRATION_QUARANTINE_TMP" ] || rm -f -- "$MIGRATION_QUARANTINE_TMP"
   [ -z "$MIGRATION_OBLIGATION_TMP" ] || rm -f -- "$MIGRATION_OBLIGATION_TMP"
   [ -z "$MIGRATION_LOG_TMP" ] || rm -f -- "$MIGRATION_LOG_TMP"
@@ -338,25 +320,6 @@ if ! fm_pr_poll_retirement_recover_all "$STATE" "$TEMPLATE"; then
   echo "PR_CHECK_MIGRATION: pending PR poll retirement could not be validated:$FM_PR_POLL_RETIREMENT_REJECTED" >&2
   exit 1
 fi
-refresh_v1_x_shim() {
-  local shim="$STATE/x-watch.check.sh"
-  fmx_poll_shim_v1_valid "$shim" "$FM_HOME" "$FM_ROOT" "$STATE_DEVICE" || return 0
-  fm_pr_regular_destination_on_device_or_absent "$shim" "$STATE_DEVICE" || return 1
-  MIGRATION_X_SHIM_TMP=$(mktemp "$STATE/.fm-x-watch.XXXXXX") || return 1
-  fmx_poll_shim_content "$FM_HOME" "$FM_ROOT" > "$MIGRATION_X_SHIM_TMP" || return 1
-  chmod 0700 "$MIGRATION_X_SHIM_TMP" || return 1
-  fmx_poll_shim_valid "$MIGRATION_X_SHIM_TMP" "$FM_HOME" "$FM_ROOT" || return 1
-  fmx_poll_shim_v1_valid "$shim" "$FM_HOME" "$FM_ROOT" "$STATE_DEVICE" || return 1
-  mv -f -- "$MIGRATION_X_SHIM_TMP" "$shim" || return 1
-  MIGRATION_X_SHIM_TMP=
-  [ "$(fm_pr_file_device "$shim")" = "$STATE_DEVICE" ] || return 1
-  [ "$(fm_pr_file_mode "$shim")" = 700 ] || return 1
-  fmx_poll_shim_valid "$shim" "$FM_HOME" "$FM_ROOT"
-}
-if ! refresh_v1_x_shim; then
-  echo "PR_CHECK_MIGRATION: authenticated X poll shim could not be refreshed; migration did not complete safely" >&2
-  exit 1
-fi
 # A marker contradicted by a pending or failed obligation is not authoritative.
 # Remove only an ordinary marker under exclusion; unsafe marker paths remain a
 # hard refusal for the publication checks below.
@@ -374,10 +337,6 @@ migration_needed() {
   local check id
   for check in "$STATE"/*.check.sh; do
     [ -e "$check" ] || [ -L "$check" ] || continue
-    if [ "$(basename "$check")" = x-watch.check.sh ] \
-      && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
     if ! fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE"; then
@@ -391,10 +350,6 @@ unsafe_checks_absent() {
   local check id
   for check in "$STATE"/*.check.sh; do
     [ -e "$check" ] || [ -L "$check" ] || continue
-    if [ "$(basename "$check")" = x-watch.check.sh ] \
-      && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
     fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE" || return 1
@@ -1023,10 +978,6 @@ if migration_needed; then
 
   for check in "$STATE"/*.check.sh; do
     [ -e "$check" ] || [ -L "$check" ] || continue
-    if [ "$(basename "$check")" = x-watch.check.sh ] \
-      && fmx_poll_shim_valid "$check" "$FM_HOME" "$FM_ROOT"; then
-      continue
-    fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
     fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE" && continue

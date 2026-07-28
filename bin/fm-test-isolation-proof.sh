@@ -162,7 +162,6 @@ tests/fm-ensure-agents-md.test.sh
 tests/fm-grok-harness.test.sh
 tests/fm-herdr-lab.test.sh
 tests/fm-instruction-owners.test.sh
-tests/fm-lint.test.sh
 tests/fm-nm-test-contract.test.sh
 tests/fm-no-mistakes-ownership.test.sh
 tests/fm-pi-primary-types.test.sh
@@ -177,7 +176,6 @@ tests/fm-supervision-instructions.test.sh
 tests/fm-test-run.test.sh
 tests/fm-tmux-submit-busy.test.sh
 tests/fm-transition-lib.test.sh
-tests/fm-x-mode.test.sh
 EOF
 }
 

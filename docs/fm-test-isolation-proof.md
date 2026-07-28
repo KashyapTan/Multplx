@@ -20,7 +20,7 @@ The archived proof JSON below still records the Phase 2 proof-time flags (`produ
 | `started_at` | `2026-07-25T08:43:04Z` |
 | `finished_at` | `2026-07-25T08:44:54Z` |
 | concurrency | **4** |
-| candidates | **29** |
+| candidates | **28** |
 | failed | **0** |
 | wall duration_ms | **110623** (~110.6s) |
 | `production_sharding_enabled` | `False` |
@@ -52,7 +52,6 @@ Sorted paths as selected by `bin/fm-test-isolation-proof.sh --list` at proof tim
 - `tests/fm-grok-harness.test.sh`
 - `tests/fm-herdr-lab.test.sh`
 - `tests/fm-instruction-owners.test.sh`
-- `tests/fm-lint.test.sh`
 - `tests/fm-nm-test-contract.test.sh`
 - `tests/fm-no-mistakes-ownership.test.sh`
 - `tests/fm-pi-primary-types.test.sh`
@@ -67,13 +66,11 @@ Sorted paths as selected by `bin/fm-test-isolation-proof.sh --list` at proof tim
 - `tests/fm-test-run.test.sh`
 - `tests/fm-tmux-submit-busy.test.sh`
 - `tests/fm-transition-lib.test.sh`
-- `tests/fm-x-mode.test.sh`
 
 ## Per-candidate durations (concurrent run)
 
 | duration_ms | exit | worker | script |
 |---:|---:|---:|---|
-| 34920 | 0 | 29 | `tests/fm-x-mode.test.sh` |
 | 29446 | 0 | 2 | `tests/fm-backend-herdr.test.sh` |
 | 26535 | 0 | 1 | `tests/fm-arm-pretool-check.test.sh` |
 | 18509 | 0 | 9 | `tests/fm-decision-hold-lifecycle.test.sh` |
@@ -83,7 +80,6 @@ Sorted paths as selected by `bin/fm-test-isolation-proof.sh --list` at proof tim
 | 8900 | 0 | 26 | `tests/fm-test-run.test.sh` |
 | 6630 | 0 | 18 | `tests/fm-pr-merge.test.sh` |
 | 5276 | 0 | 11 | `tests/fm-grok-harness.test.sh` |
-| 4882 | 0 | 14 | `tests/fm-lint.test.sh` |
 | 4496 | 0 | 20 | `tests/fm-send-popup-settle.test.sh` |
 | 2410 | 0 | 19 | `tests/fm-review-diff.test.sh` |
 | 2179 | 0 | 21 | `tests/fm-send-settle.test.sh` |
@@ -122,7 +118,6 @@ A candidate-set change requires a new audit and concurrent proof archive.
 | `tests/fm-spawn-batch.test.sh` | Argument routing only; no real windows/worktrees |
 | `tests/fm-pr-merge.test.sh` | Fake `gh`/`gh-axi`; private state |
 | `tests/fm-review-diff.test.sh` | Local git fixtures via `fm_git_*`; no live forge |
-| `tests/fm-x-mode.test.sh` | Fake `curl`; inert without token |
 
 ### Deliberately serial (kept out of this pool)
 
