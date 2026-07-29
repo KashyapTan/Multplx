@@ -632,6 +632,22 @@ fi
   exit 1
 }
 
+watcher_cleanup() {
+  if [ -n "${_interruptible_sleep_pid:-}" ]; then
+    kill "$_interruptible_sleep_pid" 2>/dev/null || true
+    wait "$_interruptible_sleep_pid" 2>/dev/null || true
+    _interruptible_sleep_pid=""
+  fi
+  mx_active_check_stop || true
+  mx_check_output_cleanup
+  mx_custom_check_snapshot_cleanup
+  mx_lock_release "$WATCH_LOCK"
+}
+# Arm cleanup before lock acquisition. A bounded checkpoint can deliver TERM
+# while a heavily loaded watcher is returning from mx_lock_try_acquire; the
+# ownership-aware release is harmless when another watcher owns the lock.
+trap watcher_cleanup EXIT
+trap 'exit 1' HUP INT TERM
 if ! mx_lock_try_acquire "$WATCH_LOCK"; then
   BEAT="$STATE/.last-watcher-beat"
   if [ -n "${MX_LOCK_HELD_PID:-}" ]; then
@@ -651,19 +667,6 @@ if ! mx_lock_try_acquire "$WATCH_LOCK"; then
   fi
   exit 0
 fi
-watcher_cleanup() {
-  if [ -n "${_interruptible_sleep_pid:-}" ]; then
-    kill "$_interruptible_sleep_pid" 2>/dev/null || true
-    wait "$_interruptible_sleep_pid" 2>/dev/null || true
-    _interruptible_sleep_pid=""
-  fi
-  mx_active_check_stop || return 1
-  mx_check_output_cleanup
-  mx_custom_check_snapshot_cleanup
-  mx_lock_release "$WATCH_LOCK"
-}
-trap watcher_cleanup EXIT
-trap 'exit 1' HUP INT TERM
 # This watcher's own pid, as recorded in the lock by mx_lock_claim (which writes
 # ${BASHPID:-$$} from this same main shell). Read directly, never via a command
 # substitution, so it matches the stored holder pid for the self-eviction check.

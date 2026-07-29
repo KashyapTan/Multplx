@@ -22,6 +22,16 @@ mark_pr_check_migration_complete() {
   chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
 }
 
+test_cleanup_is_armed_before_lock_acquisition() {
+  local trap_line acquire_line
+  trap_line=$(grep -n '^trap watcher_cleanup EXIT$' "$WATCH" | cut -d: -f1)
+  acquire_line=$(grep -n '^if ! mx_lock_try_acquire "\$WATCH_LOCK"; then$' "$WATCH" | cut -d: -f1)
+  [ -n "$trap_line" ] || fail "watcher cleanup trap is missing"
+  [ -n "$acquire_line" ] || fail "watcher lock acquisition is missing"
+  [ "$trap_line" -lt "$acquire_line" ] || fail "watcher can acquire its lock before cleanup is armed"
+  pass "watcher cleanup is armed before singleton lock acquisition"
+}
+
 
 test_singleton_start() {
   local dir state fakebin out1 out2 pid1 pid2 live i
@@ -947,6 +957,7 @@ test_linux_pid_identity_ignores_wall_clock_and_detects_pid_reuse() {
   pass "Linux process identity detects pid reuse"
 }
 
+test_cleanup_is_armed_before_lock_acquisition
 test_singleton_start
 test_pid_identity_is_locale_invariant
 test_linux_pid_identity_ignores_wall_clock_and_detects_pid_reuse
