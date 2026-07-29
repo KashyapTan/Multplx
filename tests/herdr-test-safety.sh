@@ -10,6 +10,15 @@ set -u
 # which the no-mistakes gate runs from a gate worktree, must be exempt).
 export MX_GATE_REFUSE_BYPASS=1
 
+# Real-Herdr suites exercise backend lifecycle, not dispatch-capacity policy.
+# Pin explicit ample signals so host load cannot turn a spawn assertion into a
+# queued-dispatch assertion; mx-headroom.test.sh owns capacity behavior.
+export MX_HEADROOM_CPU_COUNT=8
+export MX_HEADROOM_LOAD1=0
+export MX_HEADROOM_MEM_AVAILABLE_BYTES=34359738368
+export MX_HEADROOM_IN_USE=0
+export MX_HEADROOM_API_CAPACITY=8
+
 HERDR_TEST_SAFETY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=/dev/null
 . "$HERDR_TEST_SAFETY_DIR/bin/mx-herdr-lab.sh"
