@@ -32,7 +32,7 @@ Catchup reads the resulting structured state and must never compensate by scrapi
 3. For each choice, choose a stable key and use the script's `hold` command with a concise title, reason, and repository.
 4. Run the script's `complete` command with the full unresolved-key inventory for that review pass.
 5. Relay the choices to the maintainer as decisions from Catchup' Maintainer's Call section under `AGENTS.md` section 9; do not use the word hold in maintainer chat.
-6. After the maintainer decides, record dependent work with normal tasks-axi commands and block it by the hold identity.
+6. After the maintainer decides, record dependent work with normal `bin/mx-backlog.sh` commands and block it by the hold identity.
 7. Put the maintainer's exact durable decision in a file and use the script's `resolve` command with every routed task.
 8. Confirm Catchup no longer shows the closed hold and that routed work remains in structured backlog state.
 

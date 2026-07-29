@@ -171,7 +171,7 @@ Daemons are idle by default: after startup recovery reconciles only work already
 When called with `MX_HOME=<this-broker-home>` or when `MX_HOME` is already set to the active Multplx home, metadata-routed `mx-send.sh` requests to a live `kind=daemon` use the live-charter-compatible `from-broker` carrier owned by `bin/mx-operational-input.sh`, so the daemon returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.
 The parent guards every marked request against a missing correlated report without reading the daemon conversation; `bin/mx-pending-reply-lib.sh` owns the correlation, recovery, escalation, and retention contract.
 Explicit backend-target sends and direct human typing stay unmarked, so maintainer intervention in a daemon pane remains conversational.
-After seeding a daemon, `mx-backlog-handoff.sh` validates the system-specific handoff, then atomically routes already-judged in-scope queued item moves through `tasks-axi mv` so the domain queue starts in the right place.
+After seeding a daemon, `mx-backlog-handoff.sh` validates the system-specific handoff, then atomically routes already-judged in-scope queued item moves through the owned backlog library so the domain queue starts in the right place.
 Idle daemon panes are healthy; teardown is explicit and refuses while the daemon home has in-flight work unless the maintainer has approved discard with `--force`.
 
 Daemon homes converge conservatively to the primary's version and declared inherited local material at launch and during locked session start.
@@ -196,8 +196,8 @@ The `data/daemons.md` line contract is owned by the [`daemon-provisioning` skill
 When a selected delivery path calls for a diff, `bin/mx-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 For target project repos delivered through their own no-mistakes pipeline, commits under `.no-mistakes/evidence/` are the pipeline's PR-viewable validation evidence and are expected to stay in the actors branch until the evidence-hosting design changes.
 The Multplx repo itself is the exception: its `.no-mistakes/` directory is local state, stays gitignored, and is rejected by CI if tracked.
-PR-based task merges go through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling `gh-axi pr merge`.
-The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh-axi pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
+PR-based task merges go through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
+The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
 Teardown is fail-closed for delivery worktrees: dirty worktrees refuse, and committed work must be landed before the worktree is returned.
 [`bin/mx-teardown.sh`](../bin/mx-teardown.sh)'s header owns the landed-work proofs, PR-discovery fallback, and stale-lock recovery procedure.
 
@@ -214,7 +214,7 @@ The full ownership rule - what is project-intrinsic versus system-private, and h
 `/stow` sweeps the current session for durable knowledge that only exists in conversation and routes each finding to the most specific disk home.
 Home-domain maintainer preferences go to `data/maintainer.md`, cross-domain shared maintainer preferences go to the primary home's `data/maintainer-shared.md`, system-local operational facts and gotchas go to home-local `data/learnings.md`, project-intrinsic knowledge goes through normal actor delivery into that project's committed `AGENTS.md`, and task-scoped notes or undone next steps go to the backlog.
 Memory writes use inspect-then-update: read the current destination first, then rewrite or prune matching bullets or notes in place instead of appending by default.
-Task-scoped notes use `tasks-axi show <id> --full` followed by `tasks-axi update <id> --body-file <path>`, adding `--archive-body` when the prior body should remain recoverable.
+Task-scoped notes use `bin/mx-backlog.sh show <id>` followed by `bin/mx-backlog.sh update <id> --body-file <path>`, adding `--archive-body` when the prior body should remain recoverable.
 Generalizable broker knowledge goes to shared tracked docs through the normal PR pipeline; the broker-internal `/stow` deliberately never stores findings in either skill directory.
 
 ## Local clones stay fresh

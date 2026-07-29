@@ -495,7 +495,7 @@ EOF
       and .kind == "maintainer"
       and .hold_reason == "maintainer route choice pending"
       and .hold_kind == "maintainer"
-  ' >/dev/null || fail "tasks-axi maintainer-hold metadata did not parse"
+  ' >/dev/null || fail "owned backlog maintainer-hold metadata did not parse"
   printf '%s' "$out" | jq -e '
     .backlog.records[] | select(.id == "done-comma")
     | .repo == "gamma"
@@ -540,7 +540,7 @@ EOF
     "view should render bracketed PR artifact outside the title"
   assert_contains "$view" "| done-note | Done Note | delta | delivery | - | local main |" \
     "view should render local-only done artifact outside the title"
-  pass "snapshot parses tasks-axi rows and respects operational overrides"
+  pass "snapshot parses owned backlog rows and respects operational overrides"
 }
 
 test_view_renders_snapshot() {

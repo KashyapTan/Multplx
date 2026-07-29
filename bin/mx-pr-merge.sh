@@ -2,12 +2,15 @@
 # Merge a task's PR after recording pr= and any available pr_head= through
 # bin/mx-pr-check.sh, so teardown can verify landed work after squash merges.
 # The full canonical GitHub PR URL is parsed by bin/mx-pr-lib.sh and the derived
-# owner/repository and PR number are passed to gh-axi as separate arguments.
+# owner/repository and PR number are passed to the official gh CLI.
+# Plan 09 moves invocation of this script behind the credentialed delivery
+# process; actors must never invoke it or receive remote write credentials.
 #
 # Merge method defaults to --squash when the caller passes none of --squash,
-# --merge, --rebase, or --method after the optional -- separator. Extra args
+# --merge, or --rebase after the optional -- separator. Legacy --method
+# spellings are normalized onto gh's native flags. Extra args
 # must not include --repo or -R because the repository comes only from the URL.
-# Usage: mx-pr-merge.sh <task-id> <pr-url> [-- <extra gh-axi pr merge args>]
+# Usage: mx-pr-merge.sh <task-id> <pr-url> [-- <extra gh pr merge args>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,16 +42,6 @@ PR_NUMBER=$MX_PR_NUMBER
 shift 2
 [ "${1:-}" = "--" ] && shift
 
-caller_has_merge_method() {
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-      --squash|--merge|--rebase|--method|--method=*) return 0 ;;
-    esac
-  done
-  return 1
-}
-
 reject_repo_overrides() {
   local arg
   for arg in "$@"; do
@@ -62,6 +55,39 @@ reject_repo_overrides() {
 }
 
 reject_repo_overrides "$@" || exit 1
+
+normalize_merge_args() {
+  local arg method want_method=0
+  NORMALIZED_ARGS=()
+  for arg in "$@"; do
+    if [ "$want_method" -eq 1 ]; then
+      method=$arg
+      want_method=0
+      case "$method" in
+        squash|merge|rebase) NORMALIZED_ARGS+=("--$method") ;;
+        *) echo "error: unsupported merge method: $method" >&2; return 1 ;;
+      esac
+      continue
+    fi
+    case "$arg" in
+      --method) want_method=1 ;;
+      --method=*)
+        method=${arg#--method=}
+        case "$method" in
+          squash|merge|rebase) NORMALIZED_ARGS+=("--$method") ;;
+          *) echo "error: unsupported merge method: $method" >&2; return 1 ;;
+        esac
+        ;;
+      *) NORMALIZED_ARGS+=("$arg") ;;
+    esac
+  done
+  [ "$want_method" -eq 0 ] || {
+    echo "error: --method requires squash, merge, or rebase" >&2
+    return 1
+  }
+}
+
+normalize_merge_args "$@" || exit 1
 
 # Task-derived paths are constructed only after the canonical ID validation.
 META="$STATE/$ID.meta"
@@ -77,8 +103,16 @@ grep -qxF "pr=$URL" "$META" || {
 }
 
 merge_args=()
-if ! caller_has_merge_method "$@"; then
-  merge_args=(--squash)
-fi
+has_method=0
+for arg in "${NORMALIZED_ARGS[@]+"${NORMALIZED_ARGS[@]}"}"; do
+  case "$arg" in
+    --squash|--merge|--rebase)
+      has_method=1
+      ;;
+  esac
+done
+[ "$has_method" -eq 1 ] || merge_args=(--squash)
 
-gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"
+gh pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
+  "${merge_args[@]+"${merge_args[@]}"}" \
+  "${NORMALIZED_ARGS[@]+"${NORMALIZED_ARGS[@]}"}"

@@ -161,11 +161,11 @@ test_propagate_lib() {
   # 3. a changed source value converges downstream
   printf '{"default":{"harness":"claude"}}\n' > "$src/actor-dispatch.json"
   printf 'claude\n' > "$src/actor-harness"
-  printf 'tasks-axi\n' > "$src/backlog-backend"
+  printf 'owned\n' > "$src/backlog-backend"
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/actor-dispatch.json")" = '{"default":{"harness":"claude"}}' ] || fail "changed dispatch profile did not converge"
   [ "$(cat "$dest/actor-harness")" = claude ] || fail "changed value did not converge"
-  [ "$(cat "$dest/backlog-backend")" = tasks-axi ] || fail "changed backlog backend did not converge"
+  [ "$(cat "$dest/backlog-backend")" = owned ] || fail "changed backlog backend did not converge"
 
   outside="$d/outside-target"
   rm -f "$dest/actor-harness" "$outside"
@@ -741,7 +741,7 @@ make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  mx_fake_exit0 "$fakebin" node gh-axi chrome-devtools-axi lavish-axi
+  mx_fake_exit0 "$fakebin" node lavish-axi
   # tmux fake supports mx-send's composer-verified submit path and optional
   # MX_FAKE_TMUX_LOG / MX_FAKE_TMUX_FAIL_LITERAL for reread-nudge assertions.
   cat > "$fakebin/tmux" <<'SH'
@@ -923,13 +923,13 @@ test_bootstrap_sweep_propagates_and_reconverges() {
   # Re-converge: primary changes inherited config values; the home follows on the next sweep.
   printf '{"default":{"harness":"claude"}}\n' > "$w/home/config/actor-dispatch.json"
   printf 'claude\n' > "$w/home/config/actor-harness"
-  printf 'tasks-axi\n' > "$w/home/config/backlog-backend"
+  printf 'owned\n' > "$w/home/config/backlog-backend"
   run_bootstrap "$w" >/dev/null
   [ "$(cat "$w/sm/config/actor-harness" 2>/dev/null)" = claude ] \
     || fail "sweep: home did not re-converge to the primary's new actor-harness"
   [ "$(cat "$w/sm/config/actor-dispatch.json" 2>/dev/null)" = '{"default":{"harness":"claude"}}' ] \
     || fail "sweep: home did not re-converge to the primary's new actor-dispatch.json"
-  [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = tasks-axi ] \
+  [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = owned ] \
     || fail "sweep: home did not re-converge to the primary's new backlog-backend"
 
   # Mirror absence: primary clears inherited config; the home's copies are removed.
@@ -1238,7 +1238,7 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
 
   # alpha is stale on harness + backlog; beta is stale on multiline dispatch only.
   printf 'pi\n' > "$w/alpha/config/actor-harness"
-  printf 'tasks-axi\n' > "$w/alpha/config/backlog-backend"
+  printf 'owned\n' > "$w/alpha/config/backlog-backend"
   printf '{"default":{"harness":"old"}}\n' > "$w/beta/config/actor-dispatch.json"
 
   multiline_json=$(printf '{\n  "default": {\n    "harness": "codex",\n    "model": "gpt-5.5"\n  },\n  "rules": [\n    {"when": "news", "use": {"harness": "codex"}}\n  ]\n}\n')

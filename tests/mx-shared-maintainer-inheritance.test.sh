@@ -286,7 +286,7 @@ EOF
   printf -- '- sm - fixture daemon (home: %s; scope: fixture; projects: sample; added 2026-07-16)\n' "$sm" \
     > "$data_override/daemons.md"
   fakebin=$(make_fake_spawn_toolchain "$w")
-  mx_fake_exit0 "$fakebin" node gh-axi chrome-devtools-axi lavish-axi gh treehouse no-mistakes tasks-axi quota-axi
+  mx_fake_exit0 "$fakebin" node lavish-axi gh treehouse no-mistakes
 
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$root" \
     MX_DATA_OVERRIDE="$data_override" \
@@ -336,7 +336,7 @@ test_session_start_digest_labels_shared_file_and_read_once_rule() {
 $rec
 EOF
   fakebin=$(make_fake_spawn_toolchain "$w")
-  mx_fake_exit0 "$fakebin" node gh-axi chrome-devtools-axi lavish-axi gh treehouse no-mistakes tasks-axi quota-axi pgrep
+  mx_fake_exit0 "$fakebin" node lavish-axi gh treehouse no-mistakes pgrep
 
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$root" \
     "$ROOT/bin/mx-session-start.sh")

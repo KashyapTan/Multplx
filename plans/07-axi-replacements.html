@@ -274,7 +274,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 </ul>
 <h3>(b) Existing tests needing changes (and why)</h3>
 <ul>
-  <li><code>tests/fm-bootstrap.test.sh</code> — the <code>add_tasks_axi</code>/<code>add_quota_axi</code> version-matrix helpers and the <code>fm_fake_exit0 … gh-axi chrome-devtools-axi lavish-axi</code> fakes are deleted (lavish-axi's removal is asserted here but designed in Plan 08). Updated to assert the <em>absence</em> of every <code>-axi</code> probe: no <code>MISSING: gh-axi|tasks-axi|quota-axi|chrome-devtools-axi</code> lines, no <code>BOOTSTRAP_INFO: tasks-axi available</code>, and the new mx-headroom self-check line present.</li>
+  <li><code>tests/fm-bootstrap.test.sh</code> — the <code>add_tasks_axi</code>/<code>add_quota_axi</code> version-matrix helpers and the <code>fm_fake_exit0 … gh-axi chrome-devtools-axi</code> fakes are deleted. Updated to assert the <em>absence</em> of every retired Plan 07 probe: no <code>MISSING: gh-axi|tasks-axi|quota-axi|chrome-devtools-axi</code> lines, no <code>BOOTSTRAP_INFO: tasks-axi available</code>, and the new mx-headroom self-check line present. The <code>lavish-axi</code> probe remains until Plan 08 replaces that distinct capability.</li>
   <li><code>tests/fm-pr-merge.test.sh</code> — mock rename only; argument-shape assertions re-verified against real <code>gh pr merge</code> flags.</li>
   <li><code>tests/fm-backlog-handoff.test.sh</code> — skip-guard removed; move-path assertions retargeted at the lib.</li>
 </ul>
@@ -292,6 +292,14 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
   <li><strong>After this plan:</strong> <a href="08-vplan.html">Plan 08 (vplan)</a> replaces <code>lavish-axi</code>, the last toolbelt member, and removes its bootstrap probe; <a href="09-least-privilege-push.html">Plan 09</a> assigns the now-plain-<code>gh</code> merge/push path to the credentialed non-agent process.</li>
 </ul>
 
+<h2>Implementation record</h2>
+<ul>
+  <li>The API-side capacity source is settled as a conservative configured concurrency budget: global <code>config/api-capacity</code>, optional per-harness <code>config/api-capacity-&lt;harness&gt;</code>, and a default of one. JSON labels it <code>configured-budget</code> so it cannot be mistaken for live provider quota.</li>
+  <li>The current Multplx tree had expanded the backlog surface after this plan was drafted: durable decision holds require <code>block</code>/<code>unblock</code> as well as the enumerated verbs. Those operations were added to the same single parser instead of leaving a hidden external dependency.</li>
+  <li>An operator CLI, <code>bin/mx-backlog.sh</code>, was added over the sourced library because maintained skills and teardown guidance need a stable executable surface; the library remains the sole schema and mutation owner.</li>
+  <li>The pre-refactor teardown byte-conformance fixture retargets its historical helper seam onto the owned backlog functions inside its isolated baseline tree. This preserves the teardown command-log proof without reconstructing or retaining the retired package.</li>
+</ul>
+
 <h2>Risks &amp; open questions</h2>
 <div class="callout danger">
   <div class="label">Risk — backlog format drift</div>
@@ -299,7 +307,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 </div>
 <div class="callout ok">
   <div class="label">Decided · 2026-07-26 — dispatch-capacity model</div>
-  <p style="margin:0">"Quota" for Multplx is the <strong>B + C composite</strong>: local machine resources (CPU/memory/load via <code>sysctl</code>/<code>vm_stat</code> on macOS, <code>/proc</code> on Linux) combined with API rate headroom. Rejected: <strong>A</strong> (max concurrent actors) as the primary model — though a concurrency cap may still be derived from the resource limits. The one item still open is an implementation detail, not the model: where the API-side usage data comes from without rebuilding the wrapper we removed (e.g. a configurable budget/counter) — that stays flagged as remaining design work.</p>
+  <p style="margin:0">"Quota" for Multplx is the <strong>B + C composite</strong>: local machine resources (CPU/memory/load via <code>sysctl</code>/<code>vm_stat</code> on macOS, <code>/proc</code> on Linux) combined with API capacity. Rejected: <strong>A</strong> (max concurrent actors) as the primary model. The API-side source is implemented as the conservative configured concurrency budget recorded above rather than pretending to expose live provider quota.</p>
 </div>
 <div class="callout warn">
   <div class="label">Open question — gh flag parity</div>

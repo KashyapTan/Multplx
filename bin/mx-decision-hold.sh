@@ -6,7 +6,7 @@
 # visual-review, chat, or terminal prose to guess whether a decision exists.
 # The invoking agent inventories unresolved decisions, assigns stable keys, and
 # routes dependent work. This script supplies deterministic identities, creates
-# and verifies structured tasks-axi maintainer holds, records completion attestation
+# and verifies structured Multplx backlog holds, records completion attestation
 # in the originating task's metadata, and closes a hold only after a durable
 # decision record has been linked to existing dependent work.
 #
@@ -48,9 +48,10 @@ DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 # shellcheck source=bin/mx-classify-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/mx-classify-lib.sh"
-# shellcheck source=bin/mx-tasks-axi-lib.sh
+# shellcheck source=bin/mx-backlog-lib.sh
 # shellcheck disable=SC1091
-. "$SCRIPT_DIR/mx-tasks-axi-lib.sh"
+. "$SCRIPT_DIR/mx-backlog-lib.sh"
+BACKLOG="$DATA/backlog.md"
 
 usage() {
   awk '
@@ -96,38 +97,18 @@ hold_id() {  # <origin-id> <decision-key>
   printf '%s-decision-%s\n' "$1" "$2"
 }
 
-tasks_axi() {
-  local previous='' argument
-  local -a translated=()
-  for argument in "$@"; do
-    if [ "$previous" = "--kind" ] && [ "$argument" = maintainer ]; then
-      argument=$TASKS_AXI_MAINTAINER_KIND
-    fi
-    translated[${#translated[@]}]=$argument
-    previous=$argument
-  done
-  (cd "$MX_HOME" && tasks-axi "${translated[@]}")
-}
-
-TASKS_AXI_MAINTAINER_KIND=captain
-
-require_tasks_axi() {
-  mx_tasks_axi_compatible || fail "compatible tasks-axi is required"
-  tasks-axi hold --help 2>&1 | grep -F -- "--kind $TASKS_AXI_MAINTAINER_KIND" >/dev/null \
-    || fail "tasks-axi does not expose the maintainer-hold contract"
+require_backlog() {
+  [ -f "$BACKLOG" ] || fail "backlog is absent: $BACKLOG"
+  mx_backlog_validate "$BACKLOG" >/dev/null || fail "backlog format is invalid"
 }
 
 task_show() {  # <id>
-  tasks_axi show "$1" --full 2>/dev/null
+  mx_backlog_show "$BACKLOG" "$1" 2>/dev/null
 }
 
 show_field() {  # <show-output> <field>
   local output=$1 field=$2 value
   value=$(printf '%s\n' "$output" | sed -n "s/^  $field: //p" | head -1)
-  if { [ "$field" = kind ] || [ "$field" = hold_kind ]; } \
-    && [ "$value" = "$TASKS_AXI_MAINTAINER_KIND" ]; then
-    value=maintainer
-  fi
   printf '%s\n' "$value"
 }
 
@@ -261,8 +242,8 @@ command_hold() {
   validate_slug decision-key "$key"
   validate_one_line title "$title"
   validate_one_line reason "$reason"
-  case "$reason" in *'('*|*')'*) fail "reason must not contain parentheses (tasks-axi hold contract)" ;; esac
-  require_tasks_axi
+  case "$reason" in *'('*|*')'*) fail "reason must not contain parentheses (backlog hold contract)" ;; esac
+  require_backlog
   origin_exists_here "$origin" || fail "origin $origin is not owned by the active home $MX_HOME"
   id=$(hold_id "$origin" "$key")
   if show=$(task_show "$id"); then
@@ -281,10 +262,10 @@ command_hold() {
     [ -n "$repo" ] || repo=broker
     validate_one_line repo "$repo"
     body=$(printf 'Origin: %s\nDecision key: %s\nState: awaiting maintainer decision.' "$origin" "$key")
-    tasks_axi add "$id" "$title" --kind maintainer --repo "$repo" --body "$body" >/dev/null \
+    mx_backlog_add "$BACKLOG" "$id" "$title" --kind maintainer --repo "$repo" --body "$body" >/dev/null \
       || fail "could not create maintainer decision item $id"
   fi
-  tasks_axi hold "$id" --reason "$reason" --kind maintainer >/dev/null \
+  mx_backlog_hold "$BACKLOG" "$id" --reason "$reason" --kind maintainer >/dev/null \
     || fail "could not activate maintainer hold $id"
   verify_hold_active "$id"
   printf '%s\n' "$id"
@@ -297,7 +278,7 @@ command_complete() {
   shift
   meta="$STATE/$origin.meta"
   [ -f "$meta" ] && has_meta=1
-  require_tasks_axi
+  require_backlog
   origin_exists_here "$origin" || fail "origin $origin is not owned by the active home $MX_HOME"
   if [ "$#" -eq 1 ] && [ "$1" = --none ]; then
     supplied=''
@@ -359,7 +340,7 @@ command_verify() {
   validate_slug origin-id "$origin"
   meta="$STATE/$origin.meta"
   [ -f "$meta" ] || fail "origin metadata is absent: $meta"
-  require_tasks_axi
+  require_backlog
   reviewed=$(meta_value "$meta" decisions_reviewed)
   [ "$reviewed" = 1 ] || fail "origin $origin has no completed unresolved-decision inventory"
   keys=$(meta_value "$meta" decision_keys)
@@ -407,7 +388,7 @@ command_resolve() {
   routed=$(printf '%s\n' "$routed" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort -u | paste -sd' ' -)
   routed_csv=$(printf '%s\n' "$routed" | tr ' ' ',')
   decision_digest=$(sha256_text "$decision")
-  require_tasks_axi
+  require_backlog
   id=$(hold_id "$origin" "$key")
   if verify_hold_resolved "$id"; then
     hold_show=$(task_show "$id")
@@ -431,7 +412,7 @@ command_resolve() {
     state=$(show_field "$show" state)
     [ "$state" != "done" ] || [ "$resolution_recorded" = 1 ] \
       || fail "routed task $dep is already done"
-    # tasks-axi quotes multi-entry blocked_by as "a,b,c"; strip so edge ids match.
+    # Multi-entry blocked_by values are quoted in the structured show form.
     blocked=$(show_field "$show" blocked_by | tr -d '[:space:]')
     blocked=${blocked#\"}
     blocked=${blocked%\"}
@@ -450,7 +431,7 @@ command_resolve() {
   for dep in $routed; do
     body="${body}- ${dep}"$'\n'
   done
-  tasks_axi update "$id" --body "$body" >/dev/null \
+  mx_backlog_update "$BACKLOG" "$id" --body "$body" >/dev/null \
     || fail "could not record the maintainer decision on $id"
   for dep in $routed; do
     show=$(task_show "$dep") || fail "routed task $dep disappeared before routing"
@@ -459,12 +440,12 @@ command_resolve() {
     blocked=${blocked%\"}
     case ",$blocked," in
       *",$id,"*)
-        tasks_axi unblock "$dep" --by "$id" >/dev/null \
+        mx_backlog_unblock "$BACKLOG" "$dep" --by "$id" >/dev/null \
           || fail "could not route the recorded decision to $dep"
         ;;
     esac
   done
-  tasks_axi "done" "$id" >/dev/null || fail "could not close resolved maintainer hold $id"
+  mx_backlog_done "$BACKLOG" "$id" >/dev/null || fail "could not close resolved maintainer hold $id"
   verify_hold_resolved "$id" || fail "maintainer hold $id did not retain its durable resolution record"
   printf 'resolved: %s -> %s\n' "$id" "$routed"
 }

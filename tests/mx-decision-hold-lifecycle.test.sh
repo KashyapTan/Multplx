@@ -10,15 +10,12 @@ set -u
 TEARDOWN="$ROOT/bin/mx-teardown.sh"
 STATUS="$ROOT/bin/mx-status-snapshot.sh"
 TMP_ROOT=$(mx_test_tmproot mx-decision-hold)
-TASKS_AXI_BIN=$(command -v tasks-axi || true)
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
-command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit 0; }
 
 make_home() {  # <name>
   local home="$TMP_ROOT/$1" fakebin
   mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects"
-  cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
 
@@ -27,7 +24,7 @@ make_home() {  # <name>
 ## Done
 EOF
   fakebin=$(mx_fakebin "$home")
-  mx_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  mx_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh
   printf '%s\n' "$home"
 }
 
@@ -93,16 +90,16 @@ EOF
   pass "report-only unresolved decision is reproduced and completion refuses before loss"
 }
 
-tasks_in() {  # <home> <tasks-axi args...>
+tasks_in() {  # <home> <mx-backlog.sh args...>
   local home=$1
   shift
-  (cd "$home" && tasks-axi "$@")
+  MX_HOME="$home" MX_DATA_OVERRIDE="$home/data" "$ROOT/bin/mx-backlog.sh" "$@"
 }
 
 run_decisions() {  # <home> <command args...>
   local home=$1
   shift
-  PATH="$home/fakebin:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+  PATH="$home/fakebin:$PATH" \
     MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_DATA_OVERRIDE="$home/data" \
     MX_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/mx-decision-hold.sh" "$@"
 }
@@ -212,21 +209,14 @@ EOF
   tasks_in "$home" add sample-route-followup "Check the selected sample route" \
     --kind delivery --repo sample --blocked-by "$route_hold" >/dev/null \
     || fail "could not create second dependent work fixture"
-  cat > "$home/fakebin/tasks-axi" <<'EOF'
-#!/usr/bin/env bash
-if [ "${1:-}" = unblock ] && [ "${2:-}" = sample-route-implementation ] \
-  && [ ! -f "$MX_HOME/unblock-failed-once" ]; then
-  : > "$MX_HOME/unblock-failed-once"
-  exit 1
-fi
-exec "$REAL_TASKS_AXI" "$@"
-EOF
-  chmod +x "$home/fakebin/tasks-axi"
+  export MX_BACKLOG_TEST_FAIL_UNBLOCK_ID=sample-route-implementation
+  export MX_BACKLOG_TEST_FAIL_UNBLOCK_ONCE_FILE="$home/unblock-failed-once"
   if run_decisions "$home" resolve "$id" route --decision-file "$home/route-decision.txt" \
     --routed-to sample-route-implementation --routed-to sample-route-followup \
     > "$home/partial-route.out" 2> "$home/partial-route.err"; then
     fail "resolution succeeded after a partial dependent-routing failure"
   fi
+  unset MX_BACKLOG_TEST_FAIL_UNBLOCK_ID MX_BACKLOG_TEST_FAIL_UNBLOCK_ONCE_FILE
   show=$(tasks_in "$home" show "$route_hold" --full)
   assert_contains "$show" "state: queued" "partial routing failure closed the hold"
   show=$(tasks_in "$home" show sample-route-followup --full)
@@ -293,13 +283,9 @@ test_scout_teardown_always_requires_inventory_verification() {
   mkdir -p "$home/data/$id"
   write_origin_meta "$home" "$id"
   printf '# Sample unavailable review\n\nNo decision inventory was recorded.\n' > "$home/data/$id/report.md"
-  cat > "$home/fakebin/tasks-axi" <<'EOF'
-#!/usr/bin/env bash
-exit 127
-EOF
-  chmod +x "$home/fakebin/tasks-axi"
+  printf '## In flight\n\n## Queued\n' > "$home/data/backlog.md"
   if run_teardown "$home" "$id" > "$home/unavailable-teardown.out" 2> "$home/unavailable-teardown.err"; then
-    fail "scout teardown skipped verification when tasks-axi was unavailable"
+    fail "scout teardown skipped verification when the backlog was malformed"
   fi
   assert_present "$home/state/$id.meta" "refused unavailable-task teardown removed metadata"
   pass "non-forced scout teardown always requires durable inventory verification"
@@ -415,7 +401,6 @@ test_daemon_hold_stays_in_authoritative_home() {
   parent=$(make_home main-routing)
   mate="$TMP_ROOT/sample-mate-home"
   mkdir -p "$mate/data" "$mate/state" "$mate/config" "$mate/projects" "$mate/bin"
-  cp "$ROOT/.tasks.toml" "$mate/.tasks.toml"
   printf '# Synthetic daemon home\n' > "$mate/AGENTS.md"
   printf 'sample-mate\n' > "$mate/.mx-daemon-home"
   cat > "$mate/data/backlog.md" <<'EOF'
@@ -426,7 +411,7 @@ test_daemon_hold_stays_in_authoritative_home() {
 ## Done
 EOF
   fakebin=$(mx_fakebin "$mate")
-  mx_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  mx_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh
   origin=sample-mate-review
   mkdir -p "$mate/data/$origin"
   tasks_in "$mate" add "$origin" "Investigate daemon sample" --kind scout --repo sample --start >/dev/null
@@ -455,7 +440,7 @@ EOF
   pass "main-home and daemon-home maintainer holds remain correctly routed"
 }
 
-# tasks-axi quotes multi-entry blocked_by values as "a,b,c". resolve must strip
+# Structured show quotes multi-entry blocked_by values as "a,b,c". Resolve must strip
 # those surrounding quotes before comma-boundary membership so the first and last
 # list elements match, not only middle elements.
 test_resolve_matches_quoted_blocked_by_edges() {

@@ -50,7 +50,7 @@ A `local-only` project may have no remote and skips no-mistakes initialization.
 
 Creating a GitHub repository is outward-facing.
 Before making that remote change, propose the repository name, owner or organization, visibility, and delivery mode, defaulting visibility to private and delivery mode to `no-mistakes`, then obtain the maintainer's explicit consent for those values.
-Use `gh-axi` for the approved GitHub operation and consult its current help rather than relying on remembered flags.
+Use official `gh` for the approved GitHub operation and consult its current help rather than relying on remembered flags.
 After remote creation succeeds, clone it locally, add the registry entry, and initialize it according to its delivery mode.
 
 For a purely `local-only` project, create a local Git repository under its unused `projects/<name>` path, add the registry entry, and make no GitHub call.

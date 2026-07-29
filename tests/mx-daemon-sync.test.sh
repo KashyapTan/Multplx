@@ -291,7 +291,7 @@ make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  mx_fake_exit0 "$fakebin" node gh-axi chrome-devtools-axi lavish-axi
+  mx_fake_exit0 "$fakebin" node lavish-axi
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${MX_FAKE_TMUX_LOG:-}" ]; then
@@ -335,21 +335,6 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
-  cat > "$fakebin/tasks-axi" <<'SH'
-#!/usr/bin/env bash
-case "${1:-} ${2:-}" in
-  "--version ") printf '%s\n' '0.1.1' ;;
-  "update --help") printf '%s\n' 'usage: tasks-axi update <id> [flags]' '  --archive-body' ;;
-  "mv --help") printf '%s\n' 'usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>' ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tasks-axi"
-  cat > "$fakebin/quota-axi" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$fakebin/quota-axi"
   printf '%s\n' "$fakebin"
 }
 

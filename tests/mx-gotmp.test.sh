@@ -77,11 +77,7 @@ SH
 exit 0
 SH
   chmod +x "$fake/bin/mx-system-sync.sh"
-  # mx-tasks-axi-lib.sh: stub (teardown sources it). Report no backend so
-  # backlog_refresh_reminder takes the plain-message path; no tasks-axi here.
-  cat > "$fake/bin/mx-tasks-axi-lib.sh" <<'SH'
-mx_tasks_axi_backend_available() { return 1; }
-SH
+  ln -s "$ROOT/bin/mx-backlog-lib.sh" "$fake/bin/mx-backlog-lib.sh"
   # Meta with a nonexistent worktree so the dirty/treehouse blocks skip.
   cat > "$fake/state/$id.meta" <<META
 window=fakeses:mx-$id
@@ -175,9 +171,7 @@ SH
 exit 0
 SH
   chmod +x "$fake/bin/mx-system-sync.sh"
-  cat > "$fake/bin/mx-tasks-axi-lib.sh" <<'SH'
-mx_tasks_axi_backend_available() { return 1; }
-SH
+  ln -s "$ROOT/bin/mx-backlog-lib.sh" "$fake/bin/mx-backlog-lib.sh"
   # No tasktmp= line at all.
   cat > "$fake/state/$id.meta" <<META
 window=fakeses:mx-$id

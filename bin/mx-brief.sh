@@ -30,7 +30,7 @@
 # (data/projects.md via mx-project-mode.sh; see the project-management skill
 # and AGENTS.md task lifecycle):
 #   no-mistakes  implement -> /no-mistakes pipeline -> PR -> maintainer merge (default)
-#   direct-PR    implement -> push + open PR via gh-axi (no pipeline) -> maintainer merge
+#   direct-PR    implement -> push + open PR via official gh (no pipeline) -> maintainer merge
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
 #                maintainer approves, broker merges to local main
 # Delivery briefs begin with a worktree-isolation assertion before the branch step.
@@ -244,7 +244,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 # Rules
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only file you may write outside it is the report below. The validated status writer owns status-file writes.
-3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
+3. Use official gh for GitHub operations and a first-class browser tool only when browser work is required.
 4. Report status with the \`report_status\` tool when available, otherwise:
    \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line}"\`
    States: working, paused, needs-decision, blocked, done, failed, resolved.
@@ -291,7 +291,7 @@ case "$MODE" in
 # Definition of done
 This project delivers **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then report \`done\` with \`PR {url}\` through the validated status path and stop.
+When it is implemented and committed, push your branch and open a PR with official \`gh\`, then report \`done\` with \`PR {url}\` through the validated status path and stop.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; broker relays the outcome.
 EOF
     ;;
@@ -352,7 +352,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 # Rules
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
-3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
+3. Use official gh for GitHub operations and a first-class browser tool only when browser work is required.
 4. Report status with the \`report_status\` tool when available, otherwise:
    \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line}"\`
    States: working, paused, needs-decision, blocked, done, failed, resolved.

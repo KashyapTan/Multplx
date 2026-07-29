@@ -13,10 +13,10 @@
 #   roots: resolved root/config/data/state/projects directories.
 #   backlog: {path,present,records[]} where records are ordered as written in
 #     data/backlog.md and cover In flight, Queued, and Done.
-#     Canonical tasks-axi rows are structured; free-form non-empty lines in
+#     Canonical owned-backlog rows are structured; free-form non-empty lines in
 #     those sections are preserved as unstructured records.
 #     Structured rows preserve maintainer-hold metadata such as hold_kind and
-#     hold_reason when tasks-axi emits it. They also carry normalized current_role,
+#     hold_reason when present. They also carry normalized current_role,
 #     requires_child_metadata, blocked_by_ids, unresolved_blocker_ids, and
 #     maintainer_actionable fields. Repeated blocker tokens remain ordered; a blocker
 #     resolves only when its structured record is Done, and missing ids stay open.
@@ -147,7 +147,7 @@ JSON is the stable machine-readable output contract.
 validated registered-home handoff. It is local-only, skips nested daemon
 aggregation, and marks inventory contradictions or unavailable child state invalid.
 Its invalidity object names the normalized failure kind and affected ids.
-Actionable tasks-axi maintainer holds appear as decisions_open and stay visible in
+Actionable maintainer holds appear as decisions_open and stay visible in
 queued with hold_reason, hold_kind, and plural blocker fields for downstream
 projections. A maintainer hold is actionable only when every blocker is Done.
 Cross-home reads use MX_SNAPSHOT_DAEMONS (default 20, 0 lifts the count
@@ -317,8 +317,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
     def structured_row($line):
       ($line | test("^[-*][[:space:]]+\\[[ xX]\\][[:space:]]+[^[:space:]]+[[:space:]]+-[[:space:]]+"))
       or ($line | test("^[-*][[:space:]]+\\*\\*[^*]+\\*\\*[[:space:]]+-[[:space:]]+"));
-    def multplx_role:
-      if . == "captain" then "maintainer" else . end;
+    def multplx_role: .;
     def parse_row($line; $section; $order):
       row_match($line) as $m
       | if $m == null then

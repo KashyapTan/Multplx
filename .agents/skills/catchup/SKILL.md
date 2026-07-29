@@ -19,7 +19,7 @@ It never tears down a task, merges a PR, dispatches new work, or mutates any tas
 1. **Gather live system state with one deterministic command.**
    Run `bin/mx-status-snapshot.sh` and read its compact output.
    It is the single bounded, deterministic source for this report and renders TOON by default.
-   Do not hand-probe the snapshot schema and do not make ad-hoc `gh-axi`/`gh` calls to assemble system facts; this command already assembles them.
+   Do not hand-probe the snapshot schema and do not make ad-hoc `gh` calls to assemble system facts; this command already assembles them.
    The command's header and `--help` output own its exact fields, bounds, opt-ins, and output contract.
    When the maintainer asks to include PRs, use the command's live-PR opt-in; otherwise keep the default local-only read.
    If the command is unavailable, fall back to `bin/mx-system-snapshot.sh --json` and `bin/mx-actor-state.sh <id>`; never infer current state from a raw `tail` of `state/<id>.status`, which is append-only wake-event history whose last line goes stale.

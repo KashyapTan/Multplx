@@ -46,8 +46,6 @@ while IFS= read -r file; do
       -e 's#`firstmate/`##g' \
       -e 's#firstmate_dependencies\.md##g' \
       -e 's#firstmate-architecture\.html##g' \
-      -e 's#TASKS_AXI_MAINTAINER_KIND=captain#TASKS_AXI_MAINTAINER_KIND=external#g' \
-      -e 's#if \. == "captain" then "maintainer"#if . == "external" then "maintainer"#g' \
       | grep -Ein "$legacy_content_pattern" \
       | sed "s#^#$file:#" >> "$failures" || true
   fi
@@ -57,10 +55,5 @@ if [ -s "$failures" ]; then
   cat "$failures" >&2
   fail "legacy naming remains outside the historical allowlist"
 fi
-
-assert_grep 'TASKS_AXI_MAINTAINER_KIND=captain' "$ROOT/bin/mx-decision-hold.sh" \
-  "tasks-axi compatibility must preserve its legacy upstream role token at the CLI boundary"
-assert_grep 'if . == "captain" then "maintainer" else . end;' "$ROOT/bin/mx-system-snapshot.sh" \
-  "tasks-axi backlog reads must normalize the legacy upstream role token"
 
 pass "maintained paths and content use Multplx vocabulary"

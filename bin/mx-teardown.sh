@@ -93,8 +93,8 @@ DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 CONFIG="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
 DAEMON_REG="$DATA/daemons.md"
 SUB_HOME_MARKER=".mx-daemon-home"
-# shellcheck source=bin/mx-tasks-axi-lib.sh
-. "$SCRIPT_DIR/mx-tasks-axi-lib.sh"
+# shellcheck source=bin/mx-backlog-lib.sh
+. "$SCRIPT_DIR/mx-backlog-lib.sh"
 # shellcheck source=bin/mx-backend.sh
 . "$SCRIPT_DIR/mx-backend.sh"
 # shellcheck source=bin/mx-lock-lib.sh
@@ -234,14 +234,14 @@ remove_pr_poll_artifacts() {
   fi
 }
 
-# Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a
+# Resolve the PR number for a worktree branch via official gh. Echoes the number on a
 # single match and returns 0; returns non-zero on no match or any lookup failure,
 # so the caller treats it as "no PR found" (fail-safe).
 pr_number_from_branch() {
   local branch=$1 out n
   [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
-  out=$( cd "$WT" && gh-axi pr list --state all --head "$branch" --limit 1 2>/dev/null ) || return 1
-  n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)
+  out=$( cd "$WT" && gh pr list --state all --head "$branch" --limit 1 --json number --jq '.[0].number' 2>/dev/null ) || return 1
+  n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
   [ -n "$n" ] || return 1
   printf '%s' "$n"
 }
@@ -371,26 +371,26 @@ work_is_landed() {
 backlog_refresh_reminder() {
   local pr done_cmd report_path
   [ "$KIND" = daemon ] && return 0
-  if mx_tasks_axi_backend_available "$CONFIG"; then
+  if mx_backlog_backend_available "$CONFIG"; then
     case "$KIND" in
       scout)
         report_path="data/$ID/report.md"
-        done_cmd="tasks-axi done $ID --report $report_path"
+        done_cmd="bin/mx-backlog.sh done $ID --report $report_path"
         ;;
       *)
         if [ "$MODE" = local-only ]; then
-          done_cmd="tasks-axi done $ID --note \"local main\""
+          done_cmd="bin/mx-backlog.sh done $ID --note \"local main\""
         else
           pr=$PR_URL
           if [ -n "$pr" ]; then
-            done_cmd="tasks-axi done $ID --pr $pr"
+            done_cmd="bin/mx-backlog.sh done $ID --pr $pr"
           else
-            done_cmd="tasks-axi done $ID --pr PR_URL"
+            done_cmd="bin/mx-backlog.sh done $ID --pr PR_URL"
           fi
         fi
         ;;
     esac
-    printf '%s\n' "Backlog: $ID just finished. Run $done_cmd, then run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due."
+    printf '%s\n' "Backlog: $ID just finished. Run $done_cmd, then run bin/mx-backlog.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due."
   else
     printf '%s\n' "Backlog: $ID just finished. Update data/backlog.md - move $ID to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due."
   fi

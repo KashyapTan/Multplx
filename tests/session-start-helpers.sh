@@ -61,8 +61,14 @@ new_world() {
 # and compatible, so its own detect-only section stays quiet except where a
 # test deliberately breaks one. Mirrors mx-bootstrap.test.sh's fixture.
 make_fake_toolchain() {
-  local fakebin=$1
-  mx_fake_exit0 "$fakebin" tmux node gh-axi chrome-devtools-axi lavish-axi
+  local fakebin=$1 real_node
+  mx_fake_exit0 "$fakebin" tmux lavish-axi
+  real_node=$(command -v node) || fail "node is required for owned backlog tests"
+  cat > "$fakebin/node" <<SH
+#!/usr/bin/env bash
+exec '$real_node' "\$@"
+SH
+  chmod +x "$fakebin/node"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -87,56 +93,6 @@ exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
   printf '%s\n' manual > "${fakebin%/*}/home-placeholder" 2>/dev/null || true
-}
-
-make_fake_tasks_axi_compact() {
-  local fakebin=$1
-  cat > "$fakebin/tasks-axi" <<'SH'
-#!/usr/bin/env bash
-set -u
-log=${MX_FAKE_TASKS_AXI_LOG:-}
-[ -n "$log" ] && printf '%s\n' "$*" >> "$log"
-case "${1:-}" in
-  --version|-v|-V)
-    printf '%s\n' '0.2.3'
-    exit 0
-    ;;
-  update)
-    if [ "${2:-}" = --help ]; then
-      printf '%s\n' 'usage: tasks-axi update <id> [--archive-body]'
-      exit 0
-    fi
-    ;;
-  mv)
-    if [ "${2:-}" = --help ]; then
-      printf '%s\n' 'usage: tasks-axi mv <dest> [<id>...]'
-      exit 0
-    fi
-    ;;
-  list)
-    case "$*" in
-      *'--fields '*'body'*|*'--fields='*'body'*)
-        printf '%s\n' 'unexpected body field requested' >&2
-        exit 9
-        ;;
-    esac
-    case "$*" in *'--limit 80'*) : ;; *) printf '%s\n' 'missing compact limit' >&2; exit 9 ;; esac
-    case "$*" in *'--file '*) : ;; *) printf '%s\n' 'missing explicit backlog file' >&2; exit 9 ;; esac
-    cat <<'OUT'
-count: 2
-tasks[2]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:
-  compact-startup,in_flight,delivery,broker,Compact startup digest,none,maintainer,maintainer choice pending
-  blocked-followup,queued,scout,broker,Follow compact startup,compact-startup,"-","-"
-help[2]:
-  - Run `tasks-axi show <id> --full` for full notes on a task
-  - Run `tasks-axi ready` to see unblocked queued work
-OUT
-    exit 0
-    ;;
-esac
-exit 1
-SH
-  chmod +x "$fakebin/tasks-axi"
 }
 
 # make_fake_ps_claude <fakebin>: harness_pid()/holder_alive() (mx-lock.sh) walk
@@ -630,10 +586,8 @@ EOF
   assert_not_contains "$out" "run bin/mx-watch-arm.sh" "read-only guard printed a mutating watcher-arm instruction"
   assert_not_contains "$out" "git -C $root checkout main" "read-only bootstrap printed a state-changing checkout remediation"
 
-  # Detect-only bootstrap diagnostics still ran (the fakebin's PATH excludes
-  # tasks-axi, so bootstrap's own read-only tool-detection line fires
-  # deterministically regardless of what is installed on the test host).
-  assert_contains "$out" "MISSING: tasks-axi (install:" "detect-only bootstrap diagnostics did not run on the read-only path"
+  # Detect-only bootstrap diagnostics still ran and the actionable tangle line
+  # above proves the read-only path did not skip bootstrap.
 
   # The mutating daemon sweep must NOT have run: no DAEMON_SYNC/
   # NUDGE_DAEMONS line, and the sowed daemon meta's target dir is
@@ -1092,41 +1046,36 @@ write_long_body_backlog() {
 EOF
 }
 
-test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata() {
-  local rec root home fakebin out log
-  rec=$(new_world backlog-compact-tasks-axi)
+test_backlog_compact_owned_omits_bodies_and_keeps_metadata() {
+  local rec root home fakebin out
+  rec=$(new_world backlog-compact-owned)
   IFS='|' read -r root home fakebin <<EOF
 $rec
 EOF
   make_fake_toolchain "$fakebin"
-  make_fake_tasks_axi_compact "$fakebin"
   make_fake_ps_claude "$fakebin"
   write_long_body_backlog "$home/data/backlog.md"
   mkdir -p "$home/projects/broker"
   printf 'window=mx-sess:compact\nworktree=%s\nproject=broker\nkind=delivery\n' "$home/projects/broker" \
     > "$home/state/compact-startup.meta"
-  log="$home/tasks-axi.log"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  out=$(MX_FAKE_TASKS_AXI_LOG="$log" run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-
-  assert_contains "$out" "compact backlog listing (tasks-axi; max 80 item(s); task bodies omitted)" \
-    "compatible tasks-axi backend did not render the compact backlog listing"
+  assert_contains "$out" "compact backlog listing (owned backend; max 80 item(s); task bodies omitted)" \
+    "owned backend did not render the compact backlog listing"
   assert_contains "$out" "tasks[2]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:" \
-    "tasks-axi compact listing omitted the expected structured field header"
+    "owned compact listing omitted the expected structured field header"
   assert_contains "$out" "compact-startup,in_flight,delivery,broker,Compact startup digest,none,maintainer,maintainer choice pending" \
-    "tasks-axi compact listing omitted in-flight identity, state, or hold metadata"
-  assert_contains "$out" 'blocked-followup,queued,scout,broker,Follow compact startup,compact-startup,"-","-"' \
-    "tasks-axi compact listing omitted blocked-by metadata"
-  assert_not_contains "$out" "OVERSIZED-BODY-LINE" "tasks-axi compact digest leaked an in-flight task body"
-  assert_not_contains "$out" "QUEUED-BODY-LINE" "tasks-axi compact digest leaked a queued task body"
+    "owned compact listing omitted in-flight identity, state, or hold metadata"
+  assert_contains "$out" 'blocked-followup,queued,scout,broker,Follow compact startup,compact-startup,-,-' \
+    "owned compact listing omitted blocked-by metadata"
+  assert_not_contains "$out" "OVERSIZED-BODY-LINE" "owned compact digest leaked an in-flight task body"
+  assert_not_contains "$out" "QUEUED-BODY-LINE" "owned compact digest leaked a queued task body"
   assert_contains "$out" "--- compact-startup ---" "in-flight meta identity disappeared from startup recovery digest"
   assert_contains "$out" "worktree=$home/projects/broker" "in-flight recovery worktree identity disappeared from startup digest"
-  assert_contains "$out" "Full task bodies remain available on demand: tasks-axi show <id> --full" \
+  assert_contains "$out" "Full task bodies remain available on demand: bin/mx-backlog.sh show <id>" \
     "compact digest omitted the full-body lookup pointer"
-  assert_grep "list --file $home/data/backlog.md --limit 80 --fields blocked_by,hold_kind,hold_reason" "$log" \
-    "session start did not ask tasks-axi for the bounded compact field set"
 
-  pass "compatible tasks-axi backlog rendering is compact, bounded, and preserves recovery metadata"
+  pass "owned backlog rendering is compact, bounded, and preserves recovery metadata"
 }
 
 test_backlog_compact_manual_backend_skips_indented_bodies() {
@@ -1160,7 +1109,7 @@ EOF
   pass "manual backlog rendering prints only title lines with hold and blocker metadata"
 }
 
-test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback() {
+test_backlog_compact_malformed_owned_uses_manual_fallback() {
   local rec root home fakebin out
   rec=$(new_world backlog-compact-unavailable)
   IFS='|' read -r root home fakebin <<EOF
@@ -1169,16 +1118,18 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   write_long_body_backlog "$home/data/backlog.md"
+  sed -i.bak '/^## Done$/d' "$home/data/backlog.md"
+  rm -f "$home/data/backlog.md.bak"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "compact backlog listing (tasks-axi unavailable or incompatible; max 80 item(s); indented task bodies omitted)" \
-    "unavailable tasks-axi did not fall back to compact title-line rendering"
+  assert_contains "$out" "owned backlog compact listing failed; falling back to title-line rendering." \
+    "malformed owned backlog did not fall back to compact title-line rendering"
   assert_contains "$out" "- [ ] compact-startup - Compact startup digest" \
-    "unavailable tasks-axi fallback omitted a backlog title line"
-  assert_not_contains "$out" "OVERSIZED-BODY-LINE" "unavailable tasks-axi fallback leaked an in-flight task body"
+    "malformed owned-backlog fallback omitted a backlog title line"
+  assert_not_contains "$out" "OVERSIZED-BODY-LINE" "owned-backlog fallback leaked an in-flight task body"
 
-  pass "unavailable or incompatible tasks-axi falls back to compact manual backlog rendering"
+  pass "malformed owned backlog falls back to compact manual backlog rendering"
 }
 
 # --- system-state digest: no in-flight tasks ----------------------------------
@@ -1357,9 +1308,9 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_output_ordering_diagnostics_lead
     test_status_tail_bounding
     test_orphan_status_logs_are_printed
-    test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
+    test_backlog_compact_owned_omits_bodies_and_keeps_metadata
     test_backlog_compact_manual_backend_skips_indented_bodies
-    test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
+    test_backlog_compact_malformed_owned_uses_manual_fallback
     test_system_digest_empty_system
     test_next_step_afk_delegates_to_daemon
     test_supervision_block_exactly_one_and_pi_diagnostic
@@ -1401,9 +1352,9 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_endpoint_liveness_tmux
     test_endpoint_liveness_herdr
     test_composition_invokes_real_scripts
-    test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
+    test_backlog_compact_owned_omits_bodies_and_keeps_metadata
     test_backlog_compact_manual_backend_skips_indented_bodies
-    test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
+    test_backlog_compact_malformed_owned_uses_manual_fallback
     test_system_digest_empty_system
     test_next_step_afk_delegates_to_daemon
     test_supervision_block_exactly_one_and_pi_diagnostic

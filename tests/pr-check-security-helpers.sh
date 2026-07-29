@@ -65,6 +65,7 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MX_TEST_GH_LOG"
 case " $* " in
+  *" pr merge "*) exit "${MX_TEST_GH_MERGE_RC:-0}" ;;
   *" headRefOid "*) printf '%s\n' "${MX_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
   *" state "*)
     [ "${MX_TEST_GH_FAIL:-0}" = 0 ] || exit 1
@@ -73,14 +74,8 @@ case " $* " in
     ;;
 esac
 SH
-  cat > "$fakebin/gh-axi" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$MX_TEST_GH_AXI_LOG"
-exit "${MX_TEST_GH_AXI_RC:-0}"
-SH
-  chmod +x "$fakebin/gh" "$fakebin/gh-axi"
+  chmod +x "$fakebin/gh"
   : > "$dir/gh.log"
-  : > "$dir/gh-axi.log"
   : > "$dir/guard.log"
   printf '%s\n' "$dir"
 }
@@ -221,7 +216,6 @@ run_check_entry() {
   shift
   MX_ROOT_OVERRIDE="$dir/root" MX_HOME="$dir/home" \
     MX_TEST_GUARD_LOG="$dir/guard.log" MX_TEST_GH_LOG="$dir/gh.log" \
-    MX_TEST_GH_AXI_LOG="$dir/gh-axi.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
     "$PR_CHECK" "$@"
 }
@@ -231,7 +225,6 @@ run_merge_entry() {
   shift
   MX_ROOT_OVERRIDE="$dir/root" MX_HOME="$dir/home" \
     MX_TEST_GUARD_LOG="$dir/guard.log" MX_TEST_GH_LOG="$dir/gh.log" \
-    MX_TEST_GH_AXI_LOG="$dir/gh-axi.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
     "$PR_MERGE" "$@"
 }
@@ -461,7 +454,6 @@ test_invalid_entrypoints_have_zero_side_effects() {
   [ "$rc" -ne 0 ] || fail "merge entrypoint accepted zero arguments"
 
   [ ! -s "$dir/gh.log" ] || fail "invalid direct or merge data called gh"
-  [ ! -s "$dir/gh-axi.log" ] || fail "invalid direct or merge data called gh-axi"
   [ ! -s "$dir/guard.log" ] || fail "invalid direct or merge data called the guard"
   [ ! -e "$TMP_ROOT/escape.check.sh" ] || fail "task traversal wrote outside state"
   pass "PR and teardown entrypoints reject invalid arguments before every side effect"
@@ -500,10 +492,10 @@ test_valid_recording_and_merge_derivation() {
   count=$(grep -c '^pr_head=' "$dir/home/state/task-a.meta")
   [ "$count" -eq 1 ] || fail "duplicate pr_head metadata was appended"
 
-  : > "$dir/gh-axi.log"
+  : > "$dir/gh.log"
   run_merge_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 -- --merge \
     >/dev/null 2>/dev/null || fail "valid merge wrapper failed"
-  grep -qxF 'pr merge 37 --repo my-org/repo_name.with-dots --merge' "$dir/gh-axi.log" \
+  grep -qxF 'pr merge 37 --repo my-org/repo_name.with-dots --merge' "$dir/gh.log" \
     || fail "merge wrapper did not preserve repository derivation and method"
   set +e
   MX_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/merged-watch.out" 2> "$dir/merged-watch.err"

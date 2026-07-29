@@ -10,7 +10,7 @@
 #
 # mode = how a finished change reaches main:
 #   no-mistakes  full pipeline -> PR -> maintainer merge (default)
-#   direct-PR    push + PR via gh-axi, no pipeline -> maintainer merge
+#   direct-PR    push + PR via official gh, no pipeline -> maintainer merge
 #   local-only   local branch, no remote/PR -> maintainer approve -> guarded local merge
 # yolo (orthogonal) = when on, broker may make routine approval decisions itself.
 #   AGENTS.md section 7 is the single owner of authority exceptions, including

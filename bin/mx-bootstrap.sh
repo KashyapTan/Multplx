@@ -47,12 +47,9 @@
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
 #          1.31.2.
-#          tasks-axi and quota-axi are required bootstrap tools (same class as
-#          lavish-axi). tasks-axi is also version and feature gated (0.1.1+
-#          with update --archive-body and mv [<id>...]); an installed but
-#          incompatible build reports MISSING like no-mistakes. A compatible
-#          tasks-axi default backend is silent. quota-axi is required for the
-#          agent-owned dispatch-profile array procedure in example_agents.md section 4.
+#          The bundled mx-headroom.sh is self-checked instead of requiring an
+#          external quota wrapper. The owned backlog library ships with the
+#          repo and needs no presence or version probe.
 #          System sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -84,8 +81,8 @@ PROJECTS="${MX_PROJECTS_OVERRIDE:-$MX_HOME/projects}"
 CONFIG="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
 STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
-# shellcheck source=bin/mx-tasks-axi-lib.sh disable=SC1091
-. "$SCRIPT_DIR/mx-tasks-axi-lib.sh"
+# shellcheck source=bin/mx-backlog-lib.sh disable=SC1091
+. "$SCRIPT_DIR/mx-backlog-lib.sh"
 # shellcheck source=bin/mx-tangle-lib.sh disable=SC1091
 . "$SCRIPT_DIR/mx-tangle-lib.sh"
 # shellcheck source=bin/mx-ff-lib.sh disable=SC1091
@@ -480,8 +477,7 @@ install_cmd() {
     cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
-    gh-axi|chrome-devtools-axi|lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
-    tasks-axi|quota-axi) echo "npm install -g $1" ;;
+    lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
     *) return 1 ;;
   esac
 }
@@ -509,7 +505,7 @@ missing_tool_diagnostic() {
 # missing, while an invalid backend still cannot suppress the worktree-provider
 # probe. A backend value with no verified dependency set is reported before the
 # universal checks continue.
-COMMON_TOOLS="node git gh treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi"
+COMMON_TOOLS="node git gh treehouse no-mistakes lavish-axi"
 BACKEND=$(mx_backend_name)
 BACKEND_VALID=1
 if ! BACKEND_TOOLS=$(mx_backend_required_tools "$BACKEND"); then
@@ -680,8 +676,20 @@ fi
 if command -v no-mistakes >/dev/null 2>&1 && ! no_mistakes_compatible; then
   echo "MISSING: no-mistakes (install: $(install_cmd no-mistakes))"
 fi
-if command -v tasks-axi >/dev/null 2>&1 && ! mx_tasks_axi_compatible; then
-  echo "MISSING: tasks-axi (install: $(install_cmd tasks-axi))"
+if ! headroom_json=$(MX_HEADROOM_IGNORE_DISPATCH_CONFIG=1 "$SCRIPT_DIR/mx-headroom.sh" --json 2>/dev/null) \
+  || ! printf '%s\n' "$headroom_json" | node -e '
+    let input = "";
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      const value = JSON.parse(input);
+      for (const key of ["model", "capacity", "in_use", "available", "candidates", "at_limit"]) {
+        if (!(key in value)) process.exit(1);
+      }
+    });
+  ' >/dev/null 2>&1; then
+  echo "HEADROOM_INVALID: bundled mx-headroom.sh self-check failed"
+elif [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
+  echo "BOOTSTRAP_INFO: headroom self-check passed"
 fi
 gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
 # Worktree-tangle check: the broker primary checkout (MX_ROOT) must sit on its
@@ -702,10 +710,6 @@ if [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && [ -n "$actor" ] && [ "$actor" !
   echo "BOOTSTRAP_INFO: actor harness override active: $actor"
 fi
 actor_dispatch_validate
-if [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
-  && ! mx_backlog_backend_manual "$CONFIG" && mx_tasks_axi_compatible; then
-  echo "BOOTSTRAP_INFO: tasks-axi available"
-fi
 if [ "${MX_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   daemon_liveness_sweep
   daemon_sync
