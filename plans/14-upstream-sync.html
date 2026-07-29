@@ -285,7 +285,7 @@ stages:
 <ul>
   <li><b>After <a href="11-workflow-engine.html">plan 11</a></b> — the delivery vehicle is a workflow definition; the engine, its schema, gates, and <code>fresh_session</code> semantics must exist first. The triage and port stages also lean on plan 10's headless-turn primitive and deep-review gate, and plan 03's validated statuses — all already prerequisites of plan 11.</li>
   <li><b>One step belongs to the port itself:</b> the fork-point-SHA capture (Implementation step 1) must run during <b>port Phase 0 / before <code>firstmate/</code> is deleted</b> per porting decision #8. Flagged in the danger callout at the top; <code>plans/porting.md</code>'s Phase 0 checklist and definition of done should reference it.</li>
-  <li><b>Does not gate the port.</b> All eleven port plans land and the port's definition of done is met without this plan (except that one capture step). This is Phase 9 — post-port maintenance infrastructure.</li>
+  <li><b>Does not gate the port.</b> All twelve port steps (Plans 01–11 plus Plan 6.5) land and the port's definition of done is met without this plan (except that one capture step). This is Phase 9 — post-port maintenance infrastructure.</li>
   <li>Independent of the other post-port improvement plans; it can land any time after plan 11 is proven.</li>
 </ul>
 

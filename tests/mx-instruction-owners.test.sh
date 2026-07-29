@@ -14,7 +14,7 @@ CODING="$ROOT/.agents/skills/multplx-coding-guidelines/SKILL.md"
 RECOVERY="$ROOT/.agents/skills/stuck-actor-recovery/SKILL.md"
 DAEMON="$ROOT/.agents/skills/daemon-provisioning/SKILL.md"
 CONFIG="$ROOT/docs/configuration.md"
-AGENTS="$ROOT/AGENTS.md"
+AGENTS="$ROOT/example_agents.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
 
@@ -27,16 +27,16 @@ test_new_skill_metadata_and_triggers() {
     assert_grep "name: $name" "$skill" "$name skill metadata has the wrong name"
     assert_grep "user-invocable: false" "$skill" "$name skill must not be user-invocable"
     assert_grep "  internal: true" "$skill" "$name skill must be internal"
-    count=$(grep -Fc -- "- \`$name\` -" "$ROOT/AGENTS.md")
+    count=$(grep -Fc -- "- \`$name\` -" "$AGENTS")
     [ "$count" -eq 1 ] || fail "$name must have exactly one AGENTS.md trigger entry, found $count"
   done
   assert_grep 'Use before scoping a reported bug and before acting on a diagnostic report.' "$DIAG" \
     "diagnostic skill metadata lost its precise load trigger"
-  assert_grep '`diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.' "$ROOT/AGENTS.md" \
+  assert_grep '`diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.' "$AGENTS" \
     "AGENTS.md lost the diagnostic-reasoning trigger"
   assert_grep 'Use before adding, creating, removing, or initializing a project.' "$PROJECT" \
     "project-management skill metadata lost its precise load trigger"
-  assert_grep '`project-management` - load before adding, creating, removing, or initializing a project.' "$ROOT/AGENTS.md" \
+  assert_grep '`project-management` - load before adding, creating, removing, or initializing a project.' "$AGENTS" \
     "AGENTS.md lost the project-management trigger"
   pass "new internal skills have one precise AGENTS.md trigger each"
 }
@@ -130,11 +130,11 @@ test_agent_owned_quota_array_dispatch_contract() {
   done
   assert_grep 'not as a permanent namespace or provider mapping' "$HARNESS" \
     "model discovery guidance permits a fixed provider table"
-  assert_grep '`AGENTS.md` section 4 owns the dispatch and array-selection procedure.' "$CONFIG" \
+  assert_grep '`example_agents.md` section 4 owns the future dispatch and array-selection procedure.' "$CONFIG" \
     "configuration docs do not point to the agent-owned array procedure"
   assert_grep 'quota-axi is required for the' "$BOOTSTRAP" \
     "bootstrap docs lost the quota-axi dependency pointer"
-  assert_grep 'agent-owned dispatch-profile array procedure in AGENTS.md section 4.' "$BOOTSTRAP" \
+  assert_grep 'agent-owned dispatch-profile array procedure in example_agents.md section 4.' "$BOOTSTRAP" \
     "bootstrap docs do not point to the agent-owned array procedure"
   pass "broker directly compares every quota candidate with authoritative model discovery"
 }

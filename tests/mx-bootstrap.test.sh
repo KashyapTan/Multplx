@@ -6,8 +6,9 @@
 # all is well. broker consumes the exact 'MISSING: treehouse (install: ...)',
 # 'MISSING: tasks-axi (install: ...)', 'MISSING: quota-axi (install: ...)', and
 # 'BOOTSTRAP_INFO: ...' lines, so those contracts are pinned verbatim. The cases
-# are table-driven over the inputs that vary: whether `treehouse get --help`
-# advertises --lease, which (if any) tasks-axi version is on PATH, whether
+# are table-driven over the inputs that vary: whether the universally-required
+# `treehouse get --help` advertises --lease, which (if any) tasks-axi version is
+# on PATH, whether
 # tasks-axi update advertises --archive-body, whether its mv help advertises
 # multi-ID moves, whether quota-axi is on PATH,
 # whether the local backend config opts out of tasks-axi backlog mutations, and
@@ -364,9 +365,9 @@ make_fake_toolchain_no_tmux() {  # <case-dir> <extra-cli...>
 
 test_session_provider_backends_do_not_require_tmux() {
   local backend cli case_dir fakebin out
-  # herdr/cmux are session providers only: they require their own CLI, jq,
-  # and treehouse, never tmux. With all genuine deps present and tmux absent,
-  # bootstrap must be silent.
+  # herdr/cmux are session providers only: they require their own CLI and jq,
+  # while universal treehouse provides their worktrees. With all genuine deps
+  # present and tmux absent, bootstrap must be silent.
   while IFS='^' read -r backend cli; do
     [ -n "$backend" ] || continue
     case_dir="$TMP_ROOT/$backend-no-tmux"
@@ -381,7 +382,7 @@ test_session_provider_backends_do_not_require_tmux() {
 herdr^herdr
 cmux^cmux
 ROWS
-  pass "bootstrap: session-provider backends require their own CLI + jq + treehouse, never tmux"
+  pass "bootstrap: session-provider backends require their own CLI + jq and universal treehouse, never tmux"
 }
 
 test_session_provider_backends_gate_own_cli_not_tmux() {
@@ -495,20 +496,41 @@ ROWS
   pass "bootstrap: JSON-emitting backends require jq (their genuine dep), never tmux"
 }
 
-test_treehouse_lease_check_follows_resolved_backend() {
-  local case_dir fakebin out
-  # A treehouse that lacks durable --lease support is a problem for a
-  # session-provider backend that relies on treehouse for worktrees.
-  case_dir="$TMP_ROOT/herdr-old-treehouse"
+test_treehouse_requirement_is_unconditional() {
+  local case_dir fakebin out missing count
+  missing='MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)'
+
+  # An invalid backend has no verified dependency delta. It must not suppress
+  # the universal treehouse lease-capability check.
+  case_dir="$TMP_ROOT/invalid-backend-old-treehouse"
   mkdir -p "$case_dir/home/config"
   printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
-  printf '%s\n' herdr > "$case_dir/home/config/backend"
-  fakebin=$(make_fake_toolchain_no_tmux "$case_dir" herdr)
+  printf '%s\n' bogus > "$case_dir/home/config/backend"
+  fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
     "$ROOT/bin/mx-bootstrap.sh")
-  assert_contains "$out" "MISSING: treehouse" "backend=herdr must still require treehouse with durable lease support"
-  assert_not_contains "$out" "MISSING: tmux" "backend=herdr must not demand tmux even when treehouse is too old"
-  pass "bootstrap: the treehouse lease check follows the resolved backend's worktree provider"
+  assert_contains "$out" "BACKEND_INVALID: bogus (known: tmux herdr cmux)" \
+    "invalid backend setup must remain actionable"
+  assert_contains "$out" "$missing" \
+    "invalid backend setup must not suppress the treehouse durable-lease check"
+  count=$(printf '%s\n' "$out" | grep -Fxc "$missing")
+  [ "$count" -eq 1 ] || fail "old treehouse should produce exactly one missing diagnostic, got $count"
+
+  # The command-presence probe is universal for the same reason.
+  case_dir="$TMP_ROOT/invalid-backend-missing-treehouse"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  printf '%s\n' bogus > "$case_dir/home/config/backend"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  rm -f "$fakebin/treehouse"
+  out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
+    MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+  assert_contains "$out" "$missing" \
+    "invalid backend setup must not suppress the treehouse command probe"
+  count=$(printf '%s\n' "$out" | grep -Fxc "$missing")
+  [ "$count" -eq 1 ] || fail "missing treehouse should produce exactly one missing diagnostic, got $count"
+
+  pass "bootstrap: treehouse presence and durable-lease support are unconditional requirements"
 }
 
 test_system_sync_timeout_scales_with_origin_backed_project_count() {
@@ -674,7 +696,7 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
 test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
   local trigger
   # shellcheck disable=SC2016 # The backtick-delimited skill names are literal Markdown.
-  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/AGENTS.md")
+  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/example_agents.md")
   assert_contains "$trigger" "actionable diagnostic line" "bootstrap-diagnostics trigger should be action-scoped"
   assert_contains "$trigger" "BOOTSTRAP_INFO:" "bootstrap-diagnostics trigger should classify BOOTSTRAP_INFO as no-load"
   assert_not_contains "$trigger" "TASKS_AXI:" "tasks-axi availability must not trigger diagnostics loading"
@@ -759,7 +781,7 @@ test_herdr_install_requires_manual_action
 test_cmux_bundled_cli_satisfies_dependency
 test_unknown_backend_reports_invalid_configuration
 test_json_backends_require_jq_not_tmux
-test_treehouse_lease_check_follows_resolved_backend
+test_treehouse_requirement_is_unconditional
 test_system_sync_timeout_scales_with_origin_backed_project_count
 test_system_sync_timeout_floor_preserves_small_systems
 test_system_sync_timeout_explicit_override_wins

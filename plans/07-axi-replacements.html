@@ -287,7 +287,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 
 <h2>Dependencies &amp; ordering</h2>
 <ul>
-  <li><strong>Before this plan:</strong> the §8.1 deletion pass (social relay, glab, shellcheck installer, osascript alarm) should land first per §8.7 — deletions only remove code and shrink the surface being ported. The worktree-provider decision (<a href="06-worktree-provider.html">Plan 06</a>) is independent but shares the bootstrap file; coordinate the <code>COMMON_TOOLS</code> edits.</li>
+  <li><strong>Before this plan:</strong> the §8.1 deletion pass (social relay, glab, shellcheck installer, osascript alarm) should land first per §8.7 — deletions only remove code and shrink the surface being ported. The worktree-provider decision (<a href="06-worktree-provider.html">Plan 06</a>) is independent but shares the bootstrap file; coordinate the <code>COMMON_TOOLS</code> edits. <a href="06.5-test-suite-acceleration.html">Plan 6.5</a> then accelerates the complete proof loop before this phase adds new backlog, headroom, and dispatch-queue coverage.</li>
   <li><strong>With this plan:</strong> the rename/rebrand sweep — per §8.7, every script introduced here is born with the <code>mx-</code> prefix; no <code>fm-</code>-prefixed file is created only to be renamed later.</li>
   <li><strong>After this plan:</strong> <a href="08-vplan.html">Plan 08 (vplan)</a> replaces <code>lavish-axi</code>, the last toolbelt member, and removes its bootstrap probe; <a href="09-least-privilege-push.html">Plan 09</a> assigns the now-plain-<code>gh</code> merge/push path to the credentialed non-agent process.</li>
 </ul>
@@ -311,7 +311,7 @@ mx_backlog_update &lt;file&gt; &lt;id&gt; --body s --archive-body
 </div>
 
 <div class="footer-nav">
-  <a href="06-worktree-provider.html">← Plan 06 · Worktree Provider</a>
+  <a href="06.5-test-suite-acceleration.html">← Plan 6.5 · Test Suite Acceleration</a>
   <a href="index.html">Index</a>
   <a href="08-vplan.html">Plan 08 · vplan →</a>
 </div>

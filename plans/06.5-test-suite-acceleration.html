@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 6.5 — Test Suite Acceleration · Multplx Port</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#2f81f7; --accent-dim:rgba(47,129,247,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:800px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 6.5 · Multplx Port</div>
+  <h1>Test Suite Acceleration — Same Proof, Much Shorter Wait</h1>
+  <p class="subtitle">Cut the complete local regression from 52 minutes to 15 minutes or less without deleting tests, weakening assertions, hiding skips, or shrinking production safety timeouts. The work is test infrastructure only: measure the real critical path, split oversized suites at proven isolation boundaries, replace wall-clock waiting with observable conditions and fake clocks, reuse clean fixtures, and teach the runner to schedule the full inventory by audited resource conflicts.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 4.5</span>
+    <span class="badge effort">Effort: High</span>
+    <span class="badge risk">Risk: Medium</span>
+    <span class="badge">Maintainer request · 2026-07-28</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Why this plan exists</h2>
+<p>Plan 06 changed 14 files by 172 additions and 117 deletions, but its complete regression took about 52 minutes per run on the maintainer's machine. The first run exposed seven dormant-contract fixture failures; after repairing them, the required confirmation run consumed another 52 minutes. That feedback cycle is too slow for the remaining port phases, especially plans 07–11, which add substantially more behavior than plan 06.</p>
+<p>The suite already has useful infrastructure: one inventory-owning runner, per-script timing markers, JSON timing artifacts, two duration-balanced portable shards, a 26-script proven-isolated set, a dedicated real-Herdr lane, and an exact coverage guard. The problem is that local <code>--all</code> remains entirely serial, <code>--jobs</code> refuses any selection containing one of the 70 unproven scripts, and several very large scripts repeat production-scale waits and expensive repository/process fixtures dozens of times.</p>
+
+<div class="callout ok"><div class="label">Measured baseline · Plan 06 confirmation run · 2026-07-29 UTC</div>
+<p style="margin:0"><code>bin/mx-test-run.sh --all</code> ran all <b>96</b> scripts in <b>3,127,519 ms (52m 7.5s)</b>. Ninety-five scripts passed, nine reported expected environment-gated skips, and one existing feature-branch merge-base conformance case failed; the failure did not abort the runner and does not affect the timing baseline. The five slowest scripts consumed <b>52.3%</b> of total serial time; the fifteen slowest consumed <b>75.4%</b>.</p>
+</div>
+
+<table>
+<tr><th>Rank</th><th>Suite</th><th>Measured duration</th><th>Dominant opportunity</th></tr>
+<tr><td>1</td><td><code>mx-pr-check-security.test.sh</code></td><td>667,041 ms (11m 7s)</td><td>Split 32 independent top-level cases; remove repeated watcher/process timeout setup.</td></tr>
+<tr><td>2</td><td><code>mx-backend-herdr-presentation-e2e.test.sh</code></td><td>406,318 ms (6m 46s)</td><td>Replace fixed settling with state/event waits; reuse one owned lab safely.</td></tr>
+<tr><td>3</td><td><code>mx-status-snapshot.test.sh</code></td><td>205,536 ms (3m 26s)</td><td>Split 42 cases; cache immutable fixture templates and fake toolchains.</td></tr>
+<tr><td>4</td><td><code>mx-daemon-harness.test.sh</code></td><td>195,373 ms (3m 15s)</td><td>Split unrelated spawn/config/reread groups; reuse clean base repositories.</td></tr>
+<tr><td>5</td><td><code>mx-session-start.test.sh</code></td><td>161,778 ms (2m 42s)</td><td>Separate pure digest contracts from process-liveness E2E; replace polling sleeps.</td></tr>
+<tr><td>6–10</td><td>watch triage, bootstrap, teardown, daemon safety, Herdr unit</td><td>63–123 seconds each</td><td>Fake clocks, condition waits, fixture amortization, and audited concurrency.</td></tr>
+</table>
+
+<h2>Goals &amp; non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td>
+<ul style="margin-bottom:0">
+  <li>Reduce a full local regression on the baseline host from 52.1 minutes to a median of 15 minutes or less, with no measured run over 18 minutes across three consecutive clean runs.</li>
+  <li>Preserve the complete behavior contract: every current test scenario and named assertion remains represented, all 96 original scripts remain covered directly or by documented splits, and expected-skip accounting never increases silently.</li>
+  <li>Make <code>--all</code> use a proved resource-aware scheduler by default on multi-core hosts; retain <code>--jobs 1</code> as the byte-comparable serial reference and debugging path.</li>
+  <li>Bring the required CI behavior critical path to 12 minutes or less after three green main-branch runs, without raising hang timeouts.</li>
+  <li>Make performance regressions visible through committed baseline/target documentation and machine-readable timing artifacts.</li>
+</ul>
+</td>
+<td>
+<ul style="margin-bottom:0">
+  <li>Deleting slow tests, replacing E2E assertions with static grep checks, reducing fault-injection matrices, or converting real-backend coverage into mocks.</li>
+  <li>Marking more suites optional, accepting new gate skips, retrying failures into green, or stopping after the first failure before aggregate evidence is collected.</li>
+  <li>Lowering production safety timeouts, debounce windows, retry counts, or liveness thresholds merely to make tests faster.</li>
+  <li>Running multiple real Herdr or tmux owners concurrently until a resource-isolation proof says that exact topology is safe.</li>
+  <li>Changing broker, actor, daemon, worktree, watcher, delivery, or backend behavior.</li>
+</ul>
+</td>
+</tr>
+</table>
+
+<h2>Current bottlenecks</h2>
+<table>
+<tr><th>Cause</th><th>Evidence</th><th>Required correction</th></tr>
+<tr><td>Script-granularity scheduling</td><td>The runner can parallelize only 26 scripts from the archived Phase-2 proof; a selection containing any other script is rejected under <code>--jobs &gt; 1</code>.</td><td>Audit resources per script and schedule non-conflicting scripts together; unknown classifications stay globally exclusive.</td></tr>
+<tr><td>Oversized suites</td><td>The largest portable suite is one 2,906-line script with 32 top-level cases, so no runner-level concurrency can reduce its 11-minute critical path.</td><td>Split by state ownership and fixture independence while preserving every named case and failure matrix.</td></tr>
+<tr><td>Wall-clock synchronization</td><td>Slow suites contain fixed <code>sleep</code> calls, long-lived <code>sleep 300</code> children, production-sized timeout wrappers, and repeated polling intervals.</td><td>Wait on the state transition being tested, use fake monotonic clocks where elapsed time is the subject, and keep one real-time smoke for each timing primitive.</td></tr>
+<tr><td>Repeated setup</td><td>Large suites repeatedly create git repos, clones, fake toolchains, config trees, and backend processes even when the base bytes never differ.</td><td>Create suite-scoped immutable templates, then clone/copy into a fresh per-case directory so mutation isolation remains exact.</td></tr>
+<tr><td>Stale balancing evidence</td><td>The portable shard document still reflects older Phase-1 averages, while the current local run has a very different slowest order.</td><td>Regenerate balance inputs from current JSON artifacts and make rebalance checks deterministic.</td></tr>
+</table>
+
+<h2>Target design</h2>
+
+<h3>1. A measured contract, not anecdotal optimization</h3>
+<p>Add <code>docs/mx-test-performance.md</code> plus a machine-readable baseline JSON derived from one clean serial run on the Plan-06 boundary. It records host/tool versions, total wall time, per-family time, the slowest scripts, expected skips, and the one known branch-topology failure separately from performance. Add an opt-in per-case timing helper in <code>tests/lib.sh</code> for the suites being split; it wraps existing test functions without changing their bodies or assertion text.</p>
+<p>The performance document owns the baseline, targets, latest accepted proof, and the command used to reproduce each number. The runner remains the single owner of selection, resource classes, scheduling, and timing output.</p>
+
+<h3>2. Resource-aware full-suite scheduling</h3>
+<p>Replace the all-or-nothing proven-isolated gate with an audited resource-conflict manifest owned inside <code>bin/mx-test-run.sh</code>. Each script declares the exclusive resources it can touch, such as <code>herdr-session</code>, <code>tmux-server</code>, <code>watcher-process</code>, <code>process-signal</code>, <code>repo-root</code>, or <code>global</code>. Scripts with no shared resource run concurrently up to the job limit; scripts sharing a resource serialize; unclassified scripts receive <code>global</code> and cannot overlap anything.</p>
+<p><code>--all</code> becomes full inventory plus safe automatic concurrency. <code>--jobs N</code> bounds workers, <code>--jobs auto</code> resolves from available CPUs with a conservative cap, and <code>--jobs 1</code> is the serial reference. Output remains buffered per script and replayed deterministically, while final exit/gate-skip/timing aggregation remains unchanged.</p>
+<div class="callout warn"><div class="label">Safety gate</div>
+<p style="margin:0">A resource declaration grants concurrency authority, so it must be earned. Extend <code>mx-test-isolation-proof.sh</code> from a flat candidate list to a conflict-matrix proof: run every newly concurrent pairing repeatedly, verify private temp/state roots, verify no leaked processes or backend containers, and archive the exact manifest and results. A flaky or cross-contaminating pair is serialized; it is never retried into the parallel set.</p>
+</div>
+
+<h3>3. Split the critical-path scripts without losing scenarios</h3>
+<table>
+<tr><th>Current suite</th><th>Planned split</th><th>Parity rule</th></tr>
+<tr><td><code>mx-pr-check-security.test.sh</code></td><td>Parser/entrypoints; publication/migration; fault/quarantine; retirement/teardown, sharing <code>tests/pr-check-security-helpers.sh</code>.</td><td>All 32 top-level cases and every adversarial byte, crash point, symlink, provenance, and descendant-cleanup matrix row remain.</td></tr>
+<tr><td><code>mx-status-snapshot.test.sh</code></td><td>Projection/reconciliation; landed/bounds; catchup/forge enrichment, sharing immutable snapshot fixtures.</td><td>All 42 cases, JSON/TOON parity, cap disclosures, partial-home unknowns, and GitHub timeout fallback remain.</td></tr>
+<tr><td><code>mx-daemon-harness.test.sh</code></td><td>Harness/model resolution; spawn/config inheritance; config reread/retry generations.</td><td>All 40 cases and exact convergence, retry, ordering, and generation-safety assertions remain.</td></tr>
+<tr><td><code>mx-session-start.test.sh</code></td><td>Digest/render contracts; lock/bootstrap composition; real process-liveness recovery.</td><td>All 26 cases remain, and the process-liveness group retains real child processes.</td></tr>
+<tr><td><code>mx-backend-herdr-presentation-e2e.test.sh</code></td><td>Keep one exclusive suite initially; split only after separate named labs prove independent under concurrency.</td><td>Every real focus, ordering, cleanup, restart, quarantine, and token-identity scenario remains real-Herdr E2E.</td></tr>
+</table>
+
+<h3>4. Replace elapsed waiting with observable completion</h3>
+<ul>
+  <li>Add one bounded <code>mx_test_wait_until</code> helper with short adaptive polling and a diagnostic on timeout; use it for files, process exit, pane state, lock publication, and backend object appearance instead of fixed settle sleeps.</li>
+  <li>For logic whose subject is elapsed time, inject a test-only monotonic-clock command or existing timeout environment knob and advance a fake clock deterministically. Assert the production default value in a separate contract test.</li>
+  <li>Keep one real-time smoke per timing primitive to prove the production path actually blocks and wakes; matrix rows use the fake clock.</li>
+  <li>Replace the real-Herdr AFK suite's 8/10/12-second sleeps with waits for the exact composer, marker, digest, or daemon state it later asserts.</li>
+  <li>Do not shorten a timeout by changing production defaults. A test seam must be inert when its explicit <code>MX_TEST_*</code> input is absent.</li>
+</ul>
+
+<h3>5. Reuse setup, never mutable state</h3>
+<p>Add helpers for immutable git repository templates, activated broker-home templates, and fake toolchain templates. A suite may build each template once, but every case still receives a new directory, independent index/worktree metadata, independent state root, and independent process registry. Reusing a mutable home, live backend pane, watcher lock, queue, or worktree across cases is forbidden unless that persistence is the behavior under test.</p>
+
+<h3>6. CI and local execution converge</h3>
+<p>Replace the hand-maintained two-shard portable lists with duration-balanced scheduler shards generated from the audited manifest and current timing JSON. CI still owns a dedicated real-Herdr job and a coverage guard, but the portable jobs use the same resource declarations and aggregation semantics as local <code>--all</code>. <code>CONTRIBUTING.md</code> documents the fast full command, serial reference, focused/changed loops, performance proof, and the rule that timeout increases are not performance fixes.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Archive the Plan-06 baseline.</b> <span class="pill new">new</span> Record the 52.1-minute run, per-script/family timings, tool versions, expected skips, assertion labels, and branch-topology failure in <code>docs/mx-test-performance.md</code> plus JSON.</li>
+  <li><b>Add per-case timing and condition-wait helpers.</b> <span class="pill mod">mod</span> Extend <code>tests/lib.sh</code> with opt-in timing, adaptive condition waits, leak checks, and immutable fixture-template helpers.</li>
+  <li><b>Split the three largest portable suites.</b> <span class="pill mod">mod</span> Start with PR security, status snapshot, and daemon harness; preserve the before/after named assertion manifest exactly.</li>
+  <li><b>Separate session-start contracts from liveness E2E.</b> <span class="pill mod">mod</span> Let pure digest/lock cases schedule independently while retaining real process recovery in an exclusive resource class.</li>
+  <li><b>Eliminate fixed waits from the slowest fifteen.</b> <span class="pill mod">mod</span> Use observable state and fake clocks; retain bounded real-time smoke cases and exact production-default assertions.</li>
+  <li><b>Build the resource-conflict manifest and proof.</b> <span class="pill mod">mod</span> Audit all scripts, fail closed to <code>global</code>, run repeated pairwise/concurrent proofs, and archive leak-free results.</li>
+  <li><b>Enable full-suite scheduling.</b> <span class="pill mod">mod</span> Make <code>--all</code> safely concurrent by default, add <code>--jobs auto</code>, retain <code>--jobs 1</code>, deterministic output, aggregate failure reporting, and honest gate skips.</li>
+  <li><b>Rebalance CI from current measurements.</b> <span class="pill mod">mod</span> Generate portable shards from the manifest/timings, keep real Herdr exclusive, retain exact inventory coverage, and lower hang tripwires only after observed green evidence supports it.</li>
+  <li><b>Prove parity and the speed target.</b> <span class="pill new">new</span> Compare serial vs. accelerated exit/skip/assertion inventories, run concurrency stress, then run three complete accelerated regressions on the baseline host and three green CI runs.</li>
+</ol>
+
+<h2>File impact</h2>
+<table>
+<tr><th>File</th><th>Action</th><th>Purpose</th></tr>
+<tr><td><code>bin/mx-test-run.sh</code></td><td>Modify</td><td>Resource manifest, scheduler, auto jobs, generated shard composition, deterministic aggregate output.</td></tr>
+<tr><td><code>bin/mx-test-isolation-proof.sh</code></td><td>Modify</td><td>Conflict-matrix proof, repeated runs, leak checks, archived manifest.</td></tr>
+<tr><td><code>tests/lib.sh</code>, focused helper files</td><td>Modify</td><td>Per-case timing, condition waits, fake clocks, immutable fixture templates.</td></tr>
+<tr><td>Slowest fifteen test scripts</td><td>Modify/split</td><td>Remove fixed waits and duplicated setup while preserving behavior assertions.</td></tr>
+<tr><td><code>tests/pr-check-security-helpers.sh</code> and split suites</td><td>New</td><td>Share fixtures without sharing mutable state.</td></tr>
+<tr><td><code>docs/mx-test-performance.md</code> + JSON</td><td>New</td><td>Baseline, targets, latest accepted proof, reproduction commands.</td></tr>
+<tr><td><code>docs/mx-test-isolation-proof.*</code>, <code>docs/mx-test-portable-shards.md</code></td><td>Modify</td><td>Replace the flat proof and stale balancing record with current resource-aware evidence.</td></tr>
+<tr><td><code>tests/mx-test-run.test.sh</code>, <code>tests/mx-test-isolation-proof.test.sh</code></td><td>Modify</td><td>Scheduler, conflict, parity, coverage, failure aggregation, and fail-closed tests.</td></tr>
+<tr><td><code>.github/workflows/ci.yml</code>, <code>CONTRIBUTING.md</code></td><td>Modify</td><td>Use and explain the accelerated full-suite topology.</td></tr>
+</table>
+
+<h2>Test plan for the test plan</h2>
+<h3>Existing contracts that must keep passing</h3>
+<ul>
+  <li><code>mx-test-run.test.sh</code>: exact inventory, family/changed selection, timing JSON, aggregate failure, gate-skip accounting, coverage guard, and JSON aggregation.</li>
+  <li><code>mx-test-isolation-proof.test.sh</code>: archived proof parity, explicit serial reasons, CI wiring, and failure propagation under concurrency.</li>
+  <li>Every current behavior suite in serial reference mode; no production suite may be deleted merely because its cases moved into split files.</li>
+</ul>
+<h3>New contracts</h3>
+<ul>
+  <li>Resource scheduler: disjoint resources overlap; shared resources never overlap; <code>global</code> overlaps nothing; unknown scripts fail closed; worker cap is honored.</li>
+  <li>Parity: serial and accelerated modes produce the same per-script exit class, expected-skip class, and named assertion multiset.</li>
+  <li>Failure behavior: multiple concurrent failures are all reported; one worker crash cannot deadlock the queue or erase another result.</li>
+  <li>Cleanup: no test-owned process, tmux server, Herdr lab, lock, temporary directory, or worktree survives either success, failure, or signal interruption.</li>
+  <li>Clock seams: fake time changes only explicit tests; production defaults and one real elapsed-time smoke remain.</li>
+  <li>Performance: three consecutive full runs meet the wall targets with complete timing JSON and zero new skips.</li>
+</ul>
+
+<h2>Definition of done</h2>
+<ul>
+  <li>The original 96-script inventory is traceable through the new inventory with no lost scenario; split suites include a committed before/after named-assertion map.</li>
+  <li><code>--check-coverage</code> proves exact inventory once, no duplicates, no omissions.</li>
+  <li><code>--all --jobs 1</code> and accelerated <code>--all</code> agree on exits, skips, and assertion labels.</li>
+  <li>The isolation proof passes repeatedly with no cross-test contamination or leaked resources.</li>
+  <li>On the Plan-06 baseline host, three clean accelerated full runs have median wall time ≤15 minutes and maximum wall time ≤18 minutes.</li>
+  <li>After three green main-branch CI runs, behavior critical path is ≤12 minutes; no job timeout was raised to manufacture success.</li>
+  <li>No production behavior or safety timeout changed; documentation and runner help describe the new default and serial escape hatch accurately.</li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>After <a href="06-worktree-provider.html">Plan 06</a>.</b> Its two complete local runs provide the first current Multplx timing baseline and revealed the dormant-contract fixture cost.</li>
+  <li><b>Before <a href="07-axi-replacements.html">Plan 07</a>.</b> Plans 07–11 add large new behavior surfaces; they should inherit the accelerated runner rather than multiply the current 52-minute feedback loop.</li>
+  <li><b>No production dependency.</b> This phase may be implemented and reviewed independently of toolbelt, delivery, gate, and workflow behavior.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout danger"><div class="label">Risk — false green through accidental test weakening</div>
+<p style="margin:0">Splitting and clock substitution can silently stop exercising the original entrypoint. Mitigation: archive named assertions before edits, compare serial/accelerated outputs, retain real-time and real-backend smokes, and reject any scenario-count reduction unless a duplicate is proved byte-for-byte and documented.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — concurrency creates flakes</div>
+<p style="margin:0">Tests intentionally exercise locks, signals, watchers, tmux, Herdr, and process identity. Mitigation: resource conflicts are explicit and fail closed; newly concurrent pairs require repeated leak-free proof. Speed never outranks determinism.</p>
+</div>
+<div class="callout ok"><div class="label">Decided — performance target and scope</div>
+<p style="margin:0">The target is ≤15 minutes locally without reducing behavioral coverage. This plan changes test infrastructure only and must land before Plan 07. There are no product decisions or open questions blocking implementation.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="06-worktree-provider.html">← Plan 06: Worktree Provider</a>
+  <a href="index.html">Index</a>
+  <a href="07-axi-replacements.html">Plan 07: -axi Replacements →</a>
+</div>
+
+</div>
+</body>
+</html>

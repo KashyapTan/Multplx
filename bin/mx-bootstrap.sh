@@ -52,7 +52,7 @@
 #          with update --archive-body and mv [<id>...]); an installed but
 #          incompatible build reports MISSING like no-mistakes. A compatible
 #          tasks-axi default backend is silent. quota-axi is required for the
-#          agent-owned dispatch-profile array procedure in AGENTS.md section 4.
+#          agent-owned dispatch-profile array procedure in example_agents.md section 4.
 #          System sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -502,19 +502,20 @@ missing_tool_diagnostic() {
   echo "MISSING: $tool (install: $(install_cmd "$tool"))"
 }
 
-# Required-tool detection follows the RESOLVED backend, not a one-size default:
-# a universal toolchain every home needs plus the backend-specific delta owned by
-# mx_backend_required_tools (bin/mx-backend.sh). So a herdr/cmux home is
-# never told tmux is missing. A backend value with
-# no verified dependency set is reported before the universal checks continue.
-COMMON_TOOLS="node git gh no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi"
+# Required-tool detection combines the universal toolchain every home needs with
+# the backend-specific delta owned by mx_backend_required_tools
+# (bin/mx-backend.sh). Treehouse is universal because every supported backend is
+# a session provider only. A herdr/cmux home is therefore never told tmux is
+# missing, while an invalid backend still cannot suppress the worktree-provider
+# probe. A backend value with no verified dependency set is reported before the
+# universal checks continue.
+COMMON_TOOLS="node git gh treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi"
 BACKEND=$(mx_backend_name)
 BACKEND_VALID=1
 if ! BACKEND_TOOLS=$(mx_backend_required_tools "$BACKEND"); then
   BACKEND_VALID=0
   BACKEND_TOOLS=""
 fi
-TOOLS="$BACKEND_TOOLS $COMMON_TOOLS"
 NO_MISTAKES_MIN_MAJOR=1
 NO_MISTAKES_MIN_MINOR=31
 NO_MISTAKES_MIN_PATCH=2
@@ -671,10 +672,9 @@ done
 for t in $COMMON_TOOLS; do
   command -v "$t" >/dev/null || missing_tool_diagnostic "$t"
 done
-# The treehouse lease-support upgrade check is only relevant when the resolved
-# backend actually requires treehouse (every known backend does).
-if mx_backend_list_contains "$TOOLS" treehouse \
-  && command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
+# Every supported backend delegates worktree acquisition to treehouse, so its
+# durable-lease capability is an unconditional bootstrap requirement.
+if command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
   echo "MISSING: treehouse (install: $(install_cmd treehouse))"
 fi
 if command -v no-mistakes >/dev/null 2>&1 && ! no_mistakes_compatible; then
