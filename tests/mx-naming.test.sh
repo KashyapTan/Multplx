@@ -34,13 +34,20 @@ while IFS= read -r file; do
 
   [ -f "$ROOT/$file" ] || continue
   if LC_ALL=C grep -Iq . "$ROOT/$file"; then
-    sed \
+    case "$file" in
+      bin/mx-doc-audience-check.sh|docs/documentation-audiences.json)
+        sed -e 's#firstmate/##g' "$ROOT/$file"
+        ;;
+      *)
+        cat "$ROOT/$file"
+        ;;
+    esac \
+      | sed \
       -e 's#`firstmate/`##g' \
       -e 's#firstmate_dependencies\.md##g' \
       -e 's#firstmate-architecture\.html##g' \
       -e 's#TASKS_AXI_MAINTAINER_KIND=captain#TASKS_AXI_MAINTAINER_KIND=external#g' \
       -e 's#if \. == "captain" then "maintainer"#if . == "external" then "maintainer"#g' \
-      "$ROOT/$file" \
       | grep -Ein "$legacy_content_pattern" \
       | sed "s#^#$file:#" >> "$failures" || true
   fi

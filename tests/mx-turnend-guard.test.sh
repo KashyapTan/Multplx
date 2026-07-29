@@ -528,7 +528,7 @@ test_hook_runs_fast() {
   run_hook "$dir" false >/dev/null
   elapsed_s=$((SECONDS - start))
   [ "$elapsed_s" -lt 3 ] || fail "hook took ${elapsed_s}s, expected well under a second (generous 3s CI margin)"
-  pass "mx-turnend-guard: runs well under the generous timing margin (${elapsed_s}s)"
+  pass "mx-turnend-guard: runs well under the generous timing margin"
 }
 
 test_settings_hook_uses_claude_project_dir() {

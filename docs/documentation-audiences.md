@@ -3,6 +3,7 @@
 [`documentation-audiences.json`](documentation-audiences.json) is the machine-consumed classification owner for every maintained prose surface.
 `bin/mx-doc-audience-check.sh` validates exact inventory coverage, README setup routing, required owner pointers, and local link targets.
 Audience metadata is centralized there rather than copied into front matter on every page.
+The tracked `firstmate/` tree is excluded because it is a read-only upstream reference, not a Multplx documentation surface.
 
 The audience classes have one placement purpose each:
 

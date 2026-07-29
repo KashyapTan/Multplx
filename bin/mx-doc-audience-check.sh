@@ -27,6 +27,7 @@ from urllib.parse import unquote, urlsplit
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 HTML_LINK_RE = re.compile(r"\b(?:href|src)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 REQUIRED_TRACKED_PATTERNS = ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"]
+ALLOWED_EXCLUDED_PREFIXES = {"firstmate/"}
 
 
 class CheckError(Exception):
@@ -145,6 +146,19 @@ def validate(root: Path, inventory_path: Path) -> tuple[int, int]:
     patterns = list_of_strings(scope.get("trackedPatterns"), "scope.trackedPatterns")
     if patterns != REQUIRED_TRACKED_PATTERNS:
         fail("scope.trackedPatterns must match the fixed maintained-prose scope")
+    excluded_prefixes = scope.get("excludedPrefixes", [])
+    if not isinstance(excluded_prefixes, list) or not all(
+        isinstance(prefix, str) and prefix.endswith("/") for prefix in excluded_prefixes
+    ):
+        fail("scope.excludedPrefixes must be an array of directory prefixes")
+    if len(set(excluded_prefixes)) != len(excluded_prefixes):
+        fail("scope.excludedPrefixes must not contain duplicates")
+    unsupported_exclusions = sorted(set(excluded_prefixes) - ALLOWED_EXCLUDED_PREFIXES)
+    if unsupported_exclusions:
+        fail(
+            "scope.excludedPrefixes contains unsupported roots: "
+            + ", ".join(unsupported_exclusions)
+        )
     audiences = set(list_of_strings(data.get("allowedAudiences"), "allowedAudiences"))
     setup_audiences = set(list_of_strings(data.get("setupAudiences"), "setupAudiences"))
     if not setup_audiences <= audiences:
@@ -171,7 +185,11 @@ def validate(root: Path, inventory_path: Path) -> tuple[int, int]:
     if duplicates:
         fail("surfaces classified more than once: " + ", ".join(duplicates))
 
-    tracked = set(git_tracked(root, patterns))
+    tracked = {
+        path
+        for path in git_tracked(root, patterns)
+        if not any(path.startswith(prefix) for prefix in excluded_prefixes)
+    }
     classified = set(paths)
     missing = sorted(tracked - classified)
     extra = sorted(classified - tracked)

@@ -91,6 +91,9 @@ Re-run the resource proof:
 bin/mx-test-isolation-proof.sh --jobs 4 --repeats 2 --json /tmp/mx-isolation-proof.json
 ```
 
+The accepted local runs used Herdr 0.7.4 with the same headless default-session precondition as the required CI lane.
+Each run verified that no `mx-lab-*` session survived and stopped only the default server process started for that run.
+
 ## Accepted proof
 
 The accepted proof table is updated only from complete runner JSON artifacts.
@@ -99,10 +102,18 @@ The accepted proof table is updated only from complete runner JSON artifacts.
 |---|---|---|
 | Plan-06 serial boundary | 2026-07-29 UTC | 96 scripts, 3,127,519 ms, 1 known branch-topology failure, 9 expected skips |
 | Plan-6.5 split assertion map | 2026-07-29 UTC | 140 cases mapped exactly once |
-| Resource isolation proof | Pending final proof run | Not yet accepted |
-| Accelerated local run 1 | Pending final proof run | Not yet accepted |
-| Accelerated local run 2 | Pending final proof run | Not yet accepted |
-| Accelerated local run 3 | Pending final proof run | Not yet accepted |
+| Resource isolation proof | 2026-07-29 UTC | 86 portable candidates x 2 rounds, 482,645 ms, 0 failed rounds, 0 leaks, 452 conflict pairs |
+| Accelerated local run 1 | 2026-07-29 UTC | 106 scripts, 365,595 ms, 0 failed, 9 expected skips, 1,501 assertions |
+| Accelerated local run 2 | 2026-07-29 UTC | 106 scripts, 370,606 ms, 0 failed, 9 expected skips, 1,501 assertions |
+| Accelerated local run 3 | 2026-07-29 UTC | 106 scripts, 367,851 ms, 0 failed, 9 expected skips, 1,501 assertions |
+| Current serial parity reference | 2026-07-29 UTC | 106 scripts, 1,258,821 ms, 0 failed, 9 expected skips, 1,501 assertions |
+| Current accelerated parity run | 2026-07-29 UTC | 106 scripts, 370,653 ms, 0 failed, 9 expected skips, 1,501 assertions |
+
+The three-run accelerated median is 367,851 ms, or 6 minutes 7.9 seconds.
+The maximum is 370,606 ms, or 6 minutes 10.6 seconds.
+The current serial-to-accelerated speedup is 3.40x.
+The exact parity command reported `MX_TEST_PARITY ok scripts=106 assertions=1501`.
+The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 106-script runner manifest.
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.

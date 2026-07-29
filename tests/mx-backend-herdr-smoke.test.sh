@@ -60,7 +60,7 @@ case "$CONTAINER" in
   *) fail "container_ensure returned an unexpected shape: $CONTAINER" ;;
 esac
 [ -n "$SEEDED_TAB_ID" ] || fail "the first container_ensure in a brand-new isolated session must CREATE the workspace and report its seeded default tab id"
-pass "real herdr: container_ensure starts the isolated session's server, creates the broker workspace ($CONTAINER), and reports its seeded default tab id ($SEEDED_TAB_ID)"
+pass "real herdr: container_ensure starts the isolated session, creates the broker workspace, and reports its seeded default tab id"
 
 # A second container_ensure must reuse (ADOPT) the same workspace (idempotent)
 # and report an EMPTY seeded tab id - the created-vs-adopted gate that fixes

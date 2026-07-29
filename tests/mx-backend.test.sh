@@ -886,7 +886,18 @@ set -u
 { printf 'treehouse'; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "${MX_TMUX_LOG:?}"
 exit 0
 SH
-  chmod +x "$fb/tmux" "$fb/treehouse"
+  cat > "$fb/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  '--version ') printf '%s\n' 'tasks-axi 0.2.2' ;;
+  'update --help') printf '%s\n' '--archive-body' ;;
+  'mv --help') printf '%s\n' '[<id>...]' ;;
+  'hold --help') printf '%s%s\n' '--kind cap' 'tain' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fb/tmux" "$fb/treehouse" "$fb/tasks-axi"
   printf '%s\n' "$fb"
 }
 

@@ -306,7 +306,16 @@ for line in open(rounds_path, encoding="utf-8"):
         "duration_ms": int(duration_ms),
         "run_id": doc.get("run_id"),
     })
-    scripts.extend(dict(row, repeat=int(repeat)) for row in doc.get("scripts", []))
+    for row in doc.get("scripts", []):
+        scripts.append({
+            "repeat": int(repeat),
+            "path": row["path"],
+            "family": row["family"],
+            "resources": row["resources"],
+            "exit": row["exit"],
+            "duration_ms": row["duration_ms"],
+            "gate_skip": row["gate_skip"],
+        })
 doc = {
     "kind": "resource-isolation-proof",
     "started_at": started,

@@ -45,6 +45,8 @@ elif mode.name == "missing-owner-pointer":
     }
 elif mode.name == "shrink-scope":
     data["scope"]["trackedPatterns"] = ["README.md"]
+elif mode.name == "unsupported-exclusion":
+    data["scope"]["excludedPrefixes"] = ["docs/"]
 else:
     raise SystemExit(f"unknown mode: {mode.name}")
 destination.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -65,15 +67,19 @@ test_duplicate_and_setup_classification_fail() {
   local duplicate="$TMP_ROOT/duplicate.json"
   local bad_setup="$TMP_ROOT/bad-setup.json"
   local shrink_scope="$TMP_ROOT/shrink-scope.json"
+  local unsupported_exclusion="$TMP_ROOT/unsupported-exclusion.json"
   mutate_inventory "$INVENTORY" "$duplicate" duplicate
   mutate_inventory "$INVENTORY" "$bad_setup" bad-setup-audience
   mutate_inventory "$INVENTORY" "$shrink_scope" shrink-scope
+  mutate_inventory "$INVENTORY" "$unsupported_exclusion" unsupported-exclusion
   run_expect_failure "surfaces classified more than once" \
     "$CHECK" --inventory "$duplicate"
   run_expect_failure "README setup target docs/tmux-backend.md has disallowed audience" \
     "$CHECK" --inventory "$bad_setup"
   run_expect_failure "scope.trackedPatterns must match the fixed maintained-prose scope" \
     "$CHECK" --inventory "$shrink_scope"
+  run_expect_failure "scope.excludedPrefixes contains unsupported roots: docs/" \
+    "$CHECK" --inventory "$unsupported_exclusion"
   pass "classification, setup routing, and maintained-prose scope fail safely"
 }
 
