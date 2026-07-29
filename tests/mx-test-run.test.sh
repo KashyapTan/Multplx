@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Contract tests for bin/mx-test-run.sh - the single owner of behavior suite
-# selection, portable lane composition, proven-isolated --jobs, timing markers,
-# JSON artifacts, coverage guard, and aggregate exit status.
+# selection, resource-aware scheduling, generated portable lanes, timing
+# markers, JSON artifacts, coverage guard, and aggregate exit status.
 #
 # These tests intentionally exercise the runner with fixtures, --list, and
 # focused scheduler checks, not the complete Multplx suite.
@@ -103,13 +103,24 @@ init_changed_fixture_repo() {
     mx-daemon.test.sh \
     mx-backend-herdr-smoke.test.sh \
     mx-daemon-safety.test.sh \
-    mx-session-start.test.sh \
+    mx-daemon-harness-model-resolution.test.sh \
+    mx-daemon-harness-reread-retry.test.sh \
+    mx-daemon-harness-spawn-config.test.sh \
+    mx-session-start-digest-render.test.sh \
+    mx-session-start-lock-bootstrap.test.sh \
+    mx-session-start-process-liveness.test.sh \
     mx-afk-pi-herdr-return-e2e.test.sh \
     mx-backend.test.sh \
+    mx-pr-check-security-fault-quarantine.test.sh \
+    mx-pr-check-security-parser-entrypoints.test.sh \
+    mx-pr-check-security-publication-migration.test.sh \
+    mx-pr-check-security-retirement-teardown.test.sh \
     mx-pr-merge.test.sh \
     mx-pi-watch-extension.test.sh \
     mx-afk-return.test.sh \
-    mx-status-snapshot.test.sh \
+    mx-status-snapshot-catchup-forge.test.sh \
+    mx-status-snapshot-landed-bounds.test.sh \
+    mx-status-snapshot-projection-reconciliation.test.sh \
     mx-backend-cmux.test.sh; do
     printf '#!/usr/bin/env bash\n# tests/lib.sh\n' >"$repo/tests/$script"
     chmod +x "$repo/tests/$script"
@@ -142,7 +153,7 @@ test_changed_dependency_selection_and_unmapped_failure() {
   listed=$(cd "$repo" && bin/mx-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/mx-pr-merge.test.sh" "shared helper selects pr-forge dependents"
   assert_contains "$listed" "tests/mx-daemon-safety.test.sh" "shared helper selects daemon dependents"
-  assert_contains "$listed" "tests/mx-status-snapshot.test.sh" "shared helper selects snapshot dependents"
+  assert_contains "$listed" "tests/mx-status-snapshot-projection-reconciliation.test.sh" "shared helper selects snapshot dependents"
   git -C "$repo" add tests/lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm helper-change
 
@@ -418,8 +429,10 @@ test_ci_and_docs_call_the_owner() {
     || fail "CONTRIBUTING must document family selection"
   grep -Fq 'bin/mx-test-run.sh --changed' "$CONTRIB" \
     || fail "CONTRIBUTING must document changed-file selection"
-  grep -Fq 'bin/mx-test-run.sh --proven-isolated --jobs' "$CONTRIB" \
-    || fail "CONTRIBUTING must document proven-isolated --jobs"
+  grep -Fq 'bin/mx-test-run.sh --all --jobs 1' "$CONTRIB" \
+    || fail "CONTRIBUTING must document the serial reference"
+  grep -Fq 'bin/mx-test-run.sh --all --jobs auto' "$CONTRIB" \
+    || fail "CONTRIBUTING must document the accelerated full run"
   grep -Fq 'intent-targeted' "$CONTRIB" \
     || fail "CONTRIBUTING must document intent-targeted no-mistakes Test"
   # Do not restore a complete-suite commands.test.
@@ -430,20 +443,15 @@ test_ci_and_docs_call_the_owner() {
 }
 
 test_portable_shard_union_and_coverage_guard() {
-  local s1 s2 proven serial herdr all_count union_count overlap out first
+  local s1 s2 serial herdr all_count union_count overlap out
   s1=$("$RUNNER" --list --lane portable-parallel-1)
   s2=$("$RUNNER" --list --lane portable-parallel-2)
-  proven=$("$RUNNER" --list --proven-isolated)
   serial=$("$RUNNER" --list --lane portable-serial)
   herdr=$("$RUNNER" --list --family real-herdr-gated)
   [ -n "$s1" ] && [ -n "$s2" ] || fail "portable parallel shards must be non-empty"
   # Shards disjoint.
   overlap=$(comm -12 <(printf '%s\n' "$s1" | LC_ALL=C sort) <(printf '%s\n' "$s2" | LC_ALL=C sort) || true)
   [ -z "$overlap" ] || fail "portable parallel shards overlap: $overlap"
-  # Union of shards equals proven-isolated.
-  [ "$(printf '%s\n' "$s1" "$s2" | LC_ALL=C sort -u)" = \
-    "$(printf '%s\n' "$proven" | LC_ALL=C sort -u)" ] \
-    || fail "shard union must equal proven-isolated set"
   # No herdr in portable lanes.
   printf '%s\n' "$s1" "$s2" "$serial" | grep -Fq 'tests/mx-backend-herdr-smoke.test.sh' \
     && fail "portable lanes must not include real-herdr-gated smoke"
@@ -458,59 +466,53 @@ test_portable_shard_union_and_coverage_guard() {
   # No duplicates across the four partitions.
   [ "$(printf '%s\n' "$s1" "$s2" "$serial" "$herdr" | LC_ALL=C sort | uniq -d | wc -l | tr -d ' ')" = "0" ] \
     || fail "lanes must not duplicate scripts"
-  # LPT order: first script of shard 1 is the longest proven script.
-  first=$(printf '%s\n' "$s1" | head -n 1)
-  [ "$first" = "tests/mx-arm-pretool-check.test.sh" ] \
-    || fail "shard 1 must start with longest proven script, got $first"
   pass "portable shard union, disjointness, and coverage guard hold"
 }
 
 test_portable_shard_docs_match_lanes() {
-  python3 - "$RUNNER" "$SHARD_DOC" <<'PY' \
-    || fail "portable shard documentation must match lane counts and timing sums"
-import re
-import subprocess
-import sys
-
-runner, doc_path = sys.argv[1:3]
-markdown = open(doc_path, encoding="utf-8").read()
-averages = {
-    path: int(duration)
-    for duration, path in re.findall(r"^\| (\d+) \| `([^`]+)` \|$", markdown, re.MULTILINE)
-}
-totals = {}
-for lane in ("portable-parallel-1", "portable-parallel-2"):
-    scripts = subprocess.check_output(
-        [runner, "--list", "--lane", lane], text=True
-    ).splitlines()
-    totals[lane] = (len(scripts), sum(averages[path] for path in scripts))
-
-for lane, (count, duration) in totals.items():
-    expected = f"| `{lane}` | {count} | {duration} ms (~{duration / 1000:.1f} s) |"
-    assert expected in markdown
-imbalance = abs(totals["portable-parallel-1"][1] - totals["portable-parallel-2"][1])
-assert f"| imbalance | | {imbalance} ms |" in markdown
-PY
-  pass "portable shard documentation matches lane counts and timing sums"
+  local first second
+  first=$(
+    "$RUNNER" --list --lane portable-parallel-1
+    "$RUNNER" --list --lane portable-parallel-2
+  )
+  second=$(
+    "$RUNNER" --list --lane portable-parallel-1
+    "$RUNNER" --list --lane portable-parallel-2
+  )
+  [ "$first" = "$second" ] || fail "generated shards are not deterministic"
+  grep -Fq 'docs/mx-test-performance-baseline.json' "$SHARD_DOC" \
+    || fail "portable shard documentation does not identify timing input"
+  grep -Fq 'longest-processing-time' "$SHARD_DOC" \
+    || fail "portable shard documentation does not describe generation"
+  grep -Fq 'resource manifest' "$SHARD_DOC" \
+    || fail "portable shard documentation does not identify conflict owner"
+  pass "portable shard documentation matches generated scheduler ownership"
 }
 
-test_jobs_requires_proven_isolated() {
-  local tmp rc
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-jobs.XXXXXX")
-  set +e
-  "$RUNNER" --jobs 2 --lane portable-serial >"$tmp/out" 2>"$tmp/err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 2 ] || fail "--jobs with portable-serial must refuse (exit 2), got $rc"
-  grep -Fq 'not in the proven-isolated set' "$tmp/err" \
-    || fail "--jobs refusal message missing: $(cat "$tmp/err")"
-  set +e
-  "$RUNNER" --jobs 2 tests/mx-watcher-lock.test.sh >"$tmp/out2" 2>"$tmp/err2"
-  rc=$?
-  set -e
-  [ "$rc" -eq 2 ] || fail "--jobs on watcher-lock must refuse, got $rc"
+test_resource_manifest_is_exact_and_unknown_fails_closed() {
+  local listed all_count resources_count tmp repo runner unknown
+  listed=$("$RUNNER" --list-resources --all)
+  all_count=$("$RUNNER" --list --all | wc -l | tr -d ' ')
+  resources_count=$(printf '%s\n' "$listed" | wc -l | tr -d ' ')
+  [ "$resources_count" = "$all_count" ] \
+    || fail "resource manifest count $resources_count does not match inventory $all_count"
+  printf '%s\n' "$listed" | grep -Fxq $'tests/mx-backend-herdr-presentation-e2e.test.sh\therdr-session' \
+    || fail "real Herdr presentation resource declaration missing"
+  printf '%s\n' "$listed" | grep -Fxq $'tests/mx-test-run.test.sh\tglobal' \
+    || fail "runner self-contract must be globally exclusive"
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-resource-unknown.XXXXXX")
+  repo="$tmp/repo"
+  runner="$repo/bin/mx-test-run.sh"
+  unknown="$tmp/unknown.test.sh"
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$runner"
+  printf '#!/usr/bin/env bash\nprintf "ok - unknown fixture\\n"\n' >"$unknown"
+  chmod +x "$runner" "$unknown"
+  [ "$("$runner" --list-resources "$unknown" | cut -f2)" = global ] \
+    || fail "unknown script did not fail closed to global"
   rm -rf "$tmp"
-  pass "--jobs refuses non-proven / stateful selections"
+  pass "resource manifest is exact and unknown scripts fail closed to global"
 }
 
 test_jobs_parallel_scheduler_and_failure_propagation() {
@@ -551,6 +553,7 @@ echo "ok - fast fixture"
 SH
   cat >"$repo/$c" <<'SH'
 #!/usr/bin/env bash
+[ ! -e "$SCHED_EVIDENCE/slow-done" ] || exit 9
 echo "ok - replacement fixture"
 SH
   chmod +x "$runner" "$repo/$a" "$repo/$b" "$repo/$c" "$fake_bin/stat"
@@ -568,9 +571,9 @@ SH
   replacement_begin=$(grep -n "^MX_TEST_BEGIN .* $c " "$tmp/out" | head -1 | cut -d: -f1)
   slow_end=$(grep -n "^MX_TEST_END .* $a " "$tmp/out" | head -1 | cut -d: -f1)
   [ -n "$replacement_begin" ] && [ -n "$slow_end" ] \
-    || fail "scheduler markers missing for refill-order assertion"
-  [ "$replacement_begin" -lt "$slow_end" ] \
-    || fail "jobs scheduler waited for the oldest worker before refilling"
+    || fail "scheduler markers missing for deterministic replay assertion"
+  [ "$replacement_begin" -gt "$slow_end" ] \
+    || fail "buffered output was not replayed in selection order"
   grep -q 'MX_TEST_SUMMARY total=3 failed=0' "$tmp/out" \
     || fail "summary missing for jobs run: $(grep MX_TEST_SUMMARY "$tmp/out")"
   python3 -c '
@@ -581,7 +584,7 @@ assert doc["summary"]["failed"]==0
 assert "jobs=2" in doc["selection"]
 ' "$tmp/timing.json" || { rm -rf "$tmp"; fail "jobs JSON artifact wrong"; }
 
-  # Non-proven path is refused before any worker starts (no race masking).
+  # Unknown paths receive global and still report their failure honestly.
   cat >"$tmp/fail.test.sh" <<'SH'
 #!/usr/bin/env bash
 echo "not ok - deliberate fail"
@@ -592,7 +595,9 @@ SH
   "$runner" --jobs 2 "$a" "$tmp/fail.test.sh" >"$tmp/out3" 2>"$tmp/err3"
   rc=$?
   set -e
-  [ "$rc" -eq 2 ] || fail "jobs with non-proven fail fixture must refuse before run, got $rc"
+  [ "$rc" -ne 0 ] || fail "unknown global fixture failure was hidden"
+  grep -q 'MX_TEST_SUMMARY total=2 failed=1' "$tmp/out3" \
+    || fail "unknown global fixture did not aggregate: $(grep MX_TEST_SUMMARY "$tmp/out3")"
 
   # Parallel failure propagation stays inside the private runner fixture.
   cat >"$repo/$b" <<'SH'
@@ -632,7 +637,95 @@ SH
     || { rm -rf "$tmp"; fail "parallel stderr skip summary wrong: $(grep MX_TEST_SUMMARY "$tmp/out6")"; }
 
   rm -rf "$tmp"
-  pass "jobs scheduler runs proven scripts; failure propagates; non-proven refused"
+  pass "resource scheduler refills safely, replays deterministically, and aggregates failures"
+}
+
+test_scheduler_resource_conflicts() {
+  local tmp repo runner evidence watcher_a watcher_b disjoint global
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-conflicts.XXXXXX")
+  repo="$tmp/repo"
+  runner="$repo/bin/mx-test-run.sh"
+  evidence="$tmp/evidence"
+  watcher_a=tests/mx-nudge.test.sh
+  watcher_b=tests/mx-watch-checkpoint.test.sh
+  disjoint=tests/mx-transition-lib.test.sh
+  global=tests/mx-test-run.test.sh
+  mkdir -p "$repo/bin" "$repo/tests" "$evidence"
+  cp "$RUNNER" "$runner"
+  for script in "$watcher_a" "$watcher_b"; do
+    cat >"$repo/$script" <<'SH'
+#!/usr/bin/env bash
+mkdir "$SCHED_EVIDENCE/watcher-owner" || exit 8
+trap 'rmdir "$SCHED_EVIDENCE/watcher-owner" 2>/dev/null || true' EXIT
+: >"$SCHED_EVIDENCE/watcher-active"
+sleep 0.2
+rm -f "$SCHED_EVIDENCE/watcher-active"
+echo "ok - shared watcher fixture"
+SH
+  done
+  cat >"$repo/$disjoint" <<'SH'
+#!/usr/bin/env bash
+attempt=0
+while [ "$attempt" -lt 100 ] && [ ! -e "$SCHED_EVIDENCE/watcher-active" ]; do
+  sleep 0.01
+  attempt=$((attempt + 1))
+done
+[ -e "$SCHED_EVIDENCE/watcher-active" ] || exit 9
+echo "ok - disjoint overlap fixture"
+SH
+  chmod +x "$runner" "$repo/$watcher_a" "$repo/$watcher_b" "$repo/$disjoint"
+  SCHED_EVIDENCE="$evidence" "$runner" --jobs 3 \
+    "$watcher_a" "$watcher_b" "$disjoint" >"$tmp/out" 2>"$tmp/err" \
+    || { cat "$tmp/out" "$tmp/err"; rm -rf "$tmp"; fail "resource conflict fixture failed"; }
+  grep -q 'MX_TEST_SUMMARY total=3 failed=0' "$tmp/out" \
+    || fail "resource conflict summary is wrong"
+
+  mkdir -p "$repo/docs"
+  cat >"$repo/docs/mx-test-performance-baseline.json" <<JSON
+{
+  "scheduler_estimates_ms": {
+    "$watcher_a": 1,
+    "$watcher_b": 1000
+  }
+}
+JSON
+  cat >"$repo/$watcher_a" <<'SH'
+#!/usr/bin/env bash
+[ -e "$SCHED_EVIDENCE/high-estimate-done" ] || exit 6
+echo "ok - low estimate fixture"
+SH
+  cat >"$repo/$watcher_b" <<'SH'
+#!/usr/bin/env bash
+: >"$SCHED_EVIDENCE/high-estimate-done"
+echo "ok - high estimate fixture"
+SH
+  chmod +x "$repo/$watcher_a" "$repo/$watcher_b"
+  SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 \
+    "$watcher_a" "$watcher_b" >"$tmp/lpt-out" 2>"$tmp/lpt-err" \
+    || { cat "$tmp/lpt-out" "$tmp/lpt-err"; rm -rf "$tmp"; fail "longest-estimated-first scheduling failed"; }
+
+  cat >"$repo/$disjoint" <<'SH'
+#!/usr/bin/env bash
+: >"$SCHED_EVIDENCE/none-started"
+: >"$SCHED_EVIDENCE/none-active"
+sleep 0.2
+rm -f "$SCHED_EVIDENCE/none-active"
+echo "ok - none fixture"
+SH
+  cat >"$repo/$global" <<'SH'
+#!/usr/bin/env bash
+[ -e "$SCHED_EVIDENCE/none-started" ] || exit 7
+[ ! -e "$SCHED_EVIDENCE/none-active" ] || exit 8
+echo "ok - global fixture"
+SH
+  chmod +x "$repo/$disjoint" "$repo/$global"
+  SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 \
+    "$disjoint" "$global" >"$tmp/global-out" 2>"$tmp/global-err" \
+    || { cat "$tmp/global-out" "$tmp/global-err"; rm -rf "$tmp"; fail "global overlapped a none resource"; }
+  grep -q 'MX_TEST_SUMMARY total=2 failed=0' "$tmp/global-out" \
+    || fail "global conflict summary is wrong"
+  rm -rf "$tmp"
+  pass "longest estimates launch first while shared and global resources serialize"
 }
 
 test_aggregate_json() {
@@ -677,6 +770,38 @@ assert len(doc["scripts"])==3
   pass "aggregate-json merges lane timing artifacts"
 }
 
+test_serial_accelerated_parity_comparator() {
+  local tmp out rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-parity.XXXXXX")
+  cat >"$tmp/serial.json" <<'JSON'
+{
+  "summary": {"total": 1, "failed": 0, "skipped_gate": 0},
+  "scripts": [
+    {"path": "tests/a.test.sh", "exit": 0, "gate_skip": false, "assertions": ["ok - alpha", "ok - beta"]}
+  ]
+}
+JSON
+  cp "$tmp/serial.json" "$tmp/accelerated.json"
+  out=$("$RUNNER" --compare-json "$tmp/serial.json" "$tmp/accelerated.json") \
+    || fail "equal serial/accelerated artifacts did not compare"
+  assert_contains "$out" "MX_TEST_PARITY ok scripts=1 assertions=2" "parity success marker"
+  python3 - "$tmp/accelerated.json" <<'PY'
+import json,sys
+path=sys.argv[1]
+doc=json.load(open(path))
+doc["scripts"][0]["assertions"]=["ok - alpha"]
+json.dump(doc,open(path,"w"))
+PY
+  set +e
+  "$RUNNER" --compare-json "$tmp/serial.json" "$tmp/accelerated.json" >"$tmp/out" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "assertion loss did not fail parity"
+  grep -Fq 'MX_TEST_PARITY mismatch' "$tmp/out" || fail "parity mismatch diagnostic missing"
+  rm -rf "$tmp"
+  pass "serial/accelerated parity compares exits, skips, and assertion multisets"
+}
+
 test_list_all_exact_suite_coverage
 test_family_selection
 test_single_script_selection
@@ -691,6 +816,8 @@ test_exclude_family
 test_ci_and_docs_call_the_owner
 test_portable_shard_union_and_coverage_guard
 test_portable_shard_docs_match_lanes
-test_jobs_requires_proven_isolated
+test_resource_manifest_is_exact_and_unknown_fails_closed
 test_jobs_parallel_scheduler_and_failure_propagation
+test_scheduler_resource_conflicts
 test_aggregate_json
+test_serial_accelerated_parity_comparator

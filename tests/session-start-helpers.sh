@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/mx-session-start.test.sh - behavior tests for bin/mx-session-start.sh,
+# Shared behavior cases for bin/mx-session-start.sh,
 # the single command that collapses AGENTS.md sections 3 (bootstrap) and 5
 # (recovery) into one ordered digest.
 #
@@ -35,6 +35,10 @@ SESSION_START_HERDR_DAEMON_TMP="/tmp/mx-$SESSION_START_HERDR_DAEMON_ID"
 MX_TEST_CLEANUP_DIRS+=("$TMP_ROOT" "$SESSION_START_DAEMON_TMP" "$SESSION_START_HERDR_DAEMON_TMP")
 trap mx_test_cleanup EXIT
 mx_git_identity fmtest fmtest@example.invalid
+SESSION_ROOT_TEMPLATE="$TMP_ROOT/.root-template"
+git init -q -b main "$SESSION_ROOT_TEMPLATE"
+git -C "$SESSION_ROOT_TEMPLATE" commit -q --allow-empty -m init
+chmod -R a-w "$SESSION_ROOT_TEMPLATE"
 
 # --- world builders ----------------------------------------------------------
 
@@ -49,8 +53,7 @@ new_world() {
   home="$w/home"
   fakebin="$w/fakebin"
   mkdir -p "$home/state" "$home/data" "$home/config" "$fakebin"
-  git init -q -b main "$root"
-  git -C "$root" commit -q --allow-empty -m init
+  mx_test_clone_tree_template "$SESSION_ROOT_TEMPLATE" "$root"
   printf '%s|%s|%s\n' "$root" "$home" "$fakebin"
 }
 
@@ -1348,29 +1351,68 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
-test_context_digest_absent_empty_present
-test_lock_refusal_read_only_path
-test_lock_write_failure_read_only_path
-test_session_lock_concurrent_single_winner
-test_output_ordering_diagnostics_lead
-test_herdr_backend_diagnostics_follow_real_session_start
-test_session_start_relaunches_missing_pi_daemon
-test_session_start_preserves_ambiguous_pi_process
-test_session_start_preserves_transiently_unreadable_tmux
-test_session_start_preserves_proven_bare_shell_recovery
-test_session_start_relaunches_herdr_husk_daemon
-test_status_tail_bounding
-test_orphan_status_logs_are_printed
-test_endpoint_liveness_tmux
-test_endpoint_liveness_herdr
-test_composition_invokes_real_scripts
-test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
-test_backlog_compact_manual_backend_skips_indented_bodies
-test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
-test_system_digest_empty_system
-test_next_step_afk_delegates_to_daemon
-test_supervision_block_exactly_one_and_pi_diagnostic
-test_pi_diagnostic_rejects_stale_loaded_marker
-test_pi_diagnostic_accepts_prelock_loaded_marker
-test_pi_diagnostic_rejects_missing_turnend_guard_marker
-test_pi_diagnostic_rejects_previous_session_loaded_marker
+case "${MX_TEST_CASE_GROUP:-all}" in
+  digest-render)
+    test_context_digest_absent_empty_present
+    test_output_ordering_diagnostics_lead
+    test_status_tail_bounding
+    test_orphan_status_logs_are_printed
+    test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
+    test_backlog_compact_manual_backend_skips_indented_bodies
+    test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
+    test_system_digest_empty_system
+    test_next_step_afk_delegates_to_daemon
+    test_supervision_block_exactly_one_and_pi_diagnostic
+    ;;
+  lock-bootstrap)
+    test_lock_refusal_read_only_path
+    test_lock_write_failure_read_only_path
+    test_session_lock_concurrent_single_winner
+    test_herdr_backend_diagnostics_follow_real_session_start
+    test_composition_invokes_real_scripts
+    ;;
+  process-liveness)
+    test_session_start_relaunches_missing_pi_daemon
+    test_session_start_preserves_ambiguous_pi_process
+    test_session_start_preserves_transiently_unreadable_tmux
+    test_session_start_preserves_proven_bare_shell_recovery
+    test_session_start_relaunches_herdr_husk_daemon
+    test_endpoint_liveness_tmux
+    test_endpoint_liveness_herdr
+    test_pi_diagnostic_rejects_stale_loaded_marker
+    test_pi_diagnostic_accepts_prelock_loaded_marker
+    test_pi_diagnostic_rejects_missing_turnend_guard_marker
+    test_pi_diagnostic_rejects_previous_session_loaded_marker
+    ;;
+  all)
+    test_context_digest_absent_empty_present
+    test_lock_refusal_read_only_path
+    test_lock_write_failure_read_only_path
+    test_session_lock_concurrent_single_winner
+    test_output_ordering_diagnostics_lead
+    test_herdr_backend_diagnostics_follow_real_session_start
+    test_session_start_relaunches_missing_pi_daemon
+    test_session_start_preserves_ambiguous_pi_process
+    test_session_start_preserves_transiently_unreadable_tmux
+    test_session_start_preserves_proven_bare_shell_recovery
+    test_session_start_relaunches_herdr_husk_daemon
+    test_status_tail_bounding
+    test_orphan_status_logs_are_printed
+    test_endpoint_liveness_tmux
+    test_endpoint_liveness_herdr
+    test_composition_invokes_real_scripts
+    test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
+    test_backlog_compact_manual_backend_skips_indented_bodies
+    test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
+    test_system_digest_empty_system
+    test_next_step_afk_delegates_to_daemon
+    test_supervision_block_exactly_one_and_pi_diagnostic
+    test_pi_diagnostic_rejects_stale_loaded_marker
+    test_pi_diagnostic_accepts_prelock_loaded_marker
+    test_pi_diagnostic_rejects_missing_turnend_guard_marker
+    test_pi_diagnostic_rejects_previous_session_loaded_marker
+    ;;
+  *)
+    fail "unknown session-start case group: ${MX_TEST_CASE_GROUP}"
+    ;;
+esac

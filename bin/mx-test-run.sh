@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# mx-test-run.sh - single owner of Multplx's behavior-test runner, lane
-# composition for portable CI shards, local --jobs for the proven-isolated set,
-# timing markers, and the complete-regression coverage guard.
+# mx-test-run.sh - single owner of Multplx's behavior-test inventory, resource
+# manifest, scheduler, CI shard composition, timing, and coverage guard.
 #
 # Selection modes (exactly one of: --all, --family, --changed, --lane,
 # --proven-isolated, or script paths):
@@ -22,6 +21,7 @@
 #
 # Aggregation (no suite execution):
 #   mx-test-run.sh --aggregate-json <out.json> <lane.json> [more lane.json...]
+#   mx-test-run.sh --compare-json <serial.json> <accelerated.json>
 #
 # Options:
 #   --json <path>   write a deterministic timing artifact after the run
@@ -36,11 +36,13 @@
 #                   "skip: <token>" (e.g. --fail-on-gate-skip 'herdr not found').
 #                   The required Herdr CI lane uses this so a missing pin cannot
 #                   silently pass as a gate skip.
-#   --jobs N        run the selected scripts with up to N concurrent workers.
-#                   Default is 1 (serial). N>1 is allowed only when every
-#                   selected script is in the Phase 2 proven-isolated set
-#                   (bin/mx-test-isolation-proof.sh --list). Cap is 8. Stateful
-#                   families never schedule under --jobs.
+#   --jobs N|auto   run through the audited resource scheduler with up to N
+#                   workers. --all defaults to auto; other selections default
+#                   to 1. auto uses available CPUs with a conservative cap of 4.
+#                   Shared resources serialize, global overlaps nothing, and an
+#                   unknown script fails closed to global.
+#   --list-resources
+#                   print selected path + resource declaration and exit 0
 #   -h, --help      print this header
 #
 # Per-script machine-parseable markers (stdout):
@@ -56,10 +58,9 @@
 # --fail-on-gate-skip token appears. Other gate skips (first meaningful line
 # matching ^skip:) remain successful and are counted as skipped_gate.
 #
-# Family labels, the changed-file map, and production portable-shard composition
-# live in this script only (one owner). The proven-isolated candidate set remains
-# owned by bin/mx-test-isolation-proof.sh; portable parallel shards are a
-# duration-balanced partition of that exact set (see docs/mx-test-portable-shards.md).
+# Family labels, the changed-file map, resource manifest, and generated portable
+# shard composition live in this script only. The isolation-proof harness
+# consumes this manifest; it does not own a second scheduler allowlist.
 # --changed is conservative: it over-selects related families rather than
 # under-selecting, and never expands to the complete suite unless --all.
 set -eu
@@ -69,10 +70,12 @@ cd "$ROOT" || exit 1
 
 MODE=
 LIST_ONLY=0
+LIST_RESOURCES=0
 LIST_FAMILIES=0
 LIST_LANES=0
 CHECK_COVERAGE=0
 AGGREGATE_OUT=
+COMPARE_JSON=0
 FAMILY=
 LANE=
 BASE_REF=origin/main
@@ -80,8 +83,9 @@ JSON_PATH=
 SCRIPTS=()
 EXCLUDE_FAMILIES=()
 FAIL_ON_GATE_SKIP=
-JOBS=1
+JOBS=default
 JOBS_MAX=8
+JOBS_AUTO_MAX=4
 
 usage() {
   awk '
@@ -130,7 +134,7 @@ family_for_basename() {
     mx-send-popup-settle.test.sh|mx-send-settle.test.sh|mx-stow-contract.test.sh|\
     mx-subagent-pretool-check.test.sh|\
     mx-supervision-instructions.test.sh|mx-tmux-submit-busy.test.sh|mx-transition-lib.test.sh|\
-    mx-test-run.test.sh|mx-test-isolation-proof.test.sh)
+    mx-test-run.test.sh|mx-test-isolation-proof.test.sh|mx-test-split-parity.test.sh)
       printf '%s\n' pure-contract-unit
       ;;
     mx-daemon.test.sh|mx-guard-stale-banner.test.sh|mx-pi-watch-extension.test.sh|\
@@ -146,13 +150,16 @@ family_for_basename() {
     mx-backend-herdr-smoke.test.sh|mx-backend-herdr-workspace-per-home-e2e.test.sh)
       printf '%s\n' real-herdr-gated
       ;;
-    mx-backlog-handoff.test.sh|mx-daemon-harness.test.sh|mx-daemon-lifecycle-e2e.test.sh|\
+    mx-backlog-handoff.test.sh|mx-daemon-harness-model-resolution.test.sh|\
+    mx-daemon-harness-reread-retry.test.sh|mx-daemon-harness-spawn-config.test.sh|\
+    mx-daemon-lifecycle-e2e.test.sh|\
     mx-daemon-liveness.test.sh|mx-daemon-safety.test.sh|mx-daemon-sync.test.sh|\
     mx-send-daemon-marker.test.sh|mx-shared-maintainer-inheritance.test.sh)
       printf '%s\n' daemon
       ;;
     mx-bootstrap.test.sh|mx-system-sync.test.sh|mx-gate-refuse.test.sh|mx-gotmp.test.sh|\
-    mx-session-start.test.sh|mx-sessionstart-nudge.test.sh|mx-tangle-guard.test.sh|\
+    mx-session-start-digest-render.test.sh|mx-session-start-lock-bootstrap.test.sh|\
+    mx-session-start-process-liveness.test.sh|mx-sessionstart-nudge.test.sh|mx-tangle-guard.test.sh|\
     mx-update.test.sh)
       printf '%s\n' session-bootstrap
       ;;
@@ -166,14 +173,19 @@ family_for_basename() {
     mx-spawn-dispatch-profile.test.sh|mx-spawn-worktree-settle.test.sh)
       printf '%s\n' backend-dispatch
       ;;
-    mx-pr-check-security.test.sh|mx-pr-merge.test.sh|mx-review-diff.test.sh|\
+    mx-pr-check-security-fault-quarantine.test.sh|\
+    mx-pr-check-security-parser-entrypoints.test.sh|\
+    mx-pr-check-security-publication-migration.test.sh|\
+    mx-pr-check-security-retirement-teardown.test.sh|\
+    mx-pr-merge.test.sh|mx-review-diff.test.sh|\
     mx-teardown.test.sh)
       printf '%s\n' pr-forge
       ;;
     mx-afk-inject-e2e.test.sh|mx-afk-return.test.sh)
       printf '%s\n' afk
       ;;
-    mx-status-snapshot.test.sh|mx-system-snapshot-view.test.sh)
+    mx-status-snapshot-catchup-forge.test.sh|mx-status-snapshot-landed-bounds.test.sh|\
+    mx-status-snapshot-projection-reconciliation.test.sh|mx-system-snapshot-view.test.sh)
       printf '%s\n' snapshot-catchup
       ;;
     mx-backend-cmux.test.sh|mx-backend-cmux-smoke.test.sh)
@@ -221,79 +233,213 @@ real-herdr-gated
 EOF
 }
 
-# Exact Phase 2 proven-isolated candidate set (same paths as
-# bin/mx-test-isolation-proof.sh --list). Do not expand without a new concurrent
-# isolation proof archive.
+# Audited resource-conflict manifest.
+# `none` means the script owns only its private worker root.
+# `global` overlaps nothing. Unknown paths also resolve to global so ad-hoc
+# focused fixtures remain safe without gaining concurrency authority.
+list_resource_manifest() {
+  cat <<'EOF'
+tests/mx-actor-state.test.sh	none
+tests/mx-afk-inject-e2e.test.sh	afk-watcher-process
+tests/mx-afk-inject-herdr-e2e.test.sh	herdr-session
+tests/mx-afk-launch.test.sh	afk-watcher-process,herdr-session
+tests/mx-afk-pi-herdr-return-e2e.test.sh	herdr-session,live-harness
+tests/mx-afk-return.test.sh	afk-watcher-process
+tests/mx-arm-pretool-check.test.sh	none
+tests/mx-ask-user-authority.test.sh	none
+tests/mx-backend-autodetect-smoke.test.sh	herdr-session
+tests/mx-backend-cmux-smoke.test.sh	cmux-app
+tests/mx-backend-cmux.test.sh	none
+tests/mx-backend-herdr-eventwait-smoke.test.sh	herdr-session
+tests/mx-backend-herdr-presentation-e2e.test.sh	herdr-session
+tests/mx-backend-herdr-prune-safety-e2e.test.sh	herdr-session
+tests/mx-backend-herdr-respawn-idem-e2e.test.sh	herdr-session
+tests/mx-backend-herdr-smoke.test.sh	herdr-session
+tests/mx-backend-herdr-workspace-per-home-e2e.test.sh	herdr-session
+tests/mx-backend-herdr.test.sh	none
+tests/mx-backend-tmux-smoke.test.sh	tmux-server
+tests/mx-backend.test.sh	none
+tests/mx-backlog-handoff.test.sh	none
+tests/mx-bootstrap.test.sh	bootstrap-process-signal
+tests/mx-brief.test.sh	none
+tests/mx-calm-pi-extension.test.sh	live-harness,tmux-server
+tests/mx-cd-pretool-check.test.sh	none
+tests/mx-claude-stop-autoarm-live-e2e.test.sh	live-harness
+tests/mx-claude-stop-autoarm.test.sh	none
+tests/mx-codex-continuity-live-e2e.test.sh	live-harness
+tests/mx-composer-ghost.test.sh	none
+tests/mx-composer-lib.test.sh	none
+tests/mx-daemon-harness-model-resolution.test.sh	none
+tests/mx-daemon-harness-reread-retry.test.sh	daemon-reread-process-signal
+tests/mx-daemon-harness-spawn-config.test.sh	none
+tests/mx-daemon-lifecycle-e2e.test.sh	none
+tests/mx-daemon-liveness.test.sh	none
+tests/mx-daemon-safety.test.sh	none
+tests/mx-daemon-sync.test.sh	none
+tests/mx-daemon.test.sh	daemon-process-signal
+tests/mx-decision-hold-lifecycle.test.sh	none
+tests/mx-documentation-audiences.test.sh	none
+tests/mx-ensure-agents-md.test.sh	none
+tests/mx-gate-refuse.test.sh	none
+tests/mx-gotmp.test.sh	none
+tests/mx-guard-stale-banner.test.sh	watcher-process
+tests/mx-herdr-lab.test.sh	none
+tests/mx-herdr-session-cleanup-e2e.test.sh	herdr-session
+tests/mx-herdr-session-cleanup.test.sh	none
+tests/mx-install-herdr.test.sh	none
+tests/mx-instruction-owners.test.sh	none
+tests/mx-maintainer-translation-contract.test.sh	none
+tests/mx-naming.test.sh	none
+tests/mx-nm-test-contract.test.sh	none
+tests/mx-no-mistakes-ownership.test.sh	none
+tests/mx-nudge.test.sh	watcher-process
+tests/mx-operational-input.test.sh	none
+tests/mx-pending-reply.test.sh	none
+tests/mx-pi-primary-live-e2e.test.sh	live-harness
+tests/mx-pi-primary-types.test.sh	none
+tests/mx-pi-watch-extension.test.sh	watcher-process
+tests/mx-pr-check-security-fault-quarantine.test.sh	pr-security-process
+tests/mx-pr-check-security-parser-entrypoints.test.sh	none
+tests/mx-pr-check-security-publication-migration.test.sh	global
+tests/mx-pr-check-security-retirement-teardown.test.sh	pr-security-process
+tests/mx-pr-merge.test.sh	none
+tests/mx-removed-deps.test.sh	none
+tests/mx-report-mcp.test.sh	none
+tests/mx-report.test.sh	none
+tests/mx-review-diff.test.sh	none
+tests/mx-send-daemon-marker-herdr-e2e.test.sh	herdr-session,live-harness
+tests/mx-send-daemon-marker.test.sh	none
+tests/mx-send-popup-settle.test.sh	none
+tests/mx-send-settle.test.sh	none
+tests/mx-send-strict.test.sh	none
+tests/mx-session-start-digest-render.test.sh	none
+tests/mx-session-start-lock-bootstrap.test.sh	none
+tests/mx-session-start-process-liveness.test.sh	session-process-liveness
+tests/mx-sessionstart-nudge.test.sh	watcher-process
+tests/mx-shared-maintainer-inheritance.test.sh	none
+tests/mx-signal-precedence.test.sh	none
+tests/mx-spawn-batch.test.sh	none
+tests/mx-spawn-dispatch-profile.test.sh	none
+tests/mx-spawn-worktree-settle.test.sh	none
+tests/mx-status-snapshot-catchup-forge.test.sh	none
+tests/mx-status-snapshot-landed-bounds.test.sh	none
+tests/mx-status-snapshot-projection-reconciliation.test.sh	none
+tests/mx-stow-contract.test.sh	none
+tests/mx-subagent-pretool-check.test.sh	none
+tests/mx-supervision-events.test.sh	watcher-process
+tests/mx-supervision-instructions.test.sh	none
+tests/mx-system-snapshot-view.test.sh	none
+tests/mx-system-sync.test.sh	none
+tests/mx-tangle-guard.test.sh	none
+tests/mx-teardown.test.sh	none
+tests/mx-test-isolation-proof.test.sh	global
+tests/mx-test-run.test.sh	global
+tests/mx-test-split-parity.test.sh	none
+tests/mx-tmux-submit-busy.test.sh	none
+tests/mx-transition-lib.test.sh	none
+tests/mx-turnend-guard.test.sh	watcher-process
+tests/mx-update.test.sh	none
+tests/mx-wake-daemon-lifecycle-e2e.test.sh	watcher-process
+tests/mx-wake-queue.test.sh	watcher-process
+tests/mx-watch-checkpoint.test.sh	watcher-process
+tests/mx-watch-triage.test.sh	watcher-process
+tests/mx-watcher-lock.test.sh	watcher-process
+tests/no-mistakes-required-workflow.test.sh	none
+EOF
+}
+
+resources_for_script() {
+  local want=$1 row
+  row=$(awk -F '\t' -v want="$want" '$1 == want { print $2; found=1; exit } END { if (!found) exit 1 }' \
+    < <(list_resource_manifest)) || {
+      printf '%s\n' global
+      return 0
+    }
+  printf '%s\n' "$row"
+}
+
+resource_manifest_has_script() {
+  local want=$1
+  awk -F '\t' -v want="$want" '$1 == want { found=1 } END { exit(found ? 0 : 1) }' \
+    < <(list_resource_manifest)
+}
+
+# Compatibility selection for the old flag: scripts whose audited declaration
+# is `none`. The resource manifest, not this derived view, owns authority.
 list_proven_isolated() {
-  cat <<'EOF'
-tests/mx-arm-pretool-check.test.sh
-tests/mx-backend-herdr.test.sh
-tests/mx-brief.test.sh
-tests/mx-maintainer-translation-contract.test.sh
-tests/mx-cd-pretool-check.test.sh
-tests/mx-composer-ghost.test.sh
-tests/mx-composer-lib.test.sh
-tests/mx-actor-state.test.sh
-tests/mx-decision-hold-lifecycle.test.sh
-tests/mx-ensure-agents-md.test.sh
-tests/mx-herdr-lab.test.sh
-tests/mx-instruction-owners.test.sh
-tests/mx-nm-test-contract.test.sh
-tests/mx-no-mistakes-ownership.test.sh
-tests/mx-pi-primary-types.test.sh
-tests/mx-pr-merge.test.sh
-tests/mx-review-diff.test.sh
-tests/mx-send-popup-settle.test.sh
-tests/mx-send-settle.test.sh
-tests/mx-send-strict.test.sh
-tests/mx-spawn-batch.test.sh
-tests/mx-stow-contract.test.sh
-tests/mx-supervision-instructions.test.sh
-tests/mx-test-run.test.sh
-tests/mx-tmux-submit-busy.test.sh
-tests/mx-transition-lib.test.sh
-EOF
+  list_resource_manifest | awk -F '\t' '$2 == "none" { print $1 }' | LC_ALL=C sort
 }
 
-# Portable parallel shard 1: LPT balance of the proven-isolated set using
-# Phase 1 serial duration averages from CI timing artifacts on main after
-# #825/#832/#834 (docs/mx-test-portable-shards.md). Execution order is longest
-# first so wall-clock stays near the balanced sum.
+list_portable_scheduler_pool() {
+  local s family resources
+  while IFS= read -r s; do
+    family=$(family_for_basename "$(basename "$s")")
+    [ "$family" = real-herdr-gated ] && continue
+    resources=$(resources_for_script "$s")
+    case ",$resources," in
+      *,global,*|*,live-harness,*) continue ;;
+    esac
+    printf '%s\n' "$s"
+  done < <(all_repo_tests)
+}
+
+# Generate a deterministic two-way LPT partition from the accepted timing
+# baseline. Unknown/new scripts receive a conservative one-second estimate.
+list_portable_shard() {
+  local shard=$1 baseline="$ROOT/docs/mx-test-performance-baseline.json" pool
+  command -v python3 >/dev/null 2>&1 || die "portable shard generation requires python3"
+  pool=$(mktemp "${TMPDIR:-/tmp}/mx-test-shard-pool.XXXXXX")
+  list_portable_scheduler_pool >"$pool"
+  python3 - "$shard" "$baseline" "$pool" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+want = int(sys.argv[1])
+baseline = Path(sys.argv[2])
+pool = Path(sys.argv[3])
+paths = [line.strip() for line in pool.read_text(encoding="utf-8").splitlines() if line.strip()]
+estimates = {}
+if baseline.exists():
+    doc = json.loads(baseline.read_text(encoding="utf-8"))
+    estimates.update({
+        row["path"]: int(row.get("duration_ms") or 1000)
+        for row in doc.get("scripts", [])
+    })
+    estimates.update({
+        key: int(value)
+        for key, value in (doc.get("scheduler_estimates_ms") or {}).items()
+    })
+bins = [[], []]
+totals = [0, 0]
+for path in sorted(paths, key=lambda p: (-estimates.get(p, 1000), p)):
+    target = 0 if totals[0] <= totals[1] else 1
+    bins[target].append(path)
+    totals[target] += estimates.get(path, 1000)
+for path in bins[want - 1]:
+    print(path)
+PY
+  rm -f "$pool"
+}
+
 list_portable_parallel_1() {
-  cat <<'EOF'
-tests/mx-arm-pretool-check.test.sh
-tests/mx-cd-pretool-check.test.sh
-tests/mx-backend-herdr.test.sh
-tests/mx-pr-merge.test.sh
-tests/mx-test-run.test.sh
-tests/mx-send-popup-settle.test.sh
-tests/mx-review-diff.test.sh
-tests/mx-brief.test.sh
-tests/mx-ensure-agents-md.test.sh
-tests/mx-instruction-owners.test.sh
-tests/mx-pi-primary-types.test.sh
-tests/mx-transition-lib.test.sh
-tests/mx-composer-lib.test.sh
-tests/mx-stow-contract.test.sh
-EOF
+  list_portable_shard 1
 }
 
-# Portable parallel shard 2: the complementary LPT half of the proven set.
 list_portable_parallel_2() {
-  cat <<'EOF'
-tests/mx-decision-hold-lifecycle.test.sh
-tests/mx-herdr-lab.test.sh
-tests/mx-actor-state.test.sh
-tests/mx-spawn-batch.test.sh
-tests/mx-send-strict.test.sh
-tests/mx-tmux-submit-busy.test.sh
-tests/mx-composer-ghost.test.sh
-tests/mx-send-settle.test.sh
-tests/mx-supervision-instructions.test.sh
-tests/mx-nm-test-contract.test.sh
-tests/mx-maintainer-translation-contract.test.sh
-tests/mx-no-mistakes-ownership.test.sh
-EOF
+  list_portable_shard 2
+}
+
+list_portable_serial() {
+  local s family resources
+  while IFS= read -r s; do
+    family=$(family_for_basename "$(basename "$s")")
+    [ "$family" = real-herdr-gated ] && continue
+    resources=$(resources_for_script "$s")
+    case ",$resources," in
+      *,global,*|*,live-harness,*) printf '%s\n' "$s" ;;
+    esac
+  done < <(all_repo_tests)
 }
 
 is_proven_isolated_script() {
@@ -330,22 +476,11 @@ select_lane() {
       done < <(list_portable_parallel_2)
       ;;
     portable-serial)
-      # Everything in the complete suite that is not proven-isolated and not
-      # real-herdr-gated. Watcher/lock/AFK/tmux/daemon/ambiguous/stateful work
-      # stays here, serial only.
       while IFS= read -r s; do
         [ -n "$s" ] || continue
-        base=$(basename "$s")
-        fam=$(family_for_basename "$base")
-        if [ "$fam" = "real-herdr-gated" ]; then
-          continue
-        fi
-        if is_proven_isolated_script "$s"; then
-          continue
-        fi
         add_script "$s"
         found=1
-      done < <(all_repo_tests)
+      done < <(list_portable_serial)
       ;;
     real-herdr-gated)
       select_family real-herdr-gated
@@ -364,7 +499,34 @@ run_coverage_guard() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-coverage.XXXXXX")
 
   all_repo_tests | LC_ALL=C sort -u >"$tmp/all"
-  list_proven_isolated | LC_ALL=C sort -u >"$tmp/proven"
+  list_resource_manifest | cut -f1 | LC_ALL=C sort >"$tmp/manifest"
+  uniq -d "$tmp/manifest" >"$tmp/manifest_dups"
+  if [ -s "$tmp/manifest_dups" ]; then
+    log "coverage guard: duplicate scripts in resource manifest:"
+    cat "$tmp/manifest_dups" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  missing=$(comm -23 "$tmp/all" "$tmp/manifest" || true)
+  extra=$(comm -13 "$tmp/all" "$tmp/manifest" || true)
+  if [ -n "$missing" ] || [ -n "$extra" ]; then
+    log "coverage guard: resource manifest must equal tests/*.test.sh exactly"
+    [ -z "$missing" ] || { log "missing resource declarations:"; printf '%s\n' "$missing" >&2; }
+    [ -z "$extra" ] || { log "stale resource declarations:"; printf '%s\n' "$extra" >&2; }
+    rm -rf "$tmp"
+    return 1
+  fi
+  if ! list_resource_manifest | awk -F '\t' '
+    NF != 2 || $1 !~ /^tests\/.*\.test\.sh$/ || $2 == "" { exit 1 }
+    $2 == "none" || $2 == "global" { next }
+    $2 ~ /(^|,)(none|global)(,|$)/ { exit 1 }
+    $2 !~ /^[a-z0-9-]+(,[a-z0-9-]+)*$/ { exit 1 }
+  '; then
+    log "coverage guard: invalid resource manifest row"
+    rm -rf "$tmp"
+    return 1
+  fi
+
   list_portable_parallel_1 | LC_ALL=C sort -u >"$tmp/s1"
   list_portable_parallel_2 | LC_ALL=C sort -u >"$tmp/s2"
 
@@ -376,12 +538,13 @@ run_coverage_guard() {
     return 1
   fi
   cat "$tmp/s1" "$tmp/s2" | LC_ALL=C sort -u >"$tmp/shards_union"
-  missing=$(comm -23 "$tmp/proven" "$tmp/shards_union" || true)
-  extra=$(comm -13 "$tmp/proven" "$tmp/shards_union" || true)
+  list_portable_scheduler_pool | LC_ALL=C sort -u >"$tmp/scheduler_pool"
+  missing=$(comm -23 "$tmp/scheduler_pool" "$tmp/shards_union" || true)
+  extra=$(comm -13 "$tmp/scheduler_pool" "$tmp/shards_union" || true)
   if [ -n "$missing" ] || [ -n "$extra" ]; then
-    log "coverage guard: portable shards must equal the proven-isolated set"
+    log "coverage guard: portable shards must equal the generated scheduler pool"
     [ -z "$missing" ] || { log "missing from shards:"; printf '%s\n' "$missing" >&2; }
-    [ -z "$extra" ] || { log "extra beyond proven:"; printf '%s\n' "$extra" >&2; }
+    [ -z "$extra" ] || { log "extra beyond scheduler pool:"; printf '%s\n' "$extra" >&2; }
     rm -rf "$tmp"
     return 1
   fi
@@ -427,21 +590,12 @@ run_coverage_guard() {
     return 1
   fi
 
-  if [ -x "$ROOT/bin/mx-test-isolation-proof.sh" ]; then
-    "$ROOT/bin/mx-test-isolation-proof.sh" --list | LC_ALL=C sort -u >"$tmp/proof_list"
-    if ! cmp -s "$tmp/proven" "$tmp/proof_list"; then
-      log "coverage guard: embedded proven-isolated set diverges from bin/mx-test-isolation-proof.sh --list"
-      comm -3 "$tmp/proven" "$tmp/proof_list" >&2 || true
-      rm -rf "$tmp"
-      return 1
-    fi
-  fi
-
-  printf 'MX_TEST_COVERAGE ok total=%s parallel=%s serial=%s herdr=%s\n' \
+  printf 'MX_TEST_COVERAGE ok total=%s accelerated=%s serial=%s herdr=%s manifest=%s\n' \
     "$(wc -l <"$tmp/all" | tr -d ' ')" \
     "$(wc -l <"$tmp/shards_union" | tr -d ' ')" \
     "$(wc -l <"$tmp/serial" | tr -d ' ')" \
-    "$(wc -l <"$tmp/herdr" | tr -d ' ')"
+    "$(wc -l <"$tmp/herdr" | tr -d ' ')" \
+    "$(wc -l <"$tmp/manifest" | tr -d ' ')"
   rm -rf "$tmp"
   return 0
 }
@@ -499,9 +653,55 @@ agg = {
     "scripts": all_scripts,
     "slowest": all_scripts[:15],
 }
+
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(agg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 print(f"MX_TEST_AGGREGATE lanes={len(lanes)} total={total} failed={failed} skipped_gate={skipped} critical_path_duration_ms={wall_ms}")
+PY
+}
+
+compare_timing_json() {
+  local serial=$1 accelerated=$2
+  command -v python3 >/dev/null 2>&1 || die "--compare-json requires python3"
+  python3 - "$serial" "$accelerated" <<'PY'
+import collections
+import json
+import sys
+
+serial_path, accelerated_path = sys.argv[1:3]
+serial = json.load(open(serial_path, encoding="utf-8"))
+accelerated = json.load(open(accelerated_path, encoding="utf-8"))
+
+def normalized(doc):
+    rows = {}
+    for row in doc.get("scripts", []):
+        rows[row["path"]] = {
+            "exit": int(row.get("exit") or 0),
+            "gate_skip": bool(row.get("gate_skip")),
+            "assertions": sorted(collections.Counter(row.get("assertions") or []).items()),
+        }
+    return rows
+
+left = normalized(serial)
+right = normalized(accelerated)
+errors = []
+if set(left) != set(right):
+    errors.append(f"inventory differs: serial_only={sorted(set(left)-set(right))} accelerated_only={sorted(set(right)-set(left))}")
+for path in sorted(set(left) & set(right)):
+    if left[path] != right[path]:
+        errors.append(f"{path}: serial={left[path]!r} accelerated={right[path]!r}")
+for field in ("failed", "skipped_gate"):
+    lval = int((serial.get("summary") or {}).get(field) or 0)
+    rval = int((accelerated.get("summary") or {}).get(field) or 0)
+    if lval != rval:
+        errors.append(f"summary.{field}: serial={lval} accelerated={rval}")
+if errors:
+    print("MX_TEST_PARITY mismatch")
+    for error in errors:
+        print(error)
+    raise SystemExit(1)
+assertion_count = sum(len(row.get("assertions") or []) for row in serial.get("scripts", []))
+print(f"MX_TEST_PARITY ok scripts={len(left)} assertions={assertion_count}")
 PY
 }
 
@@ -579,6 +779,21 @@ families_for_test_reference() {
       found=1
     fi
   done < <(all_repo_tests)
+  [ "$found" -eq 1 ]
+}
+
+families_for_shared_test_helper() {
+  local needle=$1 helper found=0
+  if families_for_test_reference "$needle"; then
+    found=1
+  fi
+  for helper in tests/*-helpers.sh; do
+    [ -f "$helper" ] || continue
+    grep -Fq "$needle" "$helper" || continue
+    if families_for_test_reference "$(basename "$helper")"; then
+      found=1
+    fi
+  done
   [ "$found" -eq 1 ]
 }
 
@@ -694,7 +909,11 @@ families_for_changed_path() {
     plans/*)
       printf '%s\n' pure-contract-unit
       ;;
-    tests/lib.sh|tests/*-helpers.sh)
+    tests/lib.sh)
+      families_for_shared_test_helper "$(basename "$path")" \
+        || printf '%s\n' "__unmapped__:$path"
+      ;;
+    tests/*-helpers.sh)
       families_for_test_reference "$(basename "$path")" \
         || printf '%s\n' "__unmapped__:$path"
       ;;
@@ -822,15 +1041,16 @@ write_json_artifact() {
   local selection=$9
   local records_file=${10}
   local families_file=${11}
+  local jobs=${12}
 
   if ! command -v python3 >/dev/null 2>&1; then
     die "--json requires python3 to emit a valid timing artifact"
   fi
 
-  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'PY'
+  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" "$jobs" <<'PY'
 import json, sys
 
-out, started, finished, run_id, total, failed, skipped, duration, selection, records_file, families_file = sys.argv[1:]
+out, started, finished, run_id, total, failed, skipped, duration, selection, records_file, families_file, jobs = sys.argv[1:]
 
 scripts = []
 with open(records_file, encoding="utf-8") as fh:
@@ -838,14 +1058,25 @@ with open(records_file, encoding="utf-8") as fh:
         line = line.rstrip("\n")
         if not line:
             continue
-        path, family, expected, exit_s, dur_s, gate = line.split("\t")
+        path, family, expected, resources, exit_s, dur_s, gate, output_path = line.split("\t")
+        assertions = []
+        try:
+            with open(output_path, encoding="utf-8", errors="replace") as output:
+                for output_line in output:
+                    text = output_line.rstrip("\n")
+                    if text.startswith("ok - ") or text.startswith("not ok - "):
+                        assertions.append(text)
+        except FileNotFoundError:
+            pass
         scripts.append({
             "path": path,
             "family": family,
             "expected_gate_skip": expected,
+            "resources": resources.split(",") if resources not in ("none", "global") else [resources],
             "duration_ms": int(dur_s),
             "exit": int(exit_s),
             "gate_skip": gate == "true",
+            "assertions": assertions,
         })
 
 families = []
@@ -867,6 +1098,10 @@ doc = {
     "started_at": started,
     "finished_at": finished,
     "selection": selection,
+    "scheduler": {
+        "jobs": int(jobs),
+        "resource_aware": int(jobs) > 1,
+    },
     "summary": {
         "total": int(total),
         "failed": int(failed),
@@ -956,6 +1191,10 @@ while [ "$#" -gt 0 ]; do
       LIST_ONLY=1
       shift
       ;;
+    --list-resources)
+      LIST_RESOURCES=1
+      shift
+      ;;
     --list-families)
       LIST_FAMILIES=1
       shift
@@ -975,6 +1214,12 @@ while [ "$#" -gt 0 ]; do
       # Remaining args after options will be collected as inputs below via MODE.
       # For aggregation we accept only input JSON paths as free args after this.
       MODE=aggregate
+      ;;
+    --compare-json)
+      [ -z "$MODE" ] || die "only one selection mode is allowed"
+      MODE=compare
+      COMPARE_JSON=1
+      shift
       ;;
     --exclude-family)
       [ "$#" -gt 1 ] || die "--exclude-family requires a name"
@@ -1009,7 +1254,7 @@ while [ "$#" -gt 0 ]; do
       die "unknown option: $1"
       ;;
     *)
-      if [ "${MODE:-}" = "aggregate" ]; then
+      if [ "${MODE:-}" = "aggregate" ] || [ "${MODE:-}" = compare ]; then
         SCRIPTS+=("$1")
       elif [ -z "$MODE" ] || [ "$MODE" = scripts ]; then
         MODE=scripts
@@ -1047,11 +1292,15 @@ if [ "${MODE:-}" = "aggregate" ]; then
   exit 0
 fi
 
-case "$JOBS" in
-  ''|*[!0-9]*) die "--jobs must be a positive integer" ;;
-esac
-[ "$JOBS" -ge 1 ] || die "--jobs must be >= 1"
-[ "$JOBS" -le "$JOBS_MAX" ] || die "--jobs is capped at $JOBS_MAX (got $JOBS)"
+if [ "${MODE:-}" = compare ]; then
+  [ "$COMPARE_JSON" -eq 1 ] || die "--compare-json mode was not initialized"
+  [ "${#SCRIPTS[@]}" -eq 2 ] || die "--compare-json requires exactly two timing JSON paths"
+  for s in "${SCRIPTS[@]}"; do
+    [ -f "$s" ] || die "compare input not found: $s"
+  done
+  compare_timing_json "${SCRIPTS[0]}" "${SCRIPTS[1]}"
+  exit $?
+fi
 
 case "${MODE:-}" in
   all)
@@ -1088,6 +1337,37 @@ case "${MODE:-}" in
     ;;
 esac
 
+detect_auto_jobs() {
+  local cpus=
+  if command -v getconf >/dev/null 2>&1; then
+    cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+  fi
+  if [ -z "$cpus" ] && command -v sysctl >/dev/null 2>&1; then
+    cpus=$(sysctl -n hw.ncpu 2>/dev/null || true)
+  fi
+  case "$cpus" in ''|*[!0-9]*) cpus=2 ;; esac
+  [ "$cpus" -ge 1 ] || cpus=1
+  [ "$cpus" -le "$JOBS_AUTO_MAX" ] || cpus=$JOBS_AUTO_MAX
+  printf '%s\n' "$cpus"
+}
+
+if [ "$JOBS" = default ]; then
+  if [ "${MODE:-}" = all ]; then
+    JOBS=auto
+  else
+    JOBS=1
+  fi
+fi
+if [ "$JOBS" = auto ]; then
+  JOBS=$(detect_auto_jobs)
+else
+  case "$JOBS" in
+    ''|*[!0-9]*) die "--jobs must be a positive integer or auto" ;;
+  esac
+  [ "$JOBS" -ge 1 ] || die "--jobs must be >= 1"
+  [ "$JOBS" -le "$JOBS_MAX" ] || die "--jobs is capped at $JOBS_MAX (got $JOBS)"
+fi
+
 apply_exclude_families
 if [ "${#EXCLUDE_FAMILIES[@]}" -gt 0 ]; then
   SELECTION_DESC="${SELECTION_DESC};exclude-family=$(IFS=,; printf '%s' "${EXCLUDE_FAMILIES[*]}")"
@@ -1097,6 +1377,13 @@ if [ -n "$FAIL_ON_GATE_SKIP" ]; then
 fi
 if [ "$JOBS" -gt 1 ]; then
   SELECTION_DESC="${SELECTION_DESC};jobs=$JOBS"
+fi
+
+if [ "$LIST_RESOURCES" -eq 1 ]; then
+  for s in "${SCRIPTS[@]+"${SCRIPTS[@]}"}"; do
+    printf '%s\t%s\n' "$s" "$(resources_for_script "$s")"
+  done
+  exit 0
 fi
 
 if [ "$LIST_ONLY" -eq 1 ]; then
@@ -1116,7 +1403,7 @@ if [ "${#SCRIPTS[@]}" -eq 0 ]; then
     : >"$empty_fam"
     started=$(now_iso)
     mkdir -p "$(dirname "$JSON_PATH")"
-    write_json_artifact "$JSON_PATH" "$started" "$started" "empty" 0 0 0 0 "$SELECTION_DESC" "$empty_rec" "$empty_fam"
+    write_json_artifact "$JSON_PATH" "$started" "$started" "empty" 0 0 0 0 "$SELECTION_DESC" "$empty_rec" "$empty_fam" "$JOBS"
     rm -f "$empty_rec" "$empty_fam"
   fi
   exit 0
@@ -1128,20 +1415,40 @@ for s in "${SCRIPTS[@]}"; do
   [ -x "$s" ] || [ -r "$s" ] || die "test script not readable: $s"
 done
 
-# --jobs N>1 only for the proven-isolated set. Stateful families stay serial.
-if [ "$JOBS" -gt 1 ]; then
-  for s in "${SCRIPTS[@]}"; do
-    if ! is_proven_isolated_script "$s"; then
-      die "--jobs $JOBS refused: $s is not in the proven-isolated set (see bin/mx-test-isolation-proof.sh --list). Stateful families stay serial."
-    fi
-  done
-fi
-
 RUN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run.XXXXXX")
 RECORDS="$RUN_TMP/records.tsv"
 FAMILIES_TSV="$RUN_TMP/families.tsv"
+WORKER_PIDS=()
 : >"$RECORDS"
-trap 'rm -rf "$RUN_TMP"' EXIT
+
+mx_runner_kill_tree() {
+  local parent=$1 child
+  while IFS= read -r child; do
+    [ -n "$child" ] || continue
+    mx_runner_kill_tree "$child"
+  done < <(ps -axo pid=,ppid= 2>/dev/null \
+    | awk -v parent="$parent" '$2 == parent { print $1 }')
+  kill "$parent" 2>/dev/null || true
+}
+
+cleanup_runner() {
+  local pid
+  trap - EXIT INT TERM
+  for pid in "${WORKER_PIDS[@]+"${WORKER_PIDS[@]}"}"; do
+    [ -n "${pid:-}" ] || continue
+    kill -0 "$pid" 2>/dev/null || continue
+    mx_runner_kill_tree "$pid"
+  done
+  for pid in "${WORKER_PIDS[@]+"${WORKER_PIDS[@]}"}"; do
+    [ -n "${pid:-}" ] || continue
+    wait "$pid" 2>/dev/null || true
+  done
+  chmod -R u+w "$RUN_TMP" 2>/dev/null || true
+  rm -rf "$RUN_TMP"
+}
+
+trap cleanup_runner EXIT
+trap 'cleanup_runner; exit 130' INT TERM
 
 RUN_STARTED_ISO=$(now_iso)
 RUN_STARTED_MS=$(now_ms)
@@ -1184,10 +1491,11 @@ family_bump() {
 
 record_script_result() {
   local script=$1 rc=$2 duration=$3 out=$4 end_iso=$5
-  local base family expected gate_skip fail_delta
+  local base family expected resources gate_skip fail_delta
   base=$(basename "$script")
   family=$(family_for_basename "$base")
   expected=$(expected_gate_skip_for_family "$family")
+  resources=$(resources_for_script "$script")
 
   if [ -n "$FAIL_ON_GATE_SKIP" ] && detect_gate_skip_token "$out" "$FAIL_ON_GATE_SKIP"; then
     log "required gate skip token seen in $script: skip: $FAIL_ON_GATE_SKIP"
@@ -1210,8 +1518,8 @@ record_script_result() {
     AGG_RC=1
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$script" "$family" "$expected" "$rc" "$duration" "$gate_skip" >>"$RECORDS"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$script" "$family" "$expected" "$resources" "$rc" "$duration" "$gate_skip" "$out" >>"$RECORDS"
   family_bump "$family" "$duration" "$fail_delta"
   TOTAL=$((TOTAL + 1))
 }
@@ -1251,63 +1559,81 @@ if [ "$JOBS" -eq 1 ]; then
     run_one_serial "$script"
   done
 else
-  # Bounded concurrent execution for proven-isolated scripts only. Each worker
-  # gets a private mode-0700 TMPDIR so mktemp roots cannot collide. Retries are
-  # never used as a green strategy.
-  declare -a WORKER_PIDS=()
-  declare -a WORKER_IDX=()
-  declare -a WORKER_SCRIPTS=()
-  worker_n=0
+  # Resource-aware bounded execution. Every worker gets a private mode-0700
+  # TMPDIR. Results are buffered and replayed in selection order, independent
+  # of completion order. Retries are never used as a green strategy.
+  declare -a WORKER_STATE=()
+  declare -a WORKER_RESOURCES=()
+  declare -a WORKER_RC=()
+  declare -a WORKER_DURATION=()
+  declare -a WORKER_ESTIMATE=()
+  declare -a WORKER_BEGIN_ISO=()
+  declare -a WORKER_END_ISO=()
+  declare -a WORKER_DIRS=()
   active_workers=0
+  completed_workers=0
+  script_count=${#SCRIPTS[@]}
 
-  wait_one_job_worker() {
-    local slot=$1 pid idx work script rc begin_ms end_ms duration mode out end_iso
-    pid=${WORKER_PIDS[$slot]}
-    idx=${WORKER_IDX[$slot]}
-    script=${WORKER_SCRIPTS[$slot]}
-    unset 'WORKER_PIDS[slot]'
-    unset 'WORKER_IDX[slot]'
-    unset 'WORKER_SCRIPTS[slot]'
-    active_workers=$((active_workers - 1))
+  resources_conflict() {
+    local left=$1 right=$2 l r old_ifs
+    [ "$left" = global ] && return 0
+    [ "$right" = global ] && return 0
+    [ "$left" = none ] && return 1
+    [ "$right" = none ] && return 1
+    old_ifs=$IFS
+    IFS=,
+    for l in $left; do
+      for r in $right; do
+        if [ "$l" = "$r" ]; then
+          IFS=$old_ifs
+          return 0
+        fi
+      done
+    done
+    IFS=$old_ifs
+    return 1
+  }
+
+  can_launch_worker() {
+    local candidate=$1 running
+    for running in "${!WORKER_STATE[@]}"; do
+      [ "${WORKER_STATE[$running]}" = running ] || continue
+      if resources_conflict "${WORKER_RESOURCES[$candidate]}" "${WORKER_RESOURCES[$running]}"; then
+        return 1
+      fi
+    done
+    return 0
+  }
+
+  finish_worker() {
+    local idx=$1 pid work rc begin_ms end_ms duration
+    pid=${WORKER_PIDS[$idx]}
+    work=${WORKER_DIRS[$idx]}
     set +e
     wait "$pid"
     set -e
-    work="$RUN_TMP/w$idx"
     rc=$(cat "$work/exit" 2>/dev/null || echo 1)
     begin_ms=$(cat "$work/begin_ms" 2>/dev/null || echo 0)
-    end_ms=$(now_ms)
+    end_ms=$(cat "$work/end_ms" 2>/dev/null || now_ms)
     duration=$((end_ms - begin_ms))
-    if [ "$duration" -lt 0 ]; then
-      duration=0
-    fi
-    out="$work/output"
-    end_iso=$(now_iso)
-    # Replay captured output after the worker finishes so markers stay ordered.
-    if [ -s "$out" ]; then
-      cat "$out"
-    fi
-    mode=$(stat -c %a "$work" 2>/dev/null || stat -f %Lp "$work" 2>/dev/null || echo unknown)
-    case "$mode" in
-      700|0700) ;;
-      *)
-        log "isolation failure: worker root mode is $mode, expected 0700 ($work)"
-        rc=1
-        ;;
-    esac
-    record_script_result "$script" "$rc" "$duration" "$out" "$end_iso"
+    [ "$duration" -ge 0 ] || duration=0
+    WORKER_RC[$idx]=$rc
+    WORKER_DURATION[$idx]=$duration
+    WORKER_BEGIN_ISO[$idx]=$(cat "$work/begin_iso" 2>/dev/null || now_iso)
+    WORKER_END_ISO[$idx]=$(cat "$work/end_iso" 2>/dev/null || now_iso)
+    WORKER_STATE[$idx]=done
+    active_workers=$((active_workers - 1))
+    completed_workers=$((completed_workers + 1))
   }
 
-  worker_pid_is_running() {
-    kill -0 "$1" 2>/dev/null
-  }
-
-  wait_one_completed_job_worker() {
-    local slot work
+  wait_one_completed_worker() {
+    local idx work
     while :; do
-      for slot in "${!WORKER_PIDS[@]}"; do
-        work="$RUN_TMP/w${WORKER_IDX[$slot]}"
-        if [ -f "$work/exit" ] || ! worker_pid_is_running "${WORKER_PIDS[$slot]}"; then
-          wait_one_job_worker "$slot"
+      for idx in "${!WORKER_STATE[@]}"; do
+        [ "${WORKER_STATE[$idx]}" = running ] || continue
+        work=${WORKER_DIRS[$idx]}
+        if [ -f "$work/exit" ] || ! kill -0 "${WORKER_PIDS[$idx]}" 2>/dev/null; then
+          finish_worker "$idx"
           return
         fi
       done
@@ -1315,19 +1641,16 @@ else
     done
   }
 
-  for script in "${SCRIPTS[@]}"; do
-    while [ "$active_workers" -ge "$JOBS" ]; do
-      wait_one_completed_job_worker
-    done
-    worker_n=$((worker_n + 1))
-    work="$RUN_TMP/w$worker_n"
+  launch_worker() {
+    local idx=$1 script=${SCRIPTS[$1]} work base family expected
+    work="$RUN_TMP/w$idx"
     mkdir -p "$work/tmp"
     chmod 0700 "$work" "$work/tmp" || die "could not chmod 0700 worker root $work"
     base=$(basename "$script")
     family=$(family_for_basename "$base")
     expected=$(expected_gate_skip_for_family "$family")
-    printf 'MX_TEST_BEGIN %s %s family=%s expected_gate_skip=%s\n' \
-      "$(now_iso)" "$script" "$family" "$expected"
+    WORKER_DIRS[$idx]=$work
+    WORKER_STATE[$idx]=running
     (
       set +e
       export TMPDIR="$work/tmp"
@@ -1336,19 +1659,108 @@ else
         MX_PROJECTS_OVERRIDE MX_CONFIG_OVERRIDE MX_BACKEND 2>/dev/null || true
       cd "$ROOT" || exit 1
       begin_ms=$(now_ms)
+      begin_iso=$(now_iso)
       printf '%s\n' "$begin_ms" >"$work/begin_ms"
+      printf '%s\n' "$begin_iso" >"$work/begin_iso"
       bash "$script" >"$work/output" 2>&1
       rc=$?
+      end_ms=$(now_ms)
+      end_iso=$(now_iso)
+      printf '%s\n' "$end_ms" >"$work/end_ms"
+      printf '%s\n' "$end_iso" >"$work/end_iso"
       printf '%s\n' "$rc" >"$work/exit"
       exit 0
     ) &
-    WORKER_PIDS[worker_n]=$!
-    WORKER_IDX[worker_n]=$worker_n
-    WORKER_SCRIPTS[worker_n]=$script
+    WORKER_PIDS[$idx]=$!
     active_workers=$((active_workers + 1))
+  }
+
+  selection_file="$RUN_TMP/selection.txt"
+  estimates_file="$RUN_TMP/estimates.tsv"
+  printf '%s\n' "${SCRIPTS[@]}" >"$selection_file"
+  python3 - "$ROOT/docs/mx-test-performance-baseline.json" "$selection_file" >"$estimates_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+baseline_path = Path(sys.argv[1])
+selection_path = Path(sys.argv[2])
+estimates = {}
+if baseline_path.exists():
+    doc = json.loads(baseline_path.read_text(encoding="utf-8"))
+    estimates.update({
+        path: int(duration)
+        for path, duration in doc.get("scheduler_estimates_ms", {}).items()
+    })
+    for row in doc.get("scripts", []):
+        estimates.setdefault(row["path"], int(row.get("duration_ms") or 1000))
+for path in selection_path.read_text(encoding="utf-8").splitlines():
+    if path:
+        print(f"{path}\t{estimates.get(path, 1000)}")
+PY
+
+  idx=0
+  while IFS=$'\t' read -r estimated_script estimated_duration; do
+    [ "$estimated_script" = "${SCRIPTS[$idx]}" ] \
+      || die "scheduler estimate order diverged at $estimated_script"
+    WORKER_STATE[$idx]=pending
+    WORKER_RESOURCES[$idx]=$(resources_for_script "${SCRIPTS[$idx]}")
+    WORKER_ESTIMATE[$idx]=$estimated_duration
+    idx=$((idx + 1))
+  done <"$estimates_file"
+  [ "$idx" -eq "$script_count" ] || die "scheduler estimates omitted selected scripts"
+
+  while [ "$completed_workers" -lt "$script_count" ]; do
+    launched=0
+    while [ "$active_workers" -lt "$JOBS" ]; do
+      best_idx=-1
+      best_estimate=-1
+      idx=0
+      while [ "$idx" -lt "$script_count" ]; do
+        if [ "${WORKER_STATE[$idx]}" = pending ] && can_launch_worker "$idx"; then
+          if [ "${WORKER_ESTIMATE[$idx]}" -gt "$best_estimate" ]; then
+            best_idx=$idx
+            best_estimate=${WORKER_ESTIMATE[$idx]}
+          fi
+        fi
+        idx=$((idx + 1))
+      done
+      if [ "$best_idx" -lt 0 ]; then
+        break
+      fi
+      launch_worker "$best_idx"
+      launched=1
+    done
+    if [ "$active_workers" -gt 0 ]; then
+      wait_one_completed_worker
+    elif [ "$launched" -eq 0 ]; then
+      die "resource scheduler deadlocked with pending tests"
+    fi
   done
-  while [ "$active_workers" -gt 0 ]; do
-    wait_one_completed_job_worker
+
+  # Deterministic replay and aggregation in the original selection order.
+  idx=0
+  while [ "$idx" -lt "$script_count" ]; do
+    script=${SCRIPTS[$idx]}
+    work=${WORKER_DIRS[$idx]}
+    base=$(basename "$script")
+    family=$(family_for_basename "$base")
+    expected=$(expected_gate_skip_for_family "$family")
+    printf 'MX_TEST_BEGIN %s %s family=%s expected_gate_skip=%s\n' \
+      "${WORKER_BEGIN_ISO[$idx]}" "$script" "$family" "$expected"
+    [ ! -s "$work/output" ] || cat "$work/output"
+    rc=${WORKER_RC[$idx]}
+    mode=$(stat -c %a "$work" 2>/dev/null || stat -f %Lp "$work" 2>/dev/null || echo unknown)
+    case "$mode" in
+      700|0700) ;;
+      *)
+        log "isolation failure: worker root mode is $mode, expected 0700 ($work)"
+        rc=1
+        ;;
+    esac
+    record_script_result "$script" "$rc" "${WORKER_DURATION[$idx]}" \
+      "$work/output" "${WORKER_END_ISO[$idx]}"
+    idx=$((idx + 1))
   done
 fi
 
@@ -1373,7 +1785,7 @@ fi
 # Slowest scripts (top 15) from records.
 if [ -s "$RECORDS" ]; then
   rank=1
-  sort -t$'\t' -k5,5nr "$RECORDS" | head -n 15 | while IFS=$'\t' read -r path _family _expected _rc duration _gate; do
+  sort -t$'\t' -k6,6nr "$RECORDS" | head -n 15 | while IFS=$'\t' read -r path _family _expected _resources _rc duration _gate _output; do
     printf 'MX_TEST_SLOWEST rank=%s script=%s duration_ms=%s\n' \
       "$rank" "$path" "$duration"
     rank=$((rank + 1))
@@ -1391,7 +1803,7 @@ if [ -n "$JSON_PATH" ]; then
   write_json_artifact "$JSON_PATH" \
     "$RUN_STARTED_ISO" "$RUN_FINISHED_ISO" "$RUN_ID" \
     "$TOTAL" "$FAILED" "$SKIPPED_GATE" "$RUN_DURATION" \
-    "$SELECTION_DESC" "$RECORDS" "$FAMILIES_TSV"
+    "$SELECTION_DESC" "$RECORDS" "$FAMILIES_TSV" "$JOBS"
   log "wrote timing artifact: $JSON_PATH"
 fi
 

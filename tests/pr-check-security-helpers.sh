@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Security and regression tests for canonical PR parsing, static merge polls,
+# Shared security and regression cases for canonical PR parsing, static merge polls,
 # private atomic artifacts, non-executing migration, and teardown cleanup.
 set -u
 
@@ -18,6 +18,8 @@ WATCH="$ROOT/bin/mx-watch.sh"
 TEARDOWN="$ROOT/bin/mx-teardown.sh"
 REGISTER="$ROOT/bin/mx-check-register.sh"
 TMP_ROOT=$(mx_test_tmproot mx-pr-check-security)
+MX_TEST_CLEANUP_DIRS+=("$TMP_ROOT")
+trap mx_test_cleanup EXIT
 BASE_PATH=${MX_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 REAL_CP=$(command -v cp)
 REAL_MV=$(command -v mv)
@@ -2872,35 +2874,82 @@ test_retirement_queue_failure_and_receipt_tampering() {
   pass "queue failure and untrusted receipts preserve canonical poll evidence"
 }
 
-test_parser_matrix
-test_merged_poll_retires_once
-test_persistent_daemon_retirement_is_poll_only
-test_retirement_crash_recovery
-test_external_merge_transition_retires_only_terminal_poll
-test_retirement_refuses_replacement_and_nonterminal_results
-test_retirement_queue_failure_and_receipt_tampering
-test_invalid_entrypoints_have_zero_side_effects
-test_valid_recording_and_merge_derivation
-test_rejected_metacharacter_bytes_are_inert
-test_static_poll_contract
-test_atomic_interruption_leaves_no_partial_artifact
-test_concurrent_watcher_sees_only_complete_publication
-test_postrename_poll_validation_revokes_and_retries
-test_migration_initializes_fresh_state
-test_migration_excludes_older_watcher_before_scan
-test_private_artifact_paths_refuse_symlinks_and_directories
-test_marker_and_diagnostic_rename_fail_closed
-test_postrename_marker_and_diagnostic_validation_retries
-test_quarantine_validation_and_retry_contract
-test_failed_outcomes_block_every_retry_until_repaired
-test_ambiguous_failure_accepts_validated_replacement
-test_replacement_provenance_negative_matrix
-test_complete_single_link_validation
-test_canonical_publication_failure_recovers_only_on_retry
-test_obligation_namespace_compatibility
-test_nonexecuting_migration
-test_bootstrap_migrates_before_other_mutations
-test_bootstrap_isolates_incomplete_poll_migration
-test_custom_snapshot_cleanup_on_signal
-test_returned_custom_check_descendants_are_drained
-test_teardown_removes_poll_artifacts
+case "${MX_TEST_CASE_GROUP:-all}" in
+  parser-entrypoints)
+    test_parser_matrix
+    test_invalid_entrypoints_have_zero_side_effects
+    test_valid_recording_and_merge_derivation
+    test_rejected_metacharacter_bytes_are_inert
+    test_static_poll_contract
+    ;;
+  publication-migration)
+    test_atomic_interruption_leaves_no_partial_artifact
+    test_concurrent_watcher_sees_only_complete_publication
+    test_migration_initializes_fresh_state
+    test_migration_excludes_older_watcher_before_scan
+    test_private_artifact_paths_refuse_symlinks_and_directories
+    test_nonexecuting_migration
+    test_bootstrap_migrates_before_other_mutations
+    test_bootstrap_isolates_incomplete_poll_migration
+    ;;
+  fault-quarantine)
+    test_postrename_poll_validation_revokes_and_retries
+    test_marker_and_diagnostic_rename_fail_closed
+    test_postrename_marker_and_diagnostic_validation_retries
+    test_quarantine_validation_and_retry_contract
+    test_failed_outcomes_block_every_retry_until_repaired
+    test_ambiguous_failure_accepts_validated_replacement
+    test_replacement_provenance_negative_matrix
+    test_complete_single_link_validation
+    test_canonical_publication_failure_recovers_only_on_retry
+    test_obligation_namespace_compatibility
+    test_custom_snapshot_cleanup_on_signal
+    test_returned_custom_check_descendants_are_drained
+    ;;
+  retirement-teardown)
+    test_merged_poll_retires_once
+    test_persistent_daemon_retirement_is_poll_only
+    test_retirement_crash_recovery
+    test_external_merge_transition_retires_only_terminal_poll
+    test_retirement_refuses_replacement_and_nonterminal_results
+    test_retirement_queue_failure_and_receipt_tampering
+    test_teardown_removes_poll_artifacts
+    ;;
+  all)
+    test_parser_matrix
+    test_merged_poll_retires_once
+    test_persistent_daemon_retirement_is_poll_only
+    test_retirement_crash_recovery
+    test_external_merge_transition_retires_only_terminal_poll
+    test_retirement_refuses_replacement_and_nonterminal_results
+    test_retirement_queue_failure_and_receipt_tampering
+    test_invalid_entrypoints_have_zero_side_effects
+    test_valid_recording_and_merge_derivation
+    test_rejected_metacharacter_bytes_are_inert
+    test_static_poll_contract
+    test_atomic_interruption_leaves_no_partial_artifact
+    test_concurrent_watcher_sees_only_complete_publication
+    test_postrename_poll_validation_revokes_and_retries
+    test_migration_initializes_fresh_state
+    test_migration_excludes_older_watcher_before_scan
+    test_private_artifact_paths_refuse_symlinks_and_directories
+    test_marker_and_diagnostic_rename_fail_closed
+    test_postrename_marker_and_diagnostic_validation_retries
+    test_quarantine_validation_and_retry_contract
+    test_failed_outcomes_block_every_retry_until_repaired
+    test_ambiguous_failure_accepts_validated_replacement
+    test_replacement_provenance_negative_matrix
+    test_complete_single_link_validation
+    test_canonical_publication_failure_recovers_only_on_retry
+    test_obligation_namespace_compatibility
+    test_nonexecuting_migration
+    test_bootstrap_migrates_before_other_mutations
+    test_bootstrap_isolates_incomplete_poll_migration
+    test_custom_snapshot_cleanup_on_signal
+    test_returned_custom_check_descendants_are_drained
+    test_teardown_removes_poll_artifacts
+    ;;
+  *)
+    fail "unknown PR security case group: ${MX_TEST_CASE_GROUP}"
+    ;;
+esac

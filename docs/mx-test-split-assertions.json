@@ -1,0 +1,47 @@
+{
+  "kind": "plan-6.5-split-assertion-map",
+  "baseline_inventory_scripts": 96,
+  "splits": [
+    {
+      "before": "tests/mx-pr-check-security.test.sh",
+      "helper": "tests/pr-check-security-helpers.sh",
+      "case_count": 32,
+      "after_groups": {
+        "parser-entrypoints": ["test_parser_matrix", "test_invalid_entrypoints_have_zero_side_effects", "test_valid_recording_and_merge_derivation", "test_rejected_metacharacter_bytes_are_inert", "test_static_poll_contract"],
+        "publication-migration": ["test_atomic_interruption_leaves_no_partial_artifact", "test_concurrent_watcher_sees_only_complete_publication", "test_migration_initializes_fresh_state", "test_migration_excludes_older_watcher_before_scan", "test_private_artifact_paths_refuse_symlinks_and_directories", "test_nonexecuting_migration", "test_bootstrap_migrates_before_other_mutations", "test_bootstrap_isolates_incomplete_poll_migration"],
+        "fault-quarantine": ["test_postrename_poll_validation_revokes_and_retries", "test_marker_and_diagnostic_rename_fail_closed", "test_postrename_marker_and_diagnostic_validation_retries", "test_quarantine_validation_and_retry_contract", "test_failed_outcomes_block_every_retry_until_repaired", "test_ambiguous_failure_accepts_validated_replacement", "test_replacement_provenance_negative_matrix", "test_complete_single_link_validation", "test_canonical_publication_failure_recovers_only_on_retry", "test_obligation_namespace_compatibility", "test_custom_snapshot_cleanup_on_signal", "test_returned_custom_check_descendants_are_drained"],
+        "retirement-teardown": ["test_merged_poll_retires_once", "test_persistent_daemon_retirement_is_poll_only", "test_retirement_crash_recovery", "test_external_merge_transition_retires_only_terminal_poll", "test_retirement_refuses_replacement_and_nonterminal_results", "test_retirement_queue_failure_and_receipt_tampering", "test_teardown_removes_poll_artifacts"]
+      }
+    },
+    {
+      "before": "tests/mx-status-snapshot.test.sh",
+      "helper": "tests/status-snapshot-helpers.sh",
+      "case_count": 42,
+      "after_groups": {
+        "projection-reconciliation": ["test_domain_alpha_stale_parent_event_does_not_become_current_work", "test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution", "test_parent_activity_evidence_is_bounded_and_disclosed", "test_active_child_overrides_old_parent_event", "test_structured_child_decision_reaches_maintainers_call", "test_bad_daemon_homes_never_revive_parent_work", "test_oversized_daemon_summary_stays_strict_unknown", "test_daemon_and_child_bounds_are_disclosed", "test_parent_decision_is_untrusted_contradiction_only", "test_parent_evidence_reconciles_by_verb_and_key", "test_nonprogressing_child_states_are_explicit", "test_registry_unavailability_and_bounds_are_explicit", "test_live_blocker_is_not_charted_queue_work", "test_maintainers_call_anti_leak", "test_main_orphan_in_flight_is_disclosed_not_invented", "test_main_unstructured_current_is_disclosed_with_structured_sibling", "test_main_orphan_counterfactual_meta_clears_inventory_warning", "test_mixed_daemon_roles_partial_state_and_maintainer_readiness", "test_main_maintainer_readiness_matches_daemon_projection"],
+        "landed-bounds": ["test_current_landed_baseline_is_repeatable_and_prior_report_independent", "test_default_is_bounded_and_local_only", "test_toon_json_parity", "test_landed_includes_daemon_home_merges", "test_landed_default_balances_dominant_and_sparse_homes", "test_landed_default_refills_capacity_after_sparse_homes_exhaust", "test_landed_default_uses_deterministic_home_order_when_homes_exceed_cap", "test_landed_default_preserves_internal_order_for_ties", "test_landed_default_handles_no_landed_items", "test_all_landed_keeps_complete_global_order", "test_landed_bounded_and_disclosed", "test_section_caps_and_expansion_flags"],
+        "catchup-forge": ["test_chat_contract_four_sections", "test_completed_scout_report_not_pending", "test_open_decision_surfaces_end_to_end", "test_report_pointers_surface", "test_superseded_queued_item_dropped_by_default", "test_include_prs_is_the_only_fetch_path", "test_partial_github_failure_degrades", "test_perl_fallback_bounds_github_call", "test_pr_repository_cap_and_expansion", "test_per_repository_pr_cap_is_disclosed", "test_projection_and_toon_fail_closed"]
+      }
+    },
+    {
+      "before": "tests/mx-daemon-harness.test.sh",
+      "helper": "tests/daemon-harness-helpers.sh",
+      "case_count": 40,
+      "after_groups": {
+        "harness-model-resolution": ["test_harness_resolution", "test_daemon_model_effort_tokens", "test_propagate_lib", "test_spawn_split_and_inherit", "test_spawn_backward_compat_actor_fallback", "test_spawn_bare_backward_compat", "test_spawn_explicit_harness_wins", "test_spawn_unverified_daemon_harness_refused", "test_spawn_bare_harness_no_model_effort_flag", "test_spawn_daemon_harness_model_token", "test_spawn_daemon_harness_model_and_effort_tokens", "test_spawn_explicit_model_overrides_daemon_harness_token", "test_spawn_explicit_effort_overrides_daemon_harness_token", "test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens", "test_spawn_explicit_harness_uses_explicit_profile_axes", "test_spawn_fallback_chain_and_actor_scout_unaffected"],
+        "spawn-config-inheritance": ["test_bootstrap_sweep_propagates_and_reconverges", "test_bootstrap_sweep_propagates_when_tracked_current", "test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home", "test_bootstrap_sweep_no_inheritance_is_noop", "test_bootstrap_sweep_surfaces_config_propagation_failure", "test_bootstrap_rereads_after_partial_propagation", "test_config_push_propagates_reports_without_ff_or_nudge", "test_config_push_reports_skips_dirty_and_invalid_home", "test_config_push_exits_nonzero_on_copy_error", "test_config_push_rereads_after_partial_propagation"],
+        "config-reread-retry": ["test_config_reread_per_home_changed_sets_and_exact_bytes", "test_config_reread_isolation_and_absent_and_send_failure", "test_config_reread_publication_failure_retries_exact_generation", "test_config_reread_write_failure_retains_exact_retry_generation", "test_config_reread_exact_temp_survives_adoption_failure", "test_config_reread_serializes_concurrent_pushes", "test_config_reread_full_retry_queue_drains_before_new_push", "test_config_reread_cleanup_runs_after_mixed_delivery_failure", "test_config_reread_stops_after_failed_generation", "test_config_reread_skips_when_unchanged_and_reads_after_push", "test_config_reread_bootstrap_path_and_spawn_flexibility", "test_bootstrap_respawns_before_config_reread", "test_spawn_quarantines_pending_rereads_on_cleanup_failure", "test_bootstrap_detect_only_does_not_create_state"]
+      }
+    },
+    {
+      "before": "tests/mx-session-start.test.sh",
+      "helper": "tests/session-start-helpers.sh",
+      "case_count": 26,
+      "after_groups": {
+        "digest-render": ["test_context_digest_absent_empty_present", "test_output_ordering_diagnostics_lead", "test_status_tail_bounding", "test_orphan_status_logs_are_printed", "test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata", "test_backlog_compact_manual_backend_skips_indented_bodies", "test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback", "test_system_digest_empty_system", "test_next_step_afk_delegates_to_daemon", "test_supervision_block_exactly_one_and_pi_diagnostic"],
+        "lock-bootstrap": ["test_lock_refusal_read_only_path", "test_lock_write_failure_read_only_path", "test_session_lock_concurrent_single_winner", "test_herdr_backend_diagnostics_follow_real_session_start", "test_composition_invokes_real_scripts"],
+        "process-liveness": ["test_session_start_relaunches_missing_pi_daemon", "test_session_start_preserves_ambiguous_pi_process", "test_session_start_preserves_transiently_unreadable_tmux", "test_session_start_preserves_proven_bare_shell_recovery", "test_session_start_relaunches_herdr_husk_daemon", "test_endpoint_liveness_tmux", "test_endpoint_liveness_herdr", "test_pi_diagnostic_rejects_stale_loaded_marker", "test_pi_diagnostic_accepts_prelock_loaded_marker", "test_pi_diagnostic_rejects_missing_turnend_guard_marker", "test_pi_diagnostic_rejects_previous_session_loaded_marker"]
+      }
+    }
+  ]
+}

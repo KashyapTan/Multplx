@@ -46,6 +46,8 @@ set -u
 BASE_PATH=${MX_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 mx_git_identity fmtest fmtest@example.com
 TMP_ROOT=$(mx_test_tmproot mx-daemon-harness)
+MX_TEST_CLEANUP_DIRS+=("$TMP_ROOT")
+trap mx_test_cleanup EXIT
 export MX_BACKEND=tmux
 
 # ===========================================================================
@@ -690,26 +692,35 @@ test_spawn_fallback_chain_and_actor_scout_unaffected() {
 # status).
 # ===========================================================================
 
-# A PRIMARY Multplx repo on main with one commit + a home dir, mirroring the
-# real gitignore (config/actor-harness ignored, so a propagated value never dirties
-# the daemon worktree on a later sweep). Echoes the world dir.
-new_world() {
-  local name=$1 dispatch_ignore=${2:-yes} w
-  w="$TMP_ROOT/$name"
-  mkdir -p "$w/home/state" "$w/home/data" "$w/home/config"
-  touch "$w/home/state/.last-watcher-beat"
-  git init -q -b main "$w/main"
+# A PRIMARY Multplx repo template on main with one commit, mirroring the real
+# gitignore. Every case gets independent copied git metadata and writable bytes.
+build_world_template() {
+  local template=$1 dispatch_ignore=$2
+  git init -q -b main "$template"
   {
     printf 'projects/\nstate/\ndata/\n.no-mistakes/\n'
     [ "$dispatch_ignore" = no ] || printf 'config/actor-dispatch.json\n'
     printf 'config/actor-harness\nconfig/daemon-harness\nconfig/backlog-backend\n'
-  } > "$w/main/.gitignore"
-  printf 'v1\n' > "$w/main/AGENTS.md"
-  printf 'r1\n' > "$w/main/README.md"
-  mkdir -p "$w/main/bin"
-  printf 'echo a\n' > "$w/main/bin/tool.sh"
-  git -C "$w/main" add -A
-  git -C "$w/main" commit -qm c1
+  } > "$template/.gitignore"
+  printf 'v1\n' > "$template/AGENTS.md"
+  printf 'r1\n' > "$template/README.md"
+  mkdir -p "$template/bin"
+  printf 'echo a\n' > "$template/bin/tool.sh"
+  git -C "$template" add -A
+  git -C "$template" commit -qm c1
+}
+
+new_world() {
+  local name=$1 dispatch_ignore=${2:-yes} w template
+  w="$TMP_ROOT/$name"
+  template="$TMP_ROOT/.world-template-$dispatch_ignore"
+  if [ ! -d "$template" ]; then
+    build_world_template "$template" "$dispatch_ignore"
+    chmod -R a-w "$template"
+  fi
+  mkdir -p "$w/home/state" "$w/home/data" "$w/home/config"
+  touch "$w/home/state/.last-watcher-beat"
+  mx_test_clone_tree_template "$template" "$w/main"
   printf '%s\n' "$w"
 }
 
@@ -2048,45 +2059,98 @@ SH
   pass "B25 spawn quarantines stale rereads without blocking relaunch"
 }
 
-test_harness_resolution
-test_daemon_model_effort_tokens
-test_propagate_lib
-test_spawn_split_and_inherit
-test_spawn_backward_compat_actor_fallback
-test_spawn_bare_backward_compat
-test_spawn_explicit_harness_wins
-test_spawn_unverified_daemon_harness_refused
-test_spawn_bare_harness_no_model_effort_flag
-test_spawn_daemon_harness_model_token
-test_spawn_daemon_harness_model_and_effort_tokens
-test_spawn_explicit_model_overrides_daemon_harness_token
-test_spawn_explicit_effort_overrides_daemon_harness_token
-test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens
-test_spawn_explicit_harness_uses_explicit_profile_axes
-test_spawn_fallback_chain_and_actor_scout_unaffected
-test_bootstrap_sweep_propagates_and_reconverges
-test_bootstrap_sweep_propagates_when_tracked_current
-test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home
-test_bootstrap_sweep_no_inheritance_is_noop
-test_bootstrap_sweep_surfaces_config_propagation_failure
-test_bootstrap_rereads_after_partial_propagation
-test_config_push_propagates_reports_without_ff_or_nudge
-test_config_push_reports_skips_dirty_and_invalid_home
-test_config_push_exits_nonzero_on_copy_error
-test_config_push_rereads_after_partial_propagation
-test_config_reread_per_home_changed_sets_and_exact_bytes
-test_config_reread_isolation_and_absent_and_send_failure
-test_config_reread_publication_failure_retries_exact_generation
-test_config_reread_write_failure_retains_exact_retry_generation
-test_config_reread_exact_temp_survives_adoption_failure
-test_config_reread_serializes_concurrent_pushes
-test_config_reread_full_retry_queue_drains_before_new_push
-test_config_reread_cleanup_runs_after_mixed_delivery_failure
-test_config_reread_stops_after_failed_generation
-test_config_reread_skips_when_unchanged_and_reads_after_push
-test_config_reread_bootstrap_path_and_spawn_flexibility
-test_bootstrap_respawns_before_config_reread
-test_spawn_quarantines_pending_rereads_on_cleanup_failure
-test_bootstrap_detect_only_does_not_create_state
+case "${MX_TEST_CASE_GROUP:-all}" in
+  harness-model-resolution)
+    test_harness_resolution
+    test_daemon_model_effort_tokens
+    test_propagate_lib
+    test_spawn_split_and_inherit
+    test_spawn_backward_compat_actor_fallback
+    test_spawn_bare_backward_compat
+    test_spawn_explicit_harness_wins
+    test_spawn_unverified_daemon_harness_refused
+    test_spawn_bare_harness_no_model_effort_flag
+    test_spawn_daemon_harness_model_token
+    test_spawn_daemon_harness_model_and_effort_tokens
+    test_spawn_explicit_model_overrides_daemon_harness_token
+    test_spawn_explicit_effort_overrides_daemon_harness_token
+    test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens
+    test_spawn_explicit_harness_uses_explicit_profile_axes
+    test_spawn_fallback_chain_and_actor_scout_unaffected
+    ;;
+  spawn-config-inheritance)
+    test_bootstrap_sweep_propagates_and_reconverges
+    test_bootstrap_sweep_propagates_when_tracked_current
+    test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home
+    test_bootstrap_sweep_no_inheritance_is_noop
+    test_bootstrap_sweep_surfaces_config_propagation_failure
+    test_bootstrap_rereads_after_partial_propagation
+    test_config_push_propagates_reports_without_ff_or_nudge
+    test_config_push_reports_skips_dirty_and_invalid_home
+    test_config_push_exits_nonzero_on_copy_error
+    test_config_push_rereads_after_partial_propagation
+    ;;
+  config-reread-retry)
+    test_config_reread_per_home_changed_sets_and_exact_bytes
+    test_config_reread_isolation_and_absent_and_send_failure
+    test_config_reread_publication_failure_retries_exact_generation
+    test_config_reread_write_failure_retains_exact_retry_generation
+    test_config_reread_exact_temp_survives_adoption_failure
+    test_config_reread_serializes_concurrent_pushes
+    test_config_reread_full_retry_queue_drains_before_new_push
+    test_config_reread_cleanup_runs_after_mixed_delivery_failure
+    test_config_reread_stops_after_failed_generation
+    test_config_reread_skips_when_unchanged_and_reads_after_push
+    test_config_reread_bootstrap_path_and_spawn_flexibility
+    test_bootstrap_respawns_before_config_reread
+    test_spawn_quarantines_pending_rereads_on_cleanup_failure
+    test_bootstrap_detect_only_does_not_create_state
+    ;;
+  all)
+    test_harness_resolution
+    test_daemon_model_effort_tokens
+    test_propagate_lib
+    test_spawn_split_and_inherit
+    test_spawn_backward_compat_actor_fallback
+    test_spawn_bare_backward_compat
+    test_spawn_explicit_harness_wins
+    test_spawn_unverified_daemon_harness_refused
+    test_spawn_bare_harness_no_model_effort_flag
+    test_spawn_daemon_harness_model_token
+    test_spawn_daemon_harness_model_and_effort_tokens
+    test_spawn_explicit_model_overrides_daemon_harness_token
+    test_spawn_explicit_effort_overrides_daemon_harness_token
+    test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens
+    test_spawn_explicit_harness_uses_explicit_profile_axes
+    test_spawn_fallback_chain_and_actor_scout_unaffected
+    test_bootstrap_sweep_propagates_and_reconverges
+    test_bootstrap_sweep_propagates_when_tracked_current
+    test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home
+    test_bootstrap_sweep_no_inheritance_is_noop
+    test_bootstrap_sweep_surfaces_config_propagation_failure
+    test_bootstrap_rereads_after_partial_propagation
+    test_config_push_propagates_reports_without_ff_or_nudge
+    test_config_push_reports_skips_dirty_and_invalid_home
+    test_config_push_exits_nonzero_on_copy_error
+    test_config_push_rereads_after_partial_propagation
+    test_config_reread_per_home_changed_sets_and_exact_bytes
+    test_config_reread_isolation_and_absent_and_send_failure
+    test_config_reread_publication_failure_retries_exact_generation
+    test_config_reread_write_failure_retains_exact_retry_generation
+    test_config_reread_exact_temp_survives_adoption_failure
+    test_config_reread_serializes_concurrent_pushes
+    test_config_reread_full_retry_queue_drains_before_new_push
+    test_config_reread_cleanup_runs_after_mixed_delivery_failure
+    test_config_reread_stops_after_failed_generation
+    test_config_reread_skips_when_unchanged_and_reads_after_push
+    test_config_reread_bootstrap_path_and_spawn_flexibility
+    test_bootstrap_respawns_before_config_reread
+    test_spawn_quarantines_pending_rereads_on_cleanup_failure
+    test_bootstrap_detect_only_does_not_create_state
+    ;;
+  *)
+    fail "unknown daemon harness case group: ${MX_TEST_CASE_GROUP}"
+    ;;
+esac
 
-echo "# all mx-daemon-harness tests passed"
+echo "# selected mx-daemon-harness cases passed"

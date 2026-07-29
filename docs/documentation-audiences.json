@@ -221,6 +221,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/mx-test-performance.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/mx-test-portable-shards.md",
       "audience": "maintainer-verification"
     },

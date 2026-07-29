@@ -23,8 +23,8 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-install-herdr.sh`    | Install CI's exact-version Herdr pin with official asset URL, SHA-256, and protocol checks |
 | `mx-install-treehouse.sh`| Install CI's exact-version Treehouse pin for real-Herdr E2E that needs spawn worktrees |
 | `mx-herdr-ci-cleanup.sh` | Snapshot and tear down only job-owned `mx-lab-*` sessions in the Herdr CI lane       |
-| `mx-test-run.sh`         | Behavior-test runner: selection, portable lanes, proven-isolated `--jobs`, coverage guard, timing/JSON |
-| `mx-test-isolation-proof.sh` | Concurrent isolation proof and proven-isolated candidate set owner |
+| `mx-test-run.sh`         | Behavior-test runner: selection, resource manifest/scheduler, generated portable lanes, coverage, parity, timing/JSON |
+| `mx-test-isolation-proof.sh` | Repeated conflict-matrix and leak proof consuming the runner manifest |
 | `mx-ensure-agents-md.sh` | Ensure a project's real `AGENTS.md`, its `CLAUDE.md` symlink, and the canonical self-governance section |
 | `mx-guard.sh`            | Warn on primary-checkout tangles, pending queued wakes, and stale watcher liveness   |
 | `mx-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |

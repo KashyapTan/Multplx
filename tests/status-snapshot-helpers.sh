@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Behavior tests for the catchup projection wrapper over mx-system-snapshot.sh.
+# Shared behavior cases for the catchup projection wrapper over mx-system-snapshot.sh.
 # Covers the output/token bound, TOON/JSON parity, the local-only default (zero
 # GitHub/network calls), the --include-prs opt-in path, graceful degradation on a
 # partial PR-fetch failure, end-to-end unresolved-decision durability, and current
@@ -12,6 +12,8 @@ set -u
 
 STATUS="$ROOT/bin/mx-status-snapshot.sh"
 TMP_ROOT=$(mx_test_tmproot mx-catchup)
+MX_TEST_CLEANUP_DIRS+=("$TMP_ROOT")
+trap mx_test_cleanup EXIT
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 
@@ -1890,45 +1892,100 @@ test_chat_contract_four_sections() {
   pass "the /catchup skill states the four-section chat contract in order, with empty-states and the At Anchor exclusion"
 }
 
-test_domain_alpha_stale_parent_event_does_not_become_current_work
-test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
-test_parent_activity_evidence_is_bounded_and_disclosed
-test_active_child_overrides_old_parent_event
-test_structured_child_decision_reaches_maintainers_call
-test_bad_daemon_homes_never_revive_parent_work
-test_oversized_daemon_summary_stays_strict_unknown
-test_daemon_and_child_bounds_are_disclosed
-test_parent_decision_is_untrusted_contradiction_only
-test_parent_evidence_reconciles_by_verb_and_key
-test_nonprogressing_child_states_are_explicit
-test_registry_unavailability_and_bounds_are_explicit
-test_current_landed_baseline_is_repeatable_and_prior_report_independent
-test_default_is_bounded_and_local_only
-test_toon_json_parity
-test_landed_includes_daemon_home_merges
-test_landed_default_balances_dominant_and_sparse_homes
-test_landed_default_refills_capacity_after_sparse_homes_exhaust
-test_landed_default_uses_deterministic_home_order_when_homes_exceed_cap
-test_landed_default_preserves_internal_order_for_ties
-test_landed_default_handles_no_landed_items
-test_all_landed_keeps_complete_global_order
-test_landed_bounded_and_disclosed
-test_live_blocker_is_not_charted_queue_work
-test_maintainers_call_anti_leak
-test_main_orphan_in_flight_is_disclosed_not_invented
-test_main_unstructured_current_is_disclosed_with_structured_sibling
-test_main_orphan_counterfactual_meta_clears_inventory_warning
-test_mixed_daemon_roles_partial_state_and_maintainer_readiness
-test_main_maintainer_readiness_matches_daemon_projection
-test_chat_contract_four_sections
-test_completed_scout_report_not_pending
-test_open_decision_surfaces_end_to_end
-test_report_pointers_surface
-test_superseded_queued_item_dropped_by_default
-test_include_prs_is_the_only_fetch_path
-test_partial_github_failure_degrades
-test_perl_fallback_bounds_github_call
-test_section_caps_and_expansion_flags
-test_pr_repository_cap_and_expansion
-test_per_repository_pr_cap_is_disclosed
-test_projection_and_toon_fail_closed
+case "${MX_TEST_CASE_GROUP:-all}" in
+  projection-reconciliation)
+    test_domain_alpha_stale_parent_event_does_not_become_current_work
+    test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
+    test_parent_activity_evidence_is_bounded_and_disclosed
+    test_active_child_overrides_old_parent_event
+    test_structured_child_decision_reaches_maintainers_call
+    test_bad_daemon_homes_never_revive_parent_work
+    test_oversized_daemon_summary_stays_strict_unknown
+    test_daemon_and_child_bounds_are_disclosed
+    test_parent_decision_is_untrusted_contradiction_only
+    test_parent_evidence_reconciles_by_verb_and_key
+    test_nonprogressing_child_states_are_explicit
+    test_registry_unavailability_and_bounds_are_explicit
+    test_live_blocker_is_not_charted_queue_work
+    test_maintainers_call_anti_leak
+    test_main_orphan_in_flight_is_disclosed_not_invented
+    test_main_unstructured_current_is_disclosed_with_structured_sibling
+    test_main_orphan_counterfactual_meta_clears_inventory_warning
+    test_mixed_daemon_roles_partial_state_and_maintainer_readiness
+    test_main_maintainer_readiness_matches_daemon_projection
+    ;;
+  landed-bounds)
+    test_current_landed_baseline_is_repeatable_and_prior_report_independent
+    test_default_is_bounded_and_local_only
+    test_toon_json_parity
+    test_landed_includes_daemon_home_merges
+    test_landed_default_balances_dominant_and_sparse_homes
+    test_landed_default_refills_capacity_after_sparse_homes_exhaust
+    test_landed_default_uses_deterministic_home_order_when_homes_exceed_cap
+    test_landed_default_preserves_internal_order_for_ties
+    test_landed_default_handles_no_landed_items
+    test_all_landed_keeps_complete_global_order
+    test_landed_bounded_and_disclosed
+    test_section_caps_and_expansion_flags
+    ;;
+  catchup-forge)
+    test_chat_contract_four_sections
+    test_completed_scout_report_not_pending
+    test_open_decision_surfaces_end_to_end
+    test_report_pointers_surface
+    test_superseded_queued_item_dropped_by_default
+    test_include_prs_is_the_only_fetch_path
+    test_partial_github_failure_degrades
+    test_perl_fallback_bounds_github_call
+    test_pr_repository_cap_and_expansion
+    test_per_repository_pr_cap_is_disclosed
+    test_projection_and_toon_fail_closed
+    ;;
+  all)
+    test_domain_alpha_stale_parent_event_does_not_become_current_work
+    test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
+    test_parent_activity_evidence_is_bounded_and_disclosed
+    test_active_child_overrides_old_parent_event
+    test_structured_child_decision_reaches_maintainers_call
+    test_bad_daemon_homes_never_revive_parent_work
+    test_oversized_daemon_summary_stays_strict_unknown
+    test_daemon_and_child_bounds_are_disclosed
+    test_parent_decision_is_untrusted_contradiction_only
+    test_parent_evidence_reconciles_by_verb_and_key
+    test_nonprogressing_child_states_are_explicit
+    test_registry_unavailability_and_bounds_are_explicit
+    test_current_landed_baseline_is_repeatable_and_prior_report_independent
+    test_default_is_bounded_and_local_only
+    test_toon_json_parity
+    test_landed_includes_daemon_home_merges
+    test_landed_default_balances_dominant_and_sparse_homes
+    test_landed_default_refills_capacity_after_sparse_homes_exhaust
+    test_landed_default_uses_deterministic_home_order_when_homes_exceed_cap
+    test_landed_default_preserves_internal_order_for_ties
+    test_landed_default_handles_no_landed_items
+    test_all_landed_keeps_complete_global_order
+    test_landed_bounded_and_disclosed
+    test_live_blocker_is_not_charted_queue_work
+    test_maintainers_call_anti_leak
+    test_main_orphan_in_flight_is_disclosed_not_invented
+    test_main_unstructured_current_is_disclosed_with_structured_sibling
+    test_main_orphan_counterfactual_meta_clears_inventory_warning
+    test_mixed_daemon_roles_partial_state_and_maintainer_readiness
+    test_main_maintainer_readiness_matches_daemon_projection
+    test_chat_contract_four_sections
+    test_completed_scout_report_not_pending
+    test_open_decision_surfaces_end_to_end
+    test_report_pointers_surface
+    test_superseded_queued_item_dropped_by_default
+    test_include_prs_is_the_only_fetch_path
+    test_partial_github_failure_degrades
+    test_perl_fallback_bounds_github_call
+    test_section_caps_and_expansion_flags
+    test_pr_repository_cap_and_expansion
+    test_per_repository_pr_cap_is_disclosed
+    test_projection_and_toon_fail_closed
+    ;;
+  *)
+    fail "unknown status snapshot case group: ${MX_TEST_CASE_GROUP}"
+    ;;
+esac

@@ -1,57 +1,43 @@
 #!/usr/bin/env bash
-# mx-test-isolation-proof.sh - bounded concurrent isolation proof for portable
-# behavior-test candidates (Phase 2 pre-shard gate).
+# mx-test-isolation-proof.sh - repeatable conflict-matrix and leak proof for
+# the resource-aware Multplx behavior-test scheduler.
 #
-# This is the single owner of the proven parallel candidate set, the concurrent
-# proof run, and the isolation checks that admitted that set. Production
-# portable CI shards and bounded local mx-test-run.sh --jobs for this exact set
-# are owned by bin/mx-test-run.sh (docs/mx-test-portable-shards.md).
-#
-# It does NOT:
-#   - compose production CI shard membership (mx-test-run.sh owns that partition)
-#   - run real Herdr, real default-server tmux, watcher lock races, AFK, live
-#     harnesses, or GUI backends
+# The resource manifest is owned by bin/mx-test-run.sh. This harness consumes
+# that manifest, prints its conflict matrix, and repeatedly executes every
+# portable non-global/non-live script through the production scheduler.
 #
 # Usage:
-#   mx-test-isolation-proof.sh [--jobs N] [--json path] [--list]
+#   mx-test-isolation-proof.sh [--jobs N] [--repeats N] [--json path]
+#   mx-test-isolation-proof.sh --list
+#   mx-test-isolation-proof.sh --list-resources
+#   mx-test-isolation-proof.sh --list-conflicts
 #   mx-test-isolation-proof.sh --list-exclusions
-#   mx-test-isolation-proof.sh -h | --help
 #
 # Options:
-#   --jobs N     max concurrent workers (default: 4; min 1)
-#   --json path  write a machine-readable proof artifact after the run
-#   --list       print the proven candidate paths (one per line) and exit 0
-#   --list-exclusions
-#                print basename + reason for scripts deliberately kept serial
-#                relative to the scout-proposed parallel pool, then exit 0
-#   -h, --help   print this header
+#   --jobs N          scheduler worker cap (default: 4)
+#   --repeats N       complete stress rounds (default: 2)
+#   --json path       write the combined proof artifact
+#   --list            list scripts covered by stress rounds
+#   --list-resources  print the complete runner-owned resource manifest
+#   --list-conflicts  print every pair that must not overlap
+#   --list-exclusions print scripts kept out of portable stress and why
+#   -h, --help        print this header
 #
-# Isolation contract for each concurrent worker:
-#   - distinct mode-0700 temporary root under a proof-owned parent
-#   - TMPDIR/TMP point only at that root so mktemp/mx_test_tmproot stay private
-#   - ambient MX_HOME / MX_*_OVERRIDE cleared so no shared home is reused
-#   - no global git config mutation (snapshot before/after)
-#   - no production sharding and no retry-until-green
-#
-# Markers (stdout):
-#   MX_ISOLATION_BEGIN <iso8601> concurrency=<n> candidates=<n>
-#   MX_ISOLATION_CANDIDATE_BEGIN <iso8601> <script> worker=<i>
-#   MX_ISOLATION_CANDIDATE_END <iso8601> <script> exit=<code> duration_ms=<n> worker=<i>
-#   MX_ISOLATION_SUMMARY total=<n> failed=<n> concurrency=<n> duration_ms=<n>
-#
-# Exit status is the aggregate of candidate exits: non-zero if any candidate
-# fails, if isolation checks fail, or if the candidate set is empty. A script
-# that fails only under concurrency must be removed from the candidate set and
-# investigated; this harness never retries a failure into green.
+# Markers:
+#   MX_ISOLATION_BEGIN <iso8601> concurrency=<n> candidates=<n> repeats=<n>
+#   MX_ISOLATION_ROUND_END repeat=<n> exit=<n> duration_ms=<n>
+#   MX_ISOLATION_SUMMARY total=<n> failed_rounds=<n> concurrency=<n> repeats=<n> duration_ms=<n> leaks=<n>
 set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNNER="$ROOT/bin/mx-test-run.sh"
+BASELINE="$ROOT/docs/mx-test-performance-baseline.json"
 cd "$ROOT" || exit 1
 
 JOBS=4
+REPEATS=2
 JSON_PATH=
-LIST_ONLY=0
-LIST_EXCLUSIONS=0
+MODE=run
 
 usage() {
   awk '
@@ -66,188 +52,59 @@ die() {
   exit 2
 }
 
-log() {
-  printf 'mx-test-isolation-proof: %s\n' "$*" >&2
-}
-
 now_iso() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
 now_ms() {
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import time; print(int(time.time() * 1000))'
-  else
-    echo $(($(date +%s) * 1000))
-  fi
+  python3 -c 'import time; print(int(time.time() * 1000))'
 }
 
-# Serial exclusions relative to the scout-proposed parallel pool (pure units,
-# fake backends, private git fixtures, stubbed network). Reasons are audit
-# evidence; do not re-add a basename without clearing its reason.
-exclusion_reason() {
-  case "$1" in
-    mx-test-isolation-proof.test.sh)
-      printf '%s\n' 'isolation-proof harness contract itself; must not re-enter concurrent matrix'
-      ;;
-    mx-backend-tmux-smoke.test.sh)
-      printf '%s\n' 'real tmux on a private socket; keep exclusive of default-server contention class'
-      ;;
-    mx-backend.test.sh)
-      printf '%s\n' 'old-vs-new main checkout diff fixture; gray-zone concurrent git/worktree cost'
-      ;;
-    mx-spawn-dispatch-profile.test.sh|mx-spawn-worktree-settle.test.sh)
-      printf '%s\n' 'real isolated git worktrees plus spawn settle loops; gray zone until dedicated proof'
-      ;;
-    mx-pr-check-security.test.sh)
-      printf '%s\n' 'watcher lock / migration / poll security surface; intentional shared-lock class'
-      ;;
-    mx-teardown.test.sh)
-      printf '%s\n' 'landed-work + lock-race teardown matrix; keep serial with forge/git stress peers'
-      ;;
-    mx-herdr-session-cleanup.test.sh)
-      printf '%s\n' 'session-start task/presentation lock matrix; keep serial until dedicated concurrent proof'
-      ;;
-    mx-daemon.test.sh|mx-guard-stale-banner.test.sh|mx-pi-watch-extension.test.sh|\
-    mx-supervision-events.test.sh|mx-turnend-guard.test.sh|mx-wake-daemon-lifecycle-e2e.test.sh|\
-    mx-wake-queue.test.sh|mx-watch-checkpoint.test.sh|mx-watch-triage.test.sh|\
-    mx-watcher-lock.test.sh)
-      printf '%s\n' 'watcher/wake/lock family; intentional process locks and daemon races'
-      ;;
-    mx-afk-inject-e2e.test.sh|mx-afk-return.test.sh|mx-afk-inject-herdr-e2e.test.sh|\
-    mx-afk-launch.test.sh)
-      printf '%s\n' 'AFK lifecycle / inject path; exclusive daemon and pane control'
-      ;;
-    mx-afk-pi-herdr-return-e2e.test.sh|\
-    mx-codex-continuity-live-e2e.test.sh|mx-pi-primary-live-e2e.test.sh|\
-    mx-send-daemon-marker-herdr-e2e.test.sh)
-      printf '%s\n' 'live harness opt-in; never default parallel CI'
-      ;;
-    mx-backend-autodetect-smoke.test.sh|mx-backend-herdr-eventwait-smoke.test.sh|\
-    mx-backend-herdr-presentation-e2e.test.sh|mx-backend-herdr-prune-safety-e2e.test.sh|\
-    mx-backend-herdr-respawn-idem-e2e.test.sh|mx-backend-herdr-smoke.test.sh|\
-    mx-backend-herdr-workspace-per-home-e2e.test.sh|mx-herdr-session-cleanup-e2e.test.sh)
-      printf '%s\n' 'real Herdr-gated; Herdr lane is a later phase'
-      ;;
-    mx-backend-cmux.test.sh|mx-backend-cmux-smoke.test.sh)
-      printf '%s\n' 'cmux GUI backend; never parallel with another cmux mutator'
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+list_resources() {
+  "$RUNNER" --list-resources --all
 }
 
-# Exact candidate set from the archived concurrent proof. Adding or removing a
-# path requires a new audit and proof archive.
-list_parallel_candidates() {
-  cat <<'EOF'
-tests/mx-arm-pretool-check.test.sh
-tests/mx-backend-herdr.test.sh
-tests/mx-brief.test.sh
-tests/mx-maintainer-translation-contract.test.sh
-tests/mx-cd-pretool-check.test.sh
-tests/mx-composer-ghost.test.sh
-tests/mx-composer-lib.test.sh
-tests/mx-actor-state.test.sh
-tests/mx-decision-hold-lifecycle.test.sh
-tests/mx-ensure-agents-md.test.sh
-tests/mx-herdr-lab.test.sh
-tests/mx-instruction-owners.test.sh
-tests/mx-nm-test-contract.test.sh
-tests/mx-no-mistakes-ownership.test.sh
-tests/mx-pi-primary-types.test.sh
-tests/mx-pr-merge.test.sh
-tests/mx-review-diff.test.sh
-tests/mx-send-popup-settle.test.sh
-tests/mx-send-settle.test.sh
-tests/mx-send-strict.test.sh
-tests/mx-spawn-batch.test.sh
-tests/mx-stow-contract.test.sh
-tests/mx-supervision-instructions.test.sh
-tests/mx-test-run.test.sh
-tests/mx-tmux-submit-busy.test.sh
-tests/mx-transition-lib.test.sh
-EOF
+list_candidates() {
+  list_resources | awk -F '\t' '
+    $2 !~ /(^|,)(global|live-harness|herdr-session|cmux-app)(,|$)/ { print $1 }
+  '
 }
 
-list_exclusions_for_report() {
-  local base reason
-  # Stable report of known serial reasons for the scout-proposed pool classes.
-  while IFS= read -r base; do
-    [ -n "$base" ] || continue
-    if reason=$(exclusion_reason "$base"); then
-      printf '%s\t%s\n' "$base" "$reason"
-    fi
-  done <<'EOF'
-mx-test-isolation-proof.test.sh
-mx-backend-tmux-smoke.test.sh
-mx-backend.test.sh
-mx-spawn-dispatch-profile.test.sh
-mx-spawn-worktree-settle.test.sh
-mx-pr-check-security.test.sh
-mx-teardown.test.sh
-mx-watcher-lock.test.sh
-mx-wake-queue.test.sh
-mx-afk-inject-e2e.test.sh
-mx-backend-herdr-smoke.test.sh
-mx-backend-cmux-smoke.test.sh
-mx-pi-primary-live-e2e.test.sh
-EOF
+list_exclusions() {
+  list_resources | awk -F '\t' '
+    $1 == "tests/mx-pr-check-security-publication-migration.test.sh" && $2 ~ /(^|,)global(,|$)/ {
+      print $1 "\tload-sensitive publication race retains its ten-second hang tripwire"
+      next
+    }
+    $2 ~ /(^|,)global(,|$)/ { print $1 "\tglobal scheduler owner/self-contract" ; next }
+    $2 ~ /(^|,)live-harness(,|$)/ { print $1 "\tlive harness opt-in is not a portable stress resource" ; next }
+    $2 ~ /(^|,)herdr-session(,|$)/ { print $1 "\treal Herdr remains in its dedicated owned lab lane" ; next }
+    $2 ~ /(^|,)cmux-app(,|$)/ { print $1 "\tGUI-owned cmux resource is environment gated" ; next }
+  '
 }
 
-dir_mode() {
-  local path=$1
-  if stat -f %Lp "$path" >/dev/null 2>&1; then
-    stat -f %Lp "$path"
-  else
-    stat -c %a "$path"
-  fi
-}
+list_conflicts() {
+  local manifest
+  manifest=$(mktemp "${TMPDIR:-/tmp}/mx-isolation-manifest.XXXXXX")
+  list_resources >"$manifest"
+  python3 - "$manifest" <<'PY'
+import itertools
+import sys
 
-global_git_snapshot() {
-  # Empty string when no global config is present or git cannot read it.
-  git config --global --list 2>/dev/null | LC_ALL=C sort || true
-}
-
-write_json_artifact() {
-  local out=$1 started=$2 finished=$3 run_id=$4 total=$5 failed=$6 concurrency=$7 duration=$8 records=$9
-  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" <<'PY'
-import json, sys
-out, started, finished, run_id, total, failed, concurrency, duration, records_path = sys.argv[1:10]
-scripts = []
-with open(records_path, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        path, exit_s, dur_s, worker = line.split("\t")
-        scripts.append({
-            "path": path,
-            "exit": int(exit_s),
-            "duration_ms": int(dur_s),
-            "worker": int(worker),
-        })
-scripts.sort(key=lambda s: s["path"])
-doc = {
-    "run_id": run_id,
-    "started_at": started,
-    "finished_at": finished,
-    "kind": "isolation-proof",
-    "concurrency": int(concurrency),
-    "summary": {
-        "total": int(total),
-        "failed": int(failed),
-        "duration_ms": int(duration),
-    },
-    "scripts": scripts,
-    "production_sharding_enabled": False,
-    "mx_test_run_jobs_enabled": False,
-}
-with open(out, "w", encoding="utf-8") as fh:
-    json.dump(doc, fh, indent=2, sort_keys=True)
-    fh.write("\n")
+rows = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    path, raw = line.rstrip("\n").split("\t")
+    rows.append((path, set(raw.split(","))))
+for (left, lres), (right, rres) in itertools.combinations(rows, 2):
+    shared = set()
+    if "global" in lres or "global" in rres:
+        shared.add("global")
+    else:
+        shared = (lres - {"none"}) & (rres - {"none"})
+    if shared:
+        print(f"{left}\t{right}\t{','.join(sorted(shared))}")
 PY
+  rm -f "$manifest"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -261,6 +118,15 @@ while [ "$#" -gt 0 ]; do
       JOBS=${1#--jobs=}
       shift
       ;;
+    --repeats)
+      [ "$#" -gt 1 ] || die "--repeats requires a positive integer"
+      REPEATS=$2
+      shift 2
+      ;;
+    --repeats=*)
+      REPEATS=${1#--repeats=}
+      shift
+      ;;
     --json)
       [ "$#" -gt 1 ] || die "--json requires a path"
       JSON_PATH=$2
@@ -270,219 +136,203 @@ while [ "$#" -gt 0 ]; do
       JSON_PATH=${1#--json=}
       shift
       ;;
-    --list)
-      LIST_ONLY=1
-      shift
-      ;;
-    --list-exclusions)
-      LIST_EXCLUSIONS=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    -*)
-      die "unknown option: $1"
-      ;;
-    *)
-      die "unexpected argument: $1 (this harness owns its candidate set)"
-      ;;
+    --list) MODE=list; shift ;;
+    --list-resources) MODE=resources; shift ;;
+    --list-conflicts) MODE=conflicts; shift ;;
+    --list-exclusions) MODE=exclusions; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*) die "unknown option: $1" ;;
+    *) die "unexpected argument: $1" ;;
   esac
 done
 
-case "$JOBS" in
-  ''|*[!0-9]*) die "--jobs must be a positive integer" ;;
+case "$JOBS:$REPEATS" in
+  *[!0-9:]*|:*|*:) die "--jobs and --repeats must be positive integers" ;;
 esac
 [ "$JOBS" -ge 1 ] || die "--jobs must be >= 1"
+[ "$JOBS" -le 8 ] || die "--jobs is capped at 8"
+[ "$REPEATS" -ge 1 ] || die "--repeats must be >= 1"
 
-if [ "$LIST_EXCLUSIONS" -eq 1 ]; then
-  list_exclusions_for_report
-  exit 0
-fi
+case "$MODE" in
+  list) list_candidates; exit 0 ;;
+  resources) list_resources; exit 0 ;;
+  conflicts) list_conflicts; exit 0 ;;
+  exclusions) list_exclusions; exit 0 ;;
+esac
 
+command -v python3 >/dev/null 2>&1 || die "python3 is required"
 CANDIDATES=()
-while IFS= read -r s; do
-  [ -n "$s" ] || continue
-  CANDIDATES+=("$s")
-done < <(list_parallel_candidates | LC_ALL=C sort -u)
-
-if [ "$LIST_ONLY" -eq 1 ]; then
-  for s in "${CANDIDATES[@]+"${CANDIDATES[@]}"}"; do
-    printf '%s\n' "$s"
-  done
-  exit 0
-fi
-
-[ "${#CANDIDATES[@]}" -gt 0 ] || die "candidate set is empty; refusing isolation proof"
-
-for s in "${CANDIDATES[@]}"; do
-  [ -f "$s" ] || die "candidate not found: $s"
-done
+while IFS= read -r script; do
+  [ -n "$script" ] || continue
+  CANDIDATES+=("$script")
+done < <(list_candidates)
+[ "${#CANDIDATES[@]}" -gt 0 ] || die "portable proof candidate set is empty"
 
 PROOF_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-isolation-proof.XXXXXX")
-chmod 0700 "$PROOF_ROOT" || die "could not chmod 0700 proof root $PROOF_ROOT"
-RECORDS="$PROOF_ROOT/records.tsv"
-: >"$RECORDS"
-trap 'rm -rf "$PROOF_ROOT"' EXIT
+chmod 0700 "$PROOF_ROOT"
+RUNNER_PID=
 
-GIT_BEFORE=$(global_git_snapshot)
-RUN_STARTED_ISO=$(now_iso)
-RUN_STARTED_MS=$(now_ms)
-RUN_ID="mx-isolation-${RUN_STARTED_MS}-$$"
-TOTAL=${#CANDIDATES[@]}
-FAILED=0
-AGG_RC=0
-
-printf 'MX_ISOLATION_BEGIN %s concurrency=%s candidates=%s\n' \
-  "$RUN_STARTED_ISO" "$JOBS" "$TOTAL"
-
-# Worker state arrays parallel to CANDIDATES indices (1-based worker labels).
-declare -a WORKER_PIDS=()
-declare -a WORKER_IDX=()
-
-wait_one_slot() {
-  local pid idx work rc duration script mode
-  # Wait for the oldest launched worker still recorded.
-  pid=${WORKER_PIDS[0]}
-  idx=${WORKER_IDX[0]}
-  WORKER_PIDS=("${WORKER_PIDS[@]:1}")
-  WORKER_IDX=("${WORKER_IDX[@]:1}")
-  set +e
-  wait "$pid"
-  set -e
-  work="$PROOF_ROOT/w$idx"
-  script=${CANDIDATES[$((idx - 1))]}
-  rc=$(cat "$work/out/exit" 2>/dev/null || echo 1)
-  duration=$(cat "$work/out/duration_ms" 2>/dev/null || echo 0)
-  printf 'MX_ISOLATION_CANDIDATE_END %s %s exit=%s duration_ms=%s worker=%s\n' \
-    "$(now_iso)" "$script" "$rc" "$duration" "$idx"
-  printf '%s\t%s\t%s\t%s\n' "$script" "$rc" "$duration" "$idx" >>"$RECORDS"
-  if [ "$rc" -ne 0 ]; then
-    FAILED=$((FAILED + 1))
-    AGG_RC=1
-    log "candidate failed: $script exit=$rc"
-    if [ -s "$work/out/stdout" ]; then
-      log "--- stdout ($script) ---"
-      tail -n 40 "$work/out/stdout" >&2 || true
-    fi
-    if [ -s "$work/out/stderr" ]; then
-      log "--- stderr ($script) ---"
-      tail -n 40 "$work/out/stderr" >&2 || true
-    fi
+cleanup() {
+  trap - EXIT INT TERM
+  if [ -n "$RUNNER_PID" ] && kill -0 "$RUNNER_PID" 2>/dev/null; then
+    kill "$RUNNER_PID" 2>/dev/null || true
+    wait "$RUNNER_PID" 2>/dev/null || true
   fi
-  # Isolation: worker root must remain mode 0700 and under the proof parent.
-  mode=$(dir_mode "$work")
-  case "$mode" in
-    700|0700) ;;
-    *)
-      log "isolation failure: worker root mode is $mode, expected 0700 ($work)"
-      AGG_RC=1
-      FAILED=$((FAILED + 1))
-      ;;
-  esac
-  case "$work" in
-    "$PROOF_ROOT"/*) ;;
-    *)
-      log "isolation failure: worker root escaped proof parent: $work"
-      AGG_RC=1
-      ;;
-  esac
+  chmod -R u+w "$PROOF_ROOT" 2>/dev/null || true
+  rm -rf "$PROOF_ROOT"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
+
+git_snapshot() {
+  git config --global --list 2>/dev/null | LC_ALL=C sort || true
 }
 
-idx=0
-for script in "${CANDIDATES[@]}"; do
-  idx=$((idx + 1))
-  work="$PROOF_ROOT/w$idx"
-  # Create then chmod: mkdir -m can still be umask-adjusted on some platforms.
-  mkdir -p "$work/tmp" "$work/out"
-  chmod 0700 "$work" "$work/tmp" "$work/out" \
-    || die "could not chmod 0700 worker roots under $work"
-  mode=$(dir_mode "$work")
-  case "$mode" in
-    700|0700) ;;
-    *) die "failed to create mode-0700 worker root at $work (mode=$mode)" ;;
-  esac
-  mode=$(dir_mode "$work/tmp")
-  case "$mode" in
-    700|0700) ;;
-    *) die "failed to create mode-0700 TMPDIR at $work/tmp (mode=$mode)" ;;
-  esac
+MANIFEST="$PROOF_ROOT/manifest.tsv"
+CONFLICTS="$PROOF_ROOT/conflicts.tsv"
+ROUNDS="$PROOF_ROOT/rounds.tsv"
+list_resources >"$MANIFEST"
+list_conflicts >"$CONFLICTS"
+: >"$ROUNDS"
 
-  printf 'MX_ISOLATION_CANDIDATE_BEGIN %s %s worker=%s\n' \
-    "$(now_iso)" "$script" "$idx"
+GIT_BEFORE=$(git_snapshot)
+STARTED_ISO=$(now_iso)
+STARTED_MS=$(now_ms)
+FAILED_ROUNDS=0
+LEAKS=0
+KNOWN_FAILURE_OBSERVATIONS=0
+repeat=1
 
-  (
+printf 'MX_ISOLATION_BEGIN %s concurrency=%s candidates=%s repeats=%s\n' \
+  "$STARTED_ISO" "$JOBS" "${#CANDIDATES[@]}" "$REPEATS"
+
+while [ "$repeat" -le "$REPEATS" ]; do
+  round_json="$PROOF_ROOT/round-$repeat.json"
+  round_log="$PROOF_ROOT/round-$repeat.log"
+  round_started=$(now_ms)
+  set +e
+  "$RUNNER" --jobs "$JOBS" --json "$round_json" "${CANDIDATES[@]}" >"$round_log" 2>&1 &
+  RUNNER_PID=$!
+  wait "$RUNNER_PID"
+  round_rc=$?
+  RUNNER_PID=
+  set -e
+  contract_rc=$round_rc
+  known_in_round=0
+  if [ -s "$round_json" ]; then
     set +e
-    export TMPDIR="$work/tmp"
-    export TMP="$work/tmp"
-    # Clear ambient system overrides so candidates cannot share a live home.
-    unset MX_HOME MX_STATE_OVERRIDE MX_DATA_OVERRIDE MX_ROOT_OVERRIDE \
-      MX_PROJECTS_OVERRIDE MX_CONFIG_OVERRIDE MX_BACKEND 2>/dev/null || true
-    cd "$ROOT" || exit 1
-    begin_ms=$(now_ms)
-    bash "$script" >"$work/out/stdout" 2>"$work/out/stderr"
-    rc=$?
-    end_ms=$(now_ms)
-    duration=$((end_ms - begin_ms))
-    if [ "$duration" -lt 0 ]; then
-      duration=0
+    known_in_round=$(python3 - "$round_json" "$BASELINE" <<'PY'
+import json
+import sys
+
+run = json.load(open(sys.argv[1], encoding="utf-8"))
+baseline = json.load(open(sys.argv[2], encoding="utf-8"))
+known = baseline.get("known_failure", {}).get("path")
+failed = [row["path"] for row in run.get("scripts", []) if int(row.get("exit", 0)) != 0]
+unexpected = [path for path in failed if path != known]
+if unexpected:
+    print(0)
+    raise SystemExit(1)
+print(sum(path == known for path in failed))
+PY
+    )
+    acceptance_rc=$?
+    set -e
+    [ -n "$known_in_round" ] || known_in_round=0
+    if [ "$acceptance_rc" -eq 0 ]; then
+      contract_rc=0
     fi
-    printf '%s\n' "$rc" >"$work/out/exit"
-    printf '%s\n' "$duration" >"$work/out/duration_ms"
-    exit 0
-  ) &
-  WORKER_PIDS+=("$!")
-  WORKER_IDX+=("$idx")
-
-  # Bound concurrency.
-  while [ "${#WORKER_PIDS[@]}" -ge "$JOBS" ]; do
-    wait_one_slot
-  done
+  fi
+  KNOWN_FAILURE_OBSERVATIONS=$((KNOWN_FAILURE_OBSERVATIONS + known_in_round))
+  round_finished=$(now_ms)
+  round_duration=$((round_finished - round_started))
+  [ "$round_duration" -ge 0 ] || round_duration=0
+  [ "$contract_rc" -eq 0 ] || FAILED_ROUNDS=$((FAILED_ROUNDS + 1))
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$repeat" "$round_rc" "$contract_rc" "$round_duration" "$round_json" >>"$ROUNDS"
+  printf 'MX_ISOLATION_ROUND_END repeat=%s exit=%s runner_exit=%s duration_ms=%s\n' \
+    "$repeat" "$contract_rc" "$round_rc" "$round_duration"
+  if [ "$contract_rc" -ne 0 ]; then
+    tail -n 80 "$round_log" >&2 || true
+  fi
+  repeat=$((repeat + 1))
 done
 
-while [ "${#WORKER_PIDS[@]}" -gt 0 ]; do
-  wait_one_slot
-done
-
-GIT_AFTER=$(global_git_snapshot)
+GIT_AFTER=$(git_snapshot)
 if [ "$GIT_BEFORE" != "$GIT_AFTER" ]; then
-  log "isolation failure: git config --global changed during the concurrent proof"
-  log "--- before ---"
-  printf '%s\n' "$GIT_BEFORE" >&2
-  log "--- after ---"
-  printf '%s\n' "$GIT_AFTER" >&2
-  AGG_RC=1
-  FAILED=$((FAILED + 1))
+  printf '%s\n' 'mx-test-isolation-proof: global git config changed during proof' >&2
+  LEAKS=$((LEAKS + 1))
 fi
 
-# Cross-process artifact check: no candidate may leave debris outside the
-# proof-owned TMPDIR tree. Workers only receive TMPDIR under PROOF_ROOT, so any
-# residual path under PROOF_ROOT is expected and cleaned by trap. Refuse if a
-# worker wrote a fixed global path we know about from audit (none remain after
-# the arm-pretool stderr path uses TMPDIR).
-if find "$PROOF_ROOT" -type f -name 'mx-arm-pretool-check-claude-stderr.*' 2>/dev/null | grep -q .; then
-  : # allowed only under proof roots; nothing to do
+MX_ISOLATION_LEAK_ROOT=$PROOF_ROOT
+export MX_ISOLATION_LEAK_ROOT
+process_leaks=$(ps -axo pid=,ppid=,command= 2>/dev/null \
+  | awk -v self="$$" 'index($0, ENVIRON["MX_ISOLATION_LEAK_ROOT"]) && $1 != self { print }' || true)
+unset MX_ISOLATION_LEAK_ROOT
+if [ -n "$process_leaks" ]; then
+  printf 'mx-test-isolation-proof: leaked proof-owned processes:\n%s\n' "$process_leaks" >&2
+  LEAKS=$((LEAKS + 1))
 fi
 
-RUN_FINISHED_ISO=$(now_iso)
-RUN_FINISHED_MS=$(now_ms)
-RUN_DURATION=$((RUN_FINISHED_MS - RUN_STARTED_MS))
-if [ "$RUN_DURATION" -lt 0 ]; then
-  RUN_DURATION=0
-fi
-
-printf 'MX_ISOLATION_SUMMARY total=%s failed=%s concurrency=%s duration_ms=%s\n' \
-  "$TOTAL" "$FAILED" "$JOBS" "$RUN_DURATION"
+FINISHED_ISO=$(now_iso)
+FINISHED_MS=$(now_ms)
+DURATION=$((FINISHED_MS - STARTED_MS))
 
 if [ -n "$JSON_PATH" ]; then
   mkdir -p "$(dirname "$JSON_PATH")"
-  # Stable record order for the artifact.
-  sort -t$'\t' -k1,1 "$RECORDS" -o "$RECORDS"
-  write_json_artifact "$JSON_PATH" \
-    "$RUN_STARTED_ISO" "$RUN_FINISHED_ISO" "$RUN_ID" \
-    "$TOTAL" "$FAILED" "$JOBS" "$RUN_DURATION" "$RECORDS"
-  log "wrote isolation proof artifact: $JSON_PATH"
+  python3 - "$JSON_PATH" "$STARTED_ISO" "$FINISHED_ISO" "$JOBS" "$REPEATS" \
+    "$DURATION" "$FAILED_ROUNDS" "$LEAKS" "$KNOWN_FAILURE_OBSERVATIONS" \
+    "$MANIFEST" "$CONFLICTS" "$ROUNDS" <<'PY'
+import hashlib
+import json
+import sys
+
+(out, started, finished, jobs, repeats, duration, failed, leaks, known_failures,
+ manifest_path, conflicts_path, rounds_path) = sys.argv[1:]
+manifest_bytes = open(manifest_path, "rb").read()
+resources = []
+for line in manifest_bytes.decode().splitlines():
+    path, raw = line.split("\t")
+    resources.append({"path": path, "resources": raw.split(",")})
+rounds = []
+scripts = []
+for line in open(rounds_path, encoding="utf-8"):
+    repeat, runner_exit, contract_exit, duration_ms, path = line.rstrip("\n").split("\t")
+    doc = json.load(open(path, encoding="utf-8"))
+    rounds.append({
+        "repeat": int(repeat),
+        "exit": int(contract_exit),
+        "runner_exit": int(runner_exit),
+        "duration_ms": int(duration_ms),
+        "run_id": doc.get("run_id"),
+    })
+    scripts.extend(dict(row, repeat=int(repeat)) for row in doc.get("scripts", []))
+doc = {
+    "kind": "resource-isolation-proof",
+    "started_at": started,
+    "finished_at": finished,
+    "concurrency": int(jobs),
+    "repeats": int(repeats),
+    "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+    "resource_manifest": resources,
+    "conflict_pairs": sum(1 for _ in open(conflicts_path, encoding="utf-8")),
+    "rounds": rounds,
+    "scripts": scripts,
+    "summary": {
+        "candidates_per_round": len(scripts) // max(int(repeats), 1),
+        "failed_rounds": int(failed),
+        "duration_ms": int(duration),
+        "leaks": int(leaks),
+        "known_failure_observations": int(known_failures),
+    },
+}
+with open(out, "w", encoding="utf-8") as stream:
+    json.dump(doc, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+PY
 fi
 
-exit "$AGG_RC"
+printf 'MX_ISOLATION_SUMMARY total=%s failed_rounds=%s concurrency=%s repeats=%s duration_ms=%s leaks=%s\n' \
+  "${#CANDIDATES[@]}" "$FAILED_ROUNDS" "$JOBS" "$REPEATS" "$DURATION" "$LEAKS"
+
+[ "$FAILED_ROUNDS" -eq 0 ] && [ "$LEAKS" -eq 0 ]
