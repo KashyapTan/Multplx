@@ -240,8 +240,8 @@ collect_headroom() {
   valid_nonnegative_integer "$memory_per_actor" || fail "MX_HEADROOM_MEM_PER_ACTOR_BYTES must be an integer"
   [ "$memory_per_actor" -gt 0 ] || fail "MX_HEADROOM_MEM_PER_ACTOR_BYTES must be positive"
 
-  cpu_slots=$(awk -v cpus="$cpu_count" -v load="$load_one" -v unit="$cpu_per_actor" \
-    'BEGIN { slots = int((cpus - load) / unit); if (slots < 0) slots = 0; print slots }')
+  cpu_slots=$(awk -v cpus="$cpu_count" -v current_load="$load_one" -v unit="$cpu_per_actor" \
+    'BEGIN { slots = int((cpus - current_load) / unit); if (slots < 0) slots = 0; print slots }')
   memory_slots=$(awk -v bytes="$memory_available" -v unit="$memory_per_actor" \
     'BEGIN { slots = int(bytes / unit); if (slots < 0) slots = 0; print slots }')
   if [ "$cpu_slots" -lt "$memory_slots" ]; then local_available=$cpu_slots; else local_available=$memory_slots; fi
