@@ -10,7 +10,7 @@ validate_contract() {
     /^### Validate$/ { found = 1; next }
     found && /^### / { exit }
     found { print }
-  ' "$ROOT/AGENTS.md"
+  ' "$ROOT/example_agents.md"
 }
 
 test_worker_owns_synchronous_driver() {

@@ -116,7 +116,8 @@ Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectab
 
 ## Worktrees, not branches in your checkout
 
-Actors never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, and cmux tasks.
+Actors never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) is the backend-independent worktree provider that pools clean worktrees for tmux, herdr, and cmux task sessions.
+The exact external pin and its checksum owner are recorded in [`upstream.md`](upstream.md#pinned-external-dependencies).
 For delivery and scout work, `mx-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
 
 The Multplx repo has one extra exposure because it can dispatch actors to work on itself.

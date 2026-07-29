@@ -12,6 +12,15 @@ set -u
 
 TMP_ROOT=$(mx_test_tmproot mx-daemon-safety)
 export MX_BACKEND=tmux
+ACTIVE_ROOT="$TMP_ROOT/active-root"
+make_activated_broker_clone "$ACTIVE_ROOT"
+
+# Seed tests model an activated Multplx installation while the repository under
+# port intentionally keeps its contract dormant as example_agents.md.
+mx_home_seed() {
+  local seed_root=${MX_ROOT_OVERRIDE:-$ACTIVE_ROOT}
+  MX_ROOT_OVERRIDE="$seed_root" "$ROOT/bin/mx-home-seed.sh" "$@"
+}
 
 file_mode() {
   if [ "$(uname)" = Darwin ]; then
@@ -95,7 +104,7 @@ EOF
 
   MX_HOME="$home" MX_DAEMON_CHARTER='feature design for alpha beta' \
     MX_DAEMON_SCOPE='feature design for alpha beta' \
-    "$ROOT/bin/mx-home-seed.sh" design "$design" alpha beta >/dev/null \
+    mx_home_seed design "$design" alpha beta >/dev/null \
     || fail "initial seed failed"
   assert_grep '- design - feature design for alpha beta' "$home/data/daemons.md" "design registry line missing"
   assert_grep 'projects: alpha, beta' "$home/data/daemons.md" "design project clone list missing"
@@ -104,12 +113,12 @@ EOF
   # beta is shared with a second daemon of a different scope (overlap allowed).
   MX_HOME="$home" MX_DAEMON_CHARTER='issue triage for beta' \
     MX_DAEMON_SCOPE='issue triage for beta' \
-    "$ROOT/bin/mx-home-seed.sh" other "$other" beta >/dev/null 2>&1 \
+    mx_home_seed other "$other" beta >/dev/null 2>&1 \
     || fail "seed refused overlapping project clones across different scopes"
   assert_grep '- other - issue triage for beta' "$home/data/daemons.md" "overlapping registry line missing"
-  MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" validate >/dev/null || fail "registry validation rejected overlapping clones"
+  MX_HOME="$home" mx_home_seed validate >/dev/null || fail "registry validation rejected overlapping clones"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" owner alpha >/dev/null 2>&1; then
+  if MX_HOME="$home" mx_home_seed owner alpha >/dev/null 2>&1; then
     fail "owner subcommand still succeeded after routing moved to scopes"
   fi
   pass "seed allows overlapping project clone lists and drops the owns/owner routing"
@@ -127,7 +136,7 @@ test_home_seed_validate_rejects_duplicate_homes() {
 - triage - triage domain (home: $subhome_abs; scope: issue triage; projects: beta; added 2026-06-22)
 EOF
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" validate >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed validate >/dev/null 2>"$err"; then
     fail "registry validation accepted two daemons with the same home"
   fi
   grep -F 'duplicate daemon home assignment' "$err" >/dev/null \
@@ -149,7 +158,7 @@ test_home_seed_validate_rejects_duplicate_ids() {
 - design - design domain (home: $second_abs; scope: design work; projects: beta; added 2026-06-22)
 EOF
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" validate >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed validate >/dev/null 2>"$err"; then
     fail "registry validation accepted two homes for the same daemon id"
   fi
   grep -F 'duplicate daemon id assignment' "$err" >/dev/null \
@@ -171,7 +180,7 @@ test_home_seed_validate_rejects_nested_homes() {
 - triage - triage domain (home: $descendant_abs; scope: issue triage; projects: beta; added 2026-06-22)
 EOF
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" validate >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed validate >/dev/null 2>"$err"; then
     fail "registry validation accepted nested daemon homes"
   fi
   grep -F 'overlapping daemon home assignment' "$err" >/dev/null \
@@ -187,7 +196,7 @@ test_home_seed_uses_treehouse_acquired_home() {
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  git clone --quiet "$ROOT" "$acquired"
+  make_activated_broker_clone "$acquired"
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fake")
   log="$TMP_ROOT/dash-fake/tmux.log"
   lease="$TMP_ROOT/dash-fake/lease"
@@ -195,7 +204,7 @@ test_home_seed_uses_treehouse_acquired_home() {
   out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$acquired" MX_FAKE_TMUX_LOG="$log" \
     MX_FAKE_TREEHOUSE_LEASE_FILE="$lease" \
     MX_DAEMON_CHARTER='dash acquired scope' MX_DAEMON_SCOPE='dash acquired scope' \
-    "$ROOT/bin/mx-home-seed.sh" dash - alpha) \
+    mx_home_seed dash - alpha) \
     || fail "seed failed for a treehouse-acquired home"
   acquired_abs=$(cd "$acquired" && pwd -P)
   printf '%s\n' "$out" | grep -F "home=$acquired_abs" >/dev/null || fail "seed did not report acquired home"
@@ -218,7 +227,7 @@ test_home_seed_returns_treehouse_acquired_home_on_assignment_failure() {
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-fail-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  git clone --quiet "$ROOT" "$acquired"
+  make_activated_broker_clone "$acquired"
   acquired_abs=$(cd "$acquired" && pwd -P)
   printf 'other\n' > "$acquired/.mx-daemon-home"
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fail-fake")
@@ -226,7 +235,7 @@ test_home_seed_returns_treehouse_acquired_home_on_assignment_failure() {
 
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$acquired" MX_FAKE_TMUX_LOG="$log" \
     MX_DAEMON_CHARTER='dash acquired scope' MX_DAEMON_SCOPE='dash acquired scope' \
-    "$ROOT/bin/mx-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
+    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
     fail "seed reused an acquired home marked for another daemon"
   fi
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not explain acquired marked-home rejection"
@@ -247,7 +256,7 @@ test_home_seed_warns_when_acquired_home_return_fails() {
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-return-fail-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  git clone --quiet "$ROOT" "$acquired"
+  make_activated_broker_clone "$acquired"
   acquired_abs=$(cd "$acquired" && pwd -P)
   printf 'other\n' > "$acquired/.mx-daemon-home"
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-return-fail-fake")
@@ -257,7 +266,7 @@ test_home_seed_warns_when_acquired_home_return_fails() {
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$acquired" MX_FAKE_TMUX_LOG="$log" \
     MX_FAKE_TREEHOUSE_LEASE_FILE="$lease" MX_FAKE_TREEHOUSE_RETURN_FAIL=1 \
     MX_DAEMON_CHARTER='dash acquired scope' MX_DAEMON_SCOPE='dash acquired scope' \
-    "$ROOT/bin/mx-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
+    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
     fail "seed reused an acquired home after return failure setup"
   fi
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not report original acquired-home rejection"
@@ -282,7 +291,7 @@ test_home_seed_does_not_return_unsafe_acquired_home() {
   log="$TMP_ROOT/dash-active-fake/tmux.log"
 
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/mx-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
+    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home matching the active Multplx home"
   fi
   grep -F 'daemon home cannot be the active Multplx home' "$err" >/dev/null \
@@ -293,7 +302,7 @@ test_home_seed_does_not_return_unsafe_acquired_home() {
 
   : > "$log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$descendant" MX_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/mx-home-seed.sh" dash - alpha >/dev/null 2>"$err"; then
+    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home inside the active Multplx home"
   fi
   grep -F 'daemon home cannot be inside the active Multplx home' "$err" >/dev/null \
@@ -321,7 +330,7 @@ test_home_seed_rolls_back_failed_clone() {
 EOF
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='rollback scope' MX_DAEMON_SCOPE='rollback scope' \
-    "$ROOT/bin/mx-home-seed.sh" rollback "$subhome" alpha beta >/dev/null 2>"$err"; then
+    mx_home_seed rollback "$subhome" alpha beta >/dev/null 2>"$err"; then
     fail "seed succeeded even though the second project clone failed"
   fi
   grep -F 'does not appear to be a git repository' "$err" >/dev/null \
@@ -347,7 +356,7 @@ test_home_seed_refuses_missing_filled_charter() {
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/missing-charter-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a direct seed without a filled charter"
   fi
   grep -F 'no filled daemon charter brief' "$err" >/dev/null \
@@ -369,7 +378,7 @@ test_home_seed_refuses_placeholder_charter() {
   MX_HOME="$home" "$ROOT/bin/mx-brief.sh" design --daemon alpha >/dev/null \
     || fail "placeholder charter scaffold failed"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted an unfilled placeholder charter"
   fi
   grep -F 'still contains {TASK}' "$err" >/dev/null \
@@ -389,7 +398,7 @@ test_home_seed_refuses_empty_charter_fields() {
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/empty-charter-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
 
-  if MX_HOME="$home" MX_DAEMON_CHARTER='   ' "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" MX_DAEMON_CHARTER='   ' mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a whitespace-only charter"
   fi
   grep -F 'empty Charter section' "$err" >/dev/null \
@@ -399,7 +408,7 @@ test_home_seed_refuses_empty_charter_fields() {
   rm -rf "$home/data/design" "$subhome" "$err"
   MX_DAEMON_SCOPE='   ' scaffold_daemon_charter "$home" design 'filled charter' alpha \
     || fail "empty scope fixture scaffold failed"
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted an empty routing scope"
   fi
   grep -F 'empty Routing scope section' "$err" >/dev/null \
@@ -421,7 +430,7 @@ test_home_seed_no_projects_end_to_end() {
 
   out=$(MX_HOME="$home" MX_DAEMON_CHARTER='broker self-development' \
     MX_DAEMON_SCOPE='Multplx repo work' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects) \
+    mx_home_seed fdev "$sub" --no-projects) \
     || fail "project-less seed failed"
   sub_abs=$(cd "$sub" && pwd -P)
   printf '%s\n' "$out" | grep -F "home=$sub_abs" >/dev/null || fail "seed did not report the project-less subhome"
@@ -433,7 +442,7 @@ test_home_seed_no_projects_end_to_end() {
   [ "$(cat "$sub/.mx-daemon-home")" = fdev ] || fail "project-less seed did not mark the subhome"
   assert_present "$sub/data/charter.md" "project-less seed did not copy the charter"
   [ -z "$(ls -A "$sub/projects" 2>/dev/null)" ] || fail "project-less seed cloned a project"
-  MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" validate >/dev/null || fail "registry validation failed after project-less seed"
+  MX_HOME="$home" mx_home_seed validate >/dev/null || fail "registry validation failed after project-less seed"
 
   # Spawn tolerates the empty projects field: the home resolves from the registry
   # and the projects meta is recorded empty rather than breaking the launch.
@@ -465,7 +474,7 @@ test_home_seed_refuses_projectful_reused_charter_for_projectless_home() {
   scaffold_daemon_charter "$home" reusable 'broker self-development' --no-projects \
     || fail "project-less charter scaffold failed"
   printf '\n# Custom note\nThe projects above are local clones for work you supervise.\n' >> "$home/data/reusable/brief.md"
-  MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" reusable "$reusable_sub" --no-projects >/dev/null \
+  MX_HOME="$home" mx_home_seed reusable "$reusable_sub" --no-projects >/dev/null \
     || fail "project-less seed rejected a reused project-less charter"
   assert_grep 'None. This is a project-less domain' "$reusable_sub/data/charter.md" \
     "reused project-less charter was not copied"
@@ -476,7 +485,7 @@ test_home_seed_refuses_projectful_reused_charter_for_projectless_home() {
     "$stale_brief" > "$stale_brief_before"
   mv "$stale_brief_before" "$stale_brief"
   cp "$stale_brief" "$stale_brief_before"
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" stale "$stale_sub" --no-projects >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed stale "$stale_sub" --no-projects >/dev/null 2>"$err"; then
     fail "project-less seed accepted a reused charter with project clones"
   fi
   grep -F 'existing charter brief' "$err" >/dev/null \
@@ -509,7 +518,7 @@ EOF
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='broker self-development' \
     MX_DAEMON_SCOPE='Multplx repo work' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" --no-projects >/dev/null 2>"$err"; then
     fail "project-less seed converted a populated daemon home"
   fi
   grep -F 'existing-clone' "$err" >/dev/null \
@@ -542,7 +551,7 @@ test_home_seed_refuses_projectless_home_with_uninspectable_projects() {
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='broker self-development' \
     MX_DAEMON_SCOPE='Multplx repo work' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" --no-projects >/dev/null 2>"$err"; then
     chmod 700 "$sub/projects"
     fail "project-less seed accepted a home whose projects directory could not be inspected"
   fi
@@ -575,7 +584,7 @@ test_home_seed_refuses_projectless_home_with_symlinked_projects() {
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='broker self-development' \
     MX_DAEMON_SCOPE='Multplx repo work' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" --no-projects >/dev/null 2>"$err"; then
     chmod 700 "$target"
     fail "project-less seed accepted a home whose projects directory is a symlink"
   fi
@@ -609,7 +618,7 @@ test_home_seed_refuses_projectless_home_with_non_directory_projects() {
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='broker self-development' \
     MX_DAEMON_SCOPE='Multplx repo work' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" --no-projects >/dev/null 2>"$err"; then
     fail "project-less seed accepted a home whose projects path is not a directory"
   fi
   grep -F 'projects directory' "$err" >/dev/null \
@@ -640,7 +649,7 @@ test_home_seed_refuses_projectless_home_with_uninspectable_registry() {
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='broker self-development' \
     MX_DAEMON_SCOPE='Multplx repo work' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" --no-projects >/dev/null 2>"$err"; then
     chmod 600 "$sub/data/projects.md"
     fail "project-less seed accepted a home whose project registry could not be inspected"
   fi
@@ -672,7 +681,7 @@ test_home_seed_refuses_missing_projects_without_signal() {
   mkdir -p "$home/projects" "$home/data" "$home/state"
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='some scope' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" >/dev/null 2>"$err"; then
     fail "seed accepted a project-less home without the deliberate --no-projects signal"
   fi
   assert_absent "$sub" "loud-failure seed created a subhome"
@@ -682,7 +691,7 @@ test_home_seed_refuses_missing_projects_without_signal() {
 
   # The deliberate signal is mutually exclusive with a project list.
   if MX_HOME="$home" MX_DAEMON_CHARTER='some scope' \
-    "$ROOT/bin/mx-home-seed.sh" fdev "$sub" --no-projects alpha >/dev/null 2>"$err"; then
+    mx_home_seed fdev "$sub" --no-projects alpha >/dev/null 2>"$err"; then
     fail "seed accepted --no-projects combined with a project list"
   fi
   grep -F 'cannot be combined with a project list' "$err" >/dev/null \
@@ -699,7 +708,7 @@ test_home_seed_refuses_local_only_project() {
   mx_git_init_commit "$home/projects/alpha"
   printf '%s\n' '- alpha [local-only] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed allowed a local-only project into a daemon home"
   fi
   grep -F 'project alpha is local-only; daemon routes support only no-mistakes and direct-PR projects' "$err" >/dev/null \
@@ -718,7 +727,7 @@ test_home_seed_refuses_registry_delimiter_home() {
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/delimiter-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
 
-  if MX_HOME="$home" MX_DAEMON_CHARTER='delimiter charter' "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" MX_DAEMON_CHARTER='delimiter charter' mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home path with registry delimiters"
   fi
   grep -F 'daemon home path contains registry delimiters' "$err" >/dev/null \
@@ -740,50 +749,50 @@ test_home_seed_refuses_active_home_and_root() {
   root_descendant="$root_clone/tmp/design-home"
   root_ancestor="$TMP_ROOT/active-seed-root-ancestor"
   root_inside="$root_ancestor/nested-root"
-  git clone --quiet "$ROOT" "$active_ancestor"
+  make_activated_broker_clone "$active_ancestor"
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/active-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for active-home seed test"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$home" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$home" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to reuse active MX_HOME"
   fi
   grep -F 'daemon home cannot be the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active MX_HOME rejection"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$active_descendant" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$active_descendant" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home inside active MX_HOME"
   fi
   grep -F 'daemon home cannot be inside the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active MX_HOME descendant rejection"
   [ ! -e "$home/nested" ] || fail "seed created a directory inside active MX_HOME before descendant rejection"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$active_ancestor" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$active_ancestor" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to contain active MX_HOME"
   fi
   grep -F 'daemon home cannot be an ancestor of the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active MX_HOME ancestor rejection"
   [ ! -f "$active_ancestor/.mx-daemon-home" ] || fail "seed marked an ancestor of active MX_HOME"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$ROOT" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" mx_home_seed design "$ROOT" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to reuse MX_ROOT"
   fi
   grep -F 'daemon home cannot be the Multplx repo' "$err" >/dev/null \
     || fail "seed did not explain MX_ROOT rejection"
 
-  git clone --quiet "$ROOT" "$root_clone"
-  if MX_HOME="$home" MX_ROOT_OVERRIDE="$root_clone" "$ROOT/bin/mx-home-seed.sh" design "$root_descendant" alpha >/dev/null 2>"$err"; then
+  make_activated_broker_clone "$root_clone"
+  if MX_HOME="$home" MX_ROOT_OVERRIDE="$root_clone" mx_home_seed design "$root_descendant" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home inside MX_ROOT"
   fi
   grep -F 'daemon home cannot be inside the Multplx repo' "$err" >/dev/null \
     || fail "seed did not explain MX_ROOT descendant rejection"
   [ ! -e "$root_clone/tmp" ] || fail "seed created a directory inside MX_ROOT before descendant rejection"
 
-  git clone --quiet "$ROOT" "$root_ancestor"
-  git clone --quiet "$ROOT" "$root_inside"
-  if MX_HOME="$home" MX_ROOT_OVERRIDE="$root_inside" "$ROOT/bin/mx-home-seed.sh" design "$root_ancestor" alpha >/dev/null 2>"$err"; then
+  make_activated_broker_clone "$root_ancestor"
+  make_activated_broker_clone "$root_inside"
+  if MX_HOME="$home" MX_ROOT_OVERRIDE="$root_inside" mx_home_seed design "$root_ancestor" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to contain MX_ROOT"
   fi
   grep -F 'daemon home cannot be an ancestor of the Multplx repo' "$err" >/dev/null \
@@ -800,12 +809,12 @@ test_home_seed_refuses_home_marked_for_another_id() {
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/marked-alpha.git"
-  git clone --quiet "$ROOT" "$subhome"
+  make_activated_broker_clone "$subhome"
   printf 'other\n' > "$subhome/.mx-daemon-home"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for marked-home seed test"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed reused a home marked for another daemon"
   fi
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not explain marked-home rejection"
@@ -821,13 +830,13 @@ test_home_seed_refuses_home_registered_to_another_id() {
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/registered-alpha.git"
-  git clone --quiet "$ROOT" "$subhome"
+  make_activated_broker_clone "$subhome"
   subhome_abs=$(cd "$subhome" && pwd -P)
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   printf '%s\n' '- other - other domain (home: '"$subhome_abs"'; scope: other domain; projects: beta; added 2026-06-22)' > "$home/data/daemons.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for registered-home seed test"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed reused a home registered to another daemon"
   fi
   grep -F 'already registered to other' "$err" >/dev/null || fail "seed did not explain registered-home rejection"
@@ -847,12 +856,12 @@ test_home_seed_refuses_reassigning_existing_id_to_different_home() {
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
 
   MX_HOME="$home" MX_DAEMON_CHARTER='design domain' MX_DAEMON_SCOPE='design domain' \
-    "$ROOT/bin/mx-home-seed.sh" design "$first" alpha >/dev/null \
+    mx_home_seed design "$first" alpha >/dev/null \
     || fail "initial seed failed for reassigning-id test"
   first_abs=$(cd "$first" && pwd -P)
 
   if MX_HOME="$home" MX_DAEMON_CHARTER='design domain' MX_DAEMON_SCOPE='design domain' \
-    "$ROOT/bin/mx-home-seed.sh" design "$second" alpha >/dev/null 2>"$err"; then
+    mx_home_seed design "$second" alpha >/dev/null 2>"$err"; then
     fail "seed reassigned an existing daemon id to a different home"
   fi
   grep -F "daemon id design is already registered to home $first_abs" "$err" >/dev/null \
@@ -878,22 +887,22 @@ test_home_seed_refuses_home_overlapping_registered_home() {
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/overlap-alpha.git"
-  git clone --quiet "$ROOT" "$registered_parent"
-  git clone --quiet "$ROOT" "$registered_child"
+  make_activated_broker_clone "$registered_parent"
+  make_activated_broker_clone "$registered_child"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   cat > "$home/data/daemons.md" <<EOF
 - parent - parent domain (home: $registered_parent; scope: parent domain; projects: beta; added 2026-06-22)
 - child - child domain (home: $registered_child; scope: child domain; projects: gamma; added 2026-06-22)
 EOF
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$nested" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$nested" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home inside a registered daemon home"
   fi
   grep -F 'overlaps registered daemon home' "$err" >/dev/null \
     || fail "seed did not explain registered ancestor overlap"
   [ ! -e "$nested" ] || fail "seed created a nested home inside a registered home"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$parent" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$parent" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home containing a registered daemon home"
   fi
   grep -F 'overlaps registered daemon home' "$err" >/dev/null \
@@ -912,7 +921,7 @@ test_home_seed_refuses_remote_backed_project_without_origin() {
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for no-origin seed test"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed allowed remote-backed project without origin"
   fi
   grep -F 'project alpha is direct-PR but has no origin remote' "$err" >/dev/null || fail "seed did not explain missing origin for remote-backed project"
@@ -927,14 +936,14 @@ test_home_seed_refuses_existing_remote_backed_project_with_wrong_origin() {
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/wrong-alpha.git"
-  git clone --quiet "$ROOT" "$subhome"
+  make_activated_broker_clone "$subhome"
   subhome_abs=$(cd "$subhome" && pwd -P)
   mkdir -p "$subhome/projects"
   git clone --quiet "$home/projects/alpha" "$subhome/projects/alpha"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for wrong-origin seed test"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted existing remote-backed project with wrong origin"
   fi
   expected=$(git -C "$home/projects/alpha" remote get-url origin)
@@ -956,14 +965,14 @@ test_home_seed_resolves_relative_source_origins() {
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for relative origin seed test"
 
-  out=$(MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha)
+  out=$(MX_HOME="$home" mx_home_seed design "$subhome" alpha)
   subhome_abs=$(cd "$subhome" && pwd -P)
   expected=$(cd "$home/remotes/relative-alpha.git" && pwd -P)
   printf '%s\n' "$out" | grep -F "home=$subhome_abs" >/dev/null || fail "seed did not report relative-origin subhome"
   [ -d "$subhome/projects/alpha/.git" ] || fail "relative source origin was not cloned"
   actual=$(git -C "$subhome/projects/alpha" remote get-url origin)
   [ "$actual" = "$expected" ] || fail "relative source origin was not cloned through the resolved path"
-  MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null \
+  MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null \
     || fail "relative source origin did not compare equal on reseed"
   pass "home seeding resolves relative source origins against the source project"
 }
@@ -979,7 +988,7 @@ test_home_seed_skips_initialized_existing_no_mistakes_projects() {
   mx_git_init_commit "$home/projects/beta"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/existing-alpha.git"
   mx_git_add_origin "$home/projects/beta" "$TMP_ROOT/remotes/existing-beta.git"
-  git clone --quiet "$ROOT" "$subhome"
+  make_activated_broker_clone "$subhome"
   mkdir -p "$subhome/projects"
   origin=$(git -C "$home/projects/alpha" remote get-url origin)
   git clone --quiet "$origin" "$subhome/projects/alpha"
@@ -990,7 +999,7 @@ test_home_seed_skips_initialized_existing_no_mistakes_projects() {
 
   if PATH="$fakebin:$PATH" MX_FAKE_NO_MISTAKES_LOG="$log" MX_FAKE_NO_MISTAKES_FAIL_PROJECT=beta \
     MX_HOME="$home" MX_DAEMON_CHARTER='existing init rollback scope' MX_DAEMON_SCOPE='existing init rollback scope' \
-    "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha beta >/dev/null 2>"$err"; then
+    mx_home_seed design "$subhome" alpha beta >/dev/null 2>"$err"; then
     fail "seed succeeded even though later no-mistakes initialization failed"
   fi
   grep -F 'failed to initialize no-mistakes for beta' "$err" >/dev/null \
@@ -1012,7 +1021,7 @@ test_home_seed_refuses_uninitialized_existing_no_mistakes_project() {
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/uninitialized-alpha.git"
-  git clone --quiet "$ROOT" "$subhome"
+  make_activated_broker_clone "$subhome"
   mkdir -p "$subhome/projects"
   origin=$(git -C "$home/projects/alpha" remote get-url origin)
   git clone --quiet "$origin" "$subhome/projects/alpha"
@@ -1022,7 +1031,7 @@ test_home_seed_refuses_uninitialized_existing_no_mistakes_project() {
 
   if PATH="$fakebin:$PATH" MX_FAKE_NO_MISTAKES_LOG="$log" \
     MX_HOME="$home" MX_DAEMON_CHARTER='existing uninitialized scope' \
-    "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+    mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed initialized a preexisting no-mistakes clone"
   fi
   grep -F 'refusing to mutate preexisting clone' "$err" >/dev/null \
@@ -1041,13 +1050,13 @@ test_home_seed_refuses_project_destinations_outside_subhome() {
   mkdir -p "$home/projects" "$home/data" "$home/state" "$sink"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/symlink-alpha.git"
-  git clone --quiet "$ROOT" "$subhome"
+  make_activated_broker_clone "$subhome"
   rm -rf "$subhome/projects"
   ln -s "$sink" "$subhome/projects"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for symlink destination seed test"
 
-  if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed followed a subhome projects symlink outside the subhome"
   fi
   grep -F 'daemon projects directory must resolve inside the daemon home' "$err" >/dev/null \
@@ -1071,11 +1080,11 @@ test_home_seed_refuses_operational_dirs_outside_subhome() {
     subhome="$TMP_ROOT/symlink-opdir-subhome-$opdir"
     sink="$home/data/symlink-opdir-$opdir"
     rm -rf "$subhome" "$sink"
-    git clone --quiet "$ROOT" "$subhome"
+    make_activated_broker_clone "$subhome"
     mkdir -p "$sink"
     rm -rf "${subhome:?}/${opdir:?}"
     ln -s "$sink" "$subhome/$opdir"
-    if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+    if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
       fail "seed accepted a subhome with $opdir symlinked outside the subhome"
     fi
     grep -F "daemon $opdir directory must resolve inside the daemon home" "$err" >/dev/null \
@@ -1099,7 +1108,7 @@ test_home_seed_refuses_symlinked_leaf_files() {
     subhome="$TMP_ROOT/symlink-leaf-subhome-${leaf//\//-}"
     sink="$home/data/symlink-leaf-${leaf//\//-}"
     rm -rf "$subhome" "$sink"
-    git clone --quiet "$ROOT" "$subhome"
+    make_activated_broker_clone "$subhome"
     mkdir -p "$(dirname "$subhome/$leaf")" "$(dirname "$sink")"
     expected=outside
     if [ "$leaf" = ".mx-daemon-home" ]; then
@@ -1107,7 +1116,7 @@ test_home_seed_refuses_symlinked_leaf_files() {
     fi
     printf '%s\n' "$expected" > "$sink"
     ln -s "$sink" "$subhome/$leaf"
-    if MX_HOME="$home" "$ROOT/bin/mx-home-seed.sh" design "$subhome" alpha >/dev/null 2>"$err"; then
+    if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
       fail "seed accepted symlinked leaf file $leaf"
     fi
     grep -F 'daemon leaf file must not be a symlink:' "$err" >/dev/null \

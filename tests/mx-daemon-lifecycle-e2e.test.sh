@@ -42,6 +42,7 @@ BETA_ORIGIN=
 # --- shared world + seed ----------------------------------------------------
 setup_world() {
   mkdir -p "$HOME_DIR/projects" "$HOME_DIR/data" "$HOME_DIR/state"
+  make_activated_broker_clone "$SUB"
   mx_git_init_commit "$HOME_DIR/projects/alpha"
   mx_git_init_commit "$HOME_DIR/projects/beta"
   mx_git_init_commit "$HOME_DIR/projects/gamma"

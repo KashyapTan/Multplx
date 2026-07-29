@@ -18,6 +18,15 @@ tree at the fork-point commit (`git archive`), excluding upstream's `CLAUDE.md`
 symlink (Multplx keeps its own `CLAUDE.md`). All subsequent divergence is
 recorded in this repo's own history, starting with plan 01 (deletions).
 
+## Pinned external dependencies
+
+| Dependency | Upstream | Pin | Verification owner |
+|---|---|---|---|
+| Treehouse worktree provider | https://github.com/kunchenguid/treehouse | `v2.0.1` | `bin/mx-install-treehouse.sh` owns the per-platform SHA-256 table, bounded download, and exact post-install version check. |
+
+Treehouse release review is part of the plan-14 upstream watch.
+A pin bump is an ordinary reviewed change that updates both the version and every platform checksum in `bin/mx-install-treehouse.sh`.
+
 ## Phase 0 baseline (2026-07-27, macOS; corrected after plan 01)
 
 The initial `--all` baseline run recorded 4 environmental failures, but its
