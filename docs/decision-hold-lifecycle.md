@@ -68,7 +68,7 @@ ok - backlog normalization preserves strict roles and resolves every blocker com
 ok - durable maintainer-held transfer closes the duplicate live status decision
 ok - snapshot parses tasks-axi rows and respects operational overrides
 
-$ bash tests/mx-status-snapshot.test.sh
+$ bin/mx-test-run.sh --family snapshot-catchup
 ok - a completed scout with decision-like report prose is a pointer, not pending
 ok - action-free items (working/done/queued/landed) do not leak into Maintainer's Call
 ok - mixed daemon roles, partial state, and maintainer readiness project independently

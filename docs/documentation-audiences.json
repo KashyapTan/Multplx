@@ -8,7 +8,10 @@
       "*.txt",
       "docs/examples/*"
     ],
-    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
+    "excludedPrefixes": [
+      "firstmate/"
+    ],
+    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. The tracked firstmate/ tree is a read-only upstream reference rather than a Multplx documentation owner. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
   },
   "allowedAudiences": [
     "public-product",
@@ -218,6 +221,10 @@
     },
     {
       "path": "docs/mx-test-isolation-proof.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/mx-test-performance.md",
       "audience": "maintainer-verification"
     },
     {

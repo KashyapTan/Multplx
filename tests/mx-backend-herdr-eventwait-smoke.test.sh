@@ -110,7 +110,7 @@ REC_TO=$(mx_transition_to_status "$REC")
 # Sub-second: comfortably under the ~240s stale-pane wedge timer this replaces.
 UNDER_ONE=$(python3 -c "print('yes' if (($END)-($START)) < 1.0 else 'no')" 2>/dev/null || echo "no")
 [ "$UNDER_ONE" = yes ] || echo "note: idle->blocked wake took ${ELAPSED}s (>1s; still far under the 240s wedge timer, not fatal)" >&2
-pass "real herdr ($HERDR_VERSION): a driven idle->blocked transition returns the blocked record in ${ELAPSED}s (pane $PANE_ID)"
+pass "real herdr: a driven idle->blocked transition returns the blocked record within the bounded wait"
 
 # --- the watcher's fast-path lands a stale record in the scratch wake queue ---
 # Load the narrow production owner only after pointing it at scratch state, then

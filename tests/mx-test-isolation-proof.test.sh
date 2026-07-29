@@ -1,15 +1,7 @@
 #!/usr/bin/env bash
-# Contract tests for bin/mx-test-isolation-proof.sh - the Phase 2 pre-shard
-# isolation proof harness.
-#
-# These tests assert the candidate-set contract, serial exclusions, aggregate
-# failure reporting, and that Phase 4 production shards consume this exact set.
-# They deliberately do NOT re-run the full concurrent candidate matrix on every
-# invocation (that matrix is owned by the harness itself and archived under
-# docs/mx-test-isolation-proof.md after a deliberate proof run).
+# Contracts for the runner-owned resource manifest and repeatable isolation proof.
 set -u
 
-# shellcheck disable=SC1091
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -23,249 +15,100 @@ PROOF_JSON="$ROOT/docs/mx-test-isolation-proof.json"
 assert_present "$PROOF" "bin/mx-test-isolation-proof.sh is missing"
 [ -x "$PROOF" ] || fail "bin/mx-test-isolation-proof.sh must be executable"
 
-test_list_candidates_nonempty_and_stable() {
-  local listed count sorted
-  listed=$("$PROOF" --list)
-  [ -n "$listed" ] || fail "--list printed nothing"
-  count=$(printf '%s\n' "$listed" | wc -l | tr -d ' ')
-  [ "$count" -ge 10 ] || fail "expected a bounded non-trivial candidate set, got $count"
-  sorted=$(printf '%s\n' "$listed" | LC_ALL=C sort)
-  [ "$listed" = "$sorted" ] || fail "--list must be sorted for a stable matrix"
-  # No duplicates.
-  [ "$(printf '%s\n' "$listed" | uniq | wc -l | tr -d ' ')" = "$count" ] \
-    || fail "--list must not duplicate candidates"
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    case "$line" in
-      tests/*.test.sh) [ -f "$ROOT/$line" ] || fail "listed missing script: $line" ;;
-      *) fail "non-test candidate path: $line" ;;
-    esac
-  done <<<"$listed"
-  pass "candidate --list is non-empty, sorted, unique, and real"
+test_proof_consumes_exact_runner_manifest() {
+  local proof_manifest runner_manifest
+  proof_manifest=$("$PROOF" --list-resources)
+  runner_manifest=$("$RUNNER" --list-resources --all)
+  [ "$proof_manifest" = "$runner_manifest" ] \
+    || fail "isolation proof duplicated or diverged from the runner resource manifest"
+  [ "$(printf '%s\n' "$proof_manifest" | wc -l | tr -d ' ')" = \
+    "$("$RUNNER" --list --all | wc -l | tr -d ' ')" ] \
+    || fail "resource manifest does not cover the exact inventory"
+  pass "isolation proof consumes the exact runner-owned manifest"
 }
 
-test_candidates_exclude_serial_classes() {
-  local listed
-  listed=$("$PROOF" --list)
-  # Self must never re-enter the concurrent matrix.
-  printf '%s\n' "$listed" | grep -Fq 'tests/mx-test-isolation-proof.test.sh' \
-    && fail "isolation-proof test must not be a parallel candidate"
-  # Real tmux smoke, watcher lock, real herdr, AFK, live harnesses stay serial.
-  for banned in \
-    tests/mx-backend-tmux-smoke.test.sh \
-    tests/mx-watcher-lock.test.sh \
-    tests/mx-wake-queue.test.sh \
-    tests/mx-backend-herdr-smoke.test.sh \
-    tests/mx-afk-inject-e2e.test.sh \
-    tests/mx-pi-primary-live-e2e.test.sh \
-    tests/mx-pr-check-security.test.sh \
-    tests/mx-backend-cmux-smoke.test.sh; do
-    printf '%s\n' "$listed" | grep -Fxq "$banned" \
-      && fail "serial-class script must not be a parallel candidate: $banned"
-  done
-  pass "serial classes remain excluded from the parallel candidate set"
+test_candidate_and_exclusion_partition() {
+  local candidates exclusions all union
+  candidates=$("$PROOF" --list)
+  exclusions=$("$PROOF" --list-exclusions | cut -f1)
+  all=$("$RUNNER" --list --all | LC_ALL=C sort)
+  union=$(printf '%s\n' "$candidates" "$exclusions" | LC_ALL=C sort)
+  [ "$union" = "$all" ] || fail "proof candidates plus explicit exclusions must equal inventory"
+  printf '%s\n' "$candidates" | grep -Fq 'mx-backend-herdr-presentation-e2e' \
+    && fail "real Herdr must remain outside portable stress rounds"
+  printf '%s\n' "$candidates" | grep -Fq 'mx-test-run.test.sh' \
+    && fail "global runner self-contract must not recurse into the proof"
+  printf '%s\n' "$exclusions" | grep -Fq 'tests/mx-test-run.test.sh' \
+    || fail "global runner exclusion is not documented"
+  pass "proof candidates and resource exclusions partition the inventory"
 }
 
-test_candidates_match_archived_proof() {
-  local listed archived
+test_conflict_matrix_is_complete_for_shared_resources() {
+  local conflicts
+  conflicts=$("$PROOF" --list-conflicts)
+  [ -n "$conflicts" ] || fail "conflict matrix is empty"
+  printf '%s\n' "$conflicts" \
+    | awk -F '\t' '
+        ($1 == "tests/mx-watch-triage.test.sh" && $2 == "tests/mx-watcher-lock.test.sh" && $3 ~ /watcher-process/) ||
+        ($2 == "tests/mx-watch-triage.test.sh" && $1 == "tests/mx-watcher-lock.test.sh" && $3 ~ /watcher-process/) { found=1 }
+        END { exit(found ? 0 : 1) }
+      ' || fail "shared watcher-process pair missing from conflict matrix"
+  printf '%s\n' "$conflicts" \
+    | awk -F '\t' '
+        ($1 == "tests/mx-test-run.test.sh" || $2 == "tests/mx-test-run.test.sh") && $3 ~ /global/ { found=1 }
+        END { exit(found ? 0 : 1) }
+      ' || fail "global resource does not conflict with the inventory"
+  printf '%s\n' "$conflicts" \
+    | awk -F '\t' '
+        ($1 ~ /mx-pr-check-security-fault-quarantine/ && $2 ~ /mx-pr-check-security-retirement-teardown/ && $3 ~ /pr-security-process/) ||
+        ($2 ~ /mx-pr-check-security-fault-quarantine/ && $1 ~ /mx-pr-check-security-retirement-teardown/ && $3 ~ /pr-security-process/) { found=1 }
+        END { exit(found ? 0 : 1) }
+      ' || fail "PR security process owners do not serialize"
+  pass "conflict matrix covers shared and global resources"
+}
+
+test_archived_proof_matches_current_manifest() {
   assert_present "$PROOF_JSON" "docs/mx-test-isolation-proof.json missing"
-  listed=$("$PROOF" --list)
-  archived=$(jq -r '.scripts[].path' "$PROOF_JSON" | LC_ALL=C sort)
-  [ "$listed" = "$archived" ] \
-    || fail "candidate set must exactly match the archived isolation proof"
-  pass "candidate set exactly matches the archived isolation proof"
-}
-
-test_extra_hermetic_candidates_present() {
-  local listed
-  listed=$("$PROOF" --list)
-  for want in \
-    tests/mx-backend-herdr.test.sh \
-    tests/mx-send-strict.test.sh \
-    tests/mx-spawn-batch.test.sh \
-    tests/mx-pr-merge.test.sh \
-    tests/mx-review-diff.test.sh; do
-    printf '%s\n' "$listed" | grep -Fxq "$want" \
-      || fail "extra hermetic candidate missing: $want"
-  done
-  pass "audited fake-backend / stub-network extras are candidates"
-}
-
-test_list_exclusions_documents_reasons() {
-  local out
-  out=$("$PROOF" --list-exclusions)
-  [ -n "$out" ] || fail "--list-exclusions printed nothing"
-  printf '%s\n' "$out" | grep -Fq 'mx-watcher-lock.test.sh' \
-    || fail "exclusions must document watcher-lock serial reason"
-  printf '%s\n' "$out" | grep -Fq 'mx-backend-herdr-smoke.test.sh' \
-    || fail "exclusions must document real-herdr serial reason"
-  pass "exclusion list documents serial reasons"
-}
-
-test_family_map_labels_this_contract() {
-  local fam
-  fam=$("$RUNNER" --list --family pure-contract-unit)
-  printf '%s\n' "$fam" | grep -Fq 'tests/mx-test-isolation-proof.test.sh' \
-    || fail "mx-test-isolation-proof.test.sh must map to pure-contract-unit"
-  pass "isolation-proof contract test is family-mapped"
-}
-
-test_aggregate_failure_under_concurrency() {
-  local tmp pass_f fail_f harness rc out
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-isolation-agg.XXXXXX")
-  pass_f="$tmp/pass.test.sh"
-  fail_f="$tmp/fail.test.sh"
-  cat >"$pass_f" <<'SH'
-#!/usr/bin/env bash
-echo "ok - pass"
-exit 0
-SH
-  cat >"$fail_f" <<'SH'
-#!/usr/bin/env bash
-echo "not ok - fail"
-exit 1
-SH
-  chmod +x "$pass_f" "$fail_f"
-  # Minimal fixture harness mirroring aggregate + concurrent wait semantics.
-  harness="$tmp/harness.sh"
-  cat >"$harness" <<'SH'
-#!/usr/bin/env bash
-set -eu
-jobs=$1
-shift
-pids=()
-rcs=()
-paths=()
-idx=0
-for s in "$@"; do
-  idx=$((idx + 1))
-  (
-    bash "$s"
-    echo $? >"${TMPDIR:-/tmp}/iso-rc-$idx"
-  ) &
-  pids+=("$!")
-  paths+=("$s")
-  while [ "${#pids[@]}" -ge "$jobs" ]; do
-    wait "${pids[0]}" || true
-    pids=("${pids[@]:1}")
-  done
-done
-while [ "${#pids[@]}" -gt 0 ]; do
-  wait "${pids[0]}" || true
-  pids=("${pids[@]:1}")
-done
-failed=0
-for i in $(seq 1 "$idx"); do
-  rc=$(cat "${TMPDIR:-/tmp}/iso-rc-$i" 2>/dev/null || echo 1)
-  [ "$rc" -eq 0 ] || failed=$((failed + 1))
-  rm -f "${TMPDIR:-/tmp}/iso-rc-$i"
-done
-echo "MX_ISOLATION_SUMMARY total=$idx failed=$failed"
-[ "$failed" -eq 0 ]
-SH
-  chmod +x "$harness"
-  set +e
-  out=$(TMPDIR="$tmp" bash "$harness" 2 "$pass_f" "$fail_f" 2>&1)
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "concurrent aggregate must fail when any candidate fails"
-  printf '%s\n' "$out" | grep -Fq 'MX_ISOLATION_SUMMARY total=2 failed=1' \
-    || fail "aggregate summary must report total=2 failed=1: $out"
-  rm -rf "$tmp"
-  pass "aggregate failure reporting survives concurrency"
-}
-
-test_phase4_consumes_proven_set_only() {
-  assert_present "$CI" "ci.yml missing"
-  assert_present "$RUNNER" "mx-test-run.sh missing"
-  # Phase 4 portable parallel lanes must exist and use lane selection, not --all.
-  grep -Fq 'bin/mx-test-run.sh --lane portable-parallel-1' "$CI" \
-    || fail "CI portable parallel 1 must use --lane portable-parallel-1"
-  grep -Fq 'bin/mx-test-run.sh --lane portable-parallel-2' "$CI" \
-    || fail "CI portable parallel 2 must use --lane portable-parallel-2"
-  grep -Fq 'bin/mx-test-run.sh --lane portable-serial' "$CI" \
-    || fail "CI portable serial must use --lane portable-serial"
-  # Shard union must equal this harness's proven list.
-  local proven shards
-  proven=$("$PROOF" --list | LC_ALL=C sort -u)
-  shards=$(
-    {
-      "$RUNNER" --list --lane portable-parallel-1
-      "$RUNNER" --list --lane portable-parallel-2
-    } | LC_ALL=C sort -u
-  )
-  [ "$proven" = "$shards" ] \
-    || fail "portable parallel shards must equal isolation-proof --list exactly"
-  # Local --jobs is bounded to this proven set (refuse is contract-tested in
-  # mx-test-run.test.sh); the option must exist.
-  grep -E '^[[:space:]]*--jobs\)' "$RUNNER" >/dev/null 2>&1 \
-    || fail "mx-test-run.sh must expose bounded --jobs after Phase 4"
-  pass "Phase 4 portable shards consume the proven-isolated set only"
-}
-
-test_docs_record_proof_owner() {
-  assert_present "$PROOF_DOC" "docs/mx-test-isolation-proof.md missing"
-  grep -Fq 'bin/mx-test-isolation-proof.sh' "$PROOF_DOC" \
-    || fail "proof doc must name the harness owner"
-  grep -Fq 'production_sharding_enabled' "$PROOF_DOC" \
-    || fail "proof doc must record the archived proof-time sharding flag"
-  grep -Fq 'concurrency' "$PROOF_DOC" \
-    || fail "proof doc must record concurrency"
-  assert_present "$CONTRIB" "CONTRIBUTING.md missing"
-  grep -Fq 'mx-test-isolation-proof' "$CONTRIB" \
-    || fail "CONTRIBUTING must document the isolation-proof entry point"
-  pass "docs archive the isolation-proof owner and posture"
-}
-
-test_docs_match_archived_proof() {
-  python3 - "$PROOF_DOC" "$PROOF_JSON" <<'PY' \
-    || fail "proof Markdown must match the archived proof JSON"
+  python3 - "$PROOF_JSON" "$RUNNER" <<'PY' \
+    || fail "archived proof manifest or result shape is stale"
+import hashlib
 import json
-import re
+import subprocess
 import sys
 
-markdown = open(sys.argv[1], encoding="utf-8").read()
-with open(sys.argv[2], encoding="utf-8") as stream:
-    proof = json.load(stream)
-
-summary = proof["summary"]
-posture = [
-    f'| `run_id` | `{proof["run_id"]}` |',
-    f'| `started_at` | `{proof["started_at"]}` |',
-    f'| `finished_at` | `{proof["finished_at"]}` |',
-    f'| concurrency | **{proof["concurrency"]}** |',
-    f'| candidates | **{summary["total"]}** |',
-    f'| failed | **{summary["failed"]}** |',
-    f'| wall duration_ms | **{summary["duration_ms"]}** (~{summary["duration_ms"] / 1000:.1f}s) |',
-    f'| `production_sharding_enabled` | `{str(proof["production_sharding_enabled"]).capitalize()}` |',
-    f'| `mx_test_run_jobs_enabled` | `{str(proof["mx_test_run_jobs_enabled"]).capitalize()}` |',
-    f'| host proof date | {proof["finished_at"][:10]} (UTC day of archive write) |',
-]
-assert all(line in markdown for line in posture)
-section = markdown.split("## Per-candidate durations (concurrent run)", 1)[1]
-section = section.split("## Audit notes (why this set)", 1)[0]
-actual = [
-    (int(duration), int(exit_code), int(worker), path)
-    for duration, exit_code, worker, path in re.findall(
-        r"^\| (\d+) \| (\d+) \| (\d+) \| `([^`]+)` \|$", section, re.MULTILINE
-    )
-]
-expected = [
-    (row["duration_ms"], row["exit"], row["worker"], row["path"])
-    for row in sorted(proof["scripts"], key=lambda row: row["duration_ms"], reverse=True)
-]
-assert actual == expected
+proof = json.load(open(sys.argv[1], encoding="utf-8"))
+manifest = subprocess.check_output(
+    [sys.argv[2], "--list-resources", "--all"], text=True
+)
+assert proof["kind"] == "resource-isolation-proof"
+assert proof["manifest_sha256"] == hashlib.sha256(manifest.encode()).hexdigest()
+assert proof["summary"]["failed_rounds"] == 0
+assert proof["summary"]["leaks"] == 0
+assert proof["repeats"] >= 1
+assert len(proof["resource_manifest"]) == len(manifest.splitlines())
 PY
-  pass "proof Markdown matches archived JSON posture and durations"
+  pass "archived proof matches the current manifest and is leak-free"
 }
 
-test_list_candidates_nonempty_and_stable
-test_candidates_exclude_serial_classes
-test_candidates_match_archived_proof
-test_extra_hermetic_candidates_present
-test_list_exclusions_documents_reasons
-test_family_map_labels_this_contract
-test_aggregate_failure_under_concurrency
-test_phase4_consumes_proven_set_only
-test_docs_record_proof_owner
-test_docs_match_archived_proof
+test_docs_and_ci_describe_the_resource_scheduler() {
+  assert_present "$PROOF_DOC" "docs/mx-test-isolation-proof.md missing"
+  grep -Fq 'resource manifest' "$PROOF_DOC" \
+    || fail "proof documentation must describe the resource manifest"
+  grep -Fq 'bin/mx-test-isolation-proof.sh --list-conflicts' "$PROOF_DOC" \
+    || fail "proof documentation must show conflict-matrix inspection"
+  grep -Fq 'bin/mx-test-run.sh --all --jobs auto' "$CONTRIB" \
+    || fail "CONTRIBUTING does not show the accelerated full run"
+  grep -Fq 'bin/mx-test-run.sh --all --jobs 1' "$CONTRIB" \
+    || fail "CONTRIBUTING does not show the serial reference"
+  grep -Fq 'bin/mx-test-run.sh --lane portable-parallel-1' "$CI" \
+    || fail "CI shard 1 is not runner-owned"
+  grep -Fq -- '--jobs auto' "$CI" \
+    || fail "CI portable lanes do not use the resource scheduler"
+  pass "docs and CI route through the resource-aware owners"
+}
+
+test_proof_consumes_exact_runner_manifest
+test_candidate_and_exclusion_partition
+test_conflict_matrix_is_complete_for_shared_resources
+test_archived_proof_matches_current_manifest
+test_docs_and_ci_describe_the_resource_scheduler

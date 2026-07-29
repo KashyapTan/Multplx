@@ -40,6 +40,8 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
+# shellcheck source=tests/lib.sh
+. "$ROOT/tests/lib.sh"
 
 fail() { printf 'not ok - %s\n' "$1" >&2; cleanup_all; exit 1; }
 pass() { printf 'ok - %s\n' "$1"; }
@@ -320,10 +322,10 @@ selfcheck_pane_input_pending() {
   local check_text="selfcheck-marker-12345"
   mx_backend_herdr_send_literal "$SUPERVISOR_TARGET" "$check_text" \
     || fail "selfcheck: could not send literal text to the scratch pane"
-  sleep 0.5
-  if PATH="$HERDR_SHIM_DIR:$PATH" pane_input_pending "$SUPERVISOR_TARGET" herdr; then
+  if PATH="$HERDR_SHIM_DIR:$PATH" mx_test_wait_until 3000 \
+    "real Herdr composer to expose pending self-check text" \
+    pane_input_pending "$SUPERVISOR_TARGET" herdr; then
     mx_backend_herdr_send_key "$SUPERVISOR_TARGET" Enter
-    sleep 0.5
     return 0
   fi
   echo "pane_input_pending cannot detect typed text in this real-herdr environment" >&2
@@ -342,11 +344,16 @@ test_scenario_a() {
   start_daemon
 
   mx_backend_herdr_send_literal "$SUPERVISOR_TARGET" "human draft text"
-  sleep 0.5
+  PATH="$HERDR_SHIM_DIR:$PATH" mx_test_wait_until 3000 \
+    "Scenario A composer to expose pending human input" \
+    pane_input_pending "$SUPERVISOR_TARGET" herdr \
+    || fail "Scenario A: real Herdr composer never exposed pending input"
 
   echo "done: PR https://example.test/pr/100" > "$STATE_DIR/fake-c1.status"
 
-  sleep 8
+  mx_test_wait_until 10000 "Scenario A escalation to enter the deferred buffer" \
+    test -s "$STATE_DIR/.subsuper-escalations" \
+    || fail "Scenario A: escalation never entered the deferred buffer"
 
   if grep -q 'Supervisor escalate' "$LOG_FILE"; then
     fail "Scenario A: daemon injected while the herdr pane had pending input"
@@ -357,9 +364,9 @@ test_scenario_a() {
   fi
 
   mx_backend_herdr_send_key "$SUPERVISOR_TARGET" Enter
-  sleep 0.5
-
-  sleep 8
+  mx_test_wait_until 10000 "Scenario A digest to arrive after composer idle" \
+    grep -q 'Supervisor escalate' "$LOG_FILE" \
+    || fail "Scenario A: digest not injected after the pane went idle"
 
   grep -q 'human draft text' "$LOG_FILE" \
     || fail "Scenario A: human text not in log after submit"
@@ -400,7 +407,9 @@ test_scenario_b() {
 
   echo "done: PR https://example.test/pr/200" > "$STATE_DIR/fake-c1.status"
 
-  sleep 10
+  mx_test_wait_until 12000 "Scenario B swallowed-Enter digest" \
+    grep -q 'Supervisor escalate' "$LOG_FILE" \
+    || fail "Scenario B: digest never reached the real Herdr pane"
 
   local marker_count
   marker_count=$(awk -F '\t' '{ hex=$1; count += gsub(/e281a3/, "", hex) } END { print count + 0 }' "$LOG_FILE")
@@ -432,7 +441,9 @@ test_scenario_c() {
   start_daemon
 
   echo "done: PR https://example.test/pr/300" > "$STATE_DIR/fake-c1.status"
-  sleep 8
+  mx_test_wait_until 10000 "Scenario C normal digest" \
+    grep -q 'Supervisor escalate' "$LOG_FILE" \
+    || fail "Scenario C: digest never reached the real Herdr pane"
 
   local marker_count
   marker_count=$(awk -F '\t' '{ hex=$1; count += gsub(/e281a3/, "", hex) } END { print count + 0 }' "$LOG_FILE")
@@ -498,10 +509,10 @@ test_scenario_d_max_defer() {
 
   echo "needs-decision: pick A or B" > "$STATE_DIR/fake-c1.status"
 
-  sleep 12
-
-  [ -s "$STATE_DIR/.subsuper-inject-wedged" ] \
+  mx_test_wait_until 15000 "Scenario D max-defer wedge marker" \
+    test -s "$STATE_DIR/.subsuper-inject-wedged" \
     || fail "Scenario D: a persistently pending real herdr composer never raised the max-defer wedge alarm"
+
   [ -s "$STATE_DIR/.subsuper-escalations" ] \
     || fail "Scenario D: the buffered escalation was lost instead of preserved during the wedge"
   if grep -q 'Supervisor escalate' "$LOG_FILE" 2>/dev/null; then

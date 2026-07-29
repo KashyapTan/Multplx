@@ -73,26 +73,30 @@ for script in bin/*.sh bin/backends/*.sh; do bash -n "$script"; done   # syntax-
 bin/mx-test-run.sh tests/<subject>.test.sh   # one script (primary local focus path, timed)
 bin/mx-test-run.sh --family pure-contract-unit   # ordinary family-scoped local path (serial, timed)
 bin/mx-test-run.sh --changed   # conservative changed-file-informed set (never silent full suite)
-bin/mx-test-run.sh --proven-isolated --jobs 4   # explicit local parallel of the proven set only (default is serial)
-bin/mx-test-run.sh --lane portable-serial   # portable serial remainder (watcher/AFK/tmux/stateful)
-bin/mx-test-run.sh --check-coverage   # prove portable shards + serial + Herdr equal the full inventory
-bin/mx-test-run.sh --all   # deliberate complete regression (optional local full walk; not no-mistakes Test)
-bin/mx-test-isolation-proof.sh --list   # proven parallel candidate set (Phase 2 owner)
-bin/mx-test-isolation-proof.sh --jobs 4 --json /tmp/mx-isolation-proof.json   # re-run concurrent isolation proof only
+bin/mx-test-run.sh --all --jobs auto   # accelerated complete regression (also the --all default)
+bin/mx-test-run.sh --all --jobs 1   # byte-comparable serial reference and debugging path
+bin/mx-test-run.sh --list-resources --all   # audited resource declarations
+bin/mx-test-run.sh --check-coverage   # prove manifest and CI partitions equal the full inventory
+bin/mx-test-isolation-proof.sh --list-conflicts   # inspect the derived conflict matrix
+bin/mx-test-isolation-proof.sh --jobs 4 --repeats 2 --json /tmp/mx-isolation-proof.json
+bin/mx-test-run.sh --compare-json /tmp/serial.json /tmp/accelerated.json
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]
 tmp=$(mktemp -d) && printf 'done: smoke\n' > "$tmp/smoke.status" && MX_STATE_OVERRIDE="$tmp" MX_SIGNAL_GRACE=1 MX_POLL=1 MX_HEARTBEAT=999999 bin/mx-watch-arm.sh  # watcher re-arm smoke test (prints arm status, then an actionable signal)
 ```
 
-`bin/mx-test-run.sh` is the single owner of behavior-suite selection, portable CI lane composition, optional local `--jobs` for the proven-isolated set only, per-script timing markers, family totals, the coverage guard, and the optional JSON timing artifact.
+`bin/mx-test-run.sh` is the single owner of behavior-suite selection, the resource-conflict manifest, resource-aware scheduling, generated portable CI lanes, timing markers, family totals, the coverage guard, assertion parity, and JSON timing artifacts.
 Its header and `--help` own the flags, family labels, lanes, and changed-file map; this section only documents the entry points.
-`bin/mx-test-isolation-proof.sh` remains the single owner of the Phase 2 concurrent isolation proof and the exact proven candidate set; see `docs/mx-test-isolation-proof.md`.
+`bin/mx-test-isolation-proof.sh` consumes the runner manifest and owns repeated conflict-matrix and leak proof; see `docs/mx-test-isolation-proof.md`.
 Portable shard balance evidence lives in `docs/mx-test-portable-shards.md`.
+The performance baseline, current accepted proof, and local/CI targets live in `docs/mx-test-performance.md`.
 Local no-mistakes Test stays intent-targeted and must not wire `commands.test` to `--all` or a `tests/*.test.sh` walk.
-Family selection is the ordinary local path; `--all` is deliberate full regression only.
+Family selection is the ordinary focused path; `--all` is the accelerated complete regression.
+Use `--jobs 1` whenever a failure needs serial reproduction.
 CI owns broad regression across required portable parallel shards, the portable serial lane, the Herdr lane, invariants, the coverage guard, and macOS snapshot compatibility in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-Use `bin/mx-test-run.sh --help` for lane names, `--jobs` rules, and required gate-skip flags when reproducing a lane locally.
+Use `bin/mx-test-run.sh --help` for lane names, resource-aware `--jobs` rules, and required gate-skip flags when reproducing a lane locally.
 Discover tests by listing `tests/*.test.sh`: each is a self-contained bash script named `<subject>.test.sh`, and its header comment describes what it covers, so pass one to `bin/mx-test-run.sh` to focus on a subject with canonical timing output.
 Tests that need a real optional backend or an explicit opt-in (real herdr/cmux smoke tests, the live Pi regression) skip themselves and print the tool or environment gate needed to enable them, so the portable suite remains safe on machines without those tools.
+Timeout increases, reduced fault matrices, retries, and new skips are not test-performance fixes.
 The [Herdr backend guide](docs/herdr-backend.md#destructive-lab-safety) owns the lane's isolation boundary, while [runtime backend verification](docs/verification/runtime-backends.md#herdr) owns active empirical evidence; live harness credential tests remain opt-in.
 
 ## Questions

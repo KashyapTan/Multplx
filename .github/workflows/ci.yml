@@ -20,8 +20,8 @@ jobs:
       - name: Prove complete regression partition
         run: bin/mx-test-run.sh --check-coverage
 
-  # Two duration-balanced portable parallel shards of the Phase 2 proven-isolated
-  # set only. Composition owner: bin/mx-test-run.sh (docs/mx-test-portable-shards.md).
+  # Two duration-balanced portable shards generated from the accepted timing
+  # baseline. Both use the same resource scheduler as local --all.
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-latest
@@ -41,7 +41,7 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
-          bin/mx-test-run.sh --lane portable-parallel-1 \
+          bin/mx-test-run.sh --lane portable-parallel-1 --jobs auto \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-portable-parallel-1.json"
       - name: Upload shard 1 timing artifact
         if: always()
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
-          bin/mx-test-run.sh --lane portable-parallel-2 \
+          bin/mx-test-run.sh --lane portable-parallel-2 --jobs auto \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-portable-parallel-2.json"
       - name: Upload shard 2 timing artifact
         if: always()
@@ -78,8 +78,8 @@ jobs:
           path: ${{ runner.temp }}/mx-test/mx-test-timing-portable-parallel-2.json
           if-no-files-found: warn
 
-  # Required portable serial remainder: watcher, lock, AFK, tmux, daemon,
-  # ambiguous, and other stateful tests. Real Herdr stays in tests-herdr.
+  # Global and live-harness remainder. The scheduler serializes global owners
+  # and applies every declared conflict if this lane grows.
   tests-portable-serial:
     name: Behavior portable serial
     runs-on: ubuntu-latest
@@ -108,7 +108,7 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
-          bin/mx-test-run.sh --lane portable-serial \
+          bin/mx-test-run.sh --lane portable-serial --jobs auto \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-portable-serial.json"
       - name: Upload portable serial timing artifact
         if: always()
@@ -303,7 +303,11 @@ jobs:
             exit 1
           }
 
-          status_output=$(/bin/bash tests/mx-status-snapshot.test.sh)
+          status_output=$(
+            /bin/bash tests/mx-status-snapshot-projection-reconciliation.test.sh
+            /bin/bash tests/mx-status-snapshot-landed-bounds.test.sh
+            /bin/bash tests/mx-status-snapshot-catchup-forge.test.sh
+          )
           printf '%s\n' "$status_output"
           status_count=$(printf '%s\n' "$status_output" | grep -c '^ok - ')
           [ "$status_count" -eq 42 ] || {
