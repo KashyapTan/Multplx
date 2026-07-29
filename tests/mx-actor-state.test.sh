@@ -350,6 +350,28 @@ test_active_run_is_authoritative() {
   pass "active run-step is authoritative"
 }
 
+# A native runtime block outranks an attributed CI run, but the current-state
+# detail retains the concurrent run so broker can report both facts.
+test_native_blocked_over_active_ci() {
+  command -v jq >/dev/null 2>&1 || { pass "native blocked over CI skipped without jq"; return; }
+  reset_fakes
+  local d; d=$(new_case native-blocked-ci)
+  make_repo_on_branch "$d/wt" mx/feat-native-blocked
+  make_fakebin "$d" >/dev/null
+  mx_write_meta "$d/state/feat-native-blocked.meta" \
+    "window=default:w1:p2" "worktree=$d/wt" "kind=delivery" "backend=herdr"
+  printf 'blocked: waiting for maintainer input while CI continues\n' \
+    > "$d/state/feat-native-blocked.status"
+  MX_FAKE_AXI_STATUS="$(run_top_level_ci mx/feat-native-blocked)"
+  MX_FAKE_HERDR_AGENT_STATUS=blocked
+  local out; out=$(run_actor_state "$d" feat-native-blocked)
+  assert_contains "$out" "state: blocked" "native blocked must outrank active CI"
+  assert_contains "$out" "source: native-event" "native blocked must own the verdict source"
+  assert_contains "$out" "run-step still ci running" "native blocker must retain concurrent CI detail"
+  assert_not_contains "$out" "superseded" "an agreeing native blocker must not mark the blocker report stale"
+  pass "native blocked surfaces immediately while preserving the concurrent CI update"
+}
+
 # (b) needs-decision log + a resumed (running/fixing) run = SUPERSEDED
 test_stale_needs_decision_superseded() {
   reset_fakes
@@ -1233,6 +1255,7 @@ test_missing_run_head_falls_back_to_current_state() {
 }
 
 test_active_run_is_authoritative
+test_native_blocked_over_active_ci
 test_stale_needs_decision_superseded
 test_stale_blocked_superseded
 test_genuine_parked_not_superseded

@@ -218,7 +218,8 @@ Mid-session daemon liveness is not implemented because idle daemons are delibera
 Protocol 16 can subscribe to `pane.agent_status_changed` over one bounded Unix-socket reader.
 `bin/mx-transition-lib.sh` owns the backend-neutral transition vocabulary and policy.
 The Herdr adapter subscribes before reconciling current levels, buffers edges during reconciliation, and returns fresh blocked transitions for this home's panes.
-The watcher maps the pane back to the task and skips daemon endpoints and declared `paused:` waits.
+The watcher maps the pane back to the task and skips daemon endpoints.
+A native `blocked` edge follows the precedence contract owned by `bin/mx-classify-lib.sh` and surfaces even when the latest self-report declared `paused:`.
 
 The push path only shortens latency.
 Polling runs every cycle and remains the permanent fallback when protocol 16, the event schema, Python, connection, subscription, or repeated reader execution is unavailable.

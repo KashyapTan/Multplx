@@ -150,11 +150,12 @@ test_fixture_snapshot_json() {
     || fail "task ordering must be stable by id, got $ids"
   printf '%s' "$out" | jq -e '
     .tasks[] | select(.id == "delivery-task")
-    | .current_state.state == "working"
-      and .current_state.source == "pane"
+    # Plan 05: the validated decision report outranks regex-only busy pane text.
+    | .current_state.state == "parked"
+      and .current_state.source == "status-log"
       and .pr.url == "https://github.com/KashyapTan/Multplx/pull/9"
       and .backlog.body_excerpt == "Preserve this detail for catchup."
-      and .hints.pending_decision == false
+      and .hints.pending_decision == true
       and .paths.status_log.kind == "event_history"
   ' >/dev/null || fail "delivery task state, PR, body, and stale event hints wrong"
   printf '%s' "$out" | jq -e '
@@ -390,12 +391,14 @@ test_event_hints_follow_reconciled_current_state() {
       and task("active-decision").hints.pending_decision == true
       and task("active-blocked").current_state.state == "blocked"
       and task("active-blocked").hints.blocked_event == true
-      and task("stale-decision").current_state.state == "working"
-      and task("stale-decision").hints.pending_decision == false
-      and task("stale-blocked").current_state.state == "working"
-      and task("stale-blocked").hints.blocked_event == false
+      and task("stale-decision").current_state.state == "parked"
+      and task("stale-decision").current_state.source == "status-log"
+      and task("stale-decision").hints.pending_decision == true
+      and task("stale-blocked").current_state.state == "blocked"
+      and task("stale-blocked").current_state.source == "status-log"
+      and task("stale-blocked").hints.blocked_event == true
   ' >/dev/null || fail "event hints must follow reconciled current state"
-  pass "snapshot event hints follow reconciled current state"
+  pass "snapshot event hints follow reconciled state with reports above regex-only pane text"
 }
 
 test_scout_reports_include_teardown_reports() {
@@ -546,7 +549,7 @@ test_view_renders_snapshot() {
   write_fixture "$home"
   fakebin=$(make_fakebin "$home")
   view=$(PATH="$fakebin:$PATH" MX_HOME="$home" "$VIEW")
-  assert_contains "$view" "| delivery-task | working / pane | delivery | alpha | tmux | present | https://github.com/KashyapTan/Multplx/pull/9" \
+  assert_contains "$view" "| delivery-task | parked / status-log | delivery | alpha | tmux | present | https://github.com/KashyapTan/Multplx/pull/9" \
     "view should render delivery row from snapshot"
   assert_contains "$view" "| queued-task | Queued Task | alpha | delivery | delivery-task | -" \
     "view should render queued backlog row"

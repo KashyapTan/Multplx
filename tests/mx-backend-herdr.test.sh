@@ -1701,6 +1701,17 @@ test_current_path_reads_cwd() {
 
 # --- busy_state (semantic agent state) ---------------------------------------
 
+test_native_state_preserves_exact_status() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/native-blocked"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"agent":{"agent_status":"blocked"}}}\n' > "$resp/1.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_native_state default:w1:p2' "$ROOT" )
+  [ "$out" = blocked ] || fail "native state must preserve agent_status=blocked, got '$out'"
+  pass "mx_backend_herdr_native_state: preserves the exact native blocked verdict"
+}
+
 test_busy_state_working_maps_to_busy() {
   local dir log resp fb out
   dir="$TMP_ROOT/busy-working"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -2373,6 +2384,8 @@ test_dispatch_busy_state_unknown_for_tmux() {
   . "$ROOT/bin/mx-backend.sh"
   [ "$(mx_backend_busy_state tmux 'sess:win')" = unknown ] \
     || fail "mx_backend_busy_state should report unknown for tmux (no native agent-state primitive; watcher falls back to regex)"
+  [ "$(mx_backend_native_state tmux 'sess:win')" = unknown ] \
+    || fail "mx_backend_native_state should report unknown for tmux (no native agent-state primitive)"
   pass "mx_backend_busy_state: tmux (no native primitive) always reports unknown, preserving the P1 regex-only path"
 }
 
@@ -3038,6 +3051,7 @@ test_capture_preserves_pane_read_failure
 test_send_key_normalizes_and_targets_pane
 test_kill_is_best_effort
 test_current_path_reads_cwd
+test_native_state_preserves_exact_status
 test_busy_state_working_maps_to_busy
 test_busy_state_done_and_blocked_map_to_idle
 test_busy_state_unknown_on_no_agent

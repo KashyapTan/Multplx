@@ -560,6 +560,19 @@ mx_backend_busy_state() {  # <backend> <target>
   esac
 }
 
+# mx_backend_native_state: the exact harness-native task state used by the
+# shared signal-precedence resolver. Backends without a semantic state
+# primitive contribute `unknown`; today only Herdr exposes this level read.
+mx_backend_native_state() {  # <backend> <target>
+  local backend=$1
+  shift
+  mx_backend_source "$backend" || { printf 'unknown'; return 0; }
+  case "$backend" in
+    herdr) mx_backend_herdr_native_state "$@" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
 # mx_backend_composer_state: classify the composer/input row of <target> as
 # empty|pending|unknown for callers that need a pre-submit pending-input guard
 # or an adapter's conservative submit fallback. It is exposed generically so a

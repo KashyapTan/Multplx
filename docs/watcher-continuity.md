@@ -40,6 +40,12 @@ The watcher traps that payload-free signal and interrupts only its ordinary term
 No watcher, a stale or incomplete lock, an identity mismatch, disabled nudging, or failed signal delivery silently falls back to the unchanged `MX_POLL` cycle.
 The nudge creates no recoverable state and no listener process; the append-only event and polling path remain the source of truth.
 
+## Signal precedence
+
+`bin/mx-classify-lib.sh` is the single owner of same-moment signal precedence used by the watcher, native push handler, current-state reader, and away-mode classifier.
+A native runtime blocker closes the watcher cycle immediately even while attributed validation continues, while a schema-valid terminal report cannot be hidden by regex-only busy text.
+The resulting wake lets broker report both the blocker and any concurrent validation progress without waiting for that validation to finish.
+
 ## Arm-layer cycle contract
 
 `bin/mx-watch-arm.sh` never returns a clean empty success.

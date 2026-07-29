@@ -14,14 +14,14 @@
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
 #                          has a maintainer-relevant verb OR a no-verb signal's actors
 #                          is not provably working, unless afk is active
-#   stale: <window>        a provably-working stale is ALWAYS absorbed (with a wedge
-#                          timer) regardless of what the status log says - an active
-#                          run-step or busy pane outranks even a maintainer-relevant log
-#                          line, since the actor's own log gets no new entry once
-#                          broker hands it to a no-mistakes validation. A declared
+#   stale: <window>        a native-working or attributed-run stale is absorbed with
+#                          a wedge timer even when an older maintainer-relevant report
+#                          remains, but a regex-only busy pane cannot override a
+#                          schema-valid terminal report. A declared
 #                          external-wait pause is absorbed instead with its own long
-#                          re-surface cadence, never as a wedge. Only when neither
-#                          absorb class applies does the log's last line decide:
+#                          re-surface cadence, never as a wedge, unless a stronger
+#                          native blocker arrives. Only when neither
+#                          absorb class applies does the resolved current state decide:
 #                          terminal (maintainer-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A provably-working stale past the
 #                          wedge threshold also surfaces, with an "escalation N"
@@ -113,8 +113,8 @@ BUSY_REGEX=${MX_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.'}
 # and ABSORBS the benign majority - it advances the suppression marker, logs to a
 # debug log, and keeps blocking WITHOUT enqueuing or exiting. The no-verb signal
 # / stale path is absorb-only-when-provably-working: such a wake is absorbed ONLY
-# while the actor shows positive evidence it is still working (an actively-running
-# no-mistakes step, or a busy pane, via actor_is_provably_working over
+# while the actor shows positive evidence it is still working (native runtime
+# state, an actively-running no-mistakes step, or a busy pane, via actor_is_provably_working over
 # mx-actor-state.sh); an actor that stopped its turn with no running pipeline and no
 # busy pane is SURFACED, so a finish reported only through interactive pane menus
 # (no done: status) is never swallowed. An ACTIONABLE wake (a maintainer-relevant
@@ -243,7 +243,7 @@ MX_WEDGE_DEMAND_INSPECT_COUNT=${MX_WEDGE_DEMAND_INSPECT_COUNT:-3}
 # state (the costly check already ran once, at classification time). Shared by
 # both places a hash can be absorbed this way: the plain non-terminal path,
 # and the stale_is_terminal-overridden path (a maintainer-relevant status-log
-# line that an active run/busy pane outranked).
+# line that native-working or an active run outranked).
 wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-file>
   local win=$1 since_file=$2 label=$3 escalation_file=$4 since age n reason
   since=$(cat "$since_file" 2>/dev/null || true)
@@ -854,7 +854,12 @@ EOF
       # else the last 6 non-blank lines only (the TUI footer area, where every
       # verified harness renders its busy indicator) so busy-looking strings
       # in displayed content cannot suppress stale detection.
-      if [ "$n" -ge 2 ] && ! window_is_busy "$w" "$tail40"; then
+      # A schema-valid terminal report must still enter conflict resolution
+      # when pane text matches the regex busy hint. Native/runtime and
+      # run-step evidence can still outrank that report inside actor-state, but
+      # the heuristic alone may not suppress it before the resolver runs.
+      if [ "$n" -ge 2 ] \
+         && { ! window_is_busy "$w" "$tail40" || stale_is_terminal "$w" "$STATE"; }; then
         # The pane is idle/stale at hash $h. Triage decides whether this wakes
         # broker. Detection itself is unchanged from above.
         if [ "$kind" = daemon ]; then
@@ -881,9 +886,8 @@ EOF
           # poll. Root cause of the 2026-07 herdr false-surface incidents: a
           # validating actors was surfaced as stale every few minutes despite an
           # actively-running pipeline, purely because of this stale leftover
-          # line. On a NEW hash, give an active run/busy pane (the same
-          # authoritative source mx-actor-state.sh itself already prioritizes
-          # over the log) a chance to override before trusting the log.
+          # line. On a NEW hash, route all available observations through the
+          # authoritative mx-actor-state.sh result before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             if actor_is_provably_working "$(window_to_task "$w" "$STATE")"; then
               printf '%s' "$h" > "$sf"

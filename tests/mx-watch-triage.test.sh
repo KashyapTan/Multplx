@@ -207,6 +207,8 @@ test_actor_is_provably_working_classifier() {
   export MX_FAKE_ACTOR_STATE
   MX_FAKE_ACTOR_STATE='state: working · source: run-step · validating (running)'
   actor_is_provably_working a || fail "active run-step not treated as provably working"
+  MX_FAKE_ACTOR_STATE='state: working · source: native-event · runtime working'
+  actor_is_provably_working a || fail "native working not treated as provably working"
   MX_FAKE_ACTOR_STATE='state: working · source: pane · harness busy'
   actor_is_provably_working a || fail "busy pane not treated as provably working"
   MX_FAKE_ACTOR_STATE='state: working · source: status-log · working: compiling'
@@ -222,7 +224,7 @@ test_actor_is_provably_working_classifier() {
   MX_FAKE_ACTOR_STATE='state: working · source: run-step · x'
   ! actor_is_provably_working "" || fail "empty id treated as provably working"
   unset MX_FAKE_ACTOR_STATE
-  pass "actor_is_provably_working: only working+run-step/pane is provable; idle/finished/parked/failed/unknown surface"
+  pass "actor_is_provably_working: native/run-step/pane working is provable; idle/finished/parked/failed/unknown surface"
 }
 
 # status_is_paused: the shared pause verb test both consumers read (so neither
@@ -421,6 +423,32 @@ test_terminal_stale_surfaced() {
   MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the terminal stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "terminal stale was not queued"
   pass "a stale pane sitting on a terminal status is surfaced (queue + exit)"
+}
+
+# --- validated terminal report outranks a regex-only busy pane ----------------
+test_terminal_stale_report_overrides_busy_heuristic() {
+  local dir state fakebin out capture_file window key pane_hash sig pid
+  dir=$(make_case terminal-stale-busy-heuristic); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:mx-done-busy"
+  printf 'rendered content\nesc to interrupt\n' > "$capture_file"
+  printf 'window=%s\nkind=delivery\n' "$window" > "$state/done-busy.meta"
+  printf 'done: implementation complete\n' > "$state/done-busy.status"
+  sig=$(seen_sig "$state/done-busy.status"); printf '%s' "$sig" > "$state/.seen-done-busy_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "$(cat "$capture_file")")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export MX_FAKE_ACTOR_STATE='state: done · source: status-log · implementation complete'
+
+  PATH="$fakebin:$PATH" MX_FAKE_TMUX_WINDOW="$window" MX_FAKE_TMUX_CAPTURE="$capture_file" \
+    MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_POLL=1 MX_SIGNAL_GRACE=1 \
+    MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "validated done report was suppressed by a busy regex hint"; }
+  grep -Fx "stale: $window" "$out" >/dev/null \
+    || fail "validated done report did not surface the stale pane"
+  unset MX_FAKE_ACTOR_STATE
+  pass "a validated terminal report surfaces despite a conflicting regex-only busy hint"
 }
 
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
@@ -1284,6 +1312,7 @@ test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
 test_actionable_signal_surfaced
 test_terminal_stale_surfaced
+test_terminal_stale_report_overrides_busy_heuristic
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold

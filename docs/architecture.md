@@ -16,12 +16,13 @@ When a canonical validated PR poll returns exactly `merged`, the watcher appends
 The receipt makes retirement safely retryable across restarts: fixed-path recovery revalidates the same evidence, removes the runnable check first, removes its registration and data sidecars, removes the receipt last, and preserves task metadata including `pr=` and `pr_head=`.
 A concurrent replacement remains armed, every non-merged or invalid observation remains unchanged, and retirement never performs task or persistent-daemon cleanup.
 `bin/mx-pr-lib.sh` owns the receipt format and strict identity mechanics, while `bin/mx-watch.sh` owns queue-before-retirement ordering.
-No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/mx-actor-state.sh` reports positive evidence that the actor is still working: an actively running no-mistakes step attributed to that actor's current code or a backend busy signature.
+No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/mx-actor-state.sh` reports positive evidence that the actor is still working from native runtime state, an attributed no-mistakes step, or a backend busy signature.
 an actor that declares `paused:` for a known external wait is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
 For an ordinary actors that has stopped, the normal-mode watcher first surfaces one stale wake, then applies that same cadence to an unchanged `paused:` or durable `maintainer-held` endpoint only when the backend confidently reports its agent dead.
 Live or inconclusive liveness remains fail-open at that initial surface, and the daemon idle-endpoint exemption is unchanged.
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
-Fresh stale panes use the same current-state read before trusting the status log, so an active run or busy pane outranks an old maintainer-relevant status-log line left behind before validation.
+Fresh stale panes use the same current-state read before trusting individual observations.
+`bin/mx-classify-lib.sh` owns the exact signal-precedence contract; native runtime blockers surface immediately even while an attributed validation run continues, and schema-valid terminal reports outrank regex-only busy text.
 No-change heartbeats are also benign.
 Absorbed wakes advance their suppression markers, log to `state/.watch-triage.log`, and keep the watcher blocking without a queue record or LLM turn.
 After each drain, `mx-wake-drain.sh` runs the same liveness guard as the supervision scripts, so a lapsed watcher chain surfaces even on a turn that only drains and handles queued wakes.
@@ -36,14 +37,15 @@ After a successful durable append, `mx-report` may send a payload-free `USR1` nu
 The signal interrupts the watcher's ordinary terminal poll wait and causes the same scan loop to run early; native Herdr event waits remain bounded and unchanged.
 Missing, stale, disabled, or undeliverable nudges are silent, and the durable event plus the normal `MX_POLL` cycle remain authoritative.
 This is a latency optimization over the existing reconstructable disk state, not a status-ingest daemon, socket, or second supervision path.
-`bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a no-mistakes run, active or terminal, only when it matches the actor's branch and current code identity, then keeps that run-step authoritative even if the pane has closed.
+`bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a no-mistakes run, active or terminal, only when it matches the actor's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
 The script header owns the exact run-head ancestry rules.
 During no-mistakes' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.
 The most recent recognized ci log marker wins, so checks-green monitoring reports done while a later re-arm, failed-check, or issue marker returns the actors to working.
-Only when no matching run exists does it fall back to the pane busy-signature and then a status-log event whose verb maps to a recognized run-state; a dead pane without a run reports unknown instead of trusting a stale log.
+When no native verdict or matching run exists, a schema-valid status event whose verb maps to a recognized run-state outranks the pane busy-signature; a dead pane without stronger evidence reports unknown instead of trusting a stale log.
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
-For herdr, that pane fallback trusts a native `busy` verdict outright, but corroborates native `idle` or unknown verdicts against the rendered busy signature before deciding the actor is not working.
+For Herdr, exact `working`, `blocked`, and `done` levels contribute native verdicts, while `idle` is not treated as task-progress evidence because it can occur between tool calls or while a foreground process continues.
+Herdr `idle` and unknown levels therefore leave the lower report and rendered busy-signature tiers available.
 For whole-system read-only review, `bin/mx-system-snapshot.sh --json` emits schema `mx-system-snapshot.v1` from the backlog, task metadata, current actor state, endpoint probes, PR/report pointers, scout reports, bounded current summaries from registered daemon homes, and daemon return-channel guidance.
 `bin/mx-system-view.sh` renders that snapshot as Markdown for humans, while `bin/mx-status-snapshot.sh` provides the bounded catchup projection, so both views consume one structured contract instead of reparsing raw system files.
 The script header owns the exact JSON schema.

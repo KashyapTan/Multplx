@@ -899,6 +899,20 @@ test_classify_stale_dedup_against_signal() {
   pass "classify_stale dedupes against the signal path seen marker"
 }
 
+test_classify_stale_native_blocked_over_pause() {
+  local dir state out
+  dir=$(make_supercase stale-native-blocked-pause)
+  state="$dir/state"
+  printf 'paused: waiting on the upstream release\n' > "$state/native-pause.status"
+  out=$(MX_STATE_OVERRIDE="$state" classify_stale \
+    "sess:mx-native-pause (native-event=blocked; herdr: agent blocked)" "$state")
+  case "$out" in
+    escalate\|*native\ runtime\ blocker*) ;;
+    *) fail "away-mode stale classifier suppressed native blocked behind pause: $out" ;;
+  esac
+  pass "away-mode classification surfaces native blocked past a declared pause"
+}
+
 # AFK incident regression: a nonterminal working: line that was already surfaced
 # (seen marker matches, including free-text "merged") must keep possible-wedge
 # aging. handle_wake must record the stale marker; housekeeping re-escalates
@@ -1728,6 +1742,7 @@ test_tmux_composer_state_requires_matching_box_borders
 test_pane_input_pending_honors_idle_override_after_border_strip
 test_classify_signal_dedup_against_scan
 test_classify_stale_dedup_against_signal
+test_classify_stale_native_blocked_over_pause
 test_afk_nonterminal_working_merged_keeps_wedge_aging
 test_afk_genuine_done_still_terminal_stale
 test_pane_input_pending_bordered_idle_not_pending

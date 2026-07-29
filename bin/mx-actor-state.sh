@@ -16,7 +16,7 @@
 # fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
 # token-tight line broker can read every heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <native-event|run-step|pane|status-log|none> · <detail>
 #
 # Logic, in order:
 #   1. Resolve worktree + backend target + kind from state/<id>.meta.
@@ -28,22 +28,26 @@
 #      is an ancestor of the run head (pipeline fix commits advanced the run on
 #      the same line of history). Local work that advanced past the run head, or
 #      diverged from it, invalidates attribution.
-#      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
+#      The run-step is authoritative below a native runtime event:
+#      running/fixing -> working, ci -> working,
 #      awaiting_approval/fix_review -> parked (with gate findings), terminal
 #      passed/checks-passed -> done, failed/cancelled -> failed. EXCEPT: while
 #      the active step is ci, `axi status` alone cannot tell "still waiting on
 #      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
 #      a ci-step log-tail check overrides working -> done once checks read
 #      green, so a green PR is never silently read as still-validating.
-#   3. Reconcile the status log: if its last line says needs-decision/blocked but
+#   3. Resolve a native runtime verdict above the attributed run-step.
+#      A native blocked event surfaces immediately even while CI continues, and
+#      the detail retains that concurrent run evidence for broker.
+#   4. Reconcile the status log: if its last line says needs-decision/blocked but
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
 #      agree, and are reported as parked.
-#   4. No run for this actors (pre-validation, or kind=scout): fall back to the
-#      recorded backend's pane busy state, then the status log's last line only
-#      when its verb maps to a recognized run-state. Decision-only events such as
+#   5. No run for this actors (pre-validation, or kind=scout): resolve a native
+#      runtime verdict, then a schema-valid status report, then the recorded
+#      backend's text/regex busy heuristic. Decision-only events such as
 #      `resolved` never become current state or detail.
-#   5. Missing meta or torn-down worktree: report unknown · none. If no run is
+#   6. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this actors, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log.
 #
@@ -133,59 +137,40 @@ map_log_state() {  # <line>
 LOG_LINE=$(log_last_line || true)
 LOG_VERB=$(status_line_verb "$LOG_LINE")
 
-# pane_readable is consulted ONLY in the no-run fallback below. The run-step path
-# stays authoritative regardless of pane liveness - judge by the run-step, not the
-# shell - so a finished actor whose endpoint has closed still reports its run-step
-# state (e.g. done) instead of being masked as unknown. Backend-aware
+# pane_readable is consulted ONLY in the no-run fallback below. The native/run
+# path stays authoritative regardless of pane liveness, so a finished actor whose
+# endpoint has closed still reports its run-step state (e.g. done) instead of
+# being masked as unknown. Backend-aware
 # (mx_backend_of_meta defaults absent backend= to tmux, the P1 contract): a
 # herdr task is read through mx_backend_capture instead of a bare tmux probe.
 TASK_BACKEND=$(mx_backend_of_meta "$META")
 BACKEND_TARGET=$(mx_backend_target_of_meta "$META")
 EXPECTED_LABEL="mx-$ID"
+NATIVE_STATE=$(mx_backend_native_state "$TASK_BACKEND" "$BACKEND_TARGET" 2>/dev/null)
+case "$NATIVE_STATE" in
+  working|blocked|done) NATIVE_SIGNAL=$NATIVE_STATE ;;
+  # Herdr's idle level can occur between tool calls and while a foreground
+  # process continues. It is not a fresh native event and therefore contributes
+  # no task-progress verdict; blocked/done/working remain exact native tiers.
+  *) NATIVE_SIGNAL="" ;;
+esac
 pane_readable() {  # <target>
   case "$TASK_BACKEND" in
     tmux) tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1 ;;
     *) mx_backend_capture "$TASK_BACKEND" "$1" 1 "$EXPECTED_LABEL" >/dev/null 2>&1 ;;
   esac
 }
-# actor_pane_is_busy: the busy-signature fallback, backend-aware the same way -
-# mx_backend_busy_state's native semantic state (herdr's agent.get) when
-# available, else the shared tmux pane-regex reader (mx_pane_is_busy,
-# bin/mx-tmux-lib.sh) unchanged for tmux/unknown.
-#
-# `busy` alone is trusted outright. Both `idle` and unknown/unparseable fall
-# through to the shared tail-regex corroboration, NOT just unknown: herdr's
-# agent.get reports generation state ("working" while the model is streaming
-# a turn, "done"/"idle" once it is not - docs/herdr-backend.md "Busy state"),
-# which is a narrower signal than "this actor's turn/tool call is still in
-# progress". an actor blocked on its own long-running foreground tool call (e.g.
-# `no-mistakes axi run` without --yes, which blocks synchronously until a gate
-# or outcome - AGENTS.md section 7) is not generating for that whole span, so
-# agent.get can read idle/blocked (bin/backends/herdr.sh maps both to `idle`)
-# while the pane's own rendered text still shows the harness's busy banner
-# (BUSY_REGEX, e.g. "esc to interrupt") for the entire tool call, exactly like
-# tmux's regex-only reader would correctly report. Trusting herdr's `idle`
-# outright (skipping that corroboration) is what let a still-working actors read
-# as not-busy here, and - combined with a no-mistakes run-step lookup that also
-# missed attribution (see nm_runs_status_for_branch) - as not provably working in
-# mx-classify-lib.sh, triggering an immediate (non-wedge) stale wake instead of
-# the absorb-then-escalate path. A genuinely human-blocked agent (a permission
-# dialog, not mid-tool-call) does not render the busy banner, so this
-# corroboration does not mask that case: it stays correctly not-busy.
-actor_pane_is_busy() {  # <target>
+# actor_pane_heuristic_is_busy: the text/regex tier only. Native Herdr state is
+# read separately above so mx_signal_resolve can rank it instead of collapsing
+# it into this weakest tier.
+actor_pane_heuristic_is_busy() {  # <target>
   case "$TASK_BACKEND" in
     tmux) mx_pane_is_busy "$1" ;;
     *)
-      local bs tail40
-      bs=$(mx_backend_busy_state "$TASK_BACKEND" "$1" 2>/dev/null)
-      case "$bs" in
-        busy) return 0 ;;
-        *)
-          tail40=$(mx_backend_capture "$TASK_BACKEND" "$1" 40 "$EXPECTED_LABEL" 2>/dev/null) || return 1
-          printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -6 \
-            | grep -qiE "${MX_BUSY_REGEX:-$MX_TMUX_BUSY_REGEX_DEFAULT}"
-          ;;
-      esac
+      local tail40
+      tail40=$(mx_backend_capture "$TASK_BACKEND" "$1" 40 "$EXPECTED_LABEL" 2>/dev/null) || return 1
+      printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -6 \
+        | grep -qiE "${MX_BUSY_REGEX:-$MX_TMUX_BUSY_REGEX_DEFAULT}"
       ;;
   esac
 }
@@ -477,7 +462,7 @@ if [ "$KIND" = delivery ] && [ -n "$ACTOR_BRANCH" ] && command -v no-mistakes >/
   fi
 fi
 
-# --- run-step authoritative path -------------------------------------------
+# --- native + attributed run-step path --------------------------------------
 
 if [ "$HAVE_RUN" = 1 ]; then
   RUN_STATE=working
@@ -582,7 +567,7 @@ if [ "$HAVE_RUN" = 1 ]; then
   # stale: the gate resolved and the run resumed or finished.
   case "$LOG_VERB" in
     needs-decision|blocked)
-      if [ "$RUN_STATE" != parked ]; then
+      if [ "$RUN_STATE" != parked ] && [ "$NATIVE_SIGNAL" != blocked ]; then
         if [ "$RUN_STATE" = working ]; then
           RUN_DETAIL="$RUN_DETAIL${SEP}status-log superseded by active run"
         else
@@ -592,7 +577,21 @@ if [ "$HAVE_RUN" = 1 ]; then
       ;;
   esac
 
-  emit "$RUN_STATE" run-step "$RUN_DETAIL"
+  WINNER=$(mx_signal_resolve "$NATIVE_SIGNAL" "$RUN_STATE" "$LOG_VERB" "")
+  case "$WINNER" in
+    native:*)
+      RESOLVED_STATE=${WINNER#native:}
+      NATIVE_DETAIL="runtime $RESOLVED_STATE"
+      [ -n "$RUN_DETAIL" ] && NATIVE_DETAIL="$NATIVE_DETAIL${SEP}run-step still $RUN_DETAIL"
+      emit "$RESOLVED_STATE" native-event "$NATIVE_DETAIL"
+      ;;
+    run-step:*)
+      emit "$RUN_STATE" run-step "$RUN_DETAIL"
+      ;;
+    *)
+      emit "$RUN_STATE" run-step "$RUN_DETAIL"
+      ;;
+  esac
 fi
 
 # --- fallback: no run attributed to this actors ------------------------------
@@ -603,13 +602,7 @@ fi
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 pane_readable "$BACKEND_TARGET" || emit unknown none "backend target gone: $BACKEND_TARGET"
 
-# Daemons idle on their own watcher (idle pane = healthy), so the busy
-# signature is not meaningful for them; read their state from the status log only.
-if [ "$KIND" != daemon ] && actor_pane_is_busy "$BACKEND_TARGET"; then
-  emit working pane "harness busy"
-fi
-
-# Fall back to the status log's last line, but ONLY when its verb maps to a real
+# Resolve the status log only when its verb maps to a real
 # run-state. A decision-closing event - resolved: (mx-classify-lib.sh's
 # MX_CLASSIFY_RESOLVE_VERB), and any future decision-only sibling - is NOT a state:
 # it exists solely to CLOSE a keyed decision in the durable fold, so a trailing
@@ -619,11 +612,37 @@ fi
 # `unknown` with the resolution note as `doing`. map_log_state is the single owner of
 # the verb->state mapping (including the configurable paused verb), so reusing its
 # `unknown` verdict as the "not a state" test needs no second verb list here.
+LOG_STATE=unknown
+SELF_REPORT_SIGNAL=""
 if [ -n "$LOG_VERB" ]; then
   LOG_STATE=$(map_log_state "$LOG_LINE")
-  if [ "$LOG_STATE" != unknown ]; then
-    emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
+  [ "$LOG_STATE" != unknown ] && SELF_REPORT_SIGNAL=$LOG_VERB
+fi
+
+# Daemons idle on their own watcher (idle pane = healthy), so the regex
+# heuristic is not meaningful for them. Native and report tiers still apply.
+HEURISTIC_SIGNAL=""
+if [ "$KIND" != daemon ]; then
+  if actor_pane_heuristic_is_busy "$BACKEND_TARGET"; then
+    HEURISTIC_SIGNAL=busy
+  else
+    HEURISTIC_SIGNAL=idle
   fi
 fi
 
-emit unknown none "no current-state source available"
+WINNER=$(mx_signal_resolve "$NATIVE_SIGNAL" "" "$SELF_REPORT_SIGNAL" "$HEURISTIC_SIGNAL")
+case "$WINNER" in
+  native:*)
+    RESOLVED_STATE=${WINNER#native:}
+    emit "$RESOLVED_STATE" native-event "runtime $RESOLVED_STATE"
+    ;;
+  self-report:*)
+    emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
+    ;;
+  heuristic:busy)
+    emit working pane "harness busy"
+    ;;
+  *)
+    emit unknown none "no current-state source available"
+    ;;
+esac

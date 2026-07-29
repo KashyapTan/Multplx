@@ -2135,15 +2135,28 @@ mx_backend_herdr_agent_status_raw() {  # <session> <pane_id>
   printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null
 }
 
+# Return Herdr's exact native task-state level for precedence resolution.
+# `idle` is retained in the generic vocabulary, but consumers may treat it as
+# an absence of task-progress evidence because Herdr can report idle between
+# tool calls and during foreground processes.
+mx_backend_herdr_native_state() {  # <target>
+  local raw
+  mx_backend_herdr_target_ready "$1" || { printf 'unknown'; return 0; }
+  raw=$(mx_backend_herdr_agent_status_raw \
+    "$MX_BACKEND_HERDR_SESSION" "$MX_BACKEND_HERDR_PANE")
+  case "$raw" in
+    idle|working|blocked|done) printf '%s' "$raw" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
 # mx_backend_herdr_busy_state: semantic busy state from herdr's native
 # agent-state detection (agent.get), the "first backend where mx_session_busy_state
 # gets real semantics" per the design report. See
 # mx_backend_herdr_classify_agent_status for the status->busy/idle/unknown
 # mapping.
 mx_backend_herdr_busy_state() {  # <target>
-  mx_backend_herdr_target_ready "$1" || { printf 'unknown'; return 0; }
-  mx_backend_herdr_classify_agent_status \
-    "$(mx_backend_herdr_agent_status_raw "$MX_BACKEND_HERDR_SESSION" "$MX_BACKEND_HERDR_PANE")"
+  mx_backend_herdr_classify_agent_status "$(mx_backend_herdr_native_state "$1")"
 }
 
 # mx_backend_herdr_wait_for_working: poll <session>:<pane_id>'s NATIVE

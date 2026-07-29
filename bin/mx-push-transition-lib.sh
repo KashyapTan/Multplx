@@ -57,18 +57,32 @@ mark_surfaced() {  # <status-file>
 
 # Act on a fresh actionable transition from a push-capable backend.
 handle_push_transition() {  # <backend> <session> <record>
-  local backend=$1 session=$2 record=$3 pane_id to window task reason
+  local backend=$1 session=$2 record=$3 pane_id to window task reason last verb winner
   pane_id=$(mx_transition_pane_id "$record")
   to=$(mx_transition_to_status "$record")
   [ -n "$pane_id" ] || { sleep 1; return; }
   window="$session:$pane_id"
   task=$(window_to_task "$window" "$STATE")
-  if status_is_paused "$(last_status_line "$STATE/$task.status")"; then
-    triage_log "absorbed push $to (declared pause, awaiting external): $window"
-    mx_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
-    return
+  last=$(last_status_line "$STATE/$task.status")
+  verb=$(status_line_verb "$last")
+  winner=$(mx_signal_resolve "$to" "" "$verb" "")
+  case "$winner" in
+    native:*)
+      if [ -n "$verb" ]; then
+        triage_log "native $to overruled self-report $verb: $window"
+      fi
+      ;;
+    *)
+      triage_log "ignored push $to with unresolved precedence ($winner): $window"
+      mx_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
+      return
+      ;;
+  esac
+  if status_is_paused "$last"; then
+    reason="stale: $window (native-event=$to; herdr: agent $to - native event overruled declared pause, waiting on human)"
+  else
+    reason="stale: $window (native-event=$to; herdr: agent $to - waiting on human, escalated immediately, not via wedge timer)"
   fi
-  reason="stale: $window (herdr: agent $to - waiting on human, escalated immediately, not via wedge timer)"
   mx_wake_append stale "$window" "$reason" || exit 1
   mx_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
   mark_surfaced "$STATE/$task.status"

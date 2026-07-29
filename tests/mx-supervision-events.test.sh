@@ -69,18 +69,18 @@ mx_write_meta "$STATE_DIR/tk1.meta" "window=default:wG:pQ" "backend=herdr" "kind
 [ ! -e "$STATE_DIR/.herdr-escalated-default_wG_pQ" ] || fail "a failed durable enqueue must leave the blocked edge eligible for reconnect reconciliation"
 pass "handle_push_transition: enqueue failure cannot commit the Herdr dedupe marker"
 
-# --- handle_push_transition: absorb (no wake, no enqueue) for a declared pause -
+# --- handle_push_transition: native blocked pierces a declared pause -----------
 
 reset_state
 mx_write_meta "$STATE_DIR/tk2.meta" "window=default:wG:pQ" "backend=herdr" "kind=delivery"
 printf 'paused: waiting on the upstream release\n' > "$STATE_DIR/tk2.status"
 handle_push_transition herdr default "$(mkrec wG:pQ blocked)"
-if [ -e "$STATE_DIR/.wake-queue" ] && grep -q 'stale' "$STATE_DIR/.wake-queue"; then
-  fail "a declared-pause actors must NOT be fast-escalated: $(cat "$STATE_DIR/.wake-queue")"
-fi
-[ ! -s "$WAKE_LOG" ] || fail "a declared-pause actors must not wake the supervisor from the event fast-path"
-grep -q 'absorbed push' "$STATE_DIR/.watch-triage.log" 2>/dev/null || fail "the paused absorb should be logged to the triage log"
-pass "handle_push_transition: a declared-pause actors is absorbed (no fast wake), left to the poll loop's long cadence"
+[ -e "$STATE_DIR/.wake-queue" ] || fail "native blocked must enqueue despite a declared pause"
+grep -q 'stale' "$STATE_DIR/.wake-queue" || fail "native blocked over pause did not enqueue a stale wake"
+[ -s "$WAKE_LOG" ] || fail "native blocked over pause must wake the supervisor"
+grep -q 'overruled self-report paused' "$STATE_DIR/.watch-triage.log" 2>/dev/null \
+  || fail "native-over-pause did not record the overruled report tier"
+pass "handle_push_transition: native blocked surfaces immediately past a declared pause"
 
 # --- event_wait_or_sleep: daemon windows are excluded from the pane list --
 

@@ -7,6 +7,17 @@
 # overlapping triage policy lives in one place instead of two copies that can
 # drift apart.
 #
+# Signal precedence for same-moment disagreements is owned here. The three
+# agent-signal tiers required by Plan 5 are:
+#   native event > schema-validated self-report > text/regex heuristic
+# The maintainer placed attributed validation run-step evidence between the
+# native and self-report tiers, so the complete resolver order is:
+#   native event > attributed run-step > schema-validated self-report
+#   > text/regex heuristic
+# A native blocker therefore surfaces immediately even while an attributed CI
+# run continues; the current-state reader retains the concurrent run detail for
+# the broker. Backends without a tier pass an empty or unknown value.
+#
 # Most functions are pure, side-effect-free reads of status files: each takes
 # what it needs as arguments and touches no globals beyond the optional
 # MX_MAINTAINER_RE override. Consumers layer their own dedup/marker state on top (the
@@ -166,6 +177,48 @@ status_line_verb() {  # <status-line> -> leading verb word
   v=${v%"${v##*[![:space:]]}"}
   printf '%s' "$v"
 }
+
+# mx_signal_resolve: rank same-moment signals about one task without reading
+# files or backend state.
+#   $1 native      - runtime state (idle|working|blocked|done|unknown)
+#   $2 run_step    - attributed validation state
+#                   (working|parked|done|blocked|paused|failed|unknown)
+#   $3 self_report - leading status verb from the actor-writable closed enum
+#   $4 heuristic   - text/pane verdict (busy|idle|unknown)
+# Prints "<tier>:<verdict>" for the strongest recognized tier, or "none".
+# Unknown, empty, and malformed values contribute no tier. The self-report
+# vocabulary deliberately recognizes a well-formed enum verb without adding a
+# provenance marker to the append-only status wire format.
+mx_signal_resolve() {  # <native> <run-step> <self-report> <heuristic>
+  local native=${1:-} run_step=${2:-} self_report=${3:-} heuristic=${4:-}
+  local pause=${MX_CLASSIFY_PAUSED_VERB:-$MX_CLASSIFY_PAUSED_VERB_DEFAULT}
+  case "$native" in
+    idle|working|blocked|done)
+      printf 'native:%s' "$native"
+      return
+      ;;
+  esac
+  case "$run_step" in
+    working|parked|done|blocked|paused|failed)
+      printf 'run-step:%s' "$run_step"
+      return
+      ;;
+  esac
+  case "$self_report" in
+    working|blocked|needs-decision|done|failed|resolved|"$pause")
+      printf 'self-report:%s' "$self_report"
+      return
+      ;;
+  esac
+  case "$heuristic" in
+    busy|idle)
+      printf 'heuristic:%s' "$heuristic"
+      return
+      ;;
+  esac
+  printf 'none'
+}
+
 status_line_note() {  # <status-line> -> text after the first colon, trimmed
   case "$1" in
     *:*) local n=${1#*:}; printf '%s' "${n#"${n%%[![:space:]]*}"}" ;;
@@ -318,16 +371,16 @@ signal_reason_is_actionable() {  # <file> ...
 # Classify WHY an idle/stale actors MIGHT be safely absorbed instead of surfaced,
 # from bin/mx-actor-state.sh's one authoritative current-state line
 # ("state: <s> · source: <src> · <detail>"). Prints exactly one token:
-#   working - an actively-running no-mistakes step (running/fixing/ci) or a busy
-#             pane; the actor is legitimately mid-work on a static-looking pane
-#             (e.g. waiting on CI);
+#   working - a native working verdict, an actively-running no-mistakes step
+#             (running/fixing/ci), or a busy pane; the actor is legitimately
+#             mid-work on a static-looking pane (e.g. waiting on CI);
 #   paused  - the actor's authoritative current state is a declared external-wait
 #             pause (paused:), which is EXPECTED to idle;
 #   none    - neither, so the wake must surface (a stopped/finished/parked/failed/
 #             torn-down/unknown actors, or an unreadable verdict).
 # One mx-actor-state.sh read serves BOTH absorb reasons at once. Reading the state
-# authoritatively (not the status log) is what keeps run-step precedence: an actor
-# that appended paused: but then STARTED a run reports working, never paused.
+# authoritatively (not the status log) is what applies the shared precedence:
+# native working and an attributed run outrank an older paused report.
 # NOT a pure read: mx-actor-state.sh may make a bounded no-mistakes call, so callers
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # MX_ACTOR_STATE_BIN lets tests stub the verdict.
@@ -340,7 +393,7 @@ actor_absorb_class() {  # <id>
   if [ "$state" = paused ]; then printf 'paused'; return; fi
   if [ "$state" = working ]; then
     src=${line#*source: }; src=${src%% *}
-    case "$src" in run-step|pane) printf 'working'; return ;; esac
+    case "$src" in native-event|run-step|pane) printf 'working'; return ;; esac
   fi
   printf 'none'
 }
