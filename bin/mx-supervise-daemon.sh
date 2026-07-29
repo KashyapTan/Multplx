@@ -364,7 +364,14 @@ classify_signal() {  # <reason-after-colon> <state>
 # first sight of a non-terminal stale it returns "self" and the caller records a
 # timestamp marker; persistence is escalated by housekeeping's recheck, not here.
 classify_stale() {  # <window> <state>
-  local win=$1 state=$2 task last seen
+  local payload=$1 state=$2 win task last seen
+  case "$payload" in
+    *"(native-event=blocked;"*)
+      printf 'escalate|native runtime blocker: %s' "$payload"
+      return
+      ;;
+  esac
+  win=${payload%% *}
   task=$(window_to_task "$win" "$state")
   last=$(last_status_line "$state/$task.status")
   if [ -n "$last" ] && status_is_paused "$last"; then

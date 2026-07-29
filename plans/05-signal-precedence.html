@@ -102,8 +102,8 @@ tr:nth-child(even) td{background:var(--surface)}
         <li>No change to the signal <em>sources</em> themselves: the herdr event stream, <code>mx-report</code>, and the busy regex are all produced exactly as before.</li>
         <li>No change to the event-log model: status stays an append-only event stream; <code>status_open_decisions</code>' keyed fold is untouched.</li>
         <li>No change to wake latency or the poll/nudge mechanics (<a href="04-watcher-nudge.html">Plan 04</a>).</li>
-        <li>No new backend capabilities — backends without native events simply have an empty tier 1.</li>
-        <li>Not a rewrite of <code>mx-crew-state.sh</code>: its run-step attribution, CI log-tail override, and meta resolution stay as-is; only the conflict-resolution seams change.</li>
+        <li>No new native signal source — the generic adapter exposes Herdr's existing semantic state, while backends without it simply have an empty tier 1.</li>
+        <li>Not a rewrite of <code>mx-actor-state.sh</code>: its run-step attribution, CI log-tail override, and meta resolution stay as-is; only the conflict-resolution seams change.</li>
       </ul>
     </td>
   </tr>
@@ -162,21 +162,22 @@ fi</code></pre>
 <p>One new pure function in <code>mx-classify-lib.sh</code>, alongside the existing predicates:</p>
 <pre><code># mx_signal_resolve: rank same-moment signals about one task.
 #   $1 native      - harness-native agent state (idle|working|blocked|done|unknown, '' if none)
-#   $2 self_report - last schema-valid status verb (working|paused|blocked|needs-decision|done|failed|resolved, '' if none)
-#   $3 heuristic   - regex/pane verdict (busy|idle|unknown, '' if none)
+#   $2 run_step    - attributed validation state (working|parked|done|blocked|paused|failed|unknown)
+#   $3 self_report - last schema-valid status verb (working|paused|blocked|needs-decision|done|failed|resolved, '' if none)
+#   $4 heuristic   - regex/pane verdict (busy|idle|unknown, '' if none)
 # Prints the winning tier and verdict, e.g. "native:done", "self-report:blocked",
 # "heuristic:busy", or "none". Pure function of its arguments - no file reads -
 # so the conflict matrix tests it exhaustively without a live backend.</code></pre>
 <p>Consumers are then rewired to route their existing readings through it instead of hand-ordering them:</p>
 <ul>
-  <li><strong><code>mx-crew-state.sh</code> (the oracle):</strong> gains a native-event tier at the top of its fallback chain — before the pane read, it asks <code>mx_backend_busy_state</code>/the backend's level-read for a <em>native</em> agent state and, when one exists, resolves conflicts with the log via <code>mx_signal_resolve</code>. Its deterministic run-step attribution stays above all three tiers (see the open question on run-step ranking below — the run-step is pipeline evidence, not one of §5's three signal classes, and today it already outranks everything).</li>
+  <li><strong><code>mx-actor-state.sh</code> (the oracle):</strong> reads the backend's native level and routes it, attributed validation state, the latest schema-valid report, and the pane heuristic through <code>mx_signal_resolve</code>. Per the maintainer's 2026-07-28 decision, native evidence outranks the run-step so a blocker surfaces immediately while the verdict detail retains any CI still in progress; the run-step remains above the report and heuristic tiers.</li>
   <li><strong><code>handle_push_transition</code> (push path):</strong> the paused-absorbs-native check is replaced by <code>mx_signal_resolve native="$to" self_report="$last_verb" …</code> — under the documented rule a native <code>blocked</code> now outranks a self-reported <code>paused:</code> and surfaces. This is a deliberate behavior change (see Risks); the declared-pause cadence still applies when the <em>only</em> evidence of idling is the pause line itself.</li>
-  <li><strong>Watcher stale/no-verb paths:</strong> <code>crew_absorb_class</code> keeps its shape but its verdict now reflects the shared ranking: a regex-only busy match no longer overrides a schema-valid terminal self-report (<code>done:</code>/<code>blocked:</code> surfaces even if the pane still matches the busy signature); a native working state still absorbs.</li>
-  <li><strong>Away-mode daemon:</strong> no separate wiring — it already consumes <code>crew_absorb_class</code> and the shared predicates, so it inherits the rule, which is exactly why the rule lives in the classify lib.</li>
+  <li><strong>Watcher stale/no-verb paths:</strong> <code>actor_absorb_class</code> keeps its shape but its verdict now reflects the shared ranking: a regex-only busy match no longer overrides a schema-valid terminal self-report (<code>done:</code>/<code>blocked:</code> surfaces even if the pane still matches the busy signature); a native working state still absorbs.</li>
+  <li><strong>Away-mode daemon:</strong> ordinary stale reconciliation inherits the rule through <code>actor_absorb_class</code>. The immediate push path also carries a structured <code>native-event=blocked</code> marker so away-mode classification cannot reapply the older declared-pause shortcut after the resolver has already selected the native blocker.</li>
 </ul>
 
 <h3>What counts as a "schema-validated self-report"</h3>
-<p>UPDATE_PLAN §5 defines tier 2 by reference to §3. The simplest faithful reading, proposed here: a status line whose leading verb parses (via <code>status_line_verb</code>) into the Plan 03 closed enum counts as tier 2 — no wire-format change, no per-line provenance marker. Since Plan 03 makes <code>mx-report</code> the only instructed write path, well-formed lines are validated lines in practice; a malformed line has no verb tier and simply never outranks anything (today's behavior). Whether to add an explicit provenance marker instead is carried as an open question.</p>
+<p>UPDATE_PLAN §5 defines tier 2 by reference to §3. Per the maintainer's 2026-07-28 decision, a status line whose leading verb parses (via <code>status_line_verb</code>) into the Plan 03 closed enum counts as tier 2 — no wire-format change and no per-line provenance marker. Since Plan 03 makes <code>mx-report</code> the only instructed write path, well-formed lines are validated lines in practice; a malformed line has no verb tier and simply never outranks anything.</p>
 
 <h3>Resolution examples (the conflict matrix, prose form)</h3>
 <table>
@@ -194,17 +195,17 @@ fi</code></pre>
   <li><b>Document the rule in the library header <span class="pill mod">mod</span></b>
   Add the precedence statement (exact text from the callout above) to <code>bin/mx-classify-lib.sh</code>'s header comment, alongside the existing vocabulary docs, making the header greppable for the ordered phrase <code>native event &gt; schema-validated self-report &gt; text/regex heuristic</code> — the documentation-assertion test keys on this.</li>
   <li><b>Implement <code>mx_signal_resolve</code> <span class="pill mod">mod</span></b>
-  The pure three-argument ranking function in <code>mx-classify-lib.sh</code>, bash-3.2-portable like the existing folds, with the tier-2 definition from the target design (verb parses into the Plan 03 enum). No file reads, no globals beyond existing overrides.</li>
+  The pure four-argument ranking function in <code>mx-classify-lib.sh</code>, bash-3.2-portable like the existing folds, with attributed run-step evidence inserted below native events and the tier-2 definition from the target design (verb parses into the Plan 03 enum). No file reads, no globals beyond existing overrides.</li>
   <li><b>Wire the oracle <span class="pill mod">mod</span></b>
-  In <code>bin/mx-crew-state.sh</code>: on the no-run fallback path, read the backend's native agent state first (herdr: native; others: empty tier), then resolve against pane heuristic and log verb through <code>mx_signal_resolve</code>. Run-step attribution and the CI log-tail override remain above the resolver, unchanged.</li>
+  In <code>bin/mx-actor-state.sh</code>: read the backend's native agent state (Herdr: native; others: empty tier), then resolve it against attributed run-step evidence, the status verb, and pane heuristic through <code>mx_signal_resolve</code>. Native blockers outrank active validation while the CI log-tail override remains unchanged.</li>
   <li><b>Wire the push path <span class="pill mod">mod</span></b>
   In <code>bin/mx-push-transition-lib.sh</code>'s <code>handle_push_transition</code>: replace the <code>status_is_paused</code> short-circuit with a resolver call; a native <code>blocked</code>/<code>done</code> now surfaces past a declared pause, with the triage log recording the overruled tier for debuggability.</li>
   <li><b>Wire the watcher stale/no-verb paths <span class="pill mod">mod</span></b>
-  In <code>bin/mx-watch.sh</code>: the stale path's absorb decision consults the resolver's verdict rather than raw <code>crew_is_provably_working</code> alone, so a regex-only busy still absorbs (tier 3 unopposed) but a validated terminal self-report now surfaces against it. Update the header's stale-path prose, which currently documents the old ranking.</li>
+  In <code>bin/mx-watch.sh</code>: the stale path's absorb decision consults the resolver's verdict rather than raw <code>actor_is_provably_working</code> alone, so a regex-only busy still absorbs (tier 3 unopposed) but a validated terminal self-report now surfaces against it. Update the header's stale-path prose, which currently documents the old ranking.</li>
   <li><b>Sweep for stragglers <span class="pill mod">mod</span></b>
-  Grep every consumer of <code>crew_absorb_class</code>, <code>fm_backend_busy_state</code>, <code>status_is_paused</code>, and <code>fm_transition_policy</code> (watcher, daemon, backends, fleet snapshot) for remaining hand-ordered conflict handling; route each through the resolver or record in its header why it is conflict-free (e.g. the fleet snapshot is display-only).</li>
+  Grep every consumer of <code>actor_absorb_class</code>, <code>mx_backend_busy_state</code>, <code>status_is_paused</code>, and <code>mx_transition_policy</code> (watcher, daemon, backends, system snapshot) for remaining hand-ordered conflict handling; route each through the resolver or document why it is conflict-free.</li>
   <li><b>Write the conflict-matrix tests <span class="pill new">new</span></b>
-  <code>tests/mx-signal-precedence.test.sh</code> — full case list below; register with <code>bin/fm-test-run.sh</code> → <code>mx-test-run.sh</code>.</li>
+  <code>tests/mx-signal-precedence.test.sh</code> — full case list below; register with <code>bin/mx-test-run.sh</code>.</li>
   <li><b>Revalidate the regression net <span class="pill mod">mod</span></b>
   Run the crew-state, watch-triage, daemon, and herdr-eventwait suites; for the two deliberate behavior changes (native-over-pause, self-report-over-busy-pane), update only the specific assertions that encoded the old implicit order, each with a comment citing this plan.</li>
 </ol>
@@ -213,13 +214,16 @@ fi</code></pre>
 <table>
   <tr><th>File</th><th>Action</th><th>Notes</th></tr>
   <tr><td><code>bin/mx-classify-lib.sh</code></td><td>Modify</td><td>Header precedence statement + <code>mx_signal_resolve</code> pure ranking function; tier-2 (validated verb) definition.</td></tr>
-  <tr><td><code>bin/mx-crew-state.sh</code></td><td>Modify</td><td>Native-state tier on the no-run fallback path, resolved via the shared function; run-step logic untouched.</td></tr>
+  <tr><td><code>bin/mx-actor-state.sh</code></td><td>Modify</td><td>Native-state tier resolved above attributed run-step evidence, with concurrent validation detail retained when a native blocker wins.</td></tr>
   <tr><td><code>bin/mx-push-transition-lib.sh</code></td><td>Modify</td><td><code>handle_push_transition</code>: resolver replaces the paused-absorbs-native short-circuit; triage log records overruled tiers.</td></tr>
   <tr><td><code>bin/mx-watch.sh</code></td><td>Modify</td><td>Stale/no-verb absorb decisions consult the resolver; header prose updated to the documented order.</td></tr>
-  <tr><td><code>bin/fm-transition-lib.sh</code> / <code>mx-transition-lib.sh</code>, <code>bin/backends/herdr.sh</code>, <code>bin/mx-backend.sh</code></td><td>—</td><td>Unchanged producers: record shape, policy table, native busy-state reads stay as-is.</td></tr>
+  <tr><td><code>bin/backends/herdr.sh</code>, <code>bin/mx-backend.sh</code></td><td>Modify</td><td>Expose Herdr's exact native level separately from its legacy busy/idle projection; backends without a semantic level return <code>unknown</code>.</td></tr>
+  <tr><td><code>bin/mx-supervise-daemon.sh</code>, <code>bin/mx-system-snapshot.sh</code></td><td>Modify</td><td>Preserve the native-blocked decision through away-mode routing and recognize <code>native-event</code> as an authoritative snapshot lifecycle source.</td></tr>
+  <tr><td><code>bin/mx-transition-lib.sh</code></td><td>—</td><td>The normalized transition record and native status-to-action policy remain unchanged.</td></tr>
   <tr><td><code>tests/mx-signal-precedence.test.sh</code></td><td>New</td><td>Conflict matrix + documentation assertion (below).</td></tr>
-  <tr><td><code>tests/fm-watch-triage.test.sh</code> (→ <code>mx-</code>)</td><td>Modify</td><td>Only the assertions encoding the old "busy pane outranks terminal log line" order for the <em>regex-only</em>-vs-validated-terminal case.</td></tr>
-  <tr><td><code>tests/fm-backend-herdr-eventwait-smoke.test.sh</code>, <code>tests/fm-backend-herdr-eventwait.test.py</code></td><td>Modify</td><td>Only if they assert the paused-absorbs-native behavior; verify and update the specific case.</td></tr>
+  <tr><td><code>tests/mx-watch-triage.test.sh</code></td><td>Modify</td><td>Only the assertions encoding the old "busy pane outranks terminal log line" order for the <em>regex-only</em>-vs-validated-terminal case.</td></tr>
+  <tr><td><code>tests/mx-supervision-events.test.sh</code>, <code>tests/mx-actor-state.test.sh</code>, <code>tests/mx-daemon.test.sh</code>, <code>tests/mx-system-snapshot-view.test.sh</code></td><td>Modify</td><td>Pin the native-over-pause, native-over-active-CI, away-mode, and report-over-regex behavior changes.</td></tr>
+  <tr><td><code>tests/mx-backend-herdr-eventwait-smoke.test.sh</code>, <code>tests/mx-backend-herdr-eventwait.test.py</code></td><td>Verify unchanged</td><td>The event transport and normalized record shape do not encode the old paused-absorbs-native policy.</td></tr>
 </table>
 
 <h2>Broker contract &amp; documentation updates</h2>
@@ -232,20 +236,20 @@ fi</code></pre>
 </ul>
 
 <h2>Test plan</h2>
-<p>Runner: <code>bin/fm-test-run.sh</code> (to become <code>mx-test-run.sh</code>). Because this plan touches the state oracle, the order of work is tests-first: land the conflict matrix red where it pins new behavior, then rewire consumers.</p>
+<p>Runner: <code>bin/mx-test-run.sh</code>. Because this plan touches the state oracle, the order of work is tests-first: land the conflict matrix red where it pins new behavior, then rewire consumers.</p>
 
 <h3>(a) Existing tests that must keep passing — unchanged</h3>
 <ul>
-  <li><code>tests/fm-crew-state.test.sh</code> — every existing case involves at most one signal tier or the run-step (which stays authoritative), so the full suite passes unchanged; it is the primary guard that the oracle rewiring did not disturb single-signal behavior.</li>
-  <li><code>tests/fm-watch-triage.test.sh</code> — all classifier-predicate and absorb/surface cases except the specific pairing noted in (b); notably "terminal-looking stale status lines overridden by an active run" keeps passing, because the run-step remains above all three tiers.</li>
-  <li><code>tests/fm-daemon.test.sh</code> — daemon-side classification inherits the rule through the shared lib; its cases are single-tier and unchanged.</li>
-  <li><code>tests/fm-wake-queue.test.sh</code>, <code>tests/fm-watcher-lock.test.sh</code> — untouched machinery, regression canaries.</li>
+  <li><code>tests/mx-actor-state.test.sh</code> — existing single-signal cases remain unchanged, and a new native-blocked-plus-active-CI case proves the blocker wins while concurrent validation detail is retained.</li>
+  <li><code>tests/mx-watch-triage.test.sh</code> — all classifier-predicate and absorb/surface cases except the specific pairing noted in (b); notably "terminal-looking stale status lines overridden by an active run" keeps passing when no native verdict exists, because the run-step remains above reports and heuristics.</li>
+  <li><code>tests/mx-daemon.test.sh</code> — daemon-side classification preserves the native-blocked decision through away-mode routing.</li>
+  <li><code>tests/mx-wake-queue.test.sh</code>, <code>tests/mx-watcher-lock.test.sh</code> — untouched machinery, regression canaries.</li>
 </ul>
 
 <h3>(b) Existing tests needing changes (and why)</h3>
 <ul>
-  <li><code>tests/fm-watch-triage.test.sh</code> — any case asserting that a busy <em>pane</em> (regex tier, not a run-step) absorbs a stale whose log ends in a validated terminal verb must flip to "surfaces": that is precisely the implicit order this plan replaces. Each flipped assertion gets a comment citing the documented precedence.</li>
-  <li>Herdr eventwait tests (<code>tests/fm-backend-herdr-eventwait-smoke.test.sh</code>, <code>fm-backend-herdr-eventwait.test.py</code>) — if they pin the declared-pause absorb of a native <code>blocked</code> event, that case flips to surface-with-overruled-tier-logged. Verify during step 8; producers and record shapes are untouched, so nothing else there moves.</li>
+  <li><code>tests/mx-watch-triage.test.sh</code> — any case asserting that a busy <em>pane</em> (regex tier, not a run-step) absorbs a stale whose log ends in a validated terminal verb must flip to "surfaces": that is precisely the implicit order this plan replaces. Each flipped assertion gets a comment citing the documented precedence.</li>
+  <li><code>tests/mx-supervision-events.test.sh</code> — the declared-pause case flips from absorb to surface-with-overruled-tier-logged; the Herdr event-wait transport tests remain unchanged because they do not encode that consumer policy.</li>
 </ul>
 
 <h3>(c) New tests to write — <code>tests/mx-signal-precedence.test.sh</code></h3>
@@ -273,22 +277,22 @@ fi</code></pre>
   <li><strong>Feeds later phases:</strong> any future push-capable backend beyond herdr plugs its native tier into the same resolver — the rule is written once.</li>
 </ul>
 
-<h2>Risks &amp; open questions</h2>
+<h2>Risks &amp; decisions</h2>
 <div class="callout danger">
   <div class="label">Risk — this is the state oracle (the reason for the Medium rating)</div>
-  Every escalation-routing decision flows through the classify lib and its consumers. A precedence bug either wakes the maintainer for actors that are genuinely mid-work (noise, erodes trust in wakes) or silently absorbs a finished/stuck actor (the exact failure the absorb-only-when-provably-working design exists to prevent). Mitigations: pure-function resolver tested exhaustively before consumers move; tests-first landing order; the two deliberate behavior flips isolated to named assertions; the run-step tier untouched.
+  Every escalation-routing decision flows through the classify lib and its consumers. A precedence bug either wakes the maintainer for actors that are genuinely mid-work (noise, erodes trust in wakes) or silently absorbs a finished/stuck actor (the exact failure the absorb-only-when-provably-working design exists to prevent). Mitigations: pure-function resolver tested exhaustively before consumers move; tests-first landing order; the two deliberate behavior flips isolated to named assertions; concurrent run detail retained when native blocked wins.
 </div>
 <div class="callout warn">
   <div class="label">Deliberate behavior change — native events now pierce a declared pause</div>
   Today <code>handle_push_transition</code> absorbs a native <code>blocked</code> when the log declares <code>paused:</code>; under the documented rule it surfaces. Rationale: the pause declaration is a self-report about the <em>future</em> ("expect me to idle"), while the native event is ground truth about <em>now</em> ("the agent is waiting on a human") — and a paused actor whose runtime says blocked is exactly a case worth one look. If this proves noisy for legitimately paused actors whose harness idles as "blocked", the maintainer can revisit with evidence; flagged rather than silently decided.
 </div>
-<div class="callout warn">
-  <div class="label">Open question — where does the validation run-step rank?</div>
-  UPDATE_PLAN §5 names exactly three signal classes; the deterministic validation run-step (deep-review pipeline evidence in <code>mx-crew-state.sh</code>) is none of them, and today it outranks everything. This plan keeps it above tier 1 — it is externally observed process state, not an agent signal — but that placement is an interpretation, not spec. Confirm with the maintainer before step 3 lands.
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-28 — native events outrank the validation run-step</div>
+  The deterministic validation run-step sits below native runtime evidence and above schema-valid reports and regex heuristics. A native blocker surfaces immediately even while CI continues, and <code>mx-actor-state.sh</code> keeps the concurrent run detail so broker can update the maintainer about both facts.
 </div>
-<div class="callout warn">
-  <div class="label">Open question — tier-2 membership without provenance</div>
-  Proposed: any well-formed enum verb counts as schema-validated (no wire change). Alternative: <code>mx-report</code> stamps a provenance marker per line so hand-written well-formed lines rank lower. The marker adds wire-format churn the reconciliation stack would need to tolerate; recommend the simple reading unless abuse is observed. Maintainer call.
+<div class="callout ok">
+  <div class="label">Decided · 2026-07-28 — tier 2 uses the existing enum grammar</div>
+  Any well-formed Plan 03 enum verb counts as schema-validated without adding a provenance marker or changing the status wire format.
 </div>
 
 <div class="footer-nav">

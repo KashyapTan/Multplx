@@ -293,7 +293,7 @@ Send the same worker one exact decision naming the decision key, step, action, a
 Require the matching `resolved` event, forbid `--yes`, and require the worker to process every synchronous return until completion or a genuinely new escalation.
 Resume system monitoring immediately after the decision lands.
 
-Judge validation by the current-code-matched run step through `bin/mx-actor-state.sh`, not by shell liveness or the last status event.
+Judge validation by the current-code-matched run step through `bin/mx-actor-state.sh`, not by shell liveness or the last status event, except when that reader reports a stronger native runtime verdict.
 Running, fixing, or CI states remain working; parked approval or fix-review states require the worker to follow the active gate help; passed or checks-passed is done; failed or cancelled is failed.
 A worker hand-editing, committing, aborting, or restarting during an active validation run duplicates pipeline ownership; steer it back to the gate response flow.
 The worker reports the PR when CI first becomes green rather than waiting for merge monitoring to finish.
@@ -335,6 +335,7 @@ At the start of every wake-handling turn, drain the durable wake queue before pe
 Session start is the only exception because its one-shot digest already drained while locked or deliberately left the queue untouched in lock-refused read-only mode.
 A status line is a wake event, not current state; use `bin/mx-actor-state.sh` when current state matters, especially before re-escalating an old decision, blocker, or pause.
 A declared `paused:` event means a bounded external wait expected to clear on its own, while `blocked:` means broker action is needed.
+Apply the signal order owned by `bin/mx-classify-lib.sh`; a native blocker takes priority over ongoing validation, so surface the blocker promptly while also reporting that validation is still running.
 
 Handle actionable wakes as follows:
 

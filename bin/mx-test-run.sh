@@ -124,7 +124,7 @@ family_for_basename() {
     mx-documentation-audiences.test.sh|mx-ensure-agents-md.test.sh|mx-naming.test.sh|\
     mx-herdr-lab.test.sh|mx-instruction-owners.test.sh|\
     mx-install-herdr.test.sh|mx-nm-test-contract.test.sh|mx-no-mistakes-ownership.test.sh|\
-    mx-report.test.sh|mx-report-mcp.test.sh|\
+    mx-report.test.sh|mx-report-mcp.test.sh|mx-signal-precedence.test.sh|\
     mx-removed-deps.test.sh|\
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
     mx-send-popup-settle.test.sh|mx-send-settle.test.sh|mx-stow-contract.test.sh|\
@@ -687,7 +687,7 @@ families_for_changed_path() {
     docs/mx-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;
-    .github/*|.tasks.toml|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|\
+    .github/*|.tasks.toml|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|example_agents.md|\
     docs/configuration.md|docs/supervision-protocols/*)
       printf '%s\n' pure-contract-unit
       ;;
