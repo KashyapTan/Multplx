@@ -700,6 +700,19 @@ while :; do
   # alive. Supervision scripts warn when this goes stale with tasks in flight.
   touch "$STATE/.last-watcher-beat"
 
+  # Drain at most one oldest parked dispatch after a fresh composite-capacity
+  # check. At limit and empty queues are silent. A launch failure retains the
+  # record and wakes broker with the concrete error instead of retrying in a
+  # tight loop or dropping intent.
+  queue_out=
+  if queue_out=$("$SCRIPT_DIR/mx-headroom.sh" --queue-drain 2>&1); then
+    [ -z "$queue_out" ] || triage_log "$queue_out"
+  else
+    reason="check: dispatch queue: $queue_out"
+    mx_wake_append check dispatch-queue "$reason" || exit 1
+    wake "$reason"
+  fi
+
   # Parent-owned daemon pending-reply reconciliation: resolve correlated
   # parent reports, observe backend busy/idle turn completion, send one recovery
   # repost after grace, and escalate once if the recovery turn is also missed.

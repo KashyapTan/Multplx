@@ -39,7 +39,7 @@ Hard rules, in priority order:
    If work failed, say so plainly with the evidence.
 
 You may maintain this repo's private operational state directly.
-Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
+Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
 When any actor is live, route changes to shared tracked material rather than competing with active work; when the system is empty, the broker may change it directly.
 This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are maintainer-private and gitignored.
 Deliver shared tracked changes through this repo's no-mistakes pipeline and PR path, with the same merge authority as any other project.
@@ -59,7 +59,6 @@ AGENTS.md            this file
 CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
-.tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (section 10)
 .agents/skills/      broker-loaded internal skills, committed; each carries metadata.internal=true for installers
 .claude/skills       symlink to .agents/skills for claude compatibility
 skills/              standalone public installer-facing skills, committed; not loaded by broker
@@ -67,7 +66,7 @@ bin/                 helper scripts, committed; read each script's header before
 config/actor-harness  actor harness override; LOCAL, gitignored; absent or "default" = same as broker. Inherited as the literal file: a concrete primary adapter value also controls a daemon home's own actors (section 4)
 config/actor-dispatch.json  optional actor dispatch profiles; LOCAL, gitignored; broker-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by daemon homes
 config/daemon-harness  harness the PRIMARY uses to launch DAEMON agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; section 4); LOCAL, gitignored; absent or "default" harness falls back to config/actor-harness then broker's own. The primary's own setting; NOT inherited into daemon homes (daemons do not spawn daemons)
-config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = default tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by daemon homes (section 10)
+config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "owned" = the in-repo backlog library, "manual" = force routine backlog updates to hand-editing; inherited by daemon homes (section 10)
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = falls through to runtime auto-detection (the runtime broker itself is executing inside), then tmux; tmux is the verified reference backend (docs/tmux-backend.md), while herdr and cmux are experimental spawn backends (docs/herdr-backend.md, docs/cmux-backend.md) - both can also be selected by runtime auto-detection, and codex-app is not accepted; see docs/codex-app-backend.md; not inherited into daemon homes
 config/calm     Pi Calm presentation preference; LOCAL, gitignored, and not inherited; see docs/configuration.md "Pi Calm preference"
 config/herdr-presentation-spaces  optional presence flag for Herdr's default-off disposable single-task visual projection; LOCAL, gitignored; inherited by daemon homes; see docs/herdr-backend.md "Optional presentation spaces"
@@ -145,7 +144,7 @@ A lock-refused session must not spawn, steer, merge, drain the wake queue, repai
 
 Bootstrap detects first, asks for consent, and installs only after the maintainer approves in the current session.
 Do not dispatch until the required tools are present and GitHub authentication is good.
-Use `gh-axi` for GitHub, `chrome-devtools-axi` for browser work, and `lavish-axi` for structured decisions or reports; consult current help rather than memorizing flags.
+Use official `gh` for GitHub and `lavish-axi` for structured decisions or reports; use a first-class browser tool only when a task actually requires browser work, and consult current help rather than memorizing flags.
 A silent bootstrap section needs no action; for any printed actionable diagnostic line, load `bootstrap-diagnostics` and follow its owner procedure.
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
 `daemon-provisioning` owns startup daemon sync, liveness, and inherited local-material convergence.
@@ -159,12 +158,13 @@ If static `config/actor-harness` or `config/daemon-harness` names an unverified 
 `docs/configuration.md` owns dispatch-profile and runtime-backend schemas, `bin/mx-harness.sh` owns static resolution, and `bin/mx-spawn.sh` owns launch flags and fail-closed validation.
 When dispatch profiles exist, consult them at every actor or scout intake and pass the resolved concrete profile required by `mx-spawn`.
 Routing precedence is an explicit per-task maintainer override, then the best-fit configured rule, then the configured default, then the static actor harness.
-The broker alone resolves a matched profile array: run `quota-axi --json` at that intake, evaluate every configured candidate against that current output, and choose the candidate with the most real headroom.
-Account for every candidate; if any harness/model/provider relationship, applicable quota data, or interpretation cannot be established, stop and report that candidate instead of omitting it, guessing, falling back, or calling the result quota-informed.
+The broker alone resolves a matched profile array: run `bin/mx-headroom.sh --json` at that intake, evaluate every configured candidate against the composite local-resource and configured API-budget output, and choose the candidate with the most real headroom.
+Account for every candidate; if any harness/model/provider relationship, configured capacity data, or interpretation cannot be established, stop and report that candidate instead of omitting it, guessing, falling back, or calling the result capacity-informed.
 Preserve malformed profile configuration as an actionable error rather than selecting around it.
 When every candidate is tight, preserve the maintainer's strongest-reasoning class rather than silently downgrading it solely to conserve quota; stop and report the tight choice if that class cannot proceed.
 Break genuine headroom ties without array-order or harness bias.
-`quota-axi` owns how model or product windows relate to bounding account windows; as an explicitly interim rule until successor `quota-axi-interpretation-hints-h3` lands, use the weakest applicable remaining headroom, then remove this interim rule.
+`bin/mx-headroom.sh` owns the composite capacity contract and reports its API component as a configured budget rather than live provider quota.
+When it reports `at_limit`, `bin/mx-spawn.sh` parks one durable request under `state/.dispatch-queue/` instead of dropping intent; the watcher retries the oldest request at most once per poll, and `bin/mx-headroom.sh --queue` and `--queue-cancel <id>` provide inspection and cancellation.
 The generic effort fallback and its precedence are owned by `harness-adapters`: explicit maintainer and standing configured effort win; otherwise use low for well-understood explicit work, xhigh for ambiguous investigation or design, intermediate levels proportionally, and never max without explicit maintainer preference.
 Do not add model-specific versions of that policy.
 
@@ -243,7 +243,7 @@ Never both present a likely-enough solution and launch a parallel design exercis
 A diagnostic request, report, recommendation, or implementation-ready finding is evidence, not authorization to change code.
 Load `diagnostic-reasoning` before scoping a reported bug and before acting on a diagnostic report.
 
-Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately with no concurrency cap when each change can be independently implemented and validated and the selected delivery path can reconcile ordinary rebases or conflicts.
+Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately when headroom permits, each change can be independently implemented and validated, and the selected delivery path can reconcile ordinary rebases or conflicts.
 Serialize only for a true semantic dependency, shared mutable external state, incompatible concurrent migration, or another concrete condition that makes independent progress or reconciliation unsafe; same-file editing alone is insufficient, and genuine blockers remain durable.
 Write the task-specific brief under section 11 before spawning.
 
@@ -423,13 +423,13 @@ Mention cost as a courtesy when unusually much work is running, but never block 
 `data/backlog.md` is the durable queue.
 It tracks work items only, never agents; persistent daemons never appear as backlog items.
 Work routed to a daemon is recorded in that daemon home's own backlog, not the main backlog.
-When a main-side thread such as a pending maintainer decision or relay reminder is worth durable tracking, file it as its own work item through the Multplx decision-hold adapter, which preserves maintainer terminology while mapping the legacy upstream role token at the CLI boundary.
+When a main-side thread such as a pending maintainer decision or relay reminder is worth durable tracking, file it as its own work item through the Multplx decision-hold adapter.
 Unresolved decisions discovered by investigations or visual reviews follow `decision-hold-lifecycle`, which owns their mandatory backlog lifecycle.
 Update the backlog on every dispatch, completion, and decision for a work item.
 Re-evaluate queued work after every teardown and heartbeat, dispatching items only when dependencies and time gates have cleared.
 
-`.tasks.toml`, `docs/configuration.md`, and current `tasks-axi --help` own the backlog schema, compatibility, retention, and routine command syntax.
-Use compatible `tasks-axi` when the configured backend selects it and the documented manual path otherwise; keep only the configured recent Done entries.
+The header of `bin/mx-backlog-lib.sh` owns the backlog schema and retention defaults, while `bin/mx-backlog.sh --help` owns routine command syntax and `docs/configuration.md` explains operator choices.
+Use the owned library when the configured backend selects it and the documented manual path otherwise; keep only the configured recent Done entries.
 `daemon-provisioning` and `bin/mx-backlog-handoff.sh` own cross-home handoff safety.
 
 Keep free-form notes free of temporary paths, moving versions, ephemeral identifiers, and copied state that will rot.
@@ -463,7 +463,7 @@ It performs guarded fast-forward updates of the primary and registered daemon ho
 
 These skills are not maintainer-invocable; load them only at their precise triggers.
 
-- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
+- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `HEADROOM_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding, regardless of the project's `yolo` posture.
 - `harness-adapters` - load before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.

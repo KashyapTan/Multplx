@@ -134,7 +134,7 @@ bin/mx-backlog-handoff.sh <daemon-id> <item-key>...
 ```
 
 After seeding, run this handoff for the new daemon's in-scope queued items.
-The helper resolves and validates the daemon home from `data/daemons.md`, then routes the item move through `tasks-axi mv` (the single owner of the backlog format), which moves each named item - and a whole connected set, blocker plus dependents, atomically - from the main `data/backlog.md` into the daemon home's `data/backlog.md`.
+The helper resolves and validates the daemon home from `data/daemons.md`, then routes the item move through the owned backlog library, which moves each named item - and a whole connected set, blocker plus dependents, atomically - from the main `data/backlog.md` into the daemon home's `data/backlog.md`.
 This routed path remains required when `config/backlog-backend=manual`, which controls only routine broker backlog edits.
 It moves each queued item's whole block - the `- [ ] <id> ...` header plus every following two-or-more-space-indented body line and blank separator, up to the next item or column-0 section heading - byte-exact under the same section, treating an indented `## ...` line as body rather than a section boundary, so neither the header nor its body is duplicated or orphaned.
 It refuses a selected item with a single-space or tab-indented continuation rather than risk leaving content orphaned in the main backlog.

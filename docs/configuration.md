@@ -31,20 +31,18 @@ The `/calm` command replaces the file atomically before changing live presentati
 The extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
 This preference is local to each Multplx home and is not part of daemon inherited configuration.
 
-## Backlog backend (.tasks.toml / config/backlog-backend)
+## Backlog backend (config/backlog-backend)
 
-The tracked `.tasks.toml` pins the default `tasks-axi` markdown backend to `data/backlog.md`, with `done_keep = 10` and an archive at `data/done-archive.md`.
-When the default backend is selected and compatible `tasks-axi` is on `PATH`, broker uses its verbs for routine backlog mutations.
-Daemon handoffs are separate and unconditional: `mx-backlog-handoff.sh` keeps only its own system-level validation and always routes the item move through `tasks-axi mv`, the single owner of the backlog format.
+The in-repo `bin/mx-backlog-lib.sh` is the single owner of the markdown backlog schema, parsing rules, mutation semantics, and retention defaults.
+It stores live work in `data/backlog.md`, keeps the newest 10 Done items inline by default, and moves retention overflow to `data/done-archive.md`.
+When the default backend is selected, broker uses the library for routine backlog mutations with no external package or version probe.
+Daemon handoffs are separate and unconditional: `mx-backlog-handoff.sh` keeps its system-level validation and routes the item move through the library's atomic `mx_backlog_mv`.
 It moves in-scope `## Queued` items only and refuses `## In flight` and historical `## Done` records, which stay with their home for pruning or archiving.
 Handoff item bodies must use at least two leading spaces, and the helper refuses a selected item with a single-space or tab-indented continuation rather than risk orphaning it.
-Because bootstrap requires `tasks-axi` on `PATH` on every profile, that delegation works system-wide, and the `config/backlog-backend=manual` knob governs broker's own hand-editing of its backlog, not this validated helper.
-Compatible means the shared bootstrap probe accepts `tasks-axi --version` as 0.1.1 or newer, `tasks-axi update --help` exposes `--archive-body`, and `tasks-axi mv --help` exposes `[<id>...]` for the atomic multi-ID move introduced in 0.2.2 and required by handoff delegation.
-That sentence is the single owner of the tasks-axi compatibility definition; every other document points here instead of restating the version gates.
-Bootstrap requires compatible `tasks-axi` on every profile; see "Toolchain" below for missing-tool reporting and silent default-backend behavior.
-Set the local, gitignored `config/backlog-backend` file to `manual` to force manual backlog editing and suppress the verbose `BOOTSTRAP_INFO: tasks-axi available` fact, not missing-tool reporting.
-Absent or `tasks-axi` selects the default tasks-axi backend.
-The file format is unchanged in both modes; tasks-axi and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.
+The `config/backlog-backend=manual` knob governs broker's own hand-editing of its backlog, not this validated handoff helper.
+Set the local, gitignored `config/backlog-backend` file to `manual` to force manual backlog editing; absent or `owned` selects the in-repo library.
+The file format is unchanged in both modes; the library and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.
+Use `bin/mx-backlog.sh` for routine list, show, add, done, ready, hold, update, block, unblock, move, and validation operations.
 
 ## Runtime backend (config/backend / MX_BACKEND)
 
@@ -217,7 +215,7 @@ Both `use` and the optional top-level `default` accept either one profile object
 The single-object form stays fully backward-compatible, and every profile needs `harness`.
 Profile `model` and `effort` fields and rule `why` are optional.
 An omitted model or effort means the selected harness uses its own default for that axis.
-Every profile array is an implicit quota-aware choice.
+Every profile array is an implicit capacity-aware choice.
 If no dispatch rule fits, broker resolves `default` through the same object-or-array path before falling back to `config/actor-harness`.
 If a selected profile carries an effort value the chosen harness does not accept, `mx-spawn.sh` records the requested `effort=` in task meta for traceability but omits the launch flag, and bootstrap reports the invalid harness/effort pair as a `ACTOR_DISPATCH` diagnostic when it is visible in the file.
 See [`docs/examples/actor-dispatch.json`](examples/actor-dispatch.json) for a starting point to copy into local `config/actor-dispatch.json`.
@@ -227,24 +225,36 @@ Malformed JSON, an empty or malformed rule/default array, an unverified harness,
 While the file remains present, no actor or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Daemon homes inherit this file from the primary, so a daemon's own actors apply the same dispatch profile behavior.
 
+## Dispatch capacity (config/api-capacity / state/.dispatch-queue)
+
+`bin/mx-headroom.sh` is the single owner of dispatch-capacity calculation and parked-request record fields.
+Its JSON combines spare CPU and available memory with a conservative configured API concurrency budget, and the tighter component controls `available` and `at_limit`.
+The optional global API budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses a capacity of one.
+This API signal is deliberately labeled `configured-budget`, not live provider quota.
+An unreadable local signal, malformed budget, or unaccounted configured candidate is an error rather than permission to guess.
+At limit, `bin/mx-spawn.sh` writes one private record per task under `state/.dispatch-queue/` and returns a queued outcome without allocating a worktree or endpoint.
+The watcher checks fresh headroom on each poll and launches at most the oldest one, preserving FIFO and leaving every record untouched while capacity remains unavailable.
+Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom.sh --queue-cancel <id>` to cancel one exact task.
+
 ## Toolchain
 
 On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, Treehouse with durable `get --lease` support, no-mistakes v1.31.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi, compatible tasks-axi per "Backlog backend" above, and quota-axi.
+The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, Treehouse with durable `get --lease` support, no-mistakes v1.31.2 or newer, and lavish-axi.
 [`upstream.md`](upstream.md#pinned-external-dependencies) owns Treehouse's exact version pin and points to the verified installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
-In that list, no-mistakes runs the validation pipeline, gh-axi, chrome-devtools-axi, and lavish-axi cover GitHub, browser, and rich-review operations, and tasks-axi plus quota-axi back backlog mutations and quota-aware array dispatch.
+In that list, no-mistakes runs the validation pipeline, official gh covers GitHub operations, and lavish-axi covers rich-review operations.
+Backlog mutations and dispatch capacity are owned by the repository's `bin/mx-backlog-lib.sh` and `bin/mx-headroom.sh`.
 The per-backend delta is required only for the backend resolved from `MX_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
 That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh`: the resolved backend's own session-provider CLI (`tmux`, `herdr`, or `cmux`) plus `jq` for the JSON-emitting experimental adapters (`herdr`, `cmux`) whose spawn and liveness paths parse the backend's JSON output.
 Backend tool availability uses the adapter's own executable resolver, so bootstrap and spawn agree on supported non-`PATH` locations such as cmux's bundled CLI.
 An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead of silently dropping its dependency delta or falling back to tmux.
 A herdr or cmux home is therefore never told `tmux` is missing, while Treehouse's command and durable-lease checks still run unconditionally because every supported backend delegates worktree acquisition to it.
 When `config/actor-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
-`tasks-axi` and `quota-axi` are required bootstrap tools in every profile, the same class as `lavish-axi`.
-An absent or incompatible `tasks-axi` reports `MISSING: tasks-axi (install: npm install -g tasks-axi)`; when `config/backlog-backend` is not `manual` and compatible `tasks-axi` is on `PATH`, bootstrap stays silent and broker uses its verbs for routine backlog mutations, otherwise it hand-edits `data/backlog.md` until installation is approved and completed.
-An absent `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; broker cannot resolve a profile array until current quota output is available for every candidate.
+Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
+An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
+The "Dispatch capacity" section owns configuration and queue behavior.
 Bootstrap also reports a `TANGLE:` line when `MX_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the system lock, the same line is advisory and omits the checkout command.
 The locked session-start bootstrap step also runs a best-effort project clone refresh through `mx-system-sync.sh`.

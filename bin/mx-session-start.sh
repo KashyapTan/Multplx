@@ -61,8 +61,8 @@
 # The tradeoff this ordering accepts: a refused (read-only) session must not
 # go dark. So on refusal, bootstrap still runs (in MX_BOOTSTRAP_DETECT_ONLY=1
 # mode) for its read-only detect lines - missing tools, gh auth, the
-# worktree-tangle check, the harness override, actor-dispatch validation,
-# tasks-axi and quota-axi tool checks, and tasks-axi availability - none of
+# worktree-tangle check, the harness override, actor-dispatch validation, and
+# the bundled headroom self-check - none of
 # which mutate shared state and all of which are safe to compute without
 # verified lock ownership.
 # Only projection cleanup, the four bootstrap mutating sweeps, and the
@@ -72,17 +72,14 @@
 #
 # BACKLOG DIGEST: MX_SESSION_START_BACKLOG_LIMIT bounds the startup backlog
 # listing, default 80 items.
-# When compatible tasks-axi is selected and available, the shared tasks-axi
-# backend probe remains the compatibility owner and this script asks
-# `tasks-axi list` for the compact identity fields plus blocked_by, hold_kind,
-# and hold_reason, never body.
-# When manual mode is selected, or tasks-axi is unavailable or incompatible,
+# When the owned backend is selected, this script asks mx-backlog-lib.sh for
+# compact identity fields plus blocked_by, hold_kind, and hold_reason, never
+# body. When manual mode is selected,
 # this script prints only backlog section headings and item title lines, so
 # title-line hold and blocked-by metadata remain visible while indented bodies
 # stay out of the startup digest.
-# Full bodies are targeted follow-up only: `tasks-axi show <id> --full` when
-# compatible tasks-axi is available, or `data/backlog.md` when the file body is
-# truly needed.
+# Full bodies are targeted follow-up only through `bin/mx-backlog.sh show
+# <id> --full`, or by reading `data/backlog.md` in manual mode.
 #
 # Usage: mx-session-start.sh
 #   Prints the full ordered digest to stdout and always exits 0: this is a
@@ -101,8 +98,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/mx-harness.sh" 2>/dev/null || printf unknown)
 
 # shellcheck source=bin/mx-backend.sh
 . "$SCRIPT_DIR/mx-backend.sh"
-# shellcheck source=bin/mx-tasks-axi-lib.sh
-. "$SCRIPT_DIR/mx-tasks-axi-lib.sh"
+# shellcheck source=bin/mx-backlog-lib.sh
+. "$SCRIPT_DIR/mx-backlog-lib.sh"
 
 STATUS_TAIL=${MX_SESSION_START_STATUS_TAIL:-5}
 case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
@@ -136,7 +133,7 @@ print_file_or_absent() {
 }
 
 print_backlog_pointer() {
-  printf 'Full task bodies remain available on demand: tasks-axi show <id> --full when compatible tasks-axi is available, or data/backlog.md.\n'
+  printf 'Full task bodies remain available on demand: bin/mx-backlog.sh show <id>, or data/backlog.md in manual mode.\n'
 }
 
 print_backlog_manual_compact() {
@@ -178,15 +175,15 @@ print_backlog_manual_compact() {
   ' "$path"
 }
 
-print_backlog_tasks_axi_compact() {
+print_backlog_owned_compact() {
   local path=$1 out rc
-  printf 'compact backlog listing (tasks-axi; max %s item(s); task bodies omitted)\n' "$BACKLOG_LIMIT"
-  out=$(tasks-axi list --file "$path" --limit "$BACKLOG_LIMIT" --fields blocked_by,hold_kind,hold_reason 2>&1)
+  printf 'compact backlog listing (owned backend; max %s item(s); task bodies omitted)\n' "$BACKLOG_LIMIT"
+  out=$(mx_backlog_list "$path" "$BACKLOG_LIMIT" blocked_by,hold_kind,hold_reason 2>&1)
   rc=$?
   if [ "$rc" -eq 0 ]; then
     printf '%s\n' "$out"
   else
-    printf 'tasks-axi compact listing failed; falling back to title-line rendering.\n'
+    printf 'owned backlog compact listing failed; falling back to title-line rendering.\n'
     printf '%s\n' "$out"
     print_backlog_manual_compact "$path" "fallback"
   fi
@@ -197,12 +194,12 @@ print_backlog_compact() {
   subsection "$label"
   if [ -f "$path" ]; then
     if [ -s "$path" ]; then
-      if mx_tasks_axi_backend_available "$CONFIG"; then
-        print_backlog_tasks_axi_compact "$path"
+      if mx_backlog_backend_available "$CONFIG"; then
+        print_backlog_owned_compact "$path"
       elif mx_backlog_backend_manual "$CONFIG"; then
         print_backlog_manual_compact "$path" "manual backend"
       else
-        print_backlog_manual_compact "$path" "tasks-axi unavailable or incompatible"
+        print_backlog_manual_compact "$path" "unknown backend"
       fi
       print_backlog_pointer
     else

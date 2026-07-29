@@ -36,7 +36,7 @@ The goal is a session that is safe to reset or destroy because everything durabl
      Route it through a normal delivery task so an actor records it via `bin/mx-ensure-agents-md.sh` and commits it through that project's delivery pipeline, exactly as section 6 describes.
      If the system is live, route this to an actor rather than doing it inline.
    - Knowledge generalizable to every broker user: this repo's own `AGENTS.md` (or other shared, tracked material), delivered through the normal branch -> no-mistakes -> PR -> maintainer-merge pipeline for this repo (section 1), never hand-committed straight to `main`.
-   - Task-scoped notes: inspect the relevant backlog item with `tasks-axi show <id> --full`, judge whether the new note is new, duplicate, superseding, or obsolete, then write a considered replacement body with `tasks-axi update <id> --body-file <path>`.
+   - Task-scoped notes: inspect the relevant backlog item with `bin/mx-backlog.sh show <id>`, judge whether the new note is new, duplicate, superseding, or obsolete, then write a considered replacement body with `bin/mx-backlog.sh update <id> --body-file <path>`.
      When the replacement intentionally supersedes prior state that should remain recoverable, add `--archive-body` to that update command so the prior body stays recoverable without copying it into the replacement.
      Never append.
      If hand-editing `data/backlog.md` per the active backend, make the same inspect-then-update edit in place.

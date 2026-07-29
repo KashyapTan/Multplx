@@ -9,9 +9,8 @@ set -u
 # shellcheck source=tests/daemon-helpers.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/daemon-helpers.sh"
 
-# The move is delegated to `tasks-axi mv`, so this suite exercises the real
-# binary. Skip cleanly when it is absent (matching the backend smoke suites).
-command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found (required by the delegated handoff path)"; exit 0; }
+# The move is delegated to the in-repo backlog library, so every case is
+# unconditional and needs no external package.
 
 TMP_ROOT=$(mx_test_tmproot mx-backlog-handoff)
 
@@ -61,6 +60,8 @@ test_body_moves_when_followed_by_another_item() {
   setup_homes "$home" "$sub"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] keep-a - stays first (repo: alpha)
   keep-a body line
@@ -115,6 +116,8 @@ test_body_moves_when_followed_by_section_heading() {
   setup_homes "$home" "$sub"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] section-tail - body ends at section (repo: alpha)
   last queued body
@@ -154,13 +157,17 @@ test_body_moves_when_last_lines_of_file() {
   # printf builds that deliberately. It must move whole, indented ## line
   # included, into the destination the handoff seeds.
   {
+    printf '%s\n' '## In flight'
+    printf '%s\n' ''
+    printf '%s\n' '## Done'
+    printf '%s\n' ''
     printf '%s\n' '## Queued'
     printf '%s\n' '- [ ] eof-item - ends the file (repo: alpha)'
     printf '%s\n' '  eof body line one'
     printf '%s\n' '  ## Intent'
     printf '%s' '  eof body line two'
   } > "$home/data/backlog.md"
-  # tasks-axi owns the destination format: the moved block lands under ## Queued
+  # The owned backlog library controls the destination format: the moved block lands under ## Queued
   # in the standard three-section scaffold the handoff seeds for a fresh home.
   local expected_destination="$TMP_ROOT/body-eof-expected.md"
   {
@@ -203,12 +210,16 @@ test_eof_body_before_seeded_destination_section_keeps_boundary() {
   setup_homes "$home" "$sub"
 
   {
+    printf '%s\n' '## In flight'
+    printf '%s\n' ''
+    printf '%s\n' '## Done'
+    printf '%s\n' ''
     printf '%s\n' '## Queued'
     printf '%s\n' '- [ ] seeded-eof-item - ends the file (repo: alpha)'
     printf '%s\n' '  seeded eof body one'
     printf '%s' '  seeded eof body two'
   } > "$home/data/backlog.md"
-  # tasks-axi owns the destination whitespace: the moved block sits directly
+  # The owned backlog library controls destination whitespace: the moved block sits directly
   # under ## Queued with the section separator before the following ## Done, and
   # the EOF body stays a clean line above that heading (its boundary is kept).
   local expected_destination="$TMP_ROOT/body-eof-seeded-expected.md"
@@ -238,6 +249,10 @@ test_untouched_eof_line_preserves_terminator() {
   setup_homes "$home" "$sub"
 
   {
+    printf '%s\n' '## In flight'
+    printf '%s\n' ''
+    printf '%s\n' '## Done'
+    printf '%s\n' ''
     printf '%s\n' '## Queued'
     printf '%s\n' '- [ ] move-item - remove this block (repo: alpha)'
     printf '%s\n' '  move body'
@@ -246,6 +261,10 @@ test_untouched_eof_line_preserves_terminator() {
   } > "$home/data/backlog.md"
   local expected_source="$TMP_ROOT/untouched-eof-expected.md"
   {
+    printf '%s\n' '## In flight'
+    printf '%s\n' ''
+    printf '%s\n' '## Done'
+    printf '%s\n' ''
     printf '%s\n' '## Queued'
     printf '%s\n' '- [ ] keep-item - retain this block (repo: beta)'
     printf '%s' '  keep body without a final newline'
@@ -266,6 +285,8 @@ test_body_handoff_is_idempotent() {
   setup_homes "$home" "$sub"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] neighbor - untouched (repo: alpha)
   neighbor body
@@ -314,6 +335,8 @@ test_noncanonical_indented_continuations_refuse_without_changes() {
   setup_homes "$home" "$sub"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] malformed-body - must not orphan continuations (repo: alpha)
  one-space continuation
@@ -324,9 +347,13 @@ EOF
   canonical body
 EOF
   cat > "$sub/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] resident-item - remains in the daemon backlog (repo: alpha)
   resident body
+
+## Done
 EOF
 
   local source_before="$TMP_ROOT/noncanonical-source-before.md"
@@ -357,6 +384,8 @@ test_indented_heading_is_not_section_boundary() {
   setup_homes "$home" "$sub" design
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] ha-codex-fast-default-4e - harness default work (repo: broker)
   Context for the daemon.
@@ -366,6 +395,8 @@ test_indented_heading_is_not_section_boundary() {
   - body survives handoff
   - ## headings inside body stay body
 - [ ] next-item - after the trap (repo: broker)
+
+## Done
 EOF
 
   local expected_block
@@ -385,10 +416,10 @@ EOF
     fail "tokenizer trap left item fragments in the source backlog"
   fi
   assert_grep 'next-item' "$home/data/backlog.md" "following item was lost after ## Intent body"
-  # Exactly one real Queued section; no spurious column-0 ## Intent section invented.
+  # Exactly the three canonical sections; no spurious column-0 ## Intent section invented.
   local heading_count
   heading_count=$(grep -cE '^## ' "$home/data/backlog.md")
-  [ "$heading_count" -eq 1 ] || fail "source gained extra column-0 ## headings (count=$heading_count)"
+  [ "$heading_count" -eq 3 ] || fail "source gained extra column-0 ## headings (count=$heading_count)"
   heading_count=$(grep -cE '^## ' "$sub/data/backlog.md")
   # sub scaffold has In flight / Queued / Done
   [ "$heading_count" -eq 3 ] || fail "destination has unexpected ## section count (count=$heading_count)"
@@ -406,6 +437,8 @@ test_multi_paragraph_body_with_internal_blanks_moves_whole() {
   setup_homes "$home" "$sub"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] before-multi - stays put (repo: alpha)
   before body
@@ -487,6 +520,8 @@ test_registry_home_with_pre_home_parentheses() {
     "$id" "$sub_abs" > "$home/data/daemons.md"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] paren-item - should hand off (repo: alpha)
   body line
@@ -518,6 +553,8 @@ test_registry_home_missing_field_fails_cleanly() {
     "$id" > "$home/data/daemons.md"
 
   cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
 ## Queued
 - [ ] orphan-item - never moves (repo: alpha)
 

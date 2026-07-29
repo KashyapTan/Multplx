@@ -16,7 +16,10 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-system-view.sh`       | Render the system snapshot as a human Markdown view                                   |
 | `mx-status-snapshot.sh` | Project the system snapshot to the compact TOON catchup view; local-only unless `--include-prs` |
 | `mx-update.sh`           | Fast-forward-only self-update of broker and daemon homes from origin          |
+| `mx-backlog.sh`          | Operate the owned markdown backlog through its supported command surface       |
+| `mx-backlog-lib.sh`      | Own backlog schema, parsing, atomic mutations, and Done retention              |
 | `mx-backlog-handoff.sh`  | Validate and route queued backlog-item moves into a daemon home                  |
+| `mx-headroom.sh`         | Report composite dispatch capacity and inspect, cancel, or drain parked requests |
 | `mx-decision-hold.sh`    | Create, verify, complete, and resolve durable maintainer-held decisions                 |
 | `mx-brief.sh`            | Scaffold delivery, scout, daemon-charter, and Herdr-lab briefs                       |
 | `mx-herdr-lab.sh`        | Provision and guardedly operate an isolated, never-default Herdr lab session         |
@@ -67,7 +70,6 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-ff-lib.sh`           | Shared guarded fast-forward helper for origin pulls and local daemon syncs       |
 | `mx-lock-lib.sh`         | Shared "is this git lock provably abandoned?" proof used by teardown and system-sync   |
 | `mx-config-inherit-lib.sh` | Shared primary-to-daemon inherited local-material propagation and config-reread delivery |
-| `mx-tasks-axi-lib.sh`    | Shared backlog-backend selector and `tasks-axi` compatibility probe                  |
 | `mx-wake-drain.sh`       | Atomically drain queued watcher wakes, emit bounded best-effort status-event annotations, then assert watcher liveness |
 | `mx-wake-lib.sh`         | Shared durable wake queue, portable locks, and watcher identity/health helpers       |
 | `mx-classify-lib.sh`     | Shared maintainer-relevant and declared-external-wait wake classification vocabulary    |

@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, ACTOR_DISPATCH invalid, SYSTEM_SYNC, PR_CHECK_MIGRATION, DAEMON_SYNC, DAEMON_LIVENESS, or NUDGE_DAEMONS - or when a standalone bin/mx-bootstrap.sh run prints one of those lines.
+  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, HEADROOM_INVALID, NEEDS_GH_AUTH, TANGLE, ACTOR_DISPATCH invalid, SYSTEM_SYNC, PR_CHECK_MIGRATION, DAEMON_SYNC, DAEMON_LIVENESS, or NUDGE_DAEMONS - or when a standalone bin/mx-bootstrap.sh run prints one of those lines.
   A silent bootstrap section, or a BOOTSTRAP_INFO fact, means no skill load.
 user-invocable: false
 metadata:
@@ -19,10 +19,10 @@ When any diagnostic needs maintainer attention, report the plain consequence and
 - `MISSING: <tool> (install: <command>)` - list the missing tools to the maintainer with a one-line purpose each plus the printed install commands, wait for consent (one approval may cover the list), then run `bin/mx-bootstrap.sh install <approved tools...>`.
   For `treehouse`, this also covers an installed version whose `treehouse get` lacks `--lease`; treat it as an upgrade request.
   For `no-mistakes`, this also covers an installed version older than 1.31.2, because actor validation briefs defer gate mechanics to no-mistakes' version-matched guidance.
-  For `tasks-axi`, this also covers an installed build that fails the compatibility probe (`docs/configuration.md` "Backlog backend" owns the definition); `config/backlog-backend=manual` only suppresses the verbose `BOOTSTRAP_INFO: tasks-axi available` fact, not this missing-tool report.
-  For `quota-axi`, bootstrap requires it because broker reads its current output directly before resolving every actor-dispatch profile array; without it, report the missing requirement and do not choose around an unexamined candidate.
 - `MISSING_MANUAL: <tool> (instructions: <url>)` - tell the maintainer why the tool is required and give them the printed instructions URL, but do not pass the tool to `bin/mx-bootstrap.sh install`; wait for the maintainer to complete the manual installation, then rerun session start to confirm the dependency is present.
 - `BACKEND_INVALID: <name> (known: <names>)` - the resolved runtime backend has no verified dependency or lifecycle contract, so do not dispatch work until the invalid `MX_BACKEND` or `config/backend` value is corrected to one of the listed backends.
+- `HEADROOM_INVALID: <reason>` - the owned composite capacity check could not establish a trustworthy local-resource signal, configured API budget, candidate set, or valid JSON result.
+  Do not dispatch or bypass the check; correct the named signal or configuration and rerun bootstrap.
 - `NEEDS_GH_AUTH` - ask the maintainer to run `! gh auth login` (interactive; you cannot run it for them).
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.

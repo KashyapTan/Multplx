@@ -103,20 +103,20 @@ test_generic_effort_fallback_respects_precedence() {
   pass "generic effort fallback applies only below maintainer and standing configuration"
 }
 
-test_agent_owned_quota_array_dispatch_contract() {
+test_agent_owned_capacity_array_dispatch_contract() {
   local phrase
   for phrase in \
     'The broker alone resolves a matched profile array' \
-    'run `quota-axi --json` at that intake' \
-    'evaluate every configured candidate against that current output' \
+    'run `bin/mx-headroom.sh --json` at that intake' \
+    'evaluate every configured candidate against the composite local-resource and configured API-budget output' \
     'choose the candidate with the most real headroom' \
-    'if any harness/model/provider relationship, applicable quota data, or interpretation cannot be established, stop and report that candidate' \
-    'instead of omitting it, guessing, falling back, or calling the result quota-informed' \
+    'if any harness/model/provider relationship, configured capacity data, or interpretation cannot be established, stop and report that candidate' \
+    'instead of omitting it, guessing, falling back, or calling the result capacity-informed' \
     'Preserve malformed profile configuration as an actionable error' \
     "preserve the maintainer's strongest-reasoning class rather than silently downgrading it" \
     'Break genuine headroom ties without array-order or harness bias' \
-    '`quota-axi` owns how model or product windows relate to bounding account windows' \
-    'explicitly interim rule until successor `quota-axi-interpretation-hints-h3` lands'; do
+    '`bin/mx-headroom.sh` owns the composite capacity contract' \
+    'parks one durable request under `state/.dispatch-queue/` instead of dropping intent'; do
     assert_grep "$phrase" "$AGENTS" "array-dispatch contract lost '$phrase'"
   done
 
@@ -132,11 +132,9 @@ test_agent_owned_quota_array_dispatch_contract() {
     "model discovery guidance permits a fixed provider table"
   assert_grep '`example_agents.md` section 4 owns the future dispatch and array-selection procedure.' "$CONFIG" \
     "configuration docs do not point to the agent-owned array procedure"
-  assert_grep 'quota-axi is required for the' "$BOOTSTRAP" \
-    "bootstrap docs lost the quota-axi dependency pointer"
-  assert_grep 'agent-owned dispatch-profile array procedure in example_agents.md section 4.' "$BOOTSTRAP" \
-    "bootstrap docs do not point to the agent-owned array procedure"
-  pass "broker directly compares every quota candidate with authoritative model discovery"
+  assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP" \
+    "bootstrap docs lost the owned-headroom failure procedure"
+  pass "broker directly compares every capacity candidate with authoritative model discovery"
 }
 
 test_shared_authoring_requirements_are_owned() {
@@ -218,7 +216,7 @@ test_compressed_agents_owner_map() {
     "AGENTS.md no longer owns the delivery lifecycle"
   assert_grep 'System monitoring is an always-loaded operational contract' "$AGENTS" \
     "AGENTS.md no longer owns system monitoring"
-  assert_grep '`.tasks.toml`, `docs/configuration.md`, and current `tasks-axi --help` own the backlog schema' "$AGENTS" \
+  assert_grep 'header of `bin/mx-backlog-lib.sh` owns the backlog schema' "$AGENTS" \
     "AGENTS.md lost the backlog-mechanics owner pointer"
   assert_grep '`bin/mx-brief.sh` and its help own scaffold syntax' "$AGENTS" \
     "AGENTS.md lost the brief-mechanics owner pointer"
@@ -243,8 +241,8 @@ test_intake_reuses_evidence_and_parallelizes_safe_work() {
     'genuine blockers remain durable'; do
     assert_grep "$phrase" "$AGENTS" "intake contract lost '$phrase'"
   done
-  assert_grep 'dispatch isolated work immediately with no concurrency cap' "$AGENTS" \
-    "intake contract lost unbounded safe parallel dispatch"
+  assert_grep 'dispatch isolated work immediately when headroom permits' "$AGENTS" \
+    "intake contract lost capacity-bounded safe parallel dispatch"
   assert_grep 'maintainer explicitly requests a separate knowledge or design deliverable' "$AGENTS" \
     "intake contract lost maintainer-requested separate scouts"
   assert_grep 'When implementation is separately authorized, promote the existing scout' "$AGENTS" \
@@ -284,7 +282,7 @@ test_new_skill_metadata_and_triggers
 test_diagnostic_owner_covers_causal_procedure
 test_project_management_owner_covers_guarded_operations
 test_generic_effort_fallback_respects_precedence
-test_agent_owned_quota_array_dispatch_contract
+test_agent_owned_capacity_array_dispatch_contract
 test_shared_authoring_requirements_are_owned
 test_daemon_registry_contract_stays_concise
 test_state_startup_and_ordinary_recovery_placement

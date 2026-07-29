@@ -7,12 +7,10 @@
 #
 # Scope-matching is broker's JUDGMENT: you pass the task-id keys you have
 # already judged in-scope for the daemon. This script performs only the
-# system-level validation that the backlog backend cannot know, then DELEGATES
-# the actual item move to `tasks-axi mv`, the single owner of the backlog
-# format. Delegating the move is the durability end-state: it removes the awk
-# that used to re-implement block extraction and insertion here, so the format
-# has exactly one parser and cannot drift out of sync (the body-orphaning class
-# of bug fixed in PR #401 was exactly that drift).
+# system-level validation that the backlog library cannot know, then delegates
+# the actual item move to `mx_backlog_mv`, the single owner of the backlog
+# format. The library keeps one parser for extraction and insertion, preventing
+# the body-orphaning class of drift fixed in upstream PR #401.
 #
 # What this script still owns (never delegated):
 #   - resolving the daemon home from data/daemons.md;
@@ -26,7 +24,7 @@
 #     already present in the daemon backlog is reported and skipped, and if
 #     any key matches neither backlog nothing is moved.
 #
-# What `tasks-axi mv <id>... --to <dest>` owns: moving each full item BLOCK
+# What `mx_backlog_mv <source> <destination> <id>...` owns: moving each full item block
 # byte-exact (header, body lines, blank separators, and indented pseudo-headings
 # such as `  ## Intent`), preserving destination section placement, and moving a
 # whole connected set (a blocker and its dependents) atomically with blocked-by
@@ -35,12 +33,11 @@
 #
 # Item bodies must use at least two leading spaces. The helper refuses a selected
 # item with a single-space or tab-indented continuation rather than risk leaving
-# it orphaned, because tasks-axi treats only two-or-more-space lines as body.
-# The move needs compatible `tasks-axi` on PATH, including atomic multi-ID `mv`
-# (introduced in 0.2.2). Bootstrap requires it system-wide, so this works
-# everywhere; the `config/backlog-backend=manual` knob only governs broker's
-# own hand-editing of its own backlog, not this validated helper. Idempotent:
-# re-running converges. Atomic: on any move failure nothing moves.
+# it orphaned, because the owned format treats only two-or-more-space lines as
+# body. The `config/backlog-backend=manual` knob governs routine broker editing,
+# not this validated cross-home helper. Idempotent: re-running converges.
+# Transactional: both replacement files are computed and validated before
+# either rename, and a failed second rename rolls the first file back.
 # See AGENTS.md project management and task lifecycle.
 # Usage: mx-backlog-handoff.sh <daemon-id> <item-key>...
 set -eu
@@ -51,8 +48,8 @@ MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 REG="$DATA/daemons.md"
 MAIN_BACKLOG="$DATA/backlog.md"
-# shellcheck source=bin/mx-tasks-axi-lib.sh disable=SC1091
-. "$SCRIPT_DIR/mx-tasks-axi-lib.sh"
+# shellcheck source=bin/mx-backlog-lib.sh disable=SC1091
+. "$SCRIPT_DIR/mx-backlog-lib.sh"
 
 [ $# -ge 2 ] || { echo "usage: mx-backlog-handoff.sh <daemon-id> <item-key>..." >&2; exit 1; }
 ID=$1
@@ -189,7 +186,7 @@ validate_backlog_file() {
 # header exists in the file. This reads only section headings and item header
 # lines - never item bodies - so it drives the system-level classification (in-
 # flight refusal, already-present idempotency, missing-key abort) without
-# re-implementing the block/body move semantics that tasks-axi mv owns.
+# re-implementing the block/body move semantics that mx-backlog-lib.sh owns.
 backlog_key_section() {
   local file=$1 key=$2
   [ -f "$file" ] || return 1
@@ -299,35 +296,14 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 
-if ! mx_tasks_axi_compatible; then
-  echo "error: tasks-axi with atomic multi-ID mv support (0.2.2+) is required to move backlog items" >&2
-  exit 1
-fi
-
-# Seed the destination with broker's standard three-section scaffold when it
-# does not exist yet, so the moved item lands under the right section. (Left to
-# create the file itself, tasks-axi mv writes its own `# Backlog` title format,
-# which is not broker's home-backlog convention.)
 mkdir -p "$SUB_HOME/data"
-SUB_CREATED=0
-if [ ! -f "$SUB_BACKLOG" ]; then
-  printf '## In flight\n\n## Queued\n\n## Done\n' > "$SUB_BACKLOG"
-  SUB_CREATED=1
-fi
 
-# Delegate the move to tasks-axi. Passing the whole in-scope set to one call is a
-# single atomic transaction, so a connected set (blocker + dependents) moves
-# together and, on any failure, neither backlog's content changes - the only
-# cleanup is a scaffold we just created. tasks-axi writes both its success and
-# error output to stdout, so capture it and surface it only on failure.
-if ! MV_OUT=$(tasks-axi mv "${TO_MOVE[@]}" --file "$MAIN_BACKLOG" --to "$SUB_BACKLOG" 2>&1); then
-  if [ "$SUB_CREATED" -eq 1 ]; then
-    rm -f "$SUB_BACKLOG"
-  fi
+# Passing the whole in-scope set to one library call is one transaction.
+if ! MV_OUT=$(mx_backlog_mv "$MAIN_BACKLOG" "$SUB_BACKLOG" "${TO_MOVE[@]}" 2>&1); then
   if [ -n "$MV_OUT" ]; then
     printf '%s\n' "$MV_OUT" >&2
   fi
-  echo "error: tasks-axi mv failed; nothing was moved." >&2
+  echo "error: backlog move failed; nothing was moved." >&2
   exit 1
 fi
 

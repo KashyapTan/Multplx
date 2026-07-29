@@ -352,6 +352,41 @@ else
 fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
 
+# Capacity enforcement belongs at the dispatch boundary, before any worktree or
+# runtime endpoint is created. At limit, preserve the complete requested
+# profile in the durable queue and return success with a queued outcome.
+# Queue drain sets MX_HEADROOM_SKIP_QUEUE=1 only after its own fresh capacity
+# check, preventing a launched record from re-parking itself.
+if [ "$KIND" != daemon ] && [ "${MX_HEADROOM_SKIP_QUEUE:-0}" != 1 ]; then
+  HEADROOM_BIN=${MX_HEADROOM_BIN:-$SCRIPT_DIR/mx-headroom.sh}
+  if ! HEADROOM_JSON=$("$HEADROOM_BIN" --json); then
+    echo "error: dispatch capacity could not be established; refusing to spawn $ID" >&2
+    exit 1
+  fi
+  if ! HEADROOM_AT_LIMIT=$(printf '%s\n' "$HEADROOM_JSON" | node -e '
+    let input = "";
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      const value = JSON.parse(input);
+      process.stdout.write(value.at_limit === true ? "true" : "false");
+    });
+  '); then
+    echo "error: dispatch capacity output is invalid; refusing to spawn $ID" >&2
+    exit 1
+  fi
+  if [ "$HEADROOM_AT_LIMIT" = true ]; then
+    QUEUE_ARGS=()
+    [ -z "$ARG3" ] || QUEUE_ARGS+=(--harness "$ARG3")
+    [ -z "$MODEL" ] || QUEUE_ARGS+=(--model "$MODEL")
+    [ -z "$EFFORT" ] || QUEUE_ARGS+=(--effort "$EFFORT")
+    [ -z "$BACKEND" ] || QUEUE_ARGS+=(--backend "$BACKEND")
+    [ "$KIND" != scout ] || QUEUE_ARGS+=(--scout)
+    "$HEADROOM_BIN" --queue-add "$ID" "$PROJ" \
+      "${QUEUE_ARGS[@]+"${QUEUE_ARGS[@]}"}"
+    exit 0
+  fi
+fi
+
 # The verified launch command per adapter. The knowledge half of each adapter
 # (busy signature, exit command, dialogs, quirks) lives in the harness-adapters skill.
 launch_template() {

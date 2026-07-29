@@ -3,7 +3,7 @@
 #
 # A stray persistent top-level `cd projects/<clone>` in the PRIMARY broker
 # shell silently relocates the shell, so a later broker-owned command (a
-# backlog write, an mx-* lifecycle call, tasks-axi) runs inside a project clone
+# backlog write or an mx-* lifecycle call) runs inside a project clone
 # instead of the home. This seatbelt denies such a command before it runs.
 # bin/mx-cd-command-policy.mjs is the sole owner of the block/allow decision; it
 # reuses the shell classifier owned by bin/mx-arm-command-policy.mjs. This

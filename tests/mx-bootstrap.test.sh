@@ -4,15 +4,10 @@
 # Bootstrap prints one block or line per actionable problem, optional verbose
 # BOOTSTRAP_INFO fact, or completed bootstrap no-action fact and is silent when
 # all is well. broker consumes the exact 'MISSING: treehouse (install: ...)',
-# 'MISSING: tasks-axi (install: ...)', 'MISSING: quota-axi (install: ...)', and
-# 'BOOTSTRAP_INFO: ...' lines, so those contracts are pinned verbatim. The cases
-# are table-driven over the inputs that vary: whether the universally-required
-# `treehouse get --help` advertises --lease, which (if any) tasks-axi version is
-# on PATH, whether
-# tasks-axi update advertises --archive-body, whether its mv help advertises
-# multi-ID moves, whether quota-axi is on PATH,
-# whether the local backend config opts out of tasks-axi backlog mutations, and
-# which no-mistakes version is on PATH.
+# 'HEADROOM_INVALID: ...', and 'BOOTSTRAP_INFO: ...' lines, so those contracts
+# are pinned verbatim. The cases are table-driven over the inputs that vary:
+# whether the universally-required `treehouse get --help` advertises --lease
+# and which no-mistakes version is on PATH.
 # Dedicated system-sync cases pin the computed bootstrap timeout, explicit
 # override, blank-env defaulting, partial-output relay, and pre-launch timeout
 # scan.
@@ -39,7 +34,7 @@ unset TMUX TMUX_PANE HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
 make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
-  mx_fake_exit0 "$fakebin" tmux node gh-axi chrome-devtools-axi lavish-axi
+  mx_fake_exit0 "$fakebin" tmux node lavish-axi
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
@@ -70,45 +65,7 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/no-mistakes"
-  add_tasks_axi "$fakebin" "0.1.1"
-  add_quota_axi "$fakebin"
   printf '%s\n' "$fakebin"
-}
-
-add_quota_axi() {
-  local fakebin=$1
-  cat > "$fakebin/quota-axi" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$fakebin/quota-axi"
-}
-
-add_tasks_axi() {
-  local fakebin=$1 version=$2 archive_body=${3:-yes} multi_id=${4:-yes} archive_line mv_usage
-  archive_line=""
-  [ "$archive_body" = yes ] && archive_line='  --archive-body'
-  mv_usage='usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'
-  [ "$multi_id" = yes ] || mv_usage='usage: tasks-axi mv <id> --to <path-or-dir>'
-  cat > "$fakebin/tasks-axi" <<SH
-#!/usr/bin/env bash
-if [ "\${1:-}" = --version ]; then
-  printf '%s\n' '$version'
-  exit 0
-fi
-if [ "\${1:-}" = update ] && [ "\${2:-}" = --help ]; then
-  printf '%s\n' 'usage: tasks-axi update <id> [flags]'
-  printf '%s\n' '  --body-file <path>'
-  [ -z '$archive_line' ] || printf '%s\n' '$archive_line'
-  exit 0
-fi
-if [ "\${1:-}" = mv ] && [ "\${2:-}" = --help ]; then
-  printf '%s\n' '$mv_usage'
-  exit 0
-fi
-exit 0
-SH
-  chmod +x "$fakebin/tasks-axi"
 }
 
 add_real_jq() {
@@ -221,45 +178,19 @@ assert_timeout_report() {
 }
 
 # Each row (fields are '^'-separated; the install URL contains a literal '|'):
-#   <label>^<lease 1/0>^<tasks-axi version or ->^<quota 1/0>^<backend or ->^<mode>^<expect>^<notcontains>
+#   <label>^<lease 1/0>^<mode>^<expect>^<notcontains>
 #   mode=empty -> output must be empty (expect/notcontains ignored)
 #   mode=exact -> output must equal <expect>
 #   mode=grep  -> output must contain <expect> (fixed string); <notcontains> must not appear
 test_bootstrap_reporting() {
-  local label lease tasks quota backend mode expect notcontains case_dir fakebin out n archive_body multi_id
+  local label lease mode expect notcontains case_dir fakebin out n
   n=0
-  while IFS='^' read -r label lease tasks quota backend mode expect notcontains; do
+  while IFS='^' read -r label lease mode expect notcontains; do
     [ -n "$label" ] || continue
     n=$((n + 1))
     case_dir="$TMP_ROOT/case-$n"
     mkdir -p "$case_dir/home"
-    if [ "$backend" != "-" ]; then
-      mkdir -p "$case_dir/home/config"
-      printf '%s\n' "$backend" > "$case_dir/home/config/backlog-backend"
-    fi
     fakebin=$(make_fake_toolchain "$case_dir")
-    if [ "$tasks" = "-" ]; then
-      rm -f "$fakebin/tasks-axi"
-    else
-      archive_body=yes
-      multi_id=yes
-      case "$tasks" in
-        *:noarchive)
-          archive_body=no
-          tasks=${tasks%:noarchive}
-          ;;
-      esac
-      case "$tasks" in
-        *:nomulti)
-          multi_id=no
-          tasks=${tasks%:nomulti}
-          ;;
-      esac
-      add_tasks_axi "$fakebin" "$tasks" "$archive_body" "$multi_id"
-    fi
-    if [ "$quota" = "0" ]; then
-      rm -f "$fakebin/quota-axi"
-    fi
     # MX_ROOT_OVERRIDE points the worktree-tangle check at the non-git home dir so
     # it stays inert: this suite pins tool detection, not the tangle guard, and the
     # ambient checkout (CI runs on a feature branch) must not leak a TANGLE line in.
@@ -278,18 +209,10 @@ test_bootstrap_reporting() {
         ;;
     esac
   done <<'ROWS'
-treehouse --lease support is accepted silently^1^0.1.1^1^manual^empty^^
-treehouse without --lease reports an upgrade, gh auth is fine^0^0.1.1^1^-^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^NEEDS_GH_AUTH
-compatible tasks-axi is silent by default^1^0.1.1^1^-^empty^^
-missing tasks-axi is required by default^1^-^1^-^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
-incompatible tasks-axi is required by default^1^0.1.0^1^-^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
-tasks-axi without archive-body is required by default^1^0.1.2:noarchive^1^-^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
-tasks-axi without multi-id mv is required by default^1^0.2.2:nomulti^1^-^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
-missing quota-axi is required by default^1^0.1.1^0^manual^exact^MISSING: quota-axi (install: npm install -g quota-axi)^
-manual backlog backend still requires missing tasks-axi^1^-^1^manual^exact^MISSING: tasks-axi (install: npm install -g tasks-axi)^
-manual backlog backend suppresses tasks-axi availability^1^0.1.1^1^manual^empty^^
+treehouse --lease support is accepted silently^1^empty^^
+treehouse without --lease reports an upgrade, gh auth is fine^0^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^NEEDS_GH_AUTH
 ROWS
-  pass "bootstrap reports treehouse lease + tasks-axi/quota-axi bootstrap contracts"
+  pass "bootstrap reports treehouse lease and owned headroom contracts"
 }
 
 test_no_mistakes_min_version() {
@@ -304,7 +227,6 @@ test_no_mistakes_min_version() {
     mkdir -p "$case_dir/home/config"
     printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
     fakebin=$(make_fake_toolchain "$case_dir")
-    add_tasks_axi "$fakebin" "0.1.1"
     out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
       MX_FAKE_TREEHOUSE_LEASE_HELP=1 MX_FAKE_NO_MISTAKES_VERSION="$version" "$ROOT/bin/mx-bootstrap.sh")
     case "$mode" in
@@ -682,7 +604,7 @@ test_routine_bootstrap_confirmations_are_silent() {
   local out
   out=$(run_routine_bootstrap_fixture bash "$TMP_ROOT/routine-silent")
   [ -z "$out" ] || fail "routine bootstrap confirmations should be silent, got: $out"
-  pass "bootstrap keeps routine tasks-axi, harness, dispatch, and already-live liveness confirmations silent"
+  pass "bootstrap keeps routine backlog, harness, dispatch, and already-live liveness confirmations silent"
 }
 
 test_routine_bootstrap_contract_runs_under_system_bash() {
@@ -699,7 +621,7 @@ test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
   trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/example_agents.md")
   assert_contains "$trigger" "actionable diagnostic line" "bootstrap-diagnostics trigger should be action-scoped"
   assert_contains "$trigger" "BOOTSTRAP_INFO:" "bootstrap-diagnostics trigger should classify BOOTSTRAP_INFO as no-load"
-  assert_not_contains "$trigger" "TASKS_AXI:" "tasks-axi availability must not trigger diagnostics loading"
+  assert_contains "$trigger" "HEADROOM_INVALID" "invalid owned headroom must trigger diagnostics loading"
   assert_not_contains "$trigger" "ACTOR_HARNESS_OVERRIDE:" "harness override confirmation must not trigger diagnostics loading"
   assert_not_contains "$trigger" "ACTOR_DISPATCH: active" "active dispatch confirmation must not trigger diagnostics loading"
   assert_not_contains "$trigger" "already-live" "already-live daemon liveness must not trigger diagnostics loading"
@@ -722,7 +644,7 @@ test_actor_dispatch_active_rules_are_verbose_bootstrap_info() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
     MX_BOOTSTRAP_VERBOSE_FACTS=1 MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
 
-  expect=$'BOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
+  expect=$'BOOTSTRAP_INFO: headroom self-check passed\nBOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
   [ "$out" = "$expect" ] || fail "active dispatch verbose info block mismatch"$'\n'"expected: $expect"$'\n'"actual:   $out"
   pass "bootstrap surfaces active actor-dispatch rules only as verbose BOOTSTRAP_INFO"
 }

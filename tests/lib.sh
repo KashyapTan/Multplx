@@ -34,6 +34,10 @@ MX_TEST_LIB_SOURCED=1
 # strips this to verify real refusal.
 export MX_GATE_REFUSE_BYPASS=1
 
+# Existing behavior suites test the lower-level spawn lifecycle in isolation.
+# Plan-07 headroom and queue suites unset this and own capacity enforcement.
+export MX_HEADROOM_SKIP_QUEUE=${MX_HEADROOM_SKIP_QUEUE:-1}
+
 # Resolve the repo root from this library's own location. Consumed by sourcing
 # test files, not by this library, so it reads as "unused" here.
 # shellcheck disable=SC2034

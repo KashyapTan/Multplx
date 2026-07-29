@@ -122,7 +122,7 @@ now_ms() {
 family_for_basename() {
   case "$1" in
     mx-arm-pretool-check.test.sh|mx-ask-user-authority.test.sh|mx-brief.test.sh|\
-    mx-calm-pi-extension.test.sh|mx-maintainer-translation-contract.test.sh|mx-cd-pretool-check.test.sh|\
+    mx-backlog-lib.test.sh|mx-calm-pi-extension.test.sh|mx-maintainer-translation-contract.test.sh|mx-cd-pretool-check.test.sh|\
     mx-composer-ghost.test.sh|mx-composer-lib.test.sh|\
     mx-actor-state.test.sh|mx-decision-hold-lifecycle.test.sh|\
     mx-documentation-audiences.test.sh|mx-ensure-agents-md.test.sh|mx-naming.test.sh|\
@@ -168,9 +168,9 @@ family_for_basename() {
     mx-send-daemon-marker-herdr-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
-    mx-backend-herdr.test.sh|mx-backend-tmux-smoke.test.sh|mx-backend.test.sh|\
+    mx-backend-herdr.test.sh|mx-backend-tmux-smoke.test.sh|mx-backend.test.sh|mx-dispatch-queue.test.sh|\
     mx-herdr-session-cleanup.test.sh|mx-send-strict.test.sh|mx-spawn-batch.test.sh|\
-    mx-spawn-dispatch-profile.test.sh|mx-spawn-worktree-settle.test.sh)
+    mx-spawn-dispatch-profile.test.sh|mx-spawn-worktree-settle.test.sh|mx-headroom.test.sh)
       printf '%s\n' backend-dispatch
       ;;
     mx-pr-check-security-fault-quarantine.test.sh|\
@@ -260,6 +260,7 @@ tests/mx-backend-herdr.test.sh	none
 tests/mx-backend-tmux-smoke.test.sh	tmux-server
 tests/mx-backend.test.sh	none
 tests/mx-backlog-handoff.test.sh	none
+tests/mx-backlog-lib.test.sh	none
 tests/mx-bootstrap.test.sh	bootstrap-process-signal
 tests/mx-brief.test.sh	none
 tests/mx-calm-pi-extension.test.sh	live-harness,tmux-server
@@ -278,12 +279,14 @@ tests/mx-daemon-safety.test.sh	none
 tests/mx-daemon-sync.test.sh	none
 tests/mx-daemon.test.sh	daemon-process-signal
 tests/mx-decision-hold-lifecycle.test.sh	none
+tests/mx-dispatch-queue.test.sh	none
 tests/mx-documentation-audiences.test.sh	none
 tests/mx-ensure-agents-md.test.sh	none
 tests/mx-gate-refuse.test.sh	none
 tests/mx-gotmp.test.sh	none
 tests/mx-guard-stale-banner.test.sh	watcher-process
 tests/mx-herdr-lab.test.sh	none
+tests/mx-headroom.test.sh	none
 tests/mx-herdr-session-cleanup-e2e.test.sh	herdr-session
 tests/mx-herdr-session-cleanup.test.sh	none
 tests/mx-install-herdr.test.sh	none
@@ -838,6 +841,10 @@ families_for_changed_path() {
       printf '%s\n' backend-dispatch
       printf '%s\n' real-herdr-gated
       ;;
+    bin/mx-headroom.sh)
+      printf '%s\n' backend-dispatch
+      printf '%s\n' watcher-wake-lock
+      ;;
     bin/mx-watch*|bin/mx-wake*|\
     bin/mx-classify-lib.sh|bin/mx-daemon*|bin/mx-turnend-guard*|bin/mx-guard.sh)
       printf '%s\n' watcher-wake-lock
@@ -856,7 +863,7 @@ families_for_changed_path() {
       printf '%s\n' live-harness-optin
       printf '%s\n' afk
       ;;
-    bin/mx-daemon*|bin/mx-home-seed.sh|bin/mx-backlog-handoff.sh|\
+    bin/mx-daemon*|bin/mx-home-seed.sh|bin/mx-backlog-handoff.sh|bin/mx-backlog.sh|\
     bin/mx-config-inherit-lib.sh|bin/mx-config-push.sh|bin/mx-shared*)
       printf '%s\n' daemon
       ;;
@@ -886,7 +893,7 @@ families_for_changed_path() {
     bin/mx-brief.sh|bin/mx-report-mcp.mjs|\
     bin/mx-ensure-agents-md.sh|bin/mx-actor-state.sh|\
     bin/mx-decision-hold.sh|bin/mx-supervision*|bin/mx-transition-lib.sh|\
-    bin/mx-tmux-lib.sh|bin/mx-marker-lib.sh|bin/mx-operational-input.sh|bin/mx-tasks-axi-lib.sh|\
+    bin/mx-tmux-lib.sh|bin/mx-marker-lib.sh|bin/mx-operational-input.sh|bin/mx-backlog-lib.sh|\
     bin/mx-primary-scope-lib.sh|bin/mx-project-mode.sh|bin/mx-promote.sh|\
     bin/mx-ff-lib.sh|bin/mx-gotmp*|bin/*pretool*)
       printf '%s\n' pure-contract-unit
@@ -902,7 +909,7 @@ families_for_changed_path() {
     docs/mx-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;
-    .github/*|.tasks.toml|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|example_agents.md|\
+    .github/*|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|example_agents.md|\
     docs/configuration.md|docs/supervision-protocols/*)
       printf '%s\n' pure-contract-unit
       ;;
