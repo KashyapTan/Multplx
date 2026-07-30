@@ -80,8 +80,10 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   id="brief-direct-authority-a4"
   MX_HOME="$home" "$ROOT/bin/mx-brief.sh" "$id" direct-proj >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
-  assert_grep "The configured merge authority decides whether to merge the PR; broker relays the outcome." "$brief" \
-    "direct-PR brief lost configured merge authority"
+  assert_grep "The configured approval authority accepts the local commit, then the non-agent delivery service pushes exactly that approved SHA and opens the PR." "$brief" \
+    "direct-PR brief lost configured approval and non-agent delivery authority"
+  assert_grep "Never push to any remote, open a PR, or merge a PR." "$brief" \
+    "direct-PR brief grants the actor a remote write"
   assert_no_grep "The maintainer reviews and merges the PR" "$brief" \
     "direct-PR brief hard-coded maintainer-only authority"
   id="brief-local-authority-a4"
@@ -96,8 +98,7 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   pass "mx-brief.sh: faster paths use configured authority without stacked review"
 }
 
-# Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
-# reference must render as plain prose with no dangling apostrophe artifact.
+# Pin the least-privilege definition of done for the full-validation mode.
 test_no_mistakes_dod_wording() {
   local home id brief
   home="$TMP_ROOT/wording-home"
@@ -106,17 +107,15 @@ test_no_mistakes_dod_wording() {
   MX_HOME="$home" "$ROOT/bin/mx-brief.sh" "$id" some-proj >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
-  assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
-    "no-mistakes DOD lost its guidance-reference sentence"
-  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-  assert_grep '`no-mistakes axi run --help`' "$brief" \
-    "no-mistakes DOD must render literal backticks around the help command"
-  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-  assert_grep '`help`' "$brief" \
-    "no-mistakes DOD must render literal backticks around help"
-  assert_no_grep "no-mistakes' own guidance" "$brief" \
-    "no-mistakes DOD regressed to the apostrophe form that breaks bash -n"
-  pass "mx-brief.sh: no-mistakes DOD wording avoids the apostrophe regression"
+  assert_grep 'ready for validation at {full commit SHA}' "$brief" \
+    "full-validation DOD lost the local commit handoff"
+  assert_grep 'Do not invoke a push-capable pipeline, push, open a PR, or merge.' "$brief" \
+    "full-validation DOD permits agent-side remote delivery"
+  assert_grep 'the non-agent delivery service pushes exactly that SHA and opens the PR' "$brief" \
+    "full-validation DOD lost the credentialed service boundary"
+  assert_no_grep 'no-mistakes axi' "$brief" \
+    "full-validation DOD still asks the actor to invoke the push-capable legacy pipeline"
+  pass "mx-brief.sh: full-validation DOD stops at a local commit"
 }
 
 test_ship_project_memory_wording() {

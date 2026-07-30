@@ -60,8 +60,9 @@ It has the knowledge-placement rules that keep `example_agents.md` from regrowin
 There is no reliable way for `bin/mx-brief.sh`'s scaffold to detect that a task's repo is Multplx itself, so the broker adds this skill's load line to Multplx-repo briefs by hand.
 An actor picking up such a brief should load the skill even if the brief predates this instruction.
 When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
-Actor validation follows the installed no-mistakes version's SKILL.md and live `axi` help instead of duplicating gate mechanics in Multplx docs.
-Multplx's wrapper still matters: actors route every `ask-user` finding to the broker, which applies the authority contract in `example_agents.md`, and actors avoid `--yes` because it would bypass that check and any required maintainer escalation.
+Multplx actors stop at a clean local commit and never invoke the contributor-facing push gate, push a branch, or open a PR.
+The local validation path owns later review and fixes, routes every `ask-user` finding to the broker under the authority contract in `example_agents.md`, and hands only an approved exact SHA to the non-agent delivery service.
+Human contributors using their own credentials may continue to follow the contributor workflow above.
 Local `.no-mistakes/` state and test evidence stay out of this repo; `.no-mistakes.yaml` keeps evidence in a temp directory.
 Local no-mistakes Test is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.
 That is Multplx-specific; do not commit `.no-mistakes/evidence/` here even when another no-mistakes-managed target project keeps committed PR evidence.

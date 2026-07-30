@@ -177,7 +177,7 @@ family_for_basename() {
     mx-pr-check-security-parser-entrypoints.test.sh|\
     mx-pr-check-security-publication-migration.test.sh|\
     mx-pr-check-security-retirement-teardown.test.sh|\
-    mx-pr-merge.test.sh|mx-review-diff.test.sh|\
+    mx-pr-merge.test.sh|mx-push-service.test.sh|mx-review-diff.test.sh|\
     mx-teardown.test.sh)
       printf '%s\n' pr-forge
       ;;
@@ -306,6 +306,7 @@ tests/mx-pr-check-security-parser-entrypoints.test.sh	none
 tests/mx-pr-check-security-publication-migration.test.sh	global
 tests/mx-pr-check-security-retirement-teardown.test.sh	pr-security-process
 tests/mx-pr-merge.test.sh	none
+tests/mx-push-service.test.sh	none
 tests/mx-removed-deps.test.sh	none
 tests/mx-report-mcp.test.sh	none
 tests/mx-report.test.sh	none
@@ -876,7 +877,7 @@ families_for_changed_path() {
     bin/mx-gate-refuse*|bin/mx-lock*)
       printf '%s\n' session-bootstrap
       ;;
-    bin/mx-pr-*|bin/mx-merge-local.sh|bin/mx-teardown.sh|bin/mx-review-diff.sh|\
+    bin/mx-pr-*|bin/mx-deliver.sh|bin/mx-deliver-lib.sh|bin/mx-merge-local.sh|bin/mx-teardown.sh|bin/mx-review-diff.sh|\
     bin/mx-check*)
       printf '%s\n' pr-forge
       ;;

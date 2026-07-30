@@ -32,17 +32,20 @@ Hard rules, in priority order:
    Uncommitted changes are never landed, and `bin/mx-teardown.sh` owns the complete landed-work test.
    Never bypass a refusal or use `--force` unless the maintainer explicitly authorized discarding that work.
    A scout worktree is declared scratch and may be discarded only after its report exists and the shared unresolved-decision completion gate passes.
-4. **Actors never address the maintainer.**
+4. **Agents never hold remote-write credentials.**
+   Brokers, actors, daemons, and gate sessions stop at local commits and never push, open PRs, or run remote merge commands.
+   `bin/mx-deliver.sh` is the only remote-delivery path and runs from a maintainer shell or credentialed scheduler outside every agent session.
+5. **Actors never address the maintainer.**
    Actor communication returns through the broker's coordination channel.
    Treat direct maintainer intervention in an actor window as authoritative and reconcile it at the next monitoring review.
-5. **Report outcomes faithfully.**
+6. **Report outcomes faithfully.**
    If work failed, say so plainly with the evidence.
 
 You may maintain this repo's private operational state directly.
 Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
 When any actor is live, route changes to shared tracked material rather than competing with active work; when the system is empty, the broker may change it directly.
 This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are maintainer-private and gitignored.
-Deliver shared tracked changes through this repo's no-mistakes pipeline and PR path, with the same merge authority as any other project.
+Deliver shared tracked changes through the local validation and credentialed-delivery path, with the same merge authority as any other project.
 Never add an agent name as a commit co-author.
 
 ## 2. Layout and state
@@ -92,6 +95,9 @@ state/               volatile runtime signals; gitignored
   <id>.pr-poll       private validated data sidecar for the byte-static PR merge poll
   <id>.pr-poll-registration  private transactional provenance record binding the task, canonical metadata identity, sidecar, and static poll publication
   <id>.pr-poll-retirement  private identity-bound crash-recovery receipt for one exact validated merged result; removed after its poll artifacts retire
+  <id>.ready-to-push  private validated delivery handoff; exact schema is owned by mx-deliver-lib.sh
+  <id>.ready-to-push.stale  refused handoff whose worktree or approved SHA no longer matches
+  <id>.delivered      archived handoff after push, PR creation, and PR-state recording succeed
   .pr-check-quarantine/  private non-runnable storage for checks neutralized by the non-executing migration
   .pr-check-migration.log  private per-task outcomes distinguishing rebuilt or canonically registered replacement polls, quarantined unarmed polls, and incomplete migrations
   .pr-check-migration-scan-v1  private marker proving the non-executing scan disabled every unsafe legacy check; .pr-check-migration-v1 separately records completed private repairs
@@ -128,7 +134,7 @@ If the session lock cannot be acquired and verified, report its exact diagnostic
 A lock-refused session must not spawn, steer, merge, drain the wake queue, repair supervision, repair a checkout, or perform any other system mutation.
 
 1. **Lock** - acquires the per-home session lock first, before anything mutates shared state.
-2. **Bootstrap** - detect-only checks (tool/version problems, GitHub auth, the worktree-tangle check, harness override, dispatch-profile validation, backlog-backend status) always run, but routine confirmations stay silent by default.
+2. **Bootstrap** - detect-only checks (tool/version problems, the worktree-tangle check, harness override, dispatch-profile validation, backlog-backend status) always run, but routine confirmations stay silent by default.
    When the lock could not be acquired, the worktree-tangle check uses read-only advisory wording without a checkout repair command.
    Home-local stale Herdr projection cleanup and the four bootstrap MUTATING sweeps - non-executing legacy PR-check migration, system sync, the local daemon fast-forward sweep, and the daemon liveness sweep - run only when this session actually holds the lock from step 1.
    The daemon liveness sweep deterministically accounts for every registered daemon: it relaunches only from the recovery-grade `dead` or `missing` states, preserves ambiguous or unreadable targets, and reports skipped or failed guarantees as `DAEMON_LIVENESS:` lines (`bin/mx-bootstrap.sh`; `bin/mx-backend.sh`'s `mx_backend_agent_state`).
@@ -143,7 +149,8 @@ A lock-refused session must not spawn, steer, merge, drain the wake queue, repai
    The script itself never starts supervision; the emitted harness protocol owns the exact wait or wake mechanism.
 
 Bootstrap detects first, asks for consent, and installs only after the maintainer approves in the current session.
-Do not dispatch until the required tools are present and GitHub authentication is good.
+Do not dispatch until the required tools are present.
+Agent launches use no GitHub token by default; `MX_AGENT_GH_TOKEN` may supply only a remotely enforced read-only token when private-repository reads require one.
 Use official `gh` for GitHub and the in-repo vplan module for structured decisions or reports; use a first-class browser tool only when a task actually requires browser work, and consult current help rather than memorizing flags.
 A silent bootstrap section needs no action; for any printed actionable diagnostic line, load `bootstrap-diagnostics` and follow its owner procedure.
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
@@ -261,15 +268,15 @@ Monitor all live work under section 8.
 
 ### Selected delivery path and approval authority
 
-The selected delivery path owns its own rigor.
-When no-mistakes is selected, no-mistakes alone owns review, fixes, tests, documentation, push, PR, and CI; otherwise follow the faster path without adding an independent reviewer.
-Never hold work outside no-mistakes for a manual clean verdict, stack serial manual reviews, or infer authority for one from security, architecture, or risk alone.
+The selected delivery path owns its own rigor, but no selected path grants an agent remote-write capability.
+When the full validation path is selected, its local gate alone owns review, fixes, tests, and documentation; otherwise follow the faster path without adding an independent reviewer.
+Never hold work outside the selected gate for a manual clean verdict, stack serial manual reviews, or infer authority for one from security, architecture, or risk alone.
 A separate review or audit is allowed only when the maintainer explicitly requests that deliverable or the authorized task is a knowledge-only review; one named question remains scoped to that question.
-If fast-path risk needs more rigor, escalate whether to use no-mistakes instead of inventing a manual gate.
+If fast-path risk needs more rigor, escalate whether to use the full local validation path instead of inventing a manual gate.
 The path's worker, automated gates, and maintainer approval remain authoritative:
 
-- **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
-- **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, then waits for the configured merge authority.
+- **no-mistakes** currently selects the full local validation handoff; the local gate records the approved SHA, then the non-agent delivery service opens the PR.
+- **direct-PR** skips the full validation gate, but still stops at an approved local commit for the non-agent delivery service.
 - **local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority before broker uses the guarded fast-forward merge path.
 
 Delivery mode and `yolo` are orthogonal.
@@ -279,30 +286,23 @@ Standing `yolo` authority never approves an ask-user Fix that would materially e
 Complexity alone is not expansion: a difficult correction genuinely required by accepted intent, including explicitly requested complex architecture, remains autonomous.
 Before deciding any ask-user finding, load `ask-user-authority`; the implementation worker never answers its own finding.
 Never merge a red PR.
-Use `bin/mx-pr-merge.sh` for every task PR merge so merge metadata is recorded, and use `bin/mx-merge-local.sh` for approved local-only landing; never call a lower-level merge command around their guards.
+Remote PR merges run only from the same non-agent credential context as delivery and use `bin/mx-pr-merge.sh` so merge metadata is recorded.
+Use `bin/mx-merge-local.sh` for approved local-only landing; never call a lower-level merge command around either guard.
 After an autonomous merge, give the maintainer a one-line full-URL or local-main outcome.
 
 ### Validate
 
-For a no-mistakes delivery task, trigger validation on the same worker after its implementation commit, using the harness invocation owned by `harness-adapters`.
-The task worker that starts a no-mistakes run drives the pipeline and owns every `no-mistakes axi run` and `no-mistakes axi respond` call through the next gate or outcome.
-The broker never invokes `no-mistakes axi respond` for an actor-owned run.
-
+An actor ends implementation with a clean local branch and reports its full commit SHA.
+The selected local gate validates that exact SHA and writes `state/<id>.ready-to-push`; neither the actor nor broker may synthesize a passing gate record.
 An ask-user finding returns as `needs-decision`; the broker decides only when the configured authority permits, otherwise escalates to the maintainer.
-Send the same worker one exact decision naming the decision key, step, action, affected finding IDs, instructions where needed, and exact response command.
-Require the matching `resolved` event, forbid `--yes`, and require the worker to process every synchronous return until completion or a genuinely new escalation.
-Resume system monitoring immediately after the decision lands.
-
-Judge validation by the current-code-matched run step through `bin/mx-actor-state.sh`, not by shell liveness or the last status event, except when that reader reports a stronger native runtime verdict.
-Running, fixing, or CI states remain working; parked approval or fix-review states require the worker to follow the active gate help; passed or checks-passed is done; failed or cancelled is failed.
-A worker hand-editing, committing, aborting, or restarting during an active validation run duplicates pipeline ownership; steer it back to the gate response flow.
-The worker reports the PR when CI first becomes green rather than waiting for merge monitoring to finish.
+Only the accepted authority may flip a valid handoff from `approval=pending` to `approval=approved`.
+The broker verifies the local outcome and tells the maintainer what is ready, but must not invoke the credentialed delivery or merge commands from its own agent session.
 
 ### PR ready, landing, and teardown
 
-For PR-based delivery tasks, the ready signal depends on mode: `no-mistakes` reports `done: PR <url> checks green` after CI is green, while `direct-PR` reports `done: PR <url>` after opening the PR.
-Run `bin/mx-pr-check.sh <id> <PR url>` - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll.
-Tell the maintainer the PR's full URL, always the complete `https://...` link rather than a bare `#number`, a concise outcome summary, and the no-mistakes risk level when applicable.
+For a PR-based task, tell the maintainer the approved local SHA and ask them to run `bin/mx-deliver.sh <id>` from their shell, or let the separately credentialed scheduler consume it.
+The service re-verifies approval, gate result, clean worktree, branch, and exact SHA; it then pushes only that object, opens the PR, feeds the URL through `mx-pr-check.sh`, and archives the handoff.
+Tell the maintainer the resulting PR's full URL, always the complete `https://...` link rather than a bare `#number`, plus a concise outcome summary and gate risk level when applicable.
 A maintainer instruction to merge is explicit authority; `yolo` is the only standing routine authority.
 For any custom `state/<id>.check.sh` you write yourself, keep it an ordinary single-link mode-`0700` file, print one line only when broker should wake, print nothing otherwise, finish before `MX_CHECK_TIMEOUT`, then bind its current bytes with `bin/mx-check-register.sh <id>` before the watcher may execute it.
 
@@ -465,7 +465,7 @@ It performs guarded fast-forward updates of the primary and registered daemon ho
 
 These skills are not maintainer-invocable; load them only at their precise triggers.
 
-- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `HEADROOM_INVALID:`, `VPLAN_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
+- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `HEADROOM_INVALID:`, `VPLAN_INVALID:`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding, regardless of the project's `yolo` posture.
 - `harness-adapters` - load before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.

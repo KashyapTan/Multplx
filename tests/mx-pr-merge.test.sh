@@ -176,6 +176,27 @@ test_missing_meta_refuses_before_merge() {
   pass "mx-pr-merge refuses before merging when task meta is missing"
 }
 
+test_agent_ambience_refuses_before_merge() {
+  local case_dir rc
+  case_dir=$(make_case agent-ambience)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 3333333333333333333333333333333333333333
+  : > "$case_dir/gh.log"
+
+  set +e
+  CODEX_THREAD_ID= \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/22 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 3 "$rc" "agent ambience must refuse remote merge"
+  assert_grep 'must run outside every broker, actor, daemon, and gate session' \
+    "$case_dir/stderr" "merge ambience refusal was unclear"
+  [ ! -s "$case_dir/gh.log" ] || fail "agent ambience reached gh pr merge"
+  pass "mx-pr-merge refuses agent-session ambience before remote access"
+}
+
 test_malformed_url_refuses_before_merge() {
   local case_dir rc
   case_dir=$(make_case malformed-url)
@@ -302,6 +323,7 @@ test_records_pr_and_head_before_merging
 test_merge_failure_propagates_after_recording
 test_extra_merge_args_forwarded
 test_missing_meta_refuses_before_merge
+test_agent_ambience_refuses_before_merge
 test_malformed_url_refuses_before_merge
 test_rejects_unsafe_url_segments_before_recording
 test_repo_override_args_refuse_before_recording

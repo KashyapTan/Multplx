@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, HEADROOM_INVALID, VPLAN_INVALID, NEEDS_GH_AUTH, TANGLE, ACTOR_DISPATCH invalid, SYSTEM_SYNC, PR_CHECK_MIGRATION, DAEMON_SYNC, DAEMON_LIVENESS, or NUDGE_DAEMONS - or when a standalone bin/mx-bootstrap.sh run prints one of those lines.
+  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, HEADROOM_INVALID, VPLAN_INVALID, TANGLE, ACTOR_DISPATCH invalid, SYSTEM_SYNC, PR_CHECK_MIGRATION, DAEMON_SYNC, DAEMON_LIVENESS, or NUDGE_DAEMONS - or when a standalone bin/mx-bootstrap.sh run prints one of those lines.
   A silent bootstrap section, or a BOOTSTRAP_INFO fact, means no skill load.
 user-invocable: false
 metadata:
@@ -13,7 +13,7 @@ metadata:
 
 Handle each printed line as below, before dispatching work that depends on it.
 The line formats themselves are owned by `bin/mx-bootstrap.sh`'s header; this playbook owns the response to actionable lines.
-The inline rules in `AGENTS.md` section 3 still bind: detect, then consent, then install - never install anything the maintainer has not approved in this session - and no work is dispatched until the tools it needs are present and GitHub auth is good.
+The inline rules in `AGENTS.md` section 3 still bind: detect, then consent, then install - never install anything the maintainer has not approved in this session - and no work is dispatched until the tools it needs are present.
 When any diagnostic needs maintainer attention, report the plain consequence and requested action using `AGENTS.md` section 9's maintainer-facing translation contract; do not name the diagnostic label unless the maintainer needs to paste it into a command or issue.
 
 - `MISSING: <tool> (install: <command>)` - list the missing tools to the maintainer with a one-line purpose each plus the printed install commands, wait for consent (one approval may cover the list), then run `bin/mx-bootstrap.sh install <approved tools...>`.
@@ -25,7 +25,6 @@ When any diagnostic needs maintainer attention, report the plain consequence and
   Do not dispatch or bypass the check; correct the named signal or configuration and rerun bootstrap.
 - `VPLAN_INVALID: <reason>` - the bundled review CLI, server, template, SDK, or pinned Mermaid asset failed its integrity self-check.
   Do not start a visual review until the tracked module is restored and bootstrap passes.
-- `NEEDS_GH_AUTH` - ask the maintainer to run `! gh auth login` (interactive; you cannot run it for them).
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.
   This is the only sanctioned broker-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
