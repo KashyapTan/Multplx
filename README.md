@@ -49,6 +49,7 @@ Once the port is complete and the template is promoted to `AGENTS.md`, launching
 - **Optional daemons** - opt in to persistent daemons that run from isolated Multplx homes with their own `MX_HOME`, state, projects, and session lock, coordinate project clones or a project-less Multplx domain, stay aligned with the primary version through guarded local fast-forwards, and receive liveness checks at session start.
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the system and wakes the broker only when something needs you; verified primary harnesses also get a turn-end backstop that blocks or follows up on a blind stop when work is under way and supervision is not live.
 - **Guarded by construction** - the broker is read-only over your projects except for the guarded paths authorized by [hard rule 1](example_agents.md#1-identity-and-prime-directives), with system sync's safe branch pruning remaining part of the system-sync exception; actors make every project change behind the configured merge authority.
+- **Least-privilege delivery** - broker, actor, daemon, and validation sessions stop at local commits; only a separate maintainer or scheduler context can push an approved exact SHA and open its PR.
 - **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr or cmux when selected or auto-detected); kill the session anytime and the next one reconciles, including confirmed-dead daemon agents, and carries on.
 
 Full detail on every feature lives in [docs/architecture.md](docs/architecture.md).
@@ -58,7 +59,8 @@ Full detail on every feature lives in [docs/architecture.md](docs/architecture.m
 ### Requirements
 
 - A verified agent harness: Claude Code, Pi, or Codex.
-- Git and the GitHub CLI, authenticated through `gh auth login`.
+- Git and the GitHub CLI.
+- A separate maintainer shell or scheduler credential for remote delivery; do not expose a write-capable GitHub credential to the broker process.
 - The CLI and dependencies for your selected runtime backend; tmux is the reference default.
 
 The broker detects and offers to install supported missing tools after you approve.
@@ -76,12 +78,12 @@ Codex is also verified and supported as a primary harness; it uses bounded foreg
 ### Install and launch
 
 ```sh
-gh auth login
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
 ```
 
 After the port is complete, the broker template is promoted from `example_agents.md` to the auto-loaded `AGENTS.md` name before launching a co-primary harness.
+See [docs/delivery.md](docs/delivery.md) for the credential boundary and delivery setup.
 
 **Claude Code**
 
@@ -181,6 +183,7 @@ Multplx's skills live in two separate places with different audiences:
 
 - [docs/architecture.md](docs/architecture.md) - maintainer architecture for the actors, supervision, worktrees, daemons, and project modes.
 - [docs/configuration.md](docs/configuration.md) - environment variables, `MX_HOME`, runtime backend selection, the files you set, and harness support.
+- [docs/delivery.md](docs/delivery.md) - least-privilege agent credentials, approved-SHA handoff, delivery service, and scheduler setup.
 - [docs/calm.md](docs/calm.md) - current Pi `/calm` behavior and supported presentation limits.
 - [docs/tmux-backend.md](docs/tmux-backend.md) - current setup and limits for the tmux reference backend.
 - [docs/herdr-backend.md](docs/herdr-backend.md) - current setup, safety boundaries, and limits for the experimental Herdr backend.

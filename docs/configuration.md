@@ -241,10 +241,12 @@ Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom
 On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, Treehouse with durable `get --lease` support, and no-mistakes v1.31.2 or newer.
+The universal toolchain is node, git, gh, Treehouse with durable `get --lease` support, and no-mistakes v1.31.2 or newer.
 [`upstream.md`](upstream.md#pinned-external-dependencies) owns Treehouse's exact version pin and points to the verified installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
-In that list, no-mistakes runs the validation pipeline and official gh covers GitHub operations.
+In that list, no-mistakes currently supplies the validation pipeline and official gh covers read-only agent operations plus credentialed non-agent delivery.
+Bootstrap does not require GitHub authentication in the broker session.
+The credential boundary and delivery-context setup are documented in [delivery.md](delivery.md).
 The in-repo vplan module covers rich-review operations and is self-checked with its vendored assets rather than probed as an external tool.
 Backlog mutations and dispatch capacity are owned by the repository's `bin/mx-backlog-lib.sh` and `bin/mx-headroom.sh`.
 The per-backend delta is required only for the backend resolved from `MX_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
@@ -335,6 +337,9 @@ MX_MAINTAINER_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|r
 MX_CLASSIFY_PAUSED_VERB=paused     # read-side compatibility override for legacy status logs; validated actor writes use the closed `paused` state
 MX_TASK_ID=                        # spawn-managed task binding consumed by mx-report and mx-report-mcp.mjs; do not set globally
 MX_REPORT_STATE_OVERRIDE=          # spawn-managed parent status directory, distinct from a daemon's own operational MX_HOME/state
+MX_AGENT_GH_TOKEN=                 # optional remotely-enforced read-only token mapped into spawned agent GH_TOKEN; unset means no agent token
+MX_DELIVERY_GH_TOKEN=              # optional service token accepted only by mx-deliver.sh outside agent sessions
+MX_DELIVERY_GH_CONFIG_DIR=         # optional absolute isolated gh config for mx-deliver.sh; mutually exclusive with MX_DELIVERY_GH_TOKEN
 MX_NUDGE=1                         # set to 0 to disable mx-report's best-effort watcher nudge without changing durable writes
 MX_NUDGE_DEBUG=0                   # set to 1 to print otherwise-silent watcher-nudge diagnostics from mx-report
 MX_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates; stale panes whose actor is not provably working surface immediately unless they declare the pause verb

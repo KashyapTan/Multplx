@@ -118,6 +118,22 @@ assert_report_binding() {
     "launch missing the exact parent status-state binding"
 }
 
+assert_remote_write_credentials_removed() {
+  local launch=$1
+  assert_contains "$launch" 'env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN' \
+    "agent launch does not remove ambient GitHub tokens"
+  assert_contains "$launch" '-u GH_CONFIG_DIR -u SSH_AUTH_SOCK -u MX_DELIVERY_GH_TOKEN -u MX_DELIVERY_GH_CONFIG_DIR' \
+    "agent launch can inherit a GitHub config, SSH agent, or delivery credential"
+  assert_contains "$launch" 'GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0' \
+    "agent launch permits an interactive credential fallback"
+  assert_contains "$launch" 'GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=' \
+    "agent launch retains ambient git credential helpers"
+  assert_contains "$launch" 'GIT_CONFIG_KEY_1=remote.origin.pushurl GIT_CONFIG_VALUE_1=/dev/null/multplx-agent-no-push' \
+    "agent launch leaves origin push-capable"
+  assert_contains "$launch" 'IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null' \
+    "agent launch retains ambient SSH write identity"
+}
+
 assert_claude_report_mcp_config() {
   local launch=$1 home=$2 state=$3 id=$4 config="/tmp/mx-$4/report-mcp.json" state_real
   state_real=$(cd "$state" && pwd -P)
@@ -151,6 +167,7 @@ test_no_profile_keeps_claude_profile_defaults() {
 
   launch=$(cat "$LAUNCH_LOG")
   assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
+  assert_remote_write_credentials_removed "$launch"
   assert_claude_report_mcp_config "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
   assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions" \
     "no-profile claude launch lost its harness flags"
@@ -364,6 +381,7 @@ test_active_dispatch_profile_does_not_block_daemon_launch() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex default default
   launch=$(cat "$LAUNCH_LOG")
   assert_report_binding "$launch" "$sm" "$HOME_DIR/state" "$id"
+  assert_remote_write_credentials_removed "$launch"
   assert_contains "$launch" "codex -c 'mcp_servers.multplx_status=" \
     "daemon codex launch did not receive the parent-bound report_status MCP server"
   pass "active actor-dispatch profile does not block daemon launches"

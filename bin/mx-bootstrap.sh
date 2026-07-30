@@ -6,7 +6,7 @@
 #          exits 0.
 #          Silent = all good.
 #          Lines: "MISSING: <tool> (install: <command>)",
-#                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
+#                 "MISSING_MANUAL: <tool> (instructions: <url>)",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "VPLAN_INVALID: bundled mx-vplan.sh self-check failed",
 #                 "ACTOR_DISPATCH: invalid config/actor-dispatch.json - <reason>",
@@ -699,7 +699,6 @@ if ! headroom_json=$(MX_HEADROOM_IGNORE_DISPATCH_CONFIG=1 "$SCRIPT_DIR/mx-headro
 elif [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
   echo "BOOTSTRAP_INFO: headroom self-check passed"
 fi
-gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
 # Worktree-tangle check: the broker primary checkout (MX_ROOT) must sit on its
 # default branch, not a feature branch (see mx-tangle-lib.sh). Scoped to the
 # primary only; detached-HEAD worktrees and daemon homes never trip it.

@@ -22,6 +22,9 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
+# A state/<id>.ready-to-push record is an additional unconditional non-force
+# refusal: delivery must archive that record before its source worktree can be
+# returned, even if a partial delivery made the commit reachable on a remote.
 # local-only projects additionally accept work merged into the local default
 # branch (broker performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -620,6 +623,11 @@ validate_worktree_teardown_safety() {
   case "$KIND" in
     daemon|scout) return 0 ;;
   esac
+  if [ -e "$STATE/$ID.ready-to-push" ] || [ -L "$STATE/$ID.ready-to-push" ]; then
+    echo "REFUSED: worktree $WT is queued for credentialed delivery." >&2
+    echo "Run bin/mx-deliver.sh outside every agent session, or get the maintainer's explicit OK to discard, then --force." >&2
+    return 1
+  fi
 
   if ! dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null); then
     if worktree_safety_blocked_by_lock "uncommitted changes"; then

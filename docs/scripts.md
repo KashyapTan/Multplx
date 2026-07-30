@@ -49,6 +49,8 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `backends/herdr.sh`      | Experimental herdr session-provider adapter                                          |
 | `backends/cmux.sh`       | Experimental cmux session-provider adapter                                           |
 | `mx-config-push.sh`      | Push declared inherited local material to live daemons mid-session and send a pointer to the literal-content config reread when config changed |
+| `mx-deliver.sh`          | Push one exact approved local SHA and open its PR from a credentialed non-agent context |
+| `mx-deliver-lib.sh`      | Validate private delivery handoffs, gate results, approved SHA bindings, and agent ambience |
 | `mx-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`           |
 | `mx-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval            |
 | `mx-review-diff.sh`      | Review an actor branch or resolved PR head against the authoritative base          |
@@ -84,7 +86,7 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-pr-poll.sh`          | Provide the byte-static watcher program for validated PR/MR-poll sidecars           |
 | `mx-pr-check-migrate.sh` | Quarantine older task polls without execution and rebuild only canonical polls       |
 | `mx-pr-check.sh`         | Record validated `pr=` and `pr_head=` values, then atomically arm a static merge poll |
-| `mx-pr-merge.sh`         | Record PR metadata, then merge a task's canonical full GitHub URL                    |
+| `mx-pr-merge.sh`         | From a non-agent credential context, record PR metadata then merge a task's canonical full GitHub URL |
 | `mx-promote.sh`          | Promote a scout task in place to a protected delivery task                               |
 | `mx-teardown.sh`         | Fail-closed teardown: return landed delivery worktrees, require completed scout deliverables, retire daemon homes |
 | `mx-harness.sh`          | Detect the running harness and resolve the actor or daemon harness, model, and effort |

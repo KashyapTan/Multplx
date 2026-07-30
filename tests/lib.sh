@@ -34,6 +34,11 @@ MX_TEST_LIB_SOURCED=1
 # strips this to verify real refusal.
 export MX_GATE_REFUSE_BYPASS=1
 
+# Start behavior tests from neutral agent ambience.
+# Dedicated boundary cases set these markers explicitly; ambient desktop
+# harness markers must not alter otherwise unrelated command fixtures.
+unset CLAUDECODE CODEX_THREAD_ID PI_CODING_AGENT NO_MISTAKES_GATE DEEP_REVIEW_GATE
+
 # Existing behavior suites test the lower-level spawn lifecycle in isolation.
 # Plan-07 headroom and queue suites unset this and own capacity enforcement.
 export MX_HEADROOM_SKIP_QUEUE=${MX_HEADROOM_SKIP_QUEUE:-1}

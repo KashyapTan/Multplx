@@ -561,6 +561,29 @@ test_no_mistakes_origin_remote_allows() {
   pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
 }
 
+test_ready_to_push_record_refuses_even_after_partial_push() {
+  local case_dir rc
+  case_dir=$(make_case queued-delivery)
+  write_meta "$case_dir" no-mistakes delivery
+  wt_commit "$case_dir"
+  git -C "$case_dir/wt" push -q origin mx/task-x1
+  printf 'version=1\n' > "$case_dir/state/task-x1.ready-to-push"
+  chmod 600 "$case_dir/state/task-x1.ready-to-push"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "queued delivery must block teardown"
+  assert_grep 'queued for credentialed delivery' "$case_dir/stderr" \
+    "queued delivery refusal did not explain the handoff"
+  assert_present "$case_dir/state/task-x1.ready-to-push" \
+    "teardown removed the queued delivery record"
+  assert_present "$case_dir/wt" "teardown removed the queued delivery worktree"
+  pass "teardown preserves a ready-to-push worktree even after a partial push"
+}
+
 test_no_mistakes_truly_unpushed_refuses() {
   local case_dir rc
   case_dir=$(make_case nm-unpushed)
@@ -1329,6 +1352,7 @@ test_teardown_manual_backend_prompts_hand_edit
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
+test_ready_to_push_record_refuses_even_after_partial_push
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_herdr_teardown_clears_escalation_marker

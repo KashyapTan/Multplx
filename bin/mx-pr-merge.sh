@@ -20,6 +20,10 @@ STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 
 # shellcheck source=bin/mx-pr-lib.sh
 . "$SCRIPT_DIR/mx-pr-lib.sh"
+# shellcheck source=bin/mx-deliver-lib.sh
+. "$SCRIPT_DIR/mx-deliver-lib.sh"
+
+mx_delivery_refuse_agent_ambience || exit $?
 
 if [ "$#" -lt 2 ]; then
   echo "error: invalid PR merge request" >&2

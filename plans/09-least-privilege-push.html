@@ -335,6 +335,10 @@ title/body source                    # PR title + body assembled from the gate's
   <p style="margin-bottom:0">Until every project is on the new flow, the watcher may see pushes from both old-style (agent-pushed) and new-style (service-pushed) tasks. <code>mx-push-transition-lib.sh</code>'s classification is agnostic to the pusher, so this is a doc/expectations issue rather than a code one — but call it out in the migration notes so a legacy agent push isn't mistaken for a service failure.</p>
 </div>
 
+<h2 id="deviations">Deviations</h2>
+<p>The implemented <code>mx-push-transition-lib.sh</code> handles native runtime agent-state transitions, not remote Git pushes. The credentialed service therefore feeds the existing watcher through <code>mx-pr-check.sh</code> as designed, while the transition library receives only a clarifying comment and no behavior change.</p>
+<p>The service pushes <code>approved_sha:refs/heads/&lt;branch&gt;</code> instead of resolving the local branch name again at push time. This is a stricter form of the planned normal non-force push: remote non-fast-forward protection remains, and a concurrent local branch advance can never widen the approved payload.</p>
+
 <div class="footer-nav">
   <a href="08-vplan.html">&larr; 08 — vplan</a>
   <a href="index.html">Index</a>

@@ -15,6 +15,11 @@
 #   $TMUX, HERDR_ENV=1, or cmux runtime signals; bin/mx-backend.sh's
 #   mx_backend_detect, with cmux fallback details in docs/cmux-backend.md),
 #   then tmux.
+#   Every launched agent receives an isolated empty gh config, no ambient
+#   GH_TOKEN/GITHUB_TOKEN, no interactive git credential path, and no SSH agent.
+#   MX_AGENT_GH_TOKEN may deliberately supply a remotely enforced read-only token;
+#   it is mapped into GH_TOKEN for the agent and never treated as a delivery
+#   credential. The normal default is no token.
 #   Spawn-capable backends are the reference tmux adapter and experimental
 #   herdr and cmux. cmux is a session provider only, exactly like herdr,
 #   so delivery/scout spawns run treehouse get on every backend. An
@@ -1191,6 +1196,7 @@ META_WINDOW=$T
     echo "projects=$DAEMON_PROJECTS"
   fi
 } > "$STATE/$ID.meta"
+chmod 600 "$STATE/$ID.meta"
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
@@ -1259,11 +1265,20 @@ LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 sq_task_id=$(shell_quote "$ID")
 sq_report_state=$(shell_quote "$STATE_REAL")
 sq_runtime_home=$(shell_quote "$REPORT_RUNTIME_HOME")
+AGENT_GH_CONFIG="$TASK_TMP/agent-gh-config"
+mkdir -p "$AGENT_GH_CONFIG"
+chmod 700 "$AGENT_GH_CONFIG"
+sq_agent_gh_config=$(shell_quote "$AGENT_GH_CONFIG")
+agent_read_token=
+if [ -n "${MX_AGENT_GH_TOKEN:-}" ]; then
+  agent_read_token="GH_TOKEN=$(shell_quote "$MX_AGENT_GH_TOKEN") MX_AGENT_GH_TOKEN=$(shell_quote "$MX_AGENT_GH_TOKEN") "
+fi
 if [ "$KIND" = daemon ]; then
   LAUNCH="MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= MX_HOME=$sq_runtime_home MX_TASK_ID=$sq_task_id MX_REPORT_STATE_OVERRIDE=$sq_report_state $LAUNCH"
 else
   LAUNCH="MX_HOME=$sq_runtime_home MX_TASK_ID=$sq_task_id MX_REPORT_STATE_OVERRIDE=$sq_report_state $LAUNCH"
 fi
+LAUNCH="env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN -u GH_CONFIG_DIR -u SSH_AUTH_SOCK -u MX_DELIVERY_GH_TOKEN -u MX_DELIVERY_GH_CONFIG_DIR ${agent_read_token}GH_CONFIG_DIR=$sq_agent_gh_config GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=remote.origin.pushurl GIT_CONFIG_VALUE_1=/dev/null/multplx-agent-no-push GIT_SSH_COMMAND='ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null' $LAUNCH"
 # Export GOTMPDIR into the actor's pane shell so the agent and every child
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.

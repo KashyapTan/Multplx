@@ -29,8 +29,8 @@
 # For delivery tasks, the definition of done is shaped by the project's delivery mode
 # (data/projects.md via mx-project-mode.sh; see the project-management skill
 # and AGENTS.md task lifecycle):
-#   no-mistakes  implement -> /no-mistakes pipeline -> PR -> maintainer merge (default)
-#   direct-PR    implement -> push + open PR via official gh (no pipeline) -> maintainer merge
+#   no-mistakes  implement -> local validation handoff -> delivery service -> PR -> maintainer merge (default)
+#   direct-PR    implement -> approved delivery service -> PR (no full pipeline) -> maintainer merge
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
 #                maintainer approves, broker merges to local main
 # Delivery briefs begin with a worktree-isolation assertion before the branch step.
@@ -286,13 +286,14 @@ EOF
 case "$MODE" in
   direct-PR)
     SETUP2=""
-    RULE1='1. Never push to the default branch (push only your `mx/'"$ID"'` branch). Never merge a PR.'
+    RULE1='1. Never push to any remote, open a PR, or merge a PR. Commit only on your local `mx/'"$ID"'` branch; the credentialed delivery service owns every remote write.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
-This project delivers **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with official \`gh\`, then report \`done\` with \`PR {url}\` through the validated status path and stop.
-Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; broker relays the outcome.
+This project delivers **direct-PR** without the full validation pipeline, but remote delivery is still separate from agent work.
+The task is complete only when the worktree is clean and the implementation is committed on your local branch \`mx/$ID\`.
+Report \`done\` with \`ready for delivery at {full commit SHA}\` through the validated status path and stop.
+Do not push, open a PR, or merge.
+The configured approval authority accepts the local commit, then the non-agent delivery service pushes exactly that approved SHA and opens the PR.
 EOF
     ;;
   local-only)
@@ -308,26 +309,18 @@ The configured merge authority approves the ready branch, then broker merges it 
 EOF
     ;;
   *)  # no-mistakes (default)
-    SETUP2="
-2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
-    RULE1='1. Never push to the default branch. Never merge a PR.'
+    SETUP2=""
+    RULE1='1. Never push to any remote, open a PR, or merge a PR. Commit only on your local `mx/'"$ID"'` branch; the validation gate and credentialed delivery service own the handoff.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
-The task is complete only when committed on your branch.
-When you believe it is complete, report \`done\` with a summary through the validated status path and stop.
-The broker will then relay a request to run /no-mistakes to validate and deliver a PR.
-
-You drive no-mistakes by responding to its gates, not by implementing fixes.
-Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
-Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
-
-Two Multplx-specific rules layer on top of that guidance:
-- ask-user findings are never yours to answer: escalate to broker under rule 6 and stop.
-  Multplx applies the authority contract in its \`AGENTS.md\` and obtains any required maintainer decision.
-  When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
-- Avoid \`--yes\`: it would silently bypass broker's authority check and any required maintainer escalation.
-
-After /no-mistakes reports CI green at the CI-ready return point, do not wait for it to keep monitoring in the background until merge; report \`done\` with \`PR {url} checks green\` through the validated status path and stop. You are finished.
+The implementation stage is complete only when the worktree is clean and the work is committed on your local branch \`mx/$ID\`.
+Report \`done\` with \`ready for validation at {full commit SHA}\` through the validated status path and stop.
+Do not invoke a push-capable pipeline, push, open a PR, or merge.
+The configured local validation gate owns review and fixes after this handoff.
+Once that gate records the approved SHA and approval is granted, the non-agent delivery service pushes exactly that SHA and opens the PR.
+If a validation gate later routes an ask-user finding back to you, ask-user findings are never yours to answer: escalate to broker under rule 6 and stop.
+Multplx applies the authority contract in its \`AGENTS.md\` and obtains any required maintainer decision.
+Do not use an automatic-yes path that would silently bypass broker's authority check and any required maintainer escalation.
 EOF
     ;;
 esac
@@ -352,7 +345,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 # Rules
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
-3. Use official gh for GitHub operations and a first-class browser tool only when browser work is required.
+3. Use official gh only for read-only GitHub operations and a first-class browser tool only when browser work is required.
 4. Report status with the \`report_status\` tool when available, otherwise:
    \`$MX_ROOT/bin/mx-report --id $ID --state {state} --message "{one short line}"\`
    States: working, paused, needs-decision, blocked, done, failed, resolved.
