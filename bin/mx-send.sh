@@ -49,7 +49,7 @@ MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=bin/mx-gate-refuse-lib.sh
 . "$SCRIPT_DIR/mx-gate-refuse-lib.sh"
-# Fail closed before any system mutation: a no-mistakes gate agent must never steer
+# Fail closed before any system mutation: a deep-review agent must never steer
 # an actor (see bin/mx-gate-refuse-lib.sh).
 mx_refuse_if_gate_agent
 

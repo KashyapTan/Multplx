@@ -96,14 +96,16 @@ DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 CONFIG="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
 DAEMON_REG="$DATA/daemons.md"
 SUB_HOME_MARKER=".mx-daemon-home"
+# shellcheck source=bin/mx-gate-refuse-lib.sh
+. "$SCRIPT_DIR/mx-gate-refuse-lib.sh"
+# Fail closed before loading helpers that may initialize system state.
+mx_refuse_if_gate_agent
 # shellcheck source=bin/mx-backlog-lib.sh
 . "$SCRIPT_DIR/mx-backlog-lib.sh"
 # shellcheck source=bin/mx-backend.sh
 . "$SCRIPT_DIR/mx-backend.sh"
 # shellcheck source=bin/mx-lock-lib.sh
 . "$SCRIPT_DIR/mx-lock-lib.sh"
-# shellcheck source=bin/mx-gate-refuse-lib.sh
-. "$SCRIPT_DIR/mx-gate-refuse-lib.sh"
 # shellcheck source=bin/mx-pr-lib.sh
 . "$SCRIPT_DIR/mx-pr-lib.sh"
 if [ "$#" -lt 1 ] || ! mx_task_id_path_safe "$1"; then
@@ -112,9 +114,6 @@ if [ "$#" -lt 1 ] || ! mx_task_id_path_safe "$1"; then
 fi
 ID=$1
 FORCE=${2:-}
-# Fail closed before any system mutation: a no-mistakes gate agent must never tear
-# down a worktree (see bin/mx-gate-refuse-lib.sh).
-mx_refuse_if_gate_agent
 MX_LOCK_LOG_PREFIX=teardown
 "$MX_ROOT/bin/mx-guard.sh" || true
 
@@ -133,7 +132,7 @@ TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
 KIND=$(grep '^kind=' "$META" | cut -d= -f2- || true)
 [ -n "$KIND" ] || KIND=delivery
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
-[ -n "$MODE" ] || MODE=no-mistakes
+[ -n "$MODE" ] || MODE=deep-review
 
 default_branch() {
   local ref branch

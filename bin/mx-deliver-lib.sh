@@ -48,7 +48,6 @@ mx_delivery_agent_ambience() {
   [ "${CLAUDECODE+x}" != x ] || return 0
   [ "${CODEX_THREAD_ID+x}" != x ] || return 0
   [ "${PI_CODING_AGENT+x}" != x ] || return 0
-  [ "${NO_MISTAKES_GATE+x}" != x ] || return 0
   [ "${DEEP_REVIEW_GATE+x}" != x ] || return 0
   return 1
 }

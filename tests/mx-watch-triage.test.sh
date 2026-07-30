@@ -370,7 +370,7 @@ test_working_note_not_working_surfaced() {
   out="$dir/watch.out"; drain_out="$dir/drain.out"
   status_file="$state/task.status"
   printf 'working: compiling step 2\n' > "$status_file"
-  # A non-no-mistakes actors (no run) whose pane went idle: mx-actor-state falls back
+  # A non-deep-review actors (no run) whose pane went idle: mx-actor-state falls back
   # to the stale working: status-log line. That is NOT positive evidence, so the
   # wake must surface - these users must never be left hanging.
   export MX_FAKE_ACTOR_STATE='state: working · source: status-log · working: compiling step 2'
@@ -453,7 +453,7 @@ test_terminal_stale_report_overrides_busy_heuristic() {
 
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
 # Regression for the 2026-07 herdr false-surface incidents: an actor's own status
-# log gets no new entry once broker hands it to a no-mistakes validation
+# log gets no new entry once broker hands it to a deep-review validation
 # (AGENTS.md's sparse status-reporting contract), so the log keeps showing its
 # pre-validation "done:" line as the LAST line for the run's entire (possibly
 # many-minutes) duration. stale_is_terminal alone has no run-step awareness and
@@ -466,15 +466,15 @@ test_stale_terminal_status_overridden_by_active_run() {
   dir=$(make_case terminal-stale-overridden); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
   window="test:mx-validating"
-  printf 'no-mistakes axi run: validating...' > "$capture_file"
+  printf 'deep-review local gate: validating...' > "$capture_file"
   printf 'window=%s\nkind=delivery\n' "$window" > "$state/validating.meta"
-  # The actors reported done BEFORE broker triggered no-mistakes validation;
+  # The actors reported done BEFORE broker triggered deep-review validation;
   # this line never gets superseded by a newer status-log entry while the
   # pipeline itself runs.
   printf 'done: implementation complete, ready to validate\n' > "$state/validating.status"
   sig=$(seen_sig "$state/validating.status"); printf '%s' "$sig" > "$state/.seen-validating_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "no-mistakes axi run: validating...")
+  pane_hash=$(hash_text "deep-review local gate: validating...")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   export MX_FAKE_ACTOR_STATE='state: working · source: run-step · validating (running)'
@@ -568,7 +568,7 @@ test_nonterminal_stale_provably_working_absorbed_then_escalated() {
 # The key requirement: an actor with no running pipeline that has gone quiet (and is
 # not busy) has stopped - it may be done via interactive menus, waiting, or wedged.
 # It must surface at once, never wait out the wedge timer, so these users (a
-# non-no-mistakes actors, or any actors with no running pipeline) are never left hanging.
+# non-deep-review actors, or any actors with no running pipeline) are never left hanging.
 
 test_nonterminal_stale_not_working_surfaced() {
   local dir state fakebin out drain_out capture_file window key pane_hash sig pid

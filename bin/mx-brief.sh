@@ -29,7 +29,7 @@
 # For delivery tasks, the definition of done is shaped by the project's delivery mode
 # (data/projects.md via mx-project-mode.sh; see the project-management skill
 # and AGENTS.md task lifecycle):
-#   no-mistakes  implement -> local validation handoff -> delivery service -> PR -> maintainer merge (default)
+#   deep-review  implement -> actor-driven local validation -> delivery service -> PR -> maintainer merge (default)
 #   direct-PR    implement -> approved delivery service -> PR (no full pipeline) -> maintainer merge
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
 #                maintainer approves, broker merges to local main
@@ -261,9 +261,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 6. If a decision belongs to a human (product choices, destructive actions),
    report \`needs-decision\` and stop. Multplx will reply with the decision.
    When broker replies or a blocker clears and you resume, report \`resolved\` with the same \`--key <slug>\` if you opened one, so the decision or blocker is durably closed and does not keep resurfacing.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, report \`blocked\` and stop; only the broker coordinates daemon lifecycle.
+7. Never invoke Multplx lifecycle or credentialed delivery commands from this worker.
 
 # Definition of done
 Write your findings to \`$DATA/$ID/report.md\`.
@@ -308,19 +306,23 @@ When it is implemented and committed, report \`done\` with \`ready in branch mx/
 The configured merge authority approves the ready branch, then broker merges it into local \`main\` through the guarded fast-forward path.
 EOF
     ;;
-  *)  # no-mistakes (default)
+  *)  # deep-review (default)
     SETUP2=""
     RULE1='1. Never push to any remote, open a PR, or merge a PR. Commit only on your local `mx/'"$ID"'` branch; the validation gate and credentialed delivery service own the handoff.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
-The implementation stage is complete only when the worktree is clean and the work is committed on your local branch \`mx/$ID\`.
-Report \`done\` with \`ready for validation at {full commit SHA}\` through the validated status path and stop.
-Do not invoke a push-capable pipeline, push, open a PR, or merge.
-The configured local validation gate owns review and fixes after this handoff.
-Once that gate records the approved SHA and approval is granted, the non-agent delivery service pushes exactly that SHA and opens the PR.
-If a validation gate later routes an ask-user finding back to you, ask-user findings are never yours to answer: escalate to broker under rule 6 and stop.
-Multplx applies the authority contract in its \`AGENTS.md\` and obtains any required maintainer decision.
-Do not use an automatic-yes path that would silently bypass broker's authority check and any required maintainer escalation.
+After implementation is clean and committed on your local branch \`mx/$ID\`, you must drive its local validation:
+\`$MX_ROOT/bin/mx-deep-review.sh $ID --intent-file $BRIEF\`
+The gate owns review, focused testing, documentation, lint, and its own fix commits.
+Ask-user findings are never yours to answer.
+If the gate parks on one, preserve its emitted decision request and stop while Multplx applies the authority contract in its \`AGENTS.md\`.
+Do not silently bypass broker's authority check and any required maintainer escalation.
+After Multplx supplies the accepted answer, you - never broker - run:
+\`$MX_ROOT/bin/mx-deep-review.sh respond $ID --decision {key} --answer "{accepted answer}"\`
+Then rerun the original gate command to resume.
+The task is complete only when deep-review passes, the worktree is clean, and the gate writes the pending exact-SHA delivery record.
+Do not push, open a PR, merge, invoke credentialed delivery, or synthesize gate state.
+The non-agent delivery service separately verifies approval and pushes exactly the validated SHA.
 EOF
     ;;
 esac
@@ -365,9 +367,7 @@ $RULE1
 6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
    report \`needs-decision\` and stop. Multplx will apply the configured authority and reply with the decision.
    When broker replies or a blocker clears and you resume, report \`resolved\` with the same \`--key <slug>\` if you opened one, so the decision or blocker is durably closed and does not keep resurfacing.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, report \`blocked\` and stop; only the broker coordinates daemon lifecycle.
+7. Never invoke Multplx lifecycle or credentialed delivery commands from this worker.
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$MX_ROOT/bin/mx-ensure-agents-md.sh .\` in the worktree.

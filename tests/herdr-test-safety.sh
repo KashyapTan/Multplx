@@ -7,7 +7,7 @@ set -u
 # Herdr backend tests drive the real mx-spawn/mx-teardown but do not source
 # tests/lib.sh, so exempt them from the gate-lifecycle refusal here too (see
 # tests/lib.sh and bin/mx-gate-refuse-lib.sh for why broker's own suite,
-# which the no-mistakes gate runs from a gate worktree, must be exempt).
+# which the deep-review gate runs from a gate worktree, must be exempt).
 export MX_GATE_REFUSE_BYPASS=1
 
 # Real-Herdr suites exercise backend lifecycle, not dispatch-capacity policy.

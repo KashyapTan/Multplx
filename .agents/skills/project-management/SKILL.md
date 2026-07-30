@@ -2,8 +2,8 @@
 name: project-management
 description: >-
   Agent-only procedure for Multplx project management.
-  Use before adding, creating, removing, or initializing a project.
-  Owns project add, create, clone, remove, initialization, registry, delivery-mode, autonomy, and outward-consent decisions.
+  Use before adding, creating, or removing a project.
+  Owns project add, create, clone, remove, registry, delivery-mode, autonomy, and outward-consent decisions.
 user-invocable: false
 metadata:
   internal: true
@@ -11,7 +11,7 @@ metadata:
 
 # project-management
 
-Use this procedure before adding, creating, removing, or initializing a project.
+Use this procedure before adding, creating, or removing a project.
 This skill is the single owner of Multplx's project-management procedure.
 It does not replace `daemon-provisioning`, which owns project clones inside persistent daemon homes.
 
@@ -23,15 +23,15 @@ Keep each registry description useful for identifying the project, but keep deli
 Do not turn the registry into project documentation.
 
 Resolve the project name, destination, delivery mode, and autonomy posture before changing local or remote state.
-Keep a newly added clone and its registry entry consistent, and roll back only artifacts created by the incomplete operation when a later initialization step fails and that rollback is safe.
+Keep a newly added clone and its registry entry consistent, and roll back only artifacts created by the incomplete operation when a later setup step fails and that rollback is safe.
 Do not overwrite or repurpose an existing path.
 
 ## Delivery posture
 
 Choose the delivery mode when adding or creating the project:
 
-- `no-mistakes` runs the full validation pipeline before a PR and is the default when the maintainer does not specify a mode.
-- `direct-PR` pushes and opens a PR without the no-mistakes pipeline.
+- `deep-review` runs the full local validation pipeline before credentialed PR delivery and is the default when the maintainer does not specify a mode.
+- `direct-PR` skips the deep-review pipeline but still uses credentialed PR delivery.
 - `local-only` has no required remote or PR and lands only through the approved local fast-forward path.
 
 The optional `+yolo` posture changes routine approval authority but does not change the delivery mode.
@@ -42,31 +42,24 @@ Default it off, and enable it only on the maintainer's explicit instruction.
 
 Confirm the source URL, local project name, delivery mode, and autonomy posture.
 Clone into `projects/<name>` and add the registry entry only after the destination is known to be unused.
-A `no-mistakes` project must have an `origin` remote and must complete the initialization procedure below.
-A `direct-PR` project needs an `origin` remote but skips no-mistakes initialization.
-A `local-only` project may have no remote and skips no-mistakes initialization.
+A `deep-review` project must have an `origin` remote.
+A `direct-PR` project also needs an `origin` remote.
+A `local-only` project may have no remote.
 
 ## Create a project
 
 Creating a GitHub repository is outward-facing.
-Before making that remote change, propose the repository name, owner or organization, visibility, and delivery mode, defaulting visibility to private and delivery mode to `no-mistakes`, then obtain the maintainer's explicit consent for those values.
+Before making that remote change, propose the repository name, owner or organization, visibility, and delivery mode, defaulting visibility to private and delivery mode to `deep-review`, then obtain the maintainer's explicit consent for those values.
 Use official `gh` for the approved GitHub operation and consult its current help rather than relying on remembered flags.
-After remote creation succeeds, clone it locally, add the registry entry, and initialize it according to its delivery mode.
+After remote creation succeeds, clone it locally and add the registry entry with its approved delivery mode.
 
 For a purely `local-only` project, create a local Git repository under its unused `projects/<name>` path, add the registry entry, and make no GitHub call.
 The maintainer's request to create that local project authorizes this local initialization, but it does not authorize an unmentioned remote repository.
 
-## Initialize
+## Validation readiness
 
-Run no-mistakes initialization only for `no-mistakes` projects:
-
-```sh
-cd projects/<name> && no-mistakes init && no-mistakes doctor
-```
-
-Initialization configures the local gate and does not vendor a no-mistakes skill into the project.
-Do not create a commit merely because initialization ran.
-If doctor reports an environment, authentication, or daemon problem, resolve that blocker before dispatching work and never restart the shared daemon from a project operation.
+The `deep-review` gate is part of Multplx and needs no per-project initialization.
+Before dispatching work, confirm the project has a valid default branch and that its tracked `.deep-review.yaml`, when present, parses under the in-repo gate.
 
 ## Remove
 

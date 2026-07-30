@@ -578,7 +578,7 @@ test_unmarked_maintainer_input_creates_no_expectation() {
   # Actor target stays unmarked and creates no pending-reply record.
   mx_write_meta "$home/state/build.meta" \
     "window=sess:mx-build" "worktree=$home/wt" "project=$home/p" \
-    "harness=echo" "kind=delivery" "mode=no-mistakes" "yolo=off"
+    "harness=echo" "kind=delivery" "mode=deep-review" "yolo=off"
   run_send "$fb" "$home" "$log" "build" "maintainer says hello"; rc=$?
   expect_code 0 "$rc" "unmarked actor send should succeed"
   [ "$(cat "$log")" = "maintainer says hello" ] \

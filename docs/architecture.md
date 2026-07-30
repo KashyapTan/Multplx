@@ -16,7 +16,7 @@ When a canonical validated PR poll returns exactly `merged`, the watcher appends
 The receipt makes retirement safely retryable across restarts: fixed-path recovery revalidates the same evidence, removes the runnable check first, removes its registration and data sidecars, removes the receipt last, and preserves task metadata including `pr=` and `pr_head=`.
 A concurrent replacement remains armed, every non-merged or invalid observation remains unchanged, and retirement never performs task or persistent-daemon cleanup.
 `bin/mx-pr-lib.sh` owns the receipt format and strict identity mechanics, while `bin/mx-watch.sh` owns queue-before-retirement ordering.
-No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/mx-actor-state.sh` reports positive evidence that the actor is still working from native runtime state, an attributed no-mistakes step, or a backend busy signature.
+No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/mx-actor-state.sh` reports positive evidence that the actor is still working from native runtime state, an attributed deep-review step, or a backend busy signature.
 an actor that declares `paused:` for a known external wait is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
 For an ordinary actors that has stopped, the normal-mode watcher first surfaces one stale wake, then applies that same cadence to an unchanged `paused:` or durable `maintainer-held` endpoint only when the backend confidently reports its agent dead.
 Live or inconclusive liveness remains fail-open at that initial surface, and the daemon idle-endpoint exemption is unchanged.
@@ -37,9 +37,9 @@ After a successful durable append, `mx-report` may send a payload-free `USR1` nu
 The signal interrupts the watcher's ordinary terminal poll wait and causes the same scan loop to run early; native Herdr event waits remain bounded and unchanged.
 Missing, stale, disabled, or undeliverable nudges are silent, and the durable event plus the normal `MX_POLL` cycle remain authoritative.
 This is a latency optimization over the existing reconstructable disk state, not a status-ingest daemon, socket, or second supervision path.
-`bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a no-mistakes run, active or terminal, only when it matches the actor's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
+`bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a deep-review run, active or terminal, only when it matches the actor's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
 The script header owns the exact run-head ancestry rules.
-During no-mistakes' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.
+During deep-review' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.
 The most recent recognized ci log marker wins, so checks-green monitoring reports done while a later re-arm, failed-check, or issue marker returns the actors to working.
 When no native verdict or matching run exists, a schema-valid status event whose verb maps to a recognized run-state outranks the pane busy-signature; a dead pane without stronger evidence reports unknown instead of trusting a stale log.
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
@@ -140,17 +140,18 @@ Only a named non-default branch checked out in `MX_ROOT` is a worktree tangle.
 If another live session holds the system lock, both surfaces keep the alarm but switch to read-only wording with no repair command.
 Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show-toplevel` before creating `mx/<id>`, then stop with a blocked status if it landed in the primary checkout.
 
-## No-mistakes gate authority boundary
+## Deep-review gate authority boundary
 
-Multplx's own no-mistakes gate runs agents inside a checkout that also contains the system-maintainer identity in `example_agents.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
-The tracked `.no-mistakes.yaml` sets `disable_project_settings: true`; no-mistakes honors that setting only from the trusted default-branch copy, so a pushed branch cannot enable its own project instructions during validation.
-Independently, `mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` source `bin/mx-gate-refuse-lib.sh` and exit with status 3 before system mutation when the gate environment marker is present or the current checkout matches the default no-mistakes gate-repository topology.
+Multplx's own deep-review gate runs agents inside a checkout that also contains the system-maintainer identity in `example_agents.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
+`bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
+Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
+`mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` source `bin/mx-gate-refuse-lib.sh` and exit with status 3 before system mutation when `DEEP_REVIEW_GATE` is present.
 A normal primary checkout or actor worktree has neither signal and remains unaffected.
-The helper's header owns the exact signal detection, relocated-home limitation, test-harness bypass, and relationship to no-mistakes' HEAD-continuity guard.
+The helper's header owns the exact marker and test-harness bypass contract.
 
 ## Two task shapes
 
-DELIVERY TASK change projects and delivery by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
+DELIVERY TASK change projects and delivery by project mode (`deep-review`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
 The intake and authority-contract template in `example_agents.md` owns when separate scout research is warranted.
 
 ## Dispatch profiles
@@ -167,7 +168,7 @@ That keeps spawn launch compatible across claude, codex, and pi while preserving
 ## Optional daemons
 
 `data/daemons.md` records persistent daemons with natural-language scopes, project clone lists, and home paths.
-`mx-home-seed.sh` provisions the isolated home, clones the listed PR-based projects into it, initializes newly cloned `no-mistakes` projects, copies the charter to `data/charter.md`, and `mx-spawn.sh --daemon` launches it through the same session-provider and status-file path as any routed agent.
+`mx-home-seed.sh` provisions the isolated home, clones the listed PR-based projects into it, copies the charter to `data/charter.md`, and `mx-spawn.sh --daemon` launches it through the same session-provider and status-file path as any routed agent.
 For a domain whose subject is the Multplx repo itself, a deliberate `--no-projects` seed creates a project-less home whose actors take pooled worktrees of that repo instead of separate clones.
 The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#daemon-routes-datadaemonsmd).
 On the herdr backend, a daemon launch lands in that daemon home's labeled workspace, and actors spawned from that home land in the same workspace.
@@ -205,8 +206,8 @@ The `data/daemons.md` line contract is owned by the [`daemon-provisioning` skill
 PR-based modes stop agent work at a clean local commit; the full-validation mode records an approved SHA through its gate, while `direct-PR` omits the full review pipeline but retains the same non-agent remote-delivery boundary.
 `local-only` projects stay local until broker performs an approved fast-forward merge.
 When a selected delivery path calls for a diff, `bin/mx-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
-For target project repos delivered through their own no-mistakes pipeline, commits under `.no-mistakes/evidence/` are the pipeline's PR-viewable validation evidence and are expected to stay in the actors branch until the evidence-hosting design changes.
-The Multplx repo itself is the exception: its `.no-mistakes/` directory is local state, stays gitignored, and is rejected by CI if tracked.
+The gate persists private restart-safe state under `state/<id>.gate/`, including its sanitized intent, run record, findings, harness session ids, and command output.
+It never stores validation evidence in the project branch.
 Remote delivery is owned by the non-agent `bin/mx-deliver.sh` context described in [delivery.md](delivery.md).
 It consumes a private restart-safe handoff, re-verifies its gate and approved SHA, pushes that exact object, opens the PR, and records the URL through `bin/mx-pr-check.sh`.
 PR-based task merges run from the same non-agent credential context through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
@@ -249,7 +250,7 @@ The mechanics are owned by the `/updatemultplx` skill and broker's operating-man
 
 ## Restart-proof
 
-System state lives in each task's session-provider backend (tmux by hard default, herdr or cmux when selected or auto-detected), no-mistakes run records, status event logs, local markdown under `data/` including `data/maintainer.md`, `data/maintainer-shared.md`, and `data/learnings.md`, and persistent daemon homes.
+System state lives in each task's session-provider backend (tmux by hard default, herdr or cmux when selected or auto-detected), private `state/<id>.gate/` deep-review records, status event logs, local markdown under `data/` including `data/maintainer.md`, `data/maintainer-shared.md`, and `data/learnings.md`, and persistent daemon homes.
 For herdr, respawning after a server-restored layout closes and replaces confirmed no-agent or dead task-tab husks instead of requiring manual tab cleanup.
 At session start, confirmed-dead daemon agent endpoints are closed and relaunched through the same daemon spawn path, while ambiguous liveness reads are left untouched to avoid duplicate supervisors.
 Use `/stow` before an intentional reset when the conversation may hold durable knowledge that has not yet been written to disk; after that, the next broker session can reconcile and carry on.

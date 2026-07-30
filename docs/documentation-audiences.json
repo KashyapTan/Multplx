@@ -38,7 +38,7 @@
       "target": "docs/documentation-audiences.md"
     },
     {
-      "source": ".no-mistakes.yaml",
+      "source": ".deep-review.yaml",
       "target": "docs/documentation-audiences.md"
     },
     {

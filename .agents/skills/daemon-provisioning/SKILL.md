@@ -116,11 +116,11 @@ Direct seed without a preexisting brief requires `MX_DAEMON_CHARTER`.
 Run `bin/mx-home-seed.sh validate` when checking registry integrity; it refuses duplicate ids, duplicate homes, and nested or overlapping homes.
 
 Seeding is transactional.
-If validation, cloning, no-mistakes initialization, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
+If validation, cloning, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
 
-Daemon project lists may include `no-mistakes` and `direct-PR` projects only.
+Daemon project lists may include `deep-review` and `direct-PR` projects only.
 `local-only` projects stay with the main broker.
-For `no-mistakes` projects, seeding initializes only projects newly cloned into a daemon home and refuses to mutate a preexisting clone that is not already initialized.
+The in-repo deep-review gate requires no per-clone initialization during daemon seeding.
 
 ## Backlog handoff
 

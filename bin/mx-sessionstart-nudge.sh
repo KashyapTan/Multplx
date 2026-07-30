@@ -17,7 +17,7 @@ STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 # shellcheck source=bin/mx-operational-input.sh
 . "$SCRIPT_DIR/mx-operational-input.sh"
 
-mx_is_gate_agent "$MX_ROOT" && exit 0
+mx_is_gate_agent && exit 0
 mx_primary_scope_matches "$MX_ROOT" "$STATE" || exit 0
 
 lock_is_in_ancestry() {

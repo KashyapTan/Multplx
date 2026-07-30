@@ -24,7 +24,7 @@ make_home() {  # <name>
 ## Done
 EOF
   fakebin=$(mx_fakebin "$home")
-  mx_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh
+  mx_fake_exit0 "$fakebin" tmux treehouse gh
   printf '%s\n' "$home"
 }
 
@@ -410,7 +410,7 @@ test_daemon_hold_stays_in_authoritative_home() {
 ## Done
 EOF
   fakebin=$(mx_fakebin "$mate")
-  mx_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh
+  mx_fake_exit0 "$fakebin" tmux treehouse gh
   origin=sample-mate-review
   mkdir -p "$mate/data/$origin"
   tasks_in "$mate" add "$origin" "Investigate daemon sample" --kind scout --repo sample --start >/dev/null

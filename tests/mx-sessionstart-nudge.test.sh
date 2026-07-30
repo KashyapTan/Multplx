@@ -5,7 +5,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-unset NO_MISTAKES_GATE
+unset DEEP_REVIEW_GATE
 
 TMP_ROOT=$(mx_test_tmproot mx-sessionstart-nudge)
 NUDGE="$ROOT/bin/mx-sessionstart-nudge.sh"
@@ -52,24 +52,9 @@ test_genuine_primary_nudges() {
 test_gate_env_is_silent() {
   local root="$TMP_ROOT/gate-env"
   make_primary "$root"
-  expect_silent_zero "gate env nudge" env NO_MISTAKES_GATE=1 MX_GATE_REFUSE_BYPASS=0 \
+  expect_silent_zero "gate env nudge" env DEEP_REVIEW_GATE=1 MX_GATE_REFUSE_BYPASS=0 \
     MX_ROOT_OVERRIDE="$root" MX_HOME="$root" "$NUDGE"
-  pass "mx-sessionstart-nudge: NO_MISTAKES_GATE is silent"
-}
-
-test_gate_common_dir_is_silent() {
-  local source="$TMP_ROOT/gate-source" bare="$TMP_ROOT/.no-mistakes/repos/gate.git"
-  local root="$TMP_ROOT/gate-worktree"
-  mx_git_init_commit "$source"
-  mkdir -p "$(dirname "$bare")"
-  git clone --quiet --bare "$source" "$bare"
-  git --git-dir="$bare" worktree add --quiet -b gate-test "$root" HEAD
-  mkdir -p "$root/bin" "$root/state"
-  : > "$root/AGENTS.md"
-  printf 'gate-test\n' > "$root/.mx-daemon-home"
-  expect_silent_zero "gate common-dir nudge" env MX_GATE_REFUSE_BYPASS=0 \
-    MX_ROOT_OVERRIDE="$root" MX_HOME="$root" "$NUDGE"
-  pass "mx-sessionstart-nudge: .no-mistakes gate common-dir is silent"
+  pass "mx-sessionstart-nudge: DEEP_REVIEW_GATE is silent"
 }
 
 test_unmarked_linked_worktree_is_silent() {
@@ -137,7 +122,6 @@ test_tracked_harness_registration() {
 
 test_genuine_primary_nudges
 test_gate_env_is_silent
-test_gate_common_dir_is_silent
 test_unmarked_linked_worktree_is_silent
 test_linked_daemon_primary_nudges
 test_missing_state_is_silent

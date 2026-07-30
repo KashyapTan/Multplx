@@ -96,7 +96,7 @@ SH
 # MX_ACTOR_STATE_BIN) to read an actor's current state on no-verb signal and stale
 # paths; the fake returns a canned "state: <s> · source: <src> · <detail>"
 # verdict line so a test can fix the provably-working decision without a real
-# worktree or no-mistakes.
+# worktree or deep-review.
 # A per-id override MX_FAKE_ACTOR_STATE_<sanitized-id> wins; otherwise the shared
 # MX_FAKE_ACTOR_STATE; otherwise an unknown verdict (NOT provably working), the
 # safe default so a test that forgets to set one surfaces rather than absorbs.

@@ -20,7 +20,7 @@ mkdir -p "$BRIEF_HOME/data"
 
 # The script itself must always parse. This is the direct regression test for
 # issue #166: a stray apostrophe in any of the three DOD heredoc bodies
-# (no-mistakes/direct-PR/local-only) breaks `bash -n` on the whole file.
+# (deep-review/direct-PR/local-only) breaks `bash -n` on the whole file.
 test_script_parses() {
   local out rc
   out=$(bash -n "$ROOT/bin/mx-brief.sh" 2>&1); rc=$?
@@ -37,7 +37,7 @@ test_help_includes_entire_header() {
 }
 
 # Registry with one project per delivery mode, so each delivery-mode DOD branch is
-# exercised. A project absent from the registry defaults to no-mistakes.
+# exercised. A project absent from the registry defaults to deep-review.
 write_registry() {
   local home=$1
   mkdir -p "$home/data"
@@ -70,7 +70,7 @@ test_ship_modes_generate_clean_briefs() {
       "$id: brief missing nonterminal working:/setup-complete gate protection"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
   done
-  pass "mx-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
+  pass "mx-brief.sh: deep-review/direct-PR/local-only briefs generate cleanly"
 }
 
 test_faster_paths_use_configured_authority_without_stacked_review() {
@@ -99,7 +99,7 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
 }
 
 # Pin the least-privilege definition of done for the full-validation mode.
-test_no_mistakes_dod_wording() {
+test_deep_review_dod_wording() {
   local home id brief
   home="$TMP_ROOT/wording-home"
   mkdir -p "$home/data"
@@ -107,15 +107,15 @@ test_no_mistakes_dod_wording() {
   MX_HOME="$home" "$ROOT/bin/mx-brief.sh" "$id" some-proj >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
-  assert_grep 'ready for validation at {full commit SHA}' "$brief" \
-    "full-validation DOD lost the local commit handoff"
-  assert_grep 'Do not invoke a push-capable pipeline, push, open a PR, or merge.' "$brief" \
+  assert_grep "mx-deep-review.sh $id --intent-file" "$brief" \
+    "full-validation DOD lost the actor-owned gate invocation"
+  assert_grep 'Do not push, open a PR, merge, invoke credentialed delivery, or synthesize gate state.' "$brief" \
     "full-validation DOD permits agent-side remote delivery"
-  assert_grep 'the non-agent delivery service pushes exactly that SHA and opens the PR' "$brief" \
+  assert_grep 'The non-agent delivery service separately verifies approval and pushes exactly the validated SHA.' "$brief" \
     "full-validation DOD lost the credentialed service boundary"
-  assert_no_grep 'no-mistakes axi' "$brief" \
-    "full-validation DOD still asks the actor to invoke the push-capable legacy pipeline"
-  pass "mx-brief.sh: full-validation DOD stops at a local commit"
+  assert_grep 'pending exact-SHA delivery record' "$brief" \
+    "full-validation DOD lost the pending handoff boundary"
+  pass "mx-brief.sh: deep-review DOD stops at a pending exact-SHA handoff"
 }
 
 test_ship_project_memory_wording() {
@@ -399,7 +399,7 @@ test_script_parses
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
 test_faster_paths_use_configured_authority_without_stacked_review
-test_no_mistakes_dod_wording
+test_deep_review_dod_wording
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_broker_path

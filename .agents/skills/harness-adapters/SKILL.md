@@ -134,14 +134,30 @@ If those sources do not establish the relationship needed for dispatch, fail lou
 When a requested effort value is outside the harness-specific accepted set, `mx-spawn` records the requested `effort=` in meta but emits no effort flag for that harness.
 This preserves launch success instead of passing a known-bad value.
 
-## no-mistakes skill invocation
+## deep-review headless one-shot
 
-Send the validation skill using the target harness's skill invocation form.
-Natural language is acceptable if uncertain.
+`bin/mx-deep-review-lib.sh` owns the executable `dr_agent_oneshot` contract.
+The orchestrator passes `--session new|<id>`, `--schema <file>`, `--prompt <file>`, `--output <file>`, and `--session-out <file>`.
+Every child process receives `DEEP_REVIEW_GATE=1`, and the deterministic caller validates the resulting JSON again even when the harness natively enforces the schema.
+Review assess and review fix always request fresh sessions, and the orchestrator refuses an identical returned session id.
 
-- claude: `/<skill>`, for example `/no-mistakes`.
-- codex: `$<skill>`, for example `$no-mistakes`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command".
-- pi: no separate verified skill invocation beyond normal command behavior; use natural language if the exact skill command is uncertain.
+When trusted `.deep-review.yaml` sets `disable_project_settings: true`, the adapter must keep repository-level identities, instructions, hooks, extensions, and settings out of the gate session.
+The gate prompt remains authoritative and the lifecycle marker independently removes Multplx control capability.
+
+- `claude`: use print mode with `--output-format json`, `--json-schema`, and a fresh `--session-id`; resume only when explicitly requested.
+  The structured result is extracted from `structured_output` and validated again.
+  This command path is fail-closed when the Claude CLI is unavailable.
+- `codex`: use `codex exec --json --output-schema --output-last-message`.
+  Parse the session id from the `thread.started` JSONL event.
+  When project settings are disabled, launch from a fresh external directory with `--skip-git-repo-check`, add the task worktree through `--add-dir`, set `project_doc_max_bytes=0`, clear fallback instruction filenames, and pass `--ignore-rules`.
+  This keeps automatic repository discovery outside the gate while the prompt directs work at the explicit isolated worktree.
+  The noninteractive flags and output-schema behavior were checked against the installed CLI help and the current official Codex manual on 2026-07-30.
+- `pi`: use `--print --approve --no-session --no-context-files --no-extensions`.
+  Pi does not provide a verified native JSON-schema constraint or headless resume path, so deterministic validation is mandatory and a requested resume refuses.
+  This command path is fail-closed when Pi is unavailable.
+
+Tests set `MX_DEEP_REVIEW_AGENT` to a fake adapter implementing the same file interface.
+That seam records prompts, schemas, sessions, and outputs without a real model or network call.
 
 ## Status reporting
 
@@ -169,7 +185,7 @@ Both paths append the same validated event grammar, and neither replaces current
 | Busy-pane signature | `esc to interrupt` |
 | Exit command | `/exit` |
 | Interrupt | single Escape |
-| Skill invocation | `/<skill>` (e.g. `/no-mistakes`) |
+| Skill invocation | `/<skill>` |
 
 First launch in a fresh worktree, or first ever on a machine, may show a trust or bypass-permissions confirmation.
 After every spawn, peek the pane within about 20 seconds.
@@ -199,13 +215,13 @@ Claude Code's primary watcher protocol is Stop-owned: the auto-arm hook fires on
 | Busy-pane signature | `esc to interrupt` (shown as `• Working (Xs • esc to interrupt)`) |
 | Exit command | `/quit` (slash popup needs about 1 second between text and Enter; `mx-send` handles it) |
 | Interrupt | single Escape |
-| Skill invocation | `$<skill>` (e.g. `$no-mistakes`); `/<skill>` is claude-only and codex rejects it as "Unrecognized command" |
+| Skill invocation | `$<skill>`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command" |
 
 A `$<skill>` invocation opens a `$`-autocomplete (skill) popup, the same hazard as the `/` slash popup: submitting too fast lets the popup swallow the Enter, so the invocation never lands.
 `mx-send` handles it the same way it handles `/` - it gives the popup a longer settle (1.2s) between typing and the first Enter, with the target backend's submit retry as the safety net - but the `$` settle is scoped to `harness=codex`, read from the target metadata for exact task ids or legacy `mx-<id>` labels.
 That scope matters because, unlike `/`, a leading `$` commonly starts ordinary text (`$5/month`, `$HOME`), so a universal `$` rule would needlessly slow plain steers to claude/pi; only a codex target receiving a `$...` message gets the popup-settle.
 An explicit `session:window` target has no meta, so its harness is unknown and treated as non-codex (the safe fast-path default).
-This is why the validation trigger (`$no-mistakes`) to a codex actors now lands on the first Enter instead of biting the popup.
+This is why a `$<skill>` invocation to a Codex actor lands on the first Enter instead of biting the popup.
 
 Directory trust dialog on first run per repo root: "Do you trust the contents of this directory?"
 Accept with Enter.

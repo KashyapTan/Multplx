@@ -37,7 +37,7 @@ make_case() {
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
     "kind=delivery" \
-    "mode=no-mistakes"
+    "mode=deep-review"
   chmod 600 "$case_dir/state/task-x1.meta"
   mkdir -p "$case_dir/state/task-x1.gate"
   jq -n \
