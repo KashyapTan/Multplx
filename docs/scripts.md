@@ -20,6 +20,8 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-backlog-lib.sh`      | Own backlog schema, parsing, atomic mutations, and Done retention              |
 | `mx-backlog-handoff.sh`  | Validate and route queued backlog-item moves into a daemon home                  |
 | `mx-headroom.sh`         | Report composite dispatch capacity and inspect, cancel, or drain parked requests |
+| `mx-vplan.sh`            | Create, serve, inspect, and stop one-shot loopback HTML review artifacts |
+| `mx-vplan-server.mjs`    | Inject the local comment SDK, atomically persist confirmed feedback, and end the review |
 | `mx-decision-hold.sh`    | Create, verify, complete, and resolve durable maintainer-held decisions                 |
 | `mx-brief.sh`            | Scaffold delivery, scout, daemon-charter, and Herdr-lab briefs                       |
 | `mx-herdr-lab.sh`        | Provision and guardedly operate an isolated, never-default Herdr lab session         |

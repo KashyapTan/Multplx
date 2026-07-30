@@ -62,7 +62,7 @@ new_world() {
 # test deliberately breaks one. Mirrors mx-bootstrap.test.sh's fixture.
 make_fake_toolchain() {
   local fakebin=$1 real_node
-  mx_fake_exit0 "$fakebin" tmux lavish-axi
+  mx_fake_exit0 "$fakebin" tmux
   real_node=$(command -v node) || fail "node is required for owned backlog tests"
   cat > "$fakebin/node" <<SH
 #!/usr/bin/env bash

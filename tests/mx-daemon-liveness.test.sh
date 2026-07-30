@@ -206,7 +206,7 @@ test_agent_state_dispatcher_and_compatibility() {
 make_toolchain() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
-  mx_fake_exit0 "$fakebin" node lavish-axi
+  mx_fake_exit0 "$fakebin" node
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0

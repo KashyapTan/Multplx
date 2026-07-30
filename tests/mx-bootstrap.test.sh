@@ -34,7 +34,7 @@ unset TMUX TMUX_PANE HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
 make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
-  mx_fake_exit0 "$fakebin" tmux node lavish-axi
+  mx_fake_exit0 "$fakebin" tmux node
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
@@ -622,10 +622,31 @@ test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
   assert_contains "$trigger" "actionable diagnostic line" "bootstrap-diagnostics trigger should be action-scoped"
   assert_contains "$trigger" "BOOTSTRAP_INFO:" "bootstrap-diagnostics trigger should classify BOOTSTRAP_INFO as no-load"
   assert_contains "$trigger" "HEADROOM_INVALID" "invalid owned headroom must trigger diagnostics loading"
+  assert_contains "$trigger" "VPLAN_INVALID" "invalid bundled vplan must trigger diagnostics loading"
   assert_not_contains "$trigger" "ACTOR_HARNESS_OVERRIDE:" "harness override confirmation must not trigger diagnostics loading"
   assert_not_contains "$trigger" "ACTOR_DISPATCH: active" "active dispatch confirmation must not trigger diagnostics loading"
   assert_not_contains "$trigger" "already-live" "already-live daemon liveness must not trigger diagnostics loading"
   pass "bootstrap diagnostics trigger excludes benign lines and keeps actionable prefixes"
+}
+
+test_vplan_self_check_failure_is_actionable() {
+  local case_dir fakebin broken out expected
+  case_dir="$TMP_ROOT/vplan-invalid"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  broken="$case_dir/broken-vplan"
+  cat > "$broken" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$broken"
+  out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
+    MX_VPLAN_SELF_CHECK_OVERRIDE="$broken" MX_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/mx-bootstrap.sh")
+  expected="VPLAN_INVALID: bundled mx-vplan.sh self-check failed"
+  [ "$out" = "$expected" ] || fail "broken vplan self-check should report '$expected', got: $out"
+  pass "bootstrap reports bundled vplan self-check failures"
 }
 
 test_actor_dispatch_active_rules_are_verbose_bootstrap_info() {
@@ -644,7 +665,7 @@ test_actor_dispatch_active_rules_are_verbose_bootstrap_info() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
     MX_BOOTSTRAP_VERBOSE_FACTS=1 MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
 
-  expect=$'BOOTSTRAP_INFO: headroom self-check passed\nBOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
+  expect=$'BOOTSTRAP_INFO: vplan self-check passed\nBOOTSTRAP_INFO: headroom self-check passed\nBOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
   [ "$out" = "$expect" ] || fail "active dispatch verbose info block mismatch"$'\n'"expected: $expect"$'\n'"actual:   $out"
   pass "bootstrap surfaces active actor-dispatch rules only as verbose BOOTSTRAP_INFO"
 }
@@ -712,5 +733,6 @@ test_system_sync_timeout_is_computed_before_launch
 test_routine_bootstrap_confirmations_are_silent
 test_routine_bootstrap_contract_runs_under_system_bash
 test_bootstrap_info_is_no_load_and_actionable_lines_trigger
+test_vplan_self_check_failure_is_actionable
 test_actor_dispatch_active_rules_are_verbose_bootstrap_info
 test_actor_dispatch_validation

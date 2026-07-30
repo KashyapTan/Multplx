@@ -741,7 +741,7 @@ make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  mx_fake_exit0 "$fakebin" node lavish-axi
+  mx_fake_exit0 "$fakebin" node
   # tmux fake supports mx-send's composer-verified submit path and optional
   # MX_FAKE_TMUX_LOG / MX_FAKE_TMUX_FAIL_LITERAL for reread-nudge assertions.
   cat > "$fakebin/tmux" <<'SH'

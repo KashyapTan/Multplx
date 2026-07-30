@@ -35,7 +35,7 @@ It never tears down a task, merges a PR, dispatches new work, or mutates any tas
    - **Title** - `# Catchup - <day> <YYYY-MM-DD>` (use "Morning status" only when the maintainer specifically asks for a morning brief), followed by two or three sentences framing where things stand.
    - **Maintainer's Call** - every open decision summarized with its options from the structured decision record, plus each PR ready to merge and each needed credential or login, every PR with the full `https://...` URL, never a bare `#number`.
    - **Recently Landed** - the bounded current recent-completions baseline from structured state across the main system and every registered daemon home, rendered in full on every run.
-   - **Underway** - each live routed agent making progress, with its current state, and the plans / main pickup pointers worth reopening (`data/<id>/report.md` files, `.lavish/*.html` boards).
+   - **Underway** - each live routed agent making progress, with its current state, and the plans / main pickup pointers worth reopening (`data/<id>/report.md` and `data/<id>/plan.html` files).
    - **Charted Next** - queued or gated work, including any main-inventory integrity warning, with each item's blocker, date, or integrity reason.
 
 3. **Write the dated report file so it persists, then surface the mandatory four-section digest in chat.**
@@ -43,7 +43,7 @@ It never tears down a task, merges a PR, dispatches new work, or mutates any tas
      This is the required artifact; it lives in gitignored `data/`.
      If today's file already exists, delete it first, then create a new file from scratch.
    - The chat response is the concise four-section digest defined by the contract below: materially shorter than the report file, complete as a current snapshot, internally consistent with the file, and linked to that file for the full picture.
-   - For a richer review surface, optionally offer a Lavish board with `lavish-axi` when the report has enough structure to deserve one, but the markdown file is the required artifact and the four-section chat digest is the required minimum.
+   - For a richer review surface, optionally offer a vplan artifact under `data/<id>/plan.html` when the report has enough structure to deserve one, but the markdown file is the required artifact and the four-section chat digest is the required minimum.
 
 ## Chat-response contract
 
