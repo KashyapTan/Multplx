@@ -17,6 +17,7 @@ CONFIG="$ROOT/docs/configuration.md"
 AGENTS="$ROOT/example_agents.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
+CREATE_WORKFLOW="$ROOT/.agents/skills/create-workflow/SKILL.md"
 
 test_new_skill_metadata_and_triggers() {
   local skill name count
@@ -220,7 +221,28 @@ test_compressed_agents_owner_map() {
     "AGENTS.md lost the backlog-mechanics owner pointer"
   assert_grep '`bin/mx-brief.sh` and its help own scaffold syntax' "$AGENTS" \
     "AGENTS.md lost the brief-mechanics owner pointer"
+  assert_grep 'drive it only through `bin/mx-workflow.sh`' "$AGENTS" \
+    "AGENTS.md lost the workflow execution boundary"
+  assert_grep 'load `create-workflow`' "$AGENTS" \
+    "AGENTS.md lost the workflow-authoring trigger"
+  assert_grep '`docs/workflows.md` remains the one schema owner' "$AGENTS" \
+    "AGENTS.md lost the workflow schema owner pointer"
   pass "compressed AGENTS.md records the approved one-owner map"
+}
+
+test_create_workflow_trigger_and_owner() {
+  assert_present "$CREATE_WORKFLOW" "create-workflow skill is missing"
+  assert_grep 'name: create-workflow' "$CREATE_WORKFLOW" \
+    "create-workflow skill metadata has the wrong name"
+  assert_grep 'user-invocable: true' "$CREATE_WORKFLOW" \
+    "create-workflow skill must be maintainer-invocable"
+  assert_grep '  internal: true' "$CREATE_WORKFLOW" \
+    "create-workflow skill must stay internal to Multplx"
+  assert_grep 'Read [`docs/workflows.md`]' "$CREATE_WORKFLOW" \
+    "create-workflow skill does not point to the schema owner"
+  assert_grep 'Never generate a per-workflow script' "$CREATE_WORKFLOW" \
+    "create-workflow skill can duplicate the engine"
+  pass "create-workflow has one precise trigger and points to the schema owner"
 }
 
 test_intake_reuses_evidence_and_parallelizes_safe_work() {
@@ -286,5 +308,6 @@ test_shared_authoring_requirements_are_owned
 test_daemon_registry_contract_stays_concise
 test_state_startup_and_ordinary_recovery_placement
 test_compressed_agents_owner_map
+test_create_workflow_trigger_and_owner
 test_intake_reuses_evidence_and_parallelizes_safe_work
 test_compressed_agents_retains_authority_and_supervision_safety

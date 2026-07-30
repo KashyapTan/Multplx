@@ -149,6 +149,15 @@ Branch-local commands remain inert unless that trusted copy explicitly sets `all
 A normal primary checkout or actor worktree has neither signal and remains unaffected.
 The helper's header owns the exact marker and test-harness bypass contract.
 
+## Workflow composition
+
+`bin/mx-workflow.sh` composes existing Multplx primitives into user-defined strictly linear processes without copying their state machines.
+Repo-tracked definitions under `workflows/` declare stage order, executor type, deterministic contract, and approval gate.
+The engine snapshots a validated definition at launch and every resume reads only that snapshot, so a tracked edit cannot mutate an in-flight command boundary.
+Interactive approvals reuse durable decision holds, broker agent stages reuse the verified deep-review one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and delivery remains outside agent credential context.
+Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-stage records, actual artifacts, actor state, git heads, command results, and decision holds.
+[`workflows.md`](workflows.md) owns the definition schema, state layout, lifecycle, and trust posture.
+
 ## Two task shapes
 
 DELIVERY TASK change projects and delivery by project mode (`deep-review`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.

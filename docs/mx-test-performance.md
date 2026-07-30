@@ -102,7 +102,7 @@ The accepted proof table is updated only from complete runner JSON artifacts.
 |---|---|---|
 | Plan-06 serial boundary | 2026-07-29 UTC | 96 scripts, 3,127,519 ms, 1 known branch-topology failure, 9 expected skips |
 | Plan-6.5 split assertion map | 2026-07-29 UTC | 140 cases mapped exactly once |
-| Resource isolation proof | 2026-07-30 UTC | 91 portable candidates x 2 rounds, 512,348 ms, 0 failed rounds, 0 leaks, 467 conflict pairs |
+| Resource isolation proof | 2026-07-30 UTC | 93 portable candidates x 1 round, 248,577 ms, 0 failed rounds, 0 leaks, 473 conflict pairs |
 | Accelerated local run 1 | 2026-07-29 UTC | 106 scripts, 365,595 ms, 0 failed, 9 expected skips, 1,501 assertions |
 | Accelerated local run 2 | 2026-07-29 UTC | 106 scripts, 370,606 ms, 0 failed, 9 expected skips, 1,501 assertions |
 | Accelerated local run 3 | 2026-07-29 UTC | 106 scripts, 367,851 ms, 0 failed, 9 expected skips, 1,501 assertions |
@@ -113,7 +113,7 @@ The three-run accelerated median is 367,851 ms, or 6 minutes 7.9 seconds.
 The maximum is 370,606 ms, or 6 minutes 10.6 seconds.
 The current serial-to-accelerated speedup is 3.40x.
 The exact parity command reported `MX_TEST_PARITY ok scripts=106 assertions=1501`.
-The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 111-script runner manifest.
+The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 113-script runner manifest.
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.

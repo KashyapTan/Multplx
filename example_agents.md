@@ -65,6 +65,7 @@ README.md            public overview and development notes
 .agents/skills/      broker-loaded internal skills, committed; each carries metadata.internal=true for installers
 .claude/skills       symlink to .agents/skills for claude compatibility
 skills/              standalone public installer-facing skills, committed; not loaded by broker
+workflows/           repo-tracked declarative workflow definitions, committed; docs/workflows.md owns the schema
 bin/                 helper scripts, committed; read each script's header before first use
 config/actor-harness  actor harness override; LOCAL, gitignored; absent or "default" = same as broker. Inherited as the literal file: a concrete primary adapter value also controls a daemon home's own actors (section 4)
 config/actor-dispatch.json  optional actor dispatch profiles; LOCAL, gitignored; broker-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by daemon homes
@@ -99,6 +100,7 @@ state/               volatile runtime signals; gitignored
   <id>.ready-to-push.stale  refused handoff whose worktree or approved SHA no longer matches
   <id>.delivered      archived handoff after push, PR creation, and PR-state recording succeed
   <id>.gate/          private resumable deep-review run, intent, findings, session ids, and command evidence
+  <id>.workflow/      private launch-time workflow snapshot, stage records, prompts, and captured executor evidence
   .pr-check-quarantine/  private non-runnable storage for checks neutralized by the non-executing migration
   .pr-check-migration.log  private per-task outcomes distinguishing rebuilt or canonically registered replacement polls, quarantined unarmed polls, and incomplete migrations
   .pr-check-migration-scan-v1  private marker proving the non-executing scan disabled every unsafe legacy check; .pr-check-migration-v1 separately records completed private repairs
@@ -225,6 +227,12 @@ When the maintainer invokes `/stow`, load the `stow` skill for the complete know
 ## 7. Task lifecycle
 
 The delivery lifecycle is an always-loaded operational contract; referenced scripts own exact commands, flags, and data mechanics.
+
+### Workflow execution
+
+When the maintainer asks to run a named workflow, drive it only through `bin/mx-workflow.sh`; never re-improvise, skip, merge, or reorder its declared stages from prose.
+Use `status` and `resume` to reconcile an existing run, and route approve gates through the decision-hold lifecycle named by the engine.
+When the maintainer asks to make a workflow or automate a repeatable multi-stage process, load `create-workflow`; `docs/workflows.md` remains the one schema owner.
 
 ### Intake and authority
 

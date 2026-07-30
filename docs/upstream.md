@@ -2,7 +2,7 @@
 
 Multplx is a port of the upstream **firstmate** project. This file is the durable
 fork-point record required by plan 14 (upstream sync) — it must exist before the
-vendored `firstmate/` reference copy is deleted at the end of the port.
+vendored `firstmate/` reference copy is deleted after all fifteen planned phases.
 
 | Field | Value |
 |---|---|

@@ -50,6 +50,7 @@ Once the port is complete and the template is promoted to `AGENTS.md`, launching
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the system and wakes the broker only when something needs you; verified primary harnesses also get a turn-end backstop that blocks or follows up on a blind stop when work is under way and supervision is not live.
 - **Guarded by construction** - the broker is read-only over your projects except for the guarded paths authorized by [hard rule 1](example_agents.md#1-identity-and-prime-directives), with system sync's safe branch pruning remaining part of the system-sync exception; actors make every project change behind the configured merge authority.
 - **Least-privilege delivery** - broker, actor, daemon, and validation sessions stop at local commits; only a separate maintainer or scheduler context can push an approved exact SHA and open its PR.
+- **Repeatable workflows** - repo-tracked definitions compose interactive decisions, broker or actor stages, deterministic commands, deep-review, and delivery through one snapshot-based linear engine.
 - **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr or cmux when selected or auto-detected); kill the session anytime and the next one reconciles, including confirmed-dead daemon agents, and carries on.
 
 Full detail on every feature lives in [docs/architecture.md](docs/architecture.md).
@@ -166,6 +167,7 @@ Claude uses the slash form shown here; codex uses the same names with `$`, such 
 | `/catchup`        | Generate a standalone current-status report from bounded local system and registered-daemon state, with live PR enrichment only when requested, written to a dated file in `data/` and surfaced concisely in chat; read-mostly, mutates no task state |
 | `/updatemultplx` | Self-update the running Multplx primary and its daemons to the latest from origin with fast-forward-only pulls, then re-read instructions and nudge daemons |
 | `/stow`            | Sweep the session for uncaptured durable knowledge, route each finding to its disk home per `example_agents.md`, file undone next steps to the backlog, and report what is now safe to reset |
+| `/create-workflow` | Interview the maintainer, draft a declarative multi-stage workflow, validate it against the shared engine schema, and offer a dry-run |
 
 Agent-only reference skills live under `.agents/skills/` and are loaded by the broker at the trigger points defined in [`example_agents.md`](example_agents.md).
 
@@ -184,6 +186,7 @@ Multplx's skills live in two separate places with different audiences:
 - [docs/architecture.md](docs/architecture.md) - maintainer architecture for the actors, supervision, worktrees, daemons, and project modes.
 - [docs/configuration.md](docs/configuration.md) - environment variables, `MX_HOME`, runtime backend selection, the files you set, and harness support.
 - [docs/delivery.md](docs/delivery.md) - least-privilege agent credentials, approved-SHA handoff, delivery service, and scheduler setup.
+- [docs/workflows.md](docs/workflows.md) - workflow definition schema, trust boundary, durable run layout, contracts, and approval routing.
 - [docs/calm.md](docs/calm.md) - current Pi `/calm` behavior and supported presentation limits.
 - [docs/tmux-backend.md](docs/tmux-backend.md) - current setup and limits for the tmux reference backend.
 - [docs/herdr-backend.md](docs/herdr-backend.md) - current setup, safety boundaries, and limits for the experimental Herdr backend.

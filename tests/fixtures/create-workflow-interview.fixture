@@ -1,0 +1,4 @@
+Purpose: turn a support issue into a verified local fix.
+Stage 1: maintainer and broker agree on a reproduction; approval required; output is a reproduction note.
+Stage 2: a fresh actor implements the fix from that note; auto-advance after a local commit.
+Stage 3: run a deterministic focused test command; auto-advance on exit zero.
