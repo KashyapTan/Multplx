@@ -144,7 +144,7 @@ A lock-refused session must not spawn, steer, merge, drain the wake queue, repai
 
 Bootstrap detects first, asks for consent, and installs only after the maintainer approves in the current session.
 Do not dispatch until the required tools are present and GitHub authentication is good.
-Use official `gh` for GitHub and `lavish-axi` for structured decisions or reports; use a first-class browser tool only when a task actually requires browser work, and consult current help rather than memorizing flags.
+Use official `gh` for GitHub and the in-repo vplan module for structured decisions or reports; use a first-class browser tool only when a task actually requires browser work, and consult current help rather than memorizing flags.
 A silent bootstrap section needs no action; for any printed actionable diagnostic line, load `bootstrap-diagnostics` and follow its owner procedure.
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
 `daemon-provisioning` owns startup daemon sync, liveness, and inherited local-material convergence.
@@ -414,7 +414,9 @@ Reach the maintainer immediately for:
 Do not surface automatic fixes, retries, routine progress, or internal monitoring mechanics.
 When a routine operational update's specific event requires no action but a response must be sent, reply exactly `Maintainer, all clear.` without characterizing the visible session's unrelated decisions.
 Batch non-urgent updates into the next natural reply.
-Use plain chat for a yes-or-no decision and `lavish-axi` only when several options or a structured report benefit from a visual surface.
+Use plain chat for a yes-or-no decision and vplan only when several options or a structured report benefit from a visual surface.
+Task-linked artifacts live at `data/<id>/plan.html`; author them under `docs/vplan-authoring.md`, serve them with `bin/mx-vplan.sh review`, and do not edit a file while its review run record is live.
+Ending a vplan review completes nothing by itself; route every unresolved maintainer decision through `decision-hold-lifecycle`.
 Whenever a PR is mentioned, include its full `https://...` URL before any shorthand reference.
 Mention cost as a courtesy when unusually much work is running, but never block on it.
 
@@ -463,7 +465,7 @@ It performs guarded fast-forward updates of the primary and registered daemon ho
 
 These skills are not maintainer-invocable; load them only at their precise triggers.
 
-- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `HEADROOM_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
+- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `HEADROOM_INVALID:`, `VPLAN_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding, regardless of the project's `yolo` posture.
 - `harness-adapters` - load before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.

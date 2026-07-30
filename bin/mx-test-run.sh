@@ -133,7 +133,7 @@ family_for_basename() {
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
     mx-send-popup-settle.test.sh|mx-send-settle.test.sh|mx-stow-contract.test.sh|\
     mx-subagent-pretool-check.test.sh|\
-    mx-supervision-instructions.test.sh|mx-tmux-submit-busy.test.sh|mx-transition-lib.test.sh|\
+    mx-supervision-instructions.test.sh|mx-tmux-submit-busy.test.sh|mx-transition-lib.test.sh|mx-vplan.test.sh|\
     mx-test-run.test.sh|mx-test-isolation-proof.test.sh|mx-test-split-parity.test.sh)
       printf '%s\n' pure-contract-unit
       ;;
@@ -342,6 +342,7 @@ tests/mx-tmux-submit-busy.test.sh	none
 tests/mx-transition-lib.test.sh	none
 tests/mx-turnend-guard.test.sh	watcher-process
 tests/mx-update.test.sh	none
+tests/mx-vplan.test.sh	vplan-port
 tests/mx-wake-daemon-lifecycle-e2e.test.sh	watcher-process
 tests/mx-wake-queue.test.sh	watcher-process
 tests/mx-watch-checkpoint.test.sh	watcher-process
@@ -844,6 +845,9 @@ families_for_changed_path() {
     bin/mx-headroom.sh)
       printf '%s\n' backend-dispatch
       printf '%s\n' watcher-wake-lock
+      ;;
+    bin/mx-vplan.sh|bin/mx-vplan-server.mjs|share/vplan/*|docs/vplan.md|docs/vplan-authoring.md)
+      printf '%s\n' pure-contract-unit
       ;;
     bin/mx-watch*|bin/mx-wake*|\
     bin/mx-classify-lib.sh|bin/mx-daemon*|bin/mx-turnend-guard*|bin/mx-guard.sh)

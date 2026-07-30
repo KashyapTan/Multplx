@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, HEADROOM_INVALID, NEEDS_GH_AUTH, TANGLE, ACTOR_DISPATCH invalid, SYSTEM_SYNC, PR_CHECK_MIGRATION, DAEMON_SYNC, DAEMON_LIVENESS, or NUDGE_DAEMONS - or when a standalone bin/mx-bootstrap.sh run prints one of those lines.
+  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, HEADROOM_INVALID, VPLAN_INVALID, NEEDS_GH_AUTH, TANGLE, ACTOR_DISPATCH invalid, SYSTEM_SYNC, PR_CHECK_MIGRATION, DAEMON_SYNC, DAEMON_LIVENESS, or NUDGE_DAEMONS - or when a standalone bin/mx-bootstrap.sh run prints one of those lines.
   A silent bootstrap section, or a BOOTSTRAP_INFO fact, means no skill load.
 user-invocable: false
 metadata:
@@ -23,6 +23,8 @@ When any diagnostic needs maintainer attention, report the plain consequence and
 - `BACKEND_INVALID: <name> (known: <names>)` - the resolved runtime backend has no verified dependency or lifecycle contract, so do not dispatch work until the invalid `MX_BACKEND` or `config/backend` value is corrected to one of the listed backends.
 - `HEADROOM_INVALID: <reason>` - the owned composite capacity check could not establish a trustworthy local-resource signal, configured API budget, candidate set, or valid JSON result.
   Do not dispatch or bypass the check; correct the named signal or configuration and rerun bootstrap.
+- `VPLAN_INVALID: <reason>` - the bundled review CLI, server, template, SDK, or pinned Mermaid asset failed its integrity self-check.
+  Do not start a visual review until the tracked module is restored and bootstrap passes.
 - `NEEDS_GH_AUTH` - ask the maintainer to run `! gh auth login` (interactive; you cannot run it for them).
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.

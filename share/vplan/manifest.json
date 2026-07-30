@@ -1,0 +1,10 @@
+{
+  "schema": "mx-vplan-assets.v1",
+  "mermaid": {
+    "version": "11.16.0",
+    "source": "https://registry.npmjs.org/mermaid/-/mermaid-11.16.0.tgz",
+    "npm_integrity": "sha512-Zvm3kbstgdpvIJPPItlL7fppIZ3kibvc1oZIGxdvk9t6UFz6flv+Jw7FtRGKwfcI8OckmH04LqG6LlS6X4B1pA==",
+    "normalization": "trailing horizontal whitespace stripped",
+    "sha256": "07fb9c98a9718885cb4b68c29bdfdbd1e96bc6e731f5387cdc70ce8aadd4b2a6"
+  }
+}

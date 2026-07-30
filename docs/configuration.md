@@ -241,10 +241,11 @@ Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom
 On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, Treehouse with durable `get --lease` support, no-mistakes v1.31.2 or newer, and lavish-axi.
+The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, Treehouse with durable `get --lease` support, and no-mistakes v1.31.2 or newer.
 [`upstream.md`](upstream.md#pinned-external-dependencies) owns Treehouse's exact version pin and points to the verified installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
-In that list, no-mistakes runs the validation pipeline, official gh covers GitHub operations, and lavish-axi covers rich-review operations.
+In that list, no-mistakes runs the validation pipeline and official gh covers GitHub operations.
+The in-repo vplan module covers rich-review operations and is self-checked with its vendored assets rather than probed as an external tool.
 Backlog mutations and dispatch capacity are owned by the repository's `bin/mx-backlog-lib.sh` and `bin/mx-headroom.sh`.
 The per-backend delta is required only for the backend resolved from `MX_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
 That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh`: the resolved backend's own session-provider CLI (`tmux`, `herdr`, or `cmux`) plus `jq` for the JSON-emitting experimental adapters (`herdr`, `cmux`) whose spawn and liveness paths parse the backend's JSON output.
@@ -254,6 +255,8 @@ A herdr or cmux home is therefore never told `tmux` is missing, while Treehouse'
 When `config/actor-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
 Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
 An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
+Bootstrap also self-checks `bin/mx-vplan.sh`, its server syntax, seed template, review SDK, and pinned Mermaid hash.
+An incomplete or corrupt bundled review module reports `VPLAN_INVALID`.
 The "Dispatch capacity" section owns configuration and queue behavior.
 Bootstrap also reports a `TANGLE:` line when `MX_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the system lock, the same line is advisory and omits the checkout command.

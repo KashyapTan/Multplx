@@ -276,6 +276,14 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/vplan-authoring.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/vplan.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/verification/runtime-backends.md",
       "audience": "maintainer-verification"
     },

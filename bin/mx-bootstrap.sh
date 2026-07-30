@@ -8,6 +8,7 @@
 #          Lines: "MISSING: <tool> (install: <command>)",
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
+#                 "VPLAN_INVALID: bundled mx-vplan.sh self-check failed",
 #                 "ACTOR_DISPATCH: invalid config/actor-dispatch.json - <reason>",
 #                 "SYSTEM_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "PR_CHECK_MIGRATION: <private remediation>",
@@ -50,6 +51,8 @@
 #          The bundled mx-headroom.sh is self-checked instead of requiring an
 #          external quota wrapper. The owned backlog library ships with the
 #          repo and needs no presence or version probe.
+#          The bundled mx-vplan.sh and its vendored review assets are
+#          self-checked instead of requiring an external rich-review tool.
 #          System sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -477,7 +480,6 @@ install_cmd() {
     cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
-    lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
     *) return 1 ;;
   esac
 }
@@ -505,7 +507,7 @@ missing_tool_diagnostic() {
 # missing, while an invalid backend still cannot suppress the worktree-provider
 # probe. A backend value with no verified dependency set is reported before the
 # universal checks continue.
-COMMON_TOOLS="node git gh treehouse no-mistakes lavish-axi"
+COMMON_TOOLS="node git gh treehouse no-mistakes"
 BACKEND=$(mx_backend_name)
 BACKEND_VALID=1
 if ! BACKEND_TOOLS=$(mx_backend_required_tools "$BACKEND"); then
@@ -675,6 +677,12 @@ if command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
 fi
 if command -v no-mistakes >/dev/null 2>&1 && ! no_mistakes_compatible; then
   echo "MISSING: no-mistakes (install: $(install_cmd no-mistakes))"
+fi
+VPLAN_SELF_CHECK=${MX_VPLAN_SELF_CHECK_OVERRIDE:-$SCRIPT_DIR/mx-vplan.sh}
+if ! "$VPLAN_SELF_CHECK" --self-check >/dev/null 2>&1; then
+  echo "VPLAN_INVALID: bundled mx-vplan.sh self-check failed"
+elif [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
+  echo "BOOTSTRAP_INFO: vplan self-check passed"
 fi
 if ! headroom_json=$(MX_HEADROOM_IGNORE_DISPATCH_CONFIG=1 "$SCRIPT_DIR/mx-headroom.sh" --json 2>/dev/null) \
   || ! printf '%s\n' "$headroom_json" | node -e '

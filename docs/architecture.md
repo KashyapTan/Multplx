@@ -50,6 +50,16 @@ For whole-system read-only review, `bin/mx-system-snapshot.sh --json` emits sche
 `bin/mx-system-view.sh` renders that snapshot as Markdown for humans, while `bin/mx-status-snapshot.sh` provides the bounded catchup projection, so both views consume one structured contract instead of reparsing raw system files.
 The script header owns the exact JSON schema.
 
+## Visual review artifacts
+
+vplan provides the broker's maintainer-facing review surface for plans, structured reports, comparisons, and other responses that benefit from visual hierarchy.
+`bin/mx-vplan.sh review` starts one loopback-only Node server, injects the vendored comment SDK into the served copy, and records the exact process identity under `state/.vplan/`.
+The maintainer queues element or text-anchored comments and confirms once.
+The server atomically merges those comments into an inert `#vplan-comments` JSON block in the artifact, removes its matching run record, and exits.
+The artifact is the feedback channel, so vplan adds no polling protocol, persistent service, or parallel completion policy.
+[`vplan.md`](vplan.md) owns the lifecycle and persistence contracts, while [`vplan-authoring.md`](vplan-authoring.md) owns artifact design.
+Unresolved maintainer decisions return to `decision-hold-lifecycle` before the originating review is treated as complete.
+
 ### Registered daemon current state
 
 A registered daemon's validated home is the authority for catchup current state because it owns the child metadata inventory, each child's current-state result, endpoint observations, backlog holds and dependencies, keyed unresolved decisions, and recent Done baseline.

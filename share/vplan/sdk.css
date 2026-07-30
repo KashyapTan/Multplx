@@ -1,0 +1,301 @@
+:root {
+  --vplan-panel-width: min(380px, calc(100vw - 32px));
+  --vplan-ink: #e6edf3;
+  --vplan-muted: #8b949e;
+  --vplan-surface: #161b22;
+  --vplan-surface-2: #21262d;
+  --vplan-border: #30363d;
+  --vplan-accent: #f0883e;
+  --vplan-accent-soft: rgba(240, 136, 62, 0.18);
+  --vplan-green: #3fb950;
+  --vplan-red: #f85149;
+}
+
+.vplan-hover-target {
+  outline: 2px solid var(--vplan-accent) !important;
+  outline-offset: 3px !important;
+  cursor: crosshair !important;
+}
+
+.vplan-selected-target {
+  outline: 3px solid var(--vplan-accent) !important;
+  outline-offset: 3px !important;
+}
+
+#vplan-review-toggle,
+.vplan-existing-pin {
+  position: fixed;
+  z-index: 2147483646;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: var(--vplan-accent);
+  color: #0d1117;
+  font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.35);
+}
+
+#vplan-review-toggle {
+  right: 18px;
+  bottom: 18px;
+  min-width: 48px;
+  height: 48px;
+  padding: 0 13px;
+  cursor: pointer;
+}
+
+#vplan-review-toggle[data-count]:not([data-count="0"])::after {
+  content: attr(data-count);
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--vplan-red);
+  color: white;
+  font-size: 11px;
+}
+
+#vplan-review-panel {
+  position: fixed;
+  z-index: 2147483645;
+  top: 16px;
+  right: 16px;
+  bottom: 76px;
+  width: var(--vplan-panel-width);
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--vplan-border);
+  border-radius: 14px;
+  background: var(--vplan-surface);
+  color: var(--vplan-ink);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#vplan-review-panel[hidden] {
+  display: none;
+}
+
+.vplan-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--vplan-border);
+}
+
+.vplan-panel-header strong {
+  min-width: 0;
+  font-size: 15px;
+}
+
+.vplan-panel-header button,
+.vplan-action,
+.vplan-queue-remove {
+  appearance: none;
+  border: 1px solid var(--vplan-border);
+  border-radius: 8px;
+  background: var(--vplan-surface-2);
+  color: var(--vplan-ink);
+  cursor: pointer;
+}
+
+.vplan-panel-header button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.vplan-panel-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 18px;
+}
+
+.vplan-help {
+  margin: 0 0 14px;
+  color: var(--vplan-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.vplan-target-summary {
+  margin: 0 0 9px;
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--vplan-border);
+  border-radius: 8px;
+  background: var(--vplan-surface-2);
+  color: var(--vplan-muted);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.vplan-target-summary[data-ready="true"] {
+  border-color: var(--vplan-accent);
+  color: var(--vplan-ink);
+}
+
+#vplan-comment-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 92px;
+  resize: vertical;
+  padding: 10px 11px;
+  border: 1px solid var(--vplan-border);
+  border-radius: 8px;
+  background: #0d1117;
+  color: var(--vplan-ink);
+  font: inherit;
+  line-height: 1.45;
+}
+
+#vplan-comment-input:focus {
+  border-color: var(--vplan-accent);
+  outline: 2px solid var(--vplan-accent-soft);
+}
+
+.vplan-action {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-weight: 650;
+}
+
+.vplan-action-primary {
+  width: 100%;
+  margin-top: 9px;
+  border-color: var(--vplan-accent);
+  background: var(--vplan-accent);
+  color: #0d1117;
+}
+
+.vplan-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.vplan-section-title {
+  margin: 18px 0 8px;
+  color: var(--vplan-muted);
+  font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vplan-comment-list,
+.vplan-queue-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vplan-comment-card,
+.vplan-queue-card {
+  position: relative;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--vplan-border);
+  border-radius: 9px;
+  background: var(--vplan-surface-2);
+}
+
+.vplan-comment-card[data-resolved="true"] {
+  opacity: 0.55;
+}
+
+.vplan-card-heading {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+  color: var(--vplan-accent);
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.vplan-card-body {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--vplan-ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.vplan-card-anchor {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  color: var(--vplan-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.vplan-queue-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+.vplan-panel-footer {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--vplan-border);
+  background: var(--vplan-surface);
+}
+
+#vplan-confirm-status {
+  min-height: 18px;
+  margin: 0 0 7px;
+  color: var(--vplan-muted);
+  font-size: 12px;
+}
+
+#vplan-confirm {
+  width: 100%;
+  border-color: var(--vplan-green);
+  background: var(--vplan-green);
+  color: #071a0b;
+}
+
+.vplan-existing-pin {
+  position: absolute;
+  width: 25px;
+  height: 25px;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+.vplan-existing-pin[data-resolved="true"] {
+  filter: grayscale(0.75);
+  opacity: 0.48;
+}
+
+.vplan-range-highlight {
+  position: absolute;
+  z-index: 2147483643;
+  pointer-events: none;
+  border-radius: 3px;
+  background: rgba(240, 136, 62, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(240, 136, 62, 0.6);
+}
+
+@media (max-width: 620px) {
+  #vplan-review-panel {
+    top: 8px;
+    right: 8px;
+    bottom: 66px;
+  }
+
+  #vplan-review-toggle {
+    right: 12px;
+    bottom: 12px;
+  }
+}

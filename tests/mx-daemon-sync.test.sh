@@ -291,7 +291,7 @@ make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  mx_fake_exit0 "$fakebin" node lavish-axi
+  mx_fake_exit0 "$fakebin" node
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${MX_FAKE_TMUX_LOG:-}" ]; then
