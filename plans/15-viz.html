@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 15 — mx-viz · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#bc8cff; --accent-dim:rgba(188,140,255,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:760px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 15 · Multplx</div>
+  <h1>mx-viz — One Live Web View of the Whole System</h1>
+  <p class="subtitle">A read-only, loopback-only web dashboard for the maintainer: <code>mx-viz.sh serve</code> prints a localhost link to a single self-contained page showing every actor, daemon, and the broker's surroundings — reconciled current state, watcher health, headroom and queues, open decisions, backlog, plans, and artifacts — refreshed every few seconds. It is a <i>renderer over the canonical snapshot contract</i>, never a second interpreter of state files, and it can mutate nothing.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 9 (post-port)</span>
+    <span class="badge effort">Effort: Medium</span>
+    <span class="badge risk">Risk: Low</span>
+    <span class="badge">Post-port improvement (maintainer request, 2026-07-29)</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Multplx already answers "what is everything doing?" three ways, all terminal-shaped: <code>bin/mx-system-snapshot.sh --json</code> (the canonical read-only structured snapshot, schema <code>mx-system-snapshot.v1</code>), <code>bin/mx-system-view.sh</code> (a human renderer over that snapshot), and <code>bin/mx-status-snapshot.sh</code> (the bounded catchup projection the <code>catchup</code> skill consumes). What's missing is a surface the maintainer can leave open and <i>glance at</i>: one page with everything in flight — which actors are working, blocked, or waiting on a decision; whether the watcher is alive; how much dispatch capacity is left; what's parked in the queues; which plans and artifacts exist for each task — updating itself as the system moves.</p>
+<p>mx-viz is that surface. <code>mx-viz.sh serve</code> starts a small loopback-only Node server (the <a href="08-vplan.html">plan 08</a> server shape, reused nearly verbatim) and prints <code>http://127.0.0.1:4890/</code>. The page polls the server every ~2.5 seconds; the server answers from a cached invocation of the canonical snapshot, re-executing it at most every couple of seconds and only while someone is actually looking. When no client has polled for the idle window, the server exits and frees the port — a forgotten dashboard never becomes a lingering process.</p>
+<p>The design discipline that keeps this plan small and safe is borrowed from the two existing snapshot consumers, and it is a hard rule here, not a preference: <b>views never parse system state themselves.</b> <code>mx-system-view.sh</code>'s header says it plainly ("this command intentionally does not parse system state itself"), and the plan set records what happens when the rule is broken — a second parser of <code>data/backlog.md</code> is exactly how upstream orphaned backlog bodies. Everything mx-viz shows comes from canonical machine feeds: the system snapshot (extended additively by this plan — see below), <code>mx-headroom.sh --json</code>, and, where later plans have landed, their sanctioned read surfaces (<code>mx-doctor.sh --json</code>, <code>mx-timeline --json</code>). The web layer renders; it never interprets.</p>
+
+<div class="callout ok"><div class="label">Decided · 2026-07-29 — read-only v1</div>
+<p style="margin:0">mx-viz v1 is <b>strictly read-only</b>: no control in the page can mutate system state — no nudge, stop, approve, spawn, or drain actions. The server exposes only <code>GET</code> endpoints and its request handler contains no code path that writes inside <code>MX_HOME</code> (its sole writes are its own run record in <code>state/.viz/</code> at startup/shutdown). This mirrors plan 12's observability-only invariant: a dashboard that can act becomes a second control plane, with authorization, PID-identity safety, and race questions this plan deliberately refuses to take on. Controls, if ever wanted, are a separate maintainer decision with their own plan.</p>
+</div>
+
+<div class="callout"><div class="label">Design tension — a long-lived local server, in a system that avoids them</div>
+<p style="margin:0"><a href="04-watcher-nudge.html">Plan 04</a> explicitly rejected an HTTP listener, and <a href="08-vplan.html">plan 08</a>'s server is one-shot by design. mx-viz does not contradict either decision: plan 04 rejected HTTP <i>on the write path</i> — a listener whose in-memory state would rival the disk as truth. mx-viz sits entirely on the read path and is fully disposable: kill it at any moment and nothing is lost, because it holds no state that isn't reconstructable from disk (the system's core virtue). The idle shutdown (decided 2026-07-29) keeps even the "forgotten server" cost at zero, and the <code>state/.viz/</code> run record makes any orphan visible to <a href="13-doctor.html">plan 13</a>'s doctor.</p>
+</div>
+
+<h2>Goals &amp; Non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td>
+<ul style="margin-bottom:0">
+  <li><code>bin/mx-viz.sh</code> (<code>serve</code> / <code>stop</code> / <code>status</code>) + <code>bin/mx-viz-server.mjs</code>, loopback-only, vplan server conventions (port walk, run record, idle timeout, atomic writes).</li>
+  <li>One self-contained vendored page (<code>share/viz/</code>, no CDN) polling <code>/api/state</code> every ~2.5s, re-rendering only when content actually changed.</li>
+  <li>Extend <code>mx-system-snapshot.sh</code> <b>additively</b> with the observability fields it lacks: watcher health, wake-queue depth, dispatch queue, headroom, active vplan reviews, afk flag.</li>
+  <li>Panels: system health strip, tasks board (actors + daemons with reconciled state and signal-tier badges), open decisions, backlog, plans/artifacts browser, and — when the records exist — gate runs, workflow runs, deliveries, upstream drift.</li>
+  <li>Honesty inherited from the system: show snapshot <code>generated</code> age, beacon staleness, and per-task signal tier; never render confident state off stale evidence.</li>
+  <li>Server-side caching so an open dashboard costs at most one snapshot execution per refresh interval, and zero when nobody is polling.</li>
+</ul>
+</td>
+<td>
+<ul style="margin-bottom:0">
+  <li><b>No mutations.</b> No POST endpoints, no actions, no writes inside <code>MX_HOME</code> beyond the run record (decided 2026-07-29).</li>
+  <li><b>No second parser.</b> The web layer never reads <code>state/</code> or <code>data/backlog.md</code> directly; only canonical feeds are consumed.</li>
+  <li>No daemon: the server runs only while wanted, exits on idle, and nothing in the system depends on it existing (never read for control flow, never a wake source).</li>
+  <li>No non-loopback binding, no auth layer (loopback <i>is</i> the auth boundary), no TLS, no remote/hosted mode (egress).</li>
+  <li>No duplicate review surface: artifacts are browsable and viewable; commenting stays vplan's job.</li>
+  <li>No WebSockets/SSE in v1 — plain polling at a 2–3s cadence is within the accepted latency budget.</li>
+  <li>No bootstrap probe: mx-viz is optional in-repo tooling on the kept node runtime.</li>
+</ul>
+</td>
+</tr>
+</table>
+
+<h2>Current state in Multplx</h2>
+<p>Everything a dashboard needs already exists on disk or behind a canonical feed; nothing serves it to a browser. Verified against the tree on 2026-07-29 (plans 01–08 landed):</p>
+<table>
+<tr><th>Surface</th><th>What it provides today</th><th>mx-viz relationship</th></tr>
+<tr><td><code>bin/mx-system-snapshot.sh --json</code></td><td>The canonical read-only snapshot (<code>mx-system-snapshot.v1</code>): <code>tasks[]</code> (per-<code>state/&lt;id&gt;.meta</code> rows with oracle-reconciled <code>current_state</code>, endpoint presence, open-decision hints, paths, PR pointers), <code>backlog</code> (structured records via the single sanctioned parser), <code>daemon_current</code>/<code>daemon_landed</code>/<code>daemon_guidance</code>, <code>scout_reports</code>, <code>main_inventory</code>, <code>roots</code>, <code>generated</code>.</td><td><b>The primary feed.</b> Extended additively by this plan; never forked or reimplemented.</td></tr>
+<tr><td><code>bin/mx-system-view.sh</code>, <code>bin/mx-status-snapshot.sh</code></td><td>Terminal renderer and bounded catchup projection over the same snapshot. Both state the views-don't-parse rule this plan adopts.</td><td>Siblings — mx-viz is the third view over the same contract. They also prove additive snapshot changes are safe: their tests must keep passing unmodified.</td></tr>
+<tr><td><code>bin/mx-headroom.sh --json</code></td><td>Dispatch-capacity object (plan 07): composite local+API model, <code>capacity</code>/<code>in_use</code>/<code>available</code>/<code>at_limit</code>, per-harness candidates, configured-budget labeling.</td><td>Consumed via the snapshot's new <code>headroom</code> field (below).</td></tr>
+<tr><td><code>state/.watch.lock/</code> (<code>pid</code>, <code>pid-identity</code>), <code>state/.last-watcher-beat</code>, <code>state/.wake-queue</code>, <code>state/.afk</code></td><td>Watcher singleton lock + PID-reuse-proof identity, liveness beacon (fresh within <code>MX_WATCHER_STALE_GRACE</code>), durable wake queue, away-mode flag.</td><td><b>Gap:</b> not in the snapshot today. Added additively (below); mx-viz reads them only through the snapshot.</td></tr>
+<tr><td><code>state/.dispatch-queue/&lt;id&gt;.request</code></td><td>Plan 07's durable parked-dispatch queue (task id, project, profile, enqueue time; FIFO drain by the watcher poll).</td><td><b>Gap:</b> same — added to the snapshot additively.</td></tr>
+<tr><td><code>state/.vplan/&lt;hash&gt;.run</code></td><td>Active vplan review records (artifact path, port, PID, started-at).</td><td><b>Gap:</b> same — surfaced so the dashboard can link a live review.</td></tr>
+<tr><td><code>data/&lt;id&gt;/plan.html</code>, <code>data/&lt;id&gt;/report.md</code>, <code>data/&lt;id&gt;/brief.md</code>, <code>plans/*.html</code></td><td>Task plan artifacts (vplan convention), scout reports, generated briefs, and the port plan set itself.</td><td>Listed via snapshot pointers; served read-only as static files for in-browser viewing.</td></tr>
+<tr><td>Later-plan records: <code>state/&lt;id&gt;.gate/run.json</code> (10), <code>state/&lt;run-id&gt;.workflow/</code> (11), <code>state/*.ready-to-push</code> + <code>state/&lt;id&gt;.delivered</code> (09), <code>state/&lt;id&gt;.journal</code> (12), <code>mx-doctor.sh --json</code> (13), <code>docs/upstream.md</code> (14)</td><td>Not landed yet.</td><td>Optional panels that appear when the records exist and silently don't when they don't (see graceful degradation).</td></tr>
+</table>
+
+<h2>Target design in Multplx</h2>
+
+<h3>Architecture</h3>
+<pre><code>maintainer's browser                mx-viz-server.mjs (127.0.0.1:4890)          canonical feeds
+────────────────────                ──────────────────────────────────          ───────────────
+GET /            ──────────────▶    share/viz/ static page (vendored)
+GET /api/state   ──poll ~2.5s──▶    cache fresh? ──no──▶ exec mx-system-snapshot.sh --json ──▶ one JSON
+                 ◀── {etag,body} ── cache (min refresh MX_VIZ_REFRESH_SECS,          (which itself shells to the
+                     304 if same    hash-keyed; refreshed only on demand)             oracle, headroom, backlog lib)
+GET /artifact/…  ──────────────▶    read-only static file under data/ or plans/
+                                    (path-traversal-proof, no directory writes)
+        idle: no request for MX_VIZ_IDLE_SECS ──▶ server exits, run record removed, port freed</code></pre>
+<ul>
+  <li><b>Pull-through cache, never a poller.</b> The server executes the snapshot only when a request arrives and the cached copy is older than <code>MX_VIZ_REFRESH_SECS</code> (default 2). No client → zero snapshot executions → zero background load. N tabs cost the same as one.</li>
+  <li><b>Change detection.</b> <code>/api/state</code> responses carry a content hash; the client sends it back (<code>If-None-Match</code> semantics) and gets <code>304</code> when nothing changed, so the page re-renders only on real movement and the steady-state cost of an idle system is a few hundred bytes per poll.</li>
+  <li><b>One JSON, one shape.</b> <code>/api/state</code> returns the extended canonical snapshot verbatim plus a tiny envelope (<code>{server: {started, pid, version}, snapshot: …}</code>). The page's data model <i>is</i> the snapshot schema — there is no viz-private transformation layer to drift.</li>
+</ul>
+
+<h3>CLI — <code>bin/mx-viz.sh</code></h3>
+<pre><code>usage: mx-viz.sh serve            # start (or report already-running), print the URL
+       mx-viz.sh status           # is a server running? port, pid, age, last poll
+       mx-viz.sh stop             # verified-identity kill via the run record
+       mx-viz.sh --help
+
+behavior:
+  serve   → singleton per home: if the run record names a live, identity-verified
+            server, print its URL and exit 0 (idempotent). Otherwise launch
+            mx-viz-server.mjs, write state/.viz/server.run, print the bound URL.
+            Prints the link only — never opens a browser (decided 2026-07-29).
+  stop    → reuse the PID-identity primitives (mx-wake-lib.sh pattern, as
+            mx-vplan.sh stop does): a dead or reused PID cleans the record and
+            never signals the wrong process.</code></pre>
+<p>Port selection copies plan 08's decided pattern with a non-overlapping range: default <code>4890</code> (<code>MX_VIZ_PORT</code> to override), automatic walk through <code>4890–4909</code> when busy (vplan owns 4870–4889), whole-range failure is a hard error naming the range. The bound port lands in the run record.</p>
+
+<h3>Server — <code>bin/mx-viz-server.mjs</code></h3>
+<ul>
+  <li><b>Binds <code>127.0.0.1</code> only.</b> Loopback is the entire access-control story, exactly as vplan. Never <code>0.0.0.0</code>, asserted by test.</li>
+  <li><b>GET-only.</b> Any other method → <code>405</code>. There is no handler that writes inside <code>MX_HOME</code>; the read-only guarantee is testable (state-tree hash identical across a full serve/poll/browse session).</li>
+  <li><b>Routes:</b> <code>/</code> (the page), <code>/assets/…</code> (vendored js/css), <code>/api/state</code> (cached extended snapshot + hash), <code>/artifact/&lt;root&gt;/&lt;relpath&gt;</code> where <code>&lt;root&gt;</code> ∈ <code>data|plans|docs</code> — resolved, canonicalized, and refused unless the real path stays under the corresponding directory (symlink-escape and <code>..</code> traversal both die with <code>403</code>).</li>
+  <li><b>Run record</b> <code>state/.viz/server.run</code>: port, PID, pid-identity, home, started-at. Written at bind, removed on every exit path (idle, <code>stop</code>, signal). A stale record is harmless (identity check fails) and is the doctor's orphan-viz finding once plan 13 lands.</li>
+  <li><b>Idle shutdown:</b> no request for <code>MX_VIZ_IDLE_SECS</code> (default 1800) → clean exit. An open tab polling every 2.5s keeps it alive indefinitely; closing the tab starts the countdown (decided 2026-07-29).</li>
+</ul>
+
+<h3>Snapshot extension — additive fields on <code>mx-system-snapshot.v1</code></h3>
+<div class="callout ok"><div class="label">Decided · 2026-07-29 — extend the canonical snapshot, not the view</div>
+<p style="margin:0">The observability gaps (watcher, queues, headroom, reviews) are closed <b>inside <code>mx-system-snapshot.sh</code></b> as additive top-level fields, not by viz-side collectors. One canonical contract stays the single owner of "how system state is read"; every view — terminal and web — gains the fields; and additivity is proven mechanically: the existing <code>mx-system-view</code>/<code>mx-status-snapshot</code> test suites must pass unmodified. Existing fields and semantics are untouched; consumers that ignore unknown fields (all of them — they project by name) are unaffected.</p>
+</div>
+<table>
+<tr><th>New field</th><th>Contents</th><th>Source (all read-only, all existing primitives)</th></tr>
+<tr><td><code>watcher</code></td><td><code>{lock_present, pid, identity_verified, alive, beacon_age_secs, stale, afk}</code></td><td><code>state/.watch.lock/</code> via the <code>mx-wake-lib.sh</code> PID-identity primitives (never a bare-PID trust), <code>state/.last-watcher-beat</code> mtime vs <code>MX_WATCHER_STALE_GRACE</code>, <code>state/.afk</code> presence.</td></tr>
+<tr><td><code>wake_queue</code></td><td><code>{depth, oldest_age_secs}</code></td><td><code>state/.wake-queue</code> via the wake-lib read helpers.</td></tr>
+<tr><td><code>dispatch_queue</code></td><td><code>{depth, records[]}</code> (id, project, profile, enqueued_at, FIFO order)</td><td><code>state/.dispatch-queue/</code> — same read <code>mx-headroom --queue</code> performs, shared not duplicated.</td></tr>
+<tr><td><code>headroom</code></td><td>The <code>mx-headroom.sh --json</code> object verbatim, or <code>null</code> + reason if the check fails</td><td>Shell out to <code>mx-headroom.sh --json</code> (a read-only reporting invocation — verify at implementation and keep it read-only).</td></tr>
+<tr><td><code>vplan_reviews</code></td><td><code>{records[]}</code> (artifact path, port, started_at, pid_alive)</td><td><code>state/.vplan/*.run</code>, liveness via the same identity primitives.</td></tr>
+</table>
+<p>Schema id: additive-compatible fields keep <code>mx-system-snapshot.v1</code> (the projection wrappers select by name and drop what they don't use — that contract is unchanged). If implementation reveals any consumer that treats unknown top-level fields as an error, bump to <code>v2</code> with a one-line compat note instead; the plan's premise is that none does.</p>
+
+<h3>The page — panels</h3>
+<p>One self-contained dark page in the plan-set style (<code>share/viz/index.html</code> + <code>app.js</code> + <code>app.css</code>, vendored, zero external references — same self-containment rule and test as vplan's template). Layout is a health strip over a card grid:</p>
+<table>
+<tr><th>Panel</th><th>Renders (from the snapshot fields)</th></tr>
+<tr><td><b>Health strip</b></td><td>Snapshot <code>generated</code> age (turns yellow/red as it staleneses — the page must never look fresher than its data); watcher chip (alive + beacon age, or <b>STALE</b>/<b>DOWN</b>); afk-mode chip; headroom gauge (<code>in_use</code>/<code>capacity</code>, <code>at_limit</code> flag); wake-queue and dispatch-queue depths.</td></tr>
+<tr><td><b>Tasks board</b></td><td>One card per <code>tasks[]</code> row, grouped actors / daemons: id, kind, backend, reconciled <code>current_state.state</code> <i>with its <code>source</code> rendered as a confidence badge</i> (native event / validated report / run-step / pane heuristic — plan 05's tiers, so heuristic-derived state is visibly lower-confidence), last status-log event (labeled historical), endpoint presence, open-decision markers, links to brief / plan / report / worktree path, PR URL when recorded.</td></tr>
+<tr><td><b>Decisions</b></td><td>Every open keyed decision across tasks and daemons (<code>hints.open_decisions</code>, <code>daemon_current[].decisions_open</code>) — the "what is waiting on <i>me</i>" panel, sorted oldest-first.</td></tr>
+<tr><td><b>Backlog</b></td><td>In flight / Queued / Done from the snapshot's structured backlog records (blockers, holds, maintainer-actionability), plus <code>main_inventory</code> validity warnings verbatim.</td></tr>
+<tr><td><b>Plans &amp; artifacts</b></td><td>Port plan set (<code>plans/*.html</code>), per-task artifacts (<code>data/&lt;id&gt;/plan.html</code>, reports, briefs), scout reports — each opening read-only via <code>/artifact/…</code> in a new tab. Active vplan reviews link to their live review URL. Viewing here, commenting in vplan.</td></tr>
+<tr><td><b>Later-plan panels</b> (conditional)</td><td>Gate runs (step/round/parked from <code>run.json</code> once plan 10 lands), workflow runs (current stage, gate state — plan 11), deliveries (pending <code>.ready-to-push</code> with approval flag + staleness, delivered — plan 09), upstream drift (<code>docs/upstream.md</code> header — plan 14), per-task timeline drill-down via <code>mx-timeline --json</code> (plan 12 — through the sanctioned reader, keeping the journal tripwire intact; the server never opens a <code>.journal</code> file itself).</td></tr>
+</table>
+
+<h3>Graceful degradation — the panels contract</h3>
+<p>mx-viz lands post-port but must be useful the day it lands (plans 01–08 are on main; 09–14 are not). Rule: every panel whose feed is absent renders as absent — no error, no empty-scaffold noise, no fabricated zeros. The snapshot's own <code>omitted[]</code>-style honesty applies: the page distinguishes "0 gate runs" (feed present, empty) from "gate runs not available" (plan 10 not landed). Once plan 13 exists, the health strip additionally offers a doctor summary sourced from <code>mx-doctor.sh --json</code> — invoked on explicit click, not on the poll loop (doctor sweeps are heavier than the snapshot).</p>
+
+<h3>Freshness &amp; honesty rules (inherited, not invented)</h3>
+<ul>
+  <li>The page always shows when its data was generated, and degrades that indicator visibly as it ages — the system never reports healthy off a stale beacon, and its dashboard doesn't either.</li>
+  <li>State chips carry their tier: a tmux/cmux "working" derived from the busy regex must not look as authoritative as a herdr native event or a validated <code>mx-report</code> line.</li>
+  <li><code>paths.status_log.last_event</code> renders under a "last event" label, never as current state — the event-log-is-not-truth invariant survives translation to pixels.</li>
+  <li>The dashboard is a convenience view, never truth: nothing in the system reads it, waits for it, or changes behavior because it is or isn't running.</li>
+</ul>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Extend the canonical snapshot</b> <span class="pill mod">mod</span> — add the five additive fields (<code>watcher</code>, <code>wake_queue</code>, <code>dispatch_queue</code>, <code>headroom</code>, <code>vplan_reviews</code>) to <code>bin/mx-system-snapshot.sh</code>, each via the existing owning primitive (wake-lib identity checks, headroom's queue read, <code>--json</code> shellouts). Prove additivity: the untouched <code>mx-system-view</code> / <code>mx-status-snapshot</code> suites pass unmodified. Land this step alone first — it is independently useful to the terminal views.</li>
+  <li><b>Build the static page</b> <span class="pill new">new</span> — <code>share/viz/index.html</code>, <code>app.js</code>, <code>app.css</code>: panels above, hash-aware poll loop (<code>MX_VIZ_POLL_MS</code> baked in at serve time, default 2500), tier badges, staleness indicator, conditional panels. Self-contained; no external references (same test as vplan's template).</li>
+  <li><b>Build the server</b> <span class="pill new">new</span> — <code>bin/mx-viz-server.mjs</code>: loopback bind + 4890–4909 walk, GET-only routing, pull-through snapshot cache with min-refresh and content hash / 304, path-traversal-proof <code>/artifact/</code> static serving, run-record lifecycle, idle shutdown. Reuse the vplan server's structure wholesale.</li>
+  <li><b>Build the CLI</b> <span class="pill new">new</span> — <code>bin/mx-viz.sh</code>: idempotent singleton <code>serve</code> (print URL only), <code>status</code>, identity-verified <code>stop</code>; run record contract in the header comment (the header is the doc).</li>
+  <li><b>Wire later-plan feeds behind presence checks</b> <span class="pill new">new</span> — gate/workflow/delivery/upstream/journal panels keyed off record existence; journal drill-down shells <code>mx-timeline --json</code> and is skipped when absent. Plan 12's tripwire allowlist is <i>not</i> edited — the server never reads <code>.journal</code> files.</li>
+  <li><b>Docs</b> <span class="pill new">new</span> — <code>docs/viz.md</code>: lifecycle, port range, cache/idle behavior, the read-only guarantee, the additive snapshot fields, and the run-record contract (plan 13's doctor consumes it for the orphan check). Pointer updates in <code>docs/architecture.md</code> + <code>docs/scripts.md</code>.</li>
+  <li><b>Broker contract</b> <span class="pill mod">mod</span> — one-line pointer in <code>example_agents.md</code> ("live system view for the maintainer: <code>mx-viz.sh serve</code>"), mirroring plan 12's <code>mx-timeline</code> pointer discipline; no doctrine change (the broker's own reads stay snapshot/catchup-based — viz is maintainer-facing).</li>
+  <li><b>Tests + registration</b> <span class="pill new">new</span> — <code>tests/mx-viz.test.sh</code> (below) and the snapshot-extension cases in the existing snapshot suite; register in <code>bin/mx-test-run.sh</code>'s family map (and resource manifest — the server test needs a port/exclusive entry per plan 6.5's scheduler) in the same commit.</li>
+  <li><b>End-to-end proof</b> — with a real spawned actor and a daemon present: serve, open, verify live state transitions appear within one poll interval after an <code>mx-report</code> append; kill the watcher and verify the STALE chip; close the tab, verify idle shutdown cleans the record and frees the port.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+<tr><th>File</th><th>Action</th><th>Notes</th></tr>
+<tr><td><code>bin/mx-system-snapshot.sh</code></td><td>Modify</td><td>Five additive top-level fields; existing fields byte-identical; lands first, alone.</td></tr>
+<tr><td><code>bin/mx-viz.sh</code></td><td>New</td><td>CLI: serve / status / stop; singleton per home; prints link only.</td></tr>
+<tr><td><code>bin/mx-viz-server.mjs</code></td><td>New</td><td>Loopback GET-only server; snapshot cache; artifact serving; idle exit.</td></tr>
+<tr><td><code>share/viz/index.html</code>, <code>share/viz/app.js</code>, <code>share/viz/app.css</code></td><td>New</td><td>Vendored self-contained dashboard page; no external references.</td></tr>
+<tr><td><code>state/.viz/server.run</code></td><td>New (runtime)</td><td>Port, PID, pid-identity, home, started-at; removed on every exit path; doctor orphan-check input.</td></tr>
+<tr><td><code>docs/viz.md</code></td><td>New</td><td>Module mechanics + read-only guarantee + run-record contract.</td></tr>
+<tr><td><code>docs/architecture.md</code>, <code>docs/scripts.md</code></td><td>Modify</td><td>Current-behavior pointers.</td></tr>
+<tr><td><code>example_agents.md</code></td><td>Modify</td><td>One-line maintainer-facing pointer; no broker-behavior change.</td></tr>
+<tr><td><code>tests/mx-viz.test.sh</code></td><td>New</td><td>See test plan.</td></tr>
+<tr><td><code>tests/mx-system-snapshot.test.sh</code> (existing snapshot suite)</td><td>Modify</td><td>Additive-field cases only; no existing assertion changes.</td></tr>
+<tr><td><code>bin/mx-test-run.sh</code></td><td>Modify</td><td>Family map + resource manifest registration in the same commit.</td></tr>
+<tr><td><code>bin/mx-actor-state.sh</code>, <code>bin/mx-classify-lib.sh</code>, <code>bin/mx-watch.sh</code>, <code>bin/mx-backlog-lib.sh</code></td><td>—</td><td>Deliberately untouched — mx-viz consumes their outputs through the snapshot; listed to make the renderer-only invariant reviewable.</td></tr>
+</table>
+
+<h2>Broker contract &amp; documentation updates</h2>
+<ul>
+  <li><code>example_agents.md</code>: the one-line pointer only. mx-viz changes nothing about how broker, actors, or daemons behave — it is a maintainer-facing read surface, and the contract must not imply agents should consult it (they have the snapshot and catchup).</li>
+  <li><code>docs/viz.md</code> owns lifecycle, ports, cache and idle mechanics, the read-only guarantee, and the run-record contract; <code>docs/architecture.md</code>/<code>docs/scripts.md</code> get pointers, not duplicates; script headers own exact CLI mechanics.</li>
+  <li>The snapshot's own header documents the five new fields (it is the schema's single owner); <code>docs/viz.md</code> references, never restates.</li>
+  <li>Documentation verification: <code>bin/mx-doc-audience-check.sh</code> passes; the naming test keeps enforcing mx- vocabulary in everything this plan adds.</li>
+</ul>
+
+<h2>Test plan</h2>
+<h3>(a) Existing tests that must keep passing — unmodified</h3>
+<p>The entire suite, and specifically the two snapshot-consumer suites (<code>mx-status-snapshot</code>, <code>mx-system-view</code> tests) — they are the mechanical proof that the snapshot extension was genuinely additive. If either changes, step 1 broke the contract.</p>
+<h3>(b) Existing tests needing changes</h3>
+<p>The snapshot suite gains additive-field cases (new assertions only — no existing assertion may change). Nothing else.</p>
+<h3>(c) New tests — <code>tests/mx-viz.test.sh</code></h3>
+<ul>
+  <li><b>Read-only guarantee (the load-bearing one):</b> hash the entire state tree (excluding <code>state/.viz/</code>), run a full session — serve, poll <code>/api/state</code> repeatedly, browse artifacts, stop — and assert the tree hash is unchanged and no non-GET method is accepted (POST/PUT/DELETE → 405, no write).</li>
+  <li><b>Loopback only:</b> socket bound to 127.0.0.1, never 0.0.0.0 (same assertion pattern as the vplan test).</li>
+  <li><b>Port walk:</b> decoy on 4890 → binds 4891 and prints it; whole range occupied → hard error naming 4890–4909, non-zero, no orphan run record.</li>
+  <li><b>Cache discipline:</b> with <code>mx-system-snapshot.sh</code> replaced by a counting fakebin shim, two polls inside <code>MX_VIZ_REFRESH_SECS</code> execute the snapshot once; a poll after the window executes it again; zero polls → zero further executions.</li>
+  <li><b>Change detection:</b> identical snapshot content → 304 with matching hash; changed content → 200 with a new hash.</li>
+  <li><b>Snapshot passthrough:</b> <code>/api/state</code> body's <code>snapshot</code> equals the fake shim's output byte-for-byte — no viz-side reshaping.</li>
+  <li><b>Path traversal refused:</b> <code>/artifact/data/../../state/…</code>, absolute paths, and a symlink escaping <code>data/</code> all → 403, nothing served.</li>
+  <li><b>Idle shutdown:</b> with <code>MX_VIZ_IDLE_SECS=1</code>, an unpolled server exits, removes the run record, frees the port (use plan 6.5's condition-wait helper, no fixed sleeps).</li>
+  <li><b>Singleton + idempotent serve:</b> second <code>serve</code> against a live server prints the same URL, exits 0, spawns nothing; <code>stop</code> on a stale/reused-PID record cleans the record and never signals the wrong process (PID-identity fixture pattern).</li>
+  <li><b>Self-containment:</b> the served page and assets contain no external <code>http(s)</code> references.</li>
+  <li><b>Graceful degradation:</b> a state dir with no gate/workflow/delivery records serves successfully and the payload marks those feeds absent (distinct from empty).</li>
+  <li><b>Snapshot-extension cases (in the snapshot suite):</b> watcher fields correct against a live-and-fresh fixture, a stale-beacon fixture, and a dead-PID lock fixture (never "alive" off identity mismatch); dispatch/wake queue depths against seeded fixtures; <code>headroom: null</code> + reason when the headroom shim fails — snapshot still exits 0 and every pre-existing field is present.</li>
+</ul>
+
+<h2>Dependencies &amp; ordering</h2>
+<ul>
+  <li><b>Post-port improvement — does not gate the port.</b> Independent of plans 12/13/14; can land any time after <a href="08-vplan.html">plan 08</a> (all hard inputs — snapshot, headroom, dispatch queue, vplan run records, node runtime — are on main today).</li>
+  <li><b>Consumes opportunistically:</b> <a href="09-least-privilege-push.html">09</a> delivery records, <a href="10-deep-review-gate.html">10</a> gate records, <a href="11-workflow-engine.html">11</a> workflow runs, <a href="12-event-journal.html">12</a> timelines (via <code>mx-timeline --json</code> only), <a href="13-doctor.html">13</a> <code>--json</code> health + the orphan-viz doctor check (plan 13 should add <code>state/.viz/</code> beside <code>state/.vplan/</code> in that check), <a href="14-upstream-sync.html">14</a> drift header — each behind presence checks.</li>
+  <li><b>Port-range coordination with plan 08:</b> vplan 4870–4889, viz 4890–4909 — disjoint by decision, so a live review and a live dashboard never contend.</li>
+</ul>
+
+<h2>Risks &amp; open questions</h2>
+<div class="callout ok"><div class="label">Decided · 2026-07-29 — the four shaping decisions</div>
+<p style="margin:0">Maintainer decisions, all recorded in porting.md §5: (1) <b>read-only v1</b> — no mutation surface of any kind; (2) <b>extend the canonical snapshot additively</b> rather than viz-side collectors; (3) <b>idle shutdown</b> — the server exits after no client polls for the idle window; (4) <b>print the link only</b> — never auto-open a browser. Also settled here: the name is <code>mx-viz</code> (hyphenated script per the locked <code>mx-</code> convention — there is no space-separated subcommand style anywhere in the tree), and the port range is 4890–4909.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — scope creep toward a control plane</div>
+<p style="margin:0">Every dashboard grows buttons. The read-only decision is enforced structurally, not aspirationally: GET-only routing, no write paths in the handler, and the state-tree-hash test that fails the moment a request mutates anything. Any future control surface must arrive as its own plan with its own authorization design — this plan's server must never be "extended a little."</p>
+</div>
+<div class="callout warn"><div class="label">Risk — snapshot cost under load</div>
+<p style="margin:0">The snapshot shells to the oracle and endpoint checks per task; with many live actors a refresh may take seconds, not 0.6s. The cache bounds the damage (one execution per refresh window, only while watched), and the page shows data age honestly, but if refresh latency grows past the poll interval the dashboard lags reality. Acceptable for v1 (2–3s staleness was the stated budget); if it bites, the fix is a <code>--fast</code> snapshot mode (skip endpoint probes) decided then, in the snapshot — never a viz-private shortcut parser.</p>
+</div>
+<div class="callout"><div class="label">Risk — additive-schema drift (low)</div>
+<p style="margin:0">A future snapshot change could rename a field the page renders. Mitigation is the normal one: the snapshot suite owns the schema, the viz test asserts passthrough (not shape), and the page renders missing fields as absent rather than crashing — the same tolerance every projection wrapper already practices.</p>
+</div>
+<div class="callout"><div class="label">Open question — daemon-home drill-down depth</div>
+<p style="margin:0">v1 renders <code>daemon_current</code>'s bounded per-daemon records (active children, decisions, holds, queued, landed) as cards. A full per-daemon-home drill-down (opening a daemon's own backlog and task set) would mean the snapshot aggregating deeper or viz reading daemon homes directly — the latter is barred by doctrine. Deferred until the bounded cards prove insufficient in practice.</p>
+</div>
+<div class="callout"><div class="label">Open question — poll transport later</div>
+<p style="margin:0">If 2–3s polling ever feels laggy or wasteful, SSE over the same loopback server is the natural upgrade (server pushes on cache refresh when the hash changes). Deliberately out of v1 — polling is simpler, debuggable with curl, and within the stated latency budget. Revisit only on demonstrated need.</p>
+</div>
+
+<div class="footer-nav">
+  <a href="14-upstream-sync.html">← Plan 14: upstream sync</a>
+  <a href="index.html">Index</a>
+  <span></span>
+</div>
+
+</div>
+</body>
+</html>

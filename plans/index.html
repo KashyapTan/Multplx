@@ -46,7 +46,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <header class="hero"><div class="wrap">
   <div class="plan-num">Multplx · Port Master Plan</div>
   <h1>Porting firstmate → Multplx</h1>
-  <p class="subtitle">Fifteen ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Plans 01–11 plus Plan 6.5 are the port; plans 12–14 are post-port improvements that don't gate it. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
+  <p class="subtitle">Sixteen ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Plans 01–11 plus Plan 6.5 are the port; plans 12–15 are post-port improvements that don't gate it. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
 </div></header>
 
 <div class="wrap">
@@ -66,7 +66,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <b>Phase 6</b> Safe delivery → 09 least-privilege push service<br>
 <b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)<br>
 <b>Phase 8</b> Compose       → 11 workflow engine (user-defined multi-stage workflows, create-workflow skill)<br>
-<b>Phase 9</b> Post-port     → 12 event journal → 13 mx-doctor → 14 upstream sync
+<b>Phase 9</b> Post-port     → 12 event journal → 13 mx-doctor → 14 upstream sync → 15 mx-viz
 </div>
 
 <div class="phase-label">Phase 1 · Shrink the surface</div>
@@ -162,6 +162,11 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="top"><span class="num">PLAN 14</span><span class="title">Upstream Sync — Don't Fork and Forget</span></div>
   <div class="desc">A fork-point record, a subsystem relevance map, and a review-and-reimplement procedure so upstream firstmate bug fixes to kept mechanisms still reach Multplx. Shipped as a workflow definition for the plan-11 engine — its first recurring consumer. Includes an explicit retirement path when triage stops paying for itself.</div>
   <div class="meta"><span class="tag">Post-port (maintainer request)</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span></div>
+</a>
+<a class="card" href="15-viz.html" style="--card-accent:#bc8cff">
+  <div class="top"><span class="num">PLAN 15</span><span class="title">mx-viz — One Live Web View of the Whole System</span></div>
+  <div class="desc">A read-only, loopback-only web dashboard: mx-viz.sh serve prints a localhost link to one self-contained page showing actors, daemons, watcher health, headroom, queues, decisions, backlog, plans, and artifacts — polling the canonical snapshot every few seconds and exiting on idle. Strictly a renderer over existing machine feeds; never a second parser, never a control plane.</div>
+  <div class="meta"><span class="tag">Post-port (maintainer request)</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
 </a>
 
 <h2>What we deliberately keep (no plan needed)</h2>
