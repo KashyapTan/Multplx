@@ -18,7 +18,7 @@ When any diagnostic needs maintainer attention, report the plain consequence and
 
 - `MISSING: <tool> (install: <command>)` - list the missing tools to the maintainer with a one-line purpose each plus the printed install commands, wait for consent (one approval may cover the list), then run `bin/mx-bootstrap.sh install <approved tools...>`.
   For `treehouse`, this also covers an installed version whose `treehouse get` lacks `--lease`; treat it as an upgrade request.
-  For `no-mistakes`, this also covers an installed version older than 1.31.2, because actor validation briefs defer gate mechanics to no-mistakes' version-matched guidance.
+  The deep-review gate is in-repo and has no external version probe.
 - `MISSING_MANUAL: <tool> (instructions: <url>)` - tell the maintainer why the tool is required and give them the printed instructions URL, but do not pass the tool to `bin/mx-bootstrap.sh install`; wait for the maintainer to complete the manual installation, then rerun session start to confirm the dependency is present.
 - `BACKEND_INVALID: <name> (known: <names>)` - the resolved runtime backend has no verified dependency or lifecycle contract, so do not dispatch work until the invalid `MX_BACKEND` or `config/backend` value is corrected to one of the listed backends.
 - `HEADROOM_INVALID: <reason>` - the owned composite capacity check could not establish a trustworthy local-resource signal, configured API budget, candidate set, or valid JSON result.

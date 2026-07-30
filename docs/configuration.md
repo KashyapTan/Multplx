@@ -104,11 +104,13 @@ An absent file means `auto`: no platform has a built-in OS channel, so the durab
 A missing or failing channel logs and falls through to the next, never crashing the daemon.
 See [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) for active evidence and [`examples/wedge-alarm`](examples/wedge-alarm) for a copyable config.
 
-## Gate defaults (.no-mistakes.yaml)
+## Gate defaults (.deep-review.yaml)
 
-The tracked `.no-mistakes.yaml` keeps test evidence outside the repo.
-That evidence policy is specific to the Multplx repo: target projects may legitimately commit `.no-mistakes/evidence/` from their own no-mistakes pipeline, but broker keeps `.no-mistakes/` local and CI rejects tracked entries under that path.
-It does not set `commands.test` to a complete `tests/*.test.sh` walk.
+The tracked `.deep-review.yaml` is the project policy read by `bin/mx-deep-review.sh`.
+Code-executing commands, the command-permission flag, project-settings suppression, and document instructions are loaded from the trusted default-branch copy.
+The reviewed branch may supply cosmetic fields, but its commands are inert unless the trusted copy explicitly sets `allow_repo_commands: true`.
+The Multplx default keeps repository commands empty, relies on the gate's focused fallback validation, and keeps evidence in private `state/<id>.gate/` records rather than the branch.
+It must not set `commands.test` to a complete `tests/*.test.sh` walk or `bin/mx-test-run.sh --all`.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the Multplx-specific local test policy and entry points.
 Portable shard evidence and coverage rules are in [mx-test-portable-shards.md](mx-test-portable-shards.md); [herdr-backend.md](herdr-backend.md#destructive-lab-safety) owns the real-Herdr lane's isolation boundary, and [runtime-backends.md](verification/runtime-backends.md#herdr) owns active evidence.
 
@@ -138,8 +140,8 @@ A project-less seed requires no existing project clones or `data/projects.md` en
 A preexisting project-bearing charter is also refused until it is re-scaffolded with `--no-projects` or removed.
 The lease is held under the daemon id until explicit retirement or seed rollback returns it, so normal restarts do not free or recycle the home.
 Teardown of a leased home fails closed if `treehouse return` cannot release the lease; plain-clone homes with no treehouse pool slot are removed directly.
-Daemon routes cover `no-mistakes` and `direct-PR` projects; `local-only` projects remain main-broker work.
-For `no-mistakes` projects, seeding initializes only projects newly cloned into a daemon home and refuses to mutate a preexisting clone that is not already initialized.
+Daemon routes cover `deep-review` and `direct-PR` projects; `local-only` projects remain main-broker work.
+The deep-review gate is an in-repo script and requires no per-clone initialization during seeding.
 After creating a daemon, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <daemon-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-daemon homes.
 Set `MX_DAEMON_CHARTER` to seed from inline charter text when no filled charter brief exists; set `MX_DAEMON_SCOPE` when the routing scope should differ from the charter text.
 The seeded home's `data/charter.md` owns the standard daemon lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
@@ -241,10 +243,10 @@ Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom
 On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is node, git, gh, Treehouse with durable `get --lease` support, and no-mistakes v1.31.2 or newer.
+The universal toolchain is node, git, gh, jq, and Treehouse with durable `get --lease` support.
 [`upstream.md`](upstream.md#pinned-external-dependencies) owns Treehouse's exact version pin and points to the verified installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
-In that list, no-mistakes currently supplies the validation pipeline and official gh covers read-only agent operations plus credentialed non-agent delivery.
+The in-repo deep-review scripts supply local validation, while official gh covers read-only agent operations plus credentialed non-agent delivery.
 Bootstrap does not require GitHub authentication in the broker session.
 The credential boundary and delivery-context setup are documented in [delivery.md](delivery.md).
 The in-repo vplan module covers rich-review operations and is self-checked with its vendored assets rather than probed as an external tool.
@@ -314,8 +316,6 @@ MX_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 MX_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls or custom checks)
 MX_CHECK_TIMEOUT=30     # seconds allowed per slow check script
 MX_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
-MX_ACTOR_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside mx-actor-state.sh
-MX_ACTOR_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when axi status cannot be attributed to the current code
 MX_ACTOR_STATE_BIN=bin/mx-actor-state.sh   # test override for the current-state reader used by working/paused watcher triage
 MX_LOCK_STALE_AFTER=2   # seconds before dead-pid lock records can be reclaimed; mid-acquire locks keep at least 2s grace
 MX_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale

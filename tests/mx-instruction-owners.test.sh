@@ -34,9 +34,9 @@ test_new_skill_metadata_and_triggers() {
     "diagnostic skill metadata lost its precise load trigger"
   assert_grep '`diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.' "$AGENTS" \
     "AGENTS.md lost the diagnostic-reasoning trigger"
-  assert_grep 'Use before adding, creating, removing, or initializing a project.' "$PROJECT" \
+  assert_grep 'Use before adding, creating, or removing a project.' "$PROJECT" \
     "project-management skill metadata lost its precise load trigger"
-  assert_grep '`project-management` - load before adding, creating, removing, or initializing a project.' "$AGENTS" \
+  assert_grep '`project-management` - load before adding, creating, or removing a project.' "$AGENTS" \
     "AGENTS.md lost the project-management trigger"
   pass "new internal skills have one precise AGENTS.md trigger each"
 }
@@ -65,17 +65,17 @@ test_project_management_owner_covers_guarded_operations() {
     "project-management skill does not declare ownership"
   for phrase in \
     'bin/mx-project-mode.sh' \
-    '`no-mistakes`' \
+    '`deep-review`' \
     '`direct-PR`' \
     '`local-only`' \
     'Default it off' \
     'Creating a GitHub repository is outward-facing.' \
     "maintainer's explicit consent" \
     'Never issue a raw removal command from Multplx.' \
-    'no-mistakes init && no-mistakes doctor'; do
+    'needs no per-project initialization'; do
     assert_grep "$phrase" "$PROJECT" "project-management owner is missing '$phrase'"
   done
-  pass "project-management owns registry, delivery posture, consent, initialization, and removal safety"
+  pass "project-management owns registry, delivery posture, consent, validation readiness, and removal safety"
 }
 
 test_generic_effort_fallback_respects_precedence() {

@@ -13,7 +13,7 @@ set -u
 
 # This suite does not source tests/lib.sh, so exempt its teardown subprocess from
 # the gate-lifecycle refusal (bin/mx-gate-refuse-lib.sh) the way lib.sh does for
-# the rest of the suite: the no-mistakes gate runs this suite from a gate worktree,
+# the rest of the suite: focused deep-review tests run from a gate worktree,
 # which the guard would otherwise refuse.
 export MX_GATE_REFUSE_BYPASS=1
 
@@ -85,7 +85,7 @@ worktree=$TMP_ROOT/nonexistent-worktree-$id
 project=$TMP_ROOT/nonexistent-project-$id
 harness=claude
 kind=delivery
-mode=no-mistakes
+mode=deep-review
 yolo=off
 tasktmp=$tasktmp
 META
@@ -179,7 +179,7 @@ worktree=$TMP_ROOT/nonexistent-wt-$id
 project=$TMP_ROOT/nonexistent-proj-$id
 harness=claude
 kind=delivery
-mode=no-mistakes
+mode=deep-review
 yolo=off
 META
   MX_HOME="$fake" bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \

@@ -87,7 +87,7 @@ write_task_meta() {
     "worktree=$dir/wt" \
     "project=$dir/project" \
     "kind=delivery" \
-    "mode=no-mistakes"
+    "mode=deep-review"
 }
 
 write_poll_meta() {

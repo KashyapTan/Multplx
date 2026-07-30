@@ -6,7 +6,7 @@
 # title/name, two Multplx homes (two daemons, a primary plus a
 # daemon, or two independent primary installations) whose task ids
 # happen to collide can send/peek/close each other's tabs - the gap a
-# maintainer-directed no-mistakes review gate caught for cmux
+# maintainer-directed deep review caught for cmux
 # (docs/cmux-backend.md).
 #
 # mx_backend_hometag() derives a short, stable tag: a readable prefix

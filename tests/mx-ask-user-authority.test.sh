@@ -127,7 +127,7 @@ test_primary_and_daemon_instruction_generation() {
   MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" \
     "$BRIEF" authority-worker sample >/dev/null 2>&1
   delivery="$home/data/authority-worker/brief.md"
-  assert_grep 'ask-user findings are never yours to answer' "$delivery" \
+  assert_grep 'Ask-user findings are never yours to answer' "$delivery" \
     "generated implementation brief lets the worker own an ask-user decision"
   assert_grep "Multplx applies the authority contract in its \`AGENTS.md\`" "$delivery" \
     "generated implementation brief bypasses the primary authority owner"

@@ -127,7 +127,8 @@ family_for_basename() {
     mx-actor-state.test.sh|mx-decision-hold-lifecycle.test.sh|\
     mx-documentation-audiences.test.sh|mx-ensure-agents-md.test.sh|mx-naming.test.sh|\
     mx-herdr-lab.test.sh|mx-instruction-owners.test.sh|\
-    mx-install-herdr.test.sh|mx-nm-test-contract.test.sh|mx-no-mistakes-ownership.test.sh|\
+    mx-install-herdr.test.sh|mx-deep-review-lib.test.sh|mx-deep-review.test.sh|\
+    mx-deep-review-config-contract.test.sh|\
     mx-report.test.sh|mx-report-mcp.test.sh|mx-signal-precedence.test.sh|\
     mx-removed-deps.test.sh|\
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
@@ -279,6 +280,9 @@ tests/mx-daemon-safety.test.sh	none
 tests/mx-daemon-sync.test.sh	none
 tests/mx-daemon.test.sh	daemon-process-signal
 tests/mx-decision-hold-lifecycle.test.sh	none
+tests/mx-deep-review-config-contract.test.sh	none
+tests/mx-deep-review-lib.test.sh	none
+tests/mx-deep-review.test.sh	none
 tests/mx-dispatch-queue.test.sh	none
 tests/mx-documentation-audiences.test.sh	none
 tests/mx-ensure-agents-md.test.sh	none
@@ -293,8 +297,6 @@ tests/mx-install-herdr.test.sh	none
 tests/mx-instruction-owners.test.sh	none
 tests/mx-maintainer-translation-contract.test.sh	none
 tests/mx-naming.test.sh	none
-tests/mx-nm-test-contract.test.sh	none
-tests/mx-no-mistakes-ownership.test.sh	none
 tests/mx-nudge.test.sh	watcher-process
 tests/mx-operational-input.test.sh	none
 tests/mx-pending-reply.test.sh	none
@@ -349,7 +351,6 @@ tests/mx-wake-queue.test.sh	watcher-process
 tests/mx-watch-checkpoint.test.sh	watcher-process
 tests/mx-watch-triage.test.sh	watcher-process
 tests/mx-watcher-lock.test.sh	watcher-process
-tests/no-mistakes-required-workflow.test.sh	none
 EOF
 }
 
@@ -895,7 +896,7 @@ families_for_changed_path() {
       # lane's contract coverage re-runs.
       printf '%s\n' real-herdr-gated
       ;;
-    bin/mx-brief.sh|bin/mx-report-mcp.mjs|\
+    bin/mx-brief.sh|bin/mx-report-mcp.mjs|bin/mx-deep-review.sh|bin/mx-deep-review-lib.sh|\
     bin/mx-ensure-agents-md.sh|bin/mx-actor-state.sh|\
     bin/mx-decision-hold.sh|bin/mx-supervision*|bin/mx-transition-lib.sh|\
     bin/mx-tmux-lib.sh|bin/mx-marker-lib.sh|bin/mx-operational-input.sh|bin/mx-backlog-lib.sh|\
@@ -906,7 +907,7 @@ families_for_changed_path() {
     .agents/skills/*/SKILL.md)
       printf '%s\n' pure-contract-unit
       ;;
-    .github/workflows/ci.yml|.no-mistakes.yaml)
+    .github/workflows/ci.yml|.deep-review.yaml)
       printf '%s\n' pure-contract-unit
       printf '%s\n' real-herdr-gated
       ;;

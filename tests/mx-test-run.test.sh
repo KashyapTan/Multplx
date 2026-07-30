@@ -425,10 +425,10 @@ test_ci_and_docs_call_the_owner() {
   grep -Fq 'bin/mx-test-run.sh --all --jobs auto' "$CONTRIB" \
     || fail "CONTRIBUTING must document the accelerated full run"
   grep -Fq 'intent-targeted' "$CONTRIB" \
-    || fail "CONTRIBUTING must document intent-targeted no-mistakes Test"
+    || fail "CONTRIBUTING must document intent-targeted deep-review Test"
   # Do not restore a complete-suite commands.test.
-  if grep -E '^[[:space:]]*test:[[:space:]].*tests/\*\.test\.sh' "$ROOT/.no-mistakes.yaml" >/dev/null 2>&1; then
-    fail ".no-mistakes.yaml must not set a full-suite commands.test"
+  if grep -E '^[[:space:]]*test:[[:space:]].*tests/\*\.test\.sh' "$ROOT/.deep-review.yaml" >/dev/null 2>&1; then
+    fail ".deep-review.yaml must not set a full-suite commands.test"
   fi
   pass "CI and CONTRIBUTING call the one-owner runner; no full-suite local Test"
 }
@@ -513,7 +513,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   runner="$repo/bin/mx-test-run.sh"
   evidence="$tmp/evidence"
   fake_bin="$tmp/fake-bin"
-  a=tests/mx-no-mistakes-ownership.test.sh
+  a=tests/mx-deep-review-lib.test.sh
   b=tests/mx-stow-contract.test.sh
   c=tests/mx-transition-lib.test.sh
   d=tests/mx-supervision-instructions.test.sh

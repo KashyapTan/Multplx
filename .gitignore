@@ -1,7 +1,6 @@
 projects/
 state/
 data/
-.no-mistakes/
 .mx-daemon-home
 .DS_Store
 __pycache__/

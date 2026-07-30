@@ -46,8 +46,6 @@
 #          landed in the primary instead of its own worktree; restore it per the line.
 #          treehouse is also MISSING when its installed version lacks
 #          "treehouse get --lease" support.
-#          no-mistakes is also MISSING when its installed version is older than
-#          1.31.2.
 #          The bundled mx-headroom.sh is self-checked instead of requiring an
 #          external quota wrapper. The owned backlog library ships with the
 #          repo and needs no presence or version probe.
@@ -479,7 +477,6 @@ install_cmd() {
     tmux|node|git|gh|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
     cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
-    no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
     *) return 1 ;;
   esac
 }
@@ -507,38 +504,15 @@ missing_tool_diagnostic() {
 # missing, while an invalid backend still cannot suppress the worktree-provider
 # probe. A backend value with no verified dependency set is reported before the
 # universal checks continue.
-COMMON_TOOLS="node git gh treehouse no-mistakes"
+COMMON_TOOLS="node git gh jq treehouse"
 BACKEND=$(mx_backend_name)
 BACKEND_VALID=1
 if ! BACKEND_TOOLS=$(mx_backend_required_tools "$BACKEND"); then
   BACKEND_VALID=0
   BACKEND_TOOLS=""
 fi
-NO_MISTAKES_MIN_MAJOR=1
-NO_MISTAKES_MIN_MINOR=31
-NO_MISTAKES_MIN_PATCH=2
-
 treehouse_supports_lease() {
   treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
-}
-
-no_mistakes_version_parts() {
-  local output
-  command -v no-mistakes >/dev/null 2>&1 || return 1
-  output=$(no-mistakes --version 2>/dev/null) || return 1
-  printf '%s\n' "$output" | sed -nE 's/.*[vV]?([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/p' | head -n 1
-}
-
-no_mistakes_compatible() {
-  local parts major minor patch extra
-  parts=$(no_mistakes_version_parts) || return 1
-  IFS=' ' read -r major minor patch extra <<< "$parts"
-  [ -n "$major" ] && [ -n "$minor" ] && [ -n "$patch" ] && [ -z "$extra" ] || return 1
-  [ "$major" -gt "$NO_MISTAKES_MIN_MAJOR" ] && return 0
-  [ "$major" -eq "$NO_MISTAKES_MIN_MAJOR" ] || return 1
-  [ "$minor" -gt "$NO_MISTAKES_MIN_MINOR" ] && return 0
-  [ "$minor" -eq "$NO_MISTAKES_MIN_MINOR" ] || return 1
-  [ "$patch" -ge "$NO_MISTAKES_MIN_PATCH" ]
 }
 
 actor_dispatch_validate() {
@@ -674,9 +648,6 @@ done
 # durable-lease capability is an unconditional bootstrap requirement.
 if command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
   echo "MISSING: treehouse (install: $(install_cmd treehouse))"
-fi
-if command -v no-mistakes >/dev/null 2>&1 && ! no_mistakes_compatible; then
-  echo "MISSING: no-mistakes (install: $(install_cmd no-mistakes))"
 fi
 VPLAN_SELF_CHECK=${MX_VPLAN_SELF_CHECK_OVERRIDE:-$SCRIPT_DIR/mx-vplan.sh}
 if ! "$VPLAN_SELF_CHECK" --self-check >/dev/null 2>&1; then

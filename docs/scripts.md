@@ -3,7 +3,7 @@
 The broker drives these; interactive entrypoints work by hand too, while `*-lib.sh` files are sourced helpers.
 Each row is one purpose clause only: the script's own header comment is the authoritative description of its behavior, flags, and contracts, so read the header before first use.
 If you have changed away from the Multplx home in an interactive shell, invoke these scripts by absolute path through the repo's `bin/` directory; the scripts self-locate internally after they start.
-The shared no-mistakes gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#no-mistakes-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; `mx-gate-refuse-lib.sh`'s header owns its exact contract.
+The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#deep-review-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; `mx-gate-refuse-lib.sh`'s header owns its exact contract.
 
 | Script                   | Purpose                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------ |
@@ -51,6 +51,8 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-config-push.sh`      | Push declared inherited local material to live daemons mid-session and send a pointer to the literal-content config reread when config changed |
 | `mx-deliver.sh`          | Push one exact approved local SHA and open its PR from a credentialed non-agent context |
 | `mx-deliver-lib.sh`      | Validate private delivery handoffs, gate results, approved SHA bindings, and agent ambience |
+| `mx-deep-review.sh`      | Run, resume, or answer the actor-owned local intent-to-handoff validation gate |
+| `mx-deep-review-lib.sh`  | Own deep-review schemas, trusted config parsing, prompt assembly, and harness adapters |
 | `mx-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`           |
 | `mx-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval            |
 | `mx-review-diff.sh`      | Review an actor branch or resolved PR head against the authoritative base          |
@@ -59,7 +61,7 @@ The shared no-mistakes gate refusal for system lifecycle entrypoints is summariz
 | `mx-daemon-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
 | `mx-report`           | Validate and durably append a task-bound status event, then best-effort nudge the identity-matched watcher |
 | `mx-report-mcp.mjs`   | Expose `report_status` over stdio MCP and delegate accepted calls to `mx-report`        |
-| `mx-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for system lifecycle entrypoints               |
+| `mx-gate-refuse-lib.sh`  | Refuse lifecycle entrypoints whenever a deep-review agent marker is present             |
 | `mx-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
 | `mx-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `mx-watch.sh`            | Singleton-safe watcher with interruptible polling: absorb benign wakes, queue and exit on actionable ones |

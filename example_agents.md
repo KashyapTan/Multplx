@@ -44,7 +44,7 @@ Hard rules, in priority order:
 You may maintain this repo's private operational state directly.
 Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
 When any actor is live, route changes to shared tracked material rather than competing with active work; when the system is empty, the broker may change it directly.
-This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are maintainer-private and gitignored.
+This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, and `projects/` are maintainer-private and gitignored.
 Deliver shared tracked changes through the local validation and credentialed-delivery path, with the same merge authority as any other project.
 Never add an agent name as a commit co-author.
 
@@ -98,6 +98,7 @@ state/               volatile runtime signals; gitignored
   <id>.ready-to-push  private validated delivery handoff; exact schema is owned by mx-deliver-lib.sh
   <id>.ready-to-push.stale  refused handoff whose worktree or approved SHA no longer matches
   <id>.delivered      archived handoff after push, PR creation, and PR-state recording succeed
+  <id>.gate/          private resumable deep-review run, intent, findings, session ids, and command evidence
   .pr-check-quarantine/  private non-runnable storage for checks neutralized by the non-executing migration
   .pr-check-migration.log  private per-task outcomes distinguishing rebuilt or canonically registered replacement polls, quarantined unarmed polls, and incomplete migrations
   .pr-check-migration-scan-v1  private marker proving the non-executing scan disabled every unsafe legacy check; .pr-check-migration-v1 separately records completed private repairs
@@ -110,7 +111,6 @@ state/               volatile runtime signals; gitignored
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
-.no-mistakes/        local validation state and evidence; gitignored
 ```
 
 A `state/<id>.status` line is a wake event, not current-state truth; `bin/mx-actor-state.sh` owns current-state reconciliation.
@@ -196,7 +196,7 @@ A restart must be a non-event because durable state and live backend inventory, 
 
 ## 6. Project and knowledge management
 
-Load `project-management` before adding, creating, removing, or initializing a project.
+Load `project-management` before adding, creating, or removing a project.
 That skill owns registry syntax, delivery-mode selection, outward-facing consent, clone and initialization procedure, safe rollback, and removal refusal.
 Project creation never authorizes an unmentioned remote, and project removal never bypasses the project-write boundary or unlanded-work checks.
 
@@ -275,7 +275,7 @@ A separate review or audit is allowed only when the maintainer explicitly reques
 If fast-path risk needs more rigor, escalate whether to use the full local validation path instead of inventing a manual gate.
 The path's worker, automated gates, and maintainer approval remain authoritative:
 
-- **no-mistakes** currently selects the full local validation handoff; the local gate records the approved SHA, then the non-agent delivery service opens the PR.
+- **deep-review** selects the full in-repo local validation handoff; the actor drives intent, rebase, review, focused test, documentation, and lint before the gate records a pending exact-SHA handoff for the non-agent delivery service.
 - **direct-PR** skips the full validation gate, but still stops at an approved local commit for the non-agent delivery service.
 - **local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority before broker uses the guarded fast-forward merge path.
 
@@ -469,7 +469,7 @@ These skills are not maintainer-invocable; load them only at their precise trigg
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding, regardless of the project's `yolo` posture.
 - `harness-adapters` - load before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
-- `project-management` - load before adding, creating, removing, or initializing a project.
+- `project-management` - load before adding, creating, or removing a project.
 - `stuck-actor-recovery` - load when the session-start digest reports an actor endpoint dead or its metadata has no window, or after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive actor, or a failed steer.
 - `daemon-provisioning` - load before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a daemon home, and before editing `data/daemons.md`.
 - `decision-hold-lifecycle` - load before treating an investigation or visual review as complete, before ending a visual review that exposed a decision, and when recording or routing the maintainer's answer.

@@ -130,6 +130,10 @@ DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 PROJECTS="${MX_PROJECTS_OVERRIDE:-$MX_HOME/projects}"
 CONFIG="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
 SUB_HOME_MARKER=".mx-daemon-home"
+# shellcheck source=bin/mx-gate-refuse-lib.sh
+. "$SCRIPT_DIR/mx-gate-refuse-lib.sh"
+# Fail closed before loading helpers that may initialize system state.
+mx_refuse_if_gate_agent
 # shellcheck source=bin/mx-ff-lib.sh
 . "$SCRIPT_DIR/mx-ff-lib.sh"
 # shellcheck source=bin/mx-wake-lib.sh
@@ -138,13 +142,8 @@ SUB_HOME_MARKER=".mx-daemon-home"
 . "$SCRIPT_DIR/mx-config-inherit-lib.sh"
 # shellcheck source=bin/mx-backend.sh
 . "$SCRIPT_DIR/mx-backend.sh"
-# shellcheck source=bin/mx-gate-refuse-lib.sh
-. "$SCRIPT_DIR/mx-gate-refuse-lib.sh"
 # shellcheck source=bin/mx-pr-lib.sh
 . "$SCRIPT_DIR/mx-pr-lib.sh"
-# Fail closed before any system mutation: a no-mistakes gate agent must never spawn
-# a routed agent (see bin/mx-gate-refuse-lib.sh).
-mx_refuse_if_gate_agent
 # Skip the watcher guard when re-exec'd for one pair of a batch (MX_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${MX_SPAWN_NO_GUARD:-}" ] || "$MX_ROOT/bin/mx-guard.sh" || true

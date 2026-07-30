@@ -864,7 +864,7 @@
       "expected_gate_skip": "none",
       "assertions": [
         "bootstrap reports treehouse lease + tasks-axi/quota-axi bootstrap contracts",
-        "bootstrap enforces no-mistakes minimum version",
+        "bootstrap enforces deep-review minimum version",
         "bootstrap requires git with an install instruction",
         "bootstrap: session-provider backends require their own CLI + jq + treehouse, never tmux",
         "bootstrap: a session-provider backend gates its own CLI, never a false tmux requirement",
@@ -895,9 +895,9 @@
       "assertions": [
         "mx-brief.sh: bash -n succeeds",
         "mx-brief.sh: --help renders the complete header",
-        "mx-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly",
+        "mx-brief.sh: deep-review/direct-PR/local-only briefs generate cleanly",
         "mx-brief.sh: faster paths use configured authority without stacked review",
-        "mx-brief.sh: no-mistakes DOD wording avoids the apostrophe regression",
+        "mx-brief.sh: deep-review DOD wording avoids the apostrophe regression",
         "mx-brief.sh: delivery project-memory wording carries the AGENTS.md authoring bar",
         "mx-brief.sh: --herdr-lab emits the complete hard safety contract",
         "mx-brief.sh: --herdr-lab uses its quoted Multplx-owned helper path",
@@ -1089,7 +1089,7 @@
       "gate_skip": false,
       "expected_gate_skip": "none",
       "assertions": [
-        "seed: registry scope+projects, charter copied, clones+origins, no-mistakes init in subhome only",
+        "seed: registry scope+projects, charter copied, and clones preserve origins",
         "spawn: launches in the subhome with persistent charter, records routing meta",
         "send: a bare mx-<id> daemon routes to the meta window with the from-broker marker",
         "recovery: respawns from the durable registry and persistent home",
@@ -1160,8 +1160,8 @@
         "remote-backed subhome seeding requires a source origin",
         "remote-backed subhome seeding validates existing destination origins",
         "home seeding resolves relative source origins against the source project",
-        "home seeding skips initialized existing no-mistakes clones",
-        "home seeding refuses uninitialized existing no-mistakes clones",
+        "home seeding skips initialized existing deep-review clones",
+        "home seeding refuses uninitialized existing deep-review clones",
         "home seeding refuses project destinations outside the subhome",
         "home seeding refuses operational directories outside the subhome",
         "home seeding refuses symlinked leaf files",
@@ -1336,6 +1336,50 @@
       "assertions": []
     },
     {
+      "path": "tests/mx-deep-review-config-contract.test.sh",
+      "family": "pure-contract-unit",
+      "duration_ms": 29,
+      "exit": 0,
+      "gate_skip": false,
+      "expected_gate_skip": "none",
+      "assertions": [
+        "tracked deep-review config preserves trusted, focused validation defaults"
+      ]
+    },
+    {
+      "path": "tests/mx-deep-review-lib.test.sh",
+      "family": "pure-contract-unit",
+      "duration_ms": 626,
+      "exit": 0,
+      "gate_skip": false,
+      "expected_gate_skip": "none",
+      "assertions": [
+        "deep-review intent sanitization strips adversarial delimiters and secrets",
+        "deep-review schemas enforce closed enums, anchors, required fields, and no extras",
+        "deep-review deterministic post-processors alone decide blocking state",
+        "deep-review config executes branch commands only with default-branch permission",
+        "deep-review prompt assembly retains load-bearing review boundaries",
+        "deep-review headless adapters carry schema output, session ids, markers, and project-setting suppression"
+      ]
+    },
+    {
+      "path": "tests/mx-deep-review.test.sh",
+      "family": "pure-contract-unit",
+      "duration_ms": 7441,
+      "exit": 0,
+      "gate_skip": false,
+      "expected_gate_skip": "none",
+      "assertions": [
+        "deep-review enforces local step order and ends at a pending exact-SHA handoff",
+        "deep-review requires explicit intent and rejects unknown persisted steps",
+        "deep-review requires the initiating actor binding and persists terminal failures",
+        "deep-review uses captured subprocess evidence and real exits for configured tests",
+        "deep-review reconstructs after termination and invalidates stale-head findings",
+        "deep-review parks ask-user findings and enforces actor-owned isolated-session response",
+        "deep-review command execution is controlled only by default-branch permission"
+      ]
+    },
+    {
       "path": "tests/mx-documentation-audiences.test.sh",
       "family": "pure-contract-unit",
       "duration_ms": 1368,
@@ -1347,7 +1391,7 @@
         "classification, setup routing, and maintained-prose scope fail safely",
         "required documentation owner pointers cannot silently disappear",
         "local links resolve while dates, versions, commands, and incident prose remain semantically reviewed",
-        "no-mistakes uses the supported trusted document.instructions schema"
+        "deep-review uses the supported trusted document.instructions schema"
       ]
     },
     {
@@ -1377,14 +1421,14 @@
       "gate_skip": false,
       "expected_gate_skip": "none",
       "assertions": [
-        "mx-gate-refuse-lib: refuses when NO_MISTAKES_GATE is set",
-        "mx-gate-refuse-lib: refuses when NO_MISTAKES_GATE is set empty",
+        "mx-gate-refuse-lib: refuses when DEEP_REVIEW_GATE is set",
+        "mx-gate-refuse-lib: refuses when DEEP_REVIEW_GATE is set empty",
         "mx-gate-refuse-lib: refuses from a gate worktree via git-common-dir (marker unset)",
         "mx-gate-refuse-lib: no-op for a normal session (neither signal, set -eu clean)",
         "mx-spawn: refuses on marker and gate-worktree backstop; a normal actor spawn is unaffected",
         "mx-send: refuses on marker and gate-worktree backstop; a normal steer is unaffected",
         "mx-teardown: refuses on marker and gate-worktree backstop; a normal teardown is unaffected",
-        ".no-mistakes.yaml parses and sets disable_project_settings: true (trusted-only gate opt-out)"
+        ".deep-review.yaml parses and sets disable_project_settings: true (trusted-only gate opt-out)"
       ]
     },
     {
@@ -1557,31 +1601,6 @@
       "expected_gate_skip": "none",
       "assertions": [
         "maintained paths and content use Multplx vocabulary"
-      ]
-    },
-    {
-      "path": "tests/mx-nm-test-contract.test.sh",
-      "family": "pure-contract-unit",
-      "duration_ms": 301,
-      "exit": 0,
-      "gate_skip": false,
-      "expected_gate_skip": "none",
-      "assertions": [
-        ".no-mistakes.yaml is present and tracked",
-        "no-mistakes does not configure a complete local Test command",
-        "CI still owns partitioned broad behavior coverage and companion jobs"
-      ]
-    },
-    {
-      "path": "tests/mx-no-mistakes-ownership.test.sh",
-      "family": "pure-contract-unit",
-      "duration_ms": 103,
-      "exit": 0,
-      "gate_skip": false,
-      "expected_gate_skip": "none",
-      "assertions": [
-        "Validate contract assigns the complete synchronous driver loop to the initiating task worker",
-        "Validate contract forbids Multplx from responding directly for an actor-owned run"
       ]
     },
     {
@@ -1940,8 +1959,8 @@
       "expected_gate_skip": "none",
       "assertions": [
         "mx-sessionstart-nudge: a genuine primary gets one explicitly marked instruction line",
-        "mx-sessionstart-nudge: NO_MISTAKES_GATE is silent",
-        "mx-sessionstart-nudge: .no-mistakes gate common-dir is silent",
+        "mx-sessionstart-nudge: DEEP_REVIEW_GATE is silent",
+        "mx-sessionstart-nudge: .deep-review gate common-dir is silent",
         "mx-sessionstart-nudge: an unmarked linked task worktree is silent",
         "mx-sessionstart-nudge: a marked linked daemon home is a primary",
         "mx-sessionstart-nudge: a checkout without state is silent",
@@ -2232,8 +2251,8 @@
         "teardown honors config/backlog-backend=manual even when tasks-axi is compatible",
         "local-only worktree with truly unpushed work is refused (safety preserved)",
         "local-only worktree with work merged into local main is torn down (no regression)",
-        "no-mistakes worktree with HEAD on origin is torn down (no regression)",
-        "no-mistakes worktree with genuinely unlanded work is refused (safety preserved)",
+        "deep-review worktree with HEAD on origin is torn down (no regression)",
+        "deep-review worktree with genuinely unlanded work is refused (safety preserved)",
         "local-only worktree with unpushed work is torn down under --force (escape hatch)",
         "herdr teardown removes pane-owned escalation dedupe state",
         "herdr projection teardown retires its journal only after confirming the exact recorded pane is gone",
@@ -2537,20 +2556,6 @@
         "cycle-exit ledger links a verified successor and remains size-capped",
         "SIGSTOP distinguishes live PID from stale beacon and termination records the exit class"
       ]
-    },
-    {
-      "path": "tests/no-mistakes-required-workflow.test.sh",
-      "family": "unclassified",
-      "duration_ms": 274,
-      "exit": 0,
-      "gate_skip": false,
-      "expected_gate_skip": "none",
-      "assertions": [
-        "fixed-head signed opened, unsigned edited, signed edited yields 0/1/0",
-        "body event groups are distinct while head changes remain coalesced",
-        "run names expose monotonic numbers and immutable IDs",
-        "fork, permission, check-name, marker, and bot-exemption contracts are preserved"
-      ]
     }
   ],
   "scheduler_estimate_method": "Unchanged scripts use measured Plan-06 durations. Split monolith durations are apportioned by preserved top-level case count. The new split-parity guard starts at 1000 ms until an accepted Plan-6.5 run replaces the estimate.",
@@ -2594,6 +2599,9 @@
     "tests/mx-daemon-sync.test.sh": 49551,
     "tests/mx-daemon.test.sh": 33914,
     "tests/mx-decision-hold-lifecycle.test.sh": 95,
+    "tests/mx-deep-review-config-contract.test.sh": 29,
+    "tests/mx-deep-review-lib.test.sh": 626,
+    "tests/mx-deep-review.test.sh": 7441,
     "tests/mx-documentation-audiences.test.sh": 1368,
     "tests/mx-ensure-agents-md.test.sh": 1074,
     "tests/mx-gate-refuse.test.sh": 7974,
@@ -2606,8 +2614,6 @@
     "tests/mx-instruction-owners.test.sh": 799,
     "tests/mx-maintainer-translation-contract.test.sh": 540,
     "tests/mx-naming.test.sh": 4995,
-    "tests/mx-nm-test-contract.test.sh": 301,
-    "tests/mx-no-mistakes-ownership.test.sh": 103,
     "tests/mx-nudge.test.sh": 7096,
     "tests/mx-operational-input.test.sh": 726,
     "tests/mx-pending-reply.test.sh": 27372,
@@ -2659,7 +2665,6 @@
     "tests/mx-wake-queue.test.sh": 48733,
     "tests/mx-watch-checkpoint.test.sh": 7118,
     "tests/mx-watch-triage.test.sh": 122964,
-    "tests/mx-watcher-lock.test.sh": 53755,
-    "tests/no-mistakes-required-workflow.test.sh": 274
+    "tests/mx-watcher-lock.test.sh": 53755
   }
 }

@@ -24,20 +24,20 @@
 #   (a) local-only + HEAD on a fork remote-tracking branch     -> ALLOW  (fork fix)
 #   (b) local-only + truly unpushed work (no remote, not main) -> REFUSE (safety)
 #   (c) local-only + merged into local main, no remote         -> ALLOW  (no regression)
-#   (d) no-mistakes + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
-#   (e) no-mistakes + unpushed, no PR, content not in default  -> REFUSE (safety)
+#   (d) deep-review + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
+#   (e) deep-review + unpushed, no PR, content not in default  -> REFUSE (safety)
 #   (f) local-only + truly unpushed + --force                  -> ALLOW  (escape hatch)
-#   (g) no-mistakes + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
-#   (h) no-mistakes + no PR but content already in default     -> ALLOW  (content fallback)
-#   (i) no-mistakes + dirty worktree, even when work landed     -> REFUSE (dirty wins)
-#   (j) no-mistakes + gh lookup errors + content not in default -> REFUSE (fail-safe)
-#   (k) no-mistakes + merged PR but HEAD moved afterward        -> REFUSE (stale PR)
-#   (l) no-mistakes + stale origin/main but fetched content     -> ALLOW  (fresh fetch)
-#   (m) no-mistakes + local HEAD ancestor of merged PR head     -> ALLOW  (lagging local)
-#   (n) no-mistakes + replayed unpushed patch in merged PR head -> ALLOW  (replayed local)
+#   (g) deep-review + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
+#   (h) deep-review + no PR but content already in default     -> ALLOW  (content fallback)
+#   (i) deep-review + dirty worktree, even when work landed     -> REFUSE (dirty wins)
+#   (j) deep-review + gh lookup errors + content not in default -> REFUSE (fail-safe)
+#   (k) deep-review + merged PR but HEAD moved afterward        -> REFUSE (stale PR)
+#   (l) deep-review + stale origin/main but fetched content     -> ALLOW  (fresh fetch)
+#   (m) deep-review + local HEAD ancestor of merged PR head     -> ALLOW  (lagging local)
+#   (n) deep-review + replayed unpushed patch in merged PR head -> ALLOW  (replayed local)
 #   (o) mx-pr-check rerun after HEAD moved                      -> no stale pr_head
 #   (p) mx-pr-check when local HEAD lags                        -> record remote PR head
-#   (q) no-mistakes + NO pr= recorded, PR discovered by branch  -> ALLOW  (yolo/no-CI merge)
+#   (q) deep-review + NO pr= recorded, PR discovered by branch  -> ALLOW  (yolo/no-CI merge)
 #
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
 # killed actors process (bin/mx-teardown.sh's teardown_treehouse_return).
@@ -473,7 +473,7 @@ test_local_only_fork_remote_allows() {
 test_teardown_prompts_owned_backlog_done() {
   local case_dir out
   case_dir=$(make_case owned-backlog-reminder)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   out=$(run_teardown "$case_dir") || fail "teardown failed with owned backlog"
   printf '%s\n' "$out" | grep -F 'bin/mx-backlog.sh done task-x1 --pr https://github.com/example/repo/pull/7' >/dev/null \
@@ -490,7 +490,7 @@ test_teardown_prompts_owned_backlog_done() {
 test_teardown_manual_backend_prompts_hand_edit() {
   local case_dir out
   case_dir=$(make_case manual-backlog-optout)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   printf '%s\n' manual > "$case_dir/config/backlog-backend"
   out=$(run_teardown "$case_dir") || fail "teardown failed with manual backlog backend"
@@ -540,10 +540,10 @@ test_local_only_merged_to_local_main_allows() {
   pass "local-only worktree with work merged into local main is torn down (no regression)"
 }
 
-test_no_mistakes_origin_remote_allows() {
+test_deep_review_origin_remote_allows() {
   local case_dir rc
   case_dir=$(make_case nm-origin)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   # Push the task branch to origin and fetch so the worktree sees it.
   git -C "$case_dir/wt" push -q origin mx/task-x1
@@ -558,13 +558,13 @@ test_no_mistakes_origin_remote_allows() {
   ! grep -q REFUSED "$case_dir/stderr" || fail "nm-origin: teardown printed a REFUSED line"
   grep -F 'blockers are gone and date is due' "$case_dir/stdout" >/dev/null \
     || fail "nm-origin: teardown manual prompt did not preserve date-gate check"
-  pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
+  pass "deep-review worktree with HEAD on origin is torn down (no regression)"
 }
 
 test_ready_to_push_record_refuses_even_after_partial_push() {
   local case_dir rc
   case_dir=$(make_case queued-delivery)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   printf 'version=1\n' > "$case_dir/state/task-x1.ready-to-push"
@@ -584,10 +584,10 @@ test_ready_to_push_record_refuses_even_after_partial_push() {
   pass "teardown preserves a ready-to-push worktree even after a partial push"
 }
 
-test_no_mistakes_truly_unpushed_refuses() {
+test_deep_review_truly_unpushed_refuses() {
   local case_dir rc
   case_dir=$(make_case nm-unpushed)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   # Real content that is not pushed, has no PR (default gh mock), and never
   # landed on origin/main: genuinely unlanded work that must still refuse.
   wt_commit_file "$case_dir" feature.txt hello "unpushed work"
@@ -599,13 +599,13 @@ test_no_mistakes_truly_unpushed_refuses() {
 
   expect_code 1 "$rc" "nm-unpushed: teardown should refuse"
   grep -q REFUSED "$case_dir/stderr" || fail "nm-unpushed: no REFUSED line in stderr"
-  pass "no-mistakes worktree with genuinely unlanded work is refused (safety preserved)"
+  pass "deep-review worktree with genuinely unlanded work is refused (safety preserved)"
 }
 
 test_squash_merged_branch_deleted_allows() {
   local case_dir rc pr_head
   case_dir=$(make_case squash-merged)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   # Real branch content that is NOT pushed and NOT on origin/main: a squash merge
   # rewrote it into a different commit on main and auto-deleted the head branch, so
   # HEAD is unreachable from every remote-tracking branch. The matching merged PR is
@@ -628,11 +628,11 @@ test_squash_merged_branch_deleted_allows() {
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head() {
   local case_dir rc local_head pr_head
   case_dir=$(make_case squash-ancestor)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   append_pr_meta_url "$case_dir"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
-  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes follow-up")
+  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "deep-review follow-up")
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   set +e
@@ -648,18 +648,18 @@ test_squash_merged_pr_allows_when_head_ancestor_of_pr_head() {
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows() {
   local case_dir rc local_head pr_head
   case_dir=$(make_case no-pr-branch-discovery)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   # Reproduces the real false-refusal report exactly, with NO pr=/pr_head=
   # recorded in meta at all (mx-pr-check.sh was never run, e.g. a yolo merge on
   # a repo with no PR CI so the "checks green" trigger that fires it never
-  # happened): a branch with a commit, a no-mistakes auto-fix commit pushed on
+  # happened): a branch with a commit, a deep-review auto-fix commit pushed on
   # top that never made it back into the local worktree, a squash merge onto
   # main under a brand-new SHA, and the head branch deleted (simulated here by
   # never pushing mx/task-x1 at all, so no refs/remotes/origin/mx/task-x1
   # exists to make HEAD "reachable").
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
-  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes auto-fix")
+  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "deep-review auto-fix")
   land_on_origin_main "$case_dir" feature.txt hello
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
   # No append_pr_meta_* call: state/task-x1.meta has no pr= or pr_head= line.
@@ -680,7 +680,7 @@ test_no_pr_recorded_discovers_merged_pr_by_branch_allows() {
 test_squash_merged_pr_allows_replayed_unpushed_patch() {
   local case_dir rc parent_head pr_head
   case_dir=$(make_case squash-replayed-patch)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" local-parent.txt parent "local parent"
   parent_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   git -C "$case_dir/wt" push -q origin "$parent_head:refs/heads/mx/task-x1"
@@ -703,7 +703,7 @@ test_squash_merged_pr_allows_replayed_unpushed_patch() {
 test_merged_pr_with_later_local_commit_refuses() {
   local case_dir rc pr_head
   case_dir=$(make_case stale-pr-head)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   append_pr_meta_for_current_head "$case_dir"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
@@ -723,7 +723,7 @@ test_merged_pr_with_later_local_commit_refuses() {
 test_pr_check_does_not_refresh_stale_pr_head() {
   local case_dir rc pr_head new_head count
   case_dir=$(make_case pr-check-stale)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
@@ -759,10 +759,10 @@ test_pr_check_does_not_refresh_stale_pr_head() {
 test_pr_check_records_remote_head_when_local_lags() {
   local case_dir local_head pr_head
   case_dir=$(make_case pr-check-local-lags)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
-  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "no-mistakes follow-up")
+  pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "deep-review follow-up")
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   MX_ROOT_OVERRIDE="$ROOT" \
@@ -780,7 +780,7 @@ test_pr_check_records_remote_head_when_local_lags() {
 test_content_in_default_fallback_allows() {
   local case_dir rc
   case_dir=$(make_case content-landed)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   # No pr= recorded and the default gh mock reports no PR, so the merged-PR path
   # cannot fire and the content check must carry it. The branch adds feature.txt, and
   # the same net change has independently landed on origin/main via a squash commit.
@@ -800,7 +800,7 @@ test_content_in_default_fallback_allows() {
 test_content_fallback_refreshes_stale_origin_ref() {
   local case_dir rc
   case_dir=$(make_case content-stale-ref)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   git -C "$case_dir/project" config --unset-all remote.origin.fetch
   git -C "$case_dir/project" config --add remote.origin.fetch '+refs/heads/not-main:refs/remotes/origin/not-main'
@@ -819,7 +819,7 @@ test_content_fallback_refreshes_stale_origin_ref() {
 test_dirty_worktree_refuses() {
   local case_dir rc pr_head
   case_dir=$(make_case dirty-wt)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   # The committed work has fully landed (merged PR + content in default), but an
   # uncommitted edit remains. Dirtiness must refuse regardless: the reset would
@@ -844,7 +844,7 @@ test_dirty_worktree_refuses() {
 test_gh_error_and_content_absent_refuses() {
   local case_dir rc
   case_dir=$(make_case gh-error)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   # Real content not pushed, the PR lookup errors, and origin/main never gained the
   # content. The fail-safe must refuse rather than allow on a transient gh failure.
@@ -864,7 +864,7 @@ test_gh_error_and_content_absent_refuses() {
 test_stale_index_lock_cleared_and_teardown_succeeds() {
   local case_dir rc lock
   case_dir=$(make_case stale-index-lock)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -893,7 +893,7 @@ test_stale_index_lock_cleared_and_teardown_succeeds() {
 test_live_index_lock_is_never_removed_and_teardown_refuses() {
   local case_dir rc lock
   case_dir=$(make_case live-index-lock)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -925,7 +925,7 @@ test_live_index_lock_is_never_removed_and_teardown_refuses() {
 test_lsof_error_never_clears_index_lock() {
   local case_dir rc lock
   case_dir=$(make_case lsof-error-index-lock)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -958,7 +958,7 @@ test_lsof_error_never_clears_index_lock() {
 test_stale_index_lock_cleanup_rechecks_dirty_worktree() {
   local case_dir rc lock
   case_dir=$(make_case stale-lock-dirty-recheck)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt landed "landed work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -995,7 +995,7 @@ test_non_linked_index_lock_path_is_checked_from_worktree() {
   git -C "$case_dir/project" worktree remove --force "$case_dir/wt"
   git clone -q "$case_dir/origin.git" "$case_dir/wt"
   git -C "$case_dir/wt" checkout -q -b mx/task-x1
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable normal clone work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/wt" fetch -q origin
@@ -1024,7 +1024,7 @@ test_non_linked_index_lock_path_is_checked_from_worktree() {
 test_index_lock_mtime_read_failure_refuses() {
   local case_dir rc lock
   case_dir=$(make_case mtime-error-index-lock)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -1058,7 +1058,7 @@ test_index_lock_mtime_read_failure_refuses() {
 test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
   local case_dir rc lock attempt_file
   case_dir=$(make_case transient-index-lock-retry)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -1098,7 +1098,7 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
 test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
   local case_dir rc lock
   case_dir=$(make_case persistent-index-lock)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -1136,7 +1136,7 @@ test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
 test_empty_retry_wait_uses_default_without_aborting() {
   local case_dir rc lock attempt_file
   case_dir=$(make_case empty-retry-wait)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -1172,7 +1172,7 @@ test_empty_retry_wait_uses_default_without_aborting() {
 test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   local case_dir rc lock
   case_dir=$(make_case fractional-legacy-retry-wait)
-  write_meta "$case_dir" no-mistakes delivery
+  write_meta "$case_dir" deep-review delivery
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
@@ -1351,9 +1351,9 @@ test_teardown_prompts_owned_backlog_done
 test_teardown_manual_backend_prompts_hand_edit
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
-test_no_mistakes_origin_remote_allows
+test_deep_review_origin_remote_allows
 test_ready_to_push_record_refuses_even_after_partial_push
-test_no_mistakes_truly_unpushed_refuses
+test_deep_review_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_herdr_teardown_clears_escalation_marker
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close

@@ -23,13 +23,9 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 make_fakebin() {  # <dir>
   local fb
   fb=$(mx_fakebin "$1")
-  cat > "$fb/no-mistakes" <<'SH'
+cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
-[ "${FAKE_NM_SLEEP:-0}" = 1 ] && sleep 30
-exit 0
-SH
-  cat > "$fb/tmux" <<'SH'
-#!/usr/bin/env bash
+[ "${FAKE_ACTOR_SLEEP:-0}" != 1 ] || case "$*" in *mx-slow*) sleep 30 ;; esac
 case "${1:-}" in
   display-message) case "$*" in *dead-*) exit 1 ;; *) printf '%%1\n' ;; esac ;;
   capture-pane)
@@ -61,7 +57,7 @@ SH
 echo "curl $*" >> "$NET_LOG"
 exit 1
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/gh" "$fb/curl"
+  chmod +x "$fb/tmux" "$fb/gh" "$fb/curl"
   printf '%s\n' "$fb"
 }
 
@@ -106,7 +102,7 @@ EOF
     "project=broker" \
     "harness=codex" \
     "kind=delivery" \
-    "mode=no-mistakes" \
+    "mode=deep-review" \
     "pr=https://github.com/KashyapTan/Multplx/pull/9"
   printf 'working: building the thing\n' > "$home/state/delivery-task.status"
   mx_write_meta "$home/state/scout-x.meta" \
@@ -134,7 +130,7 @@ EOF
     "project=broker" \
     "harness=codex" \
     "kind=delivery" \
-    "mode=no-mistakes"
+    "mode=deep-review"
   printf 'paused: declared external-wait for upstream release\n' > "$home/state/external-wait.status"
   # The daemon's OWN home backlog records a merge it managed. This lands in the
   # daemon home, never the main backlog, so landed-work views only see it via the
@@ -152,7 +148,7 @@ EOF
   mkdir -p "$mate/projects/mate"
   mx_write_meta "$mate/state/mate.meta" \
     "window=broker:mx-mate" "worktree=$mate/projects/mate" "project=broker" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'needs-decision [key=race]: pick subscribe order\n' > "$mate/state/mate.status"
 }
 
@@ -323,7 +319,7 @@ test_active_child_overrides_old_parent_event() {
 EOF
   mx_write_meta "$mate/state/phase8.meta" \
     "window=broker:mx-phase8" "worktree=$mate/projects/phase8" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'working [key=phase8]: implementing Phase 8 parity\nneeds-decision [key=release]: choose release A or B\n' \
     > "$mate/state/phase8.status"
   fakebin=$(make_fakebin "$home")
@@ -363,7 +359,7 @@ test_structured_child_decision_reaches_maintainers_call() {
 EOF
   mx_write_meta "$mate/state/phase8.meta" \
     "window=broker:mx-phase8" "worktree=$mate/projects/phase8" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'needs-decision [key=release]: choose release A or B\n' > "$mate/state/phase8.status"
   fakebin=$(make_fakebin "$home")
   json=$(run "$home" "$fakebin" --json)
@@ -447,12 +443,12 @@ test_bad_daemon_homes_never_revive_parent_work() {
   printf '## In flight\n- [ ] slow - Slow child (repo: sample) (kind: delivery) (since 2026-07-13)\n\n## Queued\n\n## Done\n' > "$timedout/data/backlog.md"
   mx_write_meta "$timedout/state/slow.meta" \
     "window=broker:mx-slow" "worktree=$wt" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   append_daemon_registry "$home" timedout "$timedout"
   write_parent_daemon_event "$home" timedout "$timedout" "old timed work"
 
   fakebin=$(make_fakebin "$home")
-  json=$(FAKE_NM_SLEEP=1 MX_SNAPSHOT_DAEMON_TIMEOUT=1 run "$home" "$fakebin" --json)
+  json=$(FAKE_ACTOR_SLEEP=1 MX_SNAPSHOT_DAEMON_TIMEOUT=1 run "$home" "$fakebin" --json)
   chmod 700 "$unreadable/data"
   printf '%s' "$json" | jq -e '
     (.daemons | length) == 5
@@ -523,7 +519,7 @@ test_daemon_and_child_bounds_are_disclosed() {
     printf -- '- [ ] %s - Active %s (repo: sample) (kind: delivery) (since 2026-07-13)\n' "$child" "$child" >> "$mate/data/backlog.md"
     mx_write_meta "$mate/state/$child.meta" \
       "window=broker:mx-$child" "worktree=$mate/projects/$child" "project=sample" \
-      "harness=codex" "kind=delivery" "mode=no-mistakes"
+      "harness=codex" "kind=delivery" "mode=deep-review"
     printf 'working [key=%s]: active child %s\n' "$child" "$i" > "$mate/state/$child.status"
     i=$((i + 1))
   done
@@ -632,7 +628,7 @@ EOF
 EOF
   mx_write_meta "$decision/state/$child.meta" \
     "window=broker:mx-$child" "worktree=$decision/projects/$child" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'needs-decision [key=live-route]: choose the current route\n' > "$decision/state/$child.status"
   fakebin=$(make_fakebin "$home")
   canonical=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
@@ -684,7 +680,7 @@ test_nonprogressing_child_states_are_explicit() {
 EOF
   mx_write_meta "$mate/state/parked.meta" \
     "window=broker:mx-parked" "worktree=$mate/projects/parked" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'needs-decision [key=parked]: choose a route\n' > "$mate/state/parked.status"
   fakebin=$(make_fakebin "$home")
   canonical=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
@@ -721,10 +717,10 @@ EOF
 EOF
   mx_write_meta "$mate/state/done.meta" \
     "window=broker:mx-done" "worktree=$mate/projects/done" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   mx_write_meta "$mate/state/failed.meta" \
     "window=broker:mx-failed" "worktree=$mate/projects/failed" "project=sample" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'done: complete\n' > "$mate/state/done.status"
   printf 'failed: stopped\n' > "$mate/state/failed.status"
   rm "$mate/state/parked.meta" "$mate/state/parked.status"
@@ -1457,7 +1453,7 @@ EOF
     "project=broker" \
     "harness=codex" \
     "kind=delivery" \
-    "mode=no-mistakes"
+    "mode=deep-review"
   printf 'working: structured sibling still projects\n' > "$home/state/structured-delivery.status"
   fakebin=$(make_fakebin "$home")
   canonical=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
@@ -1501,7 +1497,7 @@ EOF
     "project=broker" \
     "harness=codex" \
     "kind=delivery" \
-    "mode=no-mistakes"
+    "mode=deep-review"
   printf 'working: visible sibling\n' > "$home/state/visible-delivery.status"
   fakebin=$(make_fakebin "$home")
   json_before=$(run "$home" "$fakebin" --json)
@@ -1518,7 +1514,7 @@ EOF
     "project=broker" \
     "harness=codex" \
     "kind=delivery" \
-    "mode=no-mistakes"
+    "mode=deep-review"
   printf 'working: orphan now has meta\n' > "$home/state/orphan-delivery.status"
   json_after=$(run "$home" "$fakebin" --json)
   printf '%s' "$json_after" | jq -e '
@@ -1559,7 +1555,7 @@ test_mixed_daemon_roles_partial_state_and_maintainer_readiness() {
 EOF
   mx_write_meta "$hibit/state/hibit-worker.meta" \
     "window=broker:mx-hibit-worker" "worktree=$hibit/projects/worker" "project=hibit" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'working: finalizing progress\n' > "$hibit/state/hibit-worker.status"
 
   cat > "$wheel/data/backlog.md" <<'EOF'
@@ -1573,7 +1569,7 @@ EOF
 EOF
   mx_write_meta "$wheel/state/wheel-worker.meta" \
     "window=broker:mx-wheel-worker" "worktree=$wheel/projects/worker" "project=wheelhouse" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'working: active validation\n' > "$wheel/state/wheel-worker.status"
 
   cat > "$sshhip/data/backlog.md" <<'EOF'
@@ -1588,7 +1584,7 @@ EOF
 EOF
   mx_write_meta "$sshhip/state/unreadable-child.meta" \
     "window=broker:dead-sshhip-child" "worktree=$sshhip/projects/child" "project=sshhip" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
 
   cat > "$ha/data/backlog.md" <<'EOF'
 ## In flight
@@ -1602,7 +1598,7 @@ EOF
 EOF
   mx_write_meta "$ha/state/prep.meta" \
     "window=broker:mx-prep" "worktree=$ha/projects/prep" "project=home-assistant" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'working: preparing canary\n' > "$ha/state/prep.status"
 
   fakebin=$(make_fakebin "$home")
@@ -1719,7 +1715,7 @@ EOF
 
   mx_write_meta "$sshhip/state/unreadable-child.meta" \
     "window=broker:mx-unreadable-child" "worktree=$sshhip/projects/child" "project=sshhip" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'working: app store submission restored\n' > "$sshhip/state/unreadable-child.status"
   json=$(run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
@@ -1805,7 +1801,7 @@ test_main_maintainer_readiness_matches_daemon_projection() {
 EOF
   mx_write_meta "$home/state/prep.meta" \
     "window=broker:mx-prep" "worktree=$home/projects/prep" "project=broker" \
-    "harness=codex" "kind=delivery" "mode=no-mistakes"
+    "harness=codex" "kind=delivery" "mode=deep-review"
   printf 'working: preparing main canary\n' > "$home/state/prep.status"
   mx_write_meta "$home/state/observation.meta" \
     "window=broker:mx-observation" "worktree=$home/projects/observation" "project=broker" \

@@ -23,7 +23,7 @@ Load `daemon-provisioning` instead for `kind=daemon` recovery.
 
 Treat the digest's endpoint result as a presence signal, not proof that the task's work or validation run is gone.
 Read the targeted current state with `bin/mx-actor-state.sh <id>` before deciding to relaunch.
-A no-mistakes run matched to the actor's branch and current code remains authoritative when the endpoint is dead: handle a terminal or parked run through the normal lifecycle, and keep monitoring an active run instead of creating a duplicate actor.
+A deep-review run matched to the actor's branch and current code remains authoritative when the endpoint is dead: handle a terminal or parked run through the normal lifecycle, and keep monitoring an active run instead of creating a duplicate actor.
 
 When no authoritative run accounts for the task, inspect only its recorded backend and worktree inventory.
 Use `treehouse status` for treehouse-backed tmux, herdr, or cmux tasks.

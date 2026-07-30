@@ -1,35 +1,20 @@
 # Contributing
 
 Thanks for wanting to contribute.
-One rule up front:
-
-**Human-authored pull requests targeting `main` must be raised through [`no-mistakes`](https://github.com/kunchenguid/no-mistakes).**
-We require this to reduce the maintainer's burden of reviewing and merging contributions.
-
-`no-mistakes` puts a local git proxy in front of your real remote.
-Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.
-
-A GitHub Actions check (`Require no-mistakes`) runs on PRs targeting `main` and fails if the body is missing the deterministic signature that no-mistakes writes.
-It evaluates every PR opening and body edit independently, so a later edit cannot replace an earlier pending compliance check.
-GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.
+Multplx owns its full local validation gate in this repository.
+It does not require an external git proxy or a signed pull-request body.
 
 ## Workflow
 
 1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:KashyapTan/Multplx.git`).
 2. Create a branch and make your changes.
-3. Initialize the gate with your fork as the push target: `no-mistakes init --fork-url git@github.com:<you>/Multplx.git` (Multplx expects **no-mistakes v1.31.2+**; without a fork, plain `no-mistakes init` still works for maintainers with push access).
-4. Commit your changes.
-5. Push through the gate instead of pushing to `origin`:
+3. Run focused tests for the behavior you changed, then run the complete behavior suite before opening a PR.
+4. Commit your changes, push the branch to your fork, and open the PR against `main`.
 
-   ```sh
-   git push no-mistakes
-   ```
-
-6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
-   Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
-7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
-
-See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/) for the full first-run walkthrough.
+Multplx-managed delivery tasks use a stricter automated path.
+The actor runs `bin/mx-deep-review.sh <task-id> --intent-file <brief>` from its assigned `mx/<task-id>` worktree.
+That intent-targeted gate performs rebase, review, focused test, documentation, and lint locally, then writes a pending exact-SHA handoff without pushing.
+Only the separately approved, credentialed delivery service may consume that handoff, push its exact SHA, and open the PR.
 
 ## Repo conventions
 
@@ -37,7 +22,7 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
   `example_agents.md` is the non-auto-loaded broker job-description template during the port; `CLAUDE.md` contains active contributor direction, and `.claude/skills` is a symlink to `.agents/skills`.
 - Only shared material is tracked: `example_agents.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency (see the README's "Two-tier skill layout").
-  Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`, `.no-mistakes/`) is gitignored; never commit it.
+  Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
   The in-repo backlog library owns `data/backlog.md`, its parser, retention defaults, and routine mutations as documented in [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
   A local `config/backlog-backend=manual` opt-out forces the broker's routine backlog updates to hand-editing and stays gitignored; validated daemon handoffs still route through the owned atomic move.
   A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; spawn-supported values are `tmux` plus experimental `herdr` and `cmux`, while `codex-app` is documented only in `docs/codex-app-backend.md`.
@@ -60,12 +45,10 @@ It has the knowledge-placement rules that keep `example_agents.md` from regrowin
 There is no reliable way for `bin/mx-brief.sh`'s scaffold to detect that a task's repo is Multplx itself, so the broker adds this skill's load line to Multplx-repo briefs by hand.
 An actor picking up such a brief should load the skill even if the brief predates this instruction.
 When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
-Multplx actors stop at a clean local commit and never invoke the contributor-facing push gate, push a branch, or open a PR.
-The local validation path owns later review and fixes, routes every `ask-user` finding to the broker under the authority contract in `example_agents.md`, and hands only an approved exact SHA to the non-agent delivery service.
-Human contributors using their own credentials may continue to follow the contributor workflow above.
-Local `.no-mistakes/` state and test evidence stay out of this repo; `.no-mistakes.yaml` keeps evidence in a temp directory.
-Local no-mistakes Test is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.
-That is Multplx-specific; do not commit `.no-mistakes/evidence/` here even when another no-mistakes-managed target project keeps committed PR evidence.
+Multplx actors stop at the local deep-review handoff and never push a branch or open a PR.
+The gate routes every `ask-user` finding through the validated status path under the authority contract in `example_agents.md`.
+Its private restart-safe evidence lives under `state/<task-id>.gate/`, outside project commits.
+The local gate's test step is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.
 
 Check and test the toolbelt before pushing:
 
@@ -90,7 +73,7 @@ Its header and `--help` own the flags, family labels, lanes, and changed-file ma
 `bin/mx-test-isolation-proof.sh` consumes the runner manifest and owns repeated conflict-matrix and leak proof; see `docs/mx-test-isolation-proof.md`.
 Portable shard balance evidence lives in `docs/mx-test-portable-shards.md`.
 The performance baseline, current accepted proof, and local/CI targets live in `docs/mx-test-performance.md`.
-Local no-mistakes Test stays intent-targeted and must not wire `commands.test` to `--all` or a `tests/*.test.sh` walk.
+The deep-review test step stays intent-targeted and must not wire `.deep-review.yaml` `commands.test` to `--all` or a `tests/*.test.sh` walk.
 Family selection is the ordinary focused path; `--all` is the accelerated complete regression.
 Use `--jobs 1` whenever a failure needs serial reproduction.
 CI owns broad regression across required portable parallel shards, the portable serial lane, the Herdr lane, invariants, the coverage guard, and macOS snapshot compatibility in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).

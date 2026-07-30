@@ -177,7 +177,7 @@ cat > "$STATE/repair-task.meta" <<EOF
 window=$CHILD_TARGET
 backend=herdr
 kind=delivery
-mode=no-mistakes
+mode=deep-review
 worktree=$PROJECT
 project=synthetic-project
 EOF

@@ -150,7 +150,7 @@ test_actor_target_is_not_marked() {
   home=$(setup_home actors)
   mx_write_meta "$home/state/build.meta" \
     "window=sess:mx-build" "worktree=$home/wt" "project=$home/p" \
-    "harness=echo" "kind=delivery" "mode=no-mistakes" "yolo=off"
+    "harness=echo" "kind=delivery" "mode=deep-review" "yolo=off"
   run_send "$fb" "$home" "$log" "mx-build" "fix the test"; rc=$?
   expect_code 0 "$rc" "send to a stable-label actor target should succeed"
   got=$(cat "$log")

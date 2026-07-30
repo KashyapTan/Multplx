@@ -1,0 +1,33 @@
+# Per-repository deep-review configuration.
+#
+# Code-executing fields are read from the trusted default-branch copy.
+# A branch under review cannot alter them unless the trusted copy explicitly
+# enables allow_repo_commands.
+allow_repo_commands: false
+disable_project_settings: true
+
+# Local validation remains intent-targeted.
+# Remote CI owns the complete regression suite, so commands.test must never be
+# a tests/*.test.sh walk or mx-test-run.sh --all.
+commands:
+  test: ""
+  lint: ""
+  format: ""
+
+# Trusted documentation placement policy for the Document step.
+document:
+  instructions: |
+    Read docs/documentation-audiences.md and its machine-consumed
+    docs/documentation-audiences.json inventory before changing documentation.
+    Apply the knowledge-placement policy in
+    .agents/skills/multplx-coding-guidelines/SKILL.md.
+    For changed prose, verify audience, authoritative owner, current relevance,
+    evidence destination, and unique safety facts, then review the complete
+    branch diff again after every documentation or lint fix.
+
+ignore_patterns:
+  - "plans/"
+
+test:
+  evidence:
+    store_in_repo: false

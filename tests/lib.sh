@@ -9,7 +9,7 @@
 # reporters, a self-cleaning temp root, fakebin/PATH-shim helpers, deterministic
 # git identity and fixture builders, state/<id>.meta writers, and the common
 # string/exit-code/file assertions. It deliberately does NOT bundle the
-# behavior-specific fake tmux/treehouse/no-mistakes mocks: those encode terminal
+# behavior-specific fake tmux/treehouse mocks: those encode terminal
 # and lifecycle assumptions that differ per suite and belong with the tests that
 # own them.
 #
@@ -26,8 +26,8 @@ fi
 MX_TEST_LIB_SOURCED=1
 
 # Exempt broker's own test suite from the gate-lifecycle refusal
-# (bin/mx-gate-refuse-lib.sh). The no-mistakes gate runs this suite FROM a gate
-# worktree - the exact environment that guard refuses - so without this every
+# (bin/mx-gate-refuse-lib.sh). Focused gate tests run FROM a gate worktree, so
+# without this every
 # test that drives the real mx-spawn/mx-send/mx-teardown would be refused during
 # broker's own validation. A confused gate agent never sources this helper, so
 # the boundary against the real hazard is unaffected. tests/mx-gate-refuse.test.sh
@@ -37,7 +37,7 @@ export MX_GATE_REFUSE_BYPASS=1
 # Start behavior tests from neutral agent ambience.
 # Dedicated boundary cases set these markers explicitly; ambient desktop
 # harness markers must not alter otherwise unrelated command fixtures.
-unset CLAUDECODE CODEX_THREAD_ID PI_CODING_AGENT NO_MISTAKES_GATE DEEP_REVIEW_GATE
+unset CLAUDECODE CODEX_THREAD_ID PI_CODING_AGENT DEEP_REVIEW_GATE
 
 # Existing behavior suites test the lower-level spawn lifecycle in isolation.
 # Plan-07 headroom and queue suites unset this and own capacity enforcement.

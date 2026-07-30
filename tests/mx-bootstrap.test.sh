@@ -5,9 +5,8 @@
 # BOOTSTRAP_INFO fact, or completed bootstrap no-action fact and is silent when
 # all is well. broker consumes the exact 'MISSING: treehouse (install: ...)',
 # 'HEADROOM_INVALID: ...', and 'BOOTSTRAP_INFO: ...' lines, so those contracts
-# are pinned verbatim. The cases are table-driven over the inputs that vary:
-# whether the universally-required `treehouse get --help` advertises --lease
-# and which no-mistakes version is on PATH.
+# are pinned verbatim. The cases are table-driven over whether the
+# universally-required `treehouse get --help` advertises --lease.
 # Dedicated system-sync cases pin the computed bootstrap timeout, explicit
 # override, blank-env defaulting, partial-output relay, and pre-launch timeout
 # scan.
@@ -56,15 +55,6 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/treehouse"
-  cat > "$fakebin/no-mistakes" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = --version ]; then
-  printf '%s\n' "${MX_FAKE_NO_MISTAKES_VERSION:-no-mistakes version v1.31.2 (fake) 2026-06-27T00:02:18Z}"
-  exit 0
-fi
-exit 0
-SH
-  chmod +x "$fakebin/no-mistakes"
   printf '%s\n' "$fakebin"
 }
 
@@ -213,36 +203,6 @@ treehouse --lease support is accepted silently^1^empty^^
 treehouse without --lease reports an upgrade^0^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^
 ROWS
   pass "bootstrap reports treehouse lease and owned headroom contracts"
-}
-
-test_no_mistakes_min_version() {
-  local label version mode case_dir fakebin out missing n
-  missing='MISSING: no-mistakes (install: curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh)'
-  n=0
-  while IFS='^' read -r label version mode; do
-    [ -n "$label" ] || continue
-    n=$((n + 1))
-    case_dir="$TMP_ROOT/no-mistakes-$n"
-    mkdir -p "$case_dir/home"
-    mkdir -p "$case_dir/home/config"
-    printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
-    fakebin=$(make_fake_toolchain "$case_dir")
-    out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-      MX_FAKE_TREEHOUSE_LEASE_HELP=1 MX_FAKE_NO_MISTAKES_VERSION="$version" "$ROOT/bin/mx-bootstrap.sh")
-    case "$mode" in
-      empty)
-        [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
-      missing)
-        [ "$out" = "$missing" ] || fail "$label: expected '$missing', got: $out" ;;
-    esac
-  done <<'ROWS'
-minimum no-mistakes version is accepted^no-mistakes version v1.31.2 (fake)^empty
-newer no-mistakes minor is accepted^no-mistakes version v1.32.0 (fake)^empty
-newer no-mistakes major is accepted^no-mistakes version v2.0.0 (fake)^empty
-older no-mistakes patch reports an upgrade^no-mistakes version v1.31.1 (fake)^missing
-unparseable no-mistakes version reports an upgrade^no-mistakes development build^missing
-ROWS
-  pass "bootstrap enforces no-mistakes minimum version"
 }
 
 test_git_is_required_with_supported_install_instruction() {
@@ -716,7 +676,6 @@ ROWS
 }
 
 test_bootstrap_reporting
-test_no_mistakes_min_version
 test_git_is_required_with_supported_install_instruction
 test_session_provider_backends_do_not_require_tmux
 test_session_provider_backends_gate_own_cli_not_tmux

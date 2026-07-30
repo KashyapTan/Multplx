@@ -4,7 +4,7 @@
 # and keeps blocking; it queues and exits only for actionable wakes.
 # The no-verb signal and stale path is absorb-only-when-provably-working: a wake
 # is absorbed only when the actor shows POSITIVE evidence it is still working (an
-# actively-running no-mistakes step, or a backend busy signal), and surfaced
+# actively-running deep-review step, or a backend busy signal), and surfaced
 # otherwise, so an actor that finishes (or stops and waits) without a current
 # working signal is never silently swallowed. A declared external-wait pause is
 # the separate idle absorb case and re-surfaces only on its long bounded cadence,
@@ -114,7 +114,7 @@ BUSY_REGEX=${MX_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.'}
 # debug log, and keeps blocking WITHOUT enqueuing or exiting. The no-verb signal
 # / stale path is absorb-only-when-provably-working: such a wake is absorbed ONLY
 # while the actor shows positive evidence it is still working (native runtime
-# state, an actively-running no-mistakes step, or a busy pane, via actor_is_provably_working over
+# state, an actively-running deep-review step, or a busy pane, via actor_is_provably_working over
 # mx-actor-state.sh); an actor that stopped its turn with no running pipeline and no
 # busy pane is SURFACED, so a finish reported only through interactive pane menus
 # (no done: status) is never swallowed. An ACTIONABLE wake (a maintainer-relevant
@@ -807,8 +807,8 @@ EOF
     # Actionable -> enqueue, advance .seen-* markers, exit. Benign (a no-verb wake
     # whose actor IS provably working) in always-on mode -> advance the markers so it
     # will not re-fire, log, and keep blocking without enqueuing. The provably-working
-    # check is the only costly one (it may run a bounded no-mistakes call), so the ||
-    # ordering evaluates it ONLY for a non-afk, no-maintainer-verb signal.
+    # check includes current-state reconciliation, so the || ordering evaluates
+    # it ONLY for a non-afk, no-maintainer-verb signal.
     # shellcheck disable=SC2086  # $files is a space-separated status-path list (ids carry no spaces)
     if afk_present || signal_reason_is_actionable $files || ! signal_actor_provably_working $files; then
       while IFS=$(printf '\t') read -r sf sig f; do
@@ -893,7 +893,7 @@ EOF
         elif stale_is_terminal "$w" "$STATE"; then
           # The log's last line is maintainer-relevant - but that alone is not
           # proof the actor is actually done: an actor's own status log gets no
-          # new entry once broker hands it to a no-mistakes validation
+          # new entry once broker hands it to a deep-review validation
           # (AGENTS.md's sparse status-reporting contract), so the log can
           # keep showing a "done:"/needs-decision/blocked leftover from
           # BEFORE that validation started for the run's entire (possibly

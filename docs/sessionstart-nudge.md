@@ -8,7 +8,7 @@ The Recap skill owns the rule that this marked operational input is never a main
 ## Shared wrapper and safety
 
 `bin/mx-sessionstart-nudge.sh` is the single command every harness adapter invokes.
-It sources `bin/mx-gate-refuse-lib.sh` and stays silent for a no-mistakes gate agent identified by `NO_MISTAKES_GATE` or a `.no-mistakes/repos/*.git` git-common-dir.
+It sources `bin/mx-gate-refuse-lib.sh` and stays silent whenever a gate agent carries the `DEEP_REVIEW_GATE` marker.
 It shares `bin/mx-primary-scope-lib.sh` with `bin/mx-turnend-guard.sh`, so the hooks use one primary-detection owner.
 The Shared Predicate section of [`turnend-guard.md`](turnend-guard.md#shared-predicate) owns marker validation, plain-checkout detection, and required Multplx-shaped paths.
 

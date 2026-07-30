@@ -10,7 +10,7 @@ if [ "${MX_PI_LIVE_E2E:-0}" != 1 ]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-unset NO_MISTAKES_GATE
+unset DEEP_REVIEW_GATE
 
 fail() {
   printf 'not ok - %s\n' "$1" >&2
