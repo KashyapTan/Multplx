@@ -28,6 +28,37 @@ test_quiet_checkpoint_exits_124_cleanly() {
   pass "quiet checkpoint exits 124 with a clean checkpoint line and no live lock"
 }
 
+test_migration_lock_claim_timeout_cleans_lock() {
+  local home fakebin out err status real_cat
+  home=$(make_home migration-timeout)
+  fakebin="$home/fakebin"
+  out="$home/out.txt"
+  err="$home/err.txt"
+  real_cat=$(command -v cat)
+  mkdir -p "$fakebin"
+  cat > "$fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+last=
+[ "$#" -eq 0 ] || last=${!#}
+"$MX_TEST_REAL_CAT" "$@"
+status=$?
+case "$last" in
+  */.watch.lock.owner.*/pid) sleep 10 ;;
+esac
+exit "$status"
+SH
+  chmod 0700 "$fakebin/cat"
+
+  status=0
+  PATH="$fakebin:$PATH" MX_TEST_REAL_CAT="$real_cat" \
+    MX_HOME="$home" MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=999999 \
+    "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  expect_code 124 "$status" "migration lock-claim timeout"
+  [ ! -e "$home/state/.watch.lock" ] && [ ! -L "$home/state/.watch.lock" ] \
+    || fail "migration lock survived termination during its ownership claim"
+  pass "migration lock ownership is cleaned when checkpoint timeout interrupts its claim"
+}
+
 test_signal_passes_through_and_exits_zero() {
   local home out err status drained
   home=$(make_home signal)
@@ -88,6 +119,7 @@ test_existing_singleton_watcher_is_not_success() {
 }
 
 test_quiet_checkpoint_exits_124_cleanly
+test_migration_lock_claim_timeout_cleans_lock
 test_signal_passes_through_and_exits_zero
 test_registered_check_uses_preserved_watcher_environment
 test_existing_singleton_watcher_is_not_success

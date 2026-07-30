@@ -26,7 +26,6 @@ document:
     branch diff again after every documentation or lint fix.
 
 ignore_patterns:
-  - "firstmate/"
   - "plans/"
 
 test:

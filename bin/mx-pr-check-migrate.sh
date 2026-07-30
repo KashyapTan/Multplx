@@ -248,6 +248,25 @@ migration_complete && exit 0
 # shellcheck source=bin/mx-wake-lib.sh disable=SC1091
 . "$SCRIPT_DIR/mx-wake-lib.sh"
 
+lock_held=0
+MIGRATION_MARKER_TMP=
+MIGRATION_SCAN_MARKER_TMP=
+MIGRATION_LOG_TMP=
+MIGRATION_OBLIGATION_TMP=
+MIGRATION_QUARANTINE_TMP=
+migration_cleanup() {
+  mx_pr_poll_cleanup
+  [ -z "$MIGRATION_QUARANTINE_TMP" ] || rm -f -- "$MIGRATION_QUARANTINE_TMP"
+  [ -z "$MIGRATION_OBLIGATION_TMP" ] || rm -f -- "$MIGRATION_OBLIGATION_TMP"
+  [ -z "$MIGRATION_LOG_TMP" ] || rm -f -- "$MIGRATION_LOG_TMP"
+  [ -z "$MIGRATION_MARKER_TMP" ] || rm -f -- "$MIGRATION_MARKER_TMP"
+  [ -z "$MIGRATION_SCAN_MARKER_TMP" ] || rm -f -- "$MIGRATION_SCAN_MARKER_TMP"
+  # Ownership-aware release is safe before, during, and after acquisition.
+  mx_lock_release "$WATCH_LOCK"
+}
+trap migration_cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
 stopped_watcher=0
 pid=$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)
 if mx_pid_alive "$pid"; then
@@ -271,7 +290,6 @@ if mx_pid_alive "$pid"; then
   fi
 fi
 
-lock_held=0
 i=0
 while [ "$i" -lt 100 ]; do
   if mx_lock_try_acquire "$WATCH_LOCK"; then
@@ -292,23 +310,6 @@ if [ "$lock_held" -ne 1 ]; then
   echo "PR_CHECK_MIGRATION: watcher exclusion could not be acquired; review state/.watch.lock before rearming polls" >&2
   exit 1
 fi
-
-MIGRATION_MARKER_TMP=
-MIGRATION_SCAN_MARKER_TMP=
-MIGRATION_LOG_TMP=
-MIGRATION_OBLIGATION_TMP=
-MIGRATION_QUARANTINE_TMP=
-migration_cleanup() {
-  mx_pr_poll_cleanup
-  [ -z "$MIGRATION_QUARANTINE_TMP" ] || rm -f -- "$MIGRATION_QUARANTINE_TMP"
-  [ -z "$MIGRATION_OBLIGATION_TMP" ] || rm -f -- "$MIGRATION_OBLIGATION_TMP"
-  [ -z "$MIGRATION_LOG_TMP" ] || rm -f -- "$MIGRATION_LOG_TMP"
-  [ -z "$MIGRATION_MARKER_TMP" ] || rm -f -- "$MIGRATION_MARKER_TMP"
-  [ -z "$MIGRATION_SCAN_MARKER_TMP" ] || rm -f -- "$MIGRATION_SCAN_MARKER_TMP"
-  [ "$lock_held" -ne 1 ] || mx_lock_release "$WATCH_LOCK"
-}
-trap migration_cleanup EXIT
-trap 'exit 1' HUP INT TERM
 
 if [ ! -d "$STATE" ] || [ -L "$STATE" ]; then
   echo "PR_CHECK_MIGRATION: state directory is not a private ordinary directory; migration did not complete safely" >&2
