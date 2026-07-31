@@ -1,9 +1,9 @@
 {
   "concurrency": 4,
-  "conflict_pairs": 479,
-  "finished_at": "2026-07-31T01:55:58Z",
+  "conflict_pairs": 482,
+  "finished_at": "2026-07-31T02:58:02Z",
   "kind": "resource-isolation-proof",
-  "manifest_sha256": "159fc164b41ac51f4bef614097c57404aea5543145707bff663a251ce1d15180",
+  "manifest_sha256": "56e274e3c6808146a926582b50b2f9959b181a45074249c5dff42ba858672c4f",
   "repeats": 1,
   "resource_manifest": [
     {
@@ -269,6 +269,12 @@
     },
     {
       "path": "tests/mx-dispatch-queue.test.sh",
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "path": "tests/mx-doctor.test.sh",
       "resources": [
         "none"
       ]
@@ -703,16 +709,16 @@
   ],
   "rounds": [
     {
-      "duration_ms": 250725,
+      "duration_ms": 250195,
       "exit": 0,
       "repeat": 1,
-      "run_id": "mx-test-run-1785462707800-36417",
+      "run_id": "mx-test-run-1785466432612-33190",
       "runner_exit": 0
     }
   ],
   "scripts": [
     {
-      "duration_ms": 1060,
+      "duration_ms": 1012,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -723,7 +729,7 @@
       ]
     },
     {
-      "duration_ms": 33678,
+      "duration_ms": 33854,
       "exit": 0,
       "family": "afk",
       "gate_skip": false,
@@ -734,7 +740,7 @@
       ]
     },
     {
-      "duration_ms": 3708,
+      "duration_ms": 3614,
       "exit": 0,
       "family": "afk",
       "gate_skip": false,
@@ -745,7 +751,7 @@
       ]
     },
     {
-      "duration_ms": 12843,
+      "duration_ms": 12643,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -756,7 +762,7 @@
       ]
     },
     {
-      "duration_ms": 126,
+      "duration_ms": 125,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -767,7 +773,7 @@
       ]
     },
     {
-      "duration_ms": 7552,
+      "duration_ms": 7341,
       "exit": 0,
       "family": "cmux",
       "gate_skip": false,
@@ -778,7 +784,7 @@
       ]
     },
     {
-      "duration_ms": 24389,
+      "duration_ms": 24219,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -789,7 +795,7 @@
       ]
     },
     {
-      "duration_ms": 385,
+      "duration_ms": 397,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -800,7 +806,7 @@
       ]
     },
     {
-      "duration_ms": 20780,
+      "duration_ms": 20742,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -811,7 +817,7 @@
       ]
     },
     {
-      "duration_ms": 748,
+      "duration_ms": 711,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -822,7 +828,7 @@
       ]
     },
     {
-      "duration_ms": 925,
+      "duration_ms": 889,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -833,7 +839,7 @@
       ]
     },
     {
-      "duration_ms": 30102,
+      "duration_ms": 29814,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -844,7 +850,7 @@
       ]
     },
     {
-      "duration_ms": 635,
+      "duration_ms": 640,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -855,7 +861,7 @@
       ]
     },
     {
-      "duration_ms": 8734,
+      "duration_ms": 8263,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -866,7 +872,7 @@
       ]
     },
     {
-      "duration_ms": 6814,
+      "duration_ms": 6712,
       "exit": 0,
       "family": "unclassified",
       "gate_skip": false,
@@ -877,7 +883,7 @@
       ]
     },
     {
-      "duration_ms": 1282,
+      "duration_ms": 1135,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -888,7 +894,7 @@
       ]
     },
     {
-      "duration_ms": 57,
+      "duration_ms": 44,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -899,7 +905,7 @@
       ]
     },
     {
-      "duration_ms": 15259,
+      "duration_ms": 15321,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -910,7 +916,7 @@
       ]
     },
     {
-      "duration_ms": 60554,
+      "duration_ms": 60012,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -921,7 +927,7 @@
       ]
     },
     {
-      "duration_ms": 19427,
+      "duration_ms": 19231,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -932,7 +938,7 @@
       ]
     },
     {
-      "duration_ms": 5627,
+      "duration_ms": 5320,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -943,7 +949,7 @@
       ]
     },
     {
-      "duration_ms": 15558,
+      "duration_ms": 15199,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -954,7 +960,7 @@
       ]
     },
     {
-      "duration_ms": 28710,
+      "duration_ms": 29553,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -965,7 +971,7 @@
       ]
     },
     {
-      "duration_ms": 18429,
+      "duration_ms": 18517,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -976,7 +982,7 @@
       ]
     },
     {
-      "duration_ms": 18371,
+      "duration_ms": 18782,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -987,7 +993,7 @@
       ]
     },
     {
-      "duration_ms": 9566,
+      "duration_ms": 9379,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -998,7 +1004,7 @@
       ]
     },
     {
-      "duration_ms": 39,
+      "duration_ms": 40,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1009,7 +1015,7 @@
       ]
     },
     {
-      "duration_ms": 690,
+      "duration_ms": 635,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1020,7 +1026,7 @@
       ]
     },
     {
-      "duration_ms": 9300,
+      "duration_ms": 9253,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1031,7 +1037,7 @@
       ]
     },
     {
-      "duration_ms": 799,
+      "duration_ms": 780,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1042,7 +1048,18 @@
       ]
     },
     {
-      "duration_ms": 593,
+      "duration_ms": 4272,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-doctor.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 595,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1053,7 +1070,7 @@
       ]
     },
     {
-      "duration_ms": 218,
+      "duration_ms": 235,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1064,7 +1081,7 @@
       ]
     },
     {
-      "duration_ms": 61,
+      "duration_ms": 60,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1075,7 +1092,7 @@
       ]
     },
     {
-      "duration_ms": 891,
+      "duration_ms": 740,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1086,7 +1103,7 @@
       ]
     },
     {
-      "duration_ms": 1663,
+      "duration_ms": 1736,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1097,7 +1114,7 @@
       ]
     },
     {
-      "duration_ms": 426,
+      "duration_ms": 417,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1108,7 +1125,7 @@
       ]
     },
     {
-      "duration_ms": 7747,
+      "duration_ms": 7109,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1119,7 +1136,7 @@
       ]
     },
     {
-      "duration_ms": 5809,
+      "duration_ms": 5531,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1130,7 +1147,7 @@
       ]
     },
     {
-      "duration_ms": 88,
+      "duration_ms": 76,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1141,7 +1158,7 @@
       ]
     },
     {
-      "duration_ms": 262,
+      "duration_ms": 267,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1152,7 +1169,7 @@
       ]
     },
     {
-      "duration_ms": 208,
+      "duration_ms": 198,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1163,7 +1180,7 @@
       ]
     },
     {
-      "duration_ms": 159,
+      "duration_ms": 150,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1174,7 +1191,7 @@
       ]
     },
     {
-      "duration_ms": 2932,
+      "duration_ms": 2914,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1185,7 +1202,7 @@
       ]
     },
     {
-      "duration_ms": 4629,
+      "duration_ms": 4586,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1196,7 +1213,7 @@
       ]
     },
     {
-      "duration_ms": 169,
+      "duration_ms": 157,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1207,7 +1224,7 @@
       ]
     },
     {
-      "duration_ms": 7239,
+      "duration_ms": 6777,
       "exit": 0,
       "family": "unclassified",
       "gate_skip": false,
@@ -1229,7 +1246,7 @@
       ]
     },
     {
-      "duration_ms": 7681,
+      "duration_ms": 7693,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1240,7 +1257,7 @@
       ]
     },
     {
-      "duration_ms": 85779,
+      "duration_ms": 85382,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1251,7 +1268,7 @@
       ]
     },
     {
-      "duration_ms": 31694,
+      "duration_ms": 31514,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1262,7 +1279,7 @@
       ]
     },
     {
-      "duration_ms": 23395,
+      "duration_ms": 23240,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1273,7 +1290,7 @@
       ]
     },
     {
-      "duration_ms": 4358,
+      "duration_ms": 4381,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1284,7 +1301,7 @@
       ]
     },
     {
-      "duration_ms": 2558,
+      "duration_ms": 2468,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1295,7 +1312,7 @@
       ]
     },
     {
-      "duration_ms": 857,
+      "duration_ms": 844,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1306,7 +1323,7 @@
       ]
     },
     {
-      "duration_ms": 217,
+      "duration_ms": 211,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1317,7 +1334,7 @@
       ]
     },
     {
-      "duration_ms": 587,
+      "duration_ms": 580,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1328,7 +1345,7 @@
       ]
     },
     {
-      "duration_ms": 1611,
+      "duration_ms": 1806,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1339,7 +1356,7 @@
       ]
     },
     {
-      "duration_ms": 3328,
+      "duration_ms": 3183,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -1350,7 +1367,7 @@
       ]
     },
     {
-      "duration_ms": 3821,
+      "duration_ms": 3652,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1361,7 +1378,7 @@
       ]
     },
     {
-      "duration_ms": 1203,
+      "duration_ms": 1188,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1372,7 +1389,7 @@
       ]
     },
     {
-      "duration_ms": 1090,
+      "duration_ms": 1269,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1383,7 +1400,7 @@
       ]
     },
     {
-      "duration_ms": 9905,
+      "duration_ms": 10083,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1394,7 +1411,7 @@
       ]
     },
     {
-      "duration_ms": 9758,
+      "duration_ms": 9072,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1405,7 +1422,7 @@
       ]
     },
     {
-      "duration_ms": 17693,
+      "duration_ms": 18459,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1416,7 +1433,7 @@
       ]
     },
     {
-      "duration_ms": 307,
+      "duration_ms": 286,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1427,7 +1444,7 @@
       ]
     },
     {
-      "duration_ms": 4337,
+      "duration_ms": 3661,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -1438,7 +1455,7 @@
       ]
     },
     {
-      "duration_ms": 36,
+      "duration_ms": 33,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1449,7 +1466,7 @@
       ]
     },
     {
-      "duration_ms": 733,
+      "duration_ms": 746,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1460,7 +1477,7 @@
       ]
     },
     {
-      "duration_ms": 21594,
+      "duration_ms": 21608,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1471,7 +1488,7 @@
       ]
     },
     {
-      "duration_ms": 5012,
+      "duration_ms": 5062,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -1482,7 +1499,7 @@
       ]
     },
     {
-      "duration_ms": 15435,
+      "duration_ms": 15196,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -1493,7 +1510,7 @@
       ]
     },
     {
-      "duration_ms": 13021,
+      "duration_ms": 13232,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -1504,7 +1521,7 @@
       ]
     },
     {
-      "duration_ms": 28544,
+      "duration_ms": 28446,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -1515,7 +1532,7 @@
       ]
     },
     {
-      "duration_ms": 43,
+      "duration_ms": 38,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1526,7 +1543,7 @@
       ]
     },
     {
-      "duration_ms": 1097,
+      "duration_ms": 1089,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1537,7 +1554,7 @@
       ]
     },
     {
-      "duration_ms": 388,
+      "duration_ms": 372,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1548,7 +1565,7 @@
       ]
     },
     {
-      "duration_ms": 134,
+      "duration_ms": 122,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1559,7 +1576,7 @@
       ]
     },
     {
-      "duration_ms": 7020,
+      "duration_ms": 6946,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -1570,7 +1587,7 @@
       ]
     },
     {
-      "duration_ms": 21138,
+      "duration_ms": 21487,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1581,7 +1598,7 @@
       ]
     },
     {
-      "duration_ms": 7574,
+      "duration_ms": 7545,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1592,7 +1609,7 @@
       ]
     },
     {
-      "duration_ms": 32883,
+      "duration_ms": 33213,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -1603,7 +1620,7 @@
       ]
     },
     {
-      "duration_ms": 235,
+      "duration_ms": 224,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1614,7 +1631,7 @@
       ]
     },
     {
-      "duration_ms": 1624,
+      "duration_ms": 1666,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1625,7 +1642,7 @@
       ]
     },
     {
-      "duration_ms": 1021,
+      "duration_ms": 1241,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1636,7 +1653,7 @@
       ]
     },
     {
-      "duration_ms": 78,
+      "duration_ms": 73,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1647,7 +1664,7 @@
       ]
     },
     {
-      "duration_ms": 9891,
+      "duration_ms": 10036,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1658,7 +1675,7 @@
       ]
     },
     {
-      "duration_ms": 4798,
+      "duration_ms": 4013,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -1669,7 +1686,7 @@
       ]
     },
     {
-      "duration_ms": 4123,
+      "duration_ms": 4068,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1680,7 +1697,7 @@
       ]
     },
     {
-      "duration_ms": 4418,
+      "duration_ms": 4399,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1691,7 +1708,7 @@
       ]
     },
     {
-      "duration_ms": 23214,
+      "duration_ms": 23408,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1702,7 +1719,7 @@
       ]
     },
     {
-      "duration_ms": 9499,
+      "duration_ms": 9446,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1713,7 +1730,7 @@
       ]
     },
     {
-      "duration_ms": 80299,
+      "duration_ms": 80044,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1724,7 +1741,7 @@
       ]
     },
     {
-      "duration_ms": 27689,
+      "duration_ms": 26968,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -1735,7 +1752,7 @@
       ]
     },
     {
-      "duration_ms": 353,
+      "duration_ms": 350,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1746,7 +1763,7 @@
       ]
     },
     {
-      "duration_ms": 15241,
+      "duration_ms": 14996,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -1757,10 +1774,10 @@
       ]
     }
   ],
-  "started_at": "2026-07-31T01:51:47Z",
+  "started_at": "2026-07-31T02:53:52Z",
   "summary": {
-    "candidates_per_round": 95,
-    "duration_ms": 250780,
+    "candidates_per_round": 96,
+    "duration_ms": 250253,
     "failed_rounds": 0,
     "known_failure_observations": 0,
     "leaks": 0
