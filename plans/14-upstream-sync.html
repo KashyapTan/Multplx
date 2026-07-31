@@ -309,6 +309,14 @@ stages:
 <p style="margin:0">"A couple of consecutive low-value runs" is a heuristic, not a rule. Deliberately left to maintainer judgment — the design's job is only to make the decision cheap to take and impossible to take silently (<code>status: retired</code> + reason in the tracked record).</p>
 </div>
 
+<h2>Deviations</h2>
+<ul>
+  <li><b>The shipped workflow has six stages rather than the five-stage sketch.</b> The plan-11 engine runs a command before applying its <code>approve</code> gate, so an approve-gated record command would mutate <code>last_reviewed</code> before the final approval existed. The implementation uses an interactive approve-gated <code>record</code> stage followed by an auto-gated deterministic <code>advance</code> command, preserving approval-before-mutation.</li>
+  <li><b>The port stage uses a declared output contract rather than an unconditional <code>local-commits</code> contract.</b> Version 1 has no conditional contract or branch primitive, and the plan requires an empty approved-port list to be a valid path. The port result records local commits and deep-review evidence when ports exist, while the final record approval refuses advancement until every approved fix and map update has landed through the ordinary delivery path.</li>
+  <li><b>Mixed provider files are flagged instead of treating GitLab-only hunks as mechanically deleted.</b> The deterministic filter classifies paths, not semantic hunks, so <code>bin/fm-pr-*.sh</code> and their tests cannot safely distinguish removed GitLab code from retained GitHub code. The conservative <code>flag</code> mapping prevents a relevant mixed-file fix from being silently skipped.</li>
+  <li><b>Retired-dependency tripwires narrowly exclude the upstream record and its dedicated test fixtures.</b> Those files must name removed upstream paths to prove classification, while every maintained implementation path remains covered by the original zero-reference assertions.</li>
+</ul>
+
 <div class="footer-nav">
   <a href="13-doctor.html">← Plan 13: doctor</a>
   <a href="index.html">Index</a>

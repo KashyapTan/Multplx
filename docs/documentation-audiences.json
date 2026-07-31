@@ -328,7 +328,19 @@
       "audience": "public-product"
     },
     {
+      "path": "tests/fixtures/upstream-sync/record.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/upstream-sync/report.golden.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "workflows/new-feature.workflow.md",
+      "audience": "operator-example"
+    },
+    {
+      "path": "workflows/upstream-sync.workflow.md",
       "audience": "operator-example"
     }
   ]

@@ -174,6 +174,7 @@ The engine snapshots a validated definition at launch and every resume reads onl
 Interactive approvals reuse durable decision holds, broker agent stages reuse the verified deep-review one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and delivery remains outside agent credential context.
 Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-stage records, actual artifacts, actor state, git heads, command results, and decision holds.
 [`workflows.md`](workflows.md) owns the definition schema, state layout, lifecycle, and trust posture.
+The upstream-sync workflow composes that engine with a fetch-only private clone under the run artifact directory, and [`upstream.md`](upstream.md) owns its path map, review cursor, and retirement decision.
 
 ## Two task shapes
 

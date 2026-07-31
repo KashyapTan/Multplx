@@ -236,6 +236,7 @@ The delivery lifecycle is an always-loaded operational contract; referenced scri
 When the maintainer asks to run a named workflow, drive it only through `bin/mx-workflow.sh`; never re-improvise, skip, merge, or reorder its declared stages from prose.
 Use `status` and `resume` to reconcile an existing run, and route approve gates through the decision-hold lifecycle named by the engine.
 When the maintainer asks to make a workflow or automate a repeatable multi-stage process, load `create-workflow`; `docs/workflows.md` remains the one schema owner.
+On the maintainer's chosen upstream-review cadence, run the tracked `upstream-sync` workflow and preserve its review-and-reimplement boundary.
 
 ### Intake and authority
 

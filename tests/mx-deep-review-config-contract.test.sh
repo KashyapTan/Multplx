@@ -37,6 +37,8 @@ legacy_hits=$(
   git -C "$ROOT" grep -Iin -e "$legacy_gate" -e 'NO_'"MISTAKES" -- \
     bin tests docs skills .agents .github README.md CONTRIBUTING.md example_agents.md \
     ':!docs/firstmate_dependencies.md' \
+    ':!docs/upstream.md' \
+    ':!tests/fixtures/upstream-sync/**' \
     ':!tests/mx-deep-review-config-contract.test.sh' 2>/dev/null || true
 )
 [ -z "$legacy_hits" ] || fail "maintained surfaces still reference the retired external gate:
