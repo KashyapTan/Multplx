@@ -7,7 +7,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-AGENTS="$ROOT/example_agents.md"
+AGENTS="$ROOT/AGENTS.md"
 BOOTSTRAP="$ROOT/.agents/skills/bootstrap-diagnostics/SKILL.md"
 AFK="$ROOT/.agents/skills/afk/SKILL.md"
 DECISION="$ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md"

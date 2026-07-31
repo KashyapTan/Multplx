@@ -17,7 +17,7 @@ test_stow_skill_task_note_contract() {
 }
 
 test_agents_backlog_task_note_contract() {
-  local agents="$ROOT/example_agents.md"
+  local agents="$ROOT/AGENTS.md"
 
   # shellcheck disable=SC2016 # Literal backticks must remain unexpanded.
   assert_grep 'header of `bin/mx-backlog-lib.sh` owns the backlog schema' "$agents" \

@@ -8,7 +8,9 @@ set -u
 CLI="$ROOT/bin/mx-viz.sh"
 SERVER="$ROOT/bin/mx-viz-server.mjs"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-viz-tests.XXXXXX")
-ARTIFACT_DIR=$(mktemp -d "$ROOT/data/.mx-viz-test.XXXXXX")
+mkdir -p "$ROOT/data" || fail "could not create the dashboard artifact root"
+ARTIFACT_DIR=$(mktemp -d "$ROOT/data/.mx-viz-test.XXXXXX") \
+  || fail "could not create the dashboard artifact fixture"
 PIDS=()
 
 cleanup() {
@@ -211,8 +213,8 @@ test_lifecycle_cache_and_read_only_contract() {
   grep -F 'content="77"' <(curl -fsS "$url") >/dev/null || fail "serve did not inject the configured poll interval"
   grep -F 'Maintainer → broker → workers' <(curl -fsS "$url") >/dev/null || fail "dashboard tree shell was not served"
   curl -fsS "${url}assets/app.js" | grep -F 'If-None-Match' >/dev/null || fail "polling client lacks conditional requests"
-  ! rg -n 'https?://' "$ROOT/share/viz" >/dev/null || fail "dashboard assets contain an external dependency"
-  ! rg -n 'data-approve|btn-approve|Spawn actor|Raise a decision|Pause simulation' "$ROOT/share/viz" >/dev/null \
+  ! grep -REn 'https?://' "$ROOT/share/viz" >/dev/null || fail "dashboard assets contain an external dependency"
+  ! grep -REn 'data-approve|btn-approve|Spawn actor|Raise a decision|Pause simulation' "$ROOT/share/viz" >/dev/null \
     || fail "dashboard assets retained demo or decision-write controls"
   grep -F 'Viewer only · respond through the ordinary Multplx workflow' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "decision drawer does not state its read-only boundary"
@@ -368,7 +370,7 @@ test_self_containment_and_contract_headers() {
     || fail "server lost the bounded port walk"
   local legacy_reference
   legacy_reference=$(printf '%s%s/' fir stmate)
-  ! rg -n "$legacy_reference" "$CLI" "$SERVER" "$ROOT/share/viz" >/dev/null \
+  ! grep -REn "$legacy_reference" "$CLI" "$SERVER" "$ROOT/share/viz" >/dev/null \
     || fail "production viz implementation depends on the read-only upstream reference tree"
   node --check "$SERVER" >/dev/null || fail "dashboard server failed syntax validation"
   node --check "$ROOT/share/viz/app.js" >/dev/null || fail "dashboard client failed syntax validation"

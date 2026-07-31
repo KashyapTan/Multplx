@@ -19,8 +19,8 @@ Only the separately approved, credentialed delivery service may consume that han
 ## Repo conventions
 
 - This repo is a template for running the Multplx multi-agent orchestrator.
-  `example_agents.md` is the non-auto-loaded broker job-description template during the port; `CLAUDE.md` contains active contributor direction, and `.claude/skills` is a symlink to `.agents/skills`.
-- Only shared material is tracked: `example_agents.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
+  `AGENTS.md` is the active broker job description; `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
+- Only shared material is tracked: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency (see the README's "Two-tier skill layout").
   Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
   The in-repo backlog library owns `data/backlog.md`, its parser, retention defaults, and routine mutations as documented in [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
@@ -39,14 +39,14 @@ Only the separately approved, credentialed delivery service may consume that han
 
 ## Development
 
-Tracked changes to Multplx itself - `example_agents.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/` - run through the selected port-development workflow.
+Tracked changes to Multplx itself - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/` - run through the selected port-development workflow.
 Before making any such change, load the agent-only `multplx-coding-guidelines` skill (`.agents/skills/multplx-coding-guidelines/SKILL.md`).
-It has the knowledge-placement rules that keep `example_agents.md` from regrowing after each diet pass.
+It has the knowledge-placement rules that keep `AGENTS.md` from regrowing after each diet pass.
 There is no reliable way for `bin/mx-brief.sh`'s scaffold to detect that a task's repo is Multplx itself, so the broker adds this skill's load line to Multplx-repo briefs by hand.
 An actor picking up such a brief should load the skill even if the brief predates this instruction.
 When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
 Multplx actors stop at the local deep-review handoff and never push a branch or open a PR.
-The gate routes every `ask-user` finding through the validated status path under the authority contract in `example_agents.md`.
+The gate routes every `ask-user` finding through the validated status path under the authority contract in `AGENTS.md`.
 Its private restart-safe evidence lives under `state/<task-id>.gate/`, outside project commits.
 The local gate's test step is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.
 

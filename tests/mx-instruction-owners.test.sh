@@ -14,10 +14,19 @@ CODING="$ROOT/.agents/skills/multplx-coding-guidelines/SKILL.md"
 RECOVERY="$ROOT/.agents/skills/stuck-actor-recovery/SKILL.md"
 DAEMON="$ROOT/.agents/skills/daemon-provisioning/SKILL.md"
 CONFIG="$ROOT/docs/configuration.md"
-AGENTS="$ROOT/example_agents.md"
+AGENTS="$ROOT/AGENTS.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
 CREATE_WORKFLOW="$ROOT/.agents/skills/create-workflow/SKILL.md"
+
+test_active_agents_contract_path() {
+  local legacy_agents
+  legacy_agents="$ROOT/$(printf '%s%s' example_ agents.md)"
+  assert_present "$AGENTS" "active AGENTS.md contract is missing"
+  [ ! -e "$legacy_agents" ] \
+    || fail "legacy broker-contract alias must not coexist with the active AGENTS.md contract"
+  pass "AGENTS.md is the sole active broker-contract filename"
+}
 
 test_new_skill_metadata_and_triggers() {
   local skill name count
@@ -131,7 +140,7 @@ test_agent_owned_capacity_array_dispatch_contract() {
   done
   assert_grep 'not as a permanent namespace or provider mapping' "$HARNESS" \
     "model discovery guidance permits a fixed provider table"
-  assert_grep '`example_agents.md` section 4 owns the future dispatch and array-selection procedure.' "$CONFIG" \
+  assert_grep '`AGENTS.md` section 4 owns the dispatch and array-selection procedure.' "$CONFIG" \
     "configuration docs do not point to the agent-owned array procedure"
   assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP" \
     "bootstrap docs lost the owned-headroom failure procedure"
@@ -299,6 +308,7 @@ test_compressed_agents_retains_authority_and_supervision_safety() {
   pass "compressed AGENTS.md retains authority, supervision, AFK, and X safety"
 }
 
+test_active_agents_contract_path
 test_new_skill_metadata_and_triggers
 test_diagnostic_owner_covers_causal_procedure
 test_project_management_owner_covers_guarded_operations

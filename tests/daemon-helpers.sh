@@ -119,15 +119,10 @@ SH
   git -C "$home" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' commit -qm initial
 }
 
-# Clone the intentionally dormant port tree and activate only the disposable
-# fixture by promoting its broker-contract template.
+# Clone the active Multplx tree for a disposable broker fixture.
 make_activated_broker_clone() {
   local home=$1
   git clone --quiet "$ROOT" "$home"
-  cp "$home/example_agents.md" "$home/AGENTS.md"
-  git -C "$home" add AGENTS.md
-  git -C "$home" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' \
-    commit -qm 'activate disposable broker fixture'
 }
 
 # Scaffold a filled daemon charter brief under <home>/data/<id>/brief.md.

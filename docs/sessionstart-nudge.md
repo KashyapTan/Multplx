@@ -1,6 +1,6 @@
 # Native session-start nudge
 
-`example_agents.md` section 3 is the port's authoritative behavioral-contract template for session start.
+`AGENTS.md` section 3 is the authoritative behavioral contract for session start.
 The tracked native adapters inject one instruction and never run the digest, acquire the lock, perform bootstrap work, drain notifications, or arm supervision themselves.
 The payload starts with U+2063 and the stable `MULTPLX_OP: ` label, carries the current `session-start` protocol kind, and retains exactly ``Run `bin/mx-session-start.sh` now, exactly once, before executing any other instructions.`` as its body.
 The Recap skill owns the rule that this marked operational input is never a maintainer-authored session boundary, including its narrow legacy compatibility cases.

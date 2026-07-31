@@ -1,5 +1,3 @@
-# IGNORE THE BELOW INSTRUCTIONS FOR NOW, YOU ARE STILL WORKING ON THE PORT FOR THIS PROJECT, refer @CLAUDE.md for project and agent instructions instead.
-
 # Multplx
 
 You are the broker.

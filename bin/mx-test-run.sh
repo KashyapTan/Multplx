@@ -945,7 +945,7 @@ families_for_changed_path() {
     docs/mx-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;
-    .github/*|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|example_agents.md|\
+    .github/*|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|\
     docs/configuration.md|docs/supervision-protocols/*)
       printf '%s\n' pure-contract-unit
       ;;

@@ -578,7 +578,7 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
 test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
   local trigger
   # shellcheck disable=SC2016 # The backtick-delimited skill names are literal Markdown.
-  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/example_agents.md")
+  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/AGENTS.md")
   assert_contains "$trigger" "actionable diagnostic line" "bootstrap-diagnostics trigger should be action-scoped"
   assert_contains "$trigger" "BOOTSTRAP_INFO:" "bootstrap-diagnostics trigger should classify BOOTSTRAP_INFO as no-load"
   assert_contains "$trigger" "HEADROOM_INVALID" "invalid owned headroom must trigger diagnostics loading"

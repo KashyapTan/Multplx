@@ -36,8 +36,8 @@ For larger systems, you can opt in to persistent daemons that run from their own
 Multplx is not a model, harness, skill, MCP server, or CLI.
 Multplx is an agent distribution for coordinating independent agents.
 An agent distro is a portable directory of instructions, skills, tooling, policies, and state conventions that turns a general-purpose agent into a specialized one.
-There is no app to install: the cloned repo is the distribution - `example_agents.md`, bundled Multplx skills, and helper scripts that any terminal coding agent can follow.
-Once the port is complete and the template is promoted to `AGENTS.md`, launching a supported harness inside it instantiates the broker role, while you remain the maintainer.
+There is no app to install: the cloned repo is the distribution - `AGENTS.md`, bundled Multplx skills, and helper scripts that any terminal coding agent can follow.
+Launching a supported harness inside it instantiates the broker role, while you remain the maintainer.
 
 ## Features
 
@@ -48,7 +48,7 @@ Once the port is complete and the template is promoted to `AGENTS.md`, launching
 - **Explicit project modes** - each project delivers via the in-repo `deep-review` gate, `direct-PR`, or `local-only`, with an optional `+yolo` autonomy flag.
 - **Optional daemons** - opt in to persistent daemons that run from isolated Multplx homes with their own `MX_HOME`, state, projects, and session lock, coordinate project clones or a project-less Multplx domain, stay aligned with the primary version through guarded local fast-forwards, and receive liveness checks at session start.
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the system and wakes the broker only when something needs you; verified primary harnesses also get a turn-end backstop that blocks or follows up on a blind stop when work is under way and supervision is not live.
-- **Guarded by construction** - the broker is read-only over your projects except for the guarded paths authorized by [hard rule 1](example_agents.md#1-identity-and-prime-directives), with system sync's safe branch pruning remaining part of the system-sync exception; actors make every project change behind the configured merge authority.
+- **Guarded by construction** - the broker is read-only over your projects except for the guarded paths authorized by [hard rule 1](AGENTS.md#1-identity-and-prime-directives), with system sync's safe branch pruning remaining part of the system-sync exception; actors make every project change behind the configured merge authority.
 - **Least-privilege delivery** - broker, actor, daemon, and validation sessions stop at local commits; only a separate maintainer or scheduler context can push an approved exact SHA and open its PR.
 - **Repeatable workflows** - repo-tracked definitions compose interactive decisions, broker or actor stages, deterministic commands, deep-review, and delivery through one snapshot-based linear engine.
 - **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr or cmux when selected or auto-detected); kill the session anytime and the next one reconciles, including confirmed-dead daemon agents, and carries on.
@@ -83,7 +83,7 @@ git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
 ```
 
-After the port is complete, the broker template is promoted from `example_agents.md` to the auto-loaded `AGENTS.md` name before launching a co-primary harness.
+The tracked `AGENTS.md` file is the auto-loaded broker contract.
 See [docs/delivery.md](docs/delivery.md) for the credential boundary and delivery setup.
 
 **Claude Code**
@@ -175,10 +175,10 @@ Claude uses the slash form shown here; codex uses the same names with `$`, such 
 | `/recap`            | Recap visible session events since the prior real maintainer message plus visibly unanswered maintainer decisions, falling back to Catchup when invoked as the session's first real maintainer message |
 | `/catchup`        | Generate a standalone current-status report from bounded local system and registered-daemon state, with live PR enrichment only when requested, written to a dated file in `data/` and surfaced concisely in chat; read-mostly, mutates no task state |
 | `/updatemultplx` | Self-update the running Multplx primary and its daemons to the latest from origin with fast-forward-only pulls, then re-read instructions and nudge daemons |
-| `/stow`            | Sweep the session for uncaptured durable knowledge, route each finding to its disk home per `example_agents.md`, file undone next steps to the backlog, and report what is now safe to reset |
+| `/stow`            | Sweep the session for uncaptured durable knowledge, route each finding to its disk home per `AGENTS.md`, file undone next steps to the backlog, and report what is now safe to reset |
 | `/create-workflow` | Interview the maintainer, draft a declarative multi-stage workflow, validate it against the shared engine schema, and offer a dry-run |
 
-Agent-only reference skills live under `.agents/skills/` and are loaded by the broker at the trigger points defined in [`example_agents.md`](example_agents.md).
+Agent-only reference skills live under `.agents/skills/` and are loaded by the broker at the trigger points defined in [`AGENTS.md`](AGENTS.md).
 
 ### Two-tier skill layout
 
@@ -207,7 +207,7 @@ Multplx's skills live in two separate places with different audiences:
 - [docs/supervision-protocols/](docs/supervision-protocols/) - rendered primary-harness watcher protocols for Claude, Codex, Pi, and unknown harness fallback.
 - [docs/scripts.md](docs/scripts.md) - the `bin/` toolbelt reference.
 - [docs/documentation-audiences.md](docs/documentation-audiences.md) - documentation audiences and the machine-checked placement boundary.
-- [`example_agents.md`](example_agents.md) - the non-auto-loaded broker-contract template used while the port is incomplete; it becomes `AGENTS.md` only when Multplx is ready to run.
+- [`AGENTS.md`](AGENTS.md) - the active auto-loaded broker contract and routing index.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to contribute, including the dev/test commands.
 
 ## Contributing

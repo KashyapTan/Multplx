@@ -15,8 +15,7 @@ export MX_BACKEND=tmux
 ACTIVE_ROOT="$TMP_ROOT/active-root"
 make_activated_broker_clone "$ACTIVE_ROOT"
 
-# Seed tests model an activated Multplx installation while the repository under
-# port intentionally keeps its contract dormant as example_agents.md.
+# Seed tests model an active Multplx installation from a disposable clone.
 mx_home_seed() {
   local seed_root=${MX_ROOT_OVERRIDE:-$ACTIVE_ROOT}
   MX_ROOT_OVERRIDE="$seed_root" "$ROOT/bin/mx-home-seed.sh" "$@"
