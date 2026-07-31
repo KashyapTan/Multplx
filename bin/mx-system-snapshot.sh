@@ -52,6 +52,13 @@
 #     structured homes with an unknown current classification are partial, not
 #     unreadable, and retain independently trustworthy structured surfaces.
 #   daemon_guidance: return-channel action note for renderers and catchup.
+#   watcher: identity-verified watcher process and beacon health, plus afk mode.
+#     `alive` never trusts a bare PID; `stale` is the beacon-age verdict.
+#   wake_queue: durable queue depth and oldest valid record age.
+#   dispatch_queue: FIFO parked-dispatch records from mx-headroom.sh --queue.
+#   headroom: mx-headroom.sh --json verbatim, or null with headroom_reason when
+#     the read-only capacity check is unavailable.
+#   vplan_reviews: identity-verified active review records without review tokens.
 #
 # Compatibility: JSON is the primary machine-readable surface.
 # Human views must render this output instead of parsing state files again.
@@ -134,6 +141,14 @@ validate_positive_bound MX_SNAPSHOT_REGISTRY_TIMEOUT "$MX_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/mx-ff-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/mx-ff-lib.sh"  # validate_daemon_home: shared seeded-home boundary checks
+# mx-wake-lib owns portable PID identity and watcher-lock verification.
+# Source it only when an identity-bearing observer record exists so ordinary
+# snapshots do not trigger the helper's state-directory initialization.
+if [ -d "$STATE/.watch.lock" ] || [ -d "$STATE/.vplan" ]; then
+  # shellcheck source=bin/mx-wake-lib.sh
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/mx-wake-lib.sh"
+fi
 
 usage() {
   cat <<'EOF'
@@ -1291,6 +1306,149 @@ scout_report_lines() {
     | jq -s 'sort_by(.id)'
 }
 
+watcher_json() {
+  local lock="$STATE/.watch.lock" beat="$STATE/.last-watcher-beat"
+  local watch_path="$SCRIPT_DIR/mx-watch.sh" grace pid='' lock_present=false
+  local identity_verified=false alive=false beacon_age=null stale=true afk=false beat_epoch
+  grace=${MX_WATCHER_STALE_GRACE:-${MX_GUARD_GRACE:-300}}
+  case "$grace" in ''|*[!0-9]*) grace=300 ;; esac
+  [ -d "$lock" ] && lock_present=true
+  [ -e "$STATE/.afk" ] && afk=true
+  if [ "$lock_present" = true ]; then
+    pid=$(cat "$lock/pid" 2>/dev/null || true)
+    if command -v mx_pid_alive >/dev/null 2>&1 \
+      && mx_pid_alive "$pid" \
+      && mx_watcher_lock_matches_pid "$STATE" "$watch_path" "$pid" "$MX_HOME"; then
+      identity_verified=true
+      alive=true
+    fi
+  fi
+  case "$pid" in ''|*[!0-9]*) pid='' ;; esac
+  beat_epoch=$(file_mtime_epoch "$beat")
+  case "$beat_epoch" in
+    ''|*[!0-9]*) ;;
+    *)
+      beacon_age=$((SNAPSHOT_EPOCH - beat_epoch))
+      [ "$beacon_age" -ge 0 ] || beacon_age=0
+      if [ "$beacon_age" -lt "$grace" ]; then stale=false; fi
+      ;;
+  esac
+  jq -n \
+    --argjson lock_present "$lock_present" \
+    --arg pid "$pid" \
+    --argjson identity_verified "$identity_verified" \
+    --argjson alive "$alive" \
+    --argjson beacon_age_secs "$beacon_age" \
+    --argjson stale "$stale" \
+    --argjson afk "$afk" \
+    '{lock_present:$lock_present,
+      pid:($pid | if . == "" then null else tonumber end),
+      identity_verified:$identity_verified,alive:$alive,
+      beacon_age_secs:$beacon_age_secs,stale:$stale,afk:$afk}'
+}
+
+wake_queue_json() {
+  local queue="$STATE/.wake-queue" summary depth oldest age
+  if [ ! -f "$queue" ] || [ -L "$queue" ]; then
+    jq -n '{depth:0,oldest_age_secs:null}'
+    return 0
+  fi
+  summary=$(LC_ALL=C awk -F '\t' '
+    NF >= 5 && $1 ~ /^[0-9]+$/ {
+      count += 1
+      if (oldest == "" || $1 < oldest) oldest = $1
+    }
+    END { printf "%d\t%s\n", count, oldest }
+  ' "$queue")
+  depth=${summary%%$'\t'*}
+  oldest=${summary#*$'\t'}
+  age=null
+  case "$oldest" in
+    ''|*[!0-9]*) ;;
+    *)
+      age=$((SNAPSHOT_EPOCH - oldest))
+      [ "$age" -ge 0 ] || age=0
+      ;;
+  esac
+  jq -n --argjson depth "$depth" --argjson oldest_age_secs "$age" \
+    '{depth:$depth,oldest_age_secs:$oldest_age_secs}'
+}
+
+headroom_command() {
+  printf '%s\n' "${MX_SNAPSHOT_HEADROOM_BIN:-$SCRIPT_DIR/mx-headroom.sh}"
+}
+
+dispatch_queue_json() {
+  local command output rc reason
+  command=$(headroom_command)
+  output=$(MX_ROOT_OVERRIDE="$MX_ROOT" MX_HOME="$MX_HOME" \
+    MX_STATE_OVERRIDE="$STATE" MX_CONFIG_OVERRIDE="$CONFIG" \
+    "$command" --queue 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    reason=$(printf '%s\n' "$output" | head -1)
+    jq -n --arg reason "${reason:-dispatch queue read failed}" \
+      '{depth:0,records:[],available:false,reason:$reason}'
+    return 0
+  fi
+  printf '%s\n' "$output" | jq -R -s '
+    [splits("\n") | select(length > 0)
+      | split("\t")
+      | select(length == 8)
+      | {enqueued_at:(.[0] | tonumber),id:.[1],project:.[2],
+         profile:{harness:(.[3] | if . == "-" then null else . end),
+                  model:(.[4] | if . == "-" then null else . end),
+                  effort:(.[5] | if . == "-" then null else . end),
+                  backend:(.[6] | if . == "-" then null else . end)},
+         kind:.[7]}]
+    | {depth:length,records:.,available:true,reason:null}'
+}
+
+headroom_summary_json() {
+  local command output rc reason
+  command=$(headroom_command)
+  output=$(MX_ROOT_OVERRIDE="$MX_ROOT" MX_HOME="$MX_HOME" \
+    MX_STATE_OVERRIDE="$STATE" MX_CONFIG_OVERRIDE="$CONFIG" \
+    "$command" --json 2>&1)
+  rc=$?
+  if [ "$rc" -eq 0 ] && printf '%s' "$output" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    jq -n --argjson headroom "$output" '{headroom:$headroom,reason:null}'
+    return 0
+  fi
+  reason=$(printf '%s\n' "$output" | head -1)
+  jq -n --arg reason "${reason:-headroom check failed}" '{headroom:null,reason:$reason}'
+}
+
+vplan_reviews_json() {
+  local directory="$STATE/.vplan" record artifact port pid identity started current alive
+  local records='[]'
+  if [ ! -d "$directory" ] || ! command -v mx_pid_alive >/dev/null 2>&1; then
+    jq -n '{records:[]}'
+    return 0
+  fi
+  for record in "$directory"/*.run; do
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    artifact=$(awk -F= '$1 == "artifact" {print substr($0,10); exit}' "$record")
+    port=$(awk -F= '$1 == "port" {print substr($0,6); exit}' "$record")
+    pid=$(awk -F= '$1 == "pid" {print substr($0,5); exit}' "$record")
+    identity=$(awk -F= '$1 == "pid_identity" {print substr($0,14); exit}' "$record")
+    started=$(awk -F= '$1 == "started_at" {print substr($0,12); exit}' "$record")
+    alive=false
+    if mx_pid_alive "$pid" && [ -n "$identity" ]; then
+      current=$(mx_pid_identity "$pid" 2>/dev/null || true)
+      [ "$current" = "$identity" ] && alive=true
+    fi
+    case "$port" in ''|*[!0-9]*) port=null ;; esac
+    records=$(jq -n --argjson records "$records" --arg artifact "$artifact" \
+      --argjson port "$port" --arg started_at "$started" --argjson pid_alive "$alive" \
+      '$records + [{artifact:($artifact | if . == "" then null else . end),
+        port:$port,started_at:($started_at | if . == "" then null else . end),
+        pid_alive:$pid_alive,
+        url:(if $port == null then null else "http://127.0.0.1:\($port)/" end)}]')
+  done
+  jq -n --argjson records "$records" '{records:($records | sort_by(.started_at // "",.artifact // ""))}'
+}
+
 BACKLOG_JSON=$(backlog_json) || { echo "mx-system-snapshot: backlog read failed" >&2; exit 1; }
 TASKS_JSON=$(task_json_lines) || { echo "mx-system-snapshot: task snapshot failed" >&2; exit 1; }
 
@@ -1301,6 +1459,18 @@ if [ "$OUTPUT_MODE" = daemon-home-summary ]; then
 fi
 
 SCOUT_REPORTS_JSON=$(scout_report_lines)
+WATCHER_JSON=$(watcher_json) \
+  || { echo "mx-system-snapshot: watcher summary failed" >&2; exit 1; }
+WAKE_QUEUE_JSON=$(wake_queue_json) \
+  || { echo "mx-system-snapshot: wake queue summary failed" >&2; exit 1; }
+DISPATCH_QUEUE_JSON=$(dispatch_queue_json) \
+  || { echo "mx-system-snapshot: dispatch queue summary failed" >&2; exit 1; }
+HEADROOM_SUMMARY_JSON=$(headroom_summary_json) \
+  || { echo "mx-system-snapshot: headroom summary failed" >&2; exit 1; }
+HEADROOM_JSON=$(printf '%s' "$HEADROOM_SUMMARY_JSON" | jq '.headroom')
+HEADROOM_REASON_JSON=$(printf '%s' "$HEADROOM_SUMMARY_JSON" | jq '.reason')
+VPLAN_REVIEWS_JSON=$(vplan_reviews_json) \
+  || { echo "mx-system-snapshot: vplan review summary failed" >&2; exit 1; }
 MAIN_INVENTORY_JSON=$(main_inventory_json "$BACKLOG_JSON" "$TASKS_JSON") \
   || { echo "mx-system-snapshot: main inventory summary failed" >&2; exit 1; }
 DAEMON_CURRENT_JSON=$(daemon_current_json "$TASKS_JSON") \
@@ -1320,6 +1490,12 @@ jq -n \
   --argjson tasks "$TASKS_JSON" \
   --argjson main_inventory "$MAIN_INVENTORY_JSON" \
   --argjson scout_reports "$SCOUT_REPORTS_JSON" \
+  --argjson watcher "$WATCHER_JSON" \
+  --argjson wake_queue "$WAKE_QUEUE_JSON" \
+  --argjson dispatch_queue "$DISPATCH_QUEUE_JSON" \
+  --argjson headroom "$HEADROOM_JSON" \
+  --argjson headroom_reason "$HEADROOM_REASON_JSON" \
+  --argjson vplan_reviews "$VPLAN_REVIEWS_JSON" \
   --argjson daemon_current "$DAEMON_CURRENT_JSON" \
   --argjson daemon_landed "$DAEMON_LANDED_JSON" \
   'def backlog_by_id($id): ($backlog.records[]? | select(.structured == true and .id == $id) | .) // null;
@@ -1334,6 +1510,12 @@ jq -n \
      tasks:($tasks | map(. + {backlog:backlog_by_id(.id)})),
      main_inventory:$main_inventory,
      scout_reports:($scout_reports | map(. + {kind:report_kind(.id)})),
+     watcher:$watcher,
+     wake_queue:$wake_queue,
+     dispatch_queue:$dispatch_queue,
+     headroom:$headroom,
+     headroom_reason:$headroom_reason,
+     vplan_reviews:$vplan_reviews,
      daemon_current:$daemon_current,
      daemon_landed:$daemon_landed,
      daemon_guidance:{
