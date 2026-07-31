@@ -187,6 +187,11 @@ test_each_check_classifies_its_fixture() {
   printf '1    leased      %s (held by ghost)\n' "$wt" >"$STATUS_FILE"
   assert_check orphan-worktrees 2 'active treehouse path'
 
+  read_case "$(make_case missing-worktree-without-inventory)"
+  write_meta missing "$CASE_DIR/absent-worktree"
+  rm -f "$STATUS_FILE"
+  assert_check orphan-worktrees 2 'records missing worktree'
+
   read_case "$(make_case dangling-pids)"
   wt="$CASE_DIR/wt"
   mkdir -p "$wt"

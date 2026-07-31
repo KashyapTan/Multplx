@@ -286,15 +286,27 @@ doctor_check_orphan_worktrees() {
   doctor_collect_treehouse_rows
   rc=$?
   if [ "$rc" -eq 2 ]; then
-    doctor_add WARN "tasks & worktrees" orphan-worktrees \
-      "treehouse is unavailable; recorded task worktree paths were checked only${issues:+; $issues}" \
-      "install treehouse using the tools finding, then rerun this check"
+    if [ "$missing" -gt 0 ]; then
+      doctor_add FAIL "tasks & worktrees" orphan-worktrees \
+        "$issues; treehouse is unavailable, so active pool paths were not checked" \
+        "repair the recorded task path, install treehouse using the tools finding, and rerun this check"
+    else
+      doctor_add WARN "tasks & worktrees" orphan-worktrees \
+        "treehouse is unavailable; recorded task worktree paths were checked only" \
+        "install treehouse using the tools finding, then rerun this check"
+    fi
     return
   fi
   if [ "$rc" -ne 0 ]; then
-    doctor_add WARN "tasks & worktrees" orphan-worktrees \
-      "treehouse inventory could not be read${issues:+; $issues}" \
-      "run treehouse status in the affected project and inspect its pool"
+    if [ "$missing" -gt 0 ]; then
+      doctor_add FAIL "tasks & worktrees" orphan-worktrees \
+        "$issues; treehouse inventory could not be read" \
+        "repair the recorded task path, then run treehouse status in the affected project"
+    else
+      doctor_add WARN "tasks & worktrees" orphan-worktrees \
+        "treehouse inventory could not be read" \
+        "run treehouse status in the affected project and inspect its pool"
+    fi
     return
   fi
   while IFS=$'\t' read -r status worktree; do
