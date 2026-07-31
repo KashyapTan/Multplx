@@ -754,6 +754,152 @@ test_parked_scout_decision_stays_pending() {
   pass "a scout still parked at a decision stays pending (terminal clear does not over-fire)"
 }
 
+test_observability_extension_fields() {
+  local home now headroom pid identity out
+  home=$(make_home observability-fields)
+  now=$(date +%s)
+  headroom="$home/fake-headroom"
+  cat > "$headroom" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --queue)
+    printf '100\ttask-a\talpha\tcodex\tgpt-5\thigh\ttmux\tdelivery\n'
+    printf '200\ttask-b\tbeta\t-\t-\t-\t-\tscout\n'
+    ;;
+  --json)
+    if [ "${FAKE_HEADROOM_FAIL:-0}" = 1 ]; then
+      printf 'fixture headroom unavailable\n' >&2
+      exit 1
+    fi
+    printf '{"model":"fixture","capacity":4,"in_use":1,"available":3,"at_limit":false}\n'
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$headroom"
+
+  printf '%s\t1\tsignal\ttask-a.status\tfirst\n' "$((now - 12))" > "$home/state/.wake-queue"
+  printf '%s\t2\theartbeat\twatcher\tsecond\n' "$((now - 3))" >> "$home/state/.wake-queue"
+  touch "$home/state/.afk"
+  sleep 30 &
+  pid=$!
+  identity=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" bash -c \
+    '. "$1"; mx_pid_identity "$2"' _ "$ROOT/bin/mx-wake-lib.sh" "$pid") \
+    || fail "could not derive fixture process identity"
+  mkdir "$home/state/.watch.lock" "$home/state/.vplan"
+  printf '%s\n' "$pid" > "$home/state/.watch.lock/pid"
+  printf '%s\n' "$home" > "$home/state/.watch.lock/mx-home"
+  printf '%s\n' "$ROOT/bin/mx-watch.sh" > "$home/state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$home/state/.watch.lock/pid-identity"
+  touch "$home/state/.last-watcher-beat"
+  cat > "$home/state/.vplan/live.run" <<EOF
+version=1
+artifact=$home/data/task-a/plan.html
+port=4873
+pid=$pid
+pid_identity=$identity
+token=fixture-token
+started_at=2026-07-31T16:00:00Z
+EOF
+
+  out=$(MX_HOME="$home" MX_SNAPSHOT_NOW_EPOCH="$now" \
+    MX_SNAPSHOT_HEADROOM_BIN="$headroom" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --argjson pid "$pid" --arg home "$home" '
+    .schema == "mx-system-snapshot.v1"
+      and .watcher == {lock_present:true,pid:$pid,identity_verified:true,alive:true,
+        beacon_age_secs:0,stale:false,afk:true}
+      and .wake_queue.depth == 2
+      and .wake_queue.oldest_age_secs == 12
+      and .dispatch_queue.available == true
+      and .dispatch_queue.depth == 2
+      and .dispatch_queue.records[0].id == "task-a"
+      and .dispatch_queue.records[0].profile.harness == "codex"
+      and .dispatch_queue.records[1].profile.harness == null
+      and .headroom == {model:"fixture",capacity:4,in_use:1,available:3,at_limit:false}
+      and .headroom_reason == null
+      and .vplan_reviews.records == [{artifact:($home + "/data/task-a/plan.html"),port:4873,
+        started_at:"2026-07-31T16:00:00Z",pid_alive:true,url:"http://127.0.0.1:4873/"}]
+      and (.backlog | type) == "object"
+      and (.tasks | type) == "array"
+      and (.daemon_current | type) == "object"
+  ' >/dev/null || fail "snapshot observability fields were wrong: $out"
+
+  printf 'mismatched identity\n' > "$home/state/.watch.lock/pid-identity"
+  out=$(FAKE_HEADROOM_FAIL=1 MX_HOME="$home" MX_WATCHER_STALE_GRACE=300 \
+    MX_SNAPSHOT_NOW_EPOCH="$((now + 1000))" MX_SNAPSHOT_HEADROOM_BIN="$headroom" \
+    "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .watcher.lock_present == true
+      and .watcher.identity_verified == false
+      and .watcher.alive == false
+      and .watcher.stale == true
+      and .watcher.beacon_age_secs == 1000
+      and .vplan_reviews.records[0].pid_alive == true
+      and .headroom == null
+      and .headroom_reason == "fixture headroom unavailable"
+      and .dispatch_queue.depth == 2
+  ' >/dev/null || fail "snapshot did not degrade watcher/headroom fields honestly: $out"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  pass "snapshot adds identity-safe watcher, queue, headroom, and vplan observations"
+}
+
+test_later_plan_feed_presence_and_projection() {
+  local home fakebin upstream out
+  home=$(make_home later-plan-feeds)
+  fakebin=$(make_fakebin "$home")
+  upstream="$home/fake-upstream"
+  cat > "$upstream" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'status=drifted' 'fork_point=abc123' 'last_reviewed=def456' \
+  'upstream_repo=reference-repository' 'retired_reason='
+SH
+  chmod +x "$upstream"
+
+  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_UPSTREAM_BIN="$upstream" \
+    "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .later_feeds.gate_runs == {supported:true,available:false,records:[]}
+      and .later_feeds.workflow_runs == {supported:true,available:false,records:[]}
+      and .later_feeds.deliveries == {supported:true,available:false,records:[]}
+      and .later_feeds.upstream_drift.available == true
+      and .later_feeds.doctor.available == true
+      and .later_feeds.timeline.available == true
+  ' >/dev/null || fail "absent later-plan records were not distinguished from available readers: $out"
+
+  mkdir -p "$home/state/review-1.gate" "$home/state/release-1.workflow"
+  printf '%s\n' '{"status":"parked","step":"review","round":2,"pending_decision_key":"release"}' \
+    > "$home/state/review-1.gate/run.json"
+  printf '%s\n' '{"workflow":"new-feature","status":"running","current_stage":"deliver","message":"opening PR"}' \
+    > "$home/state/release-1.workflow/run.json"
+  cat > "$home/state/release-1.ready-to-push" <<'EOF'
+version=1
+task=release-1
+approval=approved
+branch=port-plan-15
+approved_sha=abc123
+title=Plan 15
+EOF
+  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_UPSTREAM_BIN="$upstream" \
+    "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .later_feeds.gate_runs.available == true
+      and .later_feeds.gate_runs.records[0] ==
+        {id:"review-1",valid:true,status:"parked",step:"review",round:2,parked:true,
+         pending_decision_key:"release",approved_head:null,summary:null,risk_level:null}
+      and .later_feeds.workflow_runs.available == true
+      and .later_feeds.workflow_runs.records[0].workflow == "new-feature"
+      and .later_feeds.workflow_runs.records[0].current_stage == "deliver"
+      and .later_feeds.deliveries.available == true
+      and .later_feeds.deliveries.records[0].id == "release-1"
+      and .later_feeds.deliveries.records[0].state == "pending"
+      and .later_feeds.deliveries.records[0].valid == true
+      and .later_feeds.upstream_drift.status == "drifted"
+      and .later_feeds.upstream_drift.fork_point == "abc123"
+  ' >/dev/null || fail "later-plan records were not projected through their bounded feeds: $out"
+  pass "snapshot presence-gates and projects later-plan dashboard feeds"
+}
+
 test_empty_system_json
 test_fixture_snapshot_json
 test_main_inventory_orphan_and_unstructured_disclosure
@@ -769,3 +915,5 @@ test_scout_reports_include_teardown_reports
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_daemon_agent_status
+test_observability_extension_fields
+test_later_plan_feed_presence_and_projection

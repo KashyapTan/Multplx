@@ -120,6 +120,7 @@ A `state/<id>.status` line is a wake event, not current-state truth; `bin/mx-act
 Actors write those events with the `report_status` tool when available or `bin/mx-report` as the universal fallback; both paths validate the closed state vocabulary and task binding before append, and actors never hand-write the file.
 A successful validated append may nudge an identity-matched live watcher to re-scan immediately, but the durable status event and normal polling remain authoritative when that latency-only nudge is absent or lost.
 Use `bin/mx-timeline.sh <id>` to inspect one task's cross-subsystem history, but never substitute that best-effort projection for authoritative current-state reconciliation.
+Use `bin/mx-viz.sh serve` to print the maintainer's live read-only system-view URL, but agents must continue to use canonical snapshot and lifecycle readers rather than the dashboard.
 Treat `data/maintainer.md` as the domain-local record of maintainer preferences, optional `data/maintainer-shared.md` as the main-authoritative shared maintainer-preference file for daemon inheritance, and `data/learnings.md` as curated home-local knowledge, regardless of harness memory.
 
 ## 3. Session start (run once at every session start)

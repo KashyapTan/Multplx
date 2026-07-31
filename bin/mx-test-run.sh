@@ -135,7 +135,7 @@ family_for_basename() {
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
     mx-send-popup-settle.test.sh|mx-send-settle.test.sh|mx-stow-contract.test.sh|\
     mx-subagent-pretool-check.test.sh|\
-    mx-supervision-instructions.test.sh|mx-tmux-submit-busy.test.sh|mx-transition-lib.test.sh|mx-vplan.test.sh|\
+    mx-supervision-instructions.test.sh|mx-tmux-submit-busy.test.sh|mx-transition-lib.test.sh|mx-viz.test.sh|mx-vplan.test.sh|\
     mx-workflow-lib.test.sh|mx-workflow.test.sh|\
     mx-upstream-diff.test.sh|\
     mx-test-run.test.sh|mx-test-isolation-proof.test.sh|mx-test-split-parity.test.sh)
@@ -352,6 +352,7 @@ tests/mx-transition-lib.test.sh	none
 tests/mx-turnend-guard.test.sh	watcher-process
 tests/mx-update.test.sh	none
 tests/mx-upstream-diff.test.sh	none
+tests/mx-viz.test.sh	viz-port
 tests/mx-vplan.test.sh	vplan-port
 tests/mx-workflow-lib.test.sh	none
 tests/mx-workflow.test.sh	none
@@ -859,6 +860,10 @@ families_for_changed_path() {
       ;;
     bin/mx-vplan.sh|bin/mx-vplan-server.mjs|share/vplan/*|docs/vplan.md|docs/vplan-authoring.md)
       printf '%s\n' pure-contract-unit
+      ;;
+    bin/mx-viz.sh|bin/mx-viz-server.mjs|share/viz/*|docs/viz.md)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' snapshot-catchup
       ;;
     bin/mx-journal-lib.sh|bin/mx-timeline.sh|docs/journal-events.md|\
     tests/fixtures/timeline.*)

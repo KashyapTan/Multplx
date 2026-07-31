@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="mx-viz-poll-ms" content="__MX_VIZ_POLL_MS__">
+  <title>Multplx Live View</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Multplx · read-only live view</p>
+      <h1>System at a glance</h1>
+      <p id="connection-note" class="muted">Connecting to the canonical snapshot…</p>
+    </div>
+    <div class="header-actions">
+      <button id="doctor-button" class="secondary" type="button" hidden>Run doctor</button>
+      <span class="readonly-badge">No controls</span>
+    </div>
+  </header>
+
+  <main>
+    <section id="health-strip" class="health-strip" aria-label="System health"></section>
+
+    <div class="dashboard-grid">
+      <section class="panel panel-wide" aria-labelledby="tasks-title">
+        <div class="panel-heading">
+          <div><p class="kicker">Current state</p><h2 id="tasks-title">Tasks &amp; daemons</h2></div>
+          <span id="task-count" class="count"></span>
+        </div>
+        <div id="tasks-board"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="decisions-title">
+        <div class="panel-heading"><div><p class="kicker">Waiting on you</p><h2 id="decisions-title">Open decisions</h2></div></div>
+        <div id="decisions"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="backlog-title">
+        <div class="panel-heading"><div><p class="kicker">Structured inventory</p><h2 id="backlog-title">Backlog</h2></div></div>
+        <div id="backlog"></div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="artifacts-title">
+        <div class="panel-heading"><div><p class="kicker">Read-only browser</p><h2 id="artifacts-title">Plans &amp; artifacts</h2></div></div>
+        <div id="artifacts"></div>
+      </section>
+
+      <section id="gate-panel" class="panel optional-panel" aria-labelledby="gate-title" hidden>
+        <div class="panel-heading"><div><p class="kicker">Validation</p><h2 id="gate-title">Deep-review gates</h2></div></div>
+        <div id="gate-runs"></div>
+      </section>
+
+      <section id="workflow-panel" class="panel optional-panel" aria-labelledby="workflow-title" hidden>
+        <div class="panel-heading"><div><p class="kicker">Orchestration</p><h2 id="workflow-title">Workflow runs</h2></div></div>
+        <div id="workflow-runs"></div>
+      </section>
+
+      <section id="delivery-panel" class="panel optional-panel" aria-labelledby="delivery-title" hidden>
+        <div class="panel-heading"><div><p class="kicker">Least privilege</p><h2 id="delivery-title">Deliveries</h2></div></div>
+        <div id="deliveries"></div>
+      </section>
+
+      <section id="upstream-panel" class="panel optional-panel" aria-labelledby="upstream-title" hidden>
+        <div class="panel-heading"><div><p class="kicker">Fork watch</p><h2 id="upstream-title">Upstream drift</h2></div></div>
+        <div id="upstream-drift"></div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="detail-dialog">
+    <div class="dialog-heading"><h2 id="dialog-title">Detail</h2><button id="dialog-close" class="secondary" type="button">Close</button></div>
+    <div id="dialog-body"></div>
+  </dialog>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

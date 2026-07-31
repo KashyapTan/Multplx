@@ -75,6 +75,14 @@ The maintainer queues element or text-anchored comments and confirms once.
 The server atomically merges those comments into an inert `#vplan-comments` JSON block in the artifact, removes its matching run record, and exits.
 The artifact is the feedback channel, so vplan adds no polling protocol, persistent service, or parallel completion policy.
 [`vplan.md`](vplan.md) owns the lifecycle and persistence contracts, while [`vplan-authoring.md`](vplan-authoring.md) owns artifact design.
+
+## Live system dashboard
+
+`bin/mx-viz.sh serve` starts a disposable loopback-only dashboard over the canonical `mx-system-snapshot.v1` feed.
+The page polls a bounded server-side cache, renders reconciled task and daemon state with signal provenance, and exposes allowlisted plans and artifacts without parsing operational state itself.
+Its HTTP surface is GET-only, its only lifecycle write is `state/.viz/server.run`, and no system behavior depends on whether the dashboard is running.
+Later-plan panels consume only their bounded snapshot projections, while doctor and timeline detail use their sanctioned readers on explicit request.
+[`viz.md`](viz.md) owns the lifecycle, cache, artifact, and read-only boundaries.
 Unresolved maintainer decisions return to `decision-hold-lifecycle` before the originating review is treated as complete.
 
 ### Registered daemon current state
