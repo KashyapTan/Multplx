@@ -11,6 +11,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-sessionstart-nudge.sh` | Print the native session-start hook nudge when the primary has not already run the digest |
 | `mx-operational-input.sh` | Construct and parse the canonical cross-language operational-input protocol |
 | `mx-bootstrap.sh`        | Detect toolchain and system problems, run the locked session-start sweeps, and install approved tools |
+| `mx-doctor.sh`           | Sweep system invariants read-only and optionally apply its two proof-bound repairs |
+| `mx-probe-lib.sh`        | Share structured tool, Treehouse compatibility, and primary-tangle probes with bootstrap and doctor |
 | `mx-system-sync.sh`       | Refresh project clones with safe fast-forwards, self-heals, `STUCK:` reports, branch pruning, and bounded recovery from an orphaned `.git/packed-refs.lock` |
 | `mx-system-snapshot.sh`   | Print the read-only structured system snapshot JSON (schema `mx-system-snapshot.v1`)   |
 | `mx-system-view.sh`       | Render the system snapshot as a human Markdown view                                   |

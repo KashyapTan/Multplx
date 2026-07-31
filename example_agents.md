@@ -186,6 +186,7 @@ A missing dependency, authentication failure, unsupported backend, or version re
 ## 5. Recovery
 
 After the one session-start digest, reconcile reality with durable records before taking new work.
+When system state feels inconsistent, run `bin/mx-doctor.sh` once and then follow the named owner or recovery procedure for each actionable finding.
 Honor lock-refused read-only mode exactly as section 3 requires.
 Treat digest status tails as wake-event history and use targeted current-state reconciliation when the live state matters.
 

@@ -21,6 +21,7 @@ The target window's harness is recorded as `harness=` in `state/<id>.meta`.
 This procedure covers ordinary `kind=delivery` and `kind=scout` direct reports.
 Load `daemon-provisioning` instead for `kind=daemon` recovery.
 
+As step zero, run `bin/mx-doctor.sh --check stateless-sessions` and preserve its evidence before targeted recovery.
 Treat the digest's endpoint result as a presence signal, not proof that the task's work or validation run is gone.
 Read the targeted current state with `bin/mx-actor-state.sh <id>` before deciding to relaunch.
 A deep-review run matched to the actor's branch and current code remains authoritative when the endpoint is dead: handle a terminal or parked run through the normal lifecycle, and keep monitoring an active run instead of creating a duplicate actor.
