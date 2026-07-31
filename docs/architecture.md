@@ -6,6 +6,14 @@ The [README](../README.md) carries the high-level diagram and a short synopsis.
 This document expands every part of it.
 The port's non-auto-loaded broker-contract template and routing index for conditional procedures is [`example_agents.md`](../example_agents.md); this is the human-facing companion.
 
+## Health probes and recovery ownership
+
+`bin/mx-doctor.sh` is the read-only on-demand projection of system invariants across locks, liveness, tasks, worktrees, queues, holds, runs, tools, and compatibility paths.
+It consumes the existing PID identity, stale-lock, backend target, supervision, backlog, and tangle owners instead of defining parallel proof rules.
+`bin/mx-probe-lib.sh` is the single owner of structured tool, Treehouse compatibility, and primary-tangle probes shared by doctor and session-start bootstrap.
+Doctor's `--fix` surface is limited to a proof-bound stale watcher-lock cleanup and an under-lock orphan wake-row prune, while every lifecycle decision remains with its existing command or recovery procedure.
+[`doctor.md`](doctor.md) owns the check catalog, severities, output contract, thresholds, and exact repair boundary.
+
 ## Event-driven supervision
 
 A zero-token bash watcher (`bin/mx-watch.sh`) sleeps on the system, classifies detected wakes in bash, and wakes the broker only when something is actionable.

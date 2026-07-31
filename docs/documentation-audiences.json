@@ -216,6 +216,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/doctor.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/documentation-audiences.md",
       "audience": "maintainer-architecture"
     },

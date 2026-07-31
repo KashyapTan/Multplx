@@ -234,6 +234,14 @@ summary: 9 OK · 1 WARN · 1 FAIL          exit 2</code></pre>
 <p style="margin:0">Porting.md decision 10 says the <code>Computer -&gt; Multplx</code> links "can be removed once no old session needs resuming." Doctor treats absent as OK and dangling as WARN — but should it eventually nudge removal once the links are old and unused? Deferred; report-only either way.</p>
 </div>
 
+<h2>Implementation deviations</h2>
+<ul>
+  <li>The completed plan-09 credential boundary supersedes this plan's older <code>gh auth status</code> assumption. Doctor verifies that <code>gh</code> is installed but does not require agent-context authentication, preserving credentialed delivery outside the agent environment.</li>
+  <li>The completed plan-07 implementation stores parked dispatch requests under <code>state/.dispatch-queue/*.request</code>, so <code>dispatch-queue-age</code> inspects those authoritative records rather than queued prose in <code>data/backlog.md</code>.</li>
+  <li><code>primary-tangle</code> is rendered as its own named doctor check because tangle classification is part of the extracted shared probe contract.</li>
+  <li>The optional plan-15 visualization server record is accepted if present, but its absence remains healthy because plan 15 is not a dependency of this phase.</li>
+</ul>
+
 <div class="footer-nav">
   <a href="12-event-journal.html">← Plan 12: mx-journal</a>
   <a href="index.html">Index</a>
