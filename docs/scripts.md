@@ -22,6 +22,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-headroom.sh`         | Report composite dispatch capacity and inspect, cancel, or drain parked requests |
 | `mx-vplan.sh`            | Create, serve, inspect, and stop one-shot loopback HTML review artifacts |
 | `mx-vplan-server.mjs`    | Inject the local comment SDK, atomically persist confirmed feedback, and end the review |
+| `mx-timeline.sh`         | Render and filter one task's best-effort event journal as text, JSONL, or self-contained HTML |
+| `mx-journal-lib.sh`      | Validate and append closed-vocabulary task journal events without affecting writer success |
 | `mx-workflow.sh`         | Validate, launch, inspect, reconcile, abort, and dry-run linear workflow definitions |
 | `mx-workflow-lib.sh`     | Own workflow parsing, snapshots, contracts, run records, and stage executors |
 | `mx-decision-hold.sh`    | Create, verify, complete, and resolve durable maintainer-held decisions                 |

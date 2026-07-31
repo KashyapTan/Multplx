@@ -129,6 +129,7 @@ family_for_basename() {
     mx-herdr-lab.test.sh|mx-instruction-owners.test.sh|\
     mx-install-herdr.test.sh|mx-deep-review-lib.test.sh|mx-deep-review.test.sh|\
     mx-deep-review-config-contract.test.sh|\
+    mx-journal.test.sh|mx-timeline.test.sh|\
     mx-report.test.sh|mx-report-mcp.test.sh|mx-signal-precedence.test.sh|\
     mx-removed-deps.test.sh|\
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
@@ -296,6 +297,7 @@ tests/mx-herdr-session-cleanup-e2e.test.sh	herdr-session
 tests/mx-herdr-session-cleanup.test.sh	none
 tests/mx-install-herdr.test.sh	none
 tests/mx-instruction-owners.test.sh	none
+tests/mx-journal.test.sh	none
 tests/mx-maintainer-translation-contract.test.sh	none
 tests/mx-naming.test.sh	none
 tests/mx-nudge.test.sh	watcher-process
@@ -342,6 +344,7 @@ tests/mx-teardown.test.sh	none
 tests/mx-test-isolation-proof.test.sh	global
 tests/mx-test-run.test.sh	global
 tests/mx-test-split-parity.test.sh	none
+tests/mx-timeline.test.sh	none
 tests/mx-tmux-submit-busy.test.sh	none
 tests/mx-transition-lib.test.sh	none
 tests/mx-turnend-guard.test.sh	watcher-process
@@ -852,6 +855,10 @@ families_for_changed_path() {
       printf '%s\n' watcher-wake-lock
       ;;
     bin/mx-vplan.sh|bin/mx-vplan-server.mjs|share/vplan/*|docs/vplan.md|docs/vplan-authoring.md)
+      printf '%s\n' pure-contract-unit
+      ;;
+    bin/mx-journal-lib.sh|bin/mx-timeline.sh|docs/journal-events.md|\
+    tests/fixtures/timeline.*)
       printf '%s\n' pure-contract-unit
       ;;
     bin/mx-workflow.sh|bin/mx-workflow-lib.sh|docs/workflows.md|workflows/*.workflow.md|\

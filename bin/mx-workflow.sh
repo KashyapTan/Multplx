@@ -25,6 +25,36 @@ WF_SCRIPT_DIR=$SCRIPT_DIR
 WF_MX_ROOT=$MX_ROOT
 export WF_SCRIPT_DIR WF_MX_ROOT
 
+# shellcheck source=bin/mx-journal-lib.sh
+. "$SCRIPT_DIR/mx-journal-lib.sh"
+
+wf_journal_stage_entered() { # <run-dir> <stage-id>
+  local run_dir=$1 stage=$2 run detail
+  run=$(jq -r '.run' "$run_dir/run.json" 2>/dev/null || true)
+  if detail=$(jq -cn --arg run "$run" --arg stage "$stage" \
+      '{run:$run,stage:$stage}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-workflow \
+      mx_journal_try "$run" workflow.stage.entered "$detail"
+  else
+    mx_journal_warn_once "could not compose workflow.stage.entered for $run"
+  fi
+  return 0
+}
+
+wf_journal_stage_gated() { # <run-dir> <stage-id> <gate> <outcome>
+  local run_dir=$1 stage=$2 gate=$3 outcome=$4 run detail
+  run=$(jq -r '.run' "$run_dir/run.json" 2>/dev/null || true)
+  if detail=$(jq -cn --arg run "$run" --arg stage "$stage" \
+      --arg gate "$gate" --arg outcome "$outcome" \
+      '{run:$run,stage:$stage,gate:$gate,outcome:$outcome}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-workflow \
+      mx_journal_try "$run" workflow.stage.gated "$detail"
+  else
+    mx_journal_warn_once "could not compose workflow.stage.gated for $run"
+  fi
+  return 0
+}
+
 # shellcheck source=bin/mx-workflow-lib.sh
 . "$SCRIPT_DIR/mx-workflow-lib.sh"
 # shellcheck source=bin/mx-backlog-lib.sh

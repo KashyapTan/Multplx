@@ -88,6 +88,7 @@ data/                personal system records; LOCAL, gitignored as a whole
 projects/            cloned repos; gitignored; READ-ONLY for you
 state/               volatile runtime signals; gitignored
   <id>.status        appended by actors: "<state>: <note>" wake-event lines, not current-state truth
+  <id>.journal       best-effort observability timeline; never current-state or control-flow truth
   <id>.turn-ended    touched by turn-end hooks
   <id>.meta          written by mx-spawn: window=, worktree=, project=, harness=, model=, effort=, kind=, mode=, yolo=, tasktmp=; kind=daemon also records home= and projects=; a non-default runtime backend records further backend-specific fields (docs/configuration.md "Runtime backend"; bin/mx-backend.sh, section 8); mx-pr-check, including through mx-pr-merge, records one canonical pr= and GitHub's pr_head= when available (GitHub pull requests only)
   <id>.herdr-presentation  quarantinable attempt and restart-binding journal for Herdr's optional visual projection; never task or endpoint authority; see docs/herdr-backend.md "Optional presentation spaces"
@@ -118,6 +119,7 @@ state/               volatile runtime signals; gitignored
 A `state/<id>.status` line is a wake event, not current-state truth; `bin/mx-actor-state.sh` owns current-state reconciliation.
 Actors write those events with the `report_status` tool when available or `bin/mx-report` as the universal fallback; both paths validate the closed state vocabulary and task binding before append, and actors never hand-write the file.
 A successful validated append may nudge an identity-matched live watcher to re-scan immediately, but the durable status event and normal polling remain authoritative when that latency-only nudge is absent or lost.
+Use `bin/mx-timeline.sh <id>` to inspect one task's cross-subsystem history, but never substitute that best-effort projection for authoritative current-state reconciliation.
 Treat `data/maintainer.md` as the domain-local record of maintainer preferences, optional `data/maintainer-shared.md` as the main-authoritative shared maintainer-preference file for daemon inheritance, and `data/learnings.md` as curated home-local knowledge, regardless of harness memory.
 
 ## 3. Session start (run once at every session start)

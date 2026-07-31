@@ -23,6 +23,13 @@ STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 . "$SCRIPT_DIR/mx-backend.sh"
 # shellcheck source=bin/mx-classify-lib.sh
 . "$SCRIPT_DIR/mx-classify-lib.sh"
+if [ -r "$SCRIPT_DIR/mx-journal-lib.sh" ]; then
+  # shellcheck source=bin/mx-journal-lib.sh
+  . "$SCRIPT_DIR/mx-journal-lib.sh"
+else
+  mx_journal_try() { return 0; }
+  mx_journal_warn_once() { return 0; }
+fi
 
 ID=${1:-}
 [ -n "$ID" ] || {
@@ -40,6 +47,64 @@ emit() {
   [ -n "${3:-}" ] && line="$line${SEP}$3"
   printf '%s\n' "$line"
   exit 0
+}
+
+emit_classified() { # <state> <source> <detail> <winner> <native> <run> <report> <heuristic>
+  local state=$1 source=$2 detail=$3 winner=$4 native=$5 run=$6 report=$7 heuristic=$8
+  local event_detail
+  if [ "${MX_JOURNAL_CLASSIFY:-0}" = 1 ]; then
+    case "${MX_JOURNAL_SOURCE:-}" in
+      mx-watch|mx-supervise-daemon)
+        if event_detail=$(jq -cn \
+            --arg verdict "$state" --arg winner "$winner" \
+            --arg native "$native" --arg run "$run" \
+            --arg report "$report" --arg heuristic "$heuristic" '
+          def normalized($tier; $signal):
+            if $tier == "native-event" then $signal
+            elif $tier == "attributed-run-step" then $signal
+            elif $tier == "validated-report" then
+              if $signal == "needs-decision" then "parked"
+              elif $signal == "resolved" then "unknown"
+              else $signal end
+            elif $tier == "regex-heuristic" then
+              if $signal == "busy" then "working" else "unknown" end
+            else "unknown" end;
+          def winner_tier:
+            if $winner | startswith("native:") then "native-event"
+            elif $winner | startswith("run-step:") then "attributed-run-step"
+            elif $winner | startswith("self-report:") then "validated-report"
+            else "regex-heuristic" end;
+          def winner_rank:
+            if winner_tier == "native-event" then 1
+            elif winner_tier == "attributed-run-step" then 2
+            elif winner_tier == "validated-report" then 3
+            else 4 end;
+          [
+            {tier:"native-event",rank:1,signal:$native},
+            {tier:"attributed-run-step",rank:2,signal:$run},
+            {tier:"validated-report",rank:3,signal:$report},
+            {tier:"regex-heuristic",rank:4,signal:$heuristic}
+          ] as $signals |
+          {
+            verdict:$verdict,
+            tier:winner_tier,
+            conflicts:[
+              $signals[] |
+              select(.rank > winner_rank and .signal != "") |
+              select(normalized(.tier; .signal) != $verdict) |
+              {tier:.tier,signal:.signal}
+            ]
+          }
+        ' 2>/dev/null); then
+          MX_STATE_OVERRIDE="$STATE" \
+            mx_journal_try "$ID" status.classified "$event_detail"
+        else
+          mx_journal_warn_once "could not compose status.classified for $ID"
+        fi
+        ;;
+    esac
+  fi
+  emit "$state" "$source" "$detail"
 }
 
 [ -f "$META" ] || emit unknown none "no metadata for $ID"
@@ -185,11 +250,13 @@ if [ "$GATE_VALID" -eq 0 ]; then
   case "$WINNER" in
     native:*)
       RESOLVED_STATE=${WINNER#native:}
-      emit "$RESOLVED_STATE" native-event \
-        "runtime $RESOLVED_STATE${SEP}run-step still $RUN_DETAIL"
+      emit_classified "$RESOLVED_STATE" native-event \
+        "runtime $RESOLVED_STATE${SEP}run-step still $RUN_DETAIL" \
+        "$WINNER" "$NATIVE_SIGNAL" "$RUN_STATE" "$LOG_VERB" ""
       ;;
     *)
-      emit "$RUN_STATE" run-step "$RUN_DETAIL"
+      emit_classified "$RUN_STATE" run-step "$RUN_DETAIL" \
+        "$WINNER" "$NATIVE_SIGNAL" "$RUN_STATE" "$LOG_VERB" ""
       ;;
   esac
 fi
@@ -217,13 +284,16 @@ WINNER=$(mx_signal_resolve "$NATIVE_SIGNAL" "" "$SELF_REPORT_SIGNAL" "$HEURISTIC
 case "$WINNER" in
   native:*)
     RESOLVED_STATE=${WINNER#native:}
-    emit "$RESOLVED_STATE" native-event "runtime $RESOLVED_STATE"
+    emit_classified "$RESOLVED_STATE" native-event "runtime $RESOLVED_STATE" \
+      "$WINNER" "$NATIVE_SIGNAL" "" "$SELF_REPORT_SIGNAL" "$HEURISTIC_SIGNAL"
     ;;
   self-report:*)
-    emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
+    emit_classified "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")" \
+      "$WINNER" "$NATIVE_SIGNAL" "" "$SELF_REPORT_SIGNAL" "$HEURISTIC_SIGNAL"
     ;;
   heuristic:busy)
-    emit working pane "harness busy"
+    emit_classified working pane "harness busy" \
+      "$WINNER" "$NATIVE_SIGNAL" "" "$SELF_REPORT_SIGNAL" "$HEURISTIC_SIGNAL"
     ;;
   *)
     emit unknown none "no current-state source available"

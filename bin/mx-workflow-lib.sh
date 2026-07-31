@@ -1051,6 +1051,9 @@ wf_reconcile_run() { # <run-dir>
       continue
     fi
     wf_run_set_state "$run_dir" running "$stage_id" "reconciling stage $stage_id" || return 1
+    if [ "$status" = pending ] && command -v wf_journal_stage_entered >/dev/null 2>&1; then
+      wf_journal_stage_entered "$run_dir" "$stage_id" || true
+    fi
     type=$(printf '%s\n' "$stage_json" | jq -r '.type')
     gate=$(printf '%s\n' "$stage_json" | jq -r '.gate')
 
@@ -1065,14 +1068,22 @@ wf_reconcile_run() { # <run-dir>
         wf_gate_stage "$run_dir" "$stage_json"
         gate_rc=$?
         case "$gate_rc" in
-          0) wf_mark_stage_passed "$run_dir" "$stage_id" ;;
+          0)
+            wf_mark_stage_passed "$run_dir" "$stage_id" || return 1
+            command -v wf_journal_stage_gated >/dev/null 2>&1 \
+              && wf_journal_stage_gated "$run_dir" "$stage_id" approve passed || true
+            ;;
           1)
             wf_run_set_state "$run_dir" waiting "$stage_id" \
               "maintainer approval required; resolve $stage_id through mx-decision-hold"
+            command -v wf_journal_stage_gated >/dev/null 2>&1 \
+              && wf_journal_stage_gated "$run_dir" "$stage_id" approve waiting || true
             return 0
             ;;
           *)
             wf_run_set_state "$run_dir" failed "$stage_id" "interactive gate failed"
+            command -v wf_journal_stage_gated >/dev/null 2>&1 \
+              && wf_journal_stage_gated "$run_dir" "$stage_id" approve failed || true
             return 1
             ;;
         esac
@@ -1137,15 +1148,22 @@ wf_reconcile_run() { # <run-dir>
             0) ;;
             1)
               wf_run_set_state "$run_dir" waiting "$stage_id" "maintainer approval required"
+              command -v wf_journal_stage_gated >/dev/null 2>&1 \
+                && wf_journal_stage_gated "$run_dir" "$stage_id" approve waiting || true
               return 0
               ;;
             *)
               wf_run_set_state "$run_dir" failed "$stage_id" "approval gate failed"
+              command -v wf_journal_stage_gated >/dev/null 2>&1 \
+                && wf_journal_stage_gated "$run_dir" "$stage_id" approve failed || true
               return 1
               ;;
           esac
         fi
         wf_mark_stage_passed "$run_dir" "$stage_id" || return 1
+        if command -v wf_journal_stage_gated >/dev/null 2>&1; then
+          wf_journal_stage_gated "$run_dir" "$stage_id" "$gate" passed || true
+        fi
         ;;
       command)
         case "$status" in
@@ -1227,15 +1245,22 @@ wf_reconcile_run() { # <run-dir>
             0) ;;
             1)
               wf_run_set_state "$run_dir" waiting "$stage_id" "maintainer approval required"
+              command -v wf_journal_stage_gated >/dev/null 2>&1 \
+                && wf_journal_stage_gated "$run_dir" "$stage_id" approve waiting || true
               return 0
               ;;
             *)
               wf_run_set_state "$run_dir" failed "$stage_id" "approval gate failed"
+              command -v wf_journal_stage_gated >/dev/null 2>&1 \
+                && wf_journal_stage_gated "$run_dir" "$stage_id" approve failed || true
               return 1
               ;;
           esac
         fi
         wf_mark_stage_passed "$run_dir" "$stage_id" || return 1
+        if command -v wf_journal_stage_gated >/dev/null 2>&1; then
+          wf_journal_stage_gated "$run_dir" "$stage_id" "$gate" passed || true
+        fi
         ;;
     esac
   done <<EOF

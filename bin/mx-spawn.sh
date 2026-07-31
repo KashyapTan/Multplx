@@ -144,6 +144,8 @@ mx_refuse_if_gate_agent
 . "$SCRIPT_DIR/mx-backend.sh"
 # shellcheck source=bin/mx-pr-lib.sh
 . "$SCRIPT_DIR/mx-pr-lib.sh"
+# shellcheck source=bin/mx-journal-lib.sh
+. "$SCRIPT_DIR/mx-journal-lib.sh"
 # Skip the watcher guard when re-exec'd for one pair of a batch (MX_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${MX_SPAWN_NO_GUARD:-}" ] || "$MX_ROOT/bin/mx-guard.sh" || true
@@ -1196,6 +1198,19 @@ META_WINDOW=$T
   fi
 } > "$STATE/$ID.meta"
 chmod 600 "$STATE/$ID.meta"
+SPAWN_BRANCH=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+if [ -z "$SPAWN_BRANCH" ]; then
+  SPAWN_HEAD=$(git -C "$WT" rev-parse --short HEAD 2>/dev/null || printf unknown)
+  SPAWN_BRANCH="detached@$SPAWN_HEAD"
+fi
+if SPAWN_DETAIL=$(jq -cn --arg kind "$KIND" --arg backend "$BACKEND" \
+    --arg worktree "$WT" --arg branch "$SPAWN_BRANCH" \
+    '{kind:$kind,backend:$backend,worktree:$worktree,branch:$branch}' 2>/dev/null); then
+  MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-spawn \
+    mx_journal_try "$ID" task.spawned "$SPAWN_DETAIL"
+else
+  mx_journal_warn_once "could not compose task.spawned for $ID"
+fi
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")

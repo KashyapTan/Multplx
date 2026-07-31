@@ -51,6 +51,14 @@ DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 # shellcheck source=bin/mx-backlog-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/mx-backlog-lib.sh"
+if [ -r "$SCRIPT_DIR/mx-journal-lib.sh" ]; then
+  # shellcheck source=bin/mx-journal-lib.sh
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/mx-journal-lib.sh"
+else
+  mx_journal_try() { return 0; }
+  mx_journal_warn_once() { return 0; }
+fi
 BACKLOG="$DATA/backlog.md"
 
 usage() {
@@ -226,7 +234,7 @@ command_id() {
 }
 
 command_hold() {
-  local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
+  local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body detail
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   shift 2
   while [ "$#" -gt 0 ]; do
@@ -268,6 +276,14 @@ command_hold() {
   mx_backlog_hold "$BACKLOG" "$id" --reason "$reason" --kind maintainer >/dev/null \
     || fail "could not activate maintainer hold $id"
   verify_hold_active "$id"
+  if detail=$(jq -cn --arg decision_key "$key" --arg hold_id "$id" \
+      --arg title "$title" \
+      '{decision_key:$decision_key,hold_id:$hold_id,title:$title}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-decision-hold \
+      mx_journal_try "$origin" hold.opened "$detail"
+  else
+    mx_journal_warn_once "could not compose hold.opened for $origin"
+  fi
   printf '%s\n' "$id"
 }
 
@@ -366,6 +382,7 @@ EOF
 
 command_resolve() {
   local origin=${1:-} key=${2:-} decision_file='' id='' decision='' decision_digest='' body='' routed='' routed_csv='' dep show blocked state hold_show hold_body resolution_recorded=0
+  local routed_json detail
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   shift 2
   while [ "$#" -gt 0 ]; do
@@ -394,6 +411,16 @@ command_resolve() {
     hold_show=$(task_show "$id")
     hold_body=$(show_field "$hold_show" body)
     verify_resolution_identity "$id" "$hold_body" "$decision_digest" "$routed_csv"
+    if routed_json=$(printf '%s\n' $routed \
+        | jq -Rsc 'split("\n") | map(select(length > 0))' 2>/dev/null) \
+      && detail=$(jq -cn --arg decision_key "$key" --arg hold_id "$id" \
+        --argjson routed_to "$routed_json" \
+        '{decision_key:$decision_key,hold_id:$hold_id,routed_to:$routed_to}' 2>/dev/null); then
+      MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-decision-hold \
+        mx_journal_try "$origin" hold.resolved "$detail"
+    else
+      mx_journal_warn_once "could not compose hold.resolved for $origin"
+    fi
     printf 'resolved: %s\n' "$id"
     return 0
   fi
@@ -447,6 +474,16 @@ command_resolve() {
   done
   mx_backlog_done "$BACKLOG" "$id" >/dev/null || fail "could not close resolved maintainer hold $id"
   verify_hold_resolved "$id" || fail "maintainer hold $id did not retain its durable resolution record"
+  if routed_json=$(printf '%s\n' $routed \
+      | jq -Rsc 'split("\n") | map(select(length > 0))' 2>/dev/null) \
+    && detail=$(jq -cn --arg decision_key "$key" --arg hold_id "$id" \
+      --argjson routed_to "$routed_json" \
+      '{decision_key:$decision_key,hold_id:$hold_id,routed_to:$routed_to}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-decision-hold \
+      mx_journal_try "$origin" hold.resolved "$detail"
+  else
+    mx_journal_warn_once "could not compose hold.resolved for $origin"
+  fi
   printf 'resolved: %s -> %s\n' "$id" "$routed"
 }
 

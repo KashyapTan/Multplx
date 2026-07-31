@@ -1162,6 +1162,36 @@ is_wake_reason() {  # <reason>
   return 1
 }
 
+journal_wake_classifications() { # <reason> <state>
+  local reason=$1 state=$2 arg f base task seen=''
+  [ "${MX_JOURNAL_CLASSIFY:-0}" = 1 ] || return 0
+  case "$reason" in
+    signal:*)
+      arg=${reason#signal:}
+      # shellcheck disable=SC2086 # Watcher reason paths use the existing space-separated protocol.
+      for f in $arg; do
+        base=${f##*/}
+        case "$base" in
+          *.status) task=${base%.status} ;;
+          *.turn-ended) task=${base%.turn-ended} ;;
+          *) continue ;;
+        esac
+        [ -n "$task" ] || continue
+        case " $seen " in *" $task "*) continue ;; esac
+        seen="$seen $task"
+        MX_STATE_OVERRIDE="$state" "$MX_ACTOR_STATE_BIN" "$task" >/dev/null 2>&1 || true
+      done
+      ;;
+    stale:*)
+      arg=${reason#stale: }
+      arg=${arg%% *}
+      task=$(window_to_task "$arg" "$state")
+      [ -n "$task" ] \
+        && MX_STATE_OVERRIDE="$state" "$MX_ACTOR_STATE_BIN" "$task" >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+
 # --- dispatch one wake reason to self-handle or escalate --------------------
 # Side effects: logging, marker records, escalation buffer appends.
 handle_wake() {  # <reason> <state>
@@ -1180,6 +1210,7 @@ handle_wake() {  # <reason> <state>
     heartbeat|heartbeat:*) decision=$(classify_heartbeat) ;;
     *)        decision=$(classify_unknown "$reason") ;;
   esac
+  journal_wake_classifications "$reason" "$state"
   action=${decision%%|*}
   distilled=${decision#*|}
   [ "$kind" = signal ] && sync_pause_markers_from_signal "$state" "$arg"
@@ -1261,6 +1292,9 @@ mx_super_main() {
   local STATE
   STATE="$(_state_root)"
   mkdir -p "$STATE"
+  MX_JOURNAL_CLASSIFY=1
+  MX_JOURNAL_SOURCE=mx-supervise-daemon
+  export MX_JOURNAL_CLASSIFY MX_JOURNAL_SOURCE
 
   # Source the portable lock helpers (works on macOS where flock is absent).
   # Export MX_STATE_OVERRIDE so the lib resolves the same state dir.

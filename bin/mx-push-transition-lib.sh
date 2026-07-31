@@ -18,6 +18,8 @@ MX_PUSH_TRANSITION_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$MX_PUSH_TRANSITION_LIB_DIR/mx-backend.sh"
 # shellcheck source=bin/mx-transition-lib.sh
 . "$MX_PUSH_TRANSITION_LIB_DIR/mx-transition-lib.sh"
+# shellcheck source=bin/mx-journal-lib.sh
+. "$MX_PUSH_TRANSITION_LIB_DIR/mx-journal-lib.sh"
 
 TRIAGE_LOG="$STATE/.watch-triage.log"
 TRIAGE_LOG_MAX_BYTES=${MX_WATCH_TRIAGE_LOG_MAX_BYTES:-262144}
@@ -60,7 +62,7 @@ mark_surfaced() {  # <status-file>
 
 # Act on a fresh actionable transition from a push-capable backend.
 handle_push_transition() {  # <backend> <session> <record>
-  local backend=$1 session=$2 record=$3 pane_id to window task reason last verb winner
+  local backend=$1 session=$2 record=$3 pane_id to window task reason last verb winner detail
   pane_id=$(mx_transition_pane_id "$record")
   to=$(mx_transition_to_status "$record")
   [ -n "$pane_id" ] || { sleep 1; return; }
@@ -73,6 +75,25 @@ handle_push_transition() {  # <backend> <session> <record>
     native:*)
       if [ -n "$verb" ]; then
         triage_log "native $to overruled self-report $verb: $window"
+      fi
+      if [ "${MX_JOURNAL_SOURCE:-}" = mx-watch ]; then
+        if detail=$(jq -cn --arg verdict "$to" --arg report "$verb" '
+            {
+              verdict:$verdict,
+              tier:"native-event",
+              conflicts:(
+                if $report != "" and $report != $verdict
+                then [{tier:"validated-report",signal:$report}]
+                else []
+                end
+              )
+            }
+          ' 2>/dev/null); then
+          MX_STATE_OVERRIDE="$STATE" \
+            mx_journal_try "$task" status.classified "$detail"
+        else
+          mx_journal_warn_once "could not compose status.classified for $task"
+        fi
       fi
       ;;
     *)

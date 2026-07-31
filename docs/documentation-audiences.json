@@ -244,6 +244,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/journal-events.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/scripts.md",
       "audience": "operator-current"
     },

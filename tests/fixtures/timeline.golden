@@ -1,0 +1,5 @@
+12:00:00  mx-spawn              task.spawned              kind=delivery backend=tmux branch=mx/timeline-fixture
+12:05:00  mx-report             status.reported           blocked: CI needs access [validated]
+12:06:00  mx-watch              status.classified         blocked (tier: validated-report; conflicts: 1)
+12:10:00  mx-deep-review        gate.step.finished        step=review round=1 findings=2 outcome=retry
+12:15:00  mx-deliver            delivery.pr_opened        https://github.com/example/project/pull/12

@@ -931,7 +931,9 @@ cleanup_broker_home_children() {
       fi
     fi
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
-    rm -f "$sub_state/$child_id.status" "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.meta" "$sub_state/$child_id.pi-ext.ts"
+    rm -f "$sub_state/$child_id.status" "$sub_state/$child_id.turn-ended" \
+      "$sub_state/$child_id.meta" "$sub_state/$child_id.pi-ext.ts" \
+      "$sub_state/$child_id.journal"
   done
 }
 
@@ -1090,7 +1092,8 @@ mx_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
-rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" "$STATE/$ID.pi-ext.ts"
+rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
+  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.journal"
 if [ "$KIND" != scout ] && [ "$KIND" != daemon ] && [ "$MODE" != local-only ]; then
   "$MX_ROOT/bin/mx-system-sync.sh" "$PROJ" || true
 fi

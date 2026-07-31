@@ -27,6 +27,8 @@ STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 . "$SCRIPT_DIR/mx-deliver-lib.sh"
 # shellcheck source=bin/mx-deep-review-lib.sh
 . "$SCRIPT_DIR/mx-deep-review-lib.sh"
+# shellcheck source=bin/mx-journal-lib.sh
+. "$SCRIPT_DIR/mx-journal-lib.sh"
 
 DR_MX_ROOT=$MX_ROOT
 DR_MAX_ROUNDS=${MX_DEEP_REVIEW_MAX_ROUNDS:-5}
@@ -127,25 +129,76 @@ record_head() {
   record_update_args --arg head "$head" -- '.approved_head=$head'
 }
 
+gate_findings_count() { # <step> <round>
+  local step=$1 round=$2 file count=0 one
+  for file in \
+    "$GATE_DIR/findings/round-$(printf '%02d' "$round")-$step.json" \
+    "$GATE_DIR/findings/round-$(printf '%02d' "$round")-$step-command.json"; do
+    [ -f "$file" ] || continue
+    one=$(jq -r '.findings | length' "$file" 2>/dev/null || printf 0)
+    case "$one" in ''|*[!0-9]*) one=0 ;; esac
+    count=$((count + one))
+  done
+  printf '%s\n' "$count"
+}
+
+gate_journal_started() { # <step> <round>
+  local detail
+  if detail=$(jq -cn --arg step "$1" --argjson round "$2" \
+      '{step:$step,round:$round}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-deep-review \
+      mx_journal_try "$ID" gate.step.started "$detail"
+  else
+    mx_journal_warn_once "could not compose gate.step.started for $ID"
+  fi
+}
+
+gate_journal_finished() { # <step> <round> <outcome>
+  local findings detail
+  findings=$(gate_findings_count "$1" "$2")
+  if detail=$(jq -cn --arg step "$1" --argjson round "$2" \
+      --argjson findings "$findings" --arg outcome "$3" \
+      '{step:$step,round:$round,findings:$findings,outcome:$outcome}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-deep-review \
+      mx_journal_try "$ID" gate.step.finished "$detail"
+  else
+    mx_journal_warn_once "could not compose gate.step.finished for $ID"
+  fi
+}
+
+gate_next_round() { # <step> [prior-round-outcome]
+  local step=$1 outcome=${2:-}
+  [ -z "$outcome" ] || gate_journal_finished "$step" "$ROUND" "$outcome"
+  ROUND=$((ROUND + 1))
+  record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+  gate_journal_started "$step" "$ROUND"
+}
+
 step_start() { # <step>
-  local step=$1 head
+  local step=$1 head round
   head=$(current_head) || return 1
+  round=$(jq -r '.round' "$RUN_FILE") || return 1
   record_update_args --arg step "$step" --arg head "$head" -- \
     '.step=$step | .status="running" | .approved_head=$head |
      .steps[$step]="running" |
-     if (.history[-1] // "") == $step then . else .history += [$step] end'
+     if (.history[-1] // "") == $step then . else .history += [$step] end' \
+    || return 1
+  gate_journal_started "$step" "$round"
 }
 
 step_complete() { # <step> <next-or-empty>
-  local step=$1 next=${2:-} head
+  local step=$1 next=${2:-} head round
   head=$(current_head) || return 1
+  round=$(jq -r '.round' "$RUN_FILE") || return 1
   if [ -n "$next" ]; then
     record_update_args --arg step "$step" --arg next "$next" --arg head "$head" -- \
-      '.steps[$step]="passed" | .step=$next | .round=1 | .approved_head=$head'
+      '.steps[$step]="passed" | .step=$next | .round=1 | .approved_head=$head' \
+      || return 1
   else
     record_update_args --arg step "$step" --arg head "$head" -- \
-      '.steps[$step]="passed" | .approved_head=$head'
+      '.steps[$step]="passed" | .approved_head=$head' || return 1
   fi
+  gate_journal_finished "$step" "$round" passed
 }
 
 write_schema() { # <review|test|summary>
@@ -253,7 +306,8 @@ park_for_findings() { # <step> <processed-findings-file>
   message="deep-review $step round $ROUND finding $ids"
   record_update_args --arg key "$key" --arg step "$step" -- \
     '.status="parked" | .step=$step | .pending_decision_key=$key |
-     .decision_ready=false | .steps[$step]="parked"'
+     .decision_ready=false | .steps[$step]="parked"' || return 1
+  gate_journal_finished "$step" "$ROUND" parked
   report_status needs-decision "$message" "$key" || {
     printf 'deep-review: run parked but validated decision report failed\n' >&2
     return 1
@@ -323,8 +377,7 @@ run_review_step() {
   if consume_decision_if_ready review; then
     call_agent review fix summary "review-fix-r$ROUND" || return 1
     commit_if_dirty "review round $ROUND" || return 1
-    ROUND=$((ROUND + 1))
-    record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+    gate_next_round review || return 1
   fi
 
   while [ "$ROUND" -le "$DR_MAX_ROUNDS" ]; do
@@ -360,8 +413,7 @@ run_review_step() {
         fi
         call_agent review fix summary "review-fix-r$ROUND" || return 1
         commit_if_dirty "review round $ROUND" || return 1
-        ROUND=$((ROUND + 1))
-        record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+        gate_next_round review retry || return 1
         ;;
       *) return "$rc" ;;
     esac
@@ -408,8 +460,7 @@ run_test_step() {
   if consume_decision_if_ready test; then
     call_agent test fix summary "test-fix-r$ROUND" || return 1
     commit_if_dirty "test round $ROUND" || return 1
-    ROUND=$((ROUND + 1))
-    record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+    gate_next_round test || return 1
   fi
 
   while [ "$ROUND" -le "$DR_MAX_ROUNDS" ]; do
@@ -419,8 +470,7 @@ run_test_step() {
         write_command_finding test "$COMMAND_EXIT" "$COMMAND_OUTPUT" || return 1
         call_agent test fix summary "test-fix-r$ROUND" || return 1
         commit_if_dirty "test round $ROUND" || return 1
-        ROUND=$((ROUND + 1))
-        record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+        gate_next_round test retry || return 1
         continue
       fi
     else
@@ -443,8 +493,7 @@ run_test_step() {
       20)
         call_agent test fix summary "test-fix-r$ROUND" || return 1
         commit_if_dirty "test round $ROUND" || return 1
-        ROUND=$((ROUND + 1))
-        record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+        gate_next_round test retry || return 1
         ;;
       *) return "$rc" ;;
     esac
@@ -475,8 +524,7 @@ run_lint_step() {
         write_command_finding format "$COMMAND_EXIT" "$COMMAND_OUTPUT" || return 1
         call_agent lint fix summary "lint-fix-r$ROUND" || return 1
         commit_if_dirty "format round $ROUND" || return 1
-        ROUND=$((ROUND + 1))
-        record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+        gate_next_round lint retry || return 1
         continue
       fi
       commit_if_dirty "format round $ROUND" || return 1
@@ -493,8 +541,7 @@ run_lint_step() {
     write_command_finding lint "$COMMAND_EXIT" "$COMMAND_OUTPUT" || return 1
     call_agent lint fix summary "lint-fix-r$ROUND" || return 1
     commit_if_dirty "lint round $ROUND" || return 1
-    ROUND=$((ROUND + 1))
-    record_update_args --argjson round "$ROUND" -- '.round=$round' || return 1
+    gate_next_round lint retry || return 1
   done
   printf 'deep-review: lint exceeded %s fix rounds\n' "$DR_MAX_ROUNDS" >&2
   return 1
@@ -684,12 +731,17 @@ DR_INTENT_FILE=$GATE_DIR/intent.txt
 export DR_DEFAULT_BRANCH DR_REPO_ROOT DR_GATE_DIR DR_INTENT_FILE DR_MX_ROOT
 
 gate_exit_trap() {
-  local rc=$?
+  local rc=$? failed_step failed_round
   trap - EXIT
   if [ "$rc" -ne 0 ] && [ "$rc" -ne 10 ] && [ "$rc" -lt 128 ] \
     && [ -f "$RUN_FILE" ] && [ ! -L "$RUN_FILE" ]; then
+    failed_step=$(jq -r '.step' "$RUN_FILE" 2>/dev/null || true)
+    failed_round=$(jq -r '.round' "$RUN_FILE" 2>/dev/null || true)
     record_update \
       '.status="failed" | .steps[.step]="failed"' >/dev/null 2>&1 || true
+    case "$failed_round" in ''|*[!0-9]*) : ;;
+      *) gate_journal_finished "$failed_step" "$failed_round" failed ;;
+    esac
   fi
   exit "$rc"
 }
