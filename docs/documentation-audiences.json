@@ -300,6 +300,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/viz.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/workflows.md",
       "audience": "operator-current"
     },

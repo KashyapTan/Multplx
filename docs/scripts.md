@@ -22,6 +22,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-backlog-lib.sh`      | Own backlog schema, parsing, atomic mutations, and Done retention              |
 | `mx-backlog-handoff.sh`  | Validate and route queued backlog-item moves into a daemon home                  |
 | `mx-headroom.sh`         | Report composite dispatch capacity and inspect, cancel, or drain parked requests |
+| `mx-viz.sh`              | Start, inspect, and stop the disposable read-only loopback system dashboard |
+| `mx-viz-server.mjs`      | Serve the cached canonical snapshot, local assets, and allowlisted artifacts over GET-only loopback HTTP |
 | `mx-vplan.sh`            | Create, serve, inspect, and stop one-shot loopback HTML review artifacts |
 | `mx-vplan-server.mjs`    | Inject the local comment SDK, atomically persist confirmed feedback, and end the review |
 | `mx-timeline.sh`         | Render and filter one task's best-effort event journal as text, JSONL, or self-contained HTML |

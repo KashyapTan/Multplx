@@ -59,6 +59,9 @@
 #   headroom: mx-headroom.sh --json verbatim, or null with headroom_reason when
 #     the read-only capacity check is unavailable.
 #   vplan_reviews: identity-verified active review records without review tokens.
+#   later_feeds: gate, workflow, and delivery {supported,available,records[]}
+#     projections, where available requires a present bounded record, plus
+#     upstream drift and doctor/timeline reader availability for optional views.
 #
 # Compatibility: JSON is the primary machine-readable surface.
 # Human views must render this output instead of parsing state files again.
@@ -1449,6 +1452,134 @@ vplan_reviews_json() {
   jq -n --argjson records "$records" '{records:($records | sort_by(.started_at // "",.artifact // ""))}'
 }
 
+gate_runs_json() {
+  local directory record id row records='[]'
+  for directory in "$STATE"/*.gate; do
+    [ -d "$directory" ] && [ ! -L "$directory" ] || continue
+    record="$directory/run.json"
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    id=${directory##*/}
+    id=${id%.gate}
+    row=$(jq -c --arg id "$id" '
+      if type == "object" then
+        {id:$id,valid:true,status:(.status // "unknown"),step:(.step // null),
+         round:(.round // null),parked:(.status == "parked"),
+         pending_decision_key:(.pending_decision_key // null),
+         approved_head:(.approved_head // null),summary:(.summary // null),
+         risk_level:(.risk_level // null)}
+      else {id:$id,valid:false,status:"invalid",step:null,round:null,parked:false,
+        pending_decision_key:null,approved_head:null,summary:null,risk_level:null}
+      end
+    ' "$record" 2>/dev/null) || row=$(jq -n --arg id "$id" \
+      '{id:$id,valid:false,status:"invalid",step:null,round:null,parked:false,
+        pending_decision_key:null,approved_head:null,summary:null,risk_level:null}')
+    records=$(jq -n --argjson records "$records" --argjson row "$row" '$records + [$row]')
+  done
+  jq -n --argjson supported "$([ -x "$SCRIPT_DIR/mx-deep-review.sh" ] && printf true || printf false)" \
+    --argjson records "$records" \
+    '{supported:$supported,available:($supported and (($records | length) > 0)),records:($records | sort_by(.id))}'
+}
+
+workflow_runs_json() {
+  local directory record id row records='[]'
+  for directory in "$STATE"/*.workflow; do
+    [ -d "$directory" ] && [ ! -L "$directory" ] || continue
+    record="$directory/run.json"
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    id=${directory##*/}
+    id=${id%.workflow}
+    row=$(jq -c --arg id "$id" '
+      if type == "object" then
+        {id:$id,valid:true,workflow:(.workflow // null),status:(.status // "unknown"),
+         current_stage:(.current_stage // null),message:(.message // null),
+         created_at:(.created_at // null),updated_at:(.updated_at // null)}
+      else {id:$id,valid:false,workflow:null,status:"invalid",current_stage:null,
+        message:null,created_at:null,updated_at:null}
+      end
+    ' "$record" 2>/dev/null) || row=$(jq -n --arg id "$id" \
+      '{id:$id,valid:false,workflow:null,status:"invalid",current_stage:null,
+        message:null,created_at:null,updated_at:null}')
+    records=$(jq -n --argjson records "$records" --argjson row "$row" '$records + [$row]')
+  done
+  jq -n --argjson supported "$([ -x "$SCRIPT_DIR/mx-workflow.sh" ] && printf true || printf false)" \
+    --argjson records "$records" \
+    '{supported:$supported,available:($supported and (($records | length) > 0)),records:($records | sort_by(.id))}'
+}
+
+delivery_records_json() {
+  local record base id state row records='[]' mtime age
+  for record in "$STATE"/*.ready-to-push "$STATE"/*.ready-to-push.stale "$STATE"/*.delivered; do
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    base=${record##*/}
+    case "$base" in
+      *.ready-to-push.stale) id=${base%.ready-to-push.stale}; state=stale ;;
+      *.ready-to-push) id=${base%.ready-to-push}; state=pending ;;
+      *.delivered) id=${base%.delivered}; state=delivered ;;
+      *) continue ;;
+    esac
+    mtime=$(file_mtime_epoch "$record")
+    age=null
+    case "$mtime" in
+      ''|*[!0-9]*) ;;
+      *) age=$((SNAPSHOT_EPOCH - mtime)); [ "$age" -ge 0 ] || age=0 ;;
+    esac
+    row=$(jq -Rn --arg id "$id" --arg state "$state" --argjson age "$age" '
+      reduce inputs as $line ({};
+        ($line | capture("^(?<key>[^=]+)=(?<value>.*)$")?) as $field
+        | if $field == null then . else .[$field.key] = $field.value end)
+      | {id:$id,state:$state,age_secs:$age,
+         valid:(.version == "1" and .task == $id),
+         approval:(.approval // null),branch:(.branch // null),
+         approved_sha:(.approved_sha // null),title:(.title // null)}
+    ' < "$record")
+    records=$(jq -n --argjson records "$records" --argjson row "$row" '$records + [$row]')
+  done
+  jq -n --argjson supported "$([ -x "$SCRIPT_DIR/mx-deliver.sh" ] && printf true || printf false)" \
+    --argjson records "$records" \
+    '{supported:$supported,available:($supported and (($records | length) > 0)),records:($records | sort_by(.state,.id))}'
+}
+
+upstream_drift_json() {
+  local command output rc reason
+  command=${MX_SNAPSHOT_UPSTREAM_BIN:-$SCRIPT_DIR/mx-upstream-diff.sh}
+  if [ ! -x "$command" ]; then
+    jq -n '{available:false,reason:"upstream reader is not installed",status:null,
+      fork_point:null,last_reviewed:null,upstream_repo:null,retired_reason:null}'
+    return 0
+  fi
+  output=$(MX_ROOT_OVERRIDE="$MX_ROOT" "$command" --status 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
+    reason=$(printf '%s\n' "$output" | head -1)
+    jq -n --arg reason "${reason:-upstream status failed}" \
+      '{available:false,reason:$reason,status:null,fork_point:null,last_reviewed:null,
+        upstream_repo:null,retired_reason:null}'
+    return 0
+  fi
+  printf '%s\n' "$output" | jq -Rn '
+    reduce inputs as $line ({};
+      ($line | capture("^(?<key>[^=]+)=(?<value>.*)$")?) as $field
+      | if $field == null then . else .[$field.key] = $field.value end)
+    | {available:true,reason:null,status:(.status // null),
+       fork_point:(.fork_point // null),last_reviewed:(.last_reviewed // null),
+       upstream_repo:(.upstream_repo // null),retired_reason:(.retired_reason // null)}'
+}
+
+later_feeds_json() {
+  local gates workflows deliveries upstream doctor timeline
+  gates=$(gate_runs_json) || return 1
+  workflows=$(workflow_runs_json) || return 1
+  deliveries=$(delivery_records_json) || return 1
+  upstream=$(upstream_drift_json) || return 1
+  [ -x "$SCRIPT_DIR/mx-doctor.sh" ] && doctor=true || doctor=false
+  [ -x "$SCRIPT_DIR/mx-timeline.sh" ] && timeline=true || timeline=false
+  jq -n --argjson gates "$gates" --argjson workflows "$workflows" \
+    --argjson deliveries "$deliveries" --argjson upstream "$upstream" \
+    --argjson doctor "$doctor" --argjson timeline "$timeline" \
+    '{gate_runs:$gates,workflow_runs:$workflows,deliveries:$deliveries,
+      upstream_drift:$upstream,doctor:{available:$doctor},timeline:{available:$timeline}}'
+}
+
 BACKLOG_JSON=$(backlog_json) || { echo "mx-system-snapshot: backlog read failed" >&2; exit 1; }
 TASKS_JSON=$(task_json_lines) || { echo "mx-system-snapshot: task snapshot failed" >&2; exit 1; }
 
@@ -1471,6 +1602,8 @@ HEADROOM_JSON=$(printf '%s' "$HEADROOM_SUMMARY_JSON" | jq '.headroom')
 HEADROOM_REASON_JSON=$(printf '%s' "$HEADROOM_SUMMARY_JSON" | jq '.reason')
 VPLAN_REVIEWS_JSON=$(vplan_reviews_json) \
   || { echo "mx-system-snapshot: vplan review summary failed" >&2; exit 1; }
+LATER_FEEDS_JSON=$(later_feeds_json) \
+  || { echo "mx-system-snapshot: later-plan feed summary failed" >&2; exit 1; }
 MAIN_INVENTORY_JSON=$(main_inventory_json "$BACKLOG_JSON" "$TASKS_JSON") \
   || { echo "mx-system-snapshot: main inventory summary failed" >&2; exit 1; }
 DAEMON_CURRENT_JSON=$(daemon_current_json "$TASKS_JSON") \
@@ -1496,6 +1629,7 @@ jq -n \
   --argjson headroom "$HEADROOM_JSON" \
   --argjson headroom_reason "$HEADROOM_REASON_JSON" \
   --argjson vplan_reviews "$VPLAN_REVIEWS_JSON" \
+  --argjson later_feeds "$LATER_FEEDS_JSON" \
   --argjson daemon_current "$DAEMON_CURRENT_JSON" \
   --argjson daemon_landed "$DAEMON_LANDED_JSON" \
   'def backlog_by_id($id): ($backlog.records[]? | select(.structured == true and .id == $id) | .) // null;
@@ -1516,6 +1650,7 @@ jq -n \
      headroom:$headroom,
      headroom_reason:$headroom_reason,
      vplan_reviews:$vplan_reviews,
+     later_feeds:$later_feeds,
      daemon_current:$daemon_current,
      daemon_landed:$daemon_landed,
      daemon_guidance:{

@@ -844,6 +844,62 @@ EOF
   pass "snapshot adds identity-safe watcher, queue, headroom, and vplan observations"
 }
 
+test_later_plan_feed_presence_and_projection() {
+  local home fakebin upstream out
+  home=$(make_home later-plan-feeds)
+  fakebin=$(make_fakebin "$home")
+  upstream="$home/fake-upstream"
+  cat > "$upstream" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'status=drifted' 'fork_point=abc123' 'last_reviewed=def456' \
+  'upstream_repo=reference-repository' 'retired_reason='
+SH
+  chmod +x "$upstream"
+
+  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_UPSTREAM_BIN="$upstream" \
+    "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .later_feeds.gate_runs == {supported:true,available:false,records:[]}
+      and .later_feeds.workflow_runs == {supported:true,available:false,records:[]}
+      and .later_feeds.deliveries == {supported:true,available:false,records:[]}
+      and .later_feeds.upstream_drift.available == true
+      and .later_feeds.doctor.available == true
+      and .later_feeds.timeline.available == true
+  ' >/dev/null || fail "absent later-plan records were not distinguished from available readers: $out"
+
+  mkdir -p "$home/state/review-1.gate" "$home/state/release-1.workflow"
+  printf '%s\n' '{"status":"parked","step":"review","round":2,"pending_decision_key":"release"}' \
+    > "$home/state/review-1.gate/run.json"
+  printf '%s\n' '{"workflow":"new-feature","status":"running","current_stage":"deliver","message":"opening PR"}' \
+    > "$home/state/release-1.workflow/run.json"
+  cat > "$home/state/release-1.ready-to-push" <<'EOF'
+version=1
+task=release-1
+approval=approved
+branch=port-plan-15
+approved_sha=abc123
+title=Plan 15
+EOF
+  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_SNAPSHOT_UPSTREAM_BIN="$upstream" \
+    "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .later_feeds.gate_runs.available == true
+      and .later_feeds.gate_runs.records[0] ==
+        {id:"review-1",valid:true,status:"parked",step:"review",round:2,parked:true,
+         pending_decision_key:"release",approved_head:null,summary:null,risk_level:null}
+      and .later_feeds.workflow_runs.available == true
+      and .later_feeds.workflow_runs.records[0].workflow == "new-feature"
+      and .later_feeds.workflow_runs.records[0].current_stage == "deliver"
+      and .later_feeds.deliveries.available == true
+      and .later_feeds.deliveries.records[0].id == "release-1"
+      and .later_feeds.deliveries.records[0].state == "pending"
+      and .later_feeds.deliveries.records[0].valid == true
+      and .later_feeds.upstream_drift.status == "drifted"
+      and .later_feeds.upstream_drift.fork_point == "abc123"
+  ' >/dev/null || fail "later-plan records were not projected through their bounded feeds: $out"
+  pass "snapshot presence-gates and projects later-plan dashboard feeds"
+}
+
 test_empty_system_json
 test_fixture_snapshot_json
 test_main_inventory_orphan_and_unstructured_disclosure
@@ -860,3 +916,4 @@ test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_daemon_agent_status
 test_observability_extension_fields
+test_later_plan_feed_presence_and_projection
