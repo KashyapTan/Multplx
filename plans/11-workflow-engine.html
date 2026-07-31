@@ -291,6 +291,14 @@ mx-workflow.sh dry-run new-feature    # walk stages, print what each WOULD do</c
 <p style="margin:0">v1 ships three verifiable contracts (<code>output</code> exists, <code>local-commits</code>, command exit 0). Likely early additions: "tests pass for path X", "PR exists". Each addition is engine code + a validator entry + tests — deliberately not definable in the definition file itself.</p>
 </div>
 
+<h2>Deviations</h2>
+<div class="callout warn"><div class="label">Reference delivery is an interactive boundary</div>
+<p style="margin:0">The implemented <code>new-feature</code> workflow uses an <code>interactive</code>, maintainer-approved delivery stage with a <code>state/{run}.delivered</code> contract instead of the sketched <code>bin/mx-deliver.sh --queue {run}</code> command. Plan 09's actual delivery CLI has no <code>--queue</code> mode and deliberately refuses agent-ambient credentials, so an engine-owned command could not safely perform or queue that external push. The maintainer or credentialed scheduler performs delivery outside the workflow agent context, writes the contract record, and resumes the run.</p>
+</div>
+<div class="callout"><div class="label">Upstream reference remains until all port phases finish</div>
+<p style="margin:0">At the maintainer's direction, the read-only <code>firstmate/</code> reference tree remains vendored through all 15 port phases rather than being removed in Plan 11. Multplx's documentation inventory, naming checks, and root-only test discovery continue to exclude that tree, and the root implementation has no runtime dependency on it.</p>
+</div>
+
 <div class="footer-nav">
   <a href="10-deep-review-gate.html">← Plan 10: deep-review gate</a>
   <a href="index.html">Index</a>

@@ -28,6 +28,58 @@ test_quiet_checkpoint_exits_124_cleanly() {
   pass "quiet checkpoint exits 124 with a clean checkpoint line and no live lock"
 }
 
+test_timeout_reconciles_a_dead_watcher_lock() {
+  local home fakebin out err status
+  home=$(make_home dead-timeout-lock)
+  fakebin="$home/fakebin"
+  out="$home/out.txt"
+  err="$home/err.txt"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/timeout" <<'SH'
+#!/usr/bin/env bash
+mkdir -p "$MX_HOME/state/.watch.lock"
+printf '%s\n' 999999999 > "$MX_HOME/state/.watch.lock/pid"
+exit 124
+SH
+  chmod 0700 "$fakebin/timeout"
+
+  status=0
+  PATH="$fakebin:$PATH" MX_HOME="$home" "$CHECKPOINT" --seconds 1 \
+    >"$out" 2>"$err" || status=$?
+  expect_code 124 "$status" "dead timeout lock checkpoint exit"
+  assert_absent "$home/state/.watch.lock/pid" \
+    "dead watcher lock survived checkpoint reconciliation"
+  assert_contains "$(cat "$out")" "checkpoint: no actionable wake within 1s" \
+    "reconciled timeout did not retain the checkpoint result"
+  pass "timeout reconciliation removes a provably dead watcher lock"
+}
+
+test_timeout_preserves_a_live_watcher_lock() {
+  local home fakebin out err status
+  home=$(make_home live-timeout-lock)
+  fakebin="$home/fakebin"
+  out="$home/out.txt"
+  err="$home/err.txt"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/timeout" <<'SH'
+#!/usr/bin/env bash
+mkdir -p "$MX_HOME/state/.watch.lock"
+printf '%s\n' "$MX_TEST_LIVE_PID" > "$MX_HOME/state/.watch.lock/pid"
+exit 124
+SH
+  chmod 0700 "$fakebin/timeout"
+
+  status=0
+  PATH="$fakebin:$PATH" MX_HOME="$home" MX_TEST_LIVE_PID="$$" \
+    "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  expect_code 1 "$status" "live timeout lock checkpoint exit"
+  assert_present "$home/state/.watch.lock/pid" \
+    "checkpoint removed a lock owned by a live process"
+  assert_contains "$(cat "$err")" "timed-out watcher lock did not clean up" \
+    "live timeout lock refusal was not explained"
+  pass "timeout reconciliation never removes a live watcher lock"
+}
+
 test_migration_lock_claim_timeout_cleans_lock() {
   local home fakebin out err status real_cat
   home=$(make_home migration-timeout)
@@ -119,6 +171,8 @@ test_existing_singleton_watcher_is_not_success() {
 }
 
 test_quiet_checkpoint_exits_124_cleanly
+test_timeout_reconciles_a_dead_watcher_lock
+test_timeout_preserves_a_live_watcher_lock
 test_migration_lock_claim_timeout_cleans_lock
 test_signal_passes_through_and_exits_zero
 test_registered_check_uses_preserved_watcher_environment

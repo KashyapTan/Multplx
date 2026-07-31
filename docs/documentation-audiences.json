@@ -116,6 +116,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/create-workflow/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/diagnostic-reasoning/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -288,6 +292,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/workflows.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/verification/runtime-backends.md",
       "audience": "maintainer-verification"
     },
@@ -310,6 +318,10 @@
     {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
+    },
+    {
+      "path": "workflows/new-feature.workflow.md",
+      "audience": "operator-example"
     }
   ]
 }

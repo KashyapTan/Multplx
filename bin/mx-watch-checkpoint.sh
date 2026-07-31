@@ -51,6 +51,46 @@ ERR=$(mktemp "${TMPDIR:-/tmp}/mx-watch-checkpoint.err.XXXXXX") || {
 }
 trap 'rm -f "$OUT" "$ERR"' EXIT
 
+reconcile_timed_out_watch_lock() {
+  local state lock pid reclaimable i
+  state=${MX_STATE_OVERRIDE:-${MX_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}/state}
+  lock="$state/.watch.lock"
+  i=0
+
+  while [ "$i" -lt 60 ]; do
+    if [ ! -e "$lock" ] && [ ! -L "$lock" ]; then
+      return 0
+    fi
+
+    pid=$(cat "$lock/pid" 2>/dev/null || true)
+    reclaimable=0
+    case "$pid" in
+      ''|*[!0-9]*) reclaimable=1 ;;
+      *) kill -0 "$pid" 2>/dev/null || reclaimable=1 ;;
+    esac
+    if [ "$reclaimable" -eq 1 ]; then
+      (
+        MX_STATE_OVERRIDE="$state"
+        # shellcheck source=bin/mx-wake-lib.sh
+        . "$SCRIPT_DIR/mx-wake-lib.sh"
+        if mx_lock_try_acquire "$lock"; then
+          mx_lock_release "$lock"
+        fi
+      )
+    fi
+
+    if [ ! -e "$lock" ] && [ ! -L "$lock" ]; then
+      return 0
+    fi
+    sleep 0.05
+    i=$((i + 1))
+  done
+
+  pid=$(cat "$lock/pid" 2>/dev/null || true)
+  echo "checkpoint: timed-out watcher lock did not clean up (pid=${pid:-unknown})" >&2
+  return 1
+}
+
 run_with_perl_timeout() {
   perl -e '
     my $seconds = shift;
@@ -100,6 +140,7 @@ if grep -E '^watcher: already running' "$OUT" "$ERR" >/dev/null 2>&1; then
 fi
 
 if [ "$RC" -eq 124 ]; then
+  reconcile_timed_out_watch_lock || exit 1
   printf 'checkpoint: no actionable wake within %ss\n' "$SECONDS_ARG"
   exit 124
 fi
