@@ -104,6 +104,15 @@ The hidden operational inputs remain ordinary user-role messages with unchanged 
 The preference persists for the effective Multplx home, and toggling it off restores ordinary rendering.
 [Calm's current behavior and supported limits](docs/calm.md) are separate from its [version-scoped maintainer evidence](docs/calm-mode-feasibility.md).
 
+**Codex**
+
+```sh
+codex
+```
+
+Trust the checkout when Codex asks so it loads the tracked project configuration and hooks.
+Multplx's project configuration selects `danger-full-access` command execution because the broker must inspect host process ancestry and capacity and launch isolated actor sessions; Codex approval prompts remain under your own user-level policy.
+
 ### Talk to it
 
 ```sh

@@ -95,7 +95,7 @@ test_owned_lock_is_silent() {
 }
 
 test_tracked_harness_registration() {
-  local command pi_plugin
+  local command pi_plugin codex_config
   jq -e '.hooks.SessionStart | length == 1' "$ROOT/.claude/settings.json" >/dev/null \
     || fail "Claude SessionStart hook is not registered exactly once"
   jq -e '.hooks.SessionStart[0].matcher == "startup|resume|clear"' "$ROOT/.claude/settings.json" >/dev/null \
@@ -110,6 +110,13 @@ test_tracked_harness_registration() {
   assert_contains "$command" 'root=$(pwd -P)' "Codex SessionStart hook is not pwd-anchored"
   assert_contains "$command" 'mx-sessionstart-nudge.sh' "Codex SessionStart hook does not invoke the wrapper"
 
+  codex_config="$ROOT/.codex/config.toml"
+  [ -f "$codex_config" ] || fail "tracked Codex project config is missing"
+  grep -Fx 'sandbox_mode = "danger-full-access"' "$codex_config" >/dev/null \
+    || fail "Codex project config does not grant the host access Multplx requires"
+  ! grep -Eq '^[[:space:]]*approval_policy[[:space:]]*=' "$codex_config" \
+    || fail "Codex project config must leave approval policy to the maintainer"
+
   pi_plugin=$(cat "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts")
   assert_contains "$pi_plugin" '["startup", "new", "resume"]' "Pi SessionStart handler has the wrong reason allowlist"
   assert_contains "$pi_plugin" 'mx-sessionstart-nudge.sh' "Pi SessionStart handler does not invoke the wrapper"
@@ -117,7 +124,7 @@ test_tracked_harness_registration() {
   assert_contains "$pi_plugin" 'details: { kind: "session-start" }' "Pi SessionStart context does not retain its exact structured kind"
   assert_contains "$pi_plugin" 'pi.sendMessage' "Pi SessionStart handler does not use the context-safe message API"
 
-  pass "all three verified harnesses register the shared session-start nudge"
+  pass "all three verified harnesses register the shared session-start nudge and Codex retains required host access"
 }
 
 test_genuine_primary_nudges

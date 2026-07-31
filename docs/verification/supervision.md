@@ -22,6 +22,17 @@ codex exec --ephemeral --dangerously-bypass-hook-trust \
 
 Observed result: the `SessionStart` hook completed and its stdout reached model context.
 
+The trusted project sandbox configuration was verified on 2026-07-31 with Codex 0.146.0.
+
+```sh
+codex --ask-for-approval never exec --ephemeral \
+  --dangerously-bypass-hook-trust --json \
+  'Run exactly one shell command: ps -o comm= -p $$ >/dev/null && sysctl -n hw.logicalcpu >/dev/null. If and only if it succeeds, reply exactly CONFIG_OK. Do not change any files.'
+```
+
+The command was intentionally run without `--dangerously-bypass-approvals-and-sandbox`; its shell execution exited 0 and the agent returned `CONFIG_OK`.
+This proves the trusted [project configuration](../../.codex/config.toml) grants the host access required by session locking and capacity checks while leaving approval policy outside the tracked repo.
+
 Pi command shape:
 
 ```sh

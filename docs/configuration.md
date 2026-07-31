@@ -166,6 +166,8 @@ The full cmux home label also includes a short hash of the resolved `MX_ROOT` pa
 ## Harness support
 
 claude, codex, and pi are all empirically verified; new harnesses get verified through a monitored trial task before joining the set.
+The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and actor launch require host operations that the default command sandbox denies.
+The project setting does not change `approval_policy`; Codex approval prompts remain under the maintainer's user-level or command-line policy.
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Launch mechanics, including the verified command templates, live in [`bin/mx-spawn.sh`](../bin/mx-spawn.sh).
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).

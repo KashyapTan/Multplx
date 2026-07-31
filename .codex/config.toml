@@ -1,0 +1,3 @@
+# Multplx coordinates host processes and isolated agent sessions, so its
+# primary Codex broker cannot operate inside the default command sandbox.
+sandbox_mode = "danger-full-access"
