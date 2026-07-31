@@ -85,6 +85,23 @@ test_candidate_budgets_are_accounted() {
   pass "headroom accounts every configured dispatch candidate"
 }
 
+test_unconfigured_api_capacity_defaults_to_twenty() {
+  local home="$TMP_ROOT/default-capacity" json
+  mkdir -p "$home/config"
+  json=$(MX_HOME="$home" MX_HEADROOM_CPU_COUNT=64 MX_HEADROOM_LOAD1=0 \
+    MX_HEADROOM_MEM_AVAILABLE_BYTES=137438953472 MX_HEADROOM_IN_USE=0 \
+    MX_HEADROOM_API_CAPACITY= "$HEADROOM" --json) \
+    || fail "unconfigured default headroom failed"
+  [ "$(json_field "$json" api.capacity)" -eq 20 ] \
+    || fail "unconfigured API capacity did not default to 20"
+  [ "$(json_field "$json" available)" -eq 20 ] \
+    || fail "unconfigured headroom did not expose 20 dispatch slots when local resources allowed it"
+  [ "$(json_field "$json" candidates.default.capacity)" -eq 20 ] \
+    || fail "default candidate did not inherit the 20-actor budget"
+
+  pass "unconfigured API capacity defaults to twenty actors"
+}
+
 test_unreadable_signals_refuse() {
   local out rc=0
   out=$(MX_HOME="$TMP_ROOT/unreadable" MX_HEADROOM_PLATFORM=Unknown \
@@ -99,6 +116,7 @@ test_unreadable_signals_refuse() {
 test_shape_and_internal_consistency
 test_each_half_can_bound_dispatch
 test_candidate_budgets_are_accounted
+test_unconfigured_api_capacity_defaults_to_twenty
 test_unreadable_signals_refuse
 
 echo "ALL TESTS PASSED"

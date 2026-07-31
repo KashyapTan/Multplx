@@ -48,6 +48,9 @@ The server invokes `bin/mx-system-snapshot.sh --json` only on demand and coalesc
 Responses carry an ETag and content hash, and matching conditional requests receive `304 Not Modified` without a client rerender.
 The canonical snapshot JSON is embedded byte-for-byte without a dashboard-side parser or reshaping pass.
 
+The page uses a maintainer-to-broker-to-worker tree for live tasks and daemons, with broker health in the center, the structured backlog below it, and a sticky plans-and-artifacts browser beside it.
+Clicking the maintainer node opens a viewer for current decisions without exposing approve, defer, or write actions.
+
 The snapshot script's header remains the schema owner for its additive watcher, queue, headroom, vplan-review, and later-plan feed fields.
 Gate, workflow, and delivery panels appear only when their bounded record feeds contain records.
 Timeline drill-down invokes `bin/mx-timeline.sh --json`, and the doctor button invokes `bin/mx-doctor.sh --json` only after an explicit click.

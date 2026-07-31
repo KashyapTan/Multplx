@@ -209,9 +209,13 @@ test_lifecycle_cache_and_read_only_contract() {
   mx_test_wait_until 3000 "dashboard HTTP readiness" wait_http "$url" || fail "dashboard was unreachable"
 
   grep -F 'content="77"' <(curl -fsS "$url") >/dev/null || fail "serve did not inject the configured poll interval"
-  grep -F 'System at a glance' <(curl -fsS "$url") >/dev/null || fail "dashboard shell was not served"
+  grep -F 'Maintainer → broker → workers' <(curl -fsS "$url") >/dev/null || fail "dashboard tree shell was not served"
   curl -fsS "${url}assets/app.js" | grep -F 'If-None-Match' >/dev/null || fail "polling client lacks conditional requests"
   ! rg -n 'https?://' "$ROOT/share/viz" >/dev/null || fail "dashboard assets contain an external dependency"
+  ! rg -n 'data-approve|btn-approve|Spawn actor|Raise a decision|Pause simulation' "$ROOT/share/viz" >/dev/null \
+    || fail "dashboard assets retained demo or decision-write controls"
+  grep -F 'Viewer only · respond through the ordinary Multplx workflow' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "decision drawer does not state its read-only boundary"
 
   headers="$home/headers"
   body="$home/body.json"

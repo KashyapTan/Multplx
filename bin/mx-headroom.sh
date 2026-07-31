@@ -3,7 +3,7 @@
 #
 # `--json` combines local CPU/load and available-memory headroom with a
 # conservative API budget. The tighter signal bounds dispatch. The API budget
-# defaults to one concurrent request and may be set with config/api-capacity or
+# defaults to twenty concurrent requests and may be set with config/api-capacity or
 # MX_HEADROOM_API_CAPACITY. Per-harness config/api-capacity-<harness> files
 # refine candidate detail while the global budget remains the upper bound.
 # This is intentionally reported as `configured-budget`, not live provider
@@ -36,6 +36,7 @@ STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 CONFIG="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
 PROC_ROOT="${MX_HEADROOM_PROC_ROOT:-/proc}"
 QUEUE_DIR="$STATE/.dispatch-queue"
+DEFAULT_API_CAPACITY=20
 
 # shellcheck source=bin/mx-backend.sh
 . "$SCRIPT_DIR/mx-backend.sh"
@@ -189,7 +190,7 @@ configured_api_capacity() {
   elif [ -f "$CONFIG/api-capacity" ]; then
     value=$(tr -d '[:space:]' < "$CONFIG/api-capacity")
   else
-    value=1
+    value=$DEFAULT_API_CAPACITY
   fi
   valid_nonnegative_integer "$value" || return 1
   printf '%s\n' "$value"
