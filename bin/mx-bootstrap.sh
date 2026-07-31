@@ -92,6 +92,8 @@ DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 . "$SCRIPT_DIR/mx-config-inherit-lib.sh"
 # shellcheck source=bin/mx-backend.sh disable=SC1091
 . "$SCRIPT_DIR/mx-backend.sh"
+# shellcheck source=bin/mx-probe-lib.sh disable=SC1091
+. "$SCRIPT_DIR/mx-probe-lib.sh"
 
 system_sync_origin_backed_project_count() {
   local count proj
@@ -472,55 +474,12 @@ daemon_liveness_sweep() {
   return 0
 }
 
-install_cmd() {
-  case "$1" in
-    tmux|node|git|gh|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
-    cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
-    treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
-    *) return 1 ;;
-  esac
-}
-
-manual_install_url() {
-  case "$1" in
-    herdr) echo "https://herdr.dev" ;;
-    *) return 1 ;;
-  esac
-}
-
-missing_tool_diagnostic() {
-  local tool=$1 instructions
-  if instructions=$(manual_install_url "$tool"); then
-    echo "MISSING_MANUAL: $tool (instructions: $instructions)"
-    return 0
-  fi
-  echo "MISSING: $tool (install: $(install_cmd "$tool"))"
-}
-
-# Required-tool detection combines the universal toolchain every home needs with
-# the backend-specific delta owned by mx_backend_required_tools
-# (bin/mx-backend.sh). Treehouse is universal because every supported backend is
-# a session provider only. A herdr/cmux home is therefore never told tmux is
-# missing, while an invalid backend still cannot suppress the worktree-provider
-# probe. A backend value with no verified dependency set is reported before the
-# universal checks continue.
-COMMON_TOOLS="node git gh jq treehouse"
-BACKEND=$(mx_backend_name)
-BACKEND_VALID=1
-if ! BACKEND_TOOLS=$(mx_backend_required_tools "$BACKEND"); then
-  BACKEND_VALID=0
-  BACKEND_TOOLS=""
-fi
-treehouse_supports_lease() {
-  treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
-}
-
 actor_dispatch_validate() {
   local file err
   file="$CONFIG/actor-dispatch.json"
   [ -f "$file" ] || return 0
   if ! command -v jq >/dev/null 2>&1; then
-    echo "MISSING: jq (install: $(install_cmd jq))"
+    echo "MISSING: jq (install: $(mx_probe_install_cmd jq))"
     return 0
   fi
   if ! jq -e . "$file" >/dev/null 2>&1; then
@@ -614,8 +573,8 @@ if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: mx-bootstrap.sh install <tool>..." >&2; exit 1; }
   for t in "$@"; do
-    if ! cmd=$(install_cmd "$t"); then
-      instructions=$(manual_install_url "$t") || { echo "error: unknown tool $t" >&2; exit 1; }
+    if ! cmd=$(mx_probe_install_cmd "$t"); then
+      instructions=$(mx_probe_manual_install_url "$t") || { echo "error: unknown tool $t" >&2; exit 1; }
       echo "error: $t requires manual installation (instructions: $instructions)" >&2
       exit 1
     fi
@@ -634,21 +593,8 @@ if [ "${MX_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   "$SCRIPT_DIR/mx-pr-check-migrate.sh" || true
 fi
 
-if [ "$BACKEND_VALID" -eq 0 ]; then
-  echo "BACKEND_INVALID: $BACKEND (known: $MX_BACKEND_KNOWN)"
-fi
-for t in $BACKEND_TOOLS; do
-  mx_backend_required_tool_available "$BACKEND" "$t" \
-    || missing_tool_diagnostic "$t"
-done
-for t in $COMMON_TOOLS; do
-  command -v "$t" >/dev/null || missing_tool_diagnostic "$t"
-done
-# Every supported backend delegates worktree acquisition to treehouse, so its
-# durable-lease capability is an unconditional bootstrap requirement.
-if command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
-  echo "MISSING: treehouse (install: $(install_cmd treehouse))"
-fi
+BACKEND=$(mx_backend_name)
+mx_probe_bootstrap_tools "$BACKEND"
 VPLAN_SELF_CHECK=${MX_VPLAN_SELF_CHECK_OVERRIDE:-$SCRIPT_DIR/mx-vplan.sh}
 if ! "$VPLAN_SELF_CHECK" --self-check >/dev/null 2>&1; then
   echo "VPLAN_INVALID: bundled mx-vplan.sh self-check failed"
@@ -670,18 +616,7 @@ if ! headroom_json=$(MX_HEADROOM_IGNORE_DISPATCH_CONFIG=1 "$SCRIPT_DIR/mx-headro
 elif [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
   echo "BOOTSTRAP_INFO: headroom self-check passed"
 fi
-# Worktree-tangle check: the broker primary checkout (MX_ROOT) must sit on its
-# default branch, not a feature branch (see mx-tangle-lib.sh). Scoped to the
-# primary only; detached-HEAD worktrees and daemon homes never trip it.
-tangle_branch=$(mx_primary_tangle_branch "$MX_ROOT" 2>/dev/null || true)
-if [ -n "$tangle_branch" ]; then
-  tangle_default=$(mx_default_branch "$MX_ROOT" 2>/dev/null || echo main)
-  if [ "${MX_BOOTSTRAP_DETECT_ONLY:-0}" = 1 ]; then
-    echo "TANGLE: primary checkout on feature branch '$tangle_branch' (expected '$tangle_default'); the work is safe on that ref - read-only session must leave restore work to the session holding the system lock"
-  else
-    echo "TANGLE: primary checkout on feature branch '$tangle_branch' (expected '$tangle_default'); the work is safe on that ref - restore the primary with: git -C $MX_ROOT checkout $tangle_default, then re-validate the branch in a proper worktree"
-  fi
-fi
+mx_probe_bootstrap_tangle "$MX_ROOT" "${MX_BOOTSTRAP_DETECT_ONLY:-0}"
 actor=
 [ -f "$CONFIG/actor-harness" ] && actor=$(tr -d '[:space:]' < "$CONFIG/actor-harness" || true)
 if [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && [ -n "$actor" ] && [ "$actor" != "default" ]; then
