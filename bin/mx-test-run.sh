@@ -129,7 +129,7 @@ family_for_basename() {
     mx-herdr-lab.test.sh|mx-instruction-owners.test.sh|\
     mx-install-herdr.test.sh|mx-deep-review-lib.test.sh|mx-deep-review.test.sh|\
     mx-deep-review-config-contract.test.sh|\
-    mx-journal.test.sh|mx-timeline.test.sh|\
+    mx-doctor.test.sh|mx-journal.test.sh|mx-timeline.test.sh|\
     mx-report.test.sh|mx-report-mcp.test.sh|mx-signal-precedence.test.sh|\
     mx-removed-deps.test.sh|\
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
@@ -286,6 +286,7 @@ tests/mx-deep-review-config-contract.test.sh	none
 tests/mx-deep-review-lib.test.sh	none
 tests/mx-deep-review.test.sh	none
 tests/mx-dispatch-queue.test.sh	none
+tests/mx-doctor.test.sh	none
 tests/mx-documentation-audiences.test.sh	none
 tests/mx-ensure-agents-md.test.sh	none
 tests/mx-gate-refuse.test.sh	none
@@ -860,6 +861,11 @@ families_for_changed_path() {
     bin/mx-journal-lib.sh|bin/mx-timeline.sh|docs/journal-events.md|\
     tests/fixtures/timeline.*)
       printf '%s\n' pure-contract-unit
+      ;;
+    bin/mx-doctor.sh|bin/mx-probe-lib.sh|docs/doctor.md)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' session-bootstrap
+      printf '%s\n' watcher-wake-lock
       ;;
     bin/mx-workflow.sh|bin/mx-workflow-lib.sh|docs/workflows.md|workflows/*.workflow.md|\
     tests/fixtures/create-workflow-*)
