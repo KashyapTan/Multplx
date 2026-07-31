@@ -50,6 +50,15 @@ For whole-system read-only review, `bin/mx-system-snapshot.sh --json` emits sche
 `bin/mx-system-view.sh` renders that snapshot as Markdown for humans, while `bin/mx-status-snapshot.sh` provides the bounded catchup projection, so both views consume one structured contract instead of reparsing raw system files.
 The script header owns the exact JSON schema.
 
+## Task event journals
+
+Every durable task-state writer also emits a best-effort event to `state/<id>.journal`.
+The journal joins spawn, validated report, classification, deep-review, decision-hold, workflow, and delivery observations into append order without consolidating their authoritative state.
+`bin/mx-journal-lib.sh` owns the closed allowlist, envelope construction, append mechanics, and failure swallowing used by production writers.
+`bin/mx-timeline.sh` is the only production journal reader and can filter or render one task's history as text, JSONL, or a self-contained HTML artifact.
+No operational component reads a journal, and an absent, malformed, torn, or unwritable journal has no effect on reconciliation or lifecycle behavior.
+[`journal-events.md`](journal-events.md) owns the event vocabulary, detail contracts, and retention boundary.
+
 ## Visual review artifacts
 
 vplan provides the broker's maintainer-facing review surface for plans, structured reports, comparisons, and other responses that benefit from visual hierarchy.

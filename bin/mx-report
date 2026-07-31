@@ -201,6 +201,8 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/mx-pr-lib.sh
 . "$SCRIPT_DIR/mx-pr-lib.sh"
+# shellcheck source=bin/mx-journal-lib.sh
+. "$SCRIPT_DIR/mx-journal-lib.sh"
 mx_task_id_creation_valid "$ID" || die_usage "invalid task id '$ID'"
 
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -250,4 +252,11 @@ else
   LINE="$STATE_NAME: $MESSAGE"
 fi
 printf '%s\n' "$LINE" >> "$STATE_DIR/$ID.status"
+if DETAIL=$(jq -cn --arg raw "$LINE" --arg state "$STATE_NAME" \
+    '{raw:$raw,state:$state,validated:true}' 2>/dev/null); then
+  MX_STATE_OVERRIDE="$STATE_DIR" MX_JOURNAL_SOURCE=mx-report \
+    mx_journal_try "$ID" status.reported "$DETAIL"
+else
+  mx_journal_warn_once "could not compose status.reported for $ID"
+fi
 mx_nudge_watcher "$STATE_DIR" || true

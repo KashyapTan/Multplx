@@ -260,6 +260,14 @@ mx-timeline &lt;id&gt; --html             # shareable artifact via the vplan mod
 <p style="margin:0">Journals die with task teardown alongside the other <code>state/&lt;id&gt;.*</code> files. Should completed tasks' journals be archived (e.g. into <code>data/</code>) for post-mortems? Deferred — teardown already preserves what plan 09/10 attest durably; revisit if a real post-teardown investigation wants one.</p>
 </div>
 
+<h2>Deviations</h2>
+<ul>
+  <li>Plan 5's landed resolver has a maintainer-approved <code>attributed-run-step</code> tier between native events and validated reports. The journal vocabulary records that real fourth tier instead of collapsing it into one of the three earlier draft tiers.</li>
+  <li>Workflow stage state transitions are implemented inside <code>mx-workflow-lib.sh</code>, not directly in the CLI. Plan 12 therefore adds optional journal callbacks at the library's durable transition points while <code>mx-workflow.sh</code> remains the emitting owner.</li>
+  <li>The landed teardown enumerates transient task files rather than sweeping the <code>state/&lt;id&gt;.*</code> family. Plan 12 explicitly adds journals to ordinary and daemon-child teardown so the intended retention boundary is real.</li>
+  <li>The landed vplan module has no generic <code>mx-vplan-lib.sh</code> renderer. <code>mx-timeline --html</code> gates on <code>mx-vplan.sh --self-check</code> and writes a self-contained artifact in the same local visual language.</li>
+</ul>
+
 <div class="footer-nav">
   <a href="11-workflow-engine.html">← Plan 11: workflow engine</a>
   <a href="index.html">Index</a>

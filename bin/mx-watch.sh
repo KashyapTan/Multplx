@@ -414,6 +414,22 @@ scan_signals() {
   return 0
 }
 
+journal_signal_classifications() { # <status-or-turn-end-path> ...
+  local f base task seen=''
+  for f in "$@"; do
+    base=${f##*/}
+    case "$base" in
+      *.status) task=${base%.status} ;;
+      *.turn-ended) task=${base%.turn-ended} ;;
+      *) continue ;;
+    esac
+    [ -n "$task" ] || continue
+    case " $seen " in *" $task "*) continue ;; esac
+    seen="$seen $task"
+    MX_STATE_OVERRIDE="$STATE" "$MX_ACTOR_STATE_BIN" "$task" >/dev/null 2>&1 || true
+  done
+}
+
 run_check_process() {
   local c=$1
   shift
@@ -623,6 +639,9 @@ event_wait_or_sleep() {
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
+MX_JOURNAL_CLASSIFY=1
+MX_JOURNAL_SOURCE=mx-watch
+export MX_JOURNAL_CLASSIFY MX_JOURNAL_SOURCE
 
 # Before acquiring the watcher lock or enumerating any runnable check, replace
 # or quarantine checks created by older versions. The migration compares bytes
@@ -809,8 +828,21 @@ EOF
     # will not re-fire, log, and keep blocking without enqueuing. The provably-working
     # check includes current-state reconciliation, so the || ordering evaluates
     # it ONLY for a non-afk, no-maintainer-verb signal.
+    signal_actionable=0
+    if afk_present; then
+      signal_actionable=1
     # shellcheck disable=SC2086  # $files is a space-separated status-path list (ids carry no spaces)
-    if afk_present || signal_reason_is_actionable $files || ! signal_actor_provably_working $files; then
+    elif signal_reason_is_actionable $files; then
+      # shellcheck disable=SC2086
+      journal_signal_classifications $files
+      signal_actionable=1
+    # signal_actor_provably_working invokes mx-actor-state itself, which emits
+    # the classification projection from the exact observations it resolved.
+    # shellcheck disable=SC2086
+    elif ! signal_actor_provably_working $files; then
+      signal_actionable=1
+    fi
+    if [ "$signal_actionable" -eq 1 ]; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         mx_wake_append signal "$(basename "$f")" "$reason" || exit 1

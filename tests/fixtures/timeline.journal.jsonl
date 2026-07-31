@@ -1,0 +1,5 @@
+{"ts":"2026-07-30T12:00:00Z","task":"timeline-fixture","source":"mx-spawn","event":"task.spawned","detail":{"kind":"delivery","backend":"tmux","worktree":"/tmp/task","branch":"mx/timeline-fixture"}}
+{"ts":"2026-07-30T12:05:00Z","task":"timeline-fixture","source":"mx-report","event":"status.reported","detail":{"raw":"blocked: CI needs access","state":"blocked","validated":true}}
+{"ts":"2026-07-30T12:06:00Z","task":"timeline-fixture","source":"mx-watch","event":"status.classified","detail":{"verdict":"blocked","tier":"validated-report","conflicts":[{"tier":"regex-heuristic","signal":"busy"}]}}
+{"ts":"2026-07-30T12:10:00Z","task":"timeline-fixture","source":"mx-deep-review","event":"gate.step.finished","detail":{"step":"review","round":1,"findings":2,"outcome":"retry"}}
+{"ts":"2026-07-30T12:15:00Z","task":"timeline-fixture","source":"mx-deliver","event":"delivery.pr_opened","detail":{"pr_url":"https://github.com/example/project/pull/12"}}

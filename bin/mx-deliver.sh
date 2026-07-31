@@ -26,6 +26,8 @@ STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 . "$SCRIPT_DIR/mx-pr-lib.sh"
 # shellcheck source=bin/mx-deliver-lib.sh
 . "$SCRIPT_DIR/mx-deliver-lib.sh"
+# shellcheck source=bin/mx-journal-lib.sh
+. "$SCRIPT_DIR/mx-journal-lib.sh"
 
 usage() {
   sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
@@ -86,6 +88,28 @@ delivery_exec() {
   "${DELIVERY_ENV[@]}" "$@"
 }
 
+delivery_journal_ref() { # <task-id> <event>
+  local id=$1 event=$2 detail
+  if detail=$(jq -cn --arg branch "$MX_DELIVERY_BRANCH" \
+      --arg sha "$MX_DELIVERY_APPROVED_SHA" \
+      '{branch:$branch,sha:$sha}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-deliver \
+      mx_journal_try "$id" "$event" "$detail"
+  else
+    mx_journal_warn_once "could not compose $event for $id"
+  fi
+}
+
+delivery_journal_pr() { # <task-id> <url>
+  local id=$1 url=$2 detail
+  if detail=$(jq -cn --arg pr_url "$url" '{pr_url:$pr_url}' 2>/dev/null); then
+    MX_STATE_OVERRIDE="$STATE" MX_JOURNAL_SOURCE=mx-deliver \
+      mx_journal_try "$id" delivery.pr_opened "$detail"
+  else
+    mx_journal_warn_once "could not compose delivery.pr_opened for $id"
+  fi
+}
+
 archive_delivered() {
   local record=$1 destination=$2
   mx_delivery_record_unchanged "$record" || return 1
@@ -132,11 +156,13 @@ deliver_one() {
     echo "delivery: refused $id because its ready record changed during verification" >&2
     return 1
   }
+  delivery_journal_ref "$id" delivery.queued
   delivery_exec git -C "$MX_DELIVERY_WORKTREE" push origin \
     "$MX_DELIVERY_APPROVED_SHA:refs/heads/$MX_DELIVERY_BRANCH" || {
     echo "delivery: push failed for $id" >&2
     return 1
   }
+  delivery_journal_ref "$id" delivery.pushed
   if pr_url=$(cd "$MX_DELIVERY_WORKTREE" && delivery_exec gh pr create \
       --base "$MX_DELIVERY_BASE" \
       --head "$MX_DELIVERY_BRANCH" \
@@ -160,6 +186,7 @@ deliver_one() {
     echo "delivery: PR state recording failed for $id" >&2
     return 1
   }
+  delivery_journal_pr "$id" "$pr_url"
   archive_delivered "$record" "$destination" || {
     echo "delivery: PR was recorded but the ready record could not be archived for $id" >&2
     return 1
