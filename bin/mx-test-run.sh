@@ -137,6 +137,7 @@ family_for_basename() {
     mx-subagent-pretool-check.test.sh|\
     mx-supervision-instructions.test.sh|mx-tmux-submit-busy.test.sh|mx-transition-lib.test.sh|mx-vplan.test.sh|\
     mx-workflow-lib.test.sh|mx-workflow.test.sh|\
+    mx-upstream-diff.test.sh|\
     mx-test-run.test.sh|mx-test-isolation-proof.test.sh|mx-test-split-parity.test.sh)
       printf '%s\n' pure-contract-unit
       ;;
@@ -350,6 +351,7 @@ tests/mx-tmux-submit-busy.test.sh	none
 tests/mx-transition-lib.test.sh	none
 tests/mx-turnend-guard.test.sh	watcher-process
 tests/mx-update.test.sh	none
+tests/mx-upstream-diff.test.sh	none
 tests/mx-vplan.test.sh	vplan-port
 tests/mx-workflow-lib.test.sh	none
 tests/mx-workflow.test.sh	none
@@ -866,6 +868,9 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' session-bootstrap
       printf '%s\n' watcher-wake-lock
+      ;;
+    bin/mx-upstream-diff.sh|docs/upstream.md|tests/fixtures/upstream-sync/*)
+      printf '%s\n' pure-contract-unit
       ;;
     bin/mx-workflow.sh|bin/mx-workflow-lib.sh|docs/workflows.md|workflows/*.workflow.md|\
     tests/fixtures/create-workflow-*)

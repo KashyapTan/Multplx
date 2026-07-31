@@ -11,7 +11,8 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 is_allowlisted_path() {
   case "$1" in
     firstmate|firstmate/*|plans/*|UPDATE_PLAN.md|firstmate_dependencies.md|\
-    firstmate-architecture.html|docs/upstream.md|tests/mx-naming.test.sh)
+    firstmate-architecture.html|docs/upstream.md|tests/mx-naming.test.sh|\
+    tests/mx-upstream-diff.test.sh|tests/fixtures/upstream-sync/*)
       return 0
       ;;
     *)

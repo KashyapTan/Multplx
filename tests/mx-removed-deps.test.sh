@@ -54,7 +54,10 @@ test_deleted_files_absent() {
 grep_hits() {
   local pattern=$1
   grep -rniE "$pattern" "${SCOPE[@]}" 2>/dev/null \
-    | grep -Fv "$SELF:" | grep -Fv 'docs/upstream.md:' || true
+    | grep -Fv "$SELF:" \
+    | grep -Fv 'docs/upstream.md:' \
+    | grep -Fv 'tests/mx-upstream-diff.test.sh:' \
+    | grep -Fv 'tests/fixtures/upstream-sync/' || true
 }
 
 assert_no_hits() {

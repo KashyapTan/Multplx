@@ -28,6 +28,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-journal-lib.sh`      | Validate and append closed-vocabulary task journal events without affecting writer success |
 | `mx-workflow.sh`         | Validate, launch, inspect, reconcile, abort, and dry-run linear workflow definitions |
 | `mx-workflow-lib.sh`     | Own workflow parsing, snapshots, contracts, run records, and stage executors |
+| `mx-upstream-diff.sh`    | Fetch upstream into a private review artifact, classify touched paths, render the report, and advance the validated review cursor |
 | `mx-decision-hold.sh`    | Create, verify, complete, and resolve durable maintainer-held decisions                 |
 | `mx-brief.sh`            | Scaffold delivery, scout, daemon-charter, and Herdr-lab briefs                       |
 | `mx-herdr-lab.sh`        | Provision and guardedly operate an isolated, never-default Herdr lab session         |

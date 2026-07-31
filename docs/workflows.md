@@ -139,3 +139,14 @@ This preserves one escalation mechanism and one owner for maintainer decisions.
 `workflows/new-feature.workflow.md` is the version 1 proving definition.
 It composes interactive approach approval, a broker-authored specification, fresh actor implementation, deep-review, and credentialed delivery.
 The delivery stage remains interactive because remote writes must run from a maintainer shell or separately credentialed scheduler outside every agent session.
+
+## Upstream review workflow
+
+`workflows/upstream-sync.workflow.md` is the maintained review-and-reimplement path for upstream changes.
+Its fetch stage delegates all network and path classification to `bin/mx-upstream-diff.sh`, and its triage stage may propose only `port`, `skip`, or `flag`.
+The maintainer reviews every classification before implementation.
+An empty approved-port list is valid and produces a port-result artifact without manufacturing a source commit.
+When ports exist, the actor reimplements them in Multplx vocabulary, reimplements their regression tests, and uses the ordinary deep-review and delivery path.
+The approve-gated record stage occurs before the final advance command because version 1 command gates execute the command before requesting approval.
+The final command advances the review cursor only after the maintainer confirms that every approved fix and relevance-map update has landed.
+[`upstream.md`](upstream.md) owns the fork point, relevance map, review cursor, cadence, retirement state, and completed-review log.
