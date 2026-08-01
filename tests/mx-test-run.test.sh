@@ -398,8 +398,8 @@ test_ci_and_docs_call_the_owner() {
     || fail "CI must aggregate per-lane timing artifacts"
   grep -Fq 'timeout-minutes: 20' "$CI" \
     || fail "portable serial hang tripwire must be timeout-minutes: 20"
-  grep -Fq 'timeout-minutes: 10' "$CI" \
-    || fail "portable parallel shards must keep a hang tripwire (10m)"
+  [ "$(grep -Fc 'timeout-minutes: 15' "$CI")" -eq 2 ] \
+    || fail "both portable parallel shards must keep a fifteen-minute hang tripwire"
   # Interim full-suite 25m portable timeout must not remain after sharding.
   if grep -Eq 'timeout-minutes: 25' "$CI"; then
     fail "CI still has interim timeout-minutes: 25 after portable sharding"

@@ -54,7 +54,7 @@ The performance owner and accepted run history are in [mx-test-performance.md](m
 ## Hang tripwires
 
 CI timeouts are failure tripwires rather than expected healthy durations.
-The portable accelerated jobs retain a ten-minute tripwire.
+The portable accelerated jobs retain a fifteen-minute tripwire.
 The global/live remainder retains a twenty-minute tripwire until three green main-branch measurements justify lowering it.
 The dedicated real-Herdr lane retains its forty-minute tripwire.
-Timeout increases, retries, new skips, or reduced fault matrices are not performance fixes.
+Tripwire adjustments do not replace performance fixes; retries, new skips, and reduced fault matrices are not acceptable performance strategies.
