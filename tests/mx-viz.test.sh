@@ -51,7 +51,7 @@ write_snapshot_fixture() {
      watcher:{alive:true,stale:false,identity_verified:true,afk:false,beacon_age_secs:1},
      wake_queue:{depth:0,oldest_age_secs:null},
      dispatch_queue:{depth:0,available:true,records:[]},
-     headroom:{capacity:4,in_use:1,available:3,at_limit:false},headroom_reason:null,
+     headroom:{capacity:20,in_use:0,available:20,at_limit:false},headroom_reason:null,
      vplan_reviews:{records:[]},
      later_feeds:{gate_runs:{supported:true,available:false,records:[]},
        workflow_runs:{supported:true,available:false,records:[]},
@@ -213,6 +213,12 @@ test_lifecycle_cache_and_read_only_contract() {
   grep -F 'content="77"' <(curl -fsS "$url") >/dev/null || fail "serve did not inject the configured poll interval"
   grep -F 'Maintainer → broker → workers' <(curl -fsS "$url") >/dev/null || fail "dashboard tree shell was not served"
   curl -fsS "${url}assets/app.js" | grep -F 'If-None-Match' >/dev/null || fail "polling client lacks conditional requests"
+  grep -F '${headroom.in_use}/${headroom.capacity}' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard no longer renders the compact used/capacity headroom ratio"
+  ! grep -F '${headroom.available} free' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard retained redundant free-headroom text"
+  ! grep -F 'Fork watch' "$ROOT/share/viz/index.html" >/dev/null \
+    || fail "dashboard retained the fork-watch panel"
   ! grep -REn 'https?://' "$ROOT/share/viz" >/dev/null || fail "dashboard assets contain an external dependency"
   ! grep -REn 'data-approve|btn-approve|Spawn actor|Raise a decision|Pause simulation' "$ROOT/share/viz" >/dev/null \
     || fail "dashboard assets retained demo or decision-write controls"
@@ -224,8 +230,9 @@ test_lifecycle_cache_and_read_only_contract() {
   curl -fsS -D "$headers" -o "$body" "${url}api/state" || fail "state endpoint failed"
   jq -e '.snapshot.later_feeds.gate_runs.available == false
     and .snapshot.later_feeds.workflow_runs.available == false
-    and .snapshot.later_feeds.deliveries.available == false' "$body" >/dev/null \
-    || fail "absent optional records were not represented distinctly from empty live feeds"
+    and .snapshot.later_feeds.deliveries.available == false
+    and ([.artifacts[]? | select(.root == "plans")] | length) == 0' "$body" >/dev/null \
+    || fail "state envelope confused absent feeds or retained obsolete port-plan artifacts"
   [ "$(cat "$home/snapshot.count")" = 1 ] || fail "first state request did not run one snapshot"
   curl -fsS "${url}api/state" >/dev/null || fail "cached state request failed"
   [ "$(cat "$home/snapshot.count")" = 1 ] || fail "fresh cache reran the snapshot"
@@ -285,8 +292,8 @@ test_artifact_boundary_and_get_only_server() {
   pid=$(record_value "$home/state/.viz/server.run" pid)
   track_pid "$pid"
 
-  curl -fsS "${url}artifact/plans/15-viz.html" | grep -F 'Plan 15' >/dev/null \
-    || fail "allowlisted plan artifact was not served"
+  status=$(curl -sS -o /dev/null -w '%{http_code}' "${url}artifact/plans/15-viz.html")
+  [ "$status" = 403 ] || fail "obsolete port-plan artifact returned HTTP $status"
   status=$(curl --path-as-is -sS -o /dev/null -w '%{http_code}' "${url}artifact/plans/%2e%2e/CLAUDE.md")
   [ "$status" = 403 ] || fail "encoded traversal returned HTTP $status"
   status=$(curl --path-as-is -sS -o /dev/null -w '%{http_code}' "${url}artifact/data//etc/passwd")

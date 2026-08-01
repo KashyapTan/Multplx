@@ -13,7 +13,7 @@
 #   floor((logical CPUs - one-minute load) / MX_HEADROOM_CPU_PER_ACTOR),
 #   floor(available bytes / MX_HEADROOM_MEM_PER_ACTOR_BYTES)
 # ).
-# Defaults are two logical CPUs and 2 GiB per new actor.
+# Defaults are one-quarter logical CPU and 256 MiB per new actor.
 #
 # Queue records live at state/.dispatch-queue/<task-id>.request.
 # Each is a private, one-line-field record with task id, project, requested
@@ -235,8 +235,8 @@ collect_headroom() {
   load_one=$(read_load_one) || fail "one-minute load signal is unreadable"
   memory_available=$(read_memory_available) || fail "available-memory signal is unreadable"
   in_use=$(in_use_total) || fail "live actor count is unreadable"
-  cpu_per_actor=${MX_HEADROOM_CPU_PER_ACTOR:-2}
-  memory_per_actor=${MX_HEADROOM_MEM_PER_ACTOR_BYTES:-2147483648}
+  cpu_per_actor=${MX_HEADROOM_CPU_PER_ACTOR:-0.25}
+  memory_per_actor=${MX_HEADROOM_MEM_PER_ACTOR_BYTES:-268435456}
   valid_positive_number "$cpu_per_actor" || fail "MX_HEADROOM_CPU_PER_ACTOR must be positive"
   valid_nonnegative_integer "$memory_per_actor" || fail "MX_HEADROOM_MEM_PER_ACTOR_BYTES must be an integer"
   [ "$memory_per_actor" -gt 0 ] || fail "MX_HEADROOM_MEM_PER_ACTOR_BYTES must be positive"

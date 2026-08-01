@@ -233,6 +233,7 @@ Daemon homes inherit this file from the primary, so a daemon's own actors apply 
 
 `bin/mx-headroom.sh` is the single owner of dispatch-capacity calculation and parked-request record fields.
 Its JSON combines spare CPU and available memory with a conservative configured API concurrency budget, and the tighter component controls `available` and `at_limit`.
+The default local reservation is one-quarter logical CPU and 256 MiB per additional actor, while `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain explicit overrides.
 The optional global API budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses a capacity of twenty.
 This API signal is deliberately labeled `configured-budget`, not live provider quota.
 An unreadable local signal, malformed budget, or unaccounted configured candidate is an error rather than permission to guess.

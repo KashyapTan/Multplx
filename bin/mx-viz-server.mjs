@@ -7,7 +7,7 @@
  *
  * The server is GET-only, binds 127.0.0.1, walks 20 ports, refreshes the
  * canonical system snapshot only on demand, and serves artifacts only from
- * canonicalized data/, plans/, and docs/ roots.
+ * canonicalized data/ and docs/ roots.
  */
 
 import crypto from "node:crypto";
@@ -24,7 +24,7 @@ const HOST = "127.0.0.1";
 const PORT_COUNT = 20;
 const VERSION = 1;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
-const ALLOWED_ARTIFACT_ROOTS = new Set(["data", "plans", "docs"]);
+const ALLOWED_ARTIFACT_ROOTS = new Set(["data", "docs"]);
 
 function usage() {
   process.stderr.write(
@@ -153,15 +153,6 @@ async function artifactEntry(root, rootName, file, label, kind) {
 
 async function collectArtifacts(root, snapshot) {
   const entries = [];
-  const plansDirectory = path.join(root, "plans");
-  try {
-    const names = (await fsp.readdir(plansDirectory)).filter((name) => name.endsWith(".html")).sort();
-    for (const name of names) {
-      const entry = await artifactEntry(root, "plans", path.join(plansDirectory, name), name, "port-plan");
-      if (entry) entries.push(entry);
-    }
-  } catch {}
-
   const dataRoot = snapshot?.roots?.data;
   if (typeof dataRoot === "string") {
     const seen = new Set();

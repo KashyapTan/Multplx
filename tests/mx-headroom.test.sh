@@ -102,6 +102,21 @@ test_unconfigured_api_capacity_defaults_to_twenty() {
   pass "unconfigured API capacity defaults to twenty actors"
 }
 
+test_default_local_reservations_allow_twenty_remote_workers() {
+  local home="$TMP_ROOT/default-local-reservations" json
+  mkdir -p "$home/config"
+  json=$(MX_HOME="$home" MX_HEADROOM_CPU_COUNT=15 MX_HEADROOM_LOAD1=2.25 \
+    MX_HEADROOM_MEM_AVAILABLE_BYTES=9687252992 MX_HEADROOM_IN_USE=0 \
+    MX_HEADROOM_API_CAPACITY= "$HEADROOM" --json) \
+    || fail "default local-reservation headroom failed"
+  [ "$(json_field "$json" local.available)" -ge 20 ] \
+    || fail "default local reservations unexpectedly bound a representative remote-worker host"
+  [ "$(json_field "$json" capacity)" -eq 20 ] \
+    || fail "representative remote-worker host did not expose the default twenty-actor capacity"
+
+  pass "default local reservations preserve the twenty-actor dispatch target"
+}
+
 test_unreadable_signals_refuse() {
   local out rc=0
   out=$(MX_HOME="$TMP_ROOT/unreadable" MX_HEADROOM_PLATFORM=Unknown \
@@ -117,6 +132,7 @@ test_shape_and_internal_consistency
 test_each_half_can_bound_dispatch
 test_candidate_budgets_are_accounted
 test_unconfigured_api_capacity_defaults_to_twenty
+test_default_local_reservations_allow_twenty_remote_workers
 test_unreadable_signals_refuse
 
 echo "ALL TESTS PASSED"

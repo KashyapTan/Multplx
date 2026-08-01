@@ -48,7 +48,7 @@ The server invokes `bin/mx-system-snapshot.sh --json` only on demand and coalesc
 Responses carry an ETag and content hash, and matching conditional requests receive `304 Not Modified` without a client rerender.
 The canonical snapshot JSON is embedded byte-for-byte without a dashboard-side parser or reshaping pass.
 
-The page uses a maintainer-to-broker-to-worker tree for live tasks and daemons, with broker health in the center, the structured backlog below it, and a sticky plans-and-artifacts browser beside it.
+The page uses a maintainer-to-broker-to-worker tree for live tasks and daemons, with broker health in the center, the structured backlog below it, and a sticky artifact browser beside it.
 Clicking the maintainer node opens a viewer for current decisions without exposing approve, defer, or write actions.
 
 The snapshot script's header remains the schema owner for its additive watcher, queue, headroom, vplan-review, and later-plan feed fields.
@@ -61,7 +61,7 @@ The HTTP surface accepts only `GET`.
 There are no spawn, nudge, stop, approve, drain, or other mutation endpoints.
 The only filesystem mutation is the dashboard's private lifecycle record under `state/.viz/`.
 
-Artifact browsing is limited to regular files whose canonical paths remain inside the repository's `data/`, `plans/`, or `docs/` directory.
+Artifact browsing is limited to regular files whose canonical paths remain inside the repository's `data/` or `docs/` directory.
 Traversal segments, malformed escapes, absolute-path attempts, missing files, and symlinks that escape an allowed root are refused.
 Static dashboard assets are vendored under `share/viz/` and make no external network requests.
 

@@ -186,7 +186,7 @@ function renderBroker(snapshot) {
   const headroom = snapshot.headroom;
   target.append(
     brokerStat("headroom", headroom
-      ? `${headroom.in_use}/${headroom.capacity} · ${headroom.available} free`
+      ? `${headroom.in_use}/${headroom.capacity}`
       : "unknown", headroom?.at_limit ? "dot-red" : headroom ? "dot-green" : "dot-yellow"),
     brokerStat("wake queue", snapshot.wake_queue?.depth ?? "?", snapshot.wake_queue?.depth ? "dot-yellow" : "dot-green"),
     brokerStat("dispatch queue", snapshot.dispatch_queue?.depth ?? "?", snapshot.dispatch_queue?.depth ? "dot-yellow" : "dot-green"),
@@ -341,17 +341,6 @@ function renderOptionalFeeds(snapshot) {
     renderRecords(document.querySelector("#deliveries"), list(feeds.deliveries.records), (row) => [
       ["Approval", row.approval], ["Branch", row.branch], ["Age", ageText(row.age_secs)],
     ], "No delivery handoffs are recorded.");
-  }
-  const upstreamPanel = document.querySelector("#upstream-panel");
-  upstreamPanel.hidden = feeds.upstream_drift?.available !== true;
-  if (!upstreamPanel.hidden) {
-    const target = document.querySelector("#upstream-drift");
-    clear(target);
-    const drift = feeds.upstream_drift;
-    target.append(detailList([
-      ["Status", drift.status], ["Fork point", drift.fork_point],
-      ["Reviewed through", drift.last_reviewed], ["Repository", drift.upstream_repo],
-    ]));
   }
   document.querySelector("#doctor-button").hidden = feeds.doctor?.available !== true;
 }
