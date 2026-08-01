@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Multplx — Firstmate Port Master Plan</title>
+<title>Multplx — Implementation Plan Index</title>
 <style>
 :root{
   --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
@@ -44,15 +44,15 @@ tr:nth-child(even) td{background:var(--surface)}
 </head>
 <body>
 <header class="hero"><div class="wrap">
-  <div class="plan-num">Multplx · Port Master Plan</div>
-  <h1>Porting firstmate → Multplx</h1>
-  <p class="subtitle">Sixteen ordered implementation plans for turning the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> — a standalone, customized, egress-safe agent-orchestration system with no rank-coded vocabulary and no hard dependencies on the upstream author's tool ecosystem. Plans 01–11 plus Plan 6.5 are the port; plans 12–15 are post-port improvements that don't gate it. Execution order and testing strategy live in <code>porting.md</code> alongside this index.</p>
+  <div class="plan-num">Multplx · Implementation Plan Index</div>
+  <h1>From Firstmate Port to Multplx</h1>
+  <p class="subtitle">Seventeen ordered HTML artifacts document the work that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b>: numbered Plans 01–16 plus the inserted Plan 6.5 test-acceleration phase. Plans 01–11 plus 6.5 built the port, Plans 12–15 added post-port operations and observability, and Plan 16 is the final human-documentation productization pass.</p>
 </div></header>
 
 <div class="wrap">
 
 <div class="callout"><div class="label">How to read these plans</div>
-<p>Each plan is a self-contained HTML document derived from a section of <code>UPDATE_PLAN.md</code>, grounded against the real firstmate sources in <code>firstmate/</code>. Plans are numbered in recommended execution order — dependencies flow downward. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream firstmate; target designs use the new terms: <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), <b>daemon</b> (persistent domain agent). All new scripts carry the <code>mx-</code> prefix.</p>
+<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order — dependencies flow downward. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All Multplx scripts carry the <code>mx-</code> prefix.</p>
 </div>
 
 <h2>Execution flow</h2>
@@ -66,7 +66,8 @@ tr:nth-child(even) td{background:var(--surface)}
 <b>Phase 6</b> Safe delivery → 09 least-privilege push service<br>
 <b>Phase 7</b> The gate      → 10 deep-review (local, egress-safe validation pipeline)<br>
 <b>Phase 8</b> Compose       → 11 workflow engine (user-defined multi-stage workflows, create-workflow skill)<br>
-<b>Phase 9</b> Post-port     → 12 event journal → 13 mx-doctor → 14 upstream sync → 15 mx-viz
+<b>Phase 9</b> Post-port     → 12 event journal → 13 mx-doctor → 14 upstream sync → 15 mx-viz<br>
+<b>Phase 10</b> Productize   → 16 human documentation revamp (README + docs information architecture)
 </div>
 
 <div class="phase-label">Phase 1 · Shrink the surface</div>
@@ -169,17 +170,24 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="meta"><span class="tag">Post-port (maintainer request)</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
 </a>
 
+<div class="phase-label">Phase 10 · Final productization</div>
+<a class="card" href="16-documentation-revamp.html" style="--card-accent:#58a6ff">
+  <div class="top"><span class="num">PLAN 16</span><span class="title">Human Documentation Revamp — Make Multplx Legible as Its Own Product</span></div>
+  <div class="desc">Replace the inherited Firstmate-shaped README with a Multplx-native, Xpdite-inspired landing page; add a documentation index and getting-started path; audit every human-facing Markdown page against the completed Plans 01–15 behavior; separate mechanism from evidence; and retire stale migration prose from active documentation.</div>
+  <div class="meta"><span class="tag">Final documentation phase · 2026-07-31</span><span class="tag effort-high">Effort: Medium–High</span><span class="tag">Risk: Medium</span></div>
+</a>
+
 <h2>What we deliberately keep (no plan needed)</h2>
 <table>
   <tr><th>Kept as-is</th><th>Why</th></tr>
-  <tr><td>Status-log-is-an-event-not-truth + the crew-state reconciliation oracle</td><td>Core design virtue — plans 03/05 feed it better input, never replace it.</td></tr>
+  <tr><td>Status-log-is-an-event-not-truth + the actor-state reconciliation oracle</td><td>Core design virtue — plans 03/05 feed it better input, never replace it.</td></tr>
   <tr><td>Stop-hook turn-end backstop</td><td>Actively blocks blind turn-ends while work is in flight — stronger than passive detection.</td></tr>
   <tr><td>Herdr native busy/idle/done/blocked events</td><td>Real event source instead of polling; becomes the top precedence tier in plan 05.</td></tr>
   <tr><td>Zero-token bash classifier, durable wake-queue, singleton watcher lock, liveness beacon</td><td>Verified solid in the architecture review.</td></tr>
-  <tr><td>jq, git, curl, gh, node, python3, coreutils</td><td>Genuine infrastructure (UPDATE_PLAN §8.3).</td></tr>
+  <tr><td>jq, git, curl, gh, node, python3, coreutils</td><td>Genuine infrastructure retained by the completed dependency-removal work.</td></tr>
 </table>
 
-<p style="color:var(--muted);font-family:var(--mono);font-size:13px;margin-top:40px">Source of truth: <code>UPDATE_PLAN.md</code> · Dependency catalog: <code>firstmate_dependencies.md</code> · Execution guide: <code>plans/porting.md</code></p>
+<p style="color:var(--muted);font-family:var(--mono);font-size:13px;margin-top:40px">Plans 01–16 plus 6.5 form the implementation record. Current product and operator behavior belongs in <code>README.md</code> and the audience-classified <code>docs/</code> owners.</p>
 </div>
 </body>
 </html>

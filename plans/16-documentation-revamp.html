@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 16 — Human Documentation Revamp · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --accent-dim:rgba(88,166,255,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:800px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--yellow);border-color:var(--yellow)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.del{background:rgba(248,81,73,.15);color:var(--red)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{gap:12px;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 16 · Multplx</div>
+  <h1>Human Documentation Revamp</h1>
+  <p class="subtitle">Replace the inherited Firstmate landing page with a concise, Multplx-native README shaped like Xpdite; add a real documentation entry point and onboarding path; audit every human-facing Markdown page against the behavior delivered by Plans 01–15; and retire migration-era prose from the active documentation surface without changing agent-runtime contracts.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 10 · Final productization</span>
+    <span class="badge effort">Effort: Medium–High</span>
+    <span class="badge risk">Risk: Medium</span>
+    <span class="badge">Documentation-only plan · 2026-07-31</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Plans 01–15 changed Multplx from a Firstmate port into its own system, but the human documentation did not receive the same final product pass. The current <code>README.md</code> still has the Firstmate README's structure, hero treatment, long feature list, and community chrome. The repository diff confirms it was edited in place rather than redesigned, and the top badges still link to the upstream author's X account and Discord server.</p>
+<p>The detailed documentation is much stronger than the landing page: the repository has 29 human-facing Markdown pages under <code>docs/</code>, classified as operator, maintainer-architecture, or maintainer-verification material. What it lacks is a human information architecture. There is no <code>docs/README.md</code>, no focused getting-started guide, no reading path by audience, and no concise bridge between the public README and the authoritative detail.</p>
+<p>Plan 16 closes that gap. It uses Xpdite's README as a formatting reference - centered identity, useful badges, clear “Why” and “Core Features” sections, a short getting-started path, a Mermaid architecture diagram, and a documentation table - while keeping every claim, command, link, and visual specific to Multplx.</p>
+
+<div class="callout ok"><div class="label">Decided · Xpdite is the layout model, not a content template</div>
+<p style="margin:0">Reuse Xpdite's visual rhythm and section hierarchy, not its product claims, providers, install commands, screenshots, or app language. Multplx remains an agent coordination distribution. The existing <code>assets/banner.png</code> stays available as the hero visual; this task does not invent a new logo. Release and demo badges appear only when they have real Multplx targets.</p>
+</div>
+
+<div class="callout"><div class="label">Documentation boundary</div>
+<p style="margin:0">This plan covers the public README, <code>CONTRIBUTING.md</code>, all 29 human-facing Markdown pages under <code>docs/</code>, and the completed migration prose at the repo root and in <code>plans/</code>. It does not rewrite <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.agents/skills/</code>, <code>docs/supervision-protocols/</code>, or <code>docs/vplan-authoring.md</code>; those are agent-runtime contracts. The vendored <code>firstmate/</code> tree remains excluded from Multplx documentation ownership.</p>
+</div>
+
+<h2>Audit findings</h2>
+<table>
+<tr><th>Finding</th><th>Evidence in the current tree</th><th>Plan 16 response</th></tr>
+<tr><td><b>README is still Firstmate-shaped</b></td><td>The current file follows the upstream section order and keeps most paragraphs as line edits. It opens with the same flat-square platform, X, and Discord badge row.</td><td>Rewrite the page from a clean outline modeled on Xpdite instead of continuing the inherited structure.</td></tr>
+<tr><td><b>Upstream community links remain</b></td><td><code>x.com/kunchenguid</code> and the upstream Discord invite are still in <code>README.md</code>; <code>CONTRIBUTING.md</code> also ends with that Discord.</td><td>Remove both. Use repository issues/discussions and the maintainer's own valid links only.</td></tr>
+<tr><td><b>No docs front door</b></td><td><code>docs/README.md</code> and <code>docs/getting-started.md</code> do not exist. The README has a long flat list mixing operator guides, maintainer evidence, and agent-rendered protocols.</td><td>Add an audience-aware docs index and a canonical onboarding guide, then point the README at them.</td></tr>
+<tr><td><b>Completed features are unevenly represented</b></td><td>Delivery, workflows, doctor, vplan, viz, journal/timeline, dispatch capacity, and documentation ownership exist, but the README's feature story still centers the original port-era list.</td><td>Rebuild “Core Features” around the final Plans 01–15 product, with six to eight scannable claims and links to owners.</td></tr>
+<tr><td><b>Architecture and evidence are mixed</b></td><td><code>arm-pretool-check.md</code>, <code>cd-guard.md</code>, <code>subagent-guard.md</code>, and <code>decision-hold-lifecycle.md</code> contain dated live-validation records alongside stable mechanism prose.</td><td>Keep stable mechanism and safety rationale in architecture pages; move active empirical records into a classified verification owner.</td></tr>
+<tr><td><b>Migration documents still look active</b></td><td><code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, and <code>plans/porting.md</code> describe work that has already landed and still speak in port-time future tense.</td><td>Distill any unique current fact into its authoritative owner, then delete the stale Markdown. Git history and the HTML plans remain the implementation record.</td></tr>
+<tr><td><b>The plan index still narrates an unfinished port</b></td><td><code>plans/index.html</code> calls itself the Firstmate port master plan and counts Plans 01–15 plus 6.5 as sixteen artifacts.</td><td>Present it as the completed Multplx implementation-plan index, add Plan 16 as the final documentation phase, and state the 6.5 numbering clearly.</td></tr>
+</table>
+
+<h2>Goals &amp; non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td><ul style="margin-bottom:0">
+  <li>A concise, polished README that looks related to Xpdite while describing Multplx accurately.</li>
+  <li>One canonical getting-started path from clone to first broker request, including the uncredentialed agent boundary.</li>
+  <li>One documentation index organized by reader intent rather than file creation order.</li>
+  <li>A semantic audit of every human-facing page against current code, script help, and authoritative ownership.</li>
+  <li>Clear separation among public product prose, operator-current guidance, maintainer architecture, and maintained verification.</li>
+  <li>No active navigation to stale port plans, removed features, or upstream community surfaces.</li>
+</ul></td>
+<td><ul style="margin-bottom:0">
+  <li>No changes to broker, actor, daemon, watcher, delivery, workflow, or backend behavior.</li>
+  <li>No rewrite of agent-runtime documentation or skills.</li>
+  <li>No new documentation framework, static-site generator, package dependency, or hosted docs service.</li>
+  <li>No invented logo, screenshots, release history, support community, or benchmark claims.</li>
+  <li>No duplication of command contracts already owned by script headers and <code>--help</code>.</li>
+  <li>No preservation of obsolete prose in a new tracked “archive” folder; Git history already provides that archive.</li>
+</ul></td>
+</tr>
+</table>
+
+<h2>Target README</h2>
+<h3>Xpdite-inspired structure</h3>
+<ol>
+  <li><b>Centered identity.</b> Multplx name or existing banner, one sentence of positioning, and a restrained for-the-badge row for License, Stars, and Platform. Add Release only when a real Multplx release target exists.</li>
+  <li><b>Primary navigation badges.</b> “Get Started”, “Documentation”, and “Contributing”, linking to <code>docs/getting-started.md</code>, <code>docs/README.md</code>, and <code>CONTRIBUTING.md</code>.</li>
+  <li><b>Multplx.</b> Two short paragraphs: what it is, who it is for, and the maintainer/broker/actor/daemon model.</li>
+  <li><b>Why Multplx.</b> Five or six user outcomes: one conversation, parallel isolated work, durable supervision, explicit human authority, safe delivery, and restart-proof state.</li>
+  <li><b>Core Features.</b> Six to eight final-product bullets covering the capabilities delivered by Plans 01–15, not a chronological port inventory.</li>
+  <li><b>Getting Started.</b> Requirements, clone, select one verified harness, run it from the repo, make a first request, then point to the canonical guide for backend and delivery setup.</li>
+  <li><b>Architecture Diagram.</b> One Mermaid flow showing maintainer → broker → actors/daemons → isolated worktrees, with supervision/snapshot and deep-review/delivery as supporting flows. Replace the current fragile ASCII diagram.</li>
+  <li><b>Documentation.</b> A compact table linking the docs index, getting started, architecture, configuration, delivery, backends, operations, and contributing.</li>
+  <li><b>Contributing, License, Sponsor.</b> Match Xpdite's close. Reuse the maintainer's sponsor link only if it is still intended for Multplx.</li>
+</ol>
+
+<h3>Core feature story</h3>
+<table>
+<tr><th>README claim</th><th>Authoritative detail</th></tr>
+<tr><td>One broker coordinates independent actors and persistent daemons.</td><td><code>docs/architecture.md</code></td></tr>
+<tr><td>Every delivery task receives an isolated Treehouse worktree and a visible runtime endpoint.</td><td><code>docs/architecture.md</code> + backend guides</td></tr>
+<tr><td>Event-driven supervision, validated status reporting, durable wakes, and restart reconciliation keep work observable without idle token use.</td><td><code>docs/watcher-continuity.md</code> + <code>docs/turnend-guard.md</code></td></tr>
+<tr><td>Deep-review and approved-SHA handoff keep code review local and remote credentials outside every agent session.</td><td><code>docs/delivery.md</code> + architecture gate boundary</td></tr>
+<tr><td>Declarative workflows compose decisions, agents, commands, review, and delivery.</td><td><code>docs/workflows.md</code></td></tr>
+<tr><td>vplan, mx-viz, mx-doctor, catchup, and task timelines provide human review and operational visibility.</td><td><code>docs/vplan.md</code>, <code>docs/viz.md</code>, <code>docs/doctor.md</code>, <code>docs/journal-events.md</code></td></tr>
+</table>
+
+<div class="callout warn"><div class="label">README size guard</div>
+<p style="margin:0">The README is a landing page, not a second manual. Target roughly 150–220 lines including Mermaid and tables. Keep setup detail in <code>docs/getting-started.md</code>, configuration detail in <code>docs/configuration.md</code>, backend mechanics in backend guides, and evidence in <code>docs/verification/</code>.</p>
+</div>
+
+<h2>Documentation information architecture</h2>
+<h3>New entry points</h3>
+<table>
+<tr><th>File</th><th>Audience</th><th>Purpose</th></tr>
+<tr><td><code>docs/README.md</code> <span class="pill new">new</span></td><td>public-product</td><td>Documentation home with “Start here”, “Operate Multplx”, “Runtime backends”, “Safety and supervision”, “Contribute”, and “Verification” reading paths.</td></tr>
+<tr><td><code>docs/getting-started.md</code> <span class="pill new">new</span></td><td>operator-current</td><td>Canonical prerequisites, clone, harness launch, trust prompts, first request, backend choice, project intake, delivery credential boundary, and next-step links.</td></tr>
+<tr><td><code>docs/verification/guards.md</code> <span class="pill new">new</span></td><td>maintainer-verification</td><td>Active cross-harness live proof moved from the arm, cd, and delegation guard mechanism pages, with dates, versions, commands, and exact summarized outcomes.</td></tr>
+</table>
+
+<h3>Reader paths in the docs index</h3>
+<pre><code>New user
+  README → Getting Started → Configuration → one backend guide → Delivery
+
+Operator
+  Docs Index → Doctor / Viz / Vplan / Workflows / Calm → Scripts reference
+
+Contributor
+  Contributing → Architecture → relevant mechanism doc → verification record
+
+Maintainer validating a guarantee
+  Verification index section → runtime-backends / supervision / guards / test proof</code></pre>
+
+<h2>Human-document audit map</h2>
+<table>
+<tr><th>Group</th><th>Files reviewed</th><th>Required treatment</th></tr>
+<tr><td><b>Public and onboarding</b></td><td><code>README.md</code>, <code>CONTRIBUTING.md</code>, new <code>docs/README.md</code>, new <code>docs/getting-started.md</code></td><td>Rewrite README; remove upstream social links; make setup and contribution paths concise, valid, and reciprocal.</td></tr>
+<tr><td><b>Core operator guides</b></td><td><code>architecture.md</code>, <code>configuration.md</code>, <code>delivery.md</code>, <code>doctor.md</code>, <code>scripts.md</code>, <code>workflows.md</code>, <code>vplan.md</code>, <code>viz.md</code>, <code>calm.md</code></td><td>Verify all features delivered through Plan 15, fix stale names or ownership duplication, add index/backlinks, and keep exact mechanics with script owners.</td></tr>
+<tr><td><b>Runtime backends</b></td><td><code>tmux-backend.md</code>, <code>herdr-backend.md</code>, <code>cmux-backend.md</code>, <code>codex-app-backend.md</code></td><td>Normalize setup/verify/limits structure; label tmux reference, Herdr/cmux experimental, and Codex App unavailable consistently.</td></tr>
+<tr><td><b>Supervision and safety</b></td><td><code>sessionstart-nudge.md</code>, <code>turnend-guard.md</code>, <code>watcher-continuity.md</code>, <code>arm-pretool-check.md</code>, <code>cd-guard.md</code>, <code>subagent-guard.md</code>, <code>decision-hold-lifecycle.md</code>, <code>journal-events.md</code></td><td>Keep stable mechanism and safety rationale; collapse repeated contracts to owner pointers; move dated empirical proof into verification pages.</td></tr>
+<tr><td><b>Maintainer verification</b></td><td><code>calm-mode-feasibility.md</code>, <code>mx-test-isolation-proof.md</code>, <code>mx-test-performance.md</code>, <code>mx-test-portable-shards.md</code>, <code>verification/runtime-backends.md</code>, <code>verification/supervision.md</code></td><td>Retain only active, reproducible evidence; verify dates/versions/commands; replace unnecessary personal paths in prose while preserving evidence needed for reproduction.</td></tr>
+<tr><td><b>Governance and upstream</b></td><td><code>documentation-audiences.md</code>, <code>documentation-audiences.json</code>, <code>upstream.md</code></td><td>Register new/deleted surfaces, keep upstream's machine header and relevance map intact, and add navigation without restating contracts.</td></tr>
+<tr><td><b>Completed migration material</b></td><td><code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, <code>plans/porting.md</code>, <code>plans/index.html</code>, Plans 01–16 HTML</td><td>Delete the three stale Markdown planning files after fact distillation; keep HTML plans as history; convert the index from future-tense port plan to completed implementation ledger with Plan 16 pending/then complete.</td></tr>
+</table>
+
+<div class="callout"><div class="label">Explicit exclusions from the human-doc rewrite</div>
+<p style="margin:0"><code>AGENTS.md</code>, <code>CLAUDE.md</code>, agent-only skills, public installable skill contracts, workflow definitions, test fixtures, and harness-rendered supervision protocols remain under their existing owners. They may be link targets, but Plan 16 does not copy-edit them just to make prose uniform.</p>
+</div>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Freeze the documentation inventory</b> <span class="pill mod">mod</span> — generate the exact non-agent surface list from <code>docs/documentation-audiences.json</code>, record each file's audience and authoritative owner, and create a temporary audit checklist in task evidence rather than a new tracked manifest.</li>
+  <li><b>Build the two human entry points first</b> <span class="pill new">new</span> — add <code>docs/README.md</code> and <code>docs/getting-started.md</code>. These establish the reading paths and the canonical setup owner before the README is shortened.</li>
+  <li><b>Rewrite README from a clean outline</b> <span class="pill mod">mod</span> — implement the Xpdite-shaped structure above, reuse only valid Multplx assets and links, replace ASCII with Mermaid, remove upstream social chrome, and route details to the new docs entry points.</li>
+  <li><b>Audit current operator pages against the implementation</b> <span class="pill mod">mod</span> — check every command against script headers/<code>--help</code>, every feature against current code and tests, every backend label against its current support level, and every cross-reference against the one-owner rule.</li>
+  <li><b>Separate mechanism from evidence</b> <span class="pill new">new</span> — create <code>docs/verification/guards.md</code>, move current dated proof from guard mechanism pages, and leave focused pointers. Keep existing supervision and backend verification owners for their own evidence.</li>
+  <li><b>Retire completed migration prose</b> <span class="pill del">delete</span> — distill unique current facts from <code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, and <code>plans/porting.md</code>; update owners where necessary; then remove those files and their inventory entries. Do not create a duplicate archive.</li>
+  <li><b>Refresh the plan index</b> <span class="pill mod">mod</span> — rename its framing from a future Firstmate port to the Multplx implementation ledger, explain that Plan 6.5 makes seventeen artifacts across numbered Plans 01–16, add the Phase 10 card, and link Plans 15 ↔ 16.</li>
+  <li><b>Update documentation classification and navigation</b> <span class="pill mod">mod</span> — register new pages and removals in <code>documentation-audiences.json</code>, keep <code>documentation-audiences.md</code> as the policy pointer, and add appropriate “Back to docs index” links without filling every page with repeated navigation chrome.</li>
+  <li><b>Run structural and semantic verification</b> — execute the documentation audience check, local-link validation, stale-vocabulary/social-link searches, <code>git diff --check</code>, HTML validation, and a rendered README review at desktop and narrow widths.</li>
+  <li><b>Review the complete diff as one documentation system</b> — re-check audience, owner, current relevance, evidence destination, and unique safety facts for every changed page after all fixes. Confirm no product behavior, agent contract, or exact safety invariant changed accidentally.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+<tr><th>File or group</th><th>Action</th><th>Notes</th></tr>
+<tr><td><code>README.md</code></td><td>Rewrite</td><td>Xpdite-inspired format; Multplx-native product story; valid badges and links only.</td></tr>
+<tr><td><code>docs/README.md</code></td><td>New</td><td>Human docs index and reading paths.</td></tr>
+<tr><td><code>docs/getting-started.md</code></td><td>New</td><td>Canonical onboarding and first-run guide.</td></tr>
+<tr><td><code>docs/verification/guards.md</code></td><td>New</td><td>Active guard validation evidence moved from mechanism docs.</td></tr>
+<tr><td><code>CONTRIBUTING.md</code></td><td>Modify</td><td>Remove upstream Discord; clarify contributor path and link the docs index.</td></tr>
+<tr><td><code>docs/*.md</code> human-facing set</td><td>Audit/modify as needed</td><td>29-page semantic review; do not churn correct pages just to create a diff.</td></tr>
+<tr><td><code>docs/documentation-audiences.json</code></td><td>Modify</td><td>Register new pages and remove retired migration files.</td></tr>
+<tr><td><code>UPDATE_PLAN.md</code>, <code>firstmate_dependencies.md</code>, <code>plans/porting.md</code></td><td>Delete after distillation</td><td>Completed task chronology, not current documentation owners.</td></tr>
+<tr><td><code>plans/index.html</code></td><td>Modify</td><td>Completed implementation ledger + Phase 10 / Plan 16 card.</td></tr>
+<tr><td><code>plans/15-viz.html</code></td><td>Modify</td><td>Add forward navigation to Plan 16.</td></tr>
+<tr><td><code>plans/16-documentation-revamp.html</code></td><td>New</td><td>This plan; update with implementation deviations when executed.</td></tr>
+<tr><td><code>AGENTS.md</code>, <code>CLAUDE.md</code>, agent skills/protocols</td><td>Unchanged</td><td>Explicitly outside the human-document copy-edit scope unless implementation exposes a real contract mismatch.</td></tr>
+</table>
+
+<h2>Validation plan</h2>
+<h3>Structural checks</h3>
+<pre><code>bin/mx-doc-audience-check.sh
+git diff --check
+
+# No retired upstream community chrome in active human docs
+rg -n 'x\.com/kunchenguid|discord\.gg/Wsy2NpnZDu|myfirstmate\.io' \
+  README.md CONTRIBUTING.md docs
+
+# Old vocabulary allowed only in the current upstream review record or explicit history
+rg -n -i 'captain|crewmate|secondmate|fleet|fm[-_]' \
+  README.md CONTRIBUTING.md docs --glob '*.md'</code></pre>
+<p>The implementation must review every search hit semantically. <code>docs/upstream.md</code> intentionally names upstream <code>fm-*</code> paths, and verification commands may keep historical identifiers when they are the evidence being reproduced.</p>
+
+<h3>Content checks</h3>
+<ul>
+  <li>Every README feature claim links to one current owner and is demonstrably present in the tree.</li>
+  <li>Every getting-started command works from a fresh clone or is clearly labeled as an example requiring local values.</li>
+  <li>The agent process is never told to run <code>gh auth login</code> or hold a write-capable token.</li>
+  <li>README, docs index, getting started, architecture, configuration, delivery, and contributing link to one another without circular restatement.</li>
+  <li>Every backend is labeled consistently: tmux reference; Herdr and cmux experimental; Codex App not selectable.</li>
+  <li>Dated proof lives only in maintainer-verification pages, except a short current verification pointer.</li>
+  <li>Deleted migration pages leave no broken links in current Markdown or plan navigation.</li>
+</ul>
+
+<h3>Rendered review</h3>
+<ul>
+  <li>Preview <code>README.md</code> with GitHub-compatible Markdown: badges resolve, the banner fits, Mermaid parses, tables do not dominate, and code blocks remain copyable.</li>
+  <li>Check the README and docs index at desktop and narrow/mobile widths.</li>
+  <li>Open Plan 16 and the updated plan index locally; verify navigation, table overflow, heading hierarchy, and no clipped content.</li>
+  <li>Review the final README beside Xpdite: the relationship should be visible in format, while no Xpdite-specific product content should have crossed over.</li>
+</ul>
+
+<h2>Ordering and dependencies</h2>
+<ul>
+  <li><b>Runs after Plans 01–15.</b> The documentation must describe the final behavior, so Plan 16 is the closing productization phase.</li>
+  <li><b>Entry points precede cleanup.</b> Add the docs index and getting-started owner before shortening README or deleting stale setup prose.</li>
+  <li><b>Fact distillation precedes deletion.</b> A migration page is removed only after every unique current fact and regression pointer has a verified owner.</li>
+  <li><b>Evidence moves after owner review.</b> Do not relocate live-validation sections until the destination verification page and backlinks exist.</li>
+  <li><b>README is reviewed last as a product page.</b> Its content is drafted early, but the final pass happens after the detailed docs are accurate so links and claims cannot lead ahead of their owners.</li>
+</ul>
+
+<h2>Risks &amp; safeguards</h2>
+<div class="callout warn"><div class="label">Risk — polishing stale facts</div>
+<p style="margin:0">Copy-editing can make an outdated command look more authoritative. Every changed behavior claim must be checked against code, script help, current tests, or maintained verification before wording is improved.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — README becomes another manual</div>
+<p style="margin:0">Xpdite's structure is useful because it creates clear layers. Keep the README persuasive and scannable; move operational nuance to the docs index and specific owners.</p>
+</div>
+<div class="callout warn"><div class="label">Risk — losing safety rationale while shortening</div>
+<p style="margin:0">Guard, credential, worktree, and decision-hold pages may look repetitive because they reinforce safety boundaries. Apply the one-owner rule carefully: remove duplicate mechanics, but preserve one authoritative rationale and a focused pointer at each genuine risk point.</p>
+</div>
+<div class="callout"><div class="label">Risk — historical references are mistaken for stale product claims</div>
+<p style="margin:0"><code>docs/upstream.md</code> must continue naming Firstmate and <code>fm-*</code> paths because it drives the review-and-reimplement workflow. Searches are review tools, not blind replacement commands.</p>
+</div>
+
+<h2>Definition of done</h2>
+<ul>
+  <li>The README is recognizably Multplx, follows the agreed Xpdite-like structure, contains no upstream X/Discord feature or community link, and points to valid Multplx destinations.</li>
+  <li><code>docs/README.md</code> and <code>docs/getting-started.md</code> provide a coherent path from curiosity to a safe first run.</li>
+  <li>All 29 existing human-facing <code>docs/*.md</code> pages have a recorded semantic disposition: changed, moved, retained after verification, or retired.</li>
+  <li>Stable mechanism prose and dated validation evidence live in their classified owners with no lost safety fact.</li>
+  <li>Completed migration Markdown is removed only after fact distillation; the HTML plan set remains the historical record.</li>
+  <li>The plan index presents Plans 01–16 plus 6.5 accurately and links Plan 15 to Plan 16.</li>
+  <li><code>bin/mx-doc-audience-check.sh</code>, local-link checks, stale-link searches, HTML validation, and <code>git diff --check</code> pass.</li>
+  <li>A final rendered review confirms the README, docs index, and plan index are readable on desktop and narrow screens.</li>
+  <li>No agent-runtime contract or product behavior changed as a side effect of the documentation work.</li>
+</ul>
+
+<div class="footer-nav">
+  <a href="15-viz.html">← Plan 15: mx-viz</a>
+  <a href="index.html">Index</a>
+  <span></span>
+</div>
+
+</div>
+</body>
+</html>
