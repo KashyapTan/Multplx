@@ -111,39 +111,46 @@ The stable mechanism, exact deny list, harness applicability, and residual gap r
 
 ### Codex applicability
 
-Codex 0.144.1 was asked to enumerate its own tools in a scratch git repository on 2026-07-22.
+Codex CLI 0.146.0 was asked to enumerate its own tools in a fresh ephemeral scratch git repository under the active user configuration on 2026-08-01.
 
 ```sh
-codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
-  "List the exact names of every tool available to you in this session, one per line, nothing else. Then state on a final line whether you have any tool that spawns a subagent, sub-task, or delegated agent: answer SUBAGENT_TOOL=yes or SUBAGENT_TOOL=no."
+scratch_dir=$(mktemp -d /tmp/mx-codex-tool-surface.XXXXXX)
+git -C "$scratch_dir" init -q
+codex exec --ephemeral --sandbox read-only --skip-git-repo-check \
+  -C "$scratch_dir" --color never \
+  "List the exact names of every tool available to you in this session, one per line, nothing else. Then state on a final line whether you have any tool that spawns a subagent, sub-task, or delegated agent: answer SUBAGENT_TOOL=yes or SUBAGENT_TOOL=no. Do not call any tool; inspect only your provided tool definitions."
 ```
 
 The exact reported tool set and verdict were:
 
 ```text
-web.run
-functions.exec_command
-functions.write_stdin
-functions.list_mcp_resources
-functions.list_mcp_resource_templates
-functions.read_mcp_resource
-functions.update_plan
+codex
+functions.wait
 functions.request_user_input
-functions.request_plugin_install
-functions.view_image
-functions.get_goal
-functions.create_goal
-functions.update_goal
-functions.apply_patch
-image_gen.imagegen
-tool_search.tool_search_tool
-multi_tool_use.parallel
-SUBAGENT_TOOL=no
+functions.exec
+collaboration.followup_task
+collaboration.interrupt_agent
+collaboration.list_agents
+collaboration.send_message
+collaboration.spawn_agent
+collaboration.wait_agent
+apply_patch
+exec_command
+list_mcp_resource_templates
+list_mcp_resources
+read_mcp_resource
+request_plugin_install
+update_plan
+view_image
+write_stdin
+image_gen__imagegen
+web__run
+SUBAGENT_TOOL=yes
 ```
 
-`multi_tool_use.parallel` batches calls to the listed tools; it does not spawn an agent.
-Codex was therefore not applicable to this guard at that version.
-The mechanism page keeps the tripwire: if a future Codex release adds a delegated-agent tool, the Codex hook needs matching guard wiring.
+`collaboration.spawn_agent` creates a delegated agent, so Codex was applicable to this guard in that tested configuration.
+The tracked `.codex/hooks.json` did not wire the delegation guard at the time of the pass.
+The earlier 2026-07-22 enumeration with Codex CLI 0.144.1 reported no delegation tool; applicability must therefore remain version- and configuration-scoped rather than being inferred from older evidence.
 
 ## Decision-hold completion gate
 

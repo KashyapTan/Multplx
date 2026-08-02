@@ -172,14 +172,15 @@ Applicability turns on one question: does the harness expose built-in delegation
 | Harness | Delegation surface | Status |
 | --- | --- | --- |
 | Claude | 18 known tools, listed above | Scoped guard wired and live-verified; untracked local deny list verified and recommended. |
-| Codex | none | Not applicable. Current empirical evidence is recorded in [`verification/guards.md`](verification/guards.md#codex-applicability); `.codex/hooks.json` is unchanged. |
+| Codex | `collaboration.spawn_agent` | Applicable in the empirically tested Codex CLI 0.146.0 tool surface; the guard is not wired in `.codex/hooks.json`. |
 | Pi | none reported | Not wired pending live verification. See below. |
 
 ### Codex applicability
 
-Codex currently exposes no delegated-agent tool, so there is nothing for this guard to intercept.
+Codex CLI 0.146.0 exposed `collaboration.spawn_agent` in an ephemeral scratch repository under the active user configuration, so that empirically tested surface is applicable to this guard.
 Current dated tool-enumeration evidence lives in [`verification/guards.md`](verification/guards.md#codex-applicability).
-If a future Codex release adds such a tool, wire `.codex/hooks.json` the same way its `Bash` PreToolUse entries already forward stdin to a checker.
+The tracked `.codex/hooks.json` does not wire the delegation guard, so a Codex primary with that tool surface can still create work outside `bin/mx-spawn.sh`.
+Hook support and matcher behavior must be validated in a scratch project before wiring it.
 
 ### Pi, inspected but not wired
 
