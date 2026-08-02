@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 17 - Global Launcher and Activated Shell · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:980px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:820px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--yellow);border-color:var(--yellow)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.axis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0 0 20px}
+.axis>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:12px;text-align:center}
+.axis b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:4px}
+.axis span{color:var(--muted);font-size:13px}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.axis{grid-template-columns:1fr 1fr}.axis>div:last-child{grid-column:1 / -1}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{gap:12px;flex-wrap:wrap}.axis{grid-template-columns:1fr}.axis>div:last-child{grid-column:auto}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 17 · Multplx</div>
+  <h1>Global Launcher and Activated Shell</h1>
+  <p class="subtitle">Turn <code>multplx</code> into a command that works from any directory, activates one persistent multi-project control plane, preserves the user's tmux, Herdr, or cmux environment, and lets the user choose Claude, Codex, or Pi without copying state or installing a resident TUI.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 11 · Global distribution</span>
+    <span class="badge effort">Effort: Medium-High</span>
+    <span class="badge risk">Risk: Medium</span>
+    <span class="badge">Maintainer request · 2026-08-02</span>
+    <span class="badge" style="color:var(--green);border-color:var(--green)">Decided: shell/Bash implementation</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Overview</h2>
+<p>Multplx is currently a repository-based distribution whose root is simultaneously the harness discovery root and, by default, the operational home.</p>
+<p>A user must clone the repository, change into its root, and launch one verified coding-agent harness there so that <code>AGENTS.md</code>, skills, project configuration, hooks, extensions, and scripts are discovered.</p>
+<p>The product model is broader than that launch ritual.</p>
+<p>One broker coordinates any number of registered projects, resolves a project independently for every request, and dispatches isolated work through a runtime backend and worker harness chosen independently of the broker's own terminal and harness.</p>
+<p>Plan 17 makes that existing control plane globally launchable without changing its project, state, reporting, supervision, or delivery semantics.</p>
+
+<div class="callout ok"><div class="label">Decided · shell activation, not a resident TUI</div>
+<p style="margin:0">The implementation is a small shell/Bash launcher plus Bash and Zsh prompt adapters. The launcher prepares the environment and then replaces itself with the user's interactive shell. It does not enter raw mode, allocate a pseudo-terminal, render frames, poll state, or remain as a proxy between the user and Claude, Codex, or Pi. The subtle <code>multplx</code> prompt marker is the entire TUI presentation in v1.</p>
+</div>
+
+<div class="callout"><div class="label">Control-plane identity</div>
+<p style="margin:0"><code>MX_HOME</code> identifies one persistent Multplx instance containing all project clones, registries, reports, artifacts, queues, and runtime state. It is not a project selector. The directory from which the user types <code>multplx</code> is preserved for shell convenience and is never inferred as a project or registered automatically.</p>
+</div>
+
+<div class="callout danger"><div class="label">Single-broker invariant</div>
+<p style="margin:0">Exactly one broker may hold the session lock for an <code>MX_HOME</code>. The launcher may perform a read-only friendly preflight, but <code>bin/mx-lock.sh</code> and <code>bin/mx-session-start.sh</code> remain the only lock and startup authorities. A known live holder causes a new harness launch to refuse; a race still converges through the existing atomic lock claim, and the losing session remains unable to mutate the home.</p>
+</div>
+
+<h2>Independent selection axes</h2>
+<div class="axis">
+  <div><b>CONTROL PLANE</b><span>one persistent <code>MX_HOME</code></span></div>
+  <div><b>BROKER SURFACE</b><span>terminal, tmux, Herdr, or cmux</span></div>
+  <div><b>BROKER HARNESS</b><span>Claude, Codex, or Pi</span></div>
+  <div><b>WORKER PROFILE</b><span>harness, model, effort, backend</span></div>
+  <div><b>PROJECT</b><span>resolved per request from the registry</span></div>
+</div>
+<p>The launcher owns only activation of the first axis and presentation of the shell.</p>
+<p>It preserves ambient runtime signals for the second axis, lets the user select the third axis by typing a harness command, leaves the fourth axis to existing dispatch precedence, and leaves the fifth axis to normal broker intake.</p>
+
+<h2>Goals and non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr>
+<td><ul style="margin-bottom:0">
+  <li>A globally available <code>multplx</code> command on macOS and Linux.</li>
+  <li>Bare <code>multplx</code> opens an activated child shell in the caller's current directory.</li>
+  <li>The activated shell visibly carries a small static <code>multplx</code> prompt or terminal-title marker.</li>
+  <li>The user chooses <code>claude</code>, <code>codex</code>, or <code>pi</code> after activation.</li>
+  <li>Each harness child starts from the verified Multplx code root and loads the same instructions, skills, hooks, extensions, and scripts as a manual root launch.</li>
+  <li>All operational reads and writes continue through one persistent <code>MX_HOME</code>.</li>
+  <li>Ambient tmux, Herdr, and cmux signals pass through unchanged unless the user explicitly selects <code>MX_BACKEND</code>.</li>
+  <li>Existing installations can register their current checkout and preserve every local artifact without migration.</li>
+  <li>Fresh installations can use a managed hidden checkout and a separate persistent operational home.</li>
+  <li>Activation and harness dispatch add negligible latency, no idle polling, and no extra resident launcher process.</li>
+</ul></td>
+<td><ul style="margin-bottom:0">
+  <li>No full-screen TUI, terminal compositor, pseudo-terminal wrapper, dashboard, or status monitor.</li>
+  <li>No multiple named homes or simultaneous brokers for one home.</li>
+  <li>No project selection from <code>pwd</code>, no automatic project import, and no single-project workspace mode.</li>
+  <li>No coupling between broker harness, worker harness, runtime backend, and project.</li>
+  <li>No new state, report, artifact, registry, status-event, or delivery format.</li>
+  <li>No global <code>AGENTS.md</code> or global broker hooks that affect ordinary coding-agent sessions.</li>
+  <li>No bypass of repository or hook trust prompts.</li>
+  <li>No Python, Rust, Go, Node package, or native TUI dependency on the activation hot path.</li>
+  <li>No Windows support in v1 because the current product supports macOS and Linux.</li>
+</ul></td>
+</tr>
+</table>
+
+<h2>Current contracts this plan composes</h2>
+<table>
+<tr><th>Existing owner</th><th>Current guarantee</th><th>Launcher consequence</th></tr>
+<tr><td><code>docs/configuration.md</code> and script prologues</td><td>The tracked code root supplies instructions and tools while <code>MX_HOME</code> supplies <code>data/</code>, <code>state/</code>, <code>config/</code>, and <code>projects/</code>.</td><td>The launcher sets both paths explicitly and never mirrors operational directories into its own installation or temporary files.</td></tr>
+<tr><td><code>bin/mx-primary-scope-lib.sh</code></td><td>A plain broker checkout is a real git checkout whose git dir equals its common dir and which contains <code>AGENTS.md</code>, <code>bin/</code>, and the effective state directory.</td><td>The managed runtime remains a real clone in v1, and an external <code>MX_HOME/state</code> is created before launch.</td></tr>
+<tr><td><code>.claude/settings.json</code>, <code>.codex/hooks.json</code>, <code>.pi/extensions/</code></td><td>Harness startup, guards, and supervision are discovered from the Multplx project root through harness-specific mechanisms.</td><td>The harness shim changes only its own process to the real Multplx root before executing the selected harness.</td></tr>
+<tr><td><code>bin/mx-lock.sh</code> and <code>bin/mx-session-start.sh</code></td><td>The session lock is acquired before every mutating bootstrap or queue operation, and only a verified harness ancestor can own it.</td><td>The launcher never acquires, removes, rewrites, or repairs the session lock.</td></tr>
+<tr><td><code>data/projects.md</code> and <code>bin/mx-project-mode.sh</code></td><td>One home holds a flat multi-project registry, and every request resolves its project independently.</td><td>The caller's shell directory is not forwarded as project identity.</td></tr>
+<tr><td><code>bin/mx-spawn.sh</code></td><td>Delivery and scout work receives isolated Treehouse worktrees, and <code>projects/</code> paths resolve through the home rather than caller cwd.</td><td>Launching Multplx from an unrelated directory cannot redirect project work or artifact paths.</td></tr>
+<tr><td><code>bin/mx-backend.sh</code></td><td>Backend selection is explicit task override, <code>MX_BACKEND</code>, local config, ambient runtime detection, then tmux fallback.</td><td>The activated shell preserves <code>TMUX</code>, <code>HERDR_ENV</code>, Herdr identifiers, and cmux identifiers verbatim.</td></tr>
+<tr><td><code>config/actor-dispatch.json</code>, <code>config/actor-harness</code>, and explicit task requests</td><td>Worker harness/model/effort selection is independent for each task.</td><td>The broker harness selected in the activated shell never becomes a forced worker harness.</td></tr>
+</table>
+
+<h2>Target user experience</h2>
+<h3>Activation from anywhere</h3>
+<pre><code>~/Downloads $ multplx
+~/Downloads                                      multplx
+$ codex
+
+# Codex starts as the Multplx broker from the hidden or registered runtime root.
+# When Codex exits, the activated shell is still in ~/Downloads.
+
+$ exit
+~/Downloads $</code></pre>
+
+<h3>Free harness and backend selection</h3>
+<pre><code># Inside a Herdr pane
+$ multplx
+$ pi
+
+# Or inside tmux
+$ multplx
+$ claude
+
+# Explicit session-scoped override when wanted
+$ multplx --backend herdr
+$ codex</code></pre>
+<p>When no explicit backend is supplied, runtime auto-detection remains authoritative.</p>
+<p>The prompt marker says only that the Multplx environment is active; it does not claim that a broker currently holds the lock.</p>
+
+<h3>Multi-project operation</h3>
+<pre><code>$ multplx
+$ pi
+
+Maintainer: Add api-service from https://github.com/acme/api-service using deep-review.
+Maintainer: Add dashboard from https://github.com/acme/dashboard using direct-PR.
+Maintainer: Use Codex for the API authentication fix and Claude for the dashboard
+            rendering investigation. Run both concurrently.</code></pre>
+<p>The Pi broker remains one conversational control point while the existing intake, dispatch, worktree, and backend contracts coordinate two projects and two worker harnesses independently.</p>
+
+<h2>Target installation and path model</h2>
+<pre><code>${XDG_CONFIG_HOME:-$HOME/.config}/multplx/
+  root                 # one literal absolute path, never sourced as shell code
+  home                 # one literal absolute path, never sourced as shell code
+
+${XDG_BIN_HOME:-$HOME/.local/bin}/multplx
+  # stable tiny bootstrap that reads root/home and execs bin/mx-launcher.sh
+
+${XDG_DATA_HOME:-$HOME/.local/share}/multplx/
+  runtime/             # default managed plain git clone for fresh installs
+  home/                # default persistent MX_HOME for fresh installs
+    config/
+    data/
+    projects/
+    state/</code></pre>
+<ul>
+  <li><b>Existing-checkout mode.</b> The installer records the current checkout as both root and home by default, preserving its current <code>data/</code>, <code>state/</code>, <code>config/</code>, and <code>projects/</code> in place.</li>
+  <li><b>Managed mode.</b> A fresh install creates a hidden plain clone for tracked code and a separate persistent home for private operational material.</li>
+  <li><b>No implicit migration.</b> Moving an existing home's private directories into the managed layout is a separate explicit operation with a dry run, collision checks, and rollback; v1 does not need that move to deliver the global command.</li>
+  <li><b>No shell-sourced configuration.</b> Path files contain one literal absolute path each. The launcher reads and validates bytes rather than evaluating user-controlled shell syntax.</li>
+  <li><b>Atomic installation.</b> Bootstrap wrappers and path files are written to same-directory temporary files, permissioned, validated, and renamed into place.</li>
+</ul>
+
+<h2>Launcher architecture</h2>
+<pre><code>user terminal
+  └─ multplx bootstrap in ~/.local/bin
+       └─ bin/mx-launcher.sh
+            ├─ resolve + validate MX_ROOT / MX_HOME
+            ├─ capture real claude / codex / pi paths before shim PATH
+            ├─ preserve backend and terminal environment
+            ├─ set MULTPLX_ACTIVE=1, MX_ROOT_OVERRIDE, MX_HOME
+            └─ exec user's interactive shell with one shell adapter
+                  ├─ source user's ordinary rc once
+                  ├─ re-prepend Multplx harness shims
+                  ├─ add static prompt/title marker
+                  └─ wait for user command
+
+user types codex|claude|pi
+  └─ matching shim
+       └─ bin/mx-launch-harness.sh &lt;harness&gt; [args...]
+            ├─ validate selected verified harness + captured real binary
+            ├─ read-only live-lock preflight
+            ├─ preserve all arguments and environment
+            ├─ cd -P "$MX_ROOT_OVERRIDE" in this child only
+            └─ exec real harness</code></pre>
+
+<h3>Why the shell stays outside the runtime root</h3>
+<p>The activation shell remains in the caller's directory so ordinary terminal use feels unchanged.</p>
+<p>The harness shim is a child process, so its <code>cd</code> cannot persist into the parent shell.</p>
+<p>Inside the harness, the working directory is the Multplx root, which preserves current instruction and hook discovery and keeps the existing persistent-cwd guard meaningful.</p>
+
+<h3>Shell adapters</h3>
+<table>
+<tr><th>Shell</th><th>Activation</th><th>Presentation</th><th>Compatibility rule</th></tr>
+<tr><td>Bash</td><td>Launch with a Multplx rc file that sources the user's normal interactive rc and applies activation afterward.</td><td>Append a short left-prompt segment and set a restrained terminal title when supported.</td><td>Preserve the user's prompt, options, aliases, completion, history file, and PATH, then re-prepend only the three harness shims.</td></tr>
+<tr><td>Zsh</td><td>Use a temporary <code>ZDOTDIR</code> adapter that records the original value, sources the user's real <code>.zshrc</code>, applies activation, and restores the original value for child processes.</td><td>Append a short <code>RPROMPT</code> segment and set the same terminal title.</td><td>Do not replace user themes or prompt frameworks; append once and detect nested activation.</td></tr>
+<tr><td>Other POSIX shell</td><td>Run with the core environment and shim PATH only.</td><td>Print a one-line activation banner; no prompt mutation until a tested adapter exists.</td><td>Unknown shells degrade visibly without blocking access to the harness shims.</td></tr>
+</table>
+<p>No prompt function executes Git, reads <code>state/</code>, invokes Node, or spawns any subprocess.</p>
+<p>The marker is static for the lifetime of the activated shell, which keeps prompt redraw cost constant and prevents presentation from becoming another state consumer.</p>
+
+<h3>Command surface</h3>
+<pre><code>multplx                         # activate a child shell
+multplx shell                   # explicit spelling of the same action
+multplx --backend auto|tmux|herdr|cmux
+multplx claude [args...]        # direct launch through the same adapter
+multplx codex [args...]
+multplx pi [args...]
+multplx doctor [args...]        # run the existing doctor in the configured home
+multplx update                  # delegate to the existing guarded update owner
+multplx paths                   # print resolved root/home/bin paths, no mutation
+multplx --help
+multplx --version</code></pre>
+<p>The header and <code>--help</code> output of <code>bin/mx-launcher.sh</code> become the single owner of exact flags and exit codes.</p>
+<p>Human documentation describes common flows and links to that owner rather than duplicating the complete command grammar.</p>
+
+<h2>State, reporting, and artifact safety</h2>
+<ul>
+  <li><b>One operational root.</b> Every existing script receives the same explicit <code>MX_HOME</code>; individual test overrides remain unset unless the user deliberately supplied them.</li>
+  <li><b>No launcher state tree.</b> The launcher stores installation paths under its config directory and never creates a shadow <code>data/</code>, <code>state/</code>, <code>config/</code>, or <code>projects/</code>.</li>
+  <li><b>Reports stay parent-bound.</b> <code>mx-spawn.sh</code> continues injecting the parent home's report path and <code>MX_REPORT_STATE_OVERRIDE</code> into actors, so status MCP writes and <code>mx-report</code> append to the existing parent state.</li>
+  <li><b>Artifacts stay home-bound.</b> Briefs, scout reports, vplan artifacts, gate records, workflow runs, delivery handoffs, journal events, and dashboard run records retain their existing producers and paths.</li>
+  <li><b>Runtime checkout stays clean.</b> In managed mode, activation and prompt rendering write nothing into the tracked checkout; all private writes land below the configured home.</li>
+  <li><b>Exit is natural deactivation.</b> Because activation uses a child shell, leaving it restores the caller's untouched environment without an unset script.</li>
+</ul>
+
+<h2>Single-broker behavior</h2>
+<ol>
+  <li>An activated shell is not itself a broker and does not acquire the session lock.</li>
+  <li>Before starting a harness, the shim runs the existing read-only lock status path.</li>
+  <li>A lock held by a different live harness produces one concise refusal naming the active PID and returns to the activated shell.</li>
+  <li>A free or stale lock permits the harness to start; only session start decides whether stale state may be reclaimed.</li>
+  <li>If two launches race after both observe a free lock, existing atomic lock acquisition decides the winner before mutation.</li>
+  <li>The losing harness receives the existing read-only startup result and must exit rather than operating as a second broker.</li>
+</ol>
+<p>The launcher does not invent a second reservation file unless a reproduced race demonstrates that starting the losing read-only harness is materially harmful.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+  <li><b>Define the launcher and installation contracts</b> <span class="pill new">new</span> - add exact path, command, validation, exit-code, nested-activation, and installation behavior to the headers and help of the new launcher scripts before implementing presentation.</li>
+  <li><b>Build the stable global bootstrap</b> <span class="pill new">new</span> - create an installer that writes literal root/home path files and an atomic <code>multplx</code> bootstrap into the selected bin directory, supports existing-checkout and managed-clone modes, refuses collisions, and leaves private data untouched on reinstall.</li>
+  <li><b>Implement the core activation launcher</b> <span class="pill new">new</span> - validate the real plain checkout, effective home, required directories, supported shell, harness binary paths, and optional backend selector; export only the owned environment and replace the launcher with the interactive shell.</li>
+  <li><b>Add Bash and Zsh adapters</b> <span class="pill new">new</span> - source each user's normal startup file exactly once, re-prepend the shim directory after user configuration, add the static marker without replacing themes, and make nested <code>multplx</code> activation an idempotent no-op or a clear refusal.</li>
+  <li><b>Add the three harness shims</b> <span class="pill new">new</span> - route Claude, Codex, and Pi through one launch owner that preserves exact arguments and ambient backend variables, checks a known live lock, changes only the child cwd, and executes the previously resolved real binary without recursion.</li>
+  <li><b>Compose existing operator commands</b> <span class="pill keep">reuse</span> - make <code>multplx doctor</code> and <code>multplx update</code> delegate to their existing script owners with the configured root/home rather than reimplementing probes or update logic.</li>
+  <li><b>Update public setup and configuration guidance</b> <span class="pill mod">mod</span> - change README and Getting Started to lead with installation plus <code>multplx</code>, document existing-checkout adoption, define the static prompt boundary, and keep manual clone-and-launch as a supported development fallback.</li>
+  <li><b>Add deterministic launcher and presentation suites</b> <span class="pill new">new</span> - implement the functional, shell, lock, path, state-routing, backend/harness matrix, failure, and performance cases below and register them with the existing test runner and resource manifest.</li>
+  <li><b>Run live harness and terminal verification</b> - verify Claude, Codex, and Pi startup/trust/session-start behavior from both Bash and Zsh in supported terminal/backend environments, record current versions and commands, and update only the classified verification owner.</li>
+  <li><b>Review the complete change against the control-plane boundary</b> - confirm the launcher added no second parser, state owner, lock owner, backend rule, harness rule, project rule, prompt poller, or agent credential path.</li>
+</ol>
+
+<h2>File impact table</h2>
+<table>
+<tr><th>File or group</th><th>Action</th><th>Purpose</th></tr>
+<tr><td><code>bin/mx-launcher.sh</code></td><td>New</td><td>Single command dispatcher and activation contract owner.</td></tr>
+<tr><td><code>bin/mx-launcher-install.sh</code></td><td>New</td><td>Atomic global bootstrap and root/home registration for existing or managed installations.</td></tr>
+<tr><td><code>bin/mx-launch-harness.sh</code></td><td>New</td><td>Shared Claude/Codex/Pi child-cwd, lock-preflight, argument-preserving exec adapter.</td></tr>
+<tr><td><code>share/shell/multplx.bash</code>, <code>share/shell/multplx.zsh</code></td><td>New</td><td>Post-user-rc activation and static prompt/title presentation.</td></tr>
+<tr><td><code>share/shell/shims/claude</code>, <code>codex</code>, <code>pi</code></td><td>New</td><td>Thin basename-specific entrypoints into the shared harness launcher.</td></tr>
+<tr><td><code>tests/mx-launcher.test.sh</code></td><td>New</td><td>Installer, paths, environment, harness, lock, backend, project, state, and failure contracts.</td></tr>
+<tr><td><code>tests/mx-launcher-shell.test.sh</code></td><td>New</td><td>Bash/Zsh prompt presentation, terminal bytes, interaction, and deactivation contracts.</td></tr>
+<tr><td><code>tests/mx-launcher-live-e2e.test.sh</code></td><td>New, opt-in</td><td>Version-recorded real Claude/Codex/Pi startup and hook/extension verification.</td></tr>
+<tr><td><code>bin/mx-test-run.sh</code> and its resource manifest</td><td>Modify</td><td>Register the new deterministic and live-opt-in suites with accurate resource classes.</td></tr>
+<tr><td><code>README.md</code>, <code>docs/getting-started.md</code>, <code>docs/configuration.md</code>, <code>docs/scripts.md</code></td><td>Modify</td><td>Public install/launch flow, path model, supported shells, command pointer, and manual fallback.</td></tr>
+<tr><td><code>docs/verification/launcher.md</code></td><td>New</td><td>Current dated shell, terminal, harness, backend, and performance evidence.</td></tr>
+<tr><td><code>docs/documentation-audiences.json</code></td><td>Modify</td><td>Classify the new launcher verification owner.</td></tr>
+<tr><td><code>.claude/settings.json</code>, <code>.codex/hooks.json</code>, <code>.pi/extensions/</code></td><td>Expected unchanged</td><td>The launcher reproduces their existing root discovery conditions; change only if live proof exposes a real adapter gap.</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>Expected unchanged</td><td>The broker role, one-lock rule, per-request project routing, and dispatch contracts already describe the intended behavior.</td></tr>
+</table>
+
+<h2>Testing plan</h2>
+<h3>A. Static and installation tests</h3>
+<ul>
+  <li>Run <code>bash -n</code> over every new shell script and existing repository formatting checks.</li>
+  <li>Install into isolated paths containing spaces, Unicode, and shell metacharacters; verify literal path files are read as data and never executed.</li>
+  <li>Verify existing-checkout mode records the selected root/home without moving, rewriting, or hashing private contents.</li>
+  <li>Verify managed mode creates a plain git clone, a separate home, required private directories, and a bootstrap on <code>PATH</code>.</li>
+  <li>Repeat installation and prove idempotence; a compatible installation converges, while unrelated existing files or symlinks refuse without overwrite.</li>
+  <li>Interrupt installation before each atomic rename and prove the previous working installation remains usable.</li>
+  <li>Verify reinstall and uninstall distinguish the launcher/runtime from private operational data; private data is preserved unless an explicit destructive option names it.</li>
+</ul>
+
+<h3>B. Activation and environment tests</h3>
+<ul>
+  <li>Launch from the runtime root, home root, a registered project, an unrelated git repository, a directory with spaces, and <code>/tmp</code>; every case resolves the same configured root/home.</li>
+  <li>Verify the activated shell retains the exact caller cwd before and after a harness stub runs.</li>
+  <li>Verify <code>MX_ROOT_OVERRIDE</code>, <code>MX_HOME</code>, <code>MULTPLX_ACTIVE</code>, shim PATH, and captured real harness paths are correct and contain no recursive shim resolution.</li>
+  <li>Verify unrelated environment variables are preserved byte-for-byte, including locale, proxy, terminal, authentication, and user shell variables.</li>
+  <li>Verify <code>TMUX</code>, <code>TMUX_PANE</code>, <code>HERDR_ENV</code>, Herdr identifiers, and cmux identifiers survive unchanged.</li>
+  <li>Verify <code>--backend auto</code> leaves normal detection untouched and explicit supported values set only the session-scoped override; invalid values fail before shell launch.</li>
+  <li>Verify nested activation does not duplicate PATH entries, prompt markers, terminal-title hooks, or environment layers.</li>
+  <li>Exit the child shell and prove the parent cwd, PATH, prompt, variables, and aliases are unchanged.</li>
+</ul>
+
+<h3>C. Prompt and TUI-presentation tests</h3>
+<ul>
+  <li>Source controlled Bash and Zsh fixtures with custom prompts, themes, options, aliases, completion, and PATH mutations; activation must preserve each fixture and append exactly one marker.</li>
+  <li>Assert Bash renders one readable left-prompt marker and Zsh renders one right-prompt marker at 40, 80, 120, and 200 columns without corrupting prompt-width accounting.</li>
+  <li>Assert color is disabled for <code>NO_COLOR</code>, <code>TERM=dumb</code>, and non-interactive stdout, while the plain marker remains understandable.</li>
+  <li>Assert the terminal-title escape is emitted only for supported interactive terminals and contains no cwd, project, token, or private path.</li>
+  <li>Run an automated pseudo-terminal fixture for Bash and Zsh that enters the activated shell, executes a command, launches a fake harness, returns to the prompt, and exits cleanly.</li>
+  <li>Have the fake harness emit alternate-screen enter/exit sequences, bracketed-paste toggles, colors, carriage returns, and Unicode; captured bytes must pass through unchanged because no TUI proxy owns the stream.</li>
+  <li>Send Ctrl-C, Ctrl-Z/continue, EOF, and terminal-resize events to the foreground fake harness and prove normal shell/job-control behavior and prompt recovery.</li>
+  <li>Crash and kill the fake harness at representative points; the activated shell must remain usable, and terminal raw/alternate modes must not be left behind by Multplx.</li>
+  <li>Verify the prompt hook performs no filesystem read, subprocess spawn, Git operation, state read, or network call per prompt.</li>
+</ul>
+
+<h3>D. Harness discovery matrix</h3>
+<table>
+<tr><th>Harness</th><th>Deterministic proof</th><th>Live proof</th></tr>
+<tr><td>Claude</td><td>Fake binary records cwd, argv, environment, and project-root paths; settings continue resolving through <code>CLAUDE_PROJECT_DIR</code>.</td><td>Trusted launch receives the native session-start nudge, loads Multplx skills, and exercises Stop/PreToolUse wiring.</td></tr>
+<tr><td>Codex</td><td>Fake binary records the real root and confirms project config/hook files are present; exact CLI arguments pass through unchanged.</td><td>Trusted launch loads <code>AGENTS.md</code>, project <code>.codex/config.toml</code>, and hook definitions without <code>--dangerously-bypass-hook-trust</code>.</td></tr>
+<tr><td>Pi</td><td>Fake binary records root, arguments, and extension paths; activation does not inject duplicate <code>-e</code> flags into an ordinary primary launch.</td><td>Trusted launch loads both tracked primary extensions and reports their current session-bound markers.</td></tr>
+</table>
+<p>Run the deterministic matrix from Bash and Zsh and under tmux-, Herdr-, and cmux-shaped environment fixtures.</p>
+<p>Real backend and harness lanes remain version-gated and record exact versions, commands, trust state, and summarized outcomes in <code>docs/verification/launcher.md</code>.</p>
+
+<h3>E. Single-broker and lock tests</h3>
+<ul>
+  <li>Free lock permits launch and session start records the launched harness PID, not the shim or activated shell PID.</li>
+  <li>A live lock held by another verified harness causes the shim to refuse before executing the real harness.</li>
+  <li>A stale numeric lock, malformed lock, non-regular lock, unreadable state directory, and PID-reuse mismatch retain the existing lock owner's conservative behavior.</li>
+  <li>Two simultaneous harness launches against one free home produce exactly one mutable owner; the loser cannot run bootstrap sweeps, drain wakes, arm supervision, spawn work, or write state.</li>
+  <li>Two activated shells with no launched harness are harmless and acquire no lock.</li>
+  <li>After the broker exits, the next launch can reclaim through normal session start and reconcile all existing work.</li>
+</ul>
+
+<h3>F. Multi-project, backend, and worker-dispatch tests</h3>
+<ul>
+  <li>Create a home with at least three registry entries using different delivery and autonomy postures; activation from a fourth unrelated repository must not alter or reorder the registry.</li>
+  <li>Dispatch concurrent fake tasks to two different projects and prove every project path resolves below the configured home's <code>projects/</code>, never below caller cwd or runtime root.</li>
+  <li>Run a Pi broker fixture that explicitly dispatches Codex and Claude worker fixtures; task metadata must record each selected worker harness independently.</li>
+  <li>Exercise explicit per-task backend, session <code>MX_BACKEND</code>, local config, tmux detection, Herdr detection, cmux detection, and tmux fallback in precedence order.</li>
+  <li>Prove changing the broker harness does not change an explicit worker profile and changing the runtime backend does not change project or worker-harness selection.</li>
+  <li>Run existing batch-spawn, daemon, headroom, project-mode, and backend suites unchanged.</li>
+</ul>
+
+<h3>G. State, report, and artifact integrity tests</h3>
+<ul>
+  <li>Snapshot the managed runtime and configured home before activation; activation plus prompt rendering must leave both byte-identical except for explicitly documented shell history behavior outside those roots.</li>
+  <li>Run session start and verify lock, watcher, wake, digest, and bootstrap records appear only under the configured home.</li>
+  <li>Spawn fake actors and write schema-valid status through both <code>mx-report</code> and the report MCP adapter; every event must reach the parent home's state directory.</li>
+  <li>Create a brief, scout report, vplan artifact, gate record, workflow run, journal event, delivery handoff, and viz run record through their canonical producers; every path must match the existing home contract.</li>
+  <li>Set a runtime root and home with different physical devices or symlinked parents; canonicalization must keep code and operational writes correctly separated.</li>
+  <li>Search the runtime checkout after the matrix and fail on unexpected untracked or modified files.</li>
+</ul>
+
+<h3>H. Failure and security tests</h3>
+<ul>
+  <li>Missing root, missing home, missing <code>AGENTS.md</code>, linked task worktree root, dirty managed runtime, unsupported shell, missing harness, and malformed config each produce one actionable error without starting a broker.</li>
+  <li>Path files containing extra lines, NULs, newlines, command substitutions, or relative paths are rejected as data-validation failures and never evaluated.</li>
+  <li>A malicious user rc cannot replace the captured real harness path after activation; the shim invokes only the validated absolute binary captured before PATH shadowing.</li>
+  <li>Harness arguments containing spaces, quotes, glob characters, newlines, and leading dashes arrive byte-for-byte at the fake binary without <code>eval</code>.</li>
+  <li>Trust prompts remain visible and updates that change hooks require the harness's normal re-review.</li>
+  <li>No launcher, installer, or prompt path prints environment secrets, tokens, private registry contents, or absolute project paths in banners or terminal titles.</li>
+</ul>
+
+<h3>I. Performance acceptance</h3>
+<ul>
+  <li>Benchmark the same interactive Bash and Zsh startup with and without Multplx across at least 50 warm runs and five cold runs on the maintainer's machine.</li>
+  <li>The median incremental activation overhead target is at most 30 ms and the warm p95 target is at most 75 ms, excluding the user's own shell rc time that both sides share.</li>
+  <li>The median fake-harness shim overhead target is at most 15 ms and the warm p95 target is at most 30 ms.</li>
+  <li>After activation settles, no Multplx launcher or UI process remains beyond the interactive shell itself.</li>
+  <li>An idle activated shell consumes no measurable Multplx CPU, performs no periodic reads or writes, and opens no sockets.</li>
+  <li>Prompt redraw adds no subprocess and no state-dependent work; repeated prompt rendering is measured separately from shell startup.</li>
+  <li>Performance evidence records OS, shell versions, filesystem, command, sample count, median, p95, maximum, and raw machine-readable samples.</li>
+  <li>If budgets fail, profile path canonicalization, shell rc composition, and shim dispatch before considering a compiled rewrite; no test or safety check is removed to hit a number.</li>
+</ul>
+
+<h3>J. Existing regressions that must remain green</h3>
+<ul>
+  <li>Session-start nudge and digest suites for all three harness transports.</li>
+  <li>Session lock, watcher continuity, turn-end guard, arm guard, cd guard, and subagent guard suites.</li>
+  <li>Spawn, batch spawn, report status, daemon lifecycle, backend dispatch, headroom, and project-mode suites.</li>
+  <li>Doctor, system snapshot/view, catchup, vplan, viz, workflow, journal, gate, delivery, and teardown suites.</li>
+  <li><code>bin/mx-doc-audience-check.sh</code>, <code>git diff --check</code>, local HTML links, and full accelerated regression parity.</li>
+</ul>
+
+<h2>Risks and safeguards</h2>
+<div class="callout warn"><div class="label">Risk - shell startup files are arbitrary programs</div>
+<p style="margin:0">User Bash and Zsh configuration can change PATH, prompts, aliases, options, and process behavior. The adapter sources the user's normal rc once, applies a minimal activation afterward, captures real harness binaries before shadowing, and tests hostile but valid rc fixtures. It never claims to sandbox the user's own shell configuration.</p>
+</div>
+<div class="callout warn"><div class="label">Risk - a prompt label grows into a status engine</div>
+<p style="margin:0">The marker remains static and reads no state. Live actors, queues, decisions, and health already belong to <code>mx-viz</code>, <code>mx-doctor</code>, snapshots, and normal broker reporting. Adding dynamic prompt state would create polling cost and another interpretation surface.</p>
+</div>
+<div class="callout warn"><div class="label">Risk - hidden full-access runtime</div>
+<p style="margin:0">A managed Multplx checkout contains trusted project hooks and Codex host-access configuration. Installation validates ownership and permissions, never bypasses hook trust, and makes the resolved root visible through <code>multplx paths</code> before the user approves trust.</p>
+</div>
+<div class="callout"><div class="label">Risk - path indirection obscures debugging</div>
+<p style="margin:0">Every error names the resolved root and home safely, <code>multplx paths</code> is read-only, doctor runs against the same explicit environment, and all script owners continue deriving paths through their current precedence rather than a launcher-only global.</p>
+</div>
+<div class="callout"><div class="label">Deferred - true fixed terminal status bar</div>
+<p style="margin:0">A status bar that remains visible while a coding agent owns the screen would require a PTY proxy and terminal compositor. That is intentionally outside v1 because it adds signal, resize, raw-mode, alternate-screen, and nested-TUI failure modes for no control-plane benefit. Revisit only after the static activated-shell marker is proven insufficient.</p>
+</div>
+
+<h2>Definition of done</h2>
+<ul>
+  <li>After one explicit installation, <code>multplx</code> works from any directory on supported macOS and Linux shells.</li>
+  <li>Bare <code>multplx</code> opens an activated child shell that preserves caller cwd and visibly identifies the environment without a resident TUI process.</li>
+  <li>The user can launch Claude, Codex, or Pi, and each harness loads the same Multplx instruction, skill, hook, extension, and script surfaces as a manual repository-root launch.</li>
+  <li>The surrounding tmux, Herdr, or cmux environment and normal backend precedence remain intact.</li>
+  <li>One <code>MX_HOME</code> continues to contain all registered projects, state, reports, artifacts, and configuration, with no shadow copy created by the launcher.</li>
+  <li>Concurrent launch tests prove exactly one mutable broker lock owner per home.</li>
+  <li>Multi-project tests prove caller cwd, broker harness, worker harness, backend, and project remain independent axes.</li>
+  <li>Bash and Zsh presentation tests cover prompt composition, narrow widths, colors, terminal titles, alternate-screen bytes, job control, signals, resize, crashes, nested activation, and clean exit.</li>
+  <li>Performance targets pass with no prompt subprocess, no polling, no socket, no periodic file access, and no resident launcher process.</li>
+  <li>Existing functional, safety, documentation, and accelerated full-regression suites remain green.</li>
+  <li>README and Getting Started lead with the global command while retaining a documented manual development launch fallback.</li>
+</ul>
+
+<div class="footer-nav">
+  <a href="16-documentation-revamp.html">← Plan 16: documentation revamp</a>
+  <a href="index.html">Index</a>
+  <span></span>
+</div>
+
+</div>
+</body>
+</html>
