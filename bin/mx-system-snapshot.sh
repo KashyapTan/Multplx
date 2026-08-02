@@ -62,6 +62,8 @@
 #   later_feeds: gate, workflow, and delivery {supported,available,records[]}
 #     projections, where available requires a present bounded record, plus
 #     upstream drift and doctor/timeline reader availability for optional views.
+#     Gate rows include the current-round canonical finding count and ordered
+#     step history in addition to the run record's status, summary, and risk.
 #
 # Compatibility: JSON is the primary machine-readable surface.
 # Human views must render this output instead of parsing state files again.
@@ -1453,26 +1455,47 @@ vplan_reviews_json() {
 }
 
 gate_runs_json() {
-  local directory record id row records='[]'
+  local directory record id row round round_pad file one findings records='[]'
   for directory in "$STATE"/*.gate; do
     [ -d "$directory" ] && [ ! -L "$directory" ] || continue
     record="$directory/run.json"
     [ -f "$record" ] && [ ! -L "$record" ] || continue
     id=${directory##*/}
     id=${id%.gate}
-    row=$(jq -c --arg id "$id" '
+    round=$(jq -r 'if type == "object" then (.round // empty) else empty end' "$record" 2>/dev/null || true)
+    findings=0
+    case "$round" in
+      ''|*[!0-9]*) ;;
+      *)
+        round_pad=$(printf '%02d' "$round")
+        for file in "$directory/findings/round-$round_pad-"*.json; do
+          [ -f "$file" ] && [ ! -L "$file" ] || continue
+          case "$file" in *-raw.json) continue ;; esac
+          one=$(jq -r 'if type == "object" and (.findings | type) == "array" then (.findings | length) else 0 end' "$file" 2>/dev/null || printf 0)
+          case "$one" in ''|*[!0-9]*) one=0 ;; esac
+          findings=$((findings + one))
+        done
+        ;;
+    esac
+    row=$(jq -c --arg id "$id" --argjson findings "$findings" '
       if type == "object" then
-        {id:$id,valid:true,status:(.status // "unknown"),step:(.step // null),
-         round:(.round // null),parked:(.status == "parked"),
-         pending_decision_key:(.pending_decision_key // null),
-         approved_head:(.approved_head // null),summary:(.summary // null),
-         risk_level:(.risk_level // null)}
+        . as $run |
+        {id:$id,valid:true,status:($run.status // "unknown"),step:($run.step // null),
+         round:($run.round // null),parked:($run.status == "parked"),
+         pending_decision_key:($run.pending_decision_key // null),
+         approved_head:($run.approved_head // null),summary:($run.summary // null),
+         risk_level:($run.risk_level // null),findings:$findings,
+         history:[($run.history // [])[] as $step |
+           {step:$step,status:($run.steps[$step] // "unknown"),
+            round:(if $step == $run.step then ($run.round // null) else null end)}]}
       else {id:$id,valid:false,status:"invalid",step:null,round:null,parked:false,
-        pending_decision_key:null,approved_head:null,summary:null,risk_level:null}
+        pending_decision_key:null,approved_head:null,summary:null,risk_level:null,
+        findings:null,history:[]}
       end
     ' "$record" 2>/dev/null) || row=$(jq -n --arg id "$id" \
       '{id:$id,valid:false,status:"invalid",step:null,round:null,parked:false,
-        pending_decision_key:null,approved_head:null,summary:null,risk_level:null}')
+        pending_decision_key:null,approved_head:null,summary:null,risk_level:null,
+        findings:null,history:[]}')
     records=$(jq -n --argjson records "$records" --argjson row "$row" '$records + [$row]')
   done
   jq -n --argjson supported "$([ -x "$SCRIPT_DIR/mx-deep-review.sh" ] && printf true || printf false)" \

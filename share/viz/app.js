@@ -32,15 +32,69 @@ const ageText = (seconds) => {
   return `${Math.floor(seconds / 86400)}d`;
 };
 
+function formatLocalTime(input, options = {}) {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return String(input);
+  const now = new Date();
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: options.seconds === true ? "2-digit" : undefined,
+    hour12: true,
+  });
+  if (sameDay || options.date === false) return time;
+  const day = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${day} · ${time}`;
+}
+
+const sourceLabels = {
+  "mx-spawn": "Spawn",
+  "mx-report": "Report",
+  "mx-watch": "Watcher",
+  "mx-deep-review": "Deep review",
+  "mx-decision-hold": "Decision hold",
+};
+const eventLabels = {
+  "task.spawned": "Task spawned",
+  "status.reported": "Status reported",
+  "status.classified": "Status classified",
+  "gate.step.started": "Review step started",
+  "gate.step.finished": "Review step finished",
+  "hold.opened": "Decision hold opened",
+  "hold.resolved": "Decision hold resolved",
+};
+const titleCase = (value) => String(value ?? "")
+  .replace(/[_-]/g, " ")
+  .replace(/\b\w/g, (character) => character.toUpperCase());
+
+function humanizeSource(source) {
+  return sourceLabels[source] || titleCase(String(source || "source").replace(/^mx-/, ""));
+}
+
+function humanizeEvent(event) {
+  return eventLabels[event] || String(event || "event").split(".").map(titleCase).join(" · ");
+}
+
 function announce(message) {
   document.querySelector("#aria-live").textContent = message;
 }
 
-function artifactLink(label, url) {
+function artifactLink(label, url, kind, renderable = true) {
   const link = el("a", "", label);
   link.href = url;
-  link.target = "_blank";
-  link.rel = "noreferrer";
+  if (renderable && String(url).startsWith("/artifact/")) {
+    link.addEventListener("click", (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openArtifact(label, url, kind);
+    });
+  } else {
+    link.target = "_blank";
+    link.rel = "noreferrer";
+  }
   return link;
 }
 
@@ -199,6 +253,8 @@ function renderBroker(snapshot) {
 function actorNode(task) {
   const interactive = timelineAvailable && task.synthetic !== true;
   const node = el(interactive ? "button" : "div", `node actor-node status-${statusStyle(task)}`);
+  node.dataset.taskId = String(task.id || "unknown");
+  node.dataset.interactive = String(interactive);
   if (interactive) {
     node.type = "button";
     node.title = `View ${task.id} timeline`;
@@ -222,24 +278,96 @@ function actorNode(task) {
   return node;
 }
 
-function renderTree(snapshot) {
-  const tasks = displayTasks(snapshot);
+function updateActorNode(node, task) {
+  const style = statusStyle(task);
+  const className = `node actor-node status-${style}`;
+  if (node.className !== className) node.className = className;
+  node.dataset.connectorStatus = style;
+
+  const eyebrow = node.querySelector(".node-eyebrow");
+  const kind = task.kind || "task";
+  if (eyebrow.textContent !== kind) eyebrow.textContent = kind;
+  const title = node.querySelector(".node-title");
+  const id = task.id || "unknown";
+  if (title.textContent !== id) title.textContent = id;
+
+  const status = node.querySelector(".status-pill");
+  const state = task.current_state?.state || "unknown";
+  let stateText = [...status.childNodes].find((child) => child.nodeType === Node.TEXT_NODE);
+  if (!stateText) {
+    stateText = document.createTextNode(state);
+    status.append(stateText);
+  } else if (stateText.textContent !== state) {
+    stateText.textContent = state;
+  }
+
+  const decisions = list(task.hints?.open_decisions);
+  const needsYou = node.querySelector(".needs-you");
+  if (decisions.length && !needsYou) node.append(el("span", "needs-you", "needs you"));
+  if (!decisions.length && needsYou) needsYou.remove();
+
+  const detail = task.daemon_summary
+    ? `${task.daemon_summary.active_children ?? 0} active · ${task.daemon_summary.queued ?? 0} queued`
+    : [task.harness, task.current_state?.source].filter(Boolean).join(" · ");
+  let meta = node.querySelector(".node-meta");
+  if (detail && !meta) {
+    meta = el("div", "node-meta", detail);
+    node.append(meta);
+  } else if (detail && meta.textContent !== detail) {
+    meta.textContent = detail;
+  } else if (!detail && meta) {
+    meta.remove();
+  }
+
+  const tooltip = task.project
+    ? `${node.tagName === "BUTTON" ? `View ${id} timeline\n` : ""}${task.project}`
+    : node.tagName === "BUTTON" ? `View ${id} timeline` : "";
+  if (node.title !== tooltip) node.title = tooltip;
+}
+
+function idleActorNode() {
+  const ghost = el("div", "node actor-node ghost status-idle");
+  ghost.dataset.connectorStatus = "idle";
+  ghost.append(
+    el("span", "node-eyebrow", "idle"),
+    el("strong", "node-title", "no active workers"),
+    el("span", "node-sub", "waiting on new work"),
+  );
+  return ghost;
+}
+
+function reconcileActors(tasks) {
   const row = document.querySelector("#actors-row");
-  clear(row);
-  for (const task of tasks) row.append(actorNode(task));
   if (!tasks.length) {
-    const ghost = el("div", "node actor-node ghost status-idle");
-    ghost.dataset.connectorStatus = "idle";
-    ghost.append(
-      el("span", "node-eyebrow", "idle"),
-      el("strong", "node-title", "no active workers"),
-      el("span", "node-sub", "waiting on new work"),
+    for (const node of row.querySelectorAll("[data-task-id]")) node.remove();
+    if (!row.querySelector(".ghost")) row.append(idleActorNode());
+  } else {
+    row.querySelector(".ghost")?.remove();
+    const existing = new Map(
+      [...row.querySelectorAll("[data-task-id]")].map((node) => [node.dataset.taskId, node]),
     );
-    row.append(ghost);
+    for (const task of tasks) {
+      const id = String(task.id || "unknown");
+      const interactive = timelineAvailable && task.synthetic !== true;
+      let node = existing.get(id);
+      if (node && node.dataset.interactive !== String(interactive)) {
+        node.remove();
+        node = null;
+      }
+      if (!node) node = actorNode(task);
+      else updateActorNode(node, task);
+      row.append(node);
+      existing.delete(id);
+    }
+    for (const node of existing.values()) node.remove();
   }
   document.querySelector("#actor-count").textContent = `${tasks.length} active`;
-  renderDecisionDrawer(snapshot);
   scheduleRedraw();
+}
+
+function renderTree(snapshot) {
+  reconcileActors(displayTasks(snapshot));
+  renderDecisionDrawer(snapshot);
 }
 
 function backlogMeta(row) {
@@ -268,8 +396,13 @@ function renderBacklog(snapshot) {
       const titleText = row.structured
         ? `${row.kind || "work"} · ${row.id || "untitled"}`
         : valueOr(row.raw, "unstructured row");
-      line.append(el("span", "backlog-status-tag", state.replace("_", " ")), el("span", "backlog-title", titleText));
-      item.append(line, el("div", "backlog-meta", backlogMeta(row)));
+      const titleNode = el("span", "backlog-title", titleText);
+      titleNode.title = titleText;
+      line.append(el("span", "backlog-status-tag", state.replace("_", " ")), titleNode);
+      const metaText = backlogMeta(row);
+      const metaNode = el("div", "backlog-meta", metaText);
+      metaNode.title = metaText;
+      item.append(line, metaNode);
       items.append(item);
     }
     if (!rows.length) items.append(el("li", "empty", "None"));
@@ -283,9 +416,9 @@ function renderBacklog(snapshot) {
     : "";
 }
 
-function artifactRow(label, url, kind, extraClass = "") {
+function artifactRow(label, url, kind, extraClass = "", renderable = true) {
   const row = el("div", extraClass || "artifact");
-  row.append(artifactLink(label, url));
+  row.append(artifactLink(label, url, kind, renderable));
   const kindClass = String(kind).includes("report") ? "report" : String(kind).includes("review") ? "review" : "";
   row.append(el("span", `artifact-kind ${kindClass}`.trim(), kind));
   return row;
@@ -296,12 +429,57 @@ function renderArtifacts(snapshot, artifacts) {
   clear(target);
   const active = list(snapshot.vplan_reviews?.records).filter((record) => record.pid_alive && record.url);
   for (const review of active) {
-    target.append(artifactRow(review.artifact || "Open vplan review", review.url, "live review", "active-review"));
+    target.append(artifactRow(review.artifact || "Open vplan review", review.url, "live review", "active-review", false));
   }
   for (const artifact of list(artifacts)) {
     target.append(artifactRow(artifact.label, artifact.url, artifact.kind));
   }
   if (!active.length && !list(artifacts).length) target.append(el("p", "empty", "No browsable artifacts are present."));
+}
+
+function statusTone(status) {
+  if (["passed", "done", "complete", "completed"].includes(status)) return "tone-green";
+  if (["parked", "paused", "waiting"].includes(status)) return "tone-amber";
+  if (["failed", "error", "invalid"].includes(status)) return "tone-red";
+  if (["running", "working"].includes(status)) return "tone-blue";
+  return "tone-neutral";
+}
+
+function renderGateRuns(target, records) {
+  clear(target);
+  for (const record of records) {
+    const status = record.status || "unknown";
+    const card = el("article", "record gate-record");
+    const top = el("div", "record-top");
+    top.append(
+      el("span", "record-id", record.id || "gate run"),
+      el("span", `record-status ${statusTone(status)}`, status),
+    );
+    card.append(top, detailList([
+      ["Current step", titleCase(record.step || "unknown")],
+      ["Round", record.round],
+      ["Findings", record.findings ?? "unknown"],
+      ["Risk", titleCase(record.risk_level || "unknown")],
+      ["Decision", record.pending_decision_key || "none pending"],
+      ["Approved head", record.approved_head ? String(record.approved_head).slice(0, 12) : "not approved"],
+    ]));
+    if (record.summary) card.append(el("p", "gate-summary", record.summary));
+    if (list(record.history).length) {
+      const history = el("div", "gate-history");
+      for (const step of record.history) {
+        const stepStatus = step.status || "unknown";
+        const round = step.round ? ` · r${step.round}` : "";
+        history.append(el(
+          "span",
+          `gate-step-badge ${statusTone(stepStatus)}`,
+          `${titleCase(step.step || "step")}${round} · ${titleCase(stepStatus)}`,
+        ));
+      }
+      card.append(history);
+    }
+    target.append(card);
+  }
+  if (!records.length) target.append(el("p", "empty", "No gate runs are recorded."));
 }
 
 function renderRecords(target, records, fields, emptyText) {
@@ -324,9 +502,7 @@ function renderOptionalFeeds(snapshot) {
   const gatePanel = document.querySelector("#gate-panel");
   gatePanel.hidden = feeds.gate_runs?.available !== true;
   if (!gatePanel.hidden) {
-    renderRecords(document.querySelector("#gate-runs"), list(feeds.gate_runs.records), (row) => [
-      ["Step", row.step], ["Round", row.round], ["Decision", row.pending_decision_key],
-    ], "No gate runs are recorded.");
+    renderGateRuns(document.querySelector("#gate-runs"), list(feeds.gate_runs.records));
   }
   const workflowPanel = document.querySelector("#workflow-panel");
   workflowPanel.hidden = feeds.workflow_runs?.available !== true;
@@ -428,12 +604,92 @@ function drawConnectors() {
   svg.replaceChildren(...paths);
 }
 
+function prettyValue(value) {
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((item) => typeof item === "object" ? prettyValue(item) : String(item)).join(", ")
+      : "none";
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, item]) => `${titleCase(key)}: ${prettyValue(item)}`)
+      .join(" · ");
+  }
+  return String(value);
+}
+
+function timelineFacts(rows) {
+  const facts = el("dl", "timeline-facts");
+  for (const [label, value] of rows) {
+    if (value === null || value === undefined || value === "") continue;
+    facts.append(el("dt", "", label), el("dd", "", prettyValue(value)));
+  }
+  return facts;
+}
+
+function timelineBadge(text, tone = "neutral") {
+  return el("span", `timeline-badge tone-${tone}`, text);
+}
+
+function renderTimelineDetail(record) {
+  const body = el("div", "timeline-card-body");
+  const detail = record.detail && typeof record.detail === "object" ? record.detail : {};
+  switch (record.event) {
+    case "task.spawned":
+      body.append(timelineFacts([
+        ["Kind", detail.kind], ["Backend", detail.backend], ["Worktree", detail.worktree], ["Branch", detail.branch],
+      ]));
+      break;
+    case "status.reported": {
+      body.append(el("p", "timeline-message", detail.raw || "No message provided."));
+      const state = detail.state || "unknown";
+      const tone = state === "needs-decision" ? "amber" : state === "resolved" ? "green" : "blue";
+      body.append(timelineBadge(state, tone));
+      if (detail.validated) body.append(timelineBadge("validated", "green"));
+      break;
+    }
+    case "status.classified":
+      body.append(timelineBadge(detail.verdict || "unknown", detail.verdict === "parked" ? "amber" : "blue"));
+      body.append(timelineFacts([
+        ["Tier", titleCase(detail.tier)], ["Conflicts", list(detail.conflicts)],
+      ]));
+      break;
+    case "gate.step.started":
+      body.append(timelineFacts([["Step", titleCase(detail.step)], ["Round", detail.round]]));
+      break;
+    case "gate.step.finished":
+      body.append(timelineBadge(detail.outcome || "unknown", detail.outcome === "passed" ? "green" : "amber"));
+      body.append(timelineFacts([
+        ["Step", titleCase(detail.step)], ["Round", detail.round], ["Findings", detail.findings],
+      ]));
+      break;
+    case "hold.opened":
+      body.append(el("p", "timeline-message", detail.title || "Decision required."));
+      body.append(timelineFacts([["Decision key", detail.decision_key], ["Hold id", detail.hold_id]]));
+      break;
+    case "hold.resolved":
+      body.append(el("p", "timeline-message", detail.title || "Decision resolved."));
+      body.append(timelineFacts([["Decision key", detail.decision_key], ["Routed to", detail.routed_to]]));
+      break;
+    default:
+      body.append(timelineFacts(Object.entries(detail).map(([key, value]) => [titleCase(key), value])));
+  }
+  return body;
+}
+
+function prepareDialog(title, subtitle = "", fullscreen = false) {
+  document.querySelector("#dialog-title").textContent = title;
+  document.querySelector("#dialog-subtitle").textContent = subtitle;
+  dialog.classList.toggle("dialog-fullscreen", fullscreen);
+  if (!dialog.open) dialog.showModal();
+}
+
 async function showTimeline(id) {
-  document.querySelector("#dialog-title").textContent = `Timeline · ${id}`;
+  prepareDialog(`Timeline · ${id}`);
   const body = document.querySelector("#dialog-body");
   clear(body);
   body.append(el("p", "empty", "Loading the sanctioned timeline reader…"));
-  dialog.showModal();
   try {
     const response = await fetch(`/api/timeline/${encodeURIComponent(id)}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`timeline returned ${response.status}`);
@@ -441,11 +697,15 @@ async function showTimeline(id) {
     clear(body);
     for (const record of list(payload.records)) {
       const row = el("div", "timeline-row");
-      row.append(
-        el("span", "timeline-time", valueOr(record.ts)),
-        el("span", "timeline-event", `${valueOr(record.source, "source")} · ${valueOr(record.event, "event")}`),
-        el("span", "timeline-detail", JSON.stringify(record.detail)),
+      const heading = el("div", "timeline-row-head");
+      const event = el("span", "timeline-event");
+      event.append(
+        el("span", "timeline-source", humanizeSource(record.source)),
+        document.createTextNode(" · "),
+        el("span", "timeline-event-label", humanizeEvent(record.event)),
       );
+      heading.append(el("span", "timeline-time", formatLocalTime(record.ts, { seconds: true })), event);
+      row.append(heading, renderTimelineDetail(record));
       body.append(row);
     }
     if (!list(payload.records).length) body.append(el("p", "empty", "The journal has no valid events."));
@@ -455,12 +715,150 @@ async function showTimeline(id) {
   }
 }
 
+function safeLinkTarget(target) {
+  try {
+    const url = new URL(target, window.location.href);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function appendInlineMarkdown(parent, source) {
+  const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
+  let offset = 0;
+  for (const match of source.matchAll(tokenPattern)) {
+    if (match.index > offset) parent.append(document.createTextNode(source.slice(offset, match.index)));
+    const token = match[0];
+    if (token.startsWith("`")) {
+      parent.append(el("code", "", token.slice(1, -1)));
+    } else if (token.startsWith("**")) {
+      parent.append(el("strong", "", token.slice(2, -2)));
+    } else if (token.startsWith("*")) {
+      parent.append(el("em", "", token.slice(1, -1)));
+    } else {
+      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
+      const href = safeLinkTarget(link?.[2]);
+      if (link && href) {
+        const anchor = el("a", "", link[1]);
+        anchor.href = href;
+        anchor.target = "_blank";
+        anchor.rel = "noreferrer";
+        parent.append(anchor);
+      } else {
+        parent.append(document.createTextNode(link?.[1] || token));
+      }
+    }
+    offset = match.index + token.length;
+  }
+  if (offset < source.length) parent.append(document.createTextNode(source.slice(offset)));
+}
+
+function renderMarkdown(source) {
+  const holder = el("div", "markdown-body");
+  const lines = String(source).replace(/\r\n/g, "\n").split("\n");
+  let code = null;
+  let codeText = [];
+  let listNode = null;
+  let listType = null;
+  const closeList = () => {
+    listNode = null;
+    listType = null;
+  };
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      closeList();
+      if (code) {
+        code.textContent = codeText.join("\n");
+        code = null;
+        codeText = [];
+      } else {
+        const pre = el("pre");
+        code = el("code");
+        pre.append(code);
+        holder.append(pre);
+      }
+      continue;
+    }
+    if (code) {
+      codeText.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      closeList();
+      const node = el(`h${heading[1].length}`);
+      appendInlineMarkdown(node, heading[2]);
+      holder.append(node);
+      continue;
+    }
+    const item = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(line);
+    if (item) {
+      const nextType = item[2].endsWith(".") ? "ol" : "ul";
+      if (!listNode || listType !== nextType) {
+        closeList();
+        listType = nextType;
+        listNode = el(nextType);
+        holder.append(listNode);
+      }
+      const node = el("li");
+      appendInlineMarkdown(node, item[3]);
+      listNode.append(node);
+      continue;
+    }
+    closeList();
+    if (/^(-{3,}|\*{3,})\s*$/.test(line)) {
+      holder.append(el("hr"));
+      continue;
+    }
+    const quote = /^>\s?(.*)$/.exec(line);
+    const node = el(quote ? "blockquote" : "p");
+    appendInlineMarkdown(node, quote ? quote[1] : line);
+    holder.append(node);
+  }
+  if (code) code.textContent = codeText.join("\n");
+  return holder;
+}
+
+async function openArtifact(label, url) {
+  prepareDialog(label, url, true);
+  const body = document.querySelector("#dialog-body");
+  clear(body);
+  if (/\.html?(?:\?|$)/i.test(url)) {
+    const frame = el("iframe", "artifact-frame");
+    frame.title = label;
+    frame.setAttribute("sandbox", "");
+    frame.src = url;
+    body.append(frame);
+    return;
+  }
+  body.append(el("p", "empty", "Loading artifact…"));
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`artifact returned ${response.status}`);
+    const text = await response.text();
+    clear(body);
+    if (/\.md(?:\?|$)/i.test(url)) body.append(renderMarkdown(text));
+    else {
+      const pre = el("pre");
+      pre.textContent = text;
+      body.append(pre);
+    }
+  } catch (error) {
+    clear(body);
+    body.append(el("p", "connection-note bad", error.message));
+  }
+}
+
 document.querySelector("#doctor-button").addEventListener("click", async () => {
-  document.querySelector("#dialog-title").textContent = "Doctor summary";
+  prepareDialog("Doctor summary");
   const body = document.querySelector("#dialog-body");
   clear(body);
   body.append(el("p", "empty", "Running an explicit read-only invariant sweep…"));
-  dialog.showModal();
   const broker = document.querySelector("#broker-node");
   broker.classList.remove("doctor-flash");
   void broker.offsetWidth;
@@ -488,10 +886,22 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && drawerOpen) closeDrawer();
 });
 document.querySelector("#dialog-close").addEventListener("click", () => dialog.close());
+dialog.addEventListener("click", (event) => {
+  const rect = dialog.getBoundingClientRect();
+  const inside = event.clientX >= rect.left
+    && event.clientX <= rect.right
+    && event.clientY >= rect.top
+    && event.clientY <= rect.bottom;
+  if (!inside) dialog.close();
+});
+dialog.addEventListener("close", () => {
+  dialog.classList.remove("dialog-fullscreen");
+  document.querySelector("#dialog-subtitle").textContent = "";
+});
 window.addEventListener("resize", scheduleRedraw);
 
 function updateClock() {
-  document.querySelector("#clock").textContent = `· ${new Date().toISOString().replace(/\.\d{3}Z$/, "Z")}`;
+  document.querySelector("#clock").textContent = `· ${formatLocalTime(new Date(), { seconds: true, date: false })}`;
   if (currentSnapshot) renderBroker(currentSnapshot);
 }
 

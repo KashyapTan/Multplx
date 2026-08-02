@@ -49,11 +49,16 @@ Responses carry an ETag and content hash, and matching conditional requests rece
 The canonical snapshot JSON is embedded byte-for-byte without a dashboard-side parser or reshaping pass.
 
 The page uses a maintainer-to-broker-to-worker tree for live tasks and daemons, with broker health in the center, the structured backlog below it, and a sticky artifact browser beside it.
+Worker cards are reconciled by task identity so unchanged workers remain mounted across snapshot polls.
 Clicking the maintainer node opens a viewer for current decisions without exposing approve, defer, or write actions.
+Displayed timestamps use the browser's local time zone, a 12-hour clock, and omit the year.
 
 The snapshot script's header remains the schema owner for its additive watcher, queue, headroom, vplan-review, and later-plan feed fields.
 Gate, workflow, and delivery panels appear only when their bounded record feeds contain records.
-Timeline drill-down invokes `bin/mx-timeline.sh --json`, and the doctor button invokes `bin/mx-doctor.sh --json` only after an explicit click.
+The gate panel includes current status, step, round, findings, risk, summary, pending decision, approved head, and step history when those fields are present.
+Timeline drill-down invokes `bin/mx-timeline.sh --json` and presents typed event details with human-readable labels.
+The doctor button invokes `bin/mx-doctor.sh --json` only after an explicit click.
+Detail dialogs close from either the close button, Escape, or a backdrop click.
 
 ## Read-only and artifact boundary
 
@@ -63,6 +68,8 @@ The only filesystem mutation is the dashboard's private lifecycle record under `
 
 Artifact browsing is limited to regular files whose canonical paths remain inside the repository's `data/` or `docs/` directory.
 Traversal segments, malformed escapes, absolute-path attempts, missing files, and symlinks that escape an allowed root are refused.
+Artifact links open in a near-fullscreen in-page viewer.
+Markdown is rendered into safe DOM nodes, while HTML is loaded in a scriptless sandbox with a deny-by-default content policy that permits same-origin assets, data images and fonts, and authored styles.
 Static dashboard assets are vendored under `share/viz/` and make no external network requests.
 
 ## Run-record contract
