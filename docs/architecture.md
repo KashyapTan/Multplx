@@ -238,13 +238,15 @@ The `data/daemons.md` line contract is owned by the [`daemon-provisioning` skill
 ## Project modes are explicit
 
 `data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
-PR-based modes stop agent work at a clean local commit; the full-validation mode records an approved SHA through its gate, while `direct-PR` omits the full review pipeline but retains the same non-agent remote-delivery boundary.
+PR-based modes stop agent work at a clean local commit.
+The `deep-review` mode records an approved SHA through its gate for non-agent remote delivery.
+The `direct-PR` mode omits the full review pipeline but is currently incomplete because no approved exact-SHA transition owns its delivery handoff.
 `local-only` projects stay local until broker performs an approved fast-forward merge.
 When a selected delivery path calls for a diff, `bin/mx-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 The gate persists private restart-safe state under `state/<id>.gate/`, including its sanitized intent, run record, findings, harness session ids, and command output.
 It never stores validation evidence in the project branch.
-Remote delivery is owned by the non-agent `bin/mx-deliver.sh` context described in [delivery.md](delivery.md).
-It consumes a private restart-safe handoff, re-verifies its gate and approved SHA, pushes that exact object, opens the PR, and records the URL through `bin/mx-pr-check.sh`.
+Validated `deep-review` remote delivery is owned by the non-agent `bin/mx-deliver.sh` context described in [delivery.md](delivery.md).
+It consumes the private restart-safe handoff, re-verifies its gate and approved SHA, pushes that exact object, opens the PR, and records the URL through `bin/mx-pr-check.sh`.
 PR-based task merges run from the same non-agent credential context through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
 The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
 Teardown is fail-closed for delivery worktrees: dirty worktrees refuse, committed work must be landed, and any ready-to-push handoff must be delivered or explicitly discarded before the worktree is returned.
