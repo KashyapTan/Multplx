@@ -45,14 +45,14 @@ tr:nth-child(even) td{background:var(--surface)}
 <body>
 <header class="hero"><div class="wrap">
   <div class="plan-num">Multplx · Implementation Plan Index</div>
-  <h1>From Firstmate Port to Multplx</h1>
-  <p class="subtitle">Seventeen ordered HTML artifacts document the work that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b>: numbered Plans 01–16 plus the inserted Plan 6.5 test-acceleration phase. Plans 01–11 plus 6.5 built the port, Plans 12–15 added post-port operations and observability, and Plan 16 is the final human-documentation productization pass.</p>
+  <h1>Multplx Implementation Ledger</h1>
+  <p class="subtitle">Seventeen completed HTML artifacts document the implementation that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b>: numbered Plans 01–16 plus the inserted Plan 6.5 test-acceleration phase. Plans 01–11 plus 6.5 built the port, Plans 12–15 added post-port operations and observability, and Plan 16 completed the human-documentation productization pass.</p>
 </div></header>
 
 <div class="wrap">
 
 <div class="callout"><div class="label">How to read these plans</div>
-<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order — dependencies flow downward. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All Multplx scripts carry the <code>mx-</code> prefix.</p>
+<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order; the inserted 6.5 artifact makes seventeen records across numbered Plans 01–16. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All Multplx scripts carry the <code>mx-</code> prefix.</p>
 </div>
 
 <h2>Execution flow</h2>
@@ -74,38 +74,38 @@ tr:nth-child(even) td{background:var(--surface)}
 <a class="card" href="01-deletions.html" style="--card-accent:#58a6ff">
   <div class="top"><span class="num">PLAN 01</span><span class="title">Delete the Dead Weight — Outright Dependency Removal</span></div>
   <div class="desc">Remove the myfirstmate.io X/Discord social relay, GitLab (glab) support, the standalone shellcheck installer/gate, and the macOS osascript wedge alarm — plus the decided backend/harness pruning: drop zellij &amp; orca backends and grok &amp; opencode harnesses (keep tmux, cmux, herdr / claude, codex, pi).</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §8.1 + pruning</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Low</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Low</span></div>
 </a>
 
 <div class="phase-label">Phase 2 · Rename everything</div>
 <a class="card" href="02-rebrand.html" style="--card-accent:#bc8cff">
   <div class="top"><span class="num">PLAN 02</span><span class="title">Full Rebrand — Ship Metaphor Out, Multplx Vocabulary In</span></div>
   <div class="desc">maintainer / broker / actor / daemon role vocabulary, a real rewrite of example_agents.md (verbs, not just nouns), and the repo-wide fm-→mx- rename sweep across scripts, env vars, docs, state paths, and log strings.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §7</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
 </a>
 
 <div class="phase-label">Phase 3 · Harden the core loop</div>
 <a class="card" href="03-status-reporting.html" style="--card-accent:#3fb950">
   <div class="top"><span class="num">PLAN 03</span><span class="title">Validated Status Reporting — Enforce the Schema at Write-Time</span></div>
   <div class="desc">New mx-report wrapper + MCP report_status tool validate every status line against the closed state enum before it hits disk, so malformed reports fail loudly on the model's own turn instead of silently degrading downstream.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §3</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
 </a>
 <a class="card" href="04-watcher-nudge.html" style="--card-accent:#3fb950">
   <div class="top"><span class="num">PLAN 04</span><span class="title">Low-Latency Nudge — Wake the Watcher Without a Daemon</span></div>
   <div class="desc">mx-report optionally signals the live watcher as a pure fast-path wake; the durable status write happens every time regardless, and with no listener it's a silent no-op back to normal polling. No new persistent process.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §4</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span></div>
 </a>
 <a class="card" href="05-signal-precedence.html" style="--card-accent:#3fb950">
   <div class="top"><span class="num">PLAN 05</span><span class="title">Explicit Signal Precedence in the Classifier</span></div>
   <div class="desc">One documented rule in the classify lib for conflicting signals about the same task: harness-native event &gt; schema-validated self-report &gt; text/regex heuristic — applied uniformly across every backend.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §5</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Medium</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-low">Effort: Low–Med</span><span class="tag">Risk: Medium</span></div>
 </a>
 
 <div class="phase-label">Phase 4 · Foundation decision</div>
 <a class="card" href="06-worktree-provider.html" style="--card-accent:#d29922">
   <div class="top"><span class="num">PLAN 06</span><span class="title">Worktree Provider — Keep Treehouse</span></div>
   <div class="desc">Treehouse stays: pinned v2.0.1, SHA-verified, functionally untouched. This phase carries it through the port — rebrand rename of the installer and call sites, an unconditional bootstrap requirement now that orca is gone, and the isolation/lease guarantees plans 09, 10, and 13 depend on. Build-our-own designs were removed from the plan (git history only).</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §1 + §8</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span><span class="tag" style="color:var(--green);border-color:var(--green)">Decided: keep</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-low">Effort: Low</span><span class="tag">Risk: Low</span><span class="tag" style="color:var(--green);border-color:var(--green)">Decided: keep</span></div>
 </a>
 
 <div class="phase-label">Phase 4.5 · Accelerate the proof loop</div>
@@ -119,26 +119,26 @@ tr:nth-child(even) td{background:var(--surface)}
 <a class="card" href="07-axi-replacements.html" style="--card-accent:#f0883e">
   <div class="top"><span class="num">PLAN 07</span><span class="title">Owning the Toolbelt — Replacing the -axi Dependencies</span></div>
   <div class="desc">gh-axi collapses to the official gh CLI; tasks-axi becomes an in-repo markdown backlog lib; quota-axi becomes our composite local-resource plus configured-API-budget headroom check; chrome-devtools-axi is deferred out.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §8.2</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
 </a>
 <a class="card" href="08-vplan.html" style="--card-accent:#f0883e">
   <div class="top"><span class="num">PLAN 08</span><span class="title">vplan — Plan Artifacts with an In-Page Review Loop</span></div>
   <div class="desc">Our replacement for lavish-axi, redesigned 2026-07-27: the broker authors a diagram-rich HTML plan, mx-vplan.sh serves it on loopback with an injected comment overlay, the maintainer annotates any element, and one confirm writes the comments into the file itself and shuts the server down. Ports lavish's authoring playbooks; drops its daemon, polling, and hosting machinery.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §8.5</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Low</span></div>
 </a>
 
 <div class="phase-label">Phase 6 · Safe delivery</div>
 <a class="card" href="09-least-privilege-push.html" style="--card-accent:#f85149">
   <div class="top"><span class="num">PLAN 09</span><span class="title">Least-Privilege Push — Agents Never Hold Remote Credentials</span></div>
   <div class="desc">Actors commit locally only; a separate non-agent process with its own service credentials owns git push and PR-open, triggered only after validation passes and the maintainer approves.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §2</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-med">Effort: Medium</span><span class="tag">Risk: Medium</span></div>
 </a>
 
 <div class="phase-label">Phase 7 · The flagship gate</div>
 <a class="card" href="10-deep-review-gate.html" style="--card-accent:#39c5cf">
   <div class="top"><span class="num">PLAN 10</span><span class="title">deep-review — the Local, Egress-Safe Validation Gate</span></div>
   <div class="desc">Replaces the upstream no-mistakes tool with an in-repo pipeline (mx-deep-review.sh) run by the already-approved harness: fixed step order, schema-forced findings, deterministic gate decisions, default-branch-only command trust, delivery stopping at a validated local branch.</div>
-  <div class="meta"><span class="tag">UPDATE_PLAN §6 + §8.6</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: High</span></div>
+  <div class="meta"><span class="tag">Completed</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: High</span></div>
 </a>
 
 <div class="phase-label">Phase 8 · Compose everything</div>
@@ -148,7 +148,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="meta"><span class="tag">New feature (maintainer request)</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: Medium</span></div>
 </a>
 
-<div class="phase-label">Phase 9 · Post-port improvements (don't gate the port)</div>
+<div class="phase-label">Phase 9 · Post-port operations and observability</div>
 <a class="card" href="12-event-journal.html" style="--card-accent:#79c0ff">
   <div class="top"><span class="num">PLAN 12</span><span class="title">mx-journal — One Timeline per Task</span></div>
   <div class="desc">An append-only observability journal every writer also emits to (spawns, status transitions, classification verdicts with the winning signal tier, gate rounds, decisions, workflow stages, delivery). mx-timeline &lt;id&gt; reconstructs any task's life in one command. Never read for control flow — the scattered state files remain the operational truth.</div>
@@ -174,7 +174,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <a class="card" href="16-documentation-revamp.html" style="--card-accent:#58a6ff">
   <div class="top"><span class="num">PLAN 16</span><span class="title">Human Documentation Revamp — Make Multplx Legible as Its Own Product</span></div>
   <div class="desc">Replace the inherited Firstmate-shaped README with a Multplx-native, Xpdite-inspired landing page; add a documentation index and getting-started path; audit every human-facing Markdown page against the completed Plans 01–15 behavior; separate mechanism from evidence; and retire stale migration prose from active documentation.</div>
-  <div class="meta"><span class="tag">Final documentation phase · 2026-07-31</span><span class="tag effort-high">Effort: Medium–High</span><span class="tag">Risk: Medium</span></div>
+  <div class="meta"><span class="tag">Completed · 2026-08-01</span><span class="tag effort-high">Effort: Medium–High</span><span class="tag">Risk: Medium</span></div>
 </a>
 
 <h2>What we deliberately keep (no plan needed)</h2>

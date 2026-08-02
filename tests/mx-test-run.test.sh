@@ -138,6 +138,7 @@ init_changed_fixture_repo() {
   : >"$repo/.pi/extensions/mx-primary-pi-watch.ts"
   : >"$repo/.pi/extensions/mx-primary-turnend-guard.ts"
   : >"$repo/src/unmapped.ts"
+  : >"$repo/RETIRED_PORT_DOC.md"
   git -C "$repo" init -q
   git -C "$repo" add .
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm baseline
@@ -181,6 +182,12 @@ test_changed_dependency_selection_and_unmapped_failure() {
   assert_contains "$listed" "tests/mx-pi-watch-extension.test.sh" "Pi source selects watcher coverage"
   git -C "$repo" add .agents .claude .pi
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm non-bin-source-change
+
+  rm "$repo/RETIRED_PORT_DOC.md"
+  listed=$(cd "$repo" && bin/mx-test-run.sh --list --changed --base HEAD)
+  [ -z "$listed" ] || fail "retired root documentation should not select behavior tests: $listed"
+  git -C "$repo" add -u
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm retire-root-docs
 
   printf '\n' >>"$repo/src/unmapped.ts"
   set +e

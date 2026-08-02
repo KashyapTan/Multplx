@@ -10,7 +10,7 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 
 is_allowlisted_path() {
   case "$1" in
-    firstmate|firstmate/*|plans/*|UPDATE_PLAN.md|firstmate_dependencies.md|\
+    firstmate|firstmate/*|plans/*|\
     firstmate-architecture.html|docs/upstream.md|tests/mx-naming.test.sh|\
     tests/mx-upstream-diff.test.sh|tests/fixtures/upstream-sync/*)
       return 0
@@ -45,7 +45,6 @@ while IFS= read -r file; do
     esac \
       | sed \
       -e 's#`firstmate/`##g' \
-      -e 's#firstmate_dependencies\.md##g' \
       -e 's#firstmate-architecture\.html##g' \
       | grep -Ein "$legacy_content_pattern" \
       | sed "s#^#$file:#" >> "$failures" || true

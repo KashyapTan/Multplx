@@ -1,219 +1,137 @@
 <h1 align="center">Multplx</h1>
-<p align="center">
-  <a
-    href="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue?style=flat-square"
-    ><img
-      alt="Platform"
-      src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue?style=flat-square"
-  /></a>
-  <a href="https://x.com/kunchenguid"
-    ><img
-      alt="X"
-      src="https://img.shields.io/badge/X-@kunchenguid-black?style=flat-square"
-  /></a>
-  <a href="https://discord.gg/Wsy2NpnZDu"
-    ><img
-      alt="Discord"
-      src="https://img.shields.io/discord/1439901831038763092?style=flat-square&label=discord"
-  /></a>
-</p>
-
-<h3 align="center">Talk to one agent. Deliver with independent actors.</h3>
 
 <p align="center">
-  <img alt="Multplx - talk to one agent, delivery with independent actors" src="assets/banner.png" width="100%" />
+  <strong>Talk to one agent. Deliver with independent actors.</strong>
 </p>
 
-## What it is
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" /></a>
+  <a href="https://github.com/KashyapTan/Multplx/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/KashyapTan/Multplx?style=for-the-badge" /></a>
+  <a href="docs/getting-started.md#requirements"><img alt="Platform: macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=for-the-badge" /></a>
+</p>
 
-You can run one coding agent easily.
-But the moment you want three project tasks done in parallel - fixes, investigations, plans, audits - you become a tab-juggler: babysitting sessions, copy-pasting context between repos, forgetting which terminal had the failing test.
+<p align="center">
+  <a href="docs/getting-started.md"><img alt="Get Started" src="https://img.shields.io/badge/Get_Started-0969da?style=for-the-badge" /></a>
+  <a href="docs/README.md"><img alt="Documentation" src="https://img.shields.io/badge/Documentation-1f883d?style=for-the-badge" /></a>
+  <a href="CONTRIBUTING.md"><img alt="Contributing" src="https://img.shields.io/badge/Contributing-8250df?style=for-the-badge" /></a>
+</p>
 
-Multplx flips the model.
-You talk to a single agent - the broker - which routes work to autonomous actors in a visible session backend, gives each a clean git worktree, monitors their state, and brings you finished PRs, approved local merges, or standalone investigation reports.
-For larger systems, you can opt in to persistent daemons that run from their own isolated Multplx homes.
+## Multplx
 
-Multplx is not a model, harness, skill, MCP server, or CLI.
-Multplx is an agent distribution for coordinating independent agents.
-An agent distro is a portable directory of instructions, skills, tooling, policies, and state conventions that turns a general-purpose agent into a specialized one.
-There is no app to install: the cloned repo is the distribution - `AGENTS.md`, bundled Multplx skills, and helper scripts that any terminal coding agent can follow.
-Launching a supported harness inside it instantiates the broker role, while you remain the maintainer.
+Multplx is an agent coordination distribution for maintainers who want several software tasks moving without becoming the session manager.
+You work through one broker, which routes delivery and investigation work to independent actors in isolated worktrees and can delegate recurring domains to persistent daemons.
 
-## Features
+The repository is the distribution: a broker contract, focused skills, local orchestration tools, safety policy, and durable state conventions.
+Launch a verified coding-agent harness in the clone and it takes the broker role while you retain product direction, architecture decisions, destructive choices, and merge approval.
 
-- **One liaison** - you talk only to the broker; it routes work, monitors state, escalates only real decisions, and reports plain outcomes.
-- **Visible actors** - every actor works in its own tmux window, experimental herdr tab, or cmux workspace you can watch or type into; the broker reconciles their durable state.
-- **Disposable worktrees** - each task runs in a clean [treehouse](https://github.com/kunchenguid/treehouse) git worktree, so parallel work on one repo never collides.
-- **Two task shapes** - delivery tasks deliver authorized changes; scout tasks leave standalone investigation reports when the intake contract warrants separate research.
-- **Explicit project modes** - each project delivers via the in-repo `deep-review` gate, `direct-PR`, or `local-only`, with an optional `+yolo` autonomy flag.
-- **Optional daemons** - opt in to persistent daemons that run from isolated Multplx homes with their own `MX_HOME`, state, projects, and session lock, coordinate project clones or a project-less Multplx domain, stay aligned with the primary version through guarded local fast-forwards, and receive liveness checks at session start.
-- **Event-driven, zero-token supervision** - a bash watcher sleeps on the system and wakes the broker only when something needs you; verified primary harnesses also get a turn-end backstop that blocks or follows up on a blind stop when work is under way and supervision is not live.
-- **Guarded by construction** - the broker is read-only over your projects except for the guarded paths authorized by [hard rule 1](AGENTS.md#1-identity-and-prime-directives), with system sync's safe branch pruning remaining part of the system-sync exception; actors make every project change behind the configured merge authority.
-- **Least-privilege delivery** - broker, actor, daemon, and validation sessions stop at local commits; only a separate maintainer or scheduler context can push an approved exact SHA and open its PR.
-- **Repeatable workflows** - repo-tracked definitions compose interactive decisions, broker or actor stages, deterministic commands, deep-review, and delivery through one snapshot-based linear engine.
-- **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr or cmux when selected or auto-detected); kill the session anytime and the next one reconciles, including confirmed-dead daemon agents, and carries on.
+## Why Multplx
 
-Full detail on every feature lives in [docs/architecture.md](docs/architecture.md).
+- **One conversation** - request work, answer real decisions, and receive outcomes through one broker.
+- **Parallel isolation** - actors work independently in Treehouse-managed git worktrees instead of sharing a checkout.
+- **Durable supervision** - validated status events, a wake queue, and harness-specific turn-end guards keep work observable without an idle model loop.
+- **Explicit authority** - product, architecture, destructive, security-sensitive, and merge decisions remain with the maintainer unless a narrowly configured routine policy applies.
+- **Safe delivery** - every agent session stops at local commits; a separate credentialed context pushes only an approved exact SHA.
+- **Restart-proof operation** - disk state and runtime endpoints let a new broker session reconcile work already under way.
 
-## Quick Start
+## Core Features
 
-### Requirements
+- A broker coordinates independent actors and optional persistent daemons through the model described in [Architecture](docs/architecture.md).
+- Every delivery or scout task receives an isolated worktree and a visible endpoint on the tmux reference backend or an experimental Herdr or cmux backend.
+- Event-driven supervision combines validated reporting, durable wakes, current-state reconciliation, and guarded turn boundaries without making an append-only status log the source of truth.
+- Three explicit delivery modes - `deep-review`, `direct-PR`, and `local-only` - preserve the same no-agent-credentials boundary described in [Delivery](docs/delivery.md).
+- Declarative [workflows](docs/workflows.md) compose maintainer decisions, broker and actor stages, deterministic commands, review, and delivery from immutable run snapshots.
+- [vplan](docs/vplan.md) provides annotated HTML reviews, while [mx-viz](docs/viz.md) renders a disposable read-only system view.
+- [mx-doctor](docs/doctor.md), [task journals](docs/journal-events.md), and timelines expose health and history without becoming control-flow authorities.
+- Dispatch profiles and capacity-aware queuing select verified harnesses without dropping work when local or configured API headroom is tight.
 
-- A verified agent harness: Claude Code, Pi, or Codex.
-- Git and the GitHub CLI.
-- A separate maintainer shell or scheduler credential for remote delivery; do not expose a write-capable GitHub credential to the broker process.
-- The CLI and dependencies for your selected runtime backend; tmux is the reference default.
+## Getting Started
 
-The broker detects and offers to install supported missing tools after you approve.
-Backend-specific setup is linked in [Documentation](#documentation).
-
-### Recommended harnesses
-
-**Claude Code and Pi are equal co-primary recommendations** for running the primary broker session.
-Claude Code uses a tracked Stop hook for tokenless watcher re-arm and rewake, and Pi uses its tracked primary watcher extension.
-Both have verified turn-end guard paths when launched with their documented setup.
-Pick whichever one matches your subscription and workflow.
-
-Codex is also verified and supported as a primary harness; it uses bounded foreground checkpoints, so it carries more harness-specific supervision tradeoffs than the co-primaries.
-
-### Install and launch
+You need macOS or Linux, one verified harness - Claude Code, Codex, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
+tmux is the reference runtime backend; Herdr and cmux are experimental alternatives.
 
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
 ```
 
-The tracked `AGENTS.md` file is the auto-loaded broker contract.
-See [docs/delivery.md](docs/delivery.md) for the credential boundary and delivery setup.
-
-**Claude Code**
+Launch exactly one installed harness from the repository root:
 
 ```sh
 claude
+# or: codex
+# or: pi
 ```
 
-**Pi**
+Approve the repository trust prompt when your harness presents one.
+The broker runs its session-start checks, reports missing tools, and waits for your consent before installing anything it supports automatically.
 
-```sh
-pi
+Then make a concrete request in chat:
+
+```text
+Add my project from https://github.com/example/project, then investigate the flaky login test.
 ```
 
-For Pi, approve the project trust prompt once per clone on first launch so the tracked `.pi/extensions/*.ts` files auto-load.
-Pi's `/calm` toggle hides supported transcript chrome, including canonically classified Multplx operational user rows, while retaining native working activity and all model context and session data.
-The hidden operational inputs remain ordinary user-role messages with unchanged delivery, ordering, authority, persistence, and exports.
-The preference persists for the effective Multplx home, and toggling it off restores ordinary rendering.
-[Calm's current behavior and supported limits](docs/calm.md) are separate from its [version-scoped maintainer evidence](docs/calm-mode-feasibility.md).
-
-**Codex**
-
-```sh
-codex
-```
-
-Trust the checkout when Codex asks so it loads the tracked project configuration and hooks.
-Multplx's project configuration selects `danger-full-access` command execution because the broker must inspect host process ancestry and capacity and launch isolated actor sessions; Codex approval prompts remain under your own user-level policy.
-
-### Talk to it
-
-```sh
-> recap! look at my github project xyz, then fix the flaky login test and add dark mode
-
-# broker checks its toolchain (asking your consent before installing anything),
-# clones the project under projects/ and spawns two isolated workers in the active backend.
-# Minutes later:
-
-  PR ready for review, maintainer: https://github.com/you/xyz/pull/42
-  (fix flaky login test - risk: low - CI green)
-
-> alright merge it
-```
-
-### More backends
-
-Setup guides for tmux (the default) and every other supported backend (herdr, cmux) are linked in [Documentation](#documentation) below.
-
-## How It Works
-
-```
-            you (the maintainer)
-                  │  chat: requests, decisions, "merge it"
-                  ▼
- ┌─────────────────────────────────────┐
- │ broker             (this repo)    │
- │ reads projects/ + routes requests │
- │ writes guarded backlog/briefs/state │
- └──┬──────────────┬───────────────┬───┘
-    │ backend sends / status files │
-    ▼              ▼               ▼
- ┌────────┐   ┌────────┐      ┌────────┐
- │mx-task1│   │mx-task2│  ... │mx-taskN│   tmux windows, herdr tabs, or cmux workspaces
- │actor│   │actor│      │actor│   one autonomous agent each
- └───┬────┘   └───┬────┘      └───┬────┘
-     ▼            ▼               ▼
-  treehouse worktree or isolated daemon home
-     │
-     ├─ delivery: project mode ► PR/local merge ► teardown
-     │
-     └─ scout: report at data/<id>/report.md ► decision inventory ► relay findings ► teardown
-```
-
-You chat with the broker.
-It routes each request to an actor in its own session endpoint and git worktree, monitors the system with a zero-token event-driven watcher, and brings you finished PRs, approved local merges, or investigation reports.
-Optional daemons extend this to persistent daemons, and dispatch profiles let you steer which harness handles which task.
-`codex-app` is not a runtime backend yet; [docs/codex-app-backend.md](docs/codex-app-backend.md) owns the Codex App boundary.
-
-Full architecture - the monitoring engine, worktree isolation, daemons, dispatch profiles, project modes, system sync, and self-update - is in [docs/architecture.md](docs/architecture.md).
+Continue with [Getting Started](docs/getting-started.md) for backend selection, project intake, first-run checks, and the separate delivery credential setup.
 
 ## Built-in skills
 
-Multplx delivers these user-invocable built-in skills.
 Claude uses the slash form shown here; codex uses the same names with `$`, such as `$afk`.
 
-| Skill              | What it does                                                                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/afk`             | Enter away-mode supervision: the sub-supervisor self-handles routine notifications in bash, escalates maintainer-relevant events and bounded declared-external-wait rechecks as batched digests, and actively alerts if delivery gets stuck while you step away |
-| `/recap`            | Recap visible session events since the prior real maintainer message plus visibly unanswered maintainer decisions, falling back to Catchup when invoked as the session's first real maintainer message |
-| `/catchup`        | Generate a standalone current-status report from bounded local system and registered-daemon state, with live PR enrichment only when requested, written to a dated file in `data/` and surfaced concisely in chat; read-mostly, mutates no task state |
-| `/updatemultplx` | Self-update the running Multplx primary and its daemons to the latest from origin with fast-forward-only pulls, then re-read instructions and nudge daemons |
-| `/stow`            | Sweep the session for uncaptured durable knowledge, route each finding to its disk home per `AGENTS.md`, file undone next steps to the backlog, and report what is now safe to reset |
-| `/create-workflow` | Interview the maintainer, draft a declarative multi-stage workflow, validate it against the shared engine schema, and offer a dry-run |
+| Skill | Purpose |
+| --- | --- |
+| `/afk` | Enter away-mode supervision for a walk-away stretch. |
+| `/recap` | Recap visible events since the previous real maintainer message. |
+| `/catchup` | Generate a standalone current-status report from bounded local state. |
+| `/updatemultplx` | Fast-forward the running primary and registered daemons to the latest Multplx revision. |
+| `/stow` | Route durable session knowledge to its correct owner before a context reset. |
+| `/create-workflow` | Draft and validate a reusable declarative workflow. |
 
-Agent-only reference skills live under `.agents/skills/` and are loaded by the broker at the trigger points defined in [`AGENTS.md`](AGENTS.md).
+## Architecture
 
-### Two-tier skill layout
+```mermaid
+flowchart TB
+    M[Maintainer] -->|requests and decisions| B[Broker]
+    B -->|delivery or scout brief| A1[Actor]
+    B -->|parallel brief| A2[Actor]
+    B -->|domain request| D[Persistent daemon]
+    D -->|child brief| A3[Actor]
+    A1 --> W1[Isolated worktree]
+    A2 --> W2[Isolated worktree]
+    A3 --> W3[Isolated worktree]
+    S[Watcher, wake queue, and snapshots] -. supervises .-> B
+    S -. reconciles .-> A1
+    S -. reconciles .-> A2
+    S -. reconciles .-> D
+    W1 --> G[Deep-review or direct handoff]
+    W2 --> G
+    W3 --> G
+    G -->|approved exact SHA| X[Credentialed delivery context]
+    X --> R[GitHub pull request]
+```
 
-Multplx's skills live in two separate places with different audiences:
-
-- `.agents/skills/` - agent-loaded skills (this section's table, plus the broker's agent-only reference skills). Every one assumes a live Multplx home and is meaningless, or actively misleading, installed anywhere else, so each carries `metadata.internal: true` in its frontmatter. That flag hides them from installer discovery without affecting the agent's own skill loader.
-- `skills/` - public, installer-facing skills meant to be installed standalone into any project, independent of Multplx.
-  Each one is a self-contained skill with no dependency on Multplx paths, tools, or vocabulary.
-  Today that is `skills/stow`, a generic session-knowledge-sweep skill that routes findings by explicit instruction first, then existing local conventions, then a private `.stow-notes.md` fallback in the current directory, and closes with a resume pointer for the next session.
-  It intentionally shares no code with the Multplx-internal `.agents/skills/stow` it is named after, so the two can evolve independently.
+Actors never become ranked subordinates of the broker.
+They are autonomous agents with a different workflow scope, coordinated through durable briefs, runtime endpoints, and validated return paths.
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) - maintainer architecture for the actors, supervision, worktrees, daemons, and project modes.
-- [docs/configuration.md](docs/configuration.md) - environment variables, `MX_HOME`, runtime backend selection, the files you set, and harness support.
-- [docs/delivery.md](docs/delivery.md) - least-privilege agent credentials, approved-SHA handoff, delivery service, and scheduler setup.
-- [docs/workflows.md](docs/workflows.md) - workflow definition schema, trust boundary, durable run layout, contracts, and approval routing.
-- [docs/calm.md](docs/calm.md) - current Pi `/calm` behavior and supported presentation limits.
-- [docs/tmux-backend.md](docs/tmux-backend.md) - current setup and limits for the tmux reference backend.
-- [docs/herdr-backend.md](docs/herdr-backend.md) - current setup, safety boundaries, and limits for the experimental Herdr backend.
-- [docs/cmux-backend.md](docs/cmux-backend.md) - current setup, socket security, and limits for the experimental cmux backend.
-- [docs/codex-app-backend.md](docs/codex-app-backend.md) - the current blocked Codex App backend boundary and rollout contract.
-- [docs/verification/runtime-backends.md](docs/verification/runtime-backends.md) - active maintainer verification for runtime backend guarantees.
-- [docs/turnend-guard.md](docs/turnend-guard.md) - the primary session's current "no turn ends blind" backstop, scope, loop safety, and compatibility limits.
-- [docs/verification/supervision.md](docs/verification/supervision.md) - active maintainer verification for session-start, guard, continuity, and wedge integrations.
-- [docs/supervision-protocols/](docs/supervision-protocols/) - rendered primary-harness watcher protocols for Claude, Codex, Pi, and unknown harness fallback.
-- [docs/scripts.md](docs/scripts.md) - the `bin/` toolbelt reference.
-- [docs/documentation-audiences.md](docs/documentation-audiences.md) - documentation audiences and the machine-checked placement boundary.
-- [`AGENTS.md`](AGENTS.md) - the active auto-loaded broker contract and routing index.
-- [CONTRIBUTING.md](CONTRIBUTING.md) - how to contribute, including the dev/test commands.
+| Read this | For |
+| --- | --- |
+| [Documentation index](docs/README.md) | Reading paths by audience and task |
+| [Getting started](docs/getting-started.md) | A safe first run from clone through project intake |
+| [Architecture](docs/architecture.md) | Actors, daemons, supervision, state, and ownership boundaries |
+| [Configuration](docs/configuration.md) | `MX_HOME`, harnesses, dispatch, toolchain, and local settings |
+| [Delivery](docs/delivery.md) | Local validation, exact-SHA handoff, and credential separation |
+| [tmux](docs/tmux-backend.md), [Herdr](docs/herdr-backend.md), [cmux](docs/cmux-backend.md) | Reference and experimental runtime setup |
+| [Operations](docs/doctor.md) | Health checks and recovery entry points |
+| [Contributing](CONTRIBUTING.md) | Development workflow, conventions, and tests |
+
+Documentation placement and audience ownership are defined in [Documentation audiences](docs/documentation-audiences.md).
 
 ## Contributing
 
-Contributions are welcome - see [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, repo conventions, and how to run the tests.
+Contributions are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, documentation ownership rules, and focused test commands.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+Multplx is released under the [MIT License](LICENSE).

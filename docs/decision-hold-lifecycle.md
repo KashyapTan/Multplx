@@ -38,51 +38,6 @@ Its daemon-home summary classifies an actionable maintainer hold as `maintainer_
 It excludes completed kind `maintainer` records from Recently Landed.
 The projection remains read-only and does not inspect historical prose.
 
-## Verification record
+## Verification
 
-Verification date: 2026-07-14.
-Additional quoted `blocked_by` regression verification date: 2026-07-17.
-Plural blocker-readiness and mixed-home projection verification date: 2026-07-22.
-
-The focused end-to-end regression uses only synthetic `sample` identities and decision text.
-It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
-The initial Catchup snapshot correctly has no open decision, and the new teardown gate refuses to erase the source.
-A later regression covers quoted multi-entry `blocked_by` output so `resolve` matches the first, middle, and last ids and rejects a genuinely absent id.
-
-The final verification commands and their exact summarized outputs follow.
-
-```text
-$ bash tests/mx-decision-hold-lifecycle.test.sh
-ok - report-only unresolved decision is reproduced and completion refuses before loss
-ok - non-forced scout teardown always requires durable inventory verification
-ok - maintainer holds are idempotent, distinct, teardown-safe, Catchup-visible, and durably routed before close
-ok - completion and verification validate origins before constructing paths
-ok - ended visual review follows the same decision-hold completion owner
-ok - resolved findings and decision-like prose do not create false holds
-ok - terminal single-owner stale status decisions do not block empty inventory
-ok - main-home and daemon-home maintainer holds remain correctly routed
-ok - resolve matches first/middle/last in quoted blocked_by and rejects a genuinely absent id
-
-$ bash tests/mx-system-snapshot-view.test.sh
-ok - backlog normalization preserves strict roles and resolves every blocker compatibly
-ok - durable maintainer-held transfer closes the duplicate live status decision
-ok - snapshot parses owned backlog rows and respects operational overrides
-
-$ bin/mx-test-run.sh --family snapshot-catchup
-ok - a completed scout with decision-like report prose is a pointer, not pending
-ok - action-free items (working/done/queued/landed) do not leak into Maintainer's Call
-ok - mixed daemon roles, partial state, and maintainer readiness project independently
-ok - main and daemon maintainer actionability use the same blocker readiness
-
-$ bash tests/mx-brief.test.sh
-ok - mx-brief.sh: investigation and visual-review completions load the shared decision policy
-
-$ bash tests/mx-teardown.test.sh
-all teardown safety cases passed
-
-$ git diff --check
-(no output)
-
-$ for test_script in tests/*.test.sh; do bash "$test_script"; done
-ALL 71 TEST SCRIPTS PASSED
-```
+Current dated regression proof lives in [`verification/guards.md`](verification/guards.md#decision-hold-completion-gate).

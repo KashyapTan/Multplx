@@ -154,54 +154,7 @@ Prose may improve without changing adapter behavior.
 | Claude | `.tool_input.command` | `.claude/settings.json` forwards stdin with `--claude`, leaving stdout empty and returning the stderr deny object. |
 | Pi | `event.input.command` | `.pi/extensions/mx-primary-turnend-guard.ts` passes one `--command` argument and returns `{block: true}` only for exit 2. |
 
-## Live validation record, 2026-07-09
-
-Validation ran in a git-initialized scratch broker-shaped project under this task worktree.
-The scratch project contained copies of the modified checker and policy, unchanged tracked adapters, a dummy checkpoint, a dummy arm script, a harmless `tmux` argument-capture fixture, and a private sentinel path.
-No modified file was installed into the primary checkout or a live harness configuration.
-No live watcher, system state, or herdr lifecycle command was used.
-
-Harness versions were:
-
-```text
-Claude Code 2.1.206
-codex-cli 0.144.0
-Pi 0.80.5
-```
-
-Every harness was instructed to issue these exact shell command strings as separate tool calls:
-
-```sh
-printf 'UNRELATED_EXECUTED\n'
-pgrep -fl '/bin/mx-watch.sh' || true
-tmux send-keys -t isolated-pi-lab "printf '%s\n' 'bin/mx-watch-arm.sh &'"; tmux send-keys -t isolated-pi-lab Enter
-bin/mx-watch-arm.sh &
-```
-
-The real harness launch commands were:
-
-```sh
-claude -p "$PROMPT" --dangerously-skip-permissions --output-format text
-codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$PROMPT"
-pi -p -e .pi/extensions/mx-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"
-```
-
-Observed output for the three allowed calls was `UNRELATED_EXECUTED`, a successful read-only `pgrep`, and two `TMUX_ARGS:` lines that preserved the watcher text as data.
-Each harness blocked the final command with exit 2 mapped through its native adapter behavior.
-The stable reason was `[watcher-background] a protected watcher command cannot run in an asynchronous shell list or through nohup/disown`.
-The dummy arm body would have created `<harness>.sentinel` if the denied command executed.
-All sentinel files remained absent.
-
-The Codex transcript showed `PreToolUse Completed` for all three originally reported false-positive shapes and `PreToolUse Blocked` only for the backgrounded arm.
-Claude and Pi both reported that every allowed call ran and the final call was blocked.
-
-Native supervision paths were also validated in the same scratch project:
-
-- Claude ran `bin/mx-watch-arm.sh --restart` with its native tracked background option and produced `watcher: started pid=<scratch> (scratch)`.
-- Codex ran the foreground checkpoint above and produced `CHECKPOINT_EXECUTED`.
-- Pi loaded both primary extensions, called `mx_watch_arm_pi`, and created the scratch automatic-arm marker.
-
-Every native-path automatic marker was present and every deny sentinel remained absent.
+Current dated cross-harness proof lives in [`verification/guards.md`](verification/guards.md#watcher-arm-command-guard).
 
 ## Automated validation
 

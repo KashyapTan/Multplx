@@ -117,7 +117,7 @@ A prior investigation recorded that the deny key must be `Task` and that using `
 That is not what this machine shows.
 
 A five-way A/B with a control, each run in its own directory to rule out settings caching, found that `Task` and `Agent` each independently remove the tool, and that a nonsense name leaves it present.
-The full evidence is in the validation record below.
+The dated A/B evidence is in [`verification/guards.md`](verification/guards.md#primary-session-delegation-guard).
 
 Pinning both names in the recommended local deny list is correct regardless of which build is running.
 It costs one line and removes the failure mode where a rename or a rollback silently reopens the surface.
@@ -172,43 +172,14 @@ Applicability turns on one question: does the harness expose built-in delegation
 | Harness | Delegation surface | Status |
 | --- | --- | --- |
 | Claude | 18 known tools, listed above | Scoped guard wired and live-verified; untracked local deny list verified and recommended. |
-| Codex | none | Not applicable, verified empirically below. Codex 0.144.1 exposes no subagent, sub-task, or delegated-agent tool, so there is nothing to remove or intercept. `.codex/hooks.json` is unchanged. |
+| Codex | none | Not applicable. Current empirical evidence is recorded in [`verification/guards.md`](verification/guards.md#codex-applicability); `.codex/hooks.json` is unchanged. |
 | Pi | none reported | Not wired pending live verification. See below. |
 
-### Codex, verified not applicable
+### Codex applicability
 
-Codex 0.144.1 was asked to enumerate its own tools in a scratch git repo on 2026-07-22.
-
-```sh
-codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
-  "List the exact names of every tool available to you in this session, one per line, nothing else. Then state on a final line whether you have any tool that spawns a subagent, sub-task, or delegated agent: answer SUBAGENT_TOOL=yes or SUBAGENT_TOOL=no."
-```
-
-Exact reported tool set and verdict:
-
-```text
-web.run
-functions.exec_command
-functions.write_stdin
-functions.list_mcp_resources
-functions.list_mcp_resource_templates
-functions.read_mcp_resource
-functions.update_plan
-functions.request_user_input
-functions.request_plugin_install
-functions.view_image
-functions.get_goal
-functions.create_goal
-functions.update_goal
-functions.apply_patch
-image_gen.imagegen
-tool_search.tool_search_tool
-multi_tool_use.parallel
-SUBAGENT_TOOL=no
-```
-
-`multi_tool_use.parallel` batches calls to the tools above; it does not spawn an agent.
-Codex is therefore not applicable today, and this table row is the tripwire: if a future Codex release adds a delegated-agent tool, wire `.codex/hooks.json` the same way its `Bash` PreToolUse entries already forward stdin to a checker.
+Codex currently exposes no delegated-agent tool, so there is nothing for this guard to intercept.
+Current dated tool-enumeration evidence lives in [`verification/guards.md`](verification/guards.md#codex-applicability).
+If a future Codex release adds such a tool, wire `.codex/hooks.json` the same way its `Bash` PreToolUse entries already forward stdin to a checker.
 
 ### Pi, inspected but not wired
 
@@ -226,114 +197,7 @@ The bounded follow-up is identical to the Codex procedure above.
 On a host where verification is possible, ask the harness to enumerate its tools, then wire the matcher and re-run the live matrix below.
 `bin/mx-subagent-pretool-check.sh` needs no change: it already accepts the `--tool` CLI form Pi uses, and it already emits the stdout decision object by default.
 
-## Live validation record, 2026-07-22
-
-Harness version:
-
-```text
-2.1.217 (Claude Code)
-```
-
-Every run used a scratch project under this task worktree.
-No modified file was installed into the primary checkout or a live harness configuration, and no live watcher, system state, or task metadata was used.
-The launch command throughout was:
-
-```sh
-claude -p "$PROMPT" --dangerously-skip-permissions --output-format text
-```
-
-### Tool name and matcher mechanics
-
-The tool name delivered to PreToolUse hooks was established before any matcher was written, using a throwaway project whose only hook appended `.tool_name` to a log for matcher `.*`.
-It logged `Agent` and `Bash`.
-A second project using matcher `^(Task|Agent)$` logged `Agent` only, confirming both the live tool name and that Claude Code honors regex anchors in a PreToolUse matcher.
-The tracked matcher is now `.*`, matching the throwaway-project evidence above so any future tool name reaches the script classifier.
-
-### Deny-key A/B, with control
-
-Prompt: `List the exact names of every tool available to you, comma-separated on one line, nothing else.`
-Each variant ran in its own fresh directory to rule out settings caching.
-
-| `.claude/settings.json` | `Agent` in tool list? |
-| --- | --- |
-| `{}` | Yes |
-| `{"permissions":{"deny":["Task"]}}` | No |
-| `{"permissions":{"deny":["Agent"]}}` | No |
-| `{"permissions":{"deny":["ZzzNotARealTool"]}}` | Yes |
-| `{"permissions":{"deny":["Task","Agent"]}}` | No |
-
-The nonsense-name control is what makes this conclusive: the tool disappears only when a real name is denied, so the removal is caused by the deny entry rather than by run-to-run variation.
-Both `Task` and `Agent` are therefore working deny keys on this build, correcting the earlier claim that only `Task` works.
-
-The observed baseline surface was 29 tools:
-
-```text
-Agent, Bash, Edit, Read, ReportFindings, ScheduleWakeup, Skill, ToolSearch, Workflow, Write,
-CronCreate*, CronDelete*, CronList*, DesignSync*, EnterWorktree*, ExitWorktree*, Monitor*,
-NotebookEdit*, PushNotification*, RemoteTrigger*, SendMessage*, TaskCreate*, TaskGet*,
-TaskList*, TaskOutput*, TaskStop*, TaskUpdate*, WebFetch*, WebSearch*
-```
-
-A `*` marks a deferred tool, which is lazy-loaded through `ToolSearch` and does not appear in a plain tool list unless the prompt asks for deferred entries.
-This distinction matters when reading the next result: a tool absent from a plain listing is not necessarily denied.
-
-### Local deny-list hardening
-
-Run in a scratch broker-shaped project containing `AGENTS.md`, `state/`, a full copy of `bin/`, and a Claude settings file containing the recommended local deny-list JSON above.
-The result validates the recommended local deny-list JSON above, not tracked repo state.
-Asking for deferred entries explicitly returned:
-
-```text
-Bash, Edit, Read, ReportFindings, Skill, ToolSearch, Write,
-DesignSync*, NotebookEdit*, PushNotification*, WebFetch*, WebSearch*
-```
-
-All 18 locally denied names are gone and every ordinary working tool remains, including the five deferred ones.
-Comparing against the 29-tool baseline confirms the removal set is exactly the deny list and nothing else.
-
-### Delivered guard, the case a fixed deny list cannot cover
-
-To reproduce a future tool that delivers before a local deny list is updated, `Workflow` was removed from the deny list in the same scratch project while the guard stayed wired.
-
-Prompt: `Call the Workflow tool to run any trivial workflow. You must actually attempt the Workflow tool call.`
-
-Claude reported:
-
-```text
-I attempted the Workflow tool call as requested. It was blocked by a PreToolUse hook in this repo:
-
-> [subagent-dispatch] the broker primary dispatches through the system, not the harness's own
-> delegation tools... (blocked tool: Workflow). Launch the session with MX_ALLOW_SUBAGENT=1 for a
-> deliberate exception.
-```
-
-This is the load-bearing result: the delivered guard denied a delegation tool that the deny list did not cover, which is the future-name case the shape classifier exists for.
-
-### Delivered guard scope, the negative case
-
-The same `Workflow` prompt was then run in a `git worktree add` linked worktree of that scratch project, carrying the identical tracked hook and checker bytes, with no escape hatch.
-
-```text
-The Workflow tool call was not blocked by a hook. It executed normally: launched, ran 1 agent,
-and completed successfully returning {"result":"ok"}.
-```
-
-Same hook, same bytes, deny in the primary home and allow in an actor-shaped worktree.
-This is the scoping contract working end to end rather than a hook that simply never fires.
-
-### Escape hatch
-
-The same `Workflow` prompt in the scratch primary home, launched as `MX_ALLOW_SUBAGENT=1 claude -p ...`:
-
-```text
-Result: the Workflow tool call was NOT blocked by a hook. It launched and ran to completion.
-```
-
-### Empty-stdout requirement
-
-A Claude deny is honored only when the hook's stdout is empty.
-`tests/mx-subagent-pretool-check.test.sh` asserts stdout is empty on every `--claude` deny and that default mode still emits the decision object on stdout.
-The live consequence is confirmed by the delivered-guard result above: Claude honored the deny and reported the reason text.
+Current dated Claude proof lives in [`verification/guards.md`](verification/guards.md#primary-session-delegation-guard).
 
 ## Automated validation
 

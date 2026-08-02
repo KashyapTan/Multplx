@@ -9,6 +9,7 @@ retired_reason:
 # Upstream review record
 
 This file is the authoritative fork point, review cursor, relevance map, retirement state, and completed-review log for the Multplx fork.
+[Back to the documentation index](README.md).
 `bin/mx-upstream-diff.sh` is the sole supported writer of `last_reviewed`.
 The fork point never changes.
 The review cursor advances only after a completed upstream-sync workflow run receives its final maintainer approval.
@@ -118,7 +119,7 @@ early-alphabet failures went unrecorded. The post-plan-01 full-suite run
 checkout** — upstream/macOS-environment issues, not port regressions — except
 the one branch-topology case noted last. Gate-skips occur only for backends
 and harnesses not installed on this machine (herdr, cmux, live-harness
-opt-ins) — expected per `plans/porting.md`.
+opt-ins) - expected for the historical baseline recorded in the completed [implementation ledger](../plans/index.html).
 
 | Test | Failing case | Root cause |
 |---|---|---|

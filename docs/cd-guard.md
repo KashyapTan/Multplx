@@ -131,22 +131,4 @@ tests/mx-cd-pretool-check.test.sh
 tests/mx-arm-pretool-check.test.sh
 ```
 
-## Live validation record, 2026-07-11
-
-Each harness ran against a scratch primary-shaped Multplx checkout: a plain git repo with `AGENTS.md`, `bin/` holding the real `mx-cd-pretool-check.sh`, `mx-cd-command-policy.mjs`, and `mx-arm-command-policy.mjs` plus a no-op dummy `mx-arm-pretool-check.sh`, a `projects/foo/` stand-in clone, and the tracked harness hook config.
-No live watcher, system state, or the maintainer's real primary checkout was involved.
-Each harness was told to run, as separate tool calls, a top-level `cd projects/foo && touch <abs>/BLOCKED` (must be denied) and a subshell `(cd projects/foo && touch <abs>/ALLOWED)` (must run), with the sentinel files as the observable.
-
-Harness versions and outcomes:
-
-- **Claude Code 2.1.207** - blocked. Claude reported the top-level command "denied by the `PreToolUse` hook (`mx-cd-pretool-check.sh`)", the `BLOCKED` sentinel was absent, and the subshell form was permitted to run. A prior control `touch` proved the harness executed commands.
-- **codex-cli 0.144.0** - blocked. Codex logged `error=Command blocked by PreToolUse hook: {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[persistent-cd] a persistent top-level directory change ..."}`, the `BLOCKED` sentinel was absent, and the subshell `ALLOWED` sentinel was created. Both the arm and cd PreToolUse hooks ran per command (two `hook: PreToolUse Completed` lines), confirming Codex re-feeds the payload to each hook in the array.
-- **Pi 0.80.6** - blocked. The `BLOCKED` sentinel was absent while the subshell `ALLOWED` sentinel was created; that differential (top-level denied, subshell run, in the same session) can only come from the guard.
-
-The launch commands mirrored `docs/arm-pretool-check.md`'s validation:
-
-```sh
-claude -p "$PROMPT" --dangerously-skip-permissions --output-format text
-codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$PROMPT"
-pi -p -e .pi/extensions/mx-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"
-```
+Current dated cross-harness proof lives in [`verification/guards.md`](verification/guards.md#persistent-directory-guard).

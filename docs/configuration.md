@@ -2,6 +2,8 @@
 
 The files and environment variables you set to operate broker.
 
+[Back to the documentation index](README.md).
+
 ## Orchestrator behavior (`AGENTS.md`)
 
 The shared orchestrator behavior contract lives in [`AGENTS.md`](../AGENTS.md) and is auto-loaded by supported coding agents.

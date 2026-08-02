@@ -273,7 +273,7 @@ behavior:
 <p style="margin:0">The repository's existing snapshot suite is named <code>tests/mx-system-snapshot-view.test.sh</code>, so the additive snapshot cases landed there instead of the plan's stale <code>tests/mx-system-snapshot.test.sh</code> filename. Plans 09 through 14 were already implemented before this work began, so their bounded gate, workflow, delivery, timeline, doctor, and upstream feeds were integrated directly; gate, workflow, and delivery availability remains record-presence-gated so an installed feature with no current run does not produce an empty panel.</p>
 </div>
 <div class="callout ok"><div class="label">Decided · 2026-07-29 — the four shaping decisions</div>
-<p style="margin:0">Maintainer decisions, all recorded in porting.md §5: (1) <b>read-only v1</b> — no mutation surface of any kind; (2) <b>extend the canonical snapshot additively</b> rather than viz-side collectors; (3) <b>idle shutdown</b> — the server exits after no client polls for the idle window; (4) <b>print the link only</b> — never auto-open a browser. Also settled here: the name is <code>mx-viz</code> (hyphenated script per the locked <code>mx-</code> convention — there is no space-separated subcommand style anywhere in the tree), and the port range is 4890–4909.</p>
+<p style="margin:0">The four completed shaping decisions are recorded here: (1) <b>read-only v1</b> — no mutation surface of any kind; (2) <b>extend the canonical snapshot additively</b> rather than viz-side collectors; (3) <b>idle shutdown</b> — the server exits after no client polls for the idle window; (4) <b>print the link only</b> — never auto-open a browser. Also settled here: the name is <code>mx-viz</code> (hyphenated script per the locked <code>mx-</code> convention — there is no space-separated subcommand style anywhere in the tree), and the port range is 4890–4909.</p>
 </div>
 <div class="callout warn"><div class="label">Risk — scope creep toward a control plane</div>
 <p style="margin:0">Every dashboard grows buttons. The read-only decision is enforced structurally, not aspirationally: GET-only routing, no write paths in the handler, and the state-tree-hash test that fails the moment a request mutates anything. Any future control surface must arrive as its own plan with its own authorization design — this plan's server must never be "extended a little."</p>
@@ -294,7 +294,7 @@ behavior:
 <div class="footer-nav">
   <a href="14-upstream-sync.html">← Plan 14: upstream sync</a>
   <a href="index.html">Index</a>
-  <a href="16-documentation-revamp.html">Plan 16: documentation revamp →</a>
+  <a href="16-documentation-revamp.html">Plan 16: human documentation revamp →</a>
 </div>
 
 </div>

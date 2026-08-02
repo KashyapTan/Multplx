@@ -3,6 +3,7 @@
 How broker works, in depth.
 
 The [README](../README.md) carries the high-level diagram and a short synopsis.
+The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
 The active broker contract and routing index for conditional procedures is [`AGENTS.md`](../AGENTS.md); this is the human-facing companion.
 
