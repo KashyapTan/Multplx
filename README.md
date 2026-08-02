@@ -102,10 +102,14 @@ flowchart TB
     S -. reconciles .-> A1
     S -. reconciles .-> A2
     S -. reconciles .-> D
-    W1 --> G[Deep-review or direct handoff]
-    W2 --> G
-    W3 --> G
-    G -->|approved exact SHA| X[Credentialed delivery context]
+    W1 --> T{Brief type}
+    W2 --> T
+    W3 --> T
+    T -->|Scout| Q[Standalone report and decision completion]
+    T -->|Delivery| L{Delivery mode}
+    L -->|local-only| F[Approved local fast-forward]
+    L -->|deep-review or direct-PR| G[Approved exact-SHA handoff]
+    G --> X[Credentialed delivery context]
     X --> R[GitHub pull request]
 ```
 

@@ -132,11 +132,13 @@ init_changed_fixture_repo() {
   printf '# .claude/settings.json\n# .pi/extensions/mx-primary-turnend-guard.ts\n' \
     >>"$repo/tests/mx-cd-pretool-check.test.sh"
   printf '# .pi/extensions/mx-primary-pi-watch.ts\n' >>"$repo/tests/mx-pi-watch-extension.test.sh"
-  mkdir -p "$repo/.agents/skills/example" "$repo/.claude" "$repo/.pi/extensions" "$repo/src"
+  mkdir -p "$repo/.agents/skills/example" "$repo/.claude" "$repo/.pi/extensions" \
+    "$repo/skills/stow" "$repo/src"
   : >"$repo/.agents/skills/example/SKILL.md"
   : >"$repo/.claude/settings.json"
   : >"$repo/.pi/extensions/mx-primary-pi-watch.ts"
   : >"$repo/.pi/extensions/mx-primary-turnend-guard.ts"
+  : >"$repo/skills/stow/SKILL.md"
   : >"$repo/src/unmapped.ts"
   : >"$repo/RETIRED_PORT_DOC.md"
   git -C "$repo" init -q
@@ -188,6 +190,17 @@ test_changed_dependency_selection_and_unmapped_failure() {
   [ -z "$listed" ] || fail "retired root documentation should not select behavior tests: $listed"
   git -C "$repo" add -u
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm retire-root-docs
+
+  printf '\n' >>"$repo/skills/stow/SKILL.md"
+  set +e
+  (cd "$repo" && bin/mx-test-run.sh --list --changed --base HEAD) >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "unmapped nested Markdown must fail with exit 2, got $rc"
+  grep -Fq 'no changed-test mapping for source path: skills/stow/SKILL.md' "$tmp/err" \
+    || fail "nested Markdown failure is not actionable: $(cat "$tmp/err")"
+  git -C "$repo" add skills/stow/SKILL.md
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm nested-markdown-change
 
   printf '\n' >>"$repo/src/unmapped.ts"
   set +e
