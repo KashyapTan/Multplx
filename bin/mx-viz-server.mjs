@@ -118,6 +118,21 @@ function setCommonHeaders(response) {
   response.setHeader("X-Frame-Options", "DENY");
 }
 
+function setArtifactHeaders(response) {
+  response.setHeader("Content-Security-Policy", [
+    "default-src 'none'",
+    "script-src 'none'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join("; "));
+  response.setHeader("X-Frame-Options", "SAMEORIGIN");
+}
+
 function sendJson(response, status, value, extraHeaders = {}) {
   const body = `${JSON.stringify(value)}\n`;
   response.writeHead(status, {
@@ -289,6 +304,7 @@ async function serve(rootArgument, homeArgument, stateArgument, runRecord, token
   };
 
   const serveArtifact = async (rawPath, response) => {
+    setArtifactHeaders(response);
     let decoded;
     try {
       decoded = decodeURIComponent(rawPath);

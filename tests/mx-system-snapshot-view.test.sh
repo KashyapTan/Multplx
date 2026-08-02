@@ -867,9 +867,13 @@ SH
       and .later_feeds.timeline.available == true
   ' >/dev/null || fail "absent later-plan records were not distinguished from available readers: $out"
 
-  mkdir -p "$home/state/review-1.gate" "$home/state/release-1.workflow"
-  printf '%s\n' '{"status":"parked","step":"review","round":2,"pending_decision_key":"release"}' \
+  mkdir -p "$home/state/review-1.gate/findings" "$home/state/release-1.workflow"
+  printf '%s\n' '{"status":"parked","step":"review","round":2,"pending_decision_key":"release","approved_head":"abc123","summary":"One API choice remains.","risk_level":"high","steps":{"intent":"passed","rebase":"passed","review":"parked"},"history":["intent","rebase","review"]}' \
     > "$home/state/review-1.gate/run.json"
+  printf '%s\n' '{"findings":[{"id":"api-choice"}]}' \
+    > "$home/state/review-1.gate/findings/round-02-review.json"
+  printf '%s\n' '{"findings":[{"id":"api-choice"}]}' \
+    > "$home/state/review-1.gate/findings/round-02-review-assess-raw.json"
   printf '%s\n' '{"workflow":"new-feature","status":"running","current_stage":"deliver","message":"opening PR"}' \
     > "$home/state/release-1.workflow/run.json"
   cat > "$home/state/release-1.ready-to-push" <<'EOF'
@@ -886,7 +890,8 @@ EOF
     .later_feeds.gate_runs.available == true
       and .later_feeds.gate_runs.records[0] ==
         {id:"review-1",valid:true,status:"parked",step:"review",round:2,parked:true,
-         pending_decision_key:"release",approved_head:null,summary:null,risk_level:null}
+         pending_decision_key:"release",approved_head:"abc123",summary:"One API choice remains.",risk_level:"high",
+         findings:1,history:[{step:"intent",status:"passed",round:null},{step:"rebase",status:"passed",round:null},{step:"review",status:"parked",round:2}]}
       and .later_feeds.workflow_runs.available == true
       and .later_feeds.workflow_runs.records[0].workflow == "new-feature"
       and .later_feeds.workflow_runs.records[0].current_stage == "deliver"

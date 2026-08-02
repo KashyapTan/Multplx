@@ -224,6 +224,26 @@ test_lifecycle_cache_and_read_only_contract() {
     || fail "dashboard assets retained demo or decision-write controls"
   grep -F 'Viewer only · respond through the ordinary Multplx workflow' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "decision drawer does not state its read-only boundary"
+  grep -F 'formatLocalTime(record.ts, { seconds: true })' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "timeline timestamps are not localized for the browser"
+  grep -F 'hour12: true' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard timestamps no longer force the requested 12-hour clock"
+  ! grep -F 'JSON.stringify(record.detail)' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "timeline still renders raw JSON detail"
+  grep -F 'function humanizeEvent(event)' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "timeline event labels are not humanized"
+  grep -F 'function reconcileActors(tasks)' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "actor polling still lacks keyed DOM reconciliation"
+  ! sed -n '/function reconcileActors(tasks)/,/^}/p' "$ROOT/share/viz/app.js" | grep -F 'clear(row)' >/dev/null \
+    || fail "actor reconciliation still destroys the full row on every poll"
+  grep -F 'if (!inside) dialog.close();' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "detail dialog does not close from a backdrop click"
+  grep -F 'frame.setAttribute("sandbox", "")' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "rendered HTML artifacts are not isolated in a scriptless sandbox"
+  grep -F 'function renderMarkdown(source)' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "Markdown artifacts do not have an in-page renderer"
+  grep -F 'function renderGateRuns(target, records)' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "deep-review gates still use the sparse generic renderer"
 
   headers="$home/headers"
   body="$home/body.json"
@@ -278,7 +298,7 @@ NODE
 }
 
 test_artifact_boundary_and_get_only_server() {
-  local home readers url pid status outside link
+  local home readers url pid status outside link headers html
   home="$TMP_ROOT/artifacts"
   readers="$TMP_ROOT/readers-artifacts"
   make_home "$home"
@@ -288,6 +308,8 @@ test_artifact_boundary_and_get_only_server() {
   printf '%s\n' secret >"$outside"
   link="$ARTIFACT_DIR/escape.txt"
   ln -s "$outside" "$link"
+  html="$ARTIFACT_DIR/rendered.html"
+  printf '%s\n' '<!doctype html><style>body{color:green}</style><script>window.parent.document.body.textContent="unsafe"</script><h1>Rendered artifact</h1>' >"$html"
   url=$(start_viz "$home" 52930 60 0.2 "$readers") || fail "artifact dashboard did not start"
   pid=$(record_value "$home/state/.viz/server.run" pid)
   track_pid "$pid"
@@ -304,6 +326,20 @@ test_artifact_boundary_and_get_only_server() {
   [ "$status" = 403 ] || fail "non-allowlisted root returned HTTP $status"
   status=$(curl -sS -o /dev/null -w '%{http_code}' "${url}artifact/docs/not-present.md")
   [ "$status" = 404 ] || fail "missing allowlisted artifact returned HTTP $status"
+  headers="$home/artifact-headers"
+  curl -fsS -D "$headers" -o "$home/rendered.html" \
+    "${url}artifact/data/$(basename "$ARTIFACT_DIR")/rendered.html" \
+    || fail "allowlisted HTML artifact was not served"
+  grep -Fi 'X-Frame-Options: SAMEORIGIN' "$headers" >/dev/null \
+    || fail "HTML artifacts cannot be framed safely inside the same-origin viewer"
+  grep -Fi "Content-Security-Policy: default-src 'none'" "$headers" >/dev/null \
+    || fail "HTML artifact frame lacks a deny-by-default content policy"
+  grep -Fi "style-src 'self' 'unsafe-inline'" "$headers" >/dev/null \
+    || fail "HTML artifact frame cannot render its authored inline styles"
+  grep -Fi "script-src 'none'" "$headers" >/dev/null \
+    || fail "HTML artifact frame does not block scripts explicitly"
+  grep -F '<h1>Rendered artifact</h1>' "$home/rendered.html" >/dev/null \
+    || fail "HTML artifact bytes were not preserved for browser rendering"
   status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "${url}api/state")
   [ "$status" = 405 ] || fail "DELETE state returned HTTP $status"
   MX_HOME="$home" "$CLI" stop >/dev/null || fail "artifact dashboard did not stop"
