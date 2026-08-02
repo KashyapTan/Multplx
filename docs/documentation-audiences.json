@@ -27,10 +27,7 @@
     "operator-example"
   ],
   "readmeSetupTargets": [
-    "docs/configuration.md",
-    "docs/tmux-backend.md",
-    "docs/herdr-backend.md",
-    "docs/cmux-backend.md"
+    "docs/getting-started.md"
   ],
   "requiredOwnerPointers": [
     {
@@ -48,6 +45,14 @@
     {
       "source": "README.md",
       "target": "docs/documentation-audiences.md"
+    },
+    {
+      "source": "README.md",
+      "target": "docs/getting-started.md"
+    },
+    {
+      "source": "docs/getting-started.md",
+      "target": "docs/README.md"
     },
     {
       "source": "docs/documentation-audiences.md",
@@ -88,6 +93,22 @@
     {
       "source": "docs/codex-app-backend.md",
       "target": "docs/verification/runtime-backends.md"
+    },
+    {
+      "source": "docs/arm-pretool-check.md",
+      "target": "docs/verification/guards.md"
+    },
+    {
+      "source": "docs/cd-guard.md",
+      "target": "docs/verification/guards.md"
+    },
+    {
+      "source": "docs/subagent-guard.md",
+      "target": "docs/verification/guards.md"
+    },
+    {
+      "source": "docs/decision-hold-lifecycle.md",
+      "target": "docs/verification/guards.md"
     }
   ],
   "surfaces": [
@@ -172,8 +193,8 @@
       "audience": "public-product"
     },
     {
-      "path": "UPDATE_PLAN.md",
-      "audience": "maintainer-architecture"
+      "path": "docs/README.md",
+      "audience": "public-product"
     },
     {
       "path": "docs/architecture.md",
@@ -222,6 +243,10 @@
     {
       "path": "docs/documentation-audiences.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/getting-started.md",
+      "audience": "operator-current"
     },
     {
       "path": "docs/examples/actor-dispatch.json",
@@ -312,20 +337,16 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/guards.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/supervision.md",
       "audience": "maintainer-verification"
     },
     {
       "path": "docs/watcher-continuity.md",
       "audience": "operator-current"
-    },
-    {
-      "path": "firstmate_dependencies.md",
-      "audience": "maintainer-architecture"
-    },
-    {
-      "path": "plans/porting.md",
-      "audience": "maintainer-architecture"
     },
     {
       "path": "skills/stow/SKILL.md",

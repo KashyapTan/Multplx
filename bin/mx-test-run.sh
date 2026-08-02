@@ -969,6 +969,14 @@ families_for_changed_path() {
       ;;
     README.md|LICENSE|assets/*|docs/*|.gitignore)
       ;;
+    *.md)
+      case "$path" in
+        */*)
+          families_for_test_reference "$path" \
+            || printf '%s\n' "__unmapped__:$path"
+          ;;
+      esac
+      ;;
     *)
       families_for_test_reference "$path" \
         || printf '%s\n' "__unmapped__:$path"

@@ -3,6 +3,7 @@
 How broker works, in depth.
 
 The [README](../README.md) carries the high-level diagram and a short synopsis.
+The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
 The active broker contract and routing index for conditional procedures is [`AGENTS.md`](../AGENTS.md); this is the human-facing companion.
 
@@ -47,8 +48,7 @@ Missing, stale, disabled, or undeliverable nudges are silent, and the durable ev
 This is a latency optimization over the existing reconstructable disk state, not a status-ingest daemon, socket, or second supervision path.
 `bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a deep-review run, active or terminal, only when it matches the actor's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
 The script header owns the exact run-head ancestry rules.
-During deep-review' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.
-The most recent recognized ci log marker wins, so checks-green monitoring reports done while a later re-arm, failed-check, or issue marker returns the actors to working.
+Native runtime evidence outranks an attributed deep-review run, which in turn outranks schema-valid status events and pane heuristics.
 When no native verdict or matching run exists, a schema-valid status event whose verb maps to a recognized run-state outranks the pane busy-signature; a dead pane without stronger evidence reports unknown instead of trusting a stale log.
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
@@ -238,13 +238,15 @@ The `data/daemons.md` line contract is owned by the [`daemon-provisioning` skill
 ## Project modes are explicit
 
 `data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
-PR-based modes stop agent work at a clean local commit; the full-validation mode records an approved SHA through its gate, while `direct-PR` omits the full review pipeline but retains the same non-agent remote-delivery boundary.
+PR-based modes stop agent work at a clean local commit.
+The `deep-review` mode records an approved SHA through its gate for non-agent remote delivery.
+The `direct-PR` mode omits the full review pipeline but is currently incomplete because no approved exact-SHA transition owns its delivery handoff.
 `local-only` projects stay local until broker performs an approved fast-forward merge.
 When a selected delivery path calls for a diff, `bin/mx-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 The gate persists private restart-safe state under `state/<id>.gate/`, including its sanitized intent, run record, findings, harness session ids, and command output.
 It never stores validation evidence in the project branch.
-Remote delivery is owned by the non-agent `bin/mx-deliver.sh` context described in [delivery.md](delivery.md).
-It consumes a private restart-safe handoff, re-verifies its gate and approved SHA, pushes that exact object, opens the PR, and records the URL through `bin/mx-pr-check.sh`.
+Validated `deep-review` remote delivery is owned by the non-agent `bin/mx-deliver.sh` context described in [delivery.md](delivery.md).
+It consumes the private restart-safe handoff, re-verifies its gate and approved SHA, pushes that exact object, opens the PR, and records the URL through `bin/mx-pr-check.sh`.
 PR-based task merges run from the same non-agent credential context through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
 The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
 Teardown is fail-closed for delivery worktrees: dirty worktrees refuse, committed work must be landed, and any ready-to-push handoff must be delivered or explicitly discarded before the worktree is returned.

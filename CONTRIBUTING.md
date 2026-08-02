@@ -3,6 +3,7 @@
 Thanks for wanting to contribute.
 Multplx owns its full local validation gate in this repository.
 It does not require an external git proxy or a signed pull-request body.
+The [documentation index](docs/README.md) is the entry point for current operator, architecture, safety, and verification material.
 
 ## Workflow
 
@@ -21,7 +22,7 @@ Only the separately approved, credentialed delivery service may consume that han
 - This repo is a template for running the Multplx multi-agent orchestrator.
   `AGENTS.md` is the active broker job description; `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
 - Only shared material is tracked: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
-  `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency (see the README's "Two-tier skill layout").
+  `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency.
   Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
   The in-repo backlog library owns `data/backlog.md`, its parser, retention defaults, and routine mutations as documented in [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
   A local `config/backlog-backend=manual` opt-out forces the broker's routine backlog updates to hand-editing and stays gitignored; validated daemon handoffs still route through the owned atomic move.
@@ -85,4 +86,4 @@ The [Herdr backend guide](docs/herdr-backend.md#destructive-lab-safety) owns the
 
 ## Questions
 
-Open an issue, or talk to me on [Discord](https://discord.gg/Wsy2NpnZDu).
+Open a [GitHub issue](https://github.com/KashyapTan/Multplx/issues) for a bug, question, or concrete proposal.

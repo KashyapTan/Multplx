@@ -5,6 +5,8 @@ Broker, actor, daemon, and validation-gate sessions do not hold remote-write cre
 `bin/mx-deliver.sh` is the only remote-delivery entrypoint.
 It runs from the maintainer's shell or a separately credentialed scheduler, never from an agent session.
 
+[Back to the documentation index](README.md).
+
 ## Delivery handoff
 
 The local validation path writes `state/<id>.ready-to-push` only after it has validated a clean local branch.
