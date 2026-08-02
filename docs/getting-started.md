@@ -45,8 +45,8 @@ Supported installs happen only after you approve them in that session; manual-on
 
 ## Choose a runtime backend
 
-Do nothing to use tmux, the reference default.
-You can make a backend explicit by putting one value in local gitignored `config/backend`:
+tmux is the reference backend and the fallback when no explicit setting or supported runtime environment selects another backend.
+If you require tmux, select it explicitly by putting this value in local gitignored `config/backend`:
 
 ```text
 tmux
@@ -78,7 +78,7 @@ It asks for a decision when project identity, delivery posture, or another maint
 Project delivery modes are explicit:
 
 - `deep-review` runs the full local validation gate before creating an exact-SHA handoff.
-- `direct-PR` stops at a clean local commit without the full validation gate.
+- `direct-PR` stops at a clean local commit without the full validation gate, but is currently incomplete because no approved exact-SHA transition owns its delivery handoff.
 - `local-only` stays on the machine and waits for the configured fast-forward merge authority.
 
 The broker records project configuration under private gitignored `data/` rather than in the tracked template.
@@ -89,8 +89,9 @@ The broker records project configuration under private gitignored `data/` rather
 If a private repository requires authenticated reads, `MX_AGENT_GH_TOKEN` may supply a remotely enforced read-only token to spawned agents.
 It must not grant contents-write or pull-request-write permission.
 
-Remote delivery uses a separate maintainer shell or credentialed scheduler after local validation and approval.
+For `deep-review` projects, remote delivery uses a separate maintainer shell or credentialed scheduler after local validation and approval.
 That context runs `bin/mx-deliver.sh`; broker, actor, daemon, and validation sessions never run it and never receive its credential.
+`direct-PR` projects cannot use this path until an approved exact-SHA handoff has an owner.
 Read [Least-privilege delivery](delivery.md) before configuring private-repository access or automatic delivery.
 
 ## Verify the first run

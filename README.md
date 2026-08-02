@@ -108,7 +108,8 @@ flowchart TB
     T -->|Scout| Q[Standalone report and decision completion]
     T -->|Delivery| L{Delivery mode}
     L -->|local-only| F[Approved local fast-forward]
-    L -->|deep-review or direct-PR| G[Approved exact-SHA handoff]
+    L -->|deep-review| G[Approved exact-SHA handoff]
+    L -->|direct-PR| I[Incomplete: no owned delivery handoff]
     G --> X[Credentialed delivery context]
     X --> R[GitHub pull request]
 ```
