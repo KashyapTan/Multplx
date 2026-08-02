@@ -17,8 +17,8 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 `config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions defined in `AGENTS.md`.
 
 `bin/mx-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
-The producing PR and X helpers own the fields they append, `bin/mx-classify-lib.sh` owns status-event vocabulary, and `bin/mx-actor-state.sh` owns current-state reconciliation.
-Wake, watcher, away-mode, and X-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
+The producing PR helpers own the fields they append, `bin/mx-classify-lib.sh` owns status-event vocabulary, and `bin/mx-actor-state.sh` owns current-state reconciliation.
+Wake, watcher, and away-mode state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
 
 `bin/mx-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.

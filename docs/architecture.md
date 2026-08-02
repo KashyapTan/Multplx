@@ -48,8 +48,7 @@ Missing, stale, disabled, or undeliverable nudges are silent, and the durable ev
 This is a latency optimization over the existing reconstructable disk state, not a status-ingest daemon, socket, or second supervision path.
 `bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a deep-review run, active or terminal, only when it matches the actor's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
 The script header owns the exact run-head ancestry rules.
-During deep-review' `ci` monitor phase, it also reads the ci step log tail because `axi status` reports both "still waiting on checks" and "checks green, waiting on merge" as `ci,running`.
-The most recent recognized ci log marker wins, so checks-green monitoring reports done while a later re-arm, failed-check, or issue marker returns the actors to working.
+Native runtime evidence outranks an attributed deep-review run, which in turn outranks schema-valid status events and pane heuristics.
 When no native verdict or matching run exists, a schema-valid status event whose verb maps to a recognized run-state outranks the pane busy-signature; a dead pane without stronger evidence reports unknown instead of trusting a stale log.
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
