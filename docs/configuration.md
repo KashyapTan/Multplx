@@ -25,6 +25,36 @@ Wake, watcher, and away-mode state mechanics remain with their named scripts and
 `AGENTS.md` owns the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
 Ordinary dead-direct-report recovery is owned by `stuck-actor-recovery`, while persistent-daemon recovery is owned by `daemon-provisioning`.
 
+## Global launcher paths and activation
+
+The global launcher gives one persistent multi-project control plane two explicit path identities.
+`MX_ROOT_OVERRIDE` names the plain tracked checkout that supplies `AGENTS.md`, harness configuration, skills, extensions, workflows, documentation, and scripts.
+`MX_HOME` names the persistent operational home whose `config/`, `data/`, `projects/`, and `state/` directories retain all private configuration, registries, clones, artifacts, queues, reports, and runtime state.
+The launcher canonicalizes and validates both paths on every command and rejects a linked task worktree as the code root.
+A managed code root must remain clean, while an adopted checkout remains available for ordinary development edits whether it shares or separates its operational home.
+
+The installer stores one literal absolute path per file at `${XDG_CONFIG_HOME:-$HOME/.config}/multplx/root` and `home`.
+Those files are parsed as data and are never sourced or evaluated as shell code.
+The stable bootstrap lives at `${XDG_BIN_HOME:-$HOME/.local/bin}/multplx`; managed runtime and home defaults live below `${XDG_DATA_HOME:-$HOME/.local/share}/multplx/`.
+The managed installer records `multplx.managed=true` in the runtime clone's local Git configuration, so launcher cleanliness checks apply only to installer-owned runtimes and never conflate an adopted checkout with a separately selected home.
+Custom directories are available through the installer's help and are recorded into the bootstrap atomically.
+
+Activation sets `MULTPLX_ACTIVE=1`, `MX_ROOT_OVERRIDE`, and `MX_HOME`, captures the real Claude, Codex, and Pi paths before adding shims, and then replaces the launcher with the user's interactive shell.
+Bash and Zsh source the user's ordinary interactive rc once before re-prepending the three harness shims and composing one static prompt/title marker.
+Other tested POSIX shells retain the environment and shims with a one-line banner, while unsupported shells refuse explicitly.
+Nested activation refuses rather than stacking prompt, path, or environment layers.
+The prompt marker is presentation only: it runs no command, reads no file or state, opens no socket, and does not indicate lock ownership.
+
+Typing `claude`, `codex`, or `pi` in the activated shell executes the captured real binary from the code root in a child process.
+The activated shell and its caller stay in their original directory.
+The harness shim performs only the existing read-only lock-status preflight; `bin/mx-lock.sh` and `bin/mx-session-start.sh` remain the sole lock and startup authorities.
+A known different live harness holder refuses before the real binary starts, while stale or uncertain state remains for session start to adjudicate conservatively.
+
+The launcher does not infer a project from the caller's directory and never imports or registers it automatically.
+Broker harness, worker harness/model/effort, runtime backend, and request project remain independent selection axes.
+Ambient `TMUX`, Herdr, and cmux identifiers pass through unchanged unless the user supplies the launcher's session-scoped backend selector.
+[Launcher verification](verification/launcher.md) holds current shell, harness, path, lock, and performance evidence.
+
 ## Pi Calm preference (config/calm)
 
 The Pi Calm extension stores the maintainer's home-local presentation choice in gitignored `config/calm` under the effective Multplx home, resolved from `MX_HOME`, then `MX_ROOT_OVERRIDE`, then the tracked code root derived from the extension path, or under `MX_CONFIG_OVERRIDE` when that test and specialized-setup override is present.

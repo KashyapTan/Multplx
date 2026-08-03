@@ -439,6 +439,14 @@ multplx --version</code></pre>
 <p style="margin:0">A status bar that remains visible while a coding agent owns the screen would require a PTY proxy and terminal compositor. That is intentionally outside v1 because it adds signal, resize, raw-mode, alternate-screen, and nested-TUI failure modes for no control-plane benefit. Revisit only after the static activated-shell marker is proven insufficient.</p>
 </div>
 
+<h2>Implementation record</h2>
+<div class="callout ok"><div class="label">Implemented · 2026-08-02</div>
+<p style="margin:0">The global bootstrap, adopted and managed installation modes, Bash and Zsh activation, three harness shims, lock preflight, operator delegation, documentation, deterministic suites, opt-in real-harness smoke, and performance evidence are implemented. Current evidence lives in <code>docs/verification/launcher.md</code>.</p>
+</div>
+<p>The implementation adds <code>bin/mx-launcher-lib.sh</code> as the single shared owner of literal path decoding, plain-checkout validation, managed-runtime cleanliness, and recursion-safe executable discovery rather than duplicating those security checks across the installer and launchers.</p>
+<p>It also adds <code>docs/verification/launcher-performance.json</code> so the exact warm-run samples required by this plan remain machine-readable beside the human verification record.</p>
+<p>These two supporting files refine the file-impact table without changing the control-plane design or any existing lock, backend, harness, worker-profile, project, state, report, artifact, or delivery contract.</p>
+
 <h2>Definition of done</h2>
 <ul>
   <li>After one explicit installation, <code>multplx</code> works from any directory on supported macOS and Linux shells.</li>
