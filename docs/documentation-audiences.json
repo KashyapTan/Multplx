@@ -55,6 +55,14 @@
       "target": "docs/README.md"
     },
     {
+      "source": "docs/getting-started.md",
+      "target": "docs/verification/launcher.md"
+    },
+    {
+      "source": "docs/configuration.md",
+      "target": "docs/verification/launcher.md"
+    },
+    {
       "source": "docs/documentation-audiences.md",
       "target": "docs/documentation-audiences.json"
     },
@@ -334,6 +342,10 @@
     },
     {
       "path": "docs/verification/runtime-backends.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/launcher.md",
       "audience": "maintainer-verification"
     },
     {

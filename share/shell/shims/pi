@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+SHIM_PATH=${BASH_SOURCE[0]}
+case "$SHIM_PATH" in */*) ;; *) SHIM_PATH=$PWD/$SHIM_PATH ;; esac
+SHIM_DIR=$(cd "${SHIM_PATH%/*}" && pwd -P)
+exec "$SHIM_DIR/../../../bin/mx-launch-harness.sh" pi "$@"

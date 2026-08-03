@@ -22,7 +22,7 @@ Multplx is an agent coordination distribution for maintainers who want several s
 You work through one broker, which routes delivery and investigation work to independent actors in isolated worktrees and can delegate recurring domains to persistent daemons.
 
 The repository is the distribution: a broker contract, focused skills, local orchestration tools, safety policy, and durable state conventions.
-Launch a verified coding-agent harness in the clone and it takes the broker role while you retain product direction, architecture decisions, destructive choices, and merge approval.
+The global `multplx` command activates that distribution from any directory, after which a verified coding-agent harness takes the broker role while you retain product direction, architecture decisions, destructive choices, and merge approval.
 
 ## Why Multplx
 
@@ -49,16 +49,20 @@ Launch a verified coding-agent harness in the clone and it takes the broker role
 You need macOS or Linux, one verified harness - Claude Code, Codex, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
 tmux is the reference runtime backend; Herdr and cmux are experimental alternatives.
 
+Clone once and register that checkout as the global Multplx code root and operational home:
+
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
+bin/mx-launcher-install.sh
 ```
 
-Launch exactly one installed harness from the repository root:
+Ensure `~/.local/bin` is on `PATH`, then activate Multplx from any directory and choose one installed harness:
 
 ```sh
-claude
-# or: codex
+multplx
+codex
+# or: claude
 # or: pi
 ```
 
@@ -71,7 +75,7 @@ Then make a concrete request in chat:
 Add my project from https://github.com/example/project, then investigate the flaky login test.
 ```
 
-Continue with [Getting Started](docs/getting-started.md) for backend selection, project intake, first-run checks, and the separate delivery credential setup.
+Continue with [Getting Started](docs/getting-started.md) for managed installation, shell activation, backend selection, project intake, first-run checks, and the separate delivery credential setup.
 
 ## Built-in skills
 

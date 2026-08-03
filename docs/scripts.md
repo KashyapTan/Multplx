@@ -8,6 +8,10 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | Script                   | Purpose                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------ |
 | `mx-session-start.sh`    | Compose lock, bootstrap, and wake drain into the single ordered session-start digest |
+| `mx-launcher-install.sh` | Atomically install or remove the global bootstrap and register an adopted or managed root/home pair |
+| `mx-launcher.sh`         | Validate the configured control plane and activate a shell or delegate one global command |
+| `mx-launch-harness.sh`   | Refuse a known competing broker, change only the harness child cwd, and exec its captured real binary |
+| `mx-launcher-lib.sh`     | Share literal path decoding, checkout validation, and recursion-safe executable discovery |
 | `mx-sessionstart-nudge.sh` | Print the native session-start hook nudge when the primary has not already run the digest |
 | `mx-operational-input.sh` | Construct and parse the canonical cross-language operational-input protocol |
 | `mx-bootstrap.sh`        | Detect toolchain and system problems, run the locked session-start sweeps, and install approved tools |

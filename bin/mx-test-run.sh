@@ -129,7 +129,7 @@ family_for_basename() {
     mx-herdr-lab.test.sh|mx-instruction-owners.test.sh|\
     mx-install-herdr.test.sh|mx-deep-review-lib.test.sh|mx-deep-review.test.sh|\
     mx-deep-review-config-contract.test.sh|\
-    mx-doctor.test.sh|mx-journal.test.sh|mx-timeline.test.sh|\
+    mx-doctor.test.sh|mx-journal.test.sh|mx-launcher.test.sh|mx-launcher-shell.test.sh|mx-timeline.test.sh|\
     mx-report.test.sh|mx-report-mcp.test.sh|mx-signal-precedence.test.sh|\
     mx-removed-deps.test.sh|\
     mx-operational-input.test.sh|mx-pi-primary-types.test.sh|\
@@ -168,7 +168,7 @@ family_for_basename() {
       printf '%s\n' session-bootstrap
       ;;
     mx-afk-pi-herdr-return-e2e.test.sh|\
-    mx-codex-continuity-live-e2e.test.sh|mx-pi-primary-live-e2e.test.sh|\
+    mx-codex-continuity-live-e2e.test.sh|mx-launcher-live-e2e.test.sh|mx-pi-primary-live-e2e.test.sh|\
     mx-send-daemon-marker-herdr-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
@@ -300,6 +300,9 @@ tests/mx-herdr-session-cleanup.test.sh	none
 tests/mx-install-herdr.test.sh	none
 tests/mx-instruction-owners.test.sh	none
 tests/mx-journal.test.sh	none
+tests/mx-launcher-live-e2e.test.sh	live-harness
+tests/mx-launcher-shell.test.sh	none
+tests/mx-launcher.test.sh	none
 tests/mx-maintainer-translation-contract.test.sh	none
 tests/mx-naming.test.sh	none
 tests/mx-nudge.test.sh	watcher-process
@@ -868,6 +871,11 @@ families_for_changed_path() {
     bin/mx-journal-lib.sh|bin/mx-timeline.sh|docs/journal-events.md|\
     tests/fixtures/timeline.*)
       printf '%s\n' pure-contract-unit
+      ;;
+    bin/mx-launcher.sh|bin/mx-launcher-lib.sh|bin/mx-launcher-install.sh|\
+    bin/mx-launch-harness.sh|share/shell/*|docs/verification/launcher.md)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' live-harness-optin
       ;;
     bin/mx-doctor.sh|bin/mx-probe-lib.sh|docs/doctor.md)
       printf '%s\n' pure-contract-unit

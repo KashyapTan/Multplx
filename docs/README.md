@@ -7,7 +7,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 
 ## Start here
 
-- [Getting Started](getting-started.md) takes a new operator from clone to a safe first broker request.
+- [Getting Started](getting-started.md) takes a new operator from installation to a safe first broker request.
 - [Architecture](architecture.md) explains the maintainer, broker, actor, daemon, worktree, supervision, and delivery model.
 - [Configuration](configuration.md) owns `MX_HOME`, local settings, harness selection, dispatch profiles, capacity, and the universal toolchain.
 - [Delivery](delivery.md) explains why agents stop at local commits and how an approved exact SHA reaches GitHub.
@@ -36,6 +36,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Decision hold lifecycle](decision-hold-lifecycle.md) explains how unresolved maintainer decisions survive teardown.
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.
+- [Launcher verification](verification/launcher.md) records global path, shell, lock, harness, and performance evidence.
 
 ## Contribute and maintain
 

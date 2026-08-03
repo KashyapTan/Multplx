@@ -113,6 +113,33 @@ port_available() {
   ' "$1"
 }
 
+select_test_port_base() {
+  local candidates candidate offset available
+  if [ -n "${MX_VIZ_TEST_PORT_BASE:-}" ]; then
+    case "$MX_VIZ_TEST_PORT_BASE" in
+      *[!0-9]*|'') fail "MX_VIZ_TEST_PORT_BASE must be an integer" ;;
+    esac
+    [ "$MX_VIZ_TEST_PORT_BASE" -ge 1024 ] && [ "$MX_VIZ_TEST_PORT_BASE" -le 65425 ] \
+      || fail "MX_VIZ_TEST_PORT_BASE must be from 1024 through 65425"
+    candidates=$MX_VIZ_TEST_PORT_BASE
+  else
+    candidates='52900 53900 54900 55900 56900 57900 58900 59900 60900 61900 62900 63900 64900'
+  fi
+  for candidate in $candidates; do
+    available=true
+    for offset in 0 30 60 61 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99; do
+      if ! port_available "$((candidate + offset))"; then
+        available=false
+        break
+      fi
+    done
+    [ "$available" = true ] || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  fail "could not find a free visualization test port range"
+}
+
 assert_loopback_only() {
   local pid=$1 port=$2 output
   if command -v lsof >/dev/null 2>&1; then
@@ -190,7 +217,7 @@ etag_changed() {
 }
 
 test_lifecycle_cache_and_read_only_contract() {
-  local home readers url record pid port before after body headers etag status raw_hash expected_hash mode url2
+  local home readers url record pid port before after body headers etag status raw_hash expected_hash mode url2 test_port
   home="$TMP_ROOT/lifecycle"
   readers="$TMP_ROOT/readers-lifecycle"
   make_home "$home"
@@ -198,8 +225,9 @@ test_lifecycle_cache_and_read_only_contract() {
   write_snapshot_fixture "$home/snapshot.json" alpha "$home/data"
   before=$(state_digest "$home/state")
 
-  url=$(start_viz "$home" 52900 60 0.2 "$readers") || fail "dashboard did not start"
-  [ "$url" = "http://127.0.0.1:52900/" ] || fail "dashboard URL mismatch: $url"
+  test_port=$PORT_BASE
+  url=$(start_viz "$home" "$test_port" 60 0.2 "$readers") || fail "dashboard did not start"
+  [ "$url" = "http://127.0.0.1:$test_port/" ] || fail "dashboard URL mismatch: $url"
   record="$home/state/.viz/server.run"
   [ -f "$record" ] || fail "dashboard did not publish its run record"
   pid=$(record_value "$record" pid)
@@ -284,7 +312,7 @@ NODE
   status=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT "$url")
   [ "$status" = 405 ] || fail "PUT request returned HTTP $status"
 
-  url2=$(start_viz "$home" 52900 60 0.2 "$readers") || fail "idempotent serve failed"
+  url2=$(start_viz "$home" "$test_port" 60 0.2 "$readers") || fail "idempotent serve failed"
   [ "$url2" = "$url" ] || fail "singleton serve returned a different URL"
   [ "$(record_value "$record" pid)" = "$pid" ] || fail "singleton serve replaced the live server"
   MX_HOME="$home" "$CLI" status | grep -F "running: $url" >/dev/null || fail "status did not report the live dashboard"
@@ -298,7 +326,7 @@ NODE
 }
 
 test_artifact_boundary_and_get_only_server() {
-  local home readers url pid status outside link headers html
+  local home readers url pid status outside link headers html test_port
   home="$TMP_ROOT/artifacts"
   readers="$TMP_ROOT/readers-artifacts"
   make_home "$home"
@@ -310,7 +338,8 @@ test_artifact_boundary_and_get_only_server() {
   ln -s "$outside" "$link"
   html="$ARTIFACT_DIR/rendered.html"
   printf '%s\n' '<!doctype html><style>body{color:green}</style><script>window.parent.document.body.textContent="unsafe"</script><h1>Rendered artifact</h1>' >"$html"
-  url=$(start_viz "$home" 52930 60 0.2 "$readers") || fail "artifact dashboard did not start"
+  test_port=$((PORT_BASE + 30))
+  url=$(start_viz "$home" "$test_port" 60 0.2 "$readers") || fail "artifact dashboard did not start"
   pid=$(record_value "$home/state/.viz/server.run" pid)
   track_pid "$pid"
 
@@ -347,7 +376,7 @@ test_artifact_boundary_and_get_only_server() {
 }
 
 test_port_walk_exhaustion_idle_and_stale_record_safety() {
-  local home readers ready url pid port output stale_home decoy record
+  local home readers ready url pid port output stale_home decoy record first_port exhausted_port
   home="$TMP_ROOT/ports"
   readers="$TMP_ROOT/readers-ports"
   make_home "$home"
@@ -355,20 +384,22 @@ test_port_walk_exhaustion_idle_and_stale_record_safety() {
   write_snapshot_fixture "$home/snapshot.json" ports "$home/data"
 
   ready="$home/one.ready"
-  start_decoy 52960 1 "$ready"
-  url=$(start_viz "$home" 52960 1 0.2 "$readers") || fail "dashboard did not walk past a busy port"
-  [ "$url" = "http://127.0.0.1:52961/" ] || fail "dashboard selected the wrong fallback port: $url"
+  first_port=$((PORT_BASE + 60))
+  start_decoy "$first_port" 1 "$ready"
+  url=$(start_viz "$home" "$first_port" 1 0.2 "$readers") || fail "dashboard did not walk past a busy port"
+  [ "$url" = "http://127.0.0.1:$((first_port + 1))/" ] || fail "dashboard selected the wrong fallback port: $url"
   pid=$(record_value "$home/state/.viz/server.run" pid)
   port=$(record_value "$home/state/.viz/server.run" port)
   track_pid "$pid"
-  [ "$port" = 52961 ] || fail "run record lost fallback port"
+  [ "$port" = "$((first_port + 1))" ] || fail "run record lost fallback port"
   mx_test_wait_until 3000 "dashboard idle exit" pid_dead "$pid" || fail "idle dashboard did not exit"
   mx_test_wait_until 1000 "idle record cleanup" path_absent "$home/state/.viz/server.run" || fail "idle exit left a run record"
   [ ! -e "$home/snapshot.count" ] || fail "an unpolled dashboard executed the snapshot"
 
   ready="$home/all.ready"
-  start_decoy 52980 20 "$ready"
-  if output=$(start_viz "$home" 52980 60 0.2 "$readers" 2>&1); then
+  exhausted_port=$((PORT_BASE + 80))
+  start_decoy "$exhausted_port" 20 "$ready"
+  if output=$(start_viz "$home" "$exhausted_port" 60 0.2 "$readers" 2>&1); then
     fail "dashboard started with all 20 candidate ports occupied"
   fi
   printf '%s\n' "$output" | grep -F 'no loopback port available' >/dev/null \
@@ -386,7 +417,7 @@ test_port_walk_exhaustion_idle_and_stale_record_safety() {
 version=1
 home=$stale_home
 state=$stale_home/state
-port=53010
+port=$((PORT_BASE + 110))
 pid=$decoy
 pid_identity=definitely-not-the-decoy
 token=0123456789abcdef0123456789abcdef
@@ -419,6 +450,8 @@ test_self_containment_and_contract_headers() {
   node --check "$ROOT/share/viz/app.js" >/dev/null || fail "dashboard client failed syntax validation"
   pass "viz is self-contained and keeps its public contract in executable headers"
 }
+
+PORT_BASE=$(select_test_port_base) || fail "could not select visualization test ports"
 
 test_lifecycle_cache_and_read_only_contract
 test_artifact_boundary_and_get_only_server

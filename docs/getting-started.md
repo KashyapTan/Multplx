@@ -1,7 +1,7 @@
 # Getting started
 
-This is the canonical path from a fresh clone to a safe first Multplx request.
-Multplx is a repository-based agent distribution, so there is no separate app or package to install.
+This is the canonical path from installation to a safe first Multplx request.
+Multplx remains a repository-based agent distribution, while a small global launcher makes one configured control plane available from any directory.
 
 [Back to the documentation index](README.md).
 
@@ -20,14 +20,43 @@ tmux is the verified reference backend; Herdr and cmux are experimental, and Cod
 You do not need to authenticate GitHub in the broker session for public repositories.
 Keep every write-capable GitHub credential outside the broker and all spawned agent sessions.
 
-## Clone and launch
+## Install the global command
+
+Clone the repository once, then register that checkout as both the code root and persistent operational home:
 
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
+bin/mx-launcher-install.sh
 ```
 
-Launch one installed harness from the repository root:
+This existing-checkout mode preserves every current file under `data/`, `state/`, `config/`, and `projects/` in place.
+It creates any missing private top-level directories but does not move or rewrite their contents.
+
+For a hidden managed runtime and a separate persistent home, use managed mode instead:
+
+```sh
+bin/mx-launcher-install.sh --managed
+```
+
+Managed mode clones the configured origin into `${XDG_DATA_HOME:-$HOME/.local/share}/multplx/runtime` and creates the operational home at the sibling `home` directory.
+Both modes install `multplx` under `${XDG_BIN_HOME:-$HOME/.local/bin}` and record literal root/home paths under `${XDG_CONFIG_HOME:-$HOME/.config}/multplx`.
+The installer prints the directory to add to `PATH` when it is not already visible.
+Run `bin/mx-launcher-install.sh --help` for custom XDG paths, adoption of another checkout or home, managed source selection, and the data-preserving uninstall contract.
+
+## Activate and choose a broker harness
+
+From any directory, activate an ordinary child shell:
+
+```sh
+multplx
+```
+
+The child shell stays in the caller's directory and shows a static `multplx` marker.
+The marker reads no state and does not claim that a broker is running.
+Exit the child shell to restore the parent environment unchanged.
+
+Inside the activated shell, launch one installed harness:
 
 ```sh
 claude
@@ -35,6 +64,7 @@ claude
 # or: pi
 ```
 
+The harness child alone changes to the configured Multplx code root so project instructions, hooks, skills, and Pi extensions load exactly as they do during a manual root launch.
 Approve the repository trust prompt when the harness presents one.
 Pi needs that approval so the tracked `.pi/extensions/*.ts` files can load.
 Codex needs it so the tracked project configuration and hooks load.
@@ -42,6 +72,11 @@ Codex needs it so the tracked project configuration and hooks load.
 The tracked `AGENTS.md` file defines the broker role.
 At session start the broker runs `bin/mx-session-start.sh` exactly once, detects missing tools and invalid configuration, reconciles durable work, and emits the supervision instructions for the active harness.
 Supported installs happen only after you approve them in that session; manual-only dependencies remain your responsibility.
+
+Use `multplx paths` to inspect the configured code root, operational home, bootstrap, and config directory.
+Use `multplx doctor` for the existing invariant sweep and `multplx update` for the existing guarded fast-forward update path.
+[`bin/mx-launcher.sh`](../bin/mx-launcher.sh)'s header and `multplx --help` own the exact command grammar and exit statuses.
+[Launcher verification](verification/launcher.md) records current deterministic, shell, and available real-harness evidence.
 
 ## Choose a runtime backend
 
@@ -62,6 +97,8 @@ The supported selectors are:
 
 Follow the selected backend's [tmux](tmux-backend.md), [Herdr](herdr-backend.md), or [cmux](cmux-backend.md) setup guide before the first task.
 `config/backend` may also be omitted so runtime auto-detection can select the current supported terminal environment before falling back to tmux.
+An activated shell preserves ambient tmux, Herdr, and cmux signals.
+For a session-only choice, start it with `multplx --backend auto|tmux|herdr|cmux`; `auto` removes the session override and leaves normal detection authoritative.
 
 ## Make the first request
 
@@ -99,7 +136,7 @@ Read [Least-privilege delivery](delivery.md) before configuring private-reposito
 Use these read-only operator entry points after the broker has completed session start:
 
 ```sh
-bin/mx-doctor.sh
+multplx doctor
 bin/mx-viz.sh serve
 ```
 
@@ -107,3 +144,8 @@ Doctor reports invariant health and does not mutate state unless you explicitly 
 The dashboard prints a loopback URL, never opens a browser, and remains a read-only view over the canonical system snapshot.
 
 Next, read [Architecture](architecture.md) for the system model, [Configuration](configuration.md) for local operating choices, and [Delivery](delivery.md) for the credential boundary.
+
+## Manual development launch
+
+Contributors may still clone the repository, change to its root, and launch `claude`, `codex`, or `pi` directly without installing the global command.
+That path remains useful while editing launcher code or testing an unregistered checkout, but the harness must start from the repository root for project-scoped discovery.
