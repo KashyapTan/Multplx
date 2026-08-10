@@ -18,6 +18,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Live system dashboard](viz.md) covers the disposable read-only `mx-viz` view.
 - [vplan review artifacts](vplan.md) covers one-shot annotated HTML reviews.
 - [Workflow definitions and runs](workflows.md) owns the declarative workflow schema and lifecycle.
+- [Maintainer-scoped exceptions](maintainer-overrides.md) explains exact one-use authority, truthful exceptional outcomes, and the boundary registry.
 - [Pi Calm mode](calm.md) describes the optional Pi-only presentation toggle.
 - [The `bin/` toolbelt](scripts.md) is a concise script index; each script header and `--help` own exact mechanics.
 - [Task journal events](journal-events.md) defines the best-effort event vocabulary used by `mx-timeline`.
@@ -37,6 +38,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.
 - [Launcher verification](verification/launcher.md) records global path, shell, lock, harness, and performance evidence.
+- [Cursor CLI verification](verification/cursor-cli.md) records the pinned live adapter matrix and explicit unsupported boundaries.
 
 ## Contribute and maintain
 

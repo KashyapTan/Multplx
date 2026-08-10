@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 18 - Cursor CLI and Maintainer-Scoped Overrides · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#f0883e; --accent-dim:rgba(240,136,62,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --cyan:#39c5cf;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1020px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.state{color:var(--yellow);border-color:var(--yellow)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.55}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+a{color:var(--blue)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.flow{font-family:var(--mono);font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;overflow-x:auto;line-height:1.9;color:var(--muted);margin-bottom:20px}
+.flow b{color:var(--text)}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.verify{background:rgba(88,166,255,.15);color:var(--blue)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:700px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{gap:12px;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Plan 18 · Multplx</div>
+  <h1>Cursor CLI and Maintainer-Scoped Overrides</h1>
+  <p class="subtitle">Add Cursor as a fully verified local worker runtime, then make explicit maintainer direction final at every Multplx policy boundary without weakening normal sandboxing, deterministic pipelines, validation facts, or the requirement to authorize each new exception separately.</p>
+  <div class="badges">
+    <span class="badge phase">Phase 12 · Runtime and authority</span>
+    <span class="badge state" style="color:var(--green);border-color:var(--green)">Status: Implemented · 2026-08-09</span>
+    <span class="badge risk">Risk: High</span>
+    <span class="badge">Effort: High</span>
+    <span class="badge">Maintainer request · 2026-08-09</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Outcome</h2>
+<p>Multplx will support Cursor CLI through the same verified adapter boundary as Claude, Codex, and Pi.</p>
+<p>Normal operation will remain isolated, sandboxed, deterministic, and governed by the selected workflow or delivery path.</p>
+<p>When a Multplx policy would refuse an action, the system will identify the exact boundary, explain the consequence, and ask the maintainer for a one-action exception.</p>
+<p>An explicit answer will settle that policy decision for the exact action, target, and observed state, and no reviewer, actor, or later pipeline stage may relitigate it without new evidence or a newly encountered boundary.</p>
+
+<div class="callout danger"><div class="label">The central invariant</div>
+<p style="margin:0">A maintainer exception changes authority, not reality. It may select a coded alternate path or waive a policy requirement, but it never fabricates a green check, a valid review, an isolated worktree, available credentials, or a capability the host sandbox does not expose.</p>
+</div>
+
+<div class="callout ok"><div class="label">One exception means one exception</div>
+<p style="margin:0">Every grant is single-use and bound to one boundary, one action, one target, and one expected-state fingerprint. A second skipped check, destructive effect, security boundary, remote write, pipeline reorder, or sandbox elevation requires a new explicit maintainer decision.</p>
+</div>
+
+<h2>Current state verified before planning</h2>
+<table>
+<tr><th>Area</th><th>Verified repository state</th><th>Consequence for this plan</th></tr>
+<tr><td>Harnesses</td><td><code>claude</code>, <code>codex</code>, and <code>pi</code> are the only verified adapter names in <code>bin/mx-harness.sh</code>, <code>bin/mx-spawn.sh</code>, launcher shims, supervision instructions, and the harness reference skill.</td><td>Cursor must be added across every supported-harness axis rather than only to the spawn command.</td></tr>
+<tr><td>Safety hooks</td><td>Primary startup, pre-tool guards, turn-end behavior, and actor completion signals are harness-specific and empirically verified.</td><td>Cursor needs native startup, tool, stop, and actor-turn-end verification before it can be selectable.</td></tr>
+<tr><td>Launcher</td><td>The global launcher captures real harness binaries before it prepends repository shims, then launches the selected broker from the Multplx code root.</td><td>The public adapter name can be <code>cursor</code> while the captured official executable is <code>agent</code> or its compatibility alias.</td></tr>
+<tr><td>Policy refusals</td><td>Current contracts contain several explicit maintainer exceptions, such as forced discard, but other boundaries are absolute in prose or return only an error.</td><td>The implementation needs one shared exception contract and boundary-specific alternates instead of scattered force flags.</td></tr>
+<tr><td>Instruction rename</td><td>The working tree contains the maintainer's uncommitted <code>AGENTS.md</code> to <code>EXAGENTS.md</code> rename while tracked scripts and tests still name <code>AGENTS.md</code>.</td><td>This plan does not revert or decide that rename. Implementation must honor the final chosen instruction filename consistently, and Cursor must use a minimal explicit rule or hook rather than relying on automatic <code>AGENTS.md</code> discovery.</td></tr>
+<tr><td>Local Cursor binary</td><td>No <code>agent</code>, <code>cursor-agent</code>, or <code>cursor</code> executable is currently available on this machine's PATH.</td><td>The first implementation phase is an opt-in installation and scratch verification spike, not production wiring based only on documentation.</td></tr>
+</table>
+
+<h2>Official Cursor CLI research</h2>
+<table>
+<tr><th>Official fact</th><th>Integration consequence</th><th>Source</th></tr>
+<tr><td>The current primary command is <code>agent</code>, with interactive, plan, ask, and print modes.</td><td>Use <code>cursor</code> as Multplx's unambiguous adapter identifier, discover <code>agent</code> first, and accept <code>cursor-agent</code> only as a verified compatibility binary.</td><td><a href="https://cursor.com/docs/cli/overview">Cursor CLI overview</a> and <a href="https://cursor.com/docs/cli/installation">installation</a></td></tr>
+<tr><td>The CLI exposes <code>--sandbox enabled|disabled</code>, and sandbox settings persist across sessions.</td><td>Multplx must explicitly verify the active sandbox state and must never launch a routine broker or worker with sandbox disabled.</td><td><a href="https://cursor.com/docs/cli/overview#sandbox-controls">Sandbox controls</a></td></tr>
+<tr><td>The CLI reads project rules from <code>.cursor/rules/*.mdc</code>, and an <code>alwaysApply: true</code> rule is added to every chat context.</td><td>Use a small Cursor-specific bootstrap rule that points to the repository's chosen broker contract and session-start procedure without duplicating the full contract.</td><td><a href="https://cursor.com/docs/rules">Rules</a></td></tr>
+<tr><td>Native hooks live in <code>.cursor/hooks.json</code> and include <code>sessionStart</code>, <code>preToolUse</code>, <code>subagentStart</code>, <code>stop</code>, shell/MCP gates, and prompt gates.</td><td>Wire Cursor through native hooks so Multplx does not depend on a user's optional third-party compatibility setting.</td><td><a href="https://cursor.com/docs/hooks">Hooks</a></td></tr>
+<tr><td><code>preToolUse</code> may allow or deny but does not currently enforce <code>ask</code>, while shell and MCP hooks can return <code>allow</code>, <code>deny</code>, or <code>ask</code>.</td><td>Keep deterministic hard guards on deny-capable hooks and route maintainer exceptions through Multplx's own pending-decision record rather than assuming every Cursor tool can show an approval prompt.</td><td><a href="https://cursor.com/docs/hooks#pretooluse">Hook reference</a></td></tr>
+<tr><td>Hook failures allow actions by default unless <code>failClosed: true</code> is configured.</td><td>Critical Cursor guards must opt into closed failure behavior and be tested for crash, timeout, invalid JSON, and path loss.</td><td><a href="https://cursor.com/docs/hooks#configuration">Hook configuration</a></td></tr>
+<tr><td><code>sessionStart</code> can add context but is fire-and-forget and does not block creation.</td><td>The primary startup guarantee cannot rely on the hook alone. The always-applied rule and the existing idempotent session-start command remain the behavioral owner, and a live test must prove delivery timing.</td><td><a href="https://cursor.com/docs/hooks#sessionstart">Session start hook</a></td></tr>
+<tr><td><code>stop</code> can auto-submit a follow-up message and supplies a bounded loop count.</td><td>Adapt the shared turn-end predicate to Cursor's native follow-up format and use the bounded foreground checkpoint supervision pattern unless live verification proves a stronger native wait path.</td><td><a href="https://cursor.com/docs/hooks#stop">Stop hook</a></td></tr>
+<tr><td>Print mode supports text, JSON, and stream-JSON output, and write-producing headless runs require <code>--force</code> or <code>--yolo</code>.</td><td>Any deep-review adapter must keep sandboxing enabled, apply an explicit deny policy, validate output again, and scope force mode to the isolated non-interactive gate session only.</td><td><a href="https://cursor.com/docs/cli/headless">Headless CLI</a></td></tr>
+<tr><td>ACP is intended for custom clients over stdio and interactive CLI is recommended for normal terminal use.</td><td>ACP is not needed for the first adapter and remains outside this plan's runtime-backend scope.</td><td><a href="https://cursor.com/docs/cli/acp">ACP</a></td></tr>
+</table>
+
+<h2>Goals and non-goals</h2>
+<table>
+<tr><th>Goals</th><th>Non-goals</th></tr>
+<tr><td><ul style="margin-bottom:0">
+  <li>Add Cursor as a verified primary, actor, scout, daemon, launcher, dispatch-profile, and deep-review candidate where its tested capabilities satisfy the existing contract.</li>
+  <li>Keep Cursor sandboxing enabled for normal broker and worker sessions.</li>
+  <li>Preserve independent harness, model, effort, runtime-backend, project, and delivery-mode selection.</li>
+  <li>Make every Multplx policy decision yield to an exact explicit maintainer decision.</li>
+  <li>Require separate approval for every newly encountered boundary.</li>
+  <li>Provide a deterministic alternate or operator handoff instead of a dead-end policy refusal.</li>
+  <li>Record the request, decision, consumption, and result without treating the audit log as control-flow truth.</li>
+  <li>Add unit, integration, cross-harness, live opt-in, and regression tests for both feature families.</li>
+</ul></td><td><ul style="margin-bottom:0">
+  <li>No blanket <code>--force</code>, <code>--yolo</code>, sandbox-disable flag, reusable bypass variable, standing override mode, or wildcard grant.</li>
+  <li>No grant from an actor, reviewer, gate session, daemon child, or inferred user preference.</li>
+  <li>No false success record, forged green check, synthesized gate approval, or silent downgrade.</li>
+  <li>No attempt to evade host, enterprise, provider, operating-system, or developer-imposed restrictions.</li>
+  <li>No automatic cloud-agent handoff, Cursor-owned worktree lifecycle, or ACP client in the first adapter.</li>
+  <li>No duplicate copy of the full broker contract in Cursor rule files.</li>
+  <li>No decision or reversal of the separate <code>EXAGENTS.md</code> rename.</li>
+</ul></td></tr>
+</table>
+
+<h2>Part A - Cursor adapter design</h2>
+
+<h3>Canonical naming and executable discovery</h3>
+<pre><code>Multplx adapter id: cursor
+Preferred real binary: agent
+Verified compatibility binary: cursor-agent
+Global direct command: multplx cursor [args...]
+Activated-shell command: cursor-agent [args...]
+Optional agent shim: add only if conflict testing and maintainer review approve it
+
+config/actor-harness: cursor
+config/daemon-harness: cursor [model] [effort]</code></pre>
+<p>The generic executable name <code>agent</code> must not become the adapter id because it is ambiguous in state, configuration, logs, and user language.</p>
+<p>The launcher captures an absolute real binary before adding shims, exactly as it does for the existing harnesses.</p>
+
+<h3>Verification spike before production code</h3>
+<ol class="steps">
+  <li><b>Install only with current-session maintainer consent <span class="pill verify">live verification</span></b>Use Cursor's official installer, record the installed version, real executable paths, authentication state, and complete <code>--help</code> output.</li>
+  <li><b>Verify interactive mechanics <span class="pill verify">scratch repo</span></b>Capture the busy indicator, idle composer, prompt glyph, ghost text, submit behavior, queued-message behavior, interrupt key, exit command, resume identifier, trust dialog, and terminal process ancestry.</li>
+  <li><b>Verify model and effort discovery <span class="pill verify">current account</span></b>Use the current model picker or model-listing command and only emit model or effort flags that the installed CLI advertises and accepts.</li>
+  <li><b>Verify sandbox behavior <span class="pill verify">negative controls</span></b>Prove the normal launch reports sandbox enabled, worktree writes succeed, protected paths and denied commands remain blocked, an external <code>MX_HOME</code> is handled intentionally, and no routine launch persists sandbox-disabled state.</li>
+  <li><b>Verify native hooks <span class="pill verify">scratch repo</span></b>Test startup context timing, fail-closed pre-tool denial, subagent denial, shell ask behavior, stop follow-up looping, loop bounds, hook cwd, path anchoring, and behavior when the hook crashes or prints invalid JSON.</li>
+  <li><b>Verify actor turn-end delivery <span class="pill verify">isolated worktree</span></b>Find a per-run or project-local hook path that can touch only <code>state/&lt;id&gt;.turn-ended</code> without overwriting a project's committed Cursor configuration or requiring an untracked global user setting.</li>
+  <li><b>Verify headless gate behavior <span class="pill verify">isolated worktree</span></b>Prove session-id extraction, output parsing, sandbox state, permissions, write behavior, resume behavior, and deterministic schema validation for success and failure cases.</li>
+</ol>
+
+<div class="callout warn"><div class="label">Verification stop condition</div>
+<p style="margin:0">If Cursor cannot supply a collision-safe actor turn-end hook, a bounded primary continuation, or sandboxed isolated writes without a global permission bypass, do not mark it verified and do not expose it in configuration. Record the missing capability and keep current work on a verified runtime.</p>
+</div>
+
+<h3>Primary-session wiring</h3>
+<table>
+<tr><th>Concern</th><th>Planned Cursor mechanism</th><th>Acceptance evidence</th></tr>
+<tr><td>Broker contract</td><td>A minimal <code>.cursor/rules/multplx.mdc</code> with <code>alwaysApply: true</code> instructs Cursor to read the repository's chosen contract file and run the idempotent session-start command exactly once.</td><td>A scratch prompt must demonstrate the rule arrives before the first ordinary task action without duplicating the full contract.</td></tr>
+<tr><td>Session-start nudge</td><td>Native <code>.cursor/hooks.json</code> <code>sessionStart</code> calls the shared nudge wrapper for observability and additional context.</td><td>Startup, resume, and new conversation paths each produce one typed nudge, and the rule remains sufficient if hook timing is delayed.</td></tr>
+<tr><td>Watcher seatbelt</td><td>Native <code>preToolUse</code> and shell hooks invoke the existing arm and directory-change guards through Cursor-shaped JSON adapters with <code>failClosed: true</code>.</td><td>Deny, allow, crash, timeout, malformed payload, and wrong-root cases match the documented safe behavior.</td></tr>
+<tr><td>Untracked delegation</td><td>Native <code>subagentStart</code> denies Cursor Task/subagent creation from a primary when Multplx accounting is required.</td><td>Known and hypothetical subagent types cannot create work outside <code>mx-spawn</code>, while ordinary shell and MCP tools remain unaffected.</td></tr>
+<tr><td>Turn-end guard</td><td>A thin Cursor wrapper converts the shared predicate result into <code>followup_message</code> and respects the hook's <code>loop_count</code>.</td><td>Incomplete supervised work forces a bounded follow-up, an idle system exits normally, and the loop cannot self-spin.</td></tr>
+<tr><td>Supervision</td><td>Start from the bounded foreground checkpoint model used where the primary cannot reason during a foreground wait.</td><td>The Cursor-specific supervision page is generated at session start and live tests prove user messages and queued notifications are processed between checkpoints.</td></tr>
+</table>
+
+<h3>Actor, daemon, and deep-review wiring</h3>
+<ul>
+  <li>Add a Cursor launch template that starts interactive Agent mode with sandboxing enabled and the canonical launch brief as one argument.</li>
+  <li>Do not pass <code>--sandbox disabled</code>, <code>--force</code>, or <code>--yolo</code> to routine brokers, actors, scouts, or daemons.</li>
+  <li>Use the verified model flag and omit unsupported effort values while retaining the requested value in metadata, matching current adapter behavior.</li>
+  <li>Prefer the universal <code>mx-report</code> status path until a per-run Cursor MCP registration mechanism is verified without modifying a project's committed MCP configuration.</li>
+  <li>Install an actor turn-end hook only through the collision-safe path proven in the spike, add any generated local file to that worktree's git exclude, and remove it through normal teardown.</li>
+  <li>Give daemons the same primary startup, stop, guard, and watcher contract as the main broker rather than treating them as ordinary actors.</li>
+  <li>Add a headless <code>agent -p</code> deep-review adapter only after proving sandbox-on behavior, an explicit deny policy, fresh-session identity, output validation, and isolated write scope.</li>
+  <li>Keep Cursor's <code>--worktree</code>, cloud handoff, and ACP paths disabled in Multplx launches because Treehouse and the selected runtime backend already own isolation and session lifecycle.</li>
+</ul>
+
+<h2>Part B - Maintainer-scoped override design</h2>
+
+<h3>Three outcomes, not one generic refusal</h3>
+<table>
+<tr><th>Class</th><th>Meaning</th><th>Maintainer authority</th><th>System response</th></tr>
+<tr><td>Policy boundary</td><td>Multplx has chosen not to perform an otherwise possible action, such as skipping a stage, merging with failed checks, discarding work, or writing through a normally prohibited path.</td><td>Final for one exact action after explicit approval.</td><td>Consume a single-use grant and run the registered alternate.</td></tr>
+<tr><td>Integrity assertion</td><td>A claimed precondition is false or unknown, such as a missing clean verdict, mismatched SHA, live competing lock owner, or non-isolated worktree.</td><td>May choose a different path but cannot make the assertion true.</td><td>Offer a coded alternate, such as waive-gate, terminate-and-reacquire, or controlled single-checkout mode, while preserving the factual record.</td></tr>
+<tr><td>Capability boundary</td><td>The current process lacks a tool, credential, provider feature, operating-system permission, or host-sandbox capability.</td><td>May authorize installation, login, elevation, credentialed service use, or operator execution.</td><td>Perform the authorized setup through the supported mechanism or produce an exact operator handoff, then re-check capability before continuing.</td></tr>
+</table>
+
+<h3>Authorization state machine</h3>
+<div class="flow">
+<b>policy owner detects boundary</b><br>
+  → describe exact action, target, skipped safeguard, consequence, and smallest alternate<br>
+  → if the current maintainer message already explicitly authorizes that exact exception, create one pending grant<br>
+  → otherwise record one pending request and stop before mutation<br>
+  → maintainer grants or denies that request<br>
+  → primary records the decision under the verified session lock<br>
+  → boundary owner atomically validates target + action hash + expected-state fingerprint<br>
+  → consume once before the exceptional mutation<br>
+  → execute only the boundary's registered alternate<br>
+  → record outcome and continue through the ordinary pipeline<br>
+  → any new boundary starts again with a new request
+</div>
+
+<p>A proactive instruction counts only when it names the exceptional action, its target, and the safeguard or workflow step being bypassed clearly enough that the consequence is unambiguous.</p>
+<p>A generic instruction such as "do whatever it takes", "force it", "finish this", or one earlier exception never grants a later or broader exception.</p>
+<p>A changed target SHA, changed worktree state, changed command, changed recipient, changed credentials, changed destructive effect, or expired request invalidates the grant and requires a fresh decision.</p>
+
+<h3>Deterministic mechanics</h3>
+<pre><code>state/maintainer-overrides/
+  pending/&lt;request-id&gt;.json
+  granted/&lt;request-id&gt;.json
+  denied/&lt;request-id&gt;.json
+  consumed/&lt;request-id&gt;.json
+  stale/&lt;request-id&gt;.json
+
+Required binding fields:
+  schema_version, request_id, boundary_id, task_id, project
+  action_argv_or_operation, action_digest, target_identity
+  expected_state_digest, consequence, requested_at, expires_at
+  decision, decided_at, maintainer_words_digest
+  consumed_at, outcome, outcome_digest</code></pre>
+<ul>
+  <li><code>bin/mx-maintainer-override-lib.sh</code> is the one executable owner of schema validation, state transitions, atomic consumption, expiration, target binding, and boundary lookup.</li>
+  <li><code>bin/mx-maintainer-override.sh</code> exposes inspect, request, grant, deny, consume, and audit commands with literal arguments and no <code>eval</code>.</li>
+  <li>The primary broker alone may convert a direct maintainer answer into a grant, and implementation workers may only request one.</li>
+  <li>Every exceptional caller supplies the current expected-state fingerprint immediately before consumption.</li>
+  <li>Consumption is atomic and happens before the exceptional mutation, so two processes cannot reuse one grant.</li>
+  <li>A consumed grant cannot be restored, copied, inherited by a daemon, forwarded to another task, or carried across a respawn.</li>
+  <li>The append-only journal may mirror request and outcome events for observability, but only the validated private records control execution.</li>
+  <li>No environment variable, command-line <code>--force</code>, or prose-only instruction acts as a generic bypass.</li>
+</ul>
+
+<h3>Boundary registry and registered alternates</h3>
+<p>The implementation begins with a repository-wide refusal inventory and classifies every current policy stop, integrity assertion, and capability failure.</p>
+<p>Each policy boundary receives a stable id and exactly one coded alternate owned by the same subsystem.</p>
+<table>
+<tr><th>Example boundary</th><th>Ordinary behavior</th><th>Exceptional alternate after exact approval</th></tr>
+<tr><td><code>workflow.skip-stage</code> or <code>workflow.reorder-stage</code></td><td>The workflow engine follows its snapshot exactly.</td><td>The engine writes an exception-bound run transition for the named stage and continues with every other stage unchanged.</td></tr>
+<tr><td><code>validation.waive-gate</code></td><td>Only a valid exact-SHA gate result creates the ordinary handoff.</td><td>Create a distinct maintainer-waived handoff for the exact SHA without claiming the gate passed.</td></tr>
+<tr><td><code>delivery.merge-red</code></td><td>Failed required checks stop merge.</td><td>The credentialed non-agent merge path consumes an exact PR, SHA, and failed-check grant and records that the merge was maintainer-directed.</td></tr>
+<tr><td><code>cleanup.discard-unlanded</code></td><td>Uncommitted or unlanded work blocks cleanup.</td><td>The teardown owner inventories the exact material, consumes one discard grant, and removes only the bound task resources.</td></tr>
+<tr><td><code>project.direct-write</code></td><td>The broker routes project changes through an isolated worker.</td><td>A controlled direct-edit alternate snapshots the exact checkout state, limits writes to the named project and action, validates the result, and returns to the ordinary delivery path.</td></tr>
+<tr><td><code>isolation.single-checkout</code></td><td>A missing isolated worktree blocks spawn.</td><td>Use an explicitly authorized single-checkout task mode that records the loss of isolation and serializes conflicting work, rather than pretending isolation succeeded.</td></tr>
+<tr><td><code>session.terminate-owner</code></td><td>A live competing broker prevents a second lock owner.</td><td>Terminate the named session through its verified harness path, prove it exited, and acquire the lock normally. Never bypass the lock itself.</td></tr>
+<tr><td><code>security.one-action-elevation</code></td><td>The sandbox or command guard denies the action.</td><td>Ask for one exact command or tool invocation, use the harness's supported one-time approval path, and leave sandboxing and every other guard enabled.</td></tr>
+<tr><td><code>delivery.credentialed-action</code></td><td>Agents do not hold remote-write credentials.</td><td>Generate or queue an exact credentialed service or maintainer-shell command bound to the approved object. Do not inject durable credentials into the agent.</td></tr>
+<tr><td><code>dependency.install</code> or <code>authentication.login</code></td><td>A missing tool or authentication blocks the dependent operation.</td><td>Run the approved installer or interactive login, then verify the capability and resume the original step.</td></tr>
+</table>
+
+<div class="callout"><div class="label">Reviewer and pipeline finality</div>
+<p style="margin:0">After a valid maintainer decision, later reviewers may report new evidence but may not veto, reopen, or silently undo the same decision. A new factual state or a different boundary creates a new decision; repeated wording about the already-decided boundary does not.</p>
+</div>
+
+<h3>Instruction ownership</h3>
+<ul>
+  <li>The always-loaded broker contract keeps only the prime rule: explicit maintainer authority is final for one exact exception, every new exception requires a new decision, and the override skill must be loaded before requesting or applying one.</li>
+  <li>A new internal <code>maintainer-override</code> skill owns classification, evidence requirements, proactive-instruction tests, maintainer-facing wording, and how to record the answer.</li>
+  <li>The existing <code>ask-user-authority</code> skill cross-references the new owner when a maintainer answer changes a normal pipeline boundary.</li>
+  <li>Subsystem scripts own their alternate mechanics and call the shared library for authorization rather than duplicating the state machine.</li>
+  <li>Public operator documentation explains current behavior and inspection commands without copying the complete decision procedure.</li>
+</ul>
+
+<h2>Planned file impact</h2>
+<table>
+<tr><th>Surface</th><th>Change</th><th>Purpose</th></tr>
+<tr><td><code>bin/mx-harness.sh</code>, <code>bin/mx-spawn.sh</code>, <code>bin/mx-headroom.sh</code></td><td><span class="pill mod">modify</span></td><td>Add the verified <code>cursor</code> adapter, launch profile mapping, dispatch validation, and capacity accounting.</td></tr>
+<tr><td><code>bin/mx-launcher.sh</code>, <code>bin/mx-launch-harness.sh</code>, <code>share/shell/shims/</code></td><td><span class="pill mod">modify</span></td><td>Capture and launch Cursor without recursive or generic-command shadowing.</td></tr>
+<tr><td><code>.cursor/hooks.json</code>, <code>.cursor/rules/multplx.mdc</code>, Cursor hook adapters</td><td><span class="pill new">new</span></td><td>Provide native primary startup, tool guards, subagent guard, and stop continuation with a minimal contract pointer.</td></tr>
+<tr><td><code>docs/supervision-protocols/cursor.md</code>, <code>docs/turnend-guard.md</code>, <code>docs/sessionstart-nudge.md</code>, <code>docs/arm-pretool-check.md</code></td><td><span class="pill mod">modify</span></td><td>Document only empirically verified Cursor supervision and hook behavior.</td></tr>
+<tr><td><code>.agents/skills/harness-adapters/SKILL.md</code></td><td><span class="pill mod">modify</span></td><td>Record verified interactive, resume, trust, skill, model, effort, and deep-review facts.</td></tr>
+<tr><td><code>bin/mx-deep-review-lib.sh</code> and deep-review docs</td><td><span class="pill mod">modify</span></td><td>Add a sandbox-on Cursor one-shot adapter if the verification gate passes.</td></tr>
+<tr><td><code>bin/mx-maintainer-override-lib.sh</code>, <code>bin/mx-maintainer-override.sh</code></td><td><span class="pill new">new</span></td><td>Own the private request/grant/consume state machine and boundary registry.</td></tr>
+<tr><td><code>.agents/skills/maintainer-override/SKILL.md</code></td><td><span class="pill new">new</span></td><td>Own the situational decision procedure and explicit-authority test.</td></tr>
+<tr><td>Final broker contract file and <code>ask-user-authority</code></td><td><span class="pill mod">modify</span></td><td>Add only the always-loaded trigger and cross-reference, using the instruction filename separately settled by the maintainer.</td></tr>
+<tr><td>Workflow, validation, delivery, cleanup, project, session, guard, dependency, and authentication owners</td><td><span class="pill mod">modify</span></td><td>Replace absolute policy dead ends with registered, exact-scope alternates while preserving ordinary behavior.</td></tr>
+<tr><td><code>docs/maintainer-overrides.md</code>, architecture/configuration audience owners, verification records</td><td><span class="pill new">new or modify</span></td><td>Document current operator behavior, stable architecture, private record location, and dated live evidence without duplicating mechanics.</td></tr>
+</table>
+
+<h2>Implementation sequence</h2>
+<ol class="steps">
+  <li><b>Freeze scope and inventory current boundaries</b>Resolve the instruction-filename precondition without changing it as part of this feature, then inventory every policy refusal and classify policy, integrity, and capability outcomes.</li>
+  <li><b>Verify Cursor in a disposable environment</b>Run the complete live matrix, record versioned evidence, and stop if any required adapter fact remains unknown.</li>
+  <li><b>Add Cursor as an interactive verified harness</b>Implement detection, launch, profiles, primary rules/hooks, actor turn-end, supervision, status fallback, daemon behavior, launcher capture, and documentation.</li>
+  <li><b>Add Cursor headless validation support</b>Implement the one-shot adapter only if sandbox, permissions, output, session identity, and isolated write tests pass.</li>
+  <li><b>Land the shared maintainer-override state machine</b>Add the private records, stable boundary ids, atomic transitions, skill owner, minimal broker trigger, and read-only inspection commands before changing any policy caller.</li>
+  <li><b>Migrate policy boundaries subsystem by subsystem</b>Add one registered alternate at a time, with colocated tests proving normal behavior is byte-for-byte or outcome-equivalent when no grant exists.</li>
+  <li><b>Add coverage enforcement</b>Fail tests when a new policy refusal is introduced without a boundary classification, registered alternate, explicit non-overridable capability classification, and test.</li>
+  <li><b>Run full compatibility and live evidence review</b>Exercise Claude, Codex, Pi, Cursor, every runtime backend, every delivery mode, yolo on/off, daemon inheritance, documentation checks, and the accelerated full suite.</li>
+</ol>
+
+<h2>Test plan</h2>
+
+<h3>Cursor deterministic tests</h3>
+<ul>
+  <li>Add <code>tests/mx-cursor-harness.test.sh</code> for detection markers, ancestry near misses, config resolution, model/effort flags, unknown values, and launch quoting.</li>
+  <li>Extend launcher unit and shell tests for <code>multplx cursor</code>, real-binary capture, compatibility alias fallback, missing binary, recursion refusal, spaces, quotes, newlines, and leading-dash arguments.</li>
+  <li>Add Cursor hook schema tests for startup, wrong root, missing tools, invalid JSON, timeout, fail-closed guards, subagent denial, stop follow-up, and loop limits.</li>
+  <li>Extend session-start, turn-end, arm, directory-change, subagent, supervision-rendering, composer, busy, send-settle, daemon, spawn, headroom, and teardown suites with Cursor cases.</li>
+  <li>Test actor hook collision behavior with absent, committed, malformed, and already-local Cursor or Claude hook configuration.</li>
+  <li>Test that routine Cursor launches never contain <code>--sandbox disabled</code>, <code>--force</code>, or <code>--yolo</code>.</li>
+  <li>Test that Cursor's own worktree and cloud handoff paths are not used by Multplx launch templates.</li>
+  <li>Add fake headless adapter tests for valid output, malformed output, missing terminal result, nonzero exit, changed fields, session reuse, and sandbox/deny arguments.</li>
+</ul>
+
+<h3>Cursor opt-in live tests</h3>
+<ul>
+  <li>Record the exact Cursor version, operating system, install path, authentication mode, commands, and outputs in the maintained verification owner.</li>
+  <li>Run primary startup, one supervised actor turn, one daemon turn, one interrupt, one exit/resume, one trust flow, and one bounded checkpoint flow.</li>
+  <li>Prove default sandbox-on behavior with allowed worktree writes and denied outside writes or network operations.</li>
+  <li>Prove startup context timing and stop follow-up behavior in a scratch repository, including negative controls with the hook removed or broken.</li>
+  <li>Run headless assess and fix cases only in a disposable isolated worktree and verify no remote write or user-config mutation occurs.</li>
+</ul>
+
+<h3>Maintainer-override state-machine tests</h3>
+<ul>
+  <li>Add <code>tests/mx-maintainer-override.test.sh</code> for schema validation, literal argument handling, permissions, lock ownership, request creation, grant, denial, expiry, stale state, and audit output.</li>
+  <li>Prove a grant is bound to exact boundary id, task, project, target identity, operation digest, expected-state digest, and expiry.</li>
+  <li>Prove atomic single consumption under concurrent consumers and prove copying or replaying a consumed record fails.</li>
+  <li>Prove actors, gate sessions, and daemon children can request but cannot grant or widen authority.</li>
+  <li>Prove generic maintainer language does not qualify while an exact proactive instruction qualifies for only the named boundary.</li>
+  <li>Prove a changed SHA, command, recipient, worktree state, check set, destructive target, or sandbox action requires a new request.</li>
+  <li>Prove denial leaves the ordinary pipeline unchanged and cannot be converted into a grant without a later direct maintainer decision.</li>
+  <li>Prove reviewer repetition cannot reopen a consumed decision unless the evidence changes or another stable boundary id is reached.</li>
+</ul>
+
+<h3>Boundary and end-to-end tests</h3>
+<ul>
+  <li>For every registered boundary, test no grant, wrong grant, stale grant, correct grant, post-consumption replay, exceptional failure, and ordinary success.</li>
+  <li>Run a workflow that requires two different exceptions and prove the first grant cannot authorize the second.</li>
+  <li>Run a destructive exception followed by a remote-write exception and prove each creates a separate maintainer decision.</li>
+  <li>Waive one exact validation result and prove the record says waived rather than passed.</li>
+  <li>Merge a fake red PR through the credentialed test seam and prove the exact SHA and failed-check set are bound to the grant.</li>
+  <li>Exercise a capability failure and prove the outcome is an install, login, or operator handoff rather than a forged success or generic refusal.</li>
+  <li>Audit all supported harnesses and backends so Cursor additions and override records do not change Claude, Codex, Pi, tmux, Herdr, or cmux default behavior.</li>
+</ul>
+
+<h3>Repository and documentation gates</h3>
+<ul>
+  <li>Extend the accelerated test manifest rather than creating a second runner.</li>
+  <li>Run <code>bin/mx-doc-audience-check.sh</code>, instruction-owner tests, local HTML link checks, <code>git diff --check</code>, and the full accelerated suite.</li>
+  <li>Review the complete branch diff after documentation and lint fixes for one-owner placement, one sentence per Markdown line, plain hyphens, and no duplicated contract.</li>
+  <li>Keep dated Cursor claims only in the verification owner, and keep task chronology in private delivery evidence rather than product docs.</li>
+</ul>
+
+<h2>Risks and safeguards</h2>
+<div class="callout danger"><div class="label">Risk - override becomes a master bypass</div>
+<p style="margin:0">Prevent wildcard boundaries, standing grants, environment bypasses, grant inheritance, broad task-level force modes, and post-hoc authorization. Bind and consume one exact record before one exceptional action.</p>
+</div>
+<div class="callout danger"><div class="label">Risk - approval laundering</div>
+<p style="margin:0">A model must not reinterpret "finish it" as permission to discard data, merge red checks, elevate a command, or write remotely. The proactive-instruction test requires the exceptional action, target, and skipped safeguard to be explicit.</p>
+</div>
+<div class="callout warn"><div class="label">Risk - false finality</div>
+<p style="margin:0">The maintainer settles policy, but new facts still matter. A changed object or consequence invalidates the binding and triggers a new decision instead of silently stretching the old one.</p>
+</div>
+<div class="callout warn"><div class="label">Risk - Cursor hook semantics drift</div>
+<p style="margin:0">Cursor CLI and hooks are evolving. Pin active evidence to an exact version, ignore unknown additive JSON fields safely, validate required fields, and re-run the live matrix before updating verified facts.</p>
+</div>
+<div class="callout warn"><div class="label">Risk - global Cursor configuration mutation</div>
+<p style="margin:0">Do not edit <code>~/.cursor</code>, persistent sandbox settings, or user permissions during normal launches. Prefer tracked project hooks, per-run files, and explicit setup steps whose scope is visible to the maintainer.</p>
+</div>
+<div class="callout"><div class="label">Risk - instruction filename transition</div>
+<p style="margin:0">The current uncommitted rename intersects launcher validation, daemon homes, tests, and Cursor auto-discovery. Treat its final filename as a separate prerequisite and do not hide or reverse it inside this feature.</p>
+</div>
+
+<h2>Definition of done</h2>
+<ul>
+  <li><code>cursor</code> is listed as verified only after every required live fact is captured on the installed CLI version.</li>
+  <li><code>multplx cursor</code> and <code>config/actor-harness=cursor</code> launch a sandbox-enabled Cursor broker or worker through the ordinary Multplx lifecycle.</li>
+  <li>Cursor primary startup, guards, supervision, actor completion, daemon behavior, reporting fallback, interrupt, exit, resume, model selection, and deep-review behavior are tested or explicitly rejected as unsupported.</li>
+  <li>No routine Cursor launch disables sandboxing or grants blanket command approval.</li>
+  <li>Every current Multplx policy refusal is inventoried and either has a registered maintainer-authorized alternate or is classified as an integrity or capability result with a concrete next action.</li>
+  <li>An exact maintainer decision is final for the exact bound action and cannot be vetoed by a reviewer or replayed for another action.</li>
+  <li>Every newly encountered boundary requires a distinct explicit decision.</li>
+  <li>Exceptional outcomes remain truthful, using terms such as waived, discarded, elevated, or maintainer-directed instead of passed or verified.</li>
+  <li>Cross-harness, cross-backend, workflow, validation, delivery, cleanup, daemon, documentation, and full regression suites pass.</li>
+  <li>The implementation preserves the maintainer's separate instruction-file rename without silently reverting or absorbing it.</li>
+</ul>
+
+<div class="footer-nav">
+  <a href="17-global-launcher.html">← Plan 17: global launcher</a>
+  <a href="index.html">Index</a>
+  <span></span>
+</div>
+
+</div>
+</body>
+</html>

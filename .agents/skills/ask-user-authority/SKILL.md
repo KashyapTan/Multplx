@@ -12,6 +12,7 @@ metadata:
 
 This skill is the single owner of the decision procedure for ask-user findings.
 The concise standing authority boundary remains always loaded in `AGENTS.md` section 7.
+When the accepted action also crosses a registered policy safeguard, load `maintainer-override`; contract authority and one-action exception authority are separate decisions.
 
 ## Decide who has authority
 

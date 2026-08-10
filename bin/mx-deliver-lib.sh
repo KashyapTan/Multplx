@@ -24,6 +24,7 @@
 # carrying any known agent or gate marker cannot cross this boundary.
 
 MX_DELIVERY_RECORD_VERSION=1
+MX_DELIVERY_WAIVED_RECORD_VERSION=2
 
 mx_delivery_reset_record() {
   MX_DELIVERY_VERSION=
@@ -35,6 +36,8 @@ mx_delivery_reset_record() {
   MX_DELIVERY_GATE_RUN=
   MX_DELIVERY_APPROVAL=
   MX_DELIVERY_TITLE=
+  MX_DELIVERY_VALIDATION=
+  MX_DELIVERY_OVERRIDE_REQUEST=
   MX_DELIVERY_RECORD_IDENTITY=
   MX_DELIVERY_RECORD_HASH=
   MX_DELIVERY_SUMMARY=
@@ -112,11 +115,23 @@ mx_delivery_record_parse() {
       gate_run) MX_DELIVERY_GATE_RUN=$value ;;
       approval) MX_DELIVERY_APPROVAL=$value ;;
       title) MX_DELIVERY_TITLE=$value ;;
+      validation) MX_DELIVERY_VALIDATION=$value ;;
+      override_request) MX_DELIVERY_OVERRIDE_REQUEST=$value ;;
       *) return 1 ;;
     esac
   done < "$record"
 
-  [ "$MX_DELIVERY_VERSION" = "$MX_DELIVERY_RECORD_VERSION" ] || return 1
+  case "$MX_DELIVERY_VERSION" in
+    "$MX_DELIVERY_RECORD_VERSION")
+      [ "$MX_DELIVERY_VALIDATION" = "" ] && [ "$MX_DELIVERY_OVERRIDE_REQUEST" = "" ] || return 1
+      MX_DELIVERY_VALIDATION=passed
+      ;;
+    "$MX_DELIVERY_WAIVED_RECORD_VERSION")
+      [ "$MX_DELIVERY_VALIDATION" = waived ] || return 1
+      mx_pr_task_id_valid "$MX_DELIVERY_OVERRIDE_REQUEST" || return 1
+      ;;
+    *) return 1 ;;
+  esac
   [ "$MX_DELIVERY_TASK" = "$expected_task" ] || return 1
   mx_pr_task_id_valid "$MX_DELIVERY_TASK" || return 1
   case "$MX_DELIVERY_WORKTREE" in /*) ;; *) return 1 ;; esac
@@ -150,7 +165,27 @@ mx_delivery_gate_load() {
   state_device=$(mx_pr_file_device "$state") || return 1
   mx_pr_private_file_valid "$run" 600 "$state_device" || return 1
   command -v jq >/dev/null 2>&1 || return 1
-  json=$(jq -ce --arg sha "$MX_DELIVERY_APPROVED_SHA" '
+  if [ "$MX_DELIVERY_VALIDATION" = waived ]; then
+    # shellcheck source=bin/mx-maintainer-override-lib.sh
+    . "${MX_DELIVERY_SCRIPT_DIR:-$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)}/mx-maintainer-override-lib.sh"
+    override=$(mx_override_find_record "$MX_DELIVERY_OVERRIDE_REQUEST") || return 1
+    mx_override_record_validate "$override" consumed || return 1
+    jq -e --arg task "$MX_DELIVERY_TASK" --arg sha "$MX_DELIVERY_APPROVED_SHA" \
+      --arg target "$MX_DELIVERY_GATE_RUN@$MX_DELIVERY_APPROVED_SHA" '
+      .boundary_id == "validation.waive-gate" and .task_id == $task and
+      .target_identity == $target and .decision == "consumed" and
+      .outcome == "succeeded" and (.action_argv_or_operation | contains($sha))
+    ' "$override" >/dev/null 2>&1 || return 1
+    json=$(jq -ce --arg sha "$MX_DELIVERY_APPROVED_SHA" '
+      select(
+        .approved_head == $sha and .status != "passed" and
+        (.summary | type == "string" and length > 0 and length <= 20000) and
+        (.risk_level == "low" or .risk_level == "medium" or .risk_level == "high") and
+        (.risk_rationale | type == "string" and length > 0 and length <= 4000)
+      ) | [.summary,.risk_level,.risk_rationale]
+    ' "$run" 2>/dev/null) || return 1
+  else
+    json=$(jq -ce --arg sha "$MX_DELIVERY_APPROVED_SHA" '
     select(
       .status == "passed" and
       .approved_head == $sha and
@@ -159,12 +194,18 @@ mx_delivery_gate_load() {
       (.risk_rationale | type == "string" and length > 0 and length <= 4000)
     ) |
     [.summary, .risk_level, .risk_rationale]
-  ' "$run" 2>/dev/null) || return 1
+    ' "$run" 2>/dev/null) || return 1
+  fi
   MX_DELIVERY_SUMMARY=$(printf '%s' "$json" | jq -r '.[0]') || return 1
   MX_DELIVERY_RISK_LEVEL=$(printf '%s' "$json" | jq -r '.[1]') || return 1
   MX_DELIVERY_RISK_RATIONALE=$(printf '%s' "$json" | jq -r '.[2]') || return 1
-  MX_DELIVERY_BODY=$(printf '## Summary\n\n%s\n\n## Risk\n\n%s - %s\n' \
-    "$MX_DELIVERY_SUMMARY" "$MX_DELIVERY_RISK_LEVEL" "$MX_DELIVERY_RISK_RATIONALE")
+  if [ "$MX_DELIVERY_VALIDATION" = waived ]; then
+    MX_DELIVERY_BODY=$(printf '## Summary\n\n%s\n\n## Validation\n\nMaintainer-waived for exact SHA %s; validation did not pass.\n\n## Risk\n\n%s - %s\n' \
+      "$MX_DELIVERY_SUMMARY" "$MX_DELIVERY_APPROVED_SHA" "$MX_DELIVERY_RISK_LEVEL" "$MX_DELIVERY_RISK_RATIONALE")
+  else
+    MX_DELIVERY_BODY=$(printf '## Summary\n\n%s\n\n## Risk\n\n%s - %s\n' \
+      "$MX_DELIVERY_SUMMARY" "$MX_DELIVERY_RISK_LEVEL" "$MX_DELIVERY_RISK_RATIONALE")
+  fi
 }
 
 # Return codes:

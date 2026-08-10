@@ -39,9 +39,12 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/mx-turnend-guard.sh --claude`, and `bin/mx-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Multplx-shaped hook-bearing root, and passes the original payload to the shared guard.
+- Cursor registers a lower-camel `stop` hook in `.cursor/hooks.json`; `bin/mx-cursor-hook.sh stop` translates a shared status-2 block into `followup_message` and the tracked hook caps native continuation at `loop_limit: 1`.
 - Pi listens for `agent_settled` in `.pi/extensions/mx-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
+Cursor cannot consume that shell convention directly, so its adapter emits one JSON follow-up only when `loop_count` is zero.
+Cursor stop hooks are interactive-only and do not fire under `agent --print`.
 Both payloads carry `stop_hook_active`.
 In the default Codex mode, a true value lets the second stop finish after one forced continuation.
 
@@ -64,13 +67,14 @@ That warning uses `bin/mx-supervision-instructions.sh --repair-line`, so it alwa
 
 - Child actor and scout worktrees are outside scope.
 - A valid daemon home is in scope; an idle daemon endpoint remains healthy because it has no supervision need.
-- Claude and Codex block directly, while Pi uses bounded passive follow-ups.
+- Claude and Codex block directly, Cursor translates one bounded native follow-up, and Pi uses bounded passive follow-ups.
 - Missing `jq` or unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
 
 ## Regression coverage
 
-`tests/mx-turnend-guard.test.sh` covers the predicate, main and daemon primary scope, child-worktree exclusion, `MX_HOME` and `MX_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, and all three registrations.
+`tests/mx-turnend-guard.test.sh` covers the predicate, main and daemon primary scope, child-worktree exclusion, `MX_HOME` and `MX_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, and the existing registrations.
+`tests/mx-cursor-adapter.test.sh` covers Cursor translation and the one-follow-up bound.
 `tests/mx-supervision-instructions.test.sh` covers recovery-line ownership.
 `MX_PI_LIVE_E2E=1 tests/mx-pi-primary-live-e2e.test.sh` is the opt-in isolated Pi path.
 [`verification/supervision.md`](verification/supervision.md#turn-end-guard) records the active cross-harness empirical evidence, including the 2026-07-24 Claude `asyncRewake` revalidation.

@@ -446,6 +446,18 @@ test_codex_hooks_pretool_wired() {
   pass ".codex/hooks.json: PreToolUse hook invokes the shared checker"
 }
 
+test_cursor_hooks_pretool_wired() {
+  local settings command
+  settings="$ROOT/.cursor/hooks.json"
+  [ -f "$settings" ] || fail "tracked Cursor primary hooks are missing"
+  command=$(jq -r '.hooks.preToolUse[0].command // empty' "$settings")
+  [ "$command" = './bin/mx-cursor-hook.sh pre-tool' ] \
+    || fail "Cursor preToolUse hook must invoke the native shared-guard adapter"
+  jq -e '.hooks.preToolUse[0].failClosed == true' "$settings" >/dev/null \
+    || fail "Cursor preToolUse hook must fail closed"
+  pass ".cursor/hooks.json: preToolUse invokes the fail-closed shared-guard adapter"
+}
+
 test_pi_extension_carries_pretool_check() {
   local ext content
   ext="$ROOT/.pi/extensions/mx-primary-turnend-guard.ts"
@@ -478,4 +490,5 @@ test_default_mode_stdout_has_decision_json_on_deny
 test_allow_is_silent_both_modes
 test_claude_settings_pretool_hook_wired
 test_codex_hooks_pretool_wired
+test_cursor_hooks_pretool_wired
 test_pi_extension_carries_pretool_check

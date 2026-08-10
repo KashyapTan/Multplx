@@ -112,6 +112,9 @@ schemas/                 structured agent-result schema
 ```
 
 `resume` starts from the first stage that is not durably passed.
+`skip <run> <stage> --override <request>` consumes one exact `workflow.skip-stage` grant and writes a truthful `skipped` record; it never calls the stage passed.
+`reorder <run> <stage> --before <stage> --override <request>` consumes one exact `workflow.reorder-stage` grant and changes only the private `stage-order.json` snapshot for that run.
+Both operations bind the run, immutable definition, current order, named stage records, and exact target before mutation, and neither grant can authorize the other operation.
 Run, resume, and abort mutations serialize through one recoverable per-run lock, so simultaneous watcher and operator actions cannot execute a stage twice.
 It rejects a later passed record when an earlier stage is unmet.
 It rechecks output files, actor state, worktree commits, command markers, and approval holds instead of trusting the last printed event.

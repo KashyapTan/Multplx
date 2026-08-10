@@ -67,11 +67,12 @@ test_each_half_can_bound_dispatch() {
 test_candidate_budgets_are_accounted() {
   local home="$TMP_ROOT/candidates" json
   mkdir -p "$home/config"
-  printf '%s\n' '{"rules":[{"when":"large","use":[{"harness":"claude"},{"harness":"codex"}]}]}' \
+  printf '%s\n' '{"rules":[{"when":"large","use":[{"harness":"claude"},{"harness":"codex"},{"harness":"cursor"}]}]}' \
     > "$home/config/actor-dispatch.json"
   printf '%s\n' 2 > "$home/config/api-capacity"
   printf '%s\n' 0 > "$home/config/api-capacity-claude"
   printf '%s\n' 2 > "$home/config/api-capacity-codex"
+  printf '%s\n' 1 > "$home/config/api-capacity-cursor"
   json=$(MX_HOME="$home" MX_HEADROOM_CPU_COUNT=16 MX_HEADROOM_LOAD1=0 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=68719476736 MX_HEADROOM_IN_USE=0 \
     "$HEADROOM" --json) || fail "candidate-aware headroom failed"
@@ -79,6 +80,8 @@ test_candidate_budgets_are_accounted() {
     || fail "claude candidate budget was not applied"
   [ "$(json_field "$json" candidates.codex.available)" -eq 2 ] \
     || fail "codex candidate budget was not applied"
+  [ "$(json_field "$json" candidates.cursor.available)" -eq 1 ] \
+    || fail "cursor candidate budget was not applied"
   [ "$(json_field "$json" available)" -eq 2 ] \
     || fail "aggregate headroom did not retain the candidate with real capacity"
 
@@ -90,7 +93,7 @@ test_unconfigured_api_capacity_defaults_to_twenty() {
   mkdir -p "$home/config"
   json=$(MX_HOME="$home" MX_HEADROOM_CPU_COUNT=64 MX_HEADROOM_LOAD1=0 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=137438953472 MX_HEADROOM_IN_USE=0 \
-    MX_HEADROOM_API_CAPACITY= "$HEADROOM" --json) \
+    MX_HEADROOM_API_CAPACITY='' "$HEADROOM" --json) \
     || fail "unconfigured default headroom failed"
   [ "$(json_field "$json" api.capacity)" -eq 20 ] \
     || fail "unconfigured API capacity did not default to 20"
@@ -107,7 +110,7 @@ test_default_local_reservations_allow_twenty_remote_workers() {
   mkdir -p "$home/config"
   json=$(MX_HOME="$home" MX_HEADROOM_CPU_COUNT=15 MX_HEADROOM_LOAD1=2.25 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=9687252992 MX_HEADROOM_IN_USE=0 \
-    MX_HEADROOM_API_CAPACITY= "$HEADROOM" --json) \
+    MX_HEADROOM_API_CAPACITY='' "$HEADROOM" --json) \
     || fail "default local-reservation headroom failed"
   [ "$(json_field "$json" local.available)" -ge 20 ] \
     || fail "default local reservations unexpectedly bound a representative remote-worker host"

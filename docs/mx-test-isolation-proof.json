@@ -1,9 +1,9 @@
 {
   "concurrency": 4,
-  "conflict_pairs": 503,
-  "finished_at": "2026-08-03T00:50:34Z",
+  "conflict_pairs": 522,
+  "finished_at": "2026-08-10T01:28:21Z",
   "kind": "resource-isolation-proof",
-  "manifest_sha256": "c550f9094e772fccb9414cff895cea2813bd72a5fc0ca9486d060ebc2bba6530",
+  "manifest_sha256": "a0faae2f0dc2c99d56f93ca9bb55cbb661ffb3148fd4dd726bd0d92ff6e8674d",
   "repeats": 2,
   "resource_manifest": [
     {
@@ -196,6 +196,18 @@
       ]
     },
     {
+      "path": "tests/mx-cursor-adapter.test.sh",
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "path": "tests/mx-cursor-live-e2e.test.sh",
+      "resources": [
+        "live-harness"
+      ]
+    },
+    {
       "path": "tests/mx-daemon-harness-model-resolution.test.sh",
       "resources": [
         "none"
@@ -365,6 +377,18 @@
     },
     {
       "path": "tests/mx-launcher.test.sh",
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "path": "tests/mx-lock-override.test.sh",
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "path": "tests/mx-maintainer-override.test.sh",
       "resources": [
         "none"
       ]
@@ -739,23 +763,23 @@
   ],
   "rounds": [
     {
-      "duration_ms": 259569,
+      "duration_ms": 275976,
       "exit": 0,
       "repeat": 1,
-      "run_id": "mx-test-run-1785717715699-55235",
+      "run_id": "mx-test-run-1786324750749-64751",
       "runner_exit": 0
     },
     {
-      "duration_ms": 258853,
+      "duration_ms": 275317,
       "exit": 0,
       "repeat": 2,
-      "run_id": "mx-test-run-1785717975282-53650",
+      "run_id": "mx-test-run-1786325026743-89119",
       "runner_exit": 0
     }
   ],
   "scripts": [
     {
-      "duration_ms": 1077,
+      "duration_ms": 1118,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -766,7 +790,7 @@
       ]
     },
     {
-      "duration_ms": 33790,
+      "duration_ms": 33629,
       "exit": 0,
       "family": "afk",
       "gate_skip": false,
@@ -777,7 +801,7 @@
       ]
     },
     {
-      "duration_ms": 3015,
+      "duration_ms": 3371,
       "exit": 0,
       "family": "afk",
       "gate_skip": false,
@@ -788,7 +812,7 @@
       ]
     },
     {
-      "duration_ms": 12935,
+      "duration_ms": 13091,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -799,363 +823,11 @@
       ]
     },
     {
-      "duration_ms": 130,
+      "duration_ms": 131,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-ask-user-authority.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 7561,
-      "exit": 0,
-      "family": "cmux",
-      "gate_skip": false,
-      "path": "tests/mx-backend-cmux.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 23748,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-backend-herdr.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 367,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-backend-tmux-smoke.test.sh",
-      "repeat": 1,
-      "resources": [
-        "tmux-server"
-      ]
-    },
-    {
-      "duration_ms": 20328,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-backend.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 693,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-backlog-handoff.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 910,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-backlog-lib.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 30741,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-bootstrap.test.sh",
-      "repeat": 1,
-      "resources": [
-        "bootstrap-process-signal"
-      ]
-    },
-    {
-      "duration_ms": 645,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-brief.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 8711,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-cd-pretool-check.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 6347,
-      "exit": 0,
-      "family": "unclassified",
-      "gate_skip": false,
-      "path": "tests/mx-claude-stop-autoarm.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 987,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-composer-ghost.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 47,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-composer-lib.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 15375,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-harness-model-resolution.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 60768,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-harness-reread-retry.test.sh",
-      "repeat": 1,
-      "resources": [
-        "daemon-reread-process-signal"
-      ]
-    },
-    {
-      "duration_ms": 19202,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-harness-spawn-config.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 5228,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-lifecycle-e2e.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 15266,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-liveness.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 31318,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-safety.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 18771,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-daemon-sync.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 16882,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-daemon.test.sh",
-      "repeat": 1,
-      "resources": [
-        "daemon-process-signal"
-      ]
-    },
-    {
-      "duration_ms": 9974,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-decision-hold-lifecycle.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 40,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-deep-review-config-contract.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 696,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-deep-review-lib.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 9235,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-deep-review.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 783,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-dispatch-queue.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 4618,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-doctor.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 596,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-documentation-audiences.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 219,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-ensure-agents-md.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 60,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-gate-refuse.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 813,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-gotmp.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1726,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-guard-stale-banner.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 570,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-headroom.test.sh",
       "repeat": 1,
       "resources": [
         "none"
@@ -1164,978 +836,241 @@
     {
       "duration_ms": 7249,
       "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-herdr-lab.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 5399,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-herdr-session-cleanup.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 78,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-install-herdr.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 248,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-instruction-owners.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 202,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-journal.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1133,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-launcher-shell.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 6444,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-launcher.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 164,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-maintainer-translation-contract.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 3225,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-naming.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 4619,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-nudge.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 163,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-operational-input.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 6972,
-      "exit": 0,
-      "family": "unclassified",
-      "gate_skip": false,
-      "path": "tests/mx-pending-reply.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 19,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": true,
-      "path": "tests/mx-pi-primary-types.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 7684,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-pi-watch-extension.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 85581,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-pr-check-security-fault-quarantine.test.sh",
-      "repeat": 1,
-      "resources": [
-        "pr-security-process"
-      ]
-    },
-    {
-      "duration_ms": 31834,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-pr-check-security-parser-entrypoints.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 23527,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-pr-check-security-retirement-teardown.test.sh",
-      "repeat": 1,
-      "resources": [
-        "pr-security-process"
-      ]
-    },
-    {
-      "duration_ms": 4042,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-pr-merge.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 2419,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-push-service.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 921,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-removed-deps.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 218,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-report-mcp.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 607,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-report.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1567,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-review-diff.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 2856,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-send-daemon-marker.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 3089,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-send-popup-settle.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1229,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-send-settle.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1202,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-send-strict.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 10085,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-session-start-digest-render.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 9693,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-session-start-lock-bootstrap.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 18017,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-session-start-process-liveness.test.sh",
-      "repeat": 1,
-      "resources": [
-        "session-process-liveness"
-      ]
-    },
-    {
-      "duration_ms": 302,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-sessionstart-nudge.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 3646,
-      "exit": 0,
-      "family": "daemon",
-      "gate_skip": false,
-      "path": "tests/mx-shared-maintainer-inheritance.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 35,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-signal-precedence.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 736,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-spawn-batch.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 21875,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-spawn-dispatch-profile.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 5120,
-      "exit": 0,
-      "family": "backend-dispatch",
-      "gate_skip": false,
-      "path": "tests/mx-spawn-worktree-settle.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 17604,
-      "exit": 0,
-      "family": "snapshot-catchup",
-      "gate_skip": false,
-      "path": "tests/mx-status-snapshot-catchup-forge.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 15687,
-      "exit": 0,
-      "family": "snapshot-catchup",
-      "gate_skip": false,
-      "path": "tests/mx-status-snapshot-landed-bounds.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 33709,
-      "exit": 0,
-      "family": "snapshot-catchup",
-      "gate_skip": false,
-      "path": "tests/mx-status-snapshot-projection-reconciliation.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 42,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-stow-contract.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1115,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-subagent-pretool-check.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 409,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-supervision-events.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 132,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-supervision-instructions.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 9611,
-      "exit": 0,
-      "family": "snapshot-catchup",
-      "gate_skip": false,
-      "path": "tests/mx-system-snapshot-view.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 20892,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-system-sync.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 7752,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-tangle-guard.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 32001,
-      "exit": 0,
-      "family": "pr-forge",
-      "gate_skip": false,
-      "path": "tests/mx-teardown.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 257,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-test-split-parity.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1692,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-timeline.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1068,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-tmux-submit-busy.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 76,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-transition-lib.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 9197,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-turnend-guard.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 4080,
-      "exit": 0,
-      "family": "session-bootstrap",
-      "gate_skip": false,
-      "path": "tests/mx-update.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1479,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-upstream-diff.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 3997,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-viz.test.sh",
-      "repeat": 1,
-      "resources": [
-        "viz-port"
-      ]
-    },
-    {
-      "duration_ms": 4106,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-vplan.test.sh",
-      "repeat": 1,
-      "resources": [
-        "vplan-port"
-      ]
-    },
-    {
-      "duration_ms": 4429,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-wake-daemon-lifecycle-e2e.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 23241,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-wake-queue.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 9393,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-watch-checkpoint.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 80828,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-watch-triage.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 27611,
-      "exit": 0,
-      "family": "watcher-wake-lock",
-      "gate_skip": false,
-      "path": "tests/mx-watcher-lock.test.sh",
-      "repeat": 1,
-      "resources": [
-        "watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 368,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-workflow-lib.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 15101,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-workflow.test.sh",
-      "repeat": 1,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 1035,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-actor-state.test.sh",
-      "repeat": 2,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 33925,
-      "exit": 0,
-      "family": "afk",
-      "gate_skip": false,
-      "path": "tests/mx-afk-inject-e2e.test.sh",
-      "repeat": 2,
-      "resources": [
-        "afk-watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 3051,
-      "exit": 0,
-      "family": "afk",
-      "gate_skip": false,
-      "path": "tests/mx-afk-return.test.sh",
-      "repeat": 2,
-      "resources": [
-        "afk-watcher-process"
-      ]
-    },
-    {
-      "duration_ms": 12874,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-arm-pretool-check.test.sh",
-      "repeat": 2,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 126,
-      "exit": 0,
-      "family": "pure-contract-unit",
-      "gate_skip": false,
-      "path": "tests/mx-ask-user-authority.test.sh",
-      "repeat": 2,
-      "resources": [
-        "none"
-      ]
-    },
-    {
-      "duration_ms": 6980,
-      "exit": 0,
       "family": "cmux",
       "gate_skip": false,
       "path": "tests/mx-backend-cmux.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 23712,
+      "duration_ms": 23451,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
       "path": "tests/mx-backend-herdr.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 358,
+      "duration_ms": 391,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
       "path": "tests/mx-backend-tmux-smoke.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "tmux-server"
       ]
     },
     {
-      "duration_ms": 19508,
+      "duration_ms": 19921,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
       "path": "tests/mx-backend.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 690,
+      "duration_ms": 780,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-backlog-handoff.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 930,
+      "duration_ms": 911,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-backlog-lib.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 31293,
+      "duration_ms": 31164,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
       "path": "tests/mx-bootstrap.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "bootstrap-process-signal"
       ]
     },
     {
-      "duration_ms": 653,
+      "duration_ms": 647,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-brief.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 8571,
+      "duration_ms": 9004,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-cd-pretool-check.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 6431,
+      "duration_ms": 6837,
       "exit": 0,
       "family": "unclassified",
       "gate_skip": false,
       "path": "tests/mx-claude-stop-autoarm.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 1100,
+      "duration_ms": 1236,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-composer-ghost.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 45,
+      "duration_ms": 50,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-composer-lib.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 15427,
+      "duration_ms": 1767,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-cursor-adapter.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 15357,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-harness-model-resolution.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 60398,
+      "duration_ms": 60841,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-harness-reread-retry.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "daemon-reread-process-signal"
       ]
     },
     {
-      "duration_ms": 19163,
+      "duration_ms": 19273,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-harness-spawn-config.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 5219,
+      "duration_ms": 5389,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-lifecycle-e2e.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 14620,
+      "duration_ms": 15563,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-liveness.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 31363,
+      "duration_ms": 40115,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-safety.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 18236,
+      "duration_ms": 18953,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
       "path": "tests/mx-daemon-sync.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 16865,
+      "duration_ms": 16939,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
       "path": "tests/mx-daemon.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "daemon-process-signal"
       ]
     },
     {
-      "duration_ms": 9827,
+      "duration_ms": 10383,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-decision-hold-lifecycle.test.sh",
-      "repeat": 2,
+      "repeat": 1,
       "resources": [
         "none"
       ]
@@ -2146,13 +1081,1146 @@
       "family": "pure-contract-unit",
       "gate_skip": false,
       "path": "tests/mx-deep-review-config-contract.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 725,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-deep-review-lib.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 9447,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-deep-review.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 744,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-dispatch-queue.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 4868,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-doctor.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 610,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-documentation-audiences.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 232,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-ensure-agents-md.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 65,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-gate-refuse.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1295,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-gotmp.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1716,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-guard-stale-banner.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 574,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-headroom.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 7450,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-herdr-lab.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 5518,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-herdr-session-cleanup.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 83,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-install-herdr.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 290,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-instruction-owners.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 208,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-journal.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1350,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-launcher-shell.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 6817,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-launcher.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 925,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-lock-override.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 6936,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-maintainer-override.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 173,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-maintainer-translation-contract.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 3295,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-naming.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 4579,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-nudge.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 193,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-operational-input.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 7307,
+      "exit": 0,
+      "family": "unclassified",
+      "gate_skip": false,
+      "path": "tests/mx-pending-reply.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 23,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": true,
+      "path": "tests/mx-pi-primary-types.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 7573,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-pi-watch-extension.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 89488,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-pr-check-security-fault-quarantine.test.sh",
+      "repeat": 1,
+      "resources": [
+        "pr-security-process"
+      ]
+    },
+    {
+      "duration_ms": 35489,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-pr-check-security-parser-entrypoints.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 28541,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-pr-check-security-retirement-teardown.test.sh",
+      "repeat": 1,
+      "resources": [
+        "pr-security-process"
+      ]
+    },
+    {
+      "duration_ms": 6288,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-pr-merge.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 4359,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-push-service.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 927,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-removed-deps.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 224,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-report-mcp.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 583,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-report.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1643,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-review-diff.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 3115,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-send-daemon-marker.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 3600,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-send-popup-settle.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1439,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-send-settle.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1205,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-send-strict.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 10120,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-session-start-digest-render.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 9212,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-session-start-lock-bootstrap.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 18579,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-session-start-process-liveness.test.sh",
+      "repeat": 1,
+      "resources": [
+        "session-process-liveness"
+      ]
+    },
+    {
+      "duration_ms": 299,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-sessionstart-nudge.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 3755,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-shared-maintainer-inheritance.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 37,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-signal-precedence.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 549,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-spawn-batch.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 21720,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-spawn-dispatch-profile.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 7607,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-spawn-worktree-settle.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 17560,
+      "exit": 0,
+      "family": "snapshot-catchup",
+      "gate_skip": false,
+      "path": "tests/mx-status-snapshot-catchup-forge.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 15769,
+      "exit": 0,
+      "family": "snapshot-catchup",
+      "gate_skip": false,
+      "path": "tests/mx-status-snapshot-landed-bounds.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 34120,
+      "exit": 0,
+      "family": "snapshot-catchup",
+      "gate_skip": false,
+      "path": "tests/mx-status-snapshot-projection-reconciliation.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 45,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-stow-contract.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1130,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-subagent-pretool-check.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 403,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-supervision-events.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 142,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-supervision-instructions.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 9792,
+      "exit": 0,
+      "family": "snapshot-catchup",
+      "gate_skip": false,
+      "path": "tests/mx-system-snapshot-view.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 21483,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-system-sync.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 7753,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-tangle-guard.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 36394,
+      "exit": 0,
+      "family": "pr-forge",
+      "gate_skip": false,
+      "path": "tests/mx-teardown.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 270,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-test-split-parity.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1652,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-timeline.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1228,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-tmux-submit-busy.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 85,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-transition-lib.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 9374,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-turnend-guard.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 4046,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-update.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1466,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-upstream-diff.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 3643,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-viz.test.sh",
+      "repeat": 1,
+      "resources": [
+        "viz-port"
+      ]
+    },
+    {
+      "duration_ms": 4207,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-vplan.test.sh",
+      "repeat": 1,
+      "resources": [
+        "vplan-port"
+      ]
+    },
+    {
+      "duration_ms": 4427,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-wake-daemon-lifecycle-e2e.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 23569,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-wake-queue.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 9372,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-watch-checkpoint.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 80882,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-watch-triage.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 28315,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-watcher-lock.test.sh",
+      "repeat": 1,
+      "resources": [
+        "watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 372,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-workflow-lib.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 18865,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-workflow.test.sh",
+      "repeat": 1,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1083,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-actor-state.test.sh",
       "repeat": 2,
       "resources": [
         "none"
       ]
     },
     {
-      "duration_ms": 618,
+      "duration_ms": 33559,
+      "exit": 0,
+      "family": "afk",
+      "gate_skip": false,
+      "path": "tests/mx-afk-inject-e2e.test.sh",
+      "repeat": 2,
+      "resources": [
+        "afk-watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 3609,
+      "exit": 0,
+      "family": "afk",
+      "gate_skip": false,
+      "path": "tests/mx-afk-return.test.sh",
+      "repeat": 2,
+      "resources": [
+        "afk-watcher-process"
+      ]
+    },
+    {
+      "duration_ms": 13208,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-arm-pretool-check.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 150,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-ask-user-authority.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 6831,
+      "exit": 0,
+      "family": "cmux",
+      "gate_skip": false,
+      "path": "tests/mx-backend-cmux.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 23339,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-backend-herdr.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 392,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-backend-tmux-smoke.test.sh",
+      "repeat": 2,
+      "resources": [
+        "tmux-server"
+      ]
+    },
+    {
+      "duration_ms": 19428,
+      "exit": 0,
+      "family": "backend-dispatch",
+      "gate_skip": false,
+      "path": "tests/mx-backend.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 718,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-backlog-handoff.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 914,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-backlog-lib.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 31225,
+      "exit": 0,
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "path": "tests/mx-bootstrap.test.sh",
+      "repeat": 2,
+      "resources": [
+        "bootstrap-process-signal"
+      ]
+    },
+    {
+      "duration_ms": 652,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-brief.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 8740,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-cd-pretool-check.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 6399,
+      "exit": 0,
+      "family": "unclassified",
+      "gate_skip": false,
+      "path": "tests/mx-claude-stop-autoarm.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1041,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-composer-ghost.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 51,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-composer-lib.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 1777,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-cursor-adapter.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 15434,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-harness-model-resolution.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 60513,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-harness-reread-retry.test.sh",
+      "repeat": 2,
+      "resources": [
+        "daemon-reread-process-signal"
+      ]
+    },
+    {
+      "duration_ms": 19053,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-harness-spawn-config.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 5780,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-lifecycle-e2e.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 15253,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-liveness.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 40396,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-safety.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 18887,
+      "exit": 0,
+      "family": "daemon",
+      "gate_skip": false,
+      "path": "tests/mx-daemon-sync.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 16935,
+      "exit": 0,
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "path": "tests/mx-daemon.test.sh",
+      "repeat": 2,
+      "resources": [
+        "daemon-process-signal"
+      ]
+    },
+    {
+      "duration_ms": 10317,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-decision-hold-lifecycle.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 42,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-deep-review-config-contract.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 666,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2163,7 +2231,7 @@
       ]
     },
     {
-      "duration_ms": 9400,
+      "duration_ms": 9382,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2174,7 +2242,7 @@
       ]
     },
     {
-      "duration_ms": 782,
+      "duration_ms": 726,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2185,7 +2253,7 @@
       ]
     },
     {
-      "duration_ms": 4558,
+      "duration_ms": 4472,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2196,7 +2264,7 @@
       ]
     },
     {
-      "duration_ms": 603,
+      "duration_ms": 604,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2207,7 +2275,7 @@
       ]
     },
     {
-      "duration_ms": 239,
+      "duration_ms": 235,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2218,7 +2286,7 @@
       ]
     },
     {
-      "duration_ms": 61,
+      "duration_ms": 63,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2229,7 +2297,7 @@
       ]
     },
     {
-      "duration_ms": 954,
+      "duration_ms": 1271,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2240,7 +2308,7 @@
       ]
     },
     {
-      "duration_ms": 1695,
+      "duration_ms": 1746,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2251,7 +2319,7 @@
       ]
     },
     {
-      "duration_ms": 593,
+      "duration_ms": 580,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2262,7 +2330,7 @@
       ]
     },
     {
-      "duration_ms": 7211,
+      "duration_ms": 7161,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2273,7 +2341,7 @@
       ]
     },
     {
-      "duration_ms": 5068,
+      "duration_ms": 5412,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2284,7 +2352,7 @@
       ]
     },
     {
-      "duration_ms": 76,
+      "duration_ms": 84,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2295,7 +2363,7 @@
       ]
     },
     {
-      "duration_ms": 243,
+      "duration_ms": 279,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2306,7 +2374,7 @@
       ]
     },
     {
-      "duration_ms": 205,
+      "duration_ms": 212,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2317,7 +2385,7 @@
       ]
     },
     {
-      "duration_ms": 905,
+      "duration_ms": 1353,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2328,7 +2396,7 @@
       ]
     },
     {
-      "duration_ms": 6075,
+      "duration_ms": 6631,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2339,7 +2407,29 @@
       ]
     },
     {
-      "duration_ms": 154,
+      "duration_ms": 872,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-lock-override.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 7001,
+      "exit": 0,
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "path": "tests/mx-maintainer-override.test.sh",
+      "repeat": 2,
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "duration_ms": 173,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2350,7 +2440,7 @@
       ]
     },
     {
-      "duration_ms": 3191,
+      "duration_ms": 3317,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2361,7 +2451,7 @@
       ]
     },
     {
-      "duration_ms": 4626,
+      "duration_ms": 4609,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2372,7 +2462,7 @@
       ]
     },
     {
-      "duration_ms": 164,
+      "duration_ms": 195,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2383,7 +2473,7 @@
       ]
     },
     {
-      "duration_ms": 6945,
+      "duration_ms": 7040,
       "exit": 0,
       "family": "unclassified",
       "gate_skip": false,
@@ -2405,7 +2495,7 @@
       ]
     },
     {
-      "duration_ms": 7359,
+      "duration_ms": 7158,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2416,7 +2506,7 @@
       ]
     },
     {
-      "duration_ms": 86556,
+      "duration_ms": 90269,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2427,7 +2517,7 @@
       ]
     },
     {
-      "duration_ms": 31901,
+      "duration_ms": 35518,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2438,7 +2528,7 @@
       ]
     },
     {
-      "duration_ms": 23539,
+      "duration_ms": 28638,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2449,7 +2539,7 @@
       ]
     },
     {
-      "duration_ms": 4141,
+      "duration_ms": 5932,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2460,7 +2550,7 @@
       ]
     },
     {
-      "duration_ms": 2542,
+      "duration_ms": 4413,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2471,7 +2561,7 @@
       ]
     },
     {
-      "duration_ms": 926,
+      "duration_ms": 922,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2482,7 +2572,7 @@
       ]
     },
     {
-      "duration_ms": 210,
+      "duration_ms": 237,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2493,7 +2583,7 @@
       ]
     },
     {
-      "duration_ms": 610,
+      "duration_ms": 590,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2504,7 +2594,7 @@
       ]
     },
     {
-      "duration_ms": 1623,
+      "duration_ms": 1625,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2515,7 +2605,7 @@
       ]
     },
     {
-      "duration_ms": 3026,
+      "duration_ms": 3004,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -2526,7 +2616,7 @@
       ]
     },
     {
-      "duration_ms": 3778,
+      "duration_ms": 3739,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2537,7 +2627,7 @@
       ]
     },
     {
-      "duration_ms": 1080,
+      "duration_ms": 1390,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2548,7 +2638,7 @@
       ]
     },
     {
-      "duration_ms": 1179,
+      "duration_ms": 1103,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2559,7 +2649,7 @@
       ]
     },
     {
-      "duration_ms": 10195,
+      "duration_ms": 10186,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2570,7 +2660,7 @@
       ]
     },
     {
-      "duration_ms": 9360,
+      "duration_ms": 9378,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2581,7 +2671,7 @@
       ]
     },
     {
-      "duration_ms": 18244,
+      "duration_ms": 18335,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2592,7 +2682,7 @@
       ]
     },
     {
-      "duration_ms": 295,
+      "duration_ms": 311,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2603,7 +2693,7 @@
       ]
     },
     {
-      "duration_ms": 3451,
+      "duration_ms": 4021,
       "exit": 0,
       "family": "daemon",
       "gate_skip": false,
@@ -2614,7 +2704,7 @@
       ]
     },
     {
-      "duration_ms": 33,
+      "duration_ms": 35,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2625,7 +2715,7 @@
       ]
     },
     {
-      "duration_ms": 757,
+      "duration_ms": 573,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2636,7 +2726,7 @@
       ]
     },
     {
-      "duration_ms": 21567,
+      "duration_ms": 21660,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2647,7 +2737,7 @@
       ]
     },
     {
-      "duration_ms": 5079,
+      "duration_ms": 7594,
       "exit": 0,
       "family": "backend-dispatch",
       "gate_skip": false,
@@ -2658,7 +2748,7 @@
       ]
     },
     {
-      "duration_ms": 17644,
+      "duration_ms": 17559,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -2669,7 +2759,7 @@
       ]
     },
     {
-      "duration_ms": 15729,
+      "duration_ms": 15790,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -2680,7 +2770,7 @@
       ]
     },
     {
-      "duration_ms": 34008,
+      "duration_ms": 34095,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -2691,7 +2781,7 @@
       ]
     },
     {
-      "duration_ms": 41,
+      "duration_ms": 43,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2702,7 +2792,7 @@
       ]
     },
     {
-      "duration_ms": 1133,
+      "duration_ms": 1143,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2713,7 +2803,7 @@
       ]
     },
     {
-      "duration_ms": 407,
+      "duration_ms": 404,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2724,7 +2814,7 @@
       ]
     },
     {
-      "duration_ms": 124,
+      "duration_ms": 140,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2735,7 +2825,7 @@
       ]
     },
     {
-      "duration_ms": 9891,
+      "duration_ms": 9574,
       "exit": 0,
       "family": "snapshot-catchup",
       "gate_skip": false,
@@ -2746,7 +2836,7 @@
       ]
     },
     {
-      "duration_ms": 20400,
+      "duration_ms": 21453,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2757,7 +2847,7 @@
       ]
     },
     {
-      "duration_ms": 7508,
+      "duration_ms": 7491,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2768,7 +2858,7 @@
       ]
     },
     {
-      "duration_ms": 32336,
+      "duration_ms": 36660,
       "exit": 0,
       "family": "pr-forge",
       "gate_skip": false,
@@ -2779,7 +2869,7 @@
       ]
     },
     {
-      "duration_ms": 233,
+      "duration_ms": 242,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2790,7 +2880,7 @@
       ]
     },
     {
-      "duration_ms": 1666,
+      "duration_ms": 1647,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2801,7 +2891,7 @@
       ]
     },
     {
-      "duration_ms": 1099,
+      "duration_ms": 1218,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2812,7 +2902,7 @@
       ]
     },
     {
-      "duration_ms": 76,
+      "duration_ms": 85,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2823,7 +2913,7 @@
       ]
     },
     {
-      "duration_ms": 8869,
+      "duration_ms": 9474,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2834,7 +2924,7 @@
       ]
     },
     {
-      "duration_ms": 4074,
+      "duration_ms": 3911,
       "exit": 0,
       "family": "session-bootstrap",
       "gate_skip": false,
@@ -2845,7 +2935,7 @@
       ]
     },
     {
-      "duration_ms": 1457,
+      "duration_ms": 1466,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2856,7 +2946,7 @@
       ]
     },
     {
-      "duration_ms": 4004,
+      "duration_ms": 3634,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2867,7 +2957,7 @@
       ]
     },
     {
-      "duration_ms": 4098,
+      "duration_ms": 4329,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2878,7 +2968,7 @@
       ]
     },
     {
-      "duration_ms": 4543,
+      "duration_ms": 4441,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2889,7 +2979,7 @@
       ]
     },
     {
-      "duration_ms": 23040,
+      "duration_ms": 23909,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2900,7 +2990,7 @@
       ]
     },
     {
-      "duration_ms": 9379,
+      "duration_ms": 9448,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2911,7 +3001,7 @@
       ]
     },
     {
-      "duration_ms": 81318,
+      "duration_ms": 81210,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2922,7 +3012,7 @@
       ]
     },
     {
-      "duration_ms": 28270,
+      "duration_ms": 27350,
       "exit": 0,
       "family": "watcher-wake-lock",
       "gate_skip": false,
@@ -2933,7 +3023,7 @@
       ]
     },
     {
-      "duration_ms": 366,
+      "duration_ms": 382,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2944,7 +3034,7 @@
       ]
     },
     {
-      "duration_ms": 15083,
+      "duration_ms": 18878,
       "exit": 0,
       "family": "pure-contract-unit",
       "gate_skip": false,
@@ -2955,10 +3045,10 @@
       ]
     }
   ],
-  "started_at": "2026-08-03T00:41:55Z",
+  "started_at": "2026-08-10T01:19:10Z",
   "summary": {
-    "candidates_per_round": 100,
-    "duration_ms": 518489,
+    "candidates_per_round": 103,
+    "duration_ms": 551363,
     "failed_rounds": 0,
     "known_failure_observations": 0,
     "leaks": 0

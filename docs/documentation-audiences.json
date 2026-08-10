@@ -63,6 +63,10 @@
       "target": "docs/verification/launcher.md"
     },
     {
+      "source": "docs/configuration.md",
+      "target": "docs/verification/cursor-cli.md"
+    },
+    {
       "source": "docs/documentation-audiences.md",
       "target": "docs/documentation-audiences.json"
     },
@@ -162,6 +166,10 @@
     },
     {
       "path": ".agents/skills/harness-adapters/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/maintainer-override/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -285,6 +293,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/maintainer-overrides.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/scripts.md",
       "audience": "operator-current"
     },
@@ -302,6 +314,10 @@
     },
     {
       "path": "docs/supervision-protocols/codex.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/supervision-protocols/cursor.md",
       "audience": "agent-runtime"
     },
     {
@@ -350,6 +366,10 @@
     },
     {
       "path": "docs/verification/guards.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/cursor-cli.md",
       "audience": "maintainer-verification"
     },
     {

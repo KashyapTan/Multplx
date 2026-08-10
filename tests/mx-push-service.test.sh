@@ -263,9 +263,54 @@ test_spawn_shaped_agent_environment_cannot_push_or_authenticate_gh() {
   pass "spawn-shaped agent environments cannot push origin or authenticate gh"
 }
 
+test_exact_sha_validation_waiver_stays_truthful() {
+  local case_dir head bindings request operation target state_digest
+  case_dir=$(make_case waived-validation)
+  head=$($REAL_GIT -C "$case_dir/wt" rev-parse HEAD)
+  jq '.status="failed" | .summary="Validation failed and was explicitly waived." | .risk_level="high" | .risk_rationale="A known validation failure remains."' \
+    "$case_dir/state/task-x1.gate/run.json" >"$case_dir/run.json"
+  mv "$case_dir/run.json" "$case_dir/state/task-x1.gate/run.json"
+  chmod 600 "$case_dir/state/task-x1.gate/run.json"
+  bindings=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/mx-override-bindings.sh" validation task-x1 "$head") \
+    || fail "waived validation bindings failed"
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  state_digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  request=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/mx-maintainer-override.sh" request --boundary validation.waive-gate \
+      --task task-x1 --project "$(printf '%s' "$bindings" | jq -r '.project')" --operation "$operation" --target "$target" \
+      --expected-state "$state_digest" --consequence "Create a maintainer-waived delivery handoff for this exact SHA without recording validation as passed.") \
+    || fail "validation waiver request failed"
+  MX_HOME="$case_dir"
+  MX_STATE_OVERRIDE="$case_dir/state"
+  export MX_HOME MX_STATE_OVERRIDE
+  # shellcheck source=bin/mx-maintainer-override-lib.sh
+  . "$ROOT/bin/mx-maintainer-override-lib.sh"
+  mx_override_require_primary_lock() { return 0; }
+  mx_override_grant "$request" "Grant validation.waive-gate for $operation on $target only." \
+    || fail "validation waiver grant failed"
+  "$ROOT/bin/mx-validation-waive.sh" task-x1 "$head" "$request" --title "Waived validation delivery" \
+    >/dev/null || fail "exact-SHA validation waiver failed"
+  [ "$(jq -r '.status' "$case_dir/state/task-x1.gate/run.json")" = failed ] \
+    || fail "validation waiver fabricated a passed gate"
+  assert_grep 'validation=waived' "$case_dir/state/task-x1.ready-to-push" \
+    "waived handoff is not labeled waived"
+  sed 's/^approval=pending$/approval=approved/' "$case_dir/state/task-x1.ready-to-push" \
+    >"$case_dir/approved"
+  mv "$case_dir/approved" "$case_dir/state/task-x1.ready-to-push"
+  chmod 600 "$case_dir/state/task-x1.ready-to-push"
+  MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 \
+    >"$case_dir/out" 2>"$case_dir/err" || fail "truthful waived delivery was not accepted"
+  assert_grep 'Maintainer-waived for exact SHA' "$case_dir/gh.log" \
+    "delivery body did not disclose that validation was waived"
+  pass "one exact validation SHA is waived without ever being recorded as passed"
+}
+
 test_empty_scan_and_pending_record_never_push
 test_approved_record_delivers_once_and_sanitizes_credentials
 test_head_movement_marks_stale_without_push
 test_agent_ambience_refuses_before_credentials_or_push
 test_record_is_data_not_shell
 test_spawn_shaped_agent_environment_cannot_push_or_authenticate_gh
+test_exact_sha_validation_waiver_stays_truthful

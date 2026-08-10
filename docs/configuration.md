@@ -39,13 +39,13 @@ The stable bootstrap lives at `${XDG_BIN_HOME:-$HOME/.local/bin}/multplx`; manag
 The managed installer records `multplx.managed=true` in the runtime clone's local Git configuration, so launcher cleanliness checks apply only to installer-owned runtimes and never conflate an adopted checkout with a separately selected home.
 Custom directories are available through the installer's help and are recorded into the bootstrap atomically.
 
-Activation sets `MULTPLX_ACTIVE=1`, `MX_ROOT_OVERRIDE`, and `MX_HOME`, captures the real Claude, Codex, and Pi paths before adding shims, and then replaces the launcher with the user's interactive shell.
-Bash and Zsh source the user's ordinary interactive rc once before re-prepending the three harness shims and composing one static prompt/title marker.
+Activation sets `MULTPLX_ACTIVE=1`, `MX_ROOT_OVERRIDE`, and `MX_HOME`, captures the real Claude, Codex, Cursor, and Pi paths before adding shims, and then replaces the launcher with the user's interactive shell.
+Bash and Zsh source the user's ordinary interactive rc once before re-prepending the harness shims and composing one static prompt/title marker.
 Other tested POSIX shells retain the environment and shims with a one-line banner, while unsupported shells refuse explicitly.
 Nested activation refuses rather than stacking prompt, path, or environment layers.
 The prompt marker is presentation only: it runs no command, reads no file or state, opens no socket, and does not indicate lock ownership.
 
-Typing `claude`, `codex`, or `pi` in the activated shell executes the captured real binary from the code root in a child process.
+Typing `claude`, `codex`, `agent`, `cursor-agent`, or `pi` in the activated shell executes the captured real binary from the code root in a child process.
 The activated shell and its caller stay in their original directory.
 The harness shim performs only the existing read-only lock-status preflight; `bin/mx-lock.sh` and `bin/mx-session-start.sh` remain the sole lock and startup authorities.
 A known different live harness holder refuses before the real binary starts, while stale or uncertain state remains for session start to adjudicate conservatively.
@@ -197,14 +197,14 @@ The full cmux home label also includes a short hash of the resolved `MX_ROOT` pa
 
 ## Harness support
 
-claude, codex, and pi are all empirically verified; new harnesses get verified through a monitored trial task before joining the set.
+claude, codex, cursor, and pi are empirically verified; new harnesses get verified through a monitored trial task before joining the set.
 The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and actor launch require host operations that the default command sandbox denies.
 The project setting does not change `approval_policy`; Codex approval prompts remain under the maintainer's user-level or command-line policy.
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Launch mechanics, including the verified command templates, live in [`bin/mx-spawn.sh`](../bin/mx-spawn.sh).
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Primary-session watcher wake protocols are rendered at session start by [`bin/mx-supervision-instructions.sh`](../bin/mx-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
-Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex uses bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
+Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex and Cursor use bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
 `config/actor-harness` is a local, gitignored file containing one adapter name for actor and scout launches.
 When it is absent or contains `default`, actors mirror the broker's own harness.
 `config/daemon-harness` is a separate local, gitignored file containing the adapter the primary uses to launch daemon agents, optionally followed by model and effort tokens on the same line.
@@ -219,6 +219,10 @@ The inherited-local-material contract is owned by [`daemon-provisioning`](../.ag
 Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit runtime outside the config.
 `config/daemon-harness` is not inherited because daemons do not launch daemons.
 For Pi daemon launches, `mx-spawn.sh` starts Pi with `-e` pointed at the daemon home's own tracked `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, both already present from the daemon home's git worktree.
+For Cursor launches, `mx-spawn.sh` always passes `--sandbox enabled --trust`; actor turn-end signaling comes from a private per-run plugin and primary behavior comes from tracked `.cursor` rules and hooks.
+Cursor model effort is encoded as `<model>[effort=<level>]`; use `agent models` in the authenticated account before choosing a named model.
+Cursor deep-review is deliberately unsupported because schema enforcement and project-rule suppression are not verified together.
+[Cursor CLI verification](verification/cursor-cli.md) owns the dated version, authentication, sandbox, hook, resume, daemon, and negative-control evidence.
 
 ## Actors dispatch profiles (config/actor-dispatch.json)
 

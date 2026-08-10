@@ -105,8 +105,8 @@ SIGNAL_GRACE=${MX_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trai
                                       # signals (a status write, then the same turn's
                                       # turn-end hook) coalesce into one wake
 # Busy signatures per harness, OR-ed. Extend via env when new adapters are verified.
-# claude/codex: "esc to interrupt"; pi: "Working...".
-BUSY_REGEX=${MX_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.'}
+# Cursor adds "Working" and "ctrl+c to stop" to the verified signatures.
+BUSY_REGEX=${MX_BUSY_REGEX:-'esc (to )?interrupt|Working(\.\.\.)?|ctrl\+c to stop'}
 # Always-on wake triage: most wakes during a long actors validation are benign (a
 # working: note or turn-end while a pipeline runs, a no-change heartbeat). Rather
 # than wake broker's LLM for each, this watcher classifies every wake in bash

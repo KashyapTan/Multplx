@@ -14,13 +14,16 @@ make_runtime() {
   mkdir -p "$target/bin" "$target/.agents/skills" "$target/share/shell/shims"
   for source_file in \
     mx-launcher-lib.sh mx-launcher.sh mx-launcher-install.sh \
-    mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh; do
+    mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh \
+    mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
     cp "$ROOT/bin/$source_file" "$target/bin/$source_file"
   done
   cp "$ROOT/share/shell/multplx.bash" "$target/share/shell/multplx.bash"
   cp "$ROOT/share/shell/multplx.zsh" "$target/share/shell/multplx.zsh"
   cp "$ROOT/share/shell/shims/claude" "$target/share/shell/shims/claude"
   cp "$ROOT/share/shell/shims/codex" "$target/share/shell/shims/codex"
+  cp "$ROOT/share/shell/shims/agent" "$target/share/shell/shims/agent"
+  cp "$ROOT/share/shell/shims/cursor-agent" "$target/share/shell/shims/cursor-agent"
   cp "$ROOT/share/shell/shims/pi" "$target/share/shell/shims/pi"
   chmod +x "$target/bin/"*.sh "$target/share/shell/shims/"*
   printf '# launcher fixture\n' >"$target/AGENTS.md"
@@ -43,7 +46,7 @@ install_fixture() {
 make_fake_harnesses() {
   local fakebin=$1 harness
   mkdir -p "$fakebin"
-  for harness in claude codex pi; do
+  for harness in claude codex agent pi; do
     cat >"$fakebin/$harness" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -236,6 +239,18 @@ test_harness_cwd_arguments_environment_and_backend() {
   [ "$(cat "$record/arg.0")" = 'space arg' ] || fail "space argument changed"
   [ "$(cat "$record/arg.1")" = '*?[glob]' ] || fail "glob argument changed"
   [ "$(cat "$record/arg.2")" = $'line one\nline two' ] || fail "newline argument changed"
+
+  rm -rf "$record"
+  PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
+    "$case_dir/bin/multplx" cursor 'cursor arg' >/dev/null
+  [ "$(cat "$record/argc")" = 3 ] || fail "Cursor launch did not prepend exactly --sandbox enabled"
+  [ "$(cat "$record/arg.0")" = --sandbox ] && [ "$(cat "$record/arg.1")" = enabled ] \
+    || fail "Cursor launch did not keep sandboxing enabled"
+  [ "$(cat "$record/arg.2")" = 'cursor arg' ] || fail "Cursor argument changed"
+  if PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
+      "$case_dir/bin/multplx" cursor --yolo >/dev/null 2>&1; then
+    fail "Cursor launcher accepted blanket yolo authority"
+  fi
 
   rm -rf "$record"
   PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" MX_BACKEND=tmux \

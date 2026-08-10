@@ -9,7 +9,7 @@
 # This file is sourced by scripts and has no side effects on source.
 
 # Known harness command names; extend when a new adapter is verified.
-MX_HARNESS_RE='claude|codex|^pi$'
+MX_HARNESS_RE='claude|codex|cursor-agent|^pi$'
 
 # Walk the current process ancestry (up to 8 hops) and print the first pid whose
 # command looks like a verified harness. The harness pid lives as long as the

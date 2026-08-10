@@ -1,0 +1,9 @@
+---
+description: Multplx broker operating contract for Cursor CLI
+alwaysApply: true
+---
+
+Read `AGENTS.md` before acting.
+The primary broker dispatches through Multplx and never through Cursor subagents, background agents, or Cursor-owned worktrees.
+Keep Cursor sandboxing enabled; never use `--force`, `--yolo`, or `--sandbox disabled` for routine work.
+Run `bin/mx-session-start.sh` exactly once at session start when instructed by the tracked session hook.

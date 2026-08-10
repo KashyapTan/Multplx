@@ -46,7 +46,7 @@ The global `multplx` command activates that distribution from any directory, aft
 
 ## Getting Started
 
-You need macOS or Linux, one verified harness - Claude Code, Codex, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
+You need macOS or Linux, one verified harness - Claude Code, Codex, Cursor, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
 tmux is the reference runtime backend; Herdr and cmux are experimental alternatives.
 
 Clone once and register that checkout as the global Multplx code root and operational home:
@@ -63,6 +63,7 @@ Ensure `~/.local/bin` is on `PATH`, then activate Multplx from any directory and
 multplx
 codex
 # or: claude
+# or: agent
 # or: pi
 ```
 

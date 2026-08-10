@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a routed agent: an actor in a treehouse worktree, or a
 # daemon in its isolated Multplx home.
-# Usage: mx-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
+# Usage: mx-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--single-checkout <request-id>] [--scout]
 #        mx-spawn.sh <task-id> [<broker-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --daemon
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
@@ -63,7 +63,7 @@
 #   profile consultation. A --daemon spawn is exempt and resolves the DAEMON
 #   harness (config/daemon-harness -> config/actor-harness -> own), so the
 #   daemon-vs-actor split is DURABLE across every respawn (recovery,
-#   /updatemultplx, restart). A bare adapter name (claude|codex|pi)
+#   /updatemultplx, restart). A bare adapter name (claude|codex|cursor|pi)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters.
@@ -88,6 +88,9 @@
 #   default-branch commit when safe; skipped syncs warn and launch unchanged.
 #   Delivery/scout spawns refuse to launch unless the resolved task path is a real
 #   git worktree root distinct from the primary project checkout.
+#   --single-checkout consumes one exact isolation.single-checkout grant before
+#   endpoint creation, records the factual loss of isolation, and reserves the
+#   named checkout against another single-checkout task until teardown.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     mx-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -146,6 +149,8 @@ mx_refuse_if_gate_agent
 . "$SCRIPT_DIR/mx-pr-lib.sh"
 # shellcheck source=bin/mx-journal-lib.sh
 . "$SCRIPT_DIR/mx-journal-lib.sh"
+# shellcheck source=bin/mx-maintainer-override-lib.sh
+. "$SCRIPT_DIR/mx-maintainer-override-lib.sh"
 # Skip the watcher guard when re-exec'd for one pair of a batch (MX_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${MX_SPAWN_NO_GUARD:-}" ] || "$MX_ROOT/bin/mx-guard.sh" || true
@@ -158,6 +163,7 @@ HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
+SINGLE_CHECKOUT_OVERRIDE=
 POS=()
 want_value=
 for a in "$@"; do
@@ -170,6 +176,7 @@ for a in "$@"; do
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
+      single-checkout) SINGLE_CHECKOUT_OVERRIDE=$a ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -186,6 +193,8 @@ for a in "$@"; do
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
+    --single-checkout) want_value=single-checkout ;;
+    --single-checkout=*) SINGLE_CHECKOUT_OVERRIDE=${a#--single-checkout=} ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -194,6 +203,8 @@ done
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
+[ -z "$SINGLE_CHECKOUT_OVERRIDE" ] || mx_override_slug_valid "$SINGLE_CHECKOUT_OVERRIDE" \
+  || { echo "error: --single-checkout requires a valid request id" >&2; exit 1; }
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
@@ -227,6 +238,11 @@ SPAWN_TASK_LOCK=
 SPAWN_TASK_LOCK_HELD=0
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
+SINGLE_CHECKOUT_RECORD=
+SINGLE_CHECKOUT_RESERVATION_HELD=0
+SINGLE_CHECKOUT_OVERRIDE_CONSUMED=0
+SINGLE_CHECKOUT_CLAIM=
+SINGLE_CHECKOUT_CLAIM_HELD=0
 
 spawn_abort_cleanup() {
   local status=$?
@@ -255,6 +271,20 @@ spawn_abort_cleanup() {
   if [ "$CONFIG_INHERIT_LOCK_HELD" = 1 ]; then
     CONFIG_INHERIT_LOCK_HELD=0
     mx_lock_release "$CONFIG_INHERIT_LOCK" || true
+  fi
+  if [ "$SINGLE_CHECKOUT_CLAIM_HELD" = 1 ]; then
+    SINGLE_CHECKOUT_CLAIM_HELD=0
+    mx_lock_release "$SINGLE_CHECKOUT_CLAIM" || true
+  fi
+  if [ "$SINGLE_CHECKOUT_RESERVATION_HELD" = 1 ] && [ -n "$SINGLE_CHECKOUT_RECORD" ]; then
+    if [ -f "$SINGLE_CHECKOUT_RECORD" ] && [ ! -L "$SINGLE_CHECKOUT_RECORD" ] \
+       && [ "$(jq -r '.task_id // empty' "$SINGLE_CHECKOUT_RECORD" 2>/dev/null)" = "${ID:-}" ]; then
+      rm -f "$SINGLE_CHECKOUT_RECORD" || true
+    fi
+  fi
+  if [ "$SINGLE_CHECKOUT_OVERRIDE_CONSUMED" = 1 ]; then
+    MX_STATE_OVERRIDE="$STATE" mx_override_result "$SINGLE_CHECKOUT_OVERRIDE" failed \
+      "single-checkout spawn exited with status $status" >/dev/null 2>&1 || true
   fi
   return "$status"
 }
@@ -295,6 +325,10 @@ spawn_herdr_presentation_order_lock_release() {
 idpart=${POS[0]:-}
 idpart=${idpart%%=*}
 if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in */*) false ;; *) true ;; esac; then
+  [ -z "$SINGLE_CHECKOUT_OVERRIDE" ] || {
+    echo "error: --single-checkout is exact to one task and cannot be used with batch dispatch" >&2
+    exit 2
+  }
   if [ "$KIND" != daemon ] && [ -z "$HARNESS_ARG" ] && [ -f "$CONFIG/actor-dispatch.json" ]; then
     echo "error: config/actor-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
     exit 1
@@ -324,6 +358,10 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 mx_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+[ "$KIND" = delivery ] || [ -z "$SINGLE_CHECKOUT_OVERRIDE" ] || {
+  echo "error: --single-checkout is supported only for one delivery task" >&2
+  exit 2
+}
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
 if ! mx_lock_try_acquire "$SPAWN_TASK_LOCK"; then
   echo "error: another spawn is already creating task $ID" >&2
@@ -336,7 +374,7 @@ MULTPLX_HOME=
 
 if [ "$KIND" = daemon ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|pi)
+    ''|claude|codex|cursor|pi)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -381,6 +419,10 @@ if [ "$KIND" != daemon ] && [ "${MX_HEADROOM_SKIP_QUEUE:-0}" != 1 ]; then
     exit 1
   fi
   if [ "$HEADROOM_AT_LIMIT" = true ]; then
+    [ -z "$SINGLE_CHECKOUT_OVERRIDE" ] || {
+      echo "error: an exact single-checkout grant cannot be queued; retry it after capacity is available" >&2
+      exit 1
+    }
     QUEUE_ARGS=()
     [ -z "$ARG3" ] || QUEUE_ARGS+=(--harness "$ARG3")
     [ -z "$MODEL" ] || QUEUE_ARGS+=(--model "$MODEL")
@@ -415,6 +457,9 @@ launch_template() {
       else
         printf '%s' 'codex __REPORTMCPCODEX____MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
+      ;;
+    cursor)
+      printf '%s' 'agent --sandbox enabled --trust __CURSORPLUGIN____MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       ;;
     pi)
       if [ "$kind" = daemon ]; then
@@ -507,11 +552,20 @@ shell_quote() {
 }
 
 model_flag_for_harness() {
-  local harness=$1 model=$2
+  local harness=$1 model=$2 effort=${3:-default} selected=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
     claude|codex|pi)
       printf -- '--model %s ' "$(shell_quote "$model")"
+      ;;
+    cursor)
+      if [ -n "$effort" ] && [ "$effort" != default ]; then
+        case "$selected" in
+          *'['*) ;;
+          *) selected="${selected}[effort=$effort]" ;;
+        esac
+      fi
+      printf -- '--model %s ' "$(shell_quote "$selected")"
       ;;
   esac
 }
@@ -539,6 +593,10 @@ effort_flag_for_harness() {
       case "$effort" in
         low|medium|high|xhigh|max) printf -- '--thinking %s ' "$(shell_quote "$effort")" ;;
       esac
+      ;;
+    cursor)
+      # Cursor expresses reasoning effort as a parameter on the model token.
+      # model_flag_for_harness folds it into model[effort=<level>].
       ;;
   esac
 }
@@ -734,6 +792,67 @@ fi
 # once here so every downstream comparison uses the same physical form
 # (docs/herdr-backend.md "Known gaps").
 PROJ_ABS_REAL=$(cd "$PROJ_ABS" 2>/dev/null && pwd -P) || PROJ_ABS_REAL="$PROJ_ABS"
+
+if [ -n "$SINGLE_CHECKOUT_OVERRIDE" ]; then
+  PROJ_ABS=$PROJ_ABS_REAL
+  [ -z "$(git -C "$PROJ_ABS_REAL" status --porcelain=v1 --untracked-files=all 2>/dev/null)" ] || {
+    echo "error: single-checkout mode requires a clean checkout so task material remains attributable" >&2
+    exit 1
+  }
+  git -C "$PROJ_ABS_REAL" symbolic-ref --quiet --short HEAD >/dev/null 2>&1 || {
+    echo "error: single-checkout mode requires an attached base branch" >&2
+    exit 1
+  }
+  SINGLE_CHECKOUT_CLAIM="$STATE/.single-checkout.acquire"
+  mx_lock_acquire_wait "$SINGLE_CHECKOUT_CLAIM" || {
+    echo "error: could not serialize single-checkout reservation" >&2
+    exit 1
+  }
+  SINGLE_CHECKOUT_CLAIM_HELD=1
+  SINGLE_CHECKOUT_RECORD="$STATE/.single-checkout-$(mx_override_sha256_text "$PROJ_ABS_REAL").json"
+  if [ -e "$SINGLE_CHECKOUT_RECORD" ] || [ -L "$SINGLE_CHECKOUT_RECORD" ]; then
+    if [ ! -f "$SINGLE_CHECKOUT_RECORD" ] || [ -L "$SINGLE_CHECKOUT_RECORD" ]; then
+      echo "error: single-checkout reservation is not a regular file: $SINGLE_CHECKOUT_RECORD" >&2
+      exit 1
+    fi
+    reserved_task=$(jq -r '.task_id // empty' "$SINGLE_CHECKOUT_RECORD" 2>/dev/null || true)
+    reserved_target=$(jq -r '.target_identity // empty' "$SINGLE_CHECKOUT_RECORD" 2>/dev/null || true)
+    if ! mx_task_id_creation_valid "$reserved_task" || [ "$reserved_target" != "$PROJ_ABS_REAL" ]; then
+      echo "error: single-checkout reservation is invalid; refusing to guess ownership" >&2
+      exit 1
+    fi
+    if [ -f "$STATE/$reserved_task.meta" ]; then
+      echo "error: checkout is reserved by live single-checkout task $reserved_task" >&2
+      exit 1
+    fi
+    rm -f "$SINGLE_CHECKOUT_RECORD" || exit 1
+  fi
+  bindings=$(MX_ROOT_OVERRIDE="$MX_ROOT" MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/mx-override-bindings.sh" single-checkout "$ID" "$PROJ_ABS_REAL") || exit 1
+  single_operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  single_target=$(printf '%s' "$bindings" | jq -r '.target')
+  single_project=$(printf '%s' "$bindings" | jq -r '.project')
+  single_digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  MX_STATE_OVERRIDE="$STATE" mx_override_consume "$SINGLE_CHECKOUT_OVERRIDE" \
+    isolation.single-checkout "$ID" "$single_project" "$single_operation" \
+    "$single_target" "$single_digest" >/dev/null || exit 1
+  SINGLE_CHECKOUT_OVERRIDE_CONSUMED=1
+  single_tmp=$(mktemp "$STATE/.single-checkout.XXXXXX") || exit 1
+  if ! jq -n --arg task_id "$ID" --arg target_identity "$PROJ_ABS_REAL" \
+      --arg request_id "$SINGLE_CHECKOUT_OVERRIDE" --arg base_head "$(git -C "$PROJ_ABS_REAL" rev-parse HEAD)" \
+      --arg base_branch "$(git -C "$PROJ_ABS_REAL" symbolic-ref --quiet --short HEAD 2>/dev/null || printf detached)" \
+      '{version:1,task_id:$task_id,target_identity:$target_identity,request_id:$request_id,base_head:$base_head,base_branch:$base_branch}' \
+      > "$single_tmp"; then
+    rm -f "$single_tmp"
+    exit 1
+  fi
+  chmod 600 "$single_tmp"
+  mv "$single_tmp" "$SINGLE_CHECKOUT_RECORD"
+  SINGLE_CHECKOUT_RESERVATION_HELD=1
+  SINGLE_CHECKOUT_CLAIM_HELD=0
+  mx_lock_release "$SINGLE_CHECKOUT_CLAIM"
+  WT="$PROJ_ABS_REAL"
+fi
 
 real_path_or_raw() {  # <path>
   local path=$1 real
@@ -1049,7 +1168,7 @@ spawn_send_key() {  # <target> <key>
     cmux) mx_backend_cmux_send_key "$1" "$2" "$W" ;;
   esac
 }
-if [ "$KIND" != daemon ]; then
+if [ "$KIND" != daemon ] && [ -z "$SINGLE_CHECKOUT_OVERRIDE" ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
@@ -1106,6 +1225,21 @@ fi
 # targeted knob: TMPDIR is too broad (affects every program's temp, not just Go's).
 TASK_TMP="/tmp/mx-$ID"
 mkdir -p "$TASK_TMP/gotmp"
+if [ -n "$SINGLE_CHECKOUT_OVERRIDE" ]; then
+  SINGLE_CHECKOUT_BRIEF="$TASK_TMP/single-checkout-brief.md"
+  {
+    printf '%s\n' '# Authorized single-checkout execution context'
+    printf '%s\n' ''
+    printf '%s\n' "This task is running under consumed isolation.single-checkout grant $SINGLE_CHECKOUT_OVERRIDE."
+    printf '%s\n' "The checkout $PROJ_ABS_REAL is intentionally the task worktree; do not abort on the ordinary isolated-worktree assertion."
+    printf '%s\n' 'The loss of isolation is recorded and Multplx excludes another single-checkout task here until teardown.'
+    printf '%s\n' 'All other task, validation, delivery, and safety requirements remain in force.'
+    printf '%s\n' ''
+    cat "$BRIEF"
+  } > "$SINGLE_CHECKOUT_BRIEF"
+  chmod 600 "$SINGLE_CHECKOUT_BRIEF"
+  BRIEF=$SINGLE_CHECKOUT_BRIEF
+fi
 
 # Per-harness turn-end hook: a file that touches state/<id>.turn-ended when the
 # agent finishes a turn. Worktree-resident hooks are kept out of git's view so
@@ -1147,6 +1281,27 @@ EOF
     codex*)
       # codex: turn-end rides the launch command via -c notify=[...] and __TURNEND__.
       ;;
+    cursor*)
+      # Cursor supports per-run plugins. Keeping this hook under the private
+      # task temp root avoids project-hook collisions and leaves the worktree
+      # clean while still producing one native interactive stop signal.
+      CURSOR_PLUGIN="$TASK_TMP/cursor-turnend-plugin"
+      mkdir -p "$CURSOR_PLUGIN/.cursor-plugin" "$CURSOR_PLUGIN/hooks"
+      cat > "$CURSOR_PLUGIN/.cursor-plugin/plugin.json" <<EOF
+{"name":"multplx-turnend-$ID","version":"1.0.0","description":"Private Multplx actor turn-end signal.","hooks":"./hooks/hooks.json"}
+EOF
+      cat > "$CURSOR_PLUGIN/hooks/hooks.json" <<'EOF'
+{"version":1,"hooks":{"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}
+EOF
+      cat > "$CURSOR_PLUGIN/hooks/stop.sh" <<EOF
+#!/usr/bin/env bash
+set -eu
+cat >/dev/null
+touch $(shell_quote "$TURNEND")
+printf '%s\n' '{}'
+EOF
+      chmod 700 "$CURSOR_PLUGIN/hooks/stop.sh"
+      ;;
   esac
 fi
 
@@ -1178,6 +1333,13 @@ META_WINDOW=$T
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  if [ -n "$SINGLE_CHECKOUT_OVERRIDE" ]; then
+    echo "single_checkout=yes"
+    echo "single_checkout_override=$SINGLE_CHECKOUT_OVERRIDE"
+    echo "single_checkout_record=$SINGLE_CHECKOUT_RECORD"
+    echo "single_checkout_base_head=$(jq -r '.base_head' "$SINGLE_CHECKOUT_RECORD")"
+    echo "single_checkout_base_branch=$(jq -r '.base_branch' "$SINGLE_CHECKOUT_RECORD")"
+  fi
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
   # data/mx-backend-design-d7's P1 compatibility contract).
@@ -1218,6 +1380,8 @@ sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/mx-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/mx-primary-pi-watch.ts")
 sq_opinput=$(shell_quote "$MX_ROOT/bin/mx-operational-input.sh")
+CURSOR_PLUGIN_FLAG=
+[ -z "${CURSOR_PLUGIN:-}" ] || CURSOR_PLUGIN_FLAG="--plugin-dir $(shell_quote "$CURSOR_PLUGIN") "
 REPORT_MCP_CLAUDE=
 REPORT_MCP_CODEX=
 REPORT_RUNTIME_HOME=$MX_HOME
@@ -1264,12 +1428,13 @@ if case "$HARNESS" in claude|codex) true ;; *) false ;; esac; then
     echo "warning: report_status MCP requires node, jq, and bin/mx-report-mcp.mjs; mx-report remains available" >&2
   fi
 fi
-MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
+MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL" "$EFFORT")
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
 LAUNCH=${LAUNCH//__REPORTMCPCLAUDE__/$REPORT_MCP_CLAUDE}
 LAUNCH=${LAUNCH//__REPORTMCPCODEX__/$REPORT_MCP_CODEX}
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
+LAUNCH=${LAUNCH//__CURSORPLUGIN__/$CURSOR_PLUGIN_FLAG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
@@ -1313,6 +1478,14 @@ if [ "$KIND" = daemon ]; then
       echo "CONFIG_REREAD: daemon $ID: cleanup failed; pre-relaunch generations were force-cleared where possible (destination=$PROJ_ABS source=$MX_HOME)" >&2
     fi
   fi
+fi
+
+if [ -n "$SINGLE_CHECKOUT_OVERRIDE" ]; then
+  MX_STATE_OVERRIDE="$STATE" mx_override_result "$SINGLE_CHECKOUT_OVERRIDE" succeeded \
+    "single-checkout task $ID launched in $PROJ_ABS_REAL" >/dev/null || true
+  SINGLE_CHECKOUT_OVERRIDE_CONSUMED=0
+  # Teardown now owns this durable reservation.
+  SINGLE_CHECKOUT_RESERVATION_HELD=0
 fi
 
 echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$META_WINDOW worktree=$WT"

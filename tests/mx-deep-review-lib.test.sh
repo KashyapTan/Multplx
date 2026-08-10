@@ -234,6 +234,14 @@ SH
   assert_grep 'gate=1 args=--print' "$log" "pi adapter omitted its gate marker"
   assert_grep '--no-context-files --no-extensions' "$log" \
     "pi adapter did not suppress project context"
+  rm -f "$output" "$session"
+  if PATH="$fakebin:$PATH" DR_REPO_ROOT="$repo" \
+      DR_CONFIG_DISABLE_PROJECT_SETTINGS=true MX_DEEP_REVIEW_HARNESS=cursor \
+      dr_agent_oneshot --session new --schema "$schema" --prompt "$prompt" \
+        --output "$output" --session-out "$session" >/dev/null 2>&1; then
+    fail "Cursor deep-review ran without verified schema and project-rule suppression"
+  fi
+  [ ! -e "$output" ] && [ ! -e "$session" ] || fail "Cursor deep-review refusal forged output state"
   pass "deep-review headless adapters carry schema output, session ids, markers, and project-setting suppression"
 }
 

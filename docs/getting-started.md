@@ -11,6 +11,7 @@ Use macOS or Linux and install one verified coding-agent harness:
 
 - Claude Code, launched with `claude`.
 - Codex CLI, launched with `codex`.
+- Cursor CLI, launched with `agent` or `cursor-agent`.
 - Pi, launched with `pi`.
 
 Every Multplx home needs Node.js, Git, the official GitHub CLI, `jq`, and Treehouse with durable lease support.
@@ -61,6 +62,7 @@ Inside the activated shell, launch one installed harness:
 ```sh
 claude
 # or: codex
+# or: agent
 # or: pi
 ```
 
@@ -68,6 +70,7 @@ The harness child alone changes to the configured Multplx code root so project i
 Approve the repository trust prompt when the harness presents one.
 Pi needs that approval so the tracked `.pi/extensions/*.ts` files can load.
 Codex needs it so the tracked project configuration and hooks load.
+Multplx passes Cursor's scoped `--trust` flag only after validating the configured code root and keeps Cursor sandboxing enabled.
 
 The tracked `AGENTS.md` file defines the broker role.
 At session start the broker runs `bin/mx-session-start.sh` exactly once, detects missing tools and invalid configuration, reconciles durable work, and emits the supervision instructions for the active harness.

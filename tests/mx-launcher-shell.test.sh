@@ -10,7 +10,8 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 RUNTIME="$TMP_ROOT/runtime"
 mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
   "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state"
-for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh; do
+for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh \
+  mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
   cp "$ROOT/bin/$file" "$RUNTIME/bin/$file"
 done
 cp "$ROOT/share/shell/multplx.bash" "$RUNTIME/share/shell/multplx.bash"
@@ -122,6 +123,13 @@ test_harness_stream_and_child_cwd_are_transparent() {
   assert_contains "$output" 'HARNESS_ARG=arg with space' "shim changed harness argument"
   assert_contains "$output" $'\033[?1049h\033[31mraw-unicode-λ\033[0m\r' "alternate-screen/color bytes were proxied or changed"
   assert_contains "$output" $'\033[?1049l' "alternate-screen exit bytes were changed"
+
+  make_fake_codex "$fakebin/agent"
+  output=$(cd "$caller" && \
+    PATH="$fakebin:/usr/bin:/bin" MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$RUNTIME" \
+    MX_REAL_CURSOR_AGENT="$fakebin/agent" "$RUNTIME/share/shell/shims/agent" 'cursor arg')
+  assert_contains "$output" "HARNESS_CWD=$RUNTIME" "agent shim did not change child cwd"
+  assert_contains "$output" 'HARNESS_ARG=--sandbox' "agent shim did not force sandbox-enabled launch"
   pass "harness shim passes argv and terminal control bytes without a proxy"
 }
 

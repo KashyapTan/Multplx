@@ -1007,10 +1007,34 @@ wf_mark_stage_passed() { # <run-dir> <stage-id>
   fi
 }
 
+wf_stage_order() { # <run-dir>
+  local run_dir=$1 order="$1/stage-order.json"
+  if [ -f "$order" ] && [ ! -L "$order" ]; then
+    jq -er --slurpfile definition "$run_dir/definition.json" '
+      select(type == "array" and all(.[]; type == "string") and length == ($definition[0].stages | length)) |
+      select((unique | length) == length) |
+      select((sort) == ([$definition[0].stages[].id] | sort)) | .[]
+    ' "$order" 2>/dev/null
+  else
+    jq -r '.stages[].id' "$run_dir/definition.json"
+  fi
+}
+
+wf_mark_stage_skipped() { # <run-dir> <stage-id> <override-request>
+  local run_dir=$1 stage_id=$2 request=$3 now
+  now=$(wf_now)
+  jq -n --arg id "$stage_id" --arg request "$request" --arg now "$now" \
+    '{id:$id,status:"skipped",exception:"maintainer-directed",override_request:$request,skipped_at:$now}' \
+    | wf_stage_record_write "$run_dir" "$stage_id"
+}
+
 wf_assert_stage_order() { # <run-dir>
   local run_dir=$1 seen_unmet=0 stage_id status
   while IFS= read -r stage_id; do
     status=$(wf_stage_record_status "$run_dir" "$stage_id")
+    if [ "$status" = skipped ]; then
+      continue
+    fi
     if [ "$status" = passed ]; then
       [ "$seen_unmet" -eq 0 ] || {
         wf_error "out-of-order passed record for stage $stage_id"
@@ -1020,7 +1044,7 @@ wf_assert_stage_order() { # <run-dir>
       seen_unmet=1
     fi
   done <<EOF
-$(jq -r '.stages[].id' "$run_dir/definition.json")
+$(wf_stage_order "$run_dir")
 EOF
 }
 
@@ -1043,6 +1067,9 @@ wf_reconcile_run() { # <run-dir>
     stage_json=$(wf_stage_json "$run_dir/definition.json" "$stage_id") || return 1
     record=$(wf_stage_record_path "$run_dir" "$stage_id")
     status=$(wf_stage_record_status "$run_dir" "$stage_id")
+    if [ "$status" = skipped ]; then
+      continue
+    fi
     if [ "$status" = passed ]; then
       wf_contract_check "$run_dir" "$stage_json" "$record" || {
         wf_run_set_state "$run_dir" failed "$stage_id" "passed stage contract no longer holds"
@@ -1264,7 +1291,7 @@ wf_reconcile_run() { # <run-dir>
         ;;
     esac
   done <<EOF
-$(jq -r '.stages[].id' "$run_dir/definition.json")
+$(wf_stage_order "$run_dir")
 EOF
 
   wf_complete_run_backlog "$(jq -r '.home' "$run_dir/run.json")" \
@@ -1308,6 +1335,8 @@ wf_create_run() { # <definition> <run-id> <input> <repo> <home> <state>
   wf_atomic_write "$run_dir/definition.workflow.md" 600 <"$definition" || return 1
   wf_definition_json "$run_dir/definition.workflow.md" \
     | wf_atomic_write "$run_dir/definition.json" 600 || return 1
+  jq '[.stages[].id]' "$run_dir/definition.json" \
+    | wf_atomic_write "$run_dir/stage-order.json" 600 || return 1
   printf '%s' "$input" | wf_atomic_write "$run_dir/input.txt" 600 || return 1
   digest=$(wf_sha256_file "$run_dir/definition.workflow.md") || return 1
   definition_path=$(cd "$(dirname "$definition")" && pwd -P)/$(basename "$definition")
@@ -1355,6 +1384,6 @@ wf_status_render() { # <run-dir>
       jq -r 'select(.stdout != null) | "    stdout: \(.stdout)\n    stderr: \(.stderr)"' "$record"
     fi
   done <<EOF
-$(jq -r '.stages[].id' "$run_dir/definition.json")
+$(wf_stage_order "$run_dir")
 EOF
 }

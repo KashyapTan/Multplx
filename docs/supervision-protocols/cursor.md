@@ -1,0 +1,4 @@
+- Use `bin/mx-watch-checkpoint.sh --seconds 180` as a foreground checkpoint while work is in flight.
+- Handle every wake, then take another checkpoint while work remains.
+- Never use shell `&`, Cursor background agents, or Cursor worktrees for broker supervision or dispatch.
+- The tracked Cursor stop hook permits at most one continuation and reminds this primary to restore a missing checkpoint.

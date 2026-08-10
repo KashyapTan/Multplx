@@ -698,6 +698,10 @@ dr_agent_oneshot() {
       fi
       printf '%s\n' "$session_id" | dr_atomic_write "$session_out" 600
       ;;
+    cursor)
+      dr_die "Cursor deep-review is unsupported: native schema enforcement and project-rule suppression are not both verified"
+      return 1
+      ;;
     *)
       dr_die "no verified deep-review headless adapter for harness '$harness'"
       return 1

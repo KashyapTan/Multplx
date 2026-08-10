@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./bin/mx-cursor-hook.sh session-start",
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "./bin/mx-cursor-hook.sh pre-tool",
+        "failClosed": true
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": "./bin/mx-cursor-hook.sh subagent-start",
+        "failClosed": true
+      }
+    ],
+    "stop": [
+      {
+        "command": "./bin/mx-cursor-hook.sh stop",
+        "loop_limit": 1
+      }
+    ]
+  }
+}
