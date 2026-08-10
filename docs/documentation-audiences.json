@@ -209,7 +209,7 @@
       "audience": "public-product"
     },
     {
-      "path": "plans/PORTING.md",
+      "path": "plans/rust_port/PORTING.md",
       "audience": "maintainer-architecture"
     },
     {

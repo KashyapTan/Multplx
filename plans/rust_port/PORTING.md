@@ -5,7 +5,7 @@
 This document is the implementation guide for replacing the active Multplx runtime in `bin/` with Rust while preserving its observable behavior, safety boundaries, state formats, and supported integrations.
 It is written for an agent performing the port, not as a proposal to redesign Multplx.
 The port must improve startup cost, concurrency safety, error handling, and portability without changing product policy or weakening fail-closed behavior.
-The dependency-ordered implementation portions and their individual acceptance gates are in the [Rust port roadmap](rust_port/index.html).
+The dependency-ordered implementation portions and their individual acceptance gates are in the [Rust port roadmap](index.html).
 
 ## Scope
 

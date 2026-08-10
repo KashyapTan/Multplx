@@ -75,7 +75,7 @@ tr:nth-child(even) td{background:var(--surface)}
     <span class="badge phase">13 portions</span>
     <span class="badge effort">Program effort: Very High</span>
     <span class="badge risk">Peak risk: High</span>
-    <span class="badge">Source owner: ../PORTING.md</span>
+    <span class="badge">Source owner: PORTING.md</span>
   </div>
 </div></header>
 <div class="wrap">
@@ -84,7 +84,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <p style="margin:0">Only one numbered portion may change its default implementation at a time. Every portion must leave the repository runnable, retain the black-box compatibility suite, and satisfy its own deletion gate before legacy code is removed.</p>
 </div>
 <div class="callout"><div class="label">Authoritative cross-cutting contract</div>
-<p style="margin:0"><a href="../PORTING.md" style="color:var(--accent)">PORTING.md</a> owns the rules shared by every portion: exact behavior parity, dual-engine testing, data compatibility, security review, documentation review, CI progression, and final legacy deletion. These artifacts divide the work without restating or weakening that contract.</p>
+<p style="margin:0"><a href="PORTING.md" style="color:var(--accent)">PORTING.md</a> owns the rules shared by every portion: exact behavior parity, dual-engine testing, data compatibility, security review, documentation review, CI progression, and final legacy deletion. These artifacts divide the work without restating or weakening that contract.</p>
 </div>
 
 <h2>Dependency flow</h2>
@@ -133,8 +133,7 @@ All completed portions
 <tr><td>Documentation</td><td>Current owners, skills, hooks, workflows, CI, and verification evidence change in the same portion as their implementation.</td></tr>
 <tr><td>Deletion</td><td>Legacy business logic is removed only in Portion 13 after all prior portions have passed their Rust-default rollback windows.</td></tr>
 </table>
-<div class="footer-nav"><a href="../index.html">← Main plans index</a><a href="../PORTING.md">Porting guide</a><a href="01-workspace-parity-harness.html">Begin Portion 01 →</a></div>
+<div class="footer-nav"><a href="../index.html">← Main plans index</a><a href="PORTING.md">Porting guide</a><a href="01-workspace-parity-harness.html">Begin Portion 01 →</a></div>
 </div>
 </body>
 </html>
-
