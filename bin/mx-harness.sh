@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: mx-harness.sh                  print own harness: claude|codex|pi|unknown
+# Usage: mx-harness.sh                  print own harness: claude|codex|cursor|pi|unknown
 #        mx-harness.sh actor              print the effective ACTOR harness
 #                                        (config/actor-harness; "default" resolves to own)
 #        mx-harness.sh daemon       print the harness the PRIMARY uses to launch
@@ -38,6 +38,7 @@ detect_own() {
     case "$(basename "$comm")" in
       *claude*) echo claude; return ;;
       *codex*) echo codex; return ;;
+      cursor-agent) echo cursor; return ;;
       pi) echo pi; return ;;
       node*|python*)
         # Bare interpreter: match the harness name in its script path.
@@ -45,6 +46,7 @@ detect_own() {
         case "$args" in
           *claude*) echo claude; return ;;
           *codex*) echo codex; return ;;
+          *cursor-agent*) echo cursor; return ;;
           *" pi "*|*/pi) echo pi; return ;;
         esac ;;
     esac

@@ -60,9 +60,9 @@
 # shellcheck source=bin/mx-composer-lib.sh
 . "$(dirname -- "${BASH_SOURCE[0]}")/mx-composer-lib.sh"
 
-# Busy footers per harness (mirror mx-watch.sh). claude/codex: "esc to
-# interrupt"; pi: "Working...".
-MX_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.'
+# Busy footers per harness (mirror mx-watch.sh).
+# Cursor renders "Working" and "ctrl+c to stop" while a turn is active.
+MX_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working(\.\.\.)?|ctrl\+c to stop'
 
 # mx_tmux_strip_ghost: thin adapter over the shared, system-wide ghost extractor
 # mx_composer_strip_ghost (bin/mx-composer-lib.sh). It drops de-emphasised

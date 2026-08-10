@@ -65,6 +65,9 @@ make_fake_root() {
   ln -s "$ROOT/bin/mx-gate-refuse-lib.sh" "$fake/bin/mx-gate-refuse-lib.sh"
   # mx-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
   ln -s "$ROOT/bin/mx-pr-lib.sh" "$fake/bin/mx-pr-lib.sh"
+  # Maintainer-override state is sourced unconditionally even when this ordinary
+  # landed-cleanup fixture does not consume an exceptional grant.
+  ln -s "$ROOT/bin/mx-maintainer-override-lib.sh" "$fake/bin/mx-maintainer-override-lib.sh"
   # mx-guard.sh: stub (teardown calls it with `|| true`).
   cat > "$fake/bin/mx-guard.sh" <<'SH'
 #!/usr/bin/env bash
@@ -161,6 +164,7 @@ test_teardown_skips_gracefully_without_tasktmp() {
   ln -s "$ROOT/bin/mx-gate-refuse-lib.sh" "$fake/bin/mx-gate-refuse-lib.sh"
   # mx-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
   ln -s "$ROOT/bin/mx-pr-lib.sh" "$fake/bin/mx-pr-lib.sh"
+  ln -s "$ROOT/bin/mx-maintainer-override-lib.sh" "$fake/bin/mx-maintainer-override-lib.sh"
   cat > "$fake/bin/mx-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0

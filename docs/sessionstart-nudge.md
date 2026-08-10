@@ -22,13 +22,15 @@ Every path exits 0, including malformed state and adapter errors, because a Clau
 | --- | --- | --- |
 | Claude | `.claude/settings.json` registers `SessionStart` for `startup`, `resume`, and `clear`, excludes `compact`, and invokes the wrapper through `CLAUDE_PROJECT_DIR`. | Native stdout context injection is supported. |
 | Codex | `.codex/hooks.json` anchors to the hook process working directory, verifies a Multplx-shaped hook-bearing root, and executes the wrapper. | Native stdout context injection is supported. |
+| Cursor | `.cursor/hooks.json` registers `sessionStart` through `bin/mx-cursor-hook.sh`, while the always-applied project rule independently requires the same idempotent session-start command. | Native `additional_context` delivery is verified on Cursor CLI `2026.08.04-aaa8809`; startup correctness does not depend on hook timing alone. |
 | Pi | `.pi/extensions/mx-primary-turnend-guard.ts` handles `session_start` reasons `startup`, `new`, and `resume`, then injects the wrapper output with `pi.sendMessage`. | The custom message reaches model context without racing an initial positional prompt. |
 
 ## Regression coverage
 
 `tests/mx-sessionstart-nudge.test.sh` proves wrapper silence for both gate signals, an unmarked linked worktree, a missing state directory, and an already-owned lock.
 It proves exact U+2063 `MULTPLX_OP:`-prefixed, `session-start`-typed one-line output for a plain primary and a marked linked daemon primary.
-It also verifies tracked wrapper registration for Claude, Codex, and Pi.
+It also verifies tracked wrapper registration for Claude, Codex, Cursor, and Pi.
+`tests/mx-cursor-adapter.test.sh` covers Cursor's transport translation and `tests/mx-cursor-live-e2e.test.sh` owns the installed-version authentication and surface check.
 `tests/mx-maintainer-translation-contract.test.sh` proves Recap's current marker rule, narrow legacy compatibility exclusions, genuine maintainer-message near misses, and the shared marker on supported user-role operational injections.
 `tests/mx-pi-primary-live-e2e.test.sh` exercises the native startup path with first-message and later-message Recap regressions.
 `tests/mx-turnend-guard.test.sh`, `tests/mx-pi-watch-extension.test.sh`, and `tests/mx-daemon.test.sh` cover marked guard, monitoring, and away-mode delivery.

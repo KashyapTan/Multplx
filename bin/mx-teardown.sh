@@ -46,16 +46,15 @@
 # maintainer's active tab, and restore the exact response-derived pre-close tab
 # if Herdr's last-pane cleanup focuses an unrelated neighboring workspace.
 # Daemons (kind=daemon in meta) are retired explicitly. Normal
-# teardown refuses while their home has in-flight actor meta files; --force
-# is the approved discard path that prevalidates child removal targets, discards
+# teardown refuses while their home has in-flight actor meta files; an exact
+# cleanup.discard-unlanded grant is the discard path that prevalidates child removal targets, discards
 # child work, kills child runtime endpoints, and removes the retired home. Removing a
 # leased home releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
-# Usage: mx-teardown.sh <task-id> [--force]
-#   --force skips ordinary-task dirty and landed-work checks, skips scout report
-#   checks, and discards daemon child work for kind=daemon. Only use it
-#   when the maintainer has explicitly said to discard the work.
+# Usage: mx-teardown.sh <task-id> [--override <request-id>]
+#   --override consumes one exact cleanup.discard-unlanded grant before skipping
+#   ordinary safety checks or discarding daemon child work.
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): an actor process
 # killed mid-git-operation can leave a .git/worktrees/<wt>/index.lock (or, for a
@@ -108,12 +107,28 @@ mx_refuse_if_gate_agent
 . "$SCRIPT_DIR/mx-lock-lib.sh"
 # shellcheck source=bin/mx-pr-lib.sh
 . "$SCRIPT_DIR/mx-pr-lib.sh"
+# shellcheck source=bin/mx-maintainer-override-lib.sh
+. "$SCRIPT_DIR/mx-maintainer-override-lib.sh"
 if [ "$#" -lt 1 ] || ! mx_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
 fi
 ID=$1
-FORCE=${2:-}
+shift
+OVERRIDE_ID=
+case "${1:-}" in
+  '') ;;
+  --override)
+    [ "$#" -eq 2 ] && [ -n "${2:-}" ] || { echo "error: --override requires one request id" >&2; exit 2; }
+    OVERRIDE_ID=$2
+    ;;
+  --force)
+    echo "REFUSED: --force is not an authority source; request and consume an exact cleanup.discard-unlanded grant." >&2
+    exit 2
+    ;;
+  *) echo "error: usage: mx-teardown.sh <task-id> [--override <request-id>]" >&2; exit 2 ;;
+esac
+FORCE=
 MX_LOCK_LOG_PREFIX=teardown
 "$MX_ROOT/bin/mx-guard.sh" || true
 
@@ -128,11 +143,41 @@ PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
 # tasktmp is recorded by mx-spawn for tasks that set up a per-task temp root
 # (/tmp/mx-<id>/); absent for tasks spawned before that change, so tolerate empty.
 TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
+SINGLE_CHECKOUT=$(grep '^single_checkout=' "$META" | cut -d= -f2- || true)
+SINGLE_CHECKOUT_RECORD=$(grep '^single_checkout_record=' "$META" | cut -d= -f2- || true)
+SINGLE_CHECKOUT_BASE_HEAD=$(grep '^single_checkout_base_head=' "$META" | cut -d= -f2- || true)
+SINGLE_CHECKOUT_BASE_BRANCH=$(grep '^single_checkout_base_branch=' "$META" | cut -d= -f2- || true)
 
 KIND=$(grep '^kind=' "$META" | cut -d= -f2- || true)
 [ -n "$KIND" ] || KIND=delivery
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=deep-review
+
+if [ "$SINGLE_CHECKOUT" = yes ]; then
+  expected_record="$STATE/.single-checkout-$(mx_override_sha256_text "$(cd "$PROJ" 2>/dev/null && pwd -P)").json"
+  [ "$WT" = "$PROJ" ] && [ "$SINGLE_CHECKOUT_RECORD" = "$expected_record" ] \
+    && [ -f "$SINGLE_CHECKOUT_RECORD" ] && [ ! -L "$SINGLE_CHECKOUT_RECORD" ] \
+    && [ "$(jq -r '.task_id // empty' "$SINGLE_CHECKOUT_RECORD" 2>/dev/null)" = "$ID" ] \
+    && [ "$(jq -r '.target_identity // empty' "$SINGLE_CHECKOUT_RECORD" 2>/dev/null)" = "$(cd "$PROJ" && pwd -P)" ] \
+    || { echo "error: single-checkout reservation for $ID is missing or inconsistent; refusing cleanup" >&2; exit 1; }
+  if [ -z "$SINGLE_CHECKOUT_BASE_HEAD" ] \
+     || ! git -C "$PROJ" cat-file -e "$SINGLE_CHECKOUT_BASE_HEAD^{commit}" 2>/dev/null; then
+    echo "error: single-checkout base commit for $ID is unavailable" >&2
+    exit 1
+  fi
+fi
+
+OVERRIDE_CONSUMED=0
+override_result_on_exit() {
+  local rc=$?
+  trap - EXIT
+  if [ "$OVERRIDE_CONSUMED" -eq 1 ]; then
+    if [ "$rc" -eq 0 ]; then outcome=succeeded; else outcome=failed; fi
+    MX_STATE_OVERRIDE="$STATE" mx_override_result "$OVERRIDE_ID" "$outcome" \
+      "cleanup.discard-unlanded teardown exited with status $rc" >/dev/null 2>&1 || true
+  fi
+  exit "$rc"
+}
 
 default_branch() {
   local ref branch
@@ -624,7 +669,7 @@ validate_worktree_teardown_safety() {
   esac
   if [ -e "$STATE/$ID.ready-to-push" ] || [ -L "$STATE/$ID.ready-to-push" ]; then
     echo "REFUSED: worktree $WT is queued for credentialed delivery." >&2
-    echo "Run bin/mx-deliver.sh outside every agent session, or get the maintainer's explicit OK to discard, then --force." >&2
+    echo "Run bin/mx-deliver.sh outside every agent session, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
     return 1
   fi
 
@@ -633,7 +678,7 @@ validate_worktree_teardown_safety() {
       return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
     fi
     echo "REFUSED: cannot inspect worktree $WT for uncommitted changes." >&2
-    echo "Restore the git index state, or get the maintainer's explicit OK to discard, then --force." >&2
+    echo "Restore the git index state, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
     return 1
   fi
   dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? \.claude/' | head -1 || true)
@@ -643,7 +688,7 @@ validate_worktree_teardown_safety() {
       return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
     fi
     echo "REFUSED: cannot inspect worktree $WT for commits not on a remote." >&2
-    echo "Restore the git index state, or get the maintainer's explicit OK to discard, then --force." >&2
+    echo "Restore the git index state, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
     return 1
   fi
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
@@ -655,7 +700,7 @@ validate_worktree_teardown_safety() {
         return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
       fi
       echo "REFUSED: cannot inspect worktree $WT for commits not on $DEFAULT." >&2
-      echo "Restore the git index state, or get the maintainer's explicit OK to discard, then --force." >&2
+      echo "Restore the git index state, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
       return 1
     fi
     unmerged=$(printf '%s\n' "$unmerged_raw" | head -5)
@@ -663,13 +708,13 @@ validate_worktree_teardown_safety() {
       echo "REFUSED: local-only worktree $WT has work not yet merged into $DEFAULT and not on any remote." >&2
       [ -n "$dirty" ] && echo "uncommitted changes present" >&2
       [ -n "$unmerged" ] && printf 'commits not yet on %s:\n%s\n' "$DEFAULT" "$unmerged" >&2
-      echo "Merge the branch into local $DEFAULT first (bin/mx-merge-local.sh after the maintainer approves), or push to a fork/remote, or get the maintainer's explicit OK to discard, then --force." >&2
+      echo "Merge the branch into local $DEFAULT first (bin/mx-merge-local.sh after the maintainer approves), push to a fork/remote, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
       return 1
     fi
   elif [ -n "$dirty" ]; then
     echo "REFUSED: worktree $WT has uncommitted changes." >&2
     echo "uncommitted changes present" >&2
-    echo "Commit them (or get the maintainer's explicit OK to discard, then --force)." >&2
+    echo "Commit them, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
     return 1
   elif [ -n "$unpushed" ]; then
     branch=${TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY:-}
@@ -680,7 +725,7 @@ validate_worktree_teardown_safety() {
     if ! work_is_landed "$branch"; then
       echo "REFUSED: worktree $WT has work not on any remote and not landed." >&2
       printf 'unpushed commits:\n%s\n' "$unpushed" >&2
-      echo "Push the branch, land its PR, or get the maintainer's explicit OK to discard, then --force." >&2
+      echo "Push the branch, land its PR, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
       return 1
     fi
   fi
@@ -945,6 +990,21 @@ remove_daemon_registry_entry() {
   mv "$tmp" "$DAEMON_REG"
 }
 
+if [ -n "$OVERRIDE_ID" ]; then
+  bindings=$(MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/mx-override-bindings.sh" cleanup "$ID") || exit 1
+  boundary=$(printf '%s' "$bindings" | jq -r '.boundary')
+  bound_task=$(printf '%s' "$bindings" | jq -r '.task')
+  bound_project=$(printf '%s' "$bindings" | jq -r '.project')
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  state_digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  MX_STATE_OVERRIDE="$STATE" mx_override_consume "$OVERRIDE_ID" "$boundary" "$bound_task" \
+    "$bound_project" "$operation" "$target" "$state_digest" >/dev/null || exit 1
+  OVERRIDE_CONSUMED=1
+  FORCE=--force
+  trap override_result_on_exit EXIT
+fi
+
 validate_pr_poll_cleanup "$STATE" "$ID" || exit 1
 
 if [ "$KIND" = daemon ]; then
@@ -961,7 +1021,7 @@ if [ "$KIND" = daemon ] && [ "$FORCE" != "--force" ]; then
     for child_meta in "$SUB_STATE"/*.meta; do
       [ -e "$child_meta" ] || continue
       echo "REFUSED: daemon $ID still has in-flight work in $SUB_STATE." >&2
-      echo "Found $(basename "$child_meta"). Let that home finish or explicitly discard with --force." >&2
+      echo "Found $(basename "$child_meta"). Let that home finish or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
       exit 1
     done
   fi
@@ -975,7 +1035,7 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
   REPORT="$DATA/$ID/report.md"
   if [ ! -f "$REPORT" ]; then
     echo "REFUSED: scout task $ID has no report at $REPORT." >&2
-    echo "The report is the work product. Have the actor write it, or use --force after explicit discard approval." >&2
+    echo "The report is the work product. Have the actor write it, or request one exact cleanup.discard-unlanded grant and retry with --override <request-id>." >&2
     exit 1
   fi
   if ! MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" MX_DATA_OVERRIDE="$DATA" \
@@ -1001,7 +1061,7 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
 fi
 
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
-if [ -d "$WT" ] && [ "$KIND" != daemon ]; then
+if [ -d "$WT" ] && [ "$KIND" != daemon ] && [ "$SINGLE_CHECKOUT" != yes ]; then
   branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
@@ -1071,6 +1131,27 @@ if [ "$HERDR_PRESENTATION_RETIRE_CANDIDATE" = 1 ]; then
   fi
 else
   mx_backend_kill "$BACKEND" "$T" "" "mx-$ID" 2>/dev/null || true
+fi
+if [ "$SINGLE_CHECKOUT" = yes ]; then
+  single_task_branch=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  rm -f "$WT/.claude/settings.local.json"
+  if [ "$FORCE" = --force ]; then
+    git -C "$WT" reset --hard "$SINGLE_CHECKOUT_BASE_HEAD" >/dev/null \
+      || { echo "error: could not reset exact single-checkout task material for $ID" >&2; exit 1; }
+    git -C "$WT" clean -fd >/dev/null \
+      || { echo "error: could not clean exact single-checkout task material for $ID" >&2; exit 1; }
+  fi
+  [ "$SINGLE_CHECKOUT_BASE_BRANCH" != detached ] || {
+    echo "error: single-checkout task $ID has no restorable base branch" >&2
+    exit 1
+  }
+  git -C "$WT" checkout -q "$SINGLE_CHECKOUT_BASE_BRANCH" \
+    || { echo "error: could not restore single-checkout base branch $SINGLE_CHECKOUT_BASE_BRANCH" >&2; exit 1; }
+  if [ -n "$single_task_branch" ] && [ "$single_task_branch" != "$SINGLE_CHECKOUT_BASE_BRANCH" ]; then
+    git -C "$WT" branch -D "$single_task_branch" >/dev/null 2>&1 || true
+  fi
+  rm -f "$SINGLE_CHECKOUT_RECORD" \
+    || { echo "error: could not release single-checkout reservation for $ID" >&2; exit 1; }
 fi
 if [ "$HERDR_PRESENTATION_RETIRE_CANDIDATE" = 1 ]; then
   if [ "$(mx_backend_herdr_pane_agent_state "$HERDR_PRESENTATION_SESSION" "$HERDR_PRESENTATION_PANE")" = dead ]; then

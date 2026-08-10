@@ -4,7 +4,7 @@
 # Usage:
 #   multplx [shell]
 #   multplx [--backend auto|tmux|herdr|cmux] [shell]
-#   multplx [--backend auto|tmux|herdr|cmux] claude|codex|pi [args...]
+#   multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]
 #   multplx doctor [args...]
 #   multplx update
 #   multplx paths
@@ -139,13 +139,15 @@ capture_harnesses() {
   if [ "${MULTPLX_ACTIVE:-}" = 1 ]; then
     MX_REAL_CLAUDE=${MX_REAL_CLAUDE:-}
     MX_REAL_CODEX=${MX_REAL_CODEX:-}
+    MX_REAL_CURSOR_AGENT=${MX_REAL_CURSOR_AGENT:-}
     MX_REAL_PI=${MX_REAL_PI:-}
   else
     MX_REAL_CLAUDE=$(mx_launcher_find_executable claude "$MX_SHIM_DIR" || true)
     MX_REAL_CODEX=$(mx_launcher_find_executable codex "$MX_SHIM_DIR" || true)
+    MX_REAL_CURSOR_AGENT=$(mx_launcher_find_executable agent "$MX_SHIM_DIR" || mx_launcher_find_executable cursor-agent "$MX_SHIM_DIR" || true)
     MX_REAL_PI=$(mx_launcher_find_executable pi "$MX_SHIM_DIR" || true)
   fi
-  export MX_REAL_CLAUDE MX_REAL_CODEX MX_REAL_PI
+  export MX_REAL_CLAUDE MX_REAL_CODEX MX_REAL_CURSOR_AGENT MX_REAL_PI
 }
 
 launch_direct() {
@@ -168,7 +170,7 @@ case "$COMMAND" in
     [ "$#" -eq 0 ] || die "update accepts no arguments"
     exec "$MX_ROOT_OVERRIDE/bin/mx-update.sh"
     ;;
-  claude|codex|pi)
+  claude|codex|cursor|pi)
     launch_direct "$@"
     ;;
   shell)

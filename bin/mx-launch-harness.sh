@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch one verified primary harness from the Multplx code root.
-# Usage: mx-launch-harness.sh claude|codex|pi [arguments...]
+# Usage: mx-launch-harness.sh claude|codex|cursor|pi [arguments...]
 # Exit 2 means launcher validation failed, 3 means another live broker owns the
 # home, and 127 means the selected real harness was not captured or disappeared.
 set -u
@@ -16,8 +16,9 @@ harness=${1:-}
 case "$harness" in
   claude) real=${MX_REAL_CLAUDE:-} ;;
   codex) real=${MX_REAL_CODEX:-} ;;
+  cursor) real=${MX_REAL_CURSOR_AGENT:-} ;;
   pi) real=${MX_REAL_PI:-} ;;
-  *) mx_launcher_error "harness must be claude, codex, or pi"; exit 2 ;;
+  *) mx_launcher_error "harness must be claude, codex, cursor, or pi"; exit 2 ;;
 esac
 
 root=${MX_ROOT_OVERRIDE:-}
@@ -44,7 +45,14 @@ if [ -z "$real" ] || [ "${real#/}" = "$real" ] || [ ! -f "$real" ] || [ ! -x "$r
   exit 127
 fi
 shim=$root/share/shell/shims/$harness
-if [ -e "$shim" ] && [ "$real" -ef "$shim" ]; then
+if [ "$harness" = cursor ]; then
+  shim=$root/share/shell/shims/cursor-agent
+  agent_shim=$root/share/shell/shims/agent
+else
+  agent_shim=
+fi
+if { [ -e "$shim" ] && [ "$real" -ef "$shim" ]; } \
+   || { [ -n "$agent_shim" ] && [ -e "$agent_shim" ] && [ "$real" -ef "$agent_shim" ]; }; then
   mx_launcher_error "refusing recursive $harness shim resolution"
   exit 127
 fi
@@ -68,4 +76,23 @@ cd -P "$root" || {
   mx_launcher_error "cannot enter code root: $root"
   exit 2
 }
+if [ "$harness" = cursor ]; then
+  previous=
+  for argument in "$@"; do
+    case "$argument" in
+      -f|--force|--yolo|--sandbox=disabled|-w|--worktree|--worktree=*)
+        mx_launcher_error "Cursor launch refuses force, sandbox-disabled, and Cursor-owned worktree modes"
+        exit 2
+        ;;
+      disabled)
+        if [ "$previous" = --sandbox ]; then
+          mx_launcher_error "Cursor launch refuses --sandbox disabled"
+          exit 2
+        fi
+        ;;
+    esac
+    previous=$argument
+  done
+  exec "$real" --sandbox enabled "$@"
+fi
 exec "$real" "$@"

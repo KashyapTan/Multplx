@@ -503,6 +503,93 @@ test_abort_and_run_id_reuse_refusal() {
   pass "abort is permanent and run identities cannot be reused"
 }
 
+grant_workflow_binding() {
+  local bindings=$1 request operation target
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  request=$(MX_STATE_OVERRIDE="$HOME_FIXTURE/state" "$ROOT/bin/mx-maintainer-override.sh" request \
+    --boundary "$(printf '%s' "$bindings" | jq -r '.boundary')" \
+    --task "$(printf '%s' "$bindings" | jq -r '.task')" \
+    --project "$(printf '%s' "$bindings" | jq -r '.project')" \
+    --operation "$operation" --target "$target" \
+    --expected-state "$(printf '%s' "$bindings" | jq -r '.expected_state_digest')" \
+    --consequence "$(printf '%s' "$bindings" | jq -r '.consequence')") || return 1
+  MX_STATE_OVERRIDE="$HOME_FIXTURE/state"
+  export MX_STATE_OVERRIDE
+  # shellcheck source=bin/mx-maintainer-override-lib.sh
+  . "$ROOT/bin/mx-maintainer-override-lib.sh"
+  mx_override_require_primary_lock() { return 0; }
+  mx_override_grant "$request" "Grant $(printf '%s' "$bindings" | jq -r '.boundary') for $operation on $target only." \
+    || return 1
+  printf '%s\n' "$request"
+}
+
+test_exact_workflow_skip_and_reorder() {
+  local definition="$REPO_FIXTURE/workflows/exceptions.workflow.md" run bindings request output
+  cat >"$definition" <<'EOF'
+---
+workflow_version: 1
+name: exceptions
+description: Exercise exact workflow exception transitions.
+stages:
+  - id: hold
+    title: Hold first
+    type: interactive
+    gate: approve
+    output: data/{run}/hold.md
+  - id: second
+    title: Second
+    type: command
+    gate: auto
+    run: printf second > "$MX_WORKFLOW_HOME/data/{run}-second"
+  - id: third
+    title: Third
+    type: command
+    gate: auto
+    run: printf third > "$MX_WORKFLOW_HOME/data/{run}-third"
+---
+
+## hold
+
+Wait for approval.
+
+## second
+
+Run second.
+
+## third
+
+Run third.
+EOF
+  track_definition exceptions.workflow.md
+
+  run=workflow-skip-run
+  workflow_cli run exceptions --input exact --id "$run" >/dev/null || fail "workflow skip fixture did not launch"
+  bindings=$(MX_HOME="$HOME_FIXTURE" MX_STATE_OVERRIDE="$HOME_FIXTURE/state" \
+    "$ROOT/bin/mx-override-bindings.sh" workflow-skip "$run" second) || fail "workflow skip bindings failed"
+  request=$(grant_workflow_binding "$bindings") || fail "workflow skip grant failed"
+  output=$(workflow_cli skip "$run" second --override "$request") || fail "workflow exact skip failed"
+  assert_contains "$output" 'second: skipped' "workflow skip is not labeled skipped"
+  [ "$(jq -r '.exception' "$HOME_FIXTURE/state/$run.workflow/stages/second.json")" = maintainer-directed ] \
+    || fail "workflow skip did not record maintainer direction"
+  if workflow_cli skip "$run" third --override "$request" >/dev/null 2>&1; then
+    fail "workflow skip grant authorized a second stage"
+  fi
+
+  run=workflow-reorder-run
+  workflow_cli run exceptions --input exact --id "$run" >/dev/null || fail "workflow reorder fixture did not launch"
+  bindings=$(MX_HOME="$HOME_FIXTURE" MX_STATE_OVERRIDE="$HOME_FIXTURE/state" \
+    "$ROOT/bin/mx-override-bindings.sh" workflow-reorder "$run" third second) || fail "workflow reorder bindings failed"
+  request=$(grant_workflow_binding "$bindings") || fail "workflow reorder grant failed"
+  workflow_cli reorder "$run" third --before second --override "$request" >/dev/null \
+    || fail "workflow exact reorder failed"
+  [ "$(jq -r 'join(",")' "$HOME_FIXTURE/state/$run.workflow/stage-order.json")" = 'hold,third,second' ] \
+    || fail "workflow reorder changed the wrong stage order"
+  [ "$(jq -r '.outcome' "$HOME_FIXTURE/state/maintainer-overrides/consumed/$request.json")" = succeeded ] \
+    || fail "workflow reorder outcome was not recorded"
+  pass "workflow skip and reorder consume distinct exact grants and preserve other stages"
+}
+
 test_order_contract_approval_and_restart
 test_passed_command_requires_captured_zero_exit
 test_concurrent_reconcile_is_refused
@@ -513,3 +600,4 @@ test_actor_fresh_session_and_local_commit_contract
 test_auto_agent_does_not_advance_without_artifact
 test_reference_workflow_end_to_end
 test_abort_and_run_id_reuse_refusal
+test_exact_workflow_skip_and_reorder

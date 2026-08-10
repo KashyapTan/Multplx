@@ -5,6 +5,9 @@
 # PID of any one tool call, which is dead moments after it is written.
 # Usage: mx-lock.sh           acquire; exit 1 unless ownership is verified
 #        mx-lock.sh status    print holder and liveness; always exits 0
+#        mx-lock.sh --terminate-owner <request-id>
+#          consume one exact session.terminate-owner grant, TERM the verified
+#          competing harness, prove exit, then acquire the ordinary lock
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +25,28 @@ mkdir -p "$STATE" 2>/dev/null || {
 # same identity contract.
 # shellcheck source=bin/mx-session-lock-lib.sh
 . "$SCRIPT_DIR/mx-session-lock-lib.sh"
+# shellcheck source=bin/mx-maintainer-override-lib.sh
+. "$SCRIPT_DIR/mx-maintainer-override-lib.sh"
+
+TERMINATE_OVERRIDE=
+case "${1:-}" in
+  '') ;;
+  status)
+    [ "$#" -eq 1 ] || { echo "error: status accepts no arguments" >&2; exit 2; }
+    ;;
+  --terminate-owner)
+    if [ "$#" -ne 2 ] || ! mx_override_slug_valid "${2:-}"; then
+      echo "error: --terminate-owner requires one valid request id" >&2
+      exit 2
+    fi
+    TERMINATE_OVERRIDE=$2
+    ;;
+  --force)
+    echo "REFUSED: --force cannot bypass session ownership; use one exact session.terminate-owner grant." >&2
+    exit 2
+    ;;
+  *) echo "error: usage: mx-lock.sh [status|--terminate-owner <request-id>]" >&2; exit 2 ;;
+esac
 
 if [ "${1:-}" = "status" ]; then
   if [ ! -f "$LOCK" ]; then echo "lock: free"; exit 0; fi
@@ -46,13 +71,30 @@ rm -f "$probe" 2>/dev/null || {
 . "$SCRIPT_DIR/mx-wake-lib.sh"
 CLAIM_LOCK="$STATE/.lock.acquire"
 CLAIM_LOCK_HELD=0
+TERMINATE_CONSUMED=0
+TERMINATE_ACTION_COMPLETED=0
 release_claim_lock() {
   if [ "$CLAIM_LOCK_HELD" -eq 1 ]; then
     mx_lock_release "$CLAIM_LOCK"
     CLAIM_LOCK_HELD=0
   fi
 }
-trap release_claim_lock EXIT
+lock_exit() {
+  local status=$?
+  trap - EXIT
+  release_claim_lock
+  if [ "$TERMINATE_CONSUMED" -eq 1 ]; then
+    if [ "$status" -eq 0 ] && [ "$TERMINATE_ACTION_COMPLETED" -eq 1 ]; then
+      outcome=succeeded
+    else
+      outcome=failed
+    fi
+    MX_STATE_OVERRIDE="$STATE" mx_override_result "$TERMINATE_OVERRIDE" "$outcome" \
+      "terminate-owner lock acquisition exited with status $status" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+trap lock_exit EXIT
 trap 'exit 1' HUP INT TERM
 mx_lock_acquire_wait "$CLAIM_LOCK"
 CLAIM_LOCK_HELD=1
@@ -67,9 +109,36 @@ if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then
     exit 1
   }
   if [ "$old" != "$me" ] && mx_harness_pid_alive "$old"; then
-    echo "error: another live broker session holds the lock (pid $old); operate read-only until resolved" >&2
-    exit 1
+    if [ -z "$TERMINATE_OVERRIDE" ]; then
+      echo "error: another live broker session holds the lock (pid $old); operate read-only or request an exact session.terminate-owner grant" >&2
+      exit 1
+    fi
+    bindings=$(MX_ROOT_OVERRIDE="$MX_ROOT" MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/mx-override-bindings.sh" terminate-owner "$old") || exit 1
+    operation=$(printf '%s' "$bindings" | jq -r '.operation')
+    target=$(printf '%s' "$bindings" | jq -r '.target')
+    digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+    MX_STATE_OVERRIDE="$STATE" mx_override_consume "$TERMINATE_OVERRIDE" \
+      session.terminate-owner broker-session multplx "$operation" "$target" "$digest" >/dev/null || exit 1
+    TERMINATE_CONSUMED=1
+    kill -TERM "$old" 2>/dev/null || {
+      echo "error: verified harness pid $old could not be terminated" >&2
+      exit 1
+    }
+    terminated=0
+    for _ in $(seq 1 50); do
+      if ! mx_harness_pid_alive "$old"; then terminated=1; break; fi
+      sleep 0.1
+    done
+    [ "$terminated" -eq 1 ] || {
+      echo "error: verified harness pid $old did not exit after TERM; lock remains owned" >&2
+      exit 1
+    }
   fi
+fi
+if [ -n "$TERMINATE_OVERRIDE" ] && [ "$TERMINATE_CONSUMED" -eq 0 ]; then
+  echo "error: exact terminate-owner grant was supplied but no different live owner matched it" >&2
+  exit 1
 fi
 if ! { printf '%s\n' "$me" > "$LOCK"; } 2>/dev/null; then
   echo "error: cannot write session lock; operate read-only until resolved" >&2
@@ -84,4 +153,5 @@ if [ ! -f "$LOCK" ] || [ -L "$LOCK" ] || [ "$written" != "$me" ]; then
   exit 1
 fi
 release_claim_lock
+TERMINATE_ACTION_COMPLETED=1
 echo "lock acquired: harness pid $me"

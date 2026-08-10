@@ -397,13 +397,29 @@ spawn_daemon_task() {
     "$ROOT/bin/mx-spawn.sh" "$id" "$home" "sh -c 'sleep 120'" --daemon --backend herdr
 }
 
-teardown_task() {  # <id> <home>
-  local id=$1 home=$2
+teardown_task() (  # <id> <home>
+  local id=$1 home=$2 bindings request operation target project consequence digest
+  bindings=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$home/state" \
+    "$ROOT/bin/mx-override-bindings.sh" cleanup "$id") || return 1
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  project=$(printf '%s' "$bindings" | jq -r '.project')
+  consequence=$(printf '%s' "$bindings" | jq -r '.consequence')
+  digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  request=$(MX_STATE_OVERRIDE="$home/state" "$ROOT/bin/mx-maintainer-override.sh" request \
+    --boundary cleanup.discard-unlanded --task "$id" --project "$project" \
+    --operation "$operation" --target "$target" --expected-state "$digest" \
+    --consequence "$consequence") || return 1
+  export MX_STATE_OVERRIDE="$home/state"
+  # shellcheck source=bin/mx-maintainer-override-lib.sh
+  . "$ROOT/bin/mx-maintainer-override-lib.sh"
+  mx_override_require_primary_lock() { return 0; }
+  mx_override_grant "$request" "Grant cleanup.discard-unlanded for $operation on $target only." || return 1
   MX_GATE_REFUSE_BYPASS=1 MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" \
     MX_STATE_OVERRIDE="$home/state" MX_DATA_OVERRIDE="$home/data" \
     MX_CONFIG_OVERRIDE="$home/config" \
-    "$ROOT/bin/mx-teardown.sh" "$id" --force
-}
+    "$ROOT/bin/mx-teardown.sh" "$id" --override "$request"
+)
 
 normalize_meta() {  # <meta>
   sed -E \

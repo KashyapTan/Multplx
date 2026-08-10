@@ -430,7 +430,7 @@ daemon_liveness_sweep() {
     [ -n "$target" ] || target="$window"
     agent_state=$(mx_backend_agent_state "$backend" "$target" 2>/dev/null) || agent_state=unreadable
     case "$harness" in
-      claude|codex|pi) ;;
+      claude|codex|cursor|pi) ;;
       *)
         case "$agent_state" in dead|missing) agent_state=unverified-harness ;; esac
         ;;

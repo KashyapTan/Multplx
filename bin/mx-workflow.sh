@@ -8,6 +8,8 @@
 #   mx-workflow.sh status <run-id>
 #   mx-workflow.sh resume <run-id>
 #   mx-workflow.sh abort <run-id>
+#   mx-workflow.sh skip <run-id> <stage-id> --override <request-id>
+#   mx-workflow.sh reorder <run-id> <stage-id> --before <stage-id> --override <request-id>
 #   mx-workflow.sh dry-run <name|definition.workflow.md> [--input <text>]
 #
 # Definitions are validated as drafts from any path, but `run` accepts only a
@@ -27,6 +29,8 @@ export WF_SCRIPT_DIR WF_MX_ROOT
 
 # shellcheck source=bin/mx-journal-lib.sh
 . "$SCRIPT_DIR/mx-journal-lib.sh"
+# shellcheck source=bin/mx-maintainer-override-lib.sh
+. "$SCRIPT_DIR/mx-maintainer-override-lib.sh"
 
 wf_journal_stage_entered() { # <run-dir> <stage-id>
   local run_dir=$1 stage=$2 run detail
@@ -212,6 +216,74 @@ command_abort() {
   printf 'aborted: %s\n' "$1"
 }
 
+consume_workflow_override() { # <binding-mode> <run> <stage> [before] <request>
+  local mode=$1 run=$2 stage=$3 before request bindings
+  if [ "$mode" = workflow-skip ]; then before=; request=$4; else before=$4; request=$5; fi
+  if [ "$mode" = workflow-skip ]; then
+    bindings=$(MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/mx-override-bindings.sh" "$mode" "$run" "$stage") || return 1
+  else
+    bindings=$(MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/mx-override-bindings.sh" "$mode" "$run" "$stage" "$before") || return 1
+  fi
+  MX_STATE_OVERRIDE="$STATE" mx_override_consume "$request" \
+    "$(printf '%s' "$bindings" | jq -r '.boundary')" "$(printf '%s' "$bindings" | jq -r '.task')" \
+    "$(printf '%s' "$bindings" | jq -r '.project')" "$(printf '%s' "$bindings" | jq -r '.operation')" \
+    "$(printf '%s' "$bindings" | jq -r '.target')" "$(printf '%s' "$bindings" | jq -r '.expected_state_digest')" >/dev/null
+}
+
+command_skip() {
+  [ "$#" -eq 4 ] && [ "$3" = --override ] || { usage >&2; exit 2; }
+  local run=$1 stage=$2 request=$4 directory status
+  directory=$(run_dir "$run")
+  jq -e --arg stage "$stage" 'any(.stages[]; .id == $stage)' "$directory/definition.json" >/dev/null \
+    || fail "workflow stage not found: $stage"
+  status=$(wf_stage_record_status "$directory" "$stage")
+  [ "$status" = pending ] || fail "only a pending stage can be skipped; $stage is $status"
+  consume_workflow_override workflow-skip "$run" "$stage" "$request" || exit 1
+  if wf_mark_stage_skipped "$directory" "$stage" "$request"; then
+    MX_STATE_OVERRIDE="$STATE" mx_override_result "$request" succeeded \
+      "workflow stage $stage recorded as maintainer-directed skipped" || true
+  else
+    MX_STATE_OVERRIDE="$STATE" mx_override_result "$request" failed \
+      "workflow stage $stage skip transition failed" || true
+    exit 1
+  fi
+  workflow_reconcile_locked "$directory" || { wf_status_render "$directory"; exit 1; }
+  wf_status_render "$directory"
+}
+
+command_reorder() {
+  [ "$#" -eq 6 ] && [ "$3" = --before ] && [ "$5" = --override ] || { usage >&2; exit 2; }
+  local run=$1 stage=$2 before=$4 request=$6 directory status before_status temporary
+  [ "$stage" != "$before" ] || fail "a stage cannot move before itself"
+  directory=$(run_dir "$run")
+  jq -e --arg stage "$stage" --arg before "$before" \
+    'any(.stages[]; .id == $stage) and any(.stages[]; .id == $before)' "$directory/definition.json" >/dev/null \
+    || fail "workflow reorder stage was not found"
+  status=$(wf_stage_record_status "$directory" "$stage")
+  before_status=$(wf_stage_record_status "$directory" "$before")
+  [ "$status" = pending ] && [ "$before_status" = pending ] \
+    || fail "reorder requires both stages to remain pending"
+  consume_workflow_override workflow-reorder "$run" "$stage" "$before" "$request" || exit 1
+  temporary=$(mktemp "$directory/.stage-order.XXXXXX") || exit 1
+  if ! jq --arg stage "$stage" --arg before "$before" '
+    . as $order | ($order | map(select(. != $stage))) as $without |
+    ($without | index($before)) as $index |
+    $without[0:$index] + [$stage] + $without[$index:]
+  ' "$directory/stage-order.json" >"$temporary"; then
+    rm -f "$temporary"
+    MX_STATE_OVERRIDE="$STATE" mx_override_result "$request" failed "workflow reorder transition failed" || true
+    exit 1
+  fi
+  chmod 600 "$temporary"
+  mv "$temporary" "$directory/stage-order.json"
+  MX_STATE_OVERRIDE="$STATE" mx_override_result "$request" succeeded \
+    "workflow stage $stage moved before $before by maintainer direction" || true
+  workflow_reconcile_locked "$directory" || { wf_status_render "$directory"; exit 1; }
+  wf_status_render "$directory"
+}
+
 command_dry_run() {
   [ "$#" -ge 1 ] || { usage >&2; exit 2; }
   local requested=$1 definition input='example input' json stage output
@@ -247,6 +319,8 @@ case "${1:-}" in
   status) shift; command_status "$@" ;;
   resume) shift; command_resume "$@" ;;
   abort) shift; command_abort "$@" ;;
+  skip) shift; command_skip "$@" ;;
+  reorder) shift; command_reorder "$@" ;;
   dry-run) shift; command_dry_run "$@" ;;
   -h|--help) usage ;;
   *) usage >&2; exit 2 ;;

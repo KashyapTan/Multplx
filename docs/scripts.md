@@ -47,6 +47,12 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-guard.sh`            | Warn on primary-checkout tangles, pending queued wakes, and stale watcher liveness   |
 | `mx-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |
 | `mx-session-lock-lib.sh` | Shared session-lock harness identity (ancestry walk and holder liveness) for mx-lock.sh and the Claude Stop auto-arm |
+| `mx-cursor-hook.sh` | Translate tracked Cursor session-start, command, delegation, and bounded stop hooks into shared Multplx guards |
+| `mx-maintainer-override.sh` | Request, decide, consume, inspect, audit, and hand off exact single-use maintainer exceptions |
+| `mx-maintainer-override-lib.sh` | Own the exception registry, private schema, validation, locking, and state transitions |
+| `mx-override-bindings.sh` | Print fresh subsystem-owned bindings for workflow, validation, cleanup, isolation, and lock exceptions |
+| `mx-override-run.sh` | Bind and run exact direct-write, one-action elevation, and verified dependency-install exceptions |
+| `mx-validation-waive.sh` | Create an exact-SHA maintainer-waived delivery handoff without marking validation passed |
 | `mx-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `mx-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `mx-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |

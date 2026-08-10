@@ -26,7 +26,7 @@
 #   (c) local-only + merged into local main, no remote         -> ALLOW  (no regression)
 #   (d) deep-review + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
 #   (e) deep-review + unpushed, no PR, content not in default  -> REFUSE (safety)
-#   (f) local-only + truly unpushed + --force                  -> ALLOW  (escape hatch)
+#   (f) local-only + truly unpushed + exact discard grant       -> ALLOW
 #   (g) deep-review + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
 #   (h) deep-review + no PR but content already in default     -> ALLOW  (content fallback)
 #   (i) deep-review + dirty worktree, even when work landed     -> REFUSE (dirty wins)
@@ -445,7 +445,28 @@ SH
 
 # Run teardown with PATH mocking. Args: case_dir [extra args...]
 run_teardown() {
-  local case_dir=$1; shift
+  local case_dir=$1 bindings request operation target; shift
+  if [ "${1:-}" = --force ]; then
+    shift
+    bindings=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      "$ROOT/bin/mx-override-bindings.sh" cleanup task-x1) || return 1
+    operation=$(printf '%s' "$bindings" | jq -r '.operation')
+    target=$(printf '%s' "$bindings" | jq -r '.target')
+    request=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      "$ROOT/bin/mx-maintainer-override.sh" request \
+      --boundary cleanup.discard-unlanded --task task-x1 \
+      --project "$(printf '%s' "$bindings" | jq -r '.project')" \
+      --operation "$operation" --target "$target" \
+      --expected-state "$(printf '%s' "$bindings" | jq -r '.expected_state_digest')" \
+      --consequence "$(printf '%s' "$bindings" | jq -r '.consequence')") || return 1
+    MX_STATE_OVERRIDE="$case_dir/state"
+    export MX_STATE_OVERRIDE
+    # shellcheck source=bin/mx-maintainer-override-lib.sh
+    . "$ROOT/bin/mx-maintainer-override-lib.sh"
+    mx_override_require_primary_lock() { return 0; }
+    mx_override_grant "$request" "Grant cleanup.discard-unlanded for $operation on $target only." || return 1
+    set -- --override "$request" "$@"
+  fi
   MX_ROOT_OVERRIDE="$ROOT" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   MX_CONFIG_OVERRIDE="$case_dir/config" \
@@ -1212,9 +1233,9 @@ test_local_only_force_overrides_unpushed() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "force-override: --force should bypass the unpushed-work check"
-  ! grep -q REFUSED "$case_dir/stderr" || fail "force-override: REFUSED printed despite --force"
-  pass "local-only worktree with unpushed work is torn down under --force (escape hatch)"
+  expect_code 0 "$rc" "discard-override: exact grant should authorize the bound unpushed-work discard"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "discard-override: REFUSED printed despite an exact grant"
+  pass "local-only worktree with unpushed work is torn down under one exact discard grant"
 }
 
 test_herdr_teardown_clears_escalation_marker() {

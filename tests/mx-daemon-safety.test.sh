@@ -21,6 +21,35 @@ mx_home_seed() {
   MX_ROOT_OVERRIDE="$seed_root" "$ROOT/bin/mx-home-seed.sh" "$@"
 }
 
+# Exercise the exceptional destructive path through the same exact, one-use
+# grant that production requires. Environment assignments on the call select
+# the fixture home/root and are intentionally preserved for binding and use.
+override_teardown() (
+  local id=$1 effective_root effective_home effective_state bindings request operation target project consequence digest
+  shift
+  effective_root=${MX_ROOT_OVERRIDE:-$ROOT}
+  effective_home=${MX_HOME:-$effective_root}
+  effective_state=${MX_STATE_OVERRIDE:-$effective_home/state}
+  bindings=$(MX_ROOT_OVERRIDE="$effective_root" MX_HOME="$effective_home" MX_STATE_OVERRIDE="$effective_state" \
+    "$ROOT/bin/mx-override-bindings.sh" cleanup "$id") || return 1
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  project=$(printf '%s' "$bindings" | jq -r '.project')
+  consequence=$(printf '%s' "$bindings" | jq -r '.consequence')
+  digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  request=$(MX_STATE_OVERRIDE="$effective_state" "$ROOT/bin/mx-maintainer-override.sh" request \
+    --boundary cleanup.discard-unlanded --task "$id" --project "$project" \
+    --operation "$operation" --target "$target" --expected-state "$digest" \
+    --consequence "$consequence") || return 1
+  export MX_STATE_OVERRIDE=$effective_state
+  # shellcheck source=bin/mx-maintainer-override-lib.sh
+  . "$ROOT/bin/mx-maintainer-override-lib.sh"
+  mx_override_require_primary_lock() { return 0; }
+  mx_override_grant "$request" "Grant cleanup.discard-unlanded for $operation on $target only." || return 1
+  MX_ROOT_OVERRIDE="$effective_root" MX_HOME="$effective_home" MX_STATE_OVERRIDE="$effective_state" \
+    "$ROOT/bin/mx-teardown.sh" "$id" --override "$request" "$@"
+)
+
 file_mode() {
   if [ "$(uname)" = Darwin ]; then
     stat -f %Lp "$1"
@@ -1379,8 +1408,8 @@ EOF
     fail "teardown allowed a daemon with in-flight child work"
   fi
   PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>/dev/null \
-    || fail "force teardown failed to discard child work"
+    override_teardown domain >/dev/null 2>/dev/null \
+    || fail "override teardown failed to discard child work"
   [ ! -d "$subhome" ] || fail "force teardown did not remove the retired daemon home"
   [ ! -d "$childwt" ] || fail "force teardown did not remove child worktree"
   [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta"
@@ -1432,7 +1461,7 @@ EOF
   set +e
   PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
     MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-quarantine-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2> "$err"
+    override_teardown domain >/dev/null 2> "$err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "force teardown accepted a child quarantine-directory symlink"
@@ -1521,7 +1550,7 @@ SH
   set +e
   PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-lock-child-fake/pane.txt" \
     MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 MX_STALE_WORKTREE_LOCK_AGE_SECS=1 \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err"
+    override_teardown domain >/dev/null 2>"$err"
   rc=$?
   set -e
 
@@ -1560,8 +1589,8 @@ EOF
     fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-inside-teardown-fake-$opdir")
     log="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/tmux.log"
     PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/pane.txt" \
-      "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err" \
-      || fail "force teardown refused $opdir symlinked inside the daemon home"
+      override_teardown domain >/dev/null 2>"$err" \
+      || fail "override teardown refused $opdir symlinked inside the daemon home"
     [ ! -e "$subhome" ] || fail "force teardown did not remove subhome with inside $opdir symlink"
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
     grep -F 'kill-window -t broker:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
@@ -1593,7 +1622,7 @@ EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-state-teardown-fake")
   log="$TMP_ROOT/symlink-state-teardown-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-state-teardown-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err"; then
+    override_teardown domain >/dev/null 2>"$err"; then
     fail "force teardown accepted a symlinked daemon state directory"
   fi
   [ -d "$subhome" ] || fail "force teardown removed subhome after symlinked state refusal"
@@ -1786,7 +1815,7 @@ EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/prevalidate-teardown-fake")
   log="$TMP_ROOT/prevalidate-teardown-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/prevalidate-teardown-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err"; then
+    override_teardown domain >/dev/null 2>"$err"; then
     fail "force teardown discarded child work before validating subhome"
   fi
   [ -d "$subhome" ] || fail "force teardown removed unmarked subhome after refusal"
@@ -1831,7 +1860,7 @@ EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/child-active-descendant-fake")
   log="$TMP_ROOT/child-active-descendant-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/child-active-descendant-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err"; then
+    override_teardown domain >/dev/null 2>"$err"; then
     fail "force teardown removed a child worktree inside active MX_HOME"
   fi
   [ -d "$home/data" ] || fail "force teardown removed active home data"
@@ -1882,7 +1911,7 @@ EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/child-repo-descendant-fake")
   log="$TMP_ROOT/child-repo-descendant-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$fakeroot" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/child-repo-descendant-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err"; then
+    override_teardown domain >/dev/null 2>"$err"; then
     fail "force teardown removed a child worktree inside MX_ROOT"
   fi
   [ -d "$childwt" ] || fail "force teardown removed repo descendant worktree"
@@ -1927,7 +1956,7 @@ EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/unregistered-child-fake")
   log="$TMP_ROOT/unregistered-child-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/unregistered-child-fake/pane.txt" \
-    "$ROOT/bin/mx-teardown.sh" domain --force >/dev/null 2>"$err"; then
+    override_teardown domain >/dev/null 2>"$err"; then
     fail "force teardown removed an unregistered child worktree"
   fi
   [ -d "$childwt" ] || fail "force teardown removed unregistered child worktree"

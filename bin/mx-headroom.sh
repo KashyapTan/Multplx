@@ -6,6 +6,8 @@
 # defaults to twenty concurrent requests and may be set with config/api-capacity or
 # MX_HEADROOM_API_CAPACITY. Per-harness config/api-capacity-<harness> files
 # refine candidate detail while the global budget remains the upper bound.
+# Candidate accounting is adapter-neutral, so the verified `cursor` harness
+# receives the same exact configured-budget treatment as other API harnesses.
 # This is intentionally reported as `configured-budget`, not live provider
 # quota. Unreadable local signals or malformed configured budgets are errors.
 #

@@ -115,7 +115,7 @@ The current serial-to-accelerated speedup is 3.40x.
 The exact parity command reported `MX_TEST_PARITY ok scripts=106 assertions=1501`.
 The accepted resource proof was produced with `bin/mx-test-isolation-proof.sh --jobs 4 --repeats 2 --json docs/mx-test-isolation-proof.json`.
 It reported `MX_ISOLATION_SUMMARY total=100 failed_rounds=0 concurrency=4 repeats=2 duration_ms=518489 leaks=0`.
-The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 121-script runner manifest.
+The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 125-script runner manifest.
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.

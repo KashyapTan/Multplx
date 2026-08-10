@@ -27,6 +27,35 @@ REAL_STAT=$(command -v stat)
 REAL_CHMOD=$(command -v chmod)
 REAL_BASENAME=$(command -v basename)
 
+# Exercise teardown's exceptional destructive path through the same exact,
+# one-use maintainer grant required by production. Environment assignments on
+# the call select the fixture home/root and remain visible inside this subshell.
+override_teardown() (
+  local id=$1 effective_root effective_home effective_state bindings request operation target project consequence digest
+  shift
+  effective_root=${MX_ROOT_OVERRIDE:-$ROOT}
+  effective_home=${MX_HOME:-$effective_root}
+  effective_state=${MX_STATE_OVERRIDE:-$effective_home/state}
+  bindings=$(MX_ROOT_OVERRIDE="$effective_root" MX_HOME="$effective_home" MX_STATE_OVERRIDE="$effective_state" \
+    "$ROOT/bin/mx-override-bindings.sh" cleanup "$id") || return 1
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  project=$(printf '%s' "$bindings" | jq -r '.project')
+  consequence=$(printf '%s' "$bindings" | jq -r '.consequence')
+  digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  request=$(MX_STATE_OVERRIDE="$effective_state" "$ROOT/bin/mx-maintainer-override.sh" request \
+    --boundary cleanup.discard-unlanded --task "$id" --project "$project" \
+    --operation "$operation" --target "$target" --expected-state "$digest" \
+    --consequence "$consequence") || return 1
+  export MX_STATE_OVERRIDE=$effective_state
+  # shellcheck source=bin/mx-maintainer-override-lib.sh
+  . "$ROOT/bin/mx-maintainer-override-lib.sh"
+  mx_override_require_primary_lock() { return 0; }
+  mx_override_grant "$request" "Grant cleanup.discard-unlanded for $operation on $target only." || return 1
+  MX_ROOT_OVERRIDE="$effective_root" MX_HOME="$effective_home" MX_STATE_OVERRIDE="$effective_state" \
+    "$TEARDOWN" "$id" --override "$request" "$@"
+)
+
 file_mode() {
   if [ "$(uname)" = Darwin ]; then
     stat -f %Lp "$1"
@@ -531,7 +560,7 @@ SH
   chmod 0700 "$dir/fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-    "$TEARDOWN" Task_A.1 --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    override_teardown Task_A.1 > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "safe lifecycle-compatible task ID could not be torn down"
   [ ! -e "$dir/home/state/Task_A.1.meta" ] \
     || fail "safe lifecycle-compatible task teardown retained metadata"
@@ -558,7 +587,7 @@ SH
     mkdir "$dir/home/state/$id.check.sh"
     set +e
     MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-      "$TEARDOWN" "$id" --force > "$dir/unsafe-teardown.out" 2> "$dir/unsafe-teardown.err"
+      override_teardown "$id" > "$dir/unsafe-teardown.out" 2> "$dir/unsafe-teardown.err"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "legacy task teardown accepted an unsafe direct artifact"
@@ -573,7 +602,7 @@ SH
     mx_pr_poll_artifacts_valid "$dir/home/state" "$id" "$POLL" \
       || fail "path-safe legacy task ID did not publish an authenticated poll"
     MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-      "$TEARDOWN" "$id" --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+      override_teardown "$id" > "$dir/teardown.out" 2> "$dir/teardown.err" \
       || fail "legacy path-safe task ID could not be torn down"
     [ ! -e "$dir/home/state/$id.meta" ] || fail "legacy task teardown retained metadata"
     [ "$(cat "$dir/home/state/.pr-check-quarantine/!noncanonical.check.evidence")" = 'reserved migration evidence' ] \
@@ -1623,7 +1652,7 @@ SH
   touch "$state/.last-watcher-beat"
   set +e
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-    "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err"
+    override_teardown task-a > "$dir/teardown.out" 2> "$dir/teardown.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "teardown accepted a multiply linked quarantine entry"
@@ -1777,7 +1806,7 @@ SH
   touch "$state/.last-watcher-beat"
   set +e
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-    "$TEARDOWN" _noncanonical --force > "$dir/teardown.out" 2> "$dir/teardown.err"
+    override_teardown _noncanonical > "$dir/teardown.out" 2> "$dir/teardown.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "task teardown accepted an unresolved legacy namespace collision"
@@ -1799,7 +1828,7 @@ SH
     || fail "legacy reserved retry did not migrate its quarantined evidence"
   assert_valid_migration_marker "$state/.pr-check-migration-v1"
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-    "$TEARDOWN" _noncanonical --force > "$dir/teardown-2.out" 2> "$dir/teardown-2.err" \
+    override_teardown _noncanonical > "$dir/teardown-2.out" 2> "$dir/teardown-2.err" \
     || fail "task teardown did not recover after legacy namespace migration"
   [ ! -e "$state/_noncanonical.meta" ] \
     || fail "recovered task teardown retained lifecycle metadata"
@@ -2297,7 +2326,7 @@ SH
   touch "$dir/home/state/.last-watcher-beat"
 
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-    "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    override_teardown task-a > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "teardown cleanup fixture failed"
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "teardown left the runnable check"
   [ ! -e "$dir/home/state/task-a.pr-poll" ] || fail "teardown left the sidecar"
@@ -2328,7 +2357,7 @@ SH
   chmod +x "$fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-    "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    override_teardown task-a > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "teardown could not finish a valid crash-left retirement receipt"
   assert_poll_absent "$dir/home/state" task-a
   [ ! -e "$dir/home/state/task-a.meta" ] || fail "receipt-aware teardown left task metadata"
@@ -2355,7 +2384,7 @@ SH
   touch "$dir/home/state/.last-watcher-beat"
 
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-    "$TEARDOWN" invalid --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    override_teardown invalid > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "valid invalid task teardown failed"
   [ ! -e "$dir/home/state/.pr-check-quarantine/invalid.check.abc123" ] \
     || fail "teardown left the valid invalid task artifact"
@@ -2388,7 +2417,7 @@ SH
     touch "$dir/home/state/.last-watcher-beat"
     set +e
     MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" MX_FAKE_TMUX_LOG="$dir/tmux.log" \
-      PATH="$fakebin:$BASE_PATH" "$TEARDOWN" task-a --force \
+      PATH="$fakebin:$BASE_PATH" override_teardown task-a \
       > "$dir/teardown.out" 2> "$dir/teardown.err"
     rc=$?
     set -e
@@ -2426,7 +2455,7 @@ SH
     touch "$dir/home/state/.last-watcher-beat"
     set +e
     MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-      "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err"
+      override_teardown task-a > "$dir/teardown.out" 2> "$dir/teardown.err"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "teardown accepted a $kind-target quarantine symlink"

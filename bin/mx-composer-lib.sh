@@ -184,13 +184,13 @@ mx_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
   plain_content=${5:-$content}
   if [ "$bordered" != 1 ] && [ -z "$content" ] && [ -n "$plain_content" ]; then
     case "$plain_content" in
-      '❯'|'›') printf 'empty'; return 0 ;;
+      '❯'|'›'|'→') printf 'empty'; return 0 ;;
       *) printf 'unknown'; return 0 ;;
     esac
   fi
   # A bare prompt glyph on its own row.
   case "$content" in
-    '❯'|'›')
+    '❯'|'›'|'→')
       # Agent prompt glyph: a genuine empty agent composer, bordered or bare.
       printf 'empty'; return 0 ;;
     '>'|'$'|'%'|'#')
@@ -207,8 +207,8 @@ mx_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
   fi
   # Strip a leading prompt glyph, then re-judge the remainder.
   case "$content" in
-    '❯ '*|'› '*|'> '*|'$ '*|'% '*|'# '*) content=${content#??} ;;
-    '❯'*|'›'*|'>'*|'$'*|'%'*|'#'*) content=${content#?} ;;
+    '❯ '*|'› '*|'→ '*|'> '*|'$ '*|'% '*|'# '*) content=${content#??} ;;
+    '❯'*|'›'*|'→'*|'>'*|'$'*|'%'*|'#'*) content=${content#?} ;;
   esac
   content="${content#"${content%%[![:space:]]*}"}"
   content="${content%"${content##*[![:space:]]}"}"

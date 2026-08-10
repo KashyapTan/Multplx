@@ -46,13 +46,13 @@ tr:nth-child(even) td{background:var(--surface)}
 <header class="hero"><div class="wrap">
   <div class="plan-num">Multplx · Implementation Plan Index</div>
   <h1>Multplx Implementation Ledger</h1>
-  <p class="subtitle">Eighteen HTML artifacts document the implementation that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> and its global distribution phase: numbered Plans 01–17 plus the inserted Plan 6.5 test-acceleration phase. Plans 01–11 plus 6.5 built the port, Plans 12–15 added post-port operations and observability, Plan 16 completed the human-documentation productization pass, and Plan 17 implemented the global launcher and activated shell.</p>
+  <p class="subtitle">Nineteen HTML artifacts document the implementation that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> and its active roadmap: numbered Plans 01-18 plus the inserted Plan 6.5 test-acceleration phase. Plans 01-11 plus 6.5 built the port, Plans 12-15 added post-port operations and observability, Plan 16 completed the human-documentation productization pass, Plan 17 implemented the global launcher and activated shell, and Plan 18 implemented Cursor CLI support plus maintainer-scoped overrides.</p>
 </div></header>
 
 <div class="wrap">
 
 <div class="callout"><div class="label">How to read these plans</div>
-<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order; the inserted 6.5 artifact makes eighteen records across numbered Plans 01–17. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All tracked implementation scripts retain the <code>mx-</code> prefix; Plan 17 installs the user-facing <code>multplx</code> command as a bootstrap into that script surface.</p>
+<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order; the inserted 6.5 artifact makes nineteen records across numbered Plans 01-18. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All tracked implementation scripts retain the <code>mx-</code> prefix; Plan 17 installs the user-facing <code>multplx</code> command as a bootstrap into that script surface.</p>
 </div>
 
 <h2>Execution flow</h2>
@@ -68,7 +68,8 @@ tr:nth-child(even) td{background:var(--surface)}
 <b>Phase 8</b> Compose       → 11 workflow engine (user-defined multi-stage workflows, create-workflow skill)<br>
 <b>Phase 9</b> Post-port     → 12 event journal → 13 mx-doctor → 14 upstream sync → 15 mx-viz<br>
 <b>Phase 10</b> Productize   → 16 human documentation revamp (README + docs information architecture)<br>
-<b>Phase 11</b> Global entry → 17 global launcher + activated shell (one command, all projects, free harness/backend choice)
+<b>Phase 11</b> Global entry → 17 global launcher + activated shell (one command, all projects, free harness/backend choice)<br>
+<b>Phase 12</b> Authority/runtime → 18 Cursor CLI adapter + exact one-action maintainer overrides
 </div>
 
 <div class="phase-label">Phase 1 · Shrink the surface</div>
@@ -185,6 +186,13 @@ tr:nth-child(even) td{background:var(--surface)}
   <div class="meta"><span class="tag" style="color:var(--green);border-color:var(--green)">Implemented · 2026-08-02</span><span class="tag effort-high">Effort: Medium–High</span><span class="tag">Risk: Medium</span><span class="tag" style="color:var(--green);border-color:var(--green)">Decided: shell/Bash</span></div>
 </a>
 
+<div class="phase-label">Phase 12 · Runtime and authority</div>
+<a class="card" href="18-cursor-cli-maintainer-overrides.html" style="--card-accent:#f0883e">
+  <div class="top"><span class="num">PLAN 18</span><span class="title">Cursor CLI and Maintainer-Scoped Overrides</span></div>
+  <div class="desc">Verify Cursor CLI as a sandbox-enabled primary and worker harness, then add deterministic one-action exception records so explicit maintainer direction is final at each exact policy boundary without creating a reusable bypass or fabricating validation facts.</div>
+  <div class="meta"><span class="tag" style="color:var(--green);border-color:var(--green)">Implemented · 2026-08-09</span><span class="tag effort-high">Effort: High</span><span class="tag">Risk: High</span></div>
+</a>
+
 <h2>What we deliberately keep (no plan needed)</h2>
 <table>
   <tr><th>Kept as-is</th><th>Why</th></tr>
@@ -195,7 +203,7 @@ tr:nth-child(even) td{background:var(--surface)}
   <tr><td>jq, git, curl, gh, node, python3, coreutils</td><td>Genuine infrastructure retained by the completed dependency-removal work.</td></tr>
 </table>
 
-<p style="color:var(--muted);font-family:var(--mono);font-size:13px;margin-top:40px">Plans 01–17 plus 6.5 form the implementation record and active roadmap. Current product and operator behavior belongs in <code>README.md</code> and the audience-classified <code>docs/</code> owners.</p>
+<p style="color:var(--muted);font-family:var(--mono);font-size:13px;margin-top:40px">Plans 01-18 plus 6.5 form the implementation record and active roadmap. Current product and operator behavior belongs in <code>README.md</code> and the audience-classified <code>docs/</code> owners.</p>
 </div>
 </body>
 </html>

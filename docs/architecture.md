@@ -40,7 +40,7 @@ A declared external wait trades that silence for one bounded recheck per pause w
 Actor status files are append-only wake-event logs, not current-state fields.
 Actors write status events through the task-bound `report_status` MCP tool when their harness exposes it or through `bin/mx-report` as the universal fallback.
 The wrapper owns the closed actor-writable vocabulary `working|paused|blocked|needs-decision|done|failed|resolved`, rejects multiline events and cross-task writes before opening a status file, and emits the existing plain or keyed line grammar.
-Claude and Codex receive session-scoped MCP configuration from `mx-spawn.sh`; Pi uses the wrapper because no project-scoped MCP registration contract is verified for it.
+Claude and Codex receive session-scoped MCP configuration from `mx-spawn.sh`; Cursor and Pi use the wrapper because no project-scoped MCP registration contract is verified for them.
 The MCP adapter delegates every accepted call to the wrapper, so validation and append behavior have one owner.
 After a successful durable append, `mx-report` may send a payload-free `USR1` nudge to the live watcher only when the PID and PID identity advertised by that home's singleton lock still match.
 The signal interrupts the watcher's ordinary terminal poll wait and causes the same scan loop to run early; native Herdr event waits remain bounded and unchanged.
@@ -98,14 +98,14 @@ The snapshot strips control sequences, retains only capture metadata and literal
 The default path remains local-only; live GitHub enrichment exists only behind the catchup `--include-prs` opt-in.
 
 At session start, `bin/mx-session-start.sh` emits exactly one primary-harness supervision block rendered by `bin/mx-supervision-instructions.sh` from `docs/supervision-protocols/`.
-That block owns the live wait shape for the running primary harness: Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex uses bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
+That block owns the live wait shape for the running primary harness: Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex and Cursor use bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
 `bin/mx-watch-arm.sh` remains the verified arm wrapper for protocols that call it; it forks the watcher as a tracked child, verifies it is genuinely alive with a fresh liveness beacon, and prints an honest `started`, `attached`, or nonzero `FAILED` status.
 On `attached` it stays live across identity-matched successors, and an unexplained clean child close either attaches to a verified healthy successor or becomes the typed nonzero `watcher: FAILED - cycle ended without an actionable reason` result.
 The arm layer records one bounded lifecycle row per observed cycle in `state/.watch-cycle-exits.log`; `state/.watch-triage.log` remains exclusively the absorbed-wake debug log.
 Pi verifies session-lock ownership and launches one singleton successor from its child-close handler before delivering an actionable wake prompt, with bounded exponential retry for failed restoration.
 Claude's `bin/mx-claude-stop-autoarm.sh` hook fires on every Stop and, when the home is eligible and still needs supervision, claims one home-scoped cycle, foregrounds the arm wrapper, and translates an actionable close or typed failure into one exit-2 rewake.
 [`watcher-continuity.md`](watcher-continuity.md) owns Claude's residual active-turn coverage and watcher-status command-gating boundary.
-The existing turn-end guard remains the final backstop for all three harness protocols, cooperating with the auto-arm claim in its `--claude` mode.
+The existing turn-end guard remains the final backstop for all four harness protocols, cooperating with the auto-arm claim in its `--claude` mode.
 Its `--restart` mode signals only the watcher recorded in the current home's `state/.watch.lock`, so restarting one home cannot kill sibling daemon watchers.
 A pull-based guard (`bin/mx-guard.sh`) warns through supervision tool output if the primary checkout is tangled, or if tasks are in flight and that watcher stops running or queued wakes are waiting to be drained.
 The drain script calls that guard after emptying the queue, which avoids repeating the queued-wakes warning for records it just consumed while still warning on stale watcher liveness.

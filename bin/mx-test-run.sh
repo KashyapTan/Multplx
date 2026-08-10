@@ -121,8 +121,8 @@ now_ms() {
 # unclassified so new tests are still runnable and visible in summaries.
 family_for_basename() {
   case "$1" in
-    mx-arm-pretool-check.test.sh|mx-ask-user-authority.test.sh|mx-brief.test.sh|\
-    mx-backlog-lib.test.sh|mx-calm-pi-extension.test.sh|mx-maintainer-translation-contract.test.sh|mx-cd-pretool-check.test.sh|\
+    mx-arm-pretool-check.test.sh|mx-ask-user-authority.test.sh|mx-brief.test.sh|mx-cursor-adapter.test.sh|\
+    mx-backlog-lib.test.sh|mx-calm-pi-extension.test.sh|mx-lock-override.test.sh|mx-maintainer-override.test.sh|mx-maintainer-translation-contract.test.sh|mx-cd-pretool-check.test.sh|\
     mx-composer-ghost.test.sh|mx-composer-lib.test.sh|\
     mx-actor-state.test.sh|mx-decision-hold-lifecycle.test.sh|\
     mx-documentation-audiences.test.sh|mx-ensure-agents-md.test.sh|mx-naming.test.sh|\
@@ -168,7 +168,7 @@ family_for_basename() {
       printf '%s\n' session-bootstrap
       ;;
     mx-afk-pi-herdr-return-e2e.test.sh|\
-    mx-codex-continuity-live-e2e.test.sh|mx-launcher-live-e2e.test.sh|mx-pi-primary-live-e2e.test.sh|\
+    mx-codex-continuity-live-e2e.test.sh|mx-cursor-live-e2e.test.sh|mx-launcher-live-e2e.test.sh|mx-pi-primary-live-e2e.test.sh|\
     mx-send-daemon-marker-herdr-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
@@ -274,6 +274,8 @@ tests/mx-claude-stop-autoarm.test.sh	none
 tests/mx-codex-continuity-live-e2e.test.sh	live-harness
 tests/mx-composer-ghost.test.sh	none
 tests/mx-composer-lib.test.sh	none
+tests/mx-cursor-adapter.test.sh	none
+tests/mx-cursor-live-e2e.test.sh	live-harness
 tests/mx-daemon-harness-model-resolution.test.sh	none
 tests/mx-daemon-harness-reread-retry.test.sh	daemon-reread-process-signal
 tests/mx-daemon-harness-spawn-config.test.sh	none
@@ -303,6 +305,8 @@ tests/mx-journal.test.sh	none
 tests/mx-launcher-live-e2e.test.sh	live-harness
 tests/mx-launcher-shell.test.sh	none
 tests/mx-launcher.test.sh	none
+tests/mx-lock-override.test.sh	none
+tests/mx-maintainer-override.test.sh	none
 tests/mx-maintainer-translation-contract.test.sh	none
 tests/mx-naming.test.sh	none
 tests/mx-nudge.test.sh	watcher-process
@@ -888,6 +892,14 @@ families_for_changed_path() {
     bin/mx-workflow.sh|bin/mx-workflow-lib.sh|docs/workflows.md|workflows/*.workflow.md|\
     tests/fixtures/create-workflow-*)
       printf '%s\n' pure-contract-unit
+      ;;
+    bin/mx-maintainer-override*.sh|bin/mx-override-*.sh|bin/mx-validation-waive.sh)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' pr-forge
+      ;;
+    .cursor/*|.cursor/**/*|docs/verification/cursor-cli.md)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' live-harness-optin
       ;;
     bin/mx-watch*|bin/mx-wake*|\
     bin/mx-classify-lib.sh|bin/mx-daemon*|bin/mx-turnend-guard*|bin/mx-guard.sh)

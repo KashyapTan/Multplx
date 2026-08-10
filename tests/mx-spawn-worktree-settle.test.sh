@@ -90,6 +90,7 @@ EOF
 
 run_settle_spawn() {
   local id=$1
+  shift
   MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
     MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
     MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
@@ -97,8 +98,26 @@ run_settle_spawn() {
     MX_FAKE_PANE_PATH="$WT_DIR" MX_FAKE_PANE_STALE="$STALE_DIR" \
     MX_FAKE_PANE_STALE_READS="$STALE_READS" MX_FAKE_PANE_COUNTFILE="$COUNTFILE" \
     PATH="$FAKEBIN_DIR:$PATH" \
-    "$SPAWN" "$id" "$PROJ_DIR" 2>&1
+    "$SPAWN" "$id" "$PROJ_DIR" "$@" 2>&1
 }
+
+grant_binding() (
+  local state=$1 bindings=$2 request boundary task project operation target digest consequence
+  export MX_STATE_OVERRIDE=$state
+  # shellcheck source=bin/mx-maintainer-override-lib.sh
+  . "$ROOT/bin/mx-maintainer-override-lib.sh"
+  mx_override_require_primary_lock() { return 0; }
+  boundary=$(printf '%s' "$bindings" | jq -r '.boundary')
+  task=$(printf '%s' "$bindings" | jq -r '.task')
+  project=$(printf '%s' "$bindings" | jq -r '.project')
+  operation=$(printf '%s' "$bindings" | jq -r '.operation')
+  target=$(printf '%s' "$bindings" | jq -r '.target')
+  digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
+  consequence=$(printf '%s' "$bindings" | jq -r '.consequence')
+  request=$(mx_override_request "$boundary" "$task" "$project" "$operation" "$target" "$digest" "$consequence") || exit 1
+  mx_override_grant "$request" "Grant $boundary for $operation on $target only." >/dev/null || exit 1
+  printf '%s\n' "$request"
+)
 
 # A single stale first read (the exact incident) must not be accepted: the
 # loop should keep polling until two consecutive reads agree, landing on the
@@ -141,7 +160,41 @@ test_already_settled_pane_costs_one_confirm_sleep() {
   pass "an already-settled pane confirms via the existing inter-poll sleep, not an extra full cycle"
 }
 
+test_exact_single_checkout_mode_serializes_and_releases() {
+  local rec id bindings request out status record cleanup cleanup_request proj_real
+  id=single-checkout-z3
+  rec=$(make_settle_case single-checkout "$id" 0)
+  read_settle_record "$rec"
+  proj_real=$(cd "$PROJ_DIR" && pwd -P)
+  bindings=$(MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" \
+    "$ROOT/bin/mx-override-bindings.sh" single-checkout "$id" "$PROJ_DIR") || fail "single-checkout binding failed"
+  request=$(grant_binding "$HOME_DIR/state" "$bindings") || fail "single-checkout grant failed"
+
+  out=$(run_settle_spawn "$id" --single-checkout "$request")
+  status=$?
+  expect_code 0 "$status" "exact single-checkout spawn"
+  assert_contains "$out" "spawned $id" "single-checkout spawn did not report success"
+  assert_grep 'single_checkout=yes' "$HOME_DIR/state/$id.meta" "single-checkout fact was not recorded"
+  assert_grep "worktree=$proj_real" "$HOME_DIR/state/$id.meta" "single-checkout did not bind the primary project"
+  record=$(sed -n 's/^single_checkout_record=//p' "$HOME_DIR/state/$id.meta")
+  [ -f "$record" ] || fail "single-checkout reservation was not retained"
+  [ "$(jq -r '.outcome' "$HOME_DIR/state/maintainer-overrides/consumed/$request.json")" = succeeded ] \
+    || fail "single-checkout outcome was not recorded truthfully"
+
+  cleanup=$(MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" \
+    "$ROOT/bin/mx-override-bindings.sh" cleanup "$id") || fail "single-checkout cleanup binding failed"
+  cleanup_request=$(grant_binding "$HOME_DIR/state" "$cleanup") || fail "single-checkout cleanup grant failed"
+  MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
+    MX_CONFIG_OVERRIDE="$HOME_DIR/config" PATH="$FAKEBIN_DIR:$PATH" \
+    "$ROOT/bin/mx-teardown.sh" "$id" --override "$cleanup_request" >/dev/null \
+    || fail "single-checkout teardown failed"
+  [ ! -e "$record" ] || fail "single-checkout reservation survived teardown"
+  [ -d "$PROJ_DIR/.git" ] || fail "single-checkout teardown removed the project checkout"
+  pass "exact single-checkout mode records lost isolation, serializes, and releases at teardown"
+}
+
 test_single_stale_first_read_is_not_accepted
 test_already_settled_pane_costs_one_confirm_sleep
+test_exact_single_checkout_mode_serializes_and_releases
 
 echo "# all mx-spawn-worktree-settle tests passed"

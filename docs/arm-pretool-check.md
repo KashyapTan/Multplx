@@ -22,7 +22,7 @@ It tokenizes the bytes and classifies lexical execution positions only.
 
 `bin/mx-arm-pretool-check.sh` supports these entry forms:
 
-- Stdin JSON at `.tool_input.command` for Claude and Codex (a legacy `.toolInput.command` fallback is also read).
+- Stdin JSON at `.tool_input.command` for Claude, Codex, and Cursor (a legacy `.toolInput.command` fallback is also read).
 - `--command <exact string>` for Pi.
 - `--background` as a compatibility-only field that never changes the decision.
 - `--claude` to preserve Claude's stderr-only deny requirement.
@@ -152,6 +152,7 @@ Prose may improve without changing adapter behavior.
 | --- | --- | --- |
 | Codex | `.tool_input.command` | The `.codex/hooks.json` command forwards the complete stdin payload and Codex blocks on exit 2. |
 | Claude | `.tool_input.command` | `.claude/settings.json` forwards stdin with `--claude`, leaving stdout empty and returning the stderr deny object. |
+| Cursor | `.tool_input.command` | `.cursor/hooks.json` invokes `bin/mx-cursor-hook.sh pre-tool` with `failClosed: true`; the adapter converts exit-2 guard evidence to Cursor's native deny object. |
 | Pi | `event.input.command` | `.pi/extensions/mx-primary-turnend-guard.ts` passes one `--command` argument and returns `{block: true}` only for exit 2. |
 
 Current dated cross-harness proof lives in [`verification/guards.md`](verification/guards.md#watcher-arm-command-guard).

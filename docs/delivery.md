@@ -9,7 +9,8 @@ It runs from the maintainer's shell or a separately credentialed scheduler, neve
 
 ## Delivery handoff
 
-The local validation path writes `state/<id>.ready-to-push` only after it has validated a clean local branch.
+The ordinary local validation path writes `state/<id>.ready-to-push` only after it has validated a clean local branch.
+An exact `validation.waive-gate` grant may instead create a version-2 handoff that says `validation=waived`, binds the consumed request and exact SHA, and leaves the failed gate unchanged.
 The exact line schema, private-file checks, gate-run fields, and PR-body rendering are owned by `bin/mx-deliver-lib.sh`.
 The handoff pins the task, worktree, `mx/<id>` branch, base branch, gate run, approval state, PR title, and exact approved commit.
 
@@ -18,7 +19,7 @@ Delivery reparses the record without sourcing it and re-verifies all of the foll
 - The handoff and task metadata are private regular files on the state device.
 - The task metadata still names the same worktree.
 - The worktree is clean, is on the recorded branch, and its current HEAD is the approved commit.
-- The gate run is private, passed, and records the same approved commit plus its summary and risk assessment.
+- The gate run is private and records the same approved commit plus its summary and risk assessment, or the handoff carries a valid consumed exact-SHA validation waiver.
 - Approval is exactly `approved`.
 
 The push uses the approved object ID as the source of an explicit refspec.
@@ -56,6 +57,7 @@ No credential belongs in the repository, a task worktree, a state record, a gene
 
 The service credential should be repository-scoped and grant only `contents:write` and `pull_requests:write` for the intended repositories.
 Remote merge uses `bin/mx-pr-merge.sh` from the same non-agent context and remains subject to the configured merge authority.
+An exact `delivery.merge-red` alternate binds the canonical PR URL, head SHA, and failed-check set before it invokes the credentialed `--admin` merge path, and records the outcome as maintainer-directed rather than green.
 Local-only projects are unchanged and use `bin/mx-merge-local.sh` without a remote credential.
 
 ## Scheduler examples

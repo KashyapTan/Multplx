@@ -1,6 +1,6 @@
 ---
 name: harness-adapters
-description: Agent-only reference for broker harness operations. Use before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, and pi.
+description: Agent-only reference for broker harness operations. Use before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, cursor, and pi.
 user-invocable: false
 metadata:
   internal: true
@@ -52,6 +52,7 @@ Use that value for interrupt, exit, resume, and skill-invocation facts.
 
 Every verified primary harness has an empirically validated hook path for the "no turn ends blind" guard.
 `claude` and `codex` block directly through Stop hooks that preserve exit status 2 and stderr from `bin/mx-turnend-guard.sh`.
+`cursor` translates that same status-2 result into one native `followup_message` and caps the stop hook at `loop_limit: 1`.
 `pi` exposes a passive lifecycle callback for this purpose, so its tracked primary adapter forces one bounded follow-up when the shared predicate blocks.
 The exact hook files, commands, scoping rules, and fail-open tradeoffs are owned by `docs/turnend-guard.md`.
 `docs/verification/supervision.md` "Turn-end guard" owns active validation evidence.
@@ -60,7 +61,7 @@ When changing any primary turn-end hook, validate the real harness behavior in a
 ## Primary pre-arm (PreToolUse) seatbelt
 
 Every verified primary harness also has a wired PreToolUse-equivalent hook that denies a watcher-arm anti-pattern (shell `&`, truncating pipe, bundling, broad `pkill -f mx-watch`) before it runs.
-`claude` and `codex` block directly through PreToolUse hooks.
+`claude`, `codex`, and `cursor` block directly through PreToolUse hooks.
 `pi` blocks by returning `{block: true}` from `tool_call`.
 The exact hook files, commands, output-shaping quirks (Claude Code only honors the deny when stdout is empty), and validation transcripts are owned by `docs/arm-pretool-check.md`.
 When changing any watcher-arm PreToolUse hook, validate the real harness behavior in a scratch project before trusting it, then update that doc.
@@ -85,6 +86,7 @@ Full mechanics, scoping, and fail-open behavior live in `docs/sessionstart-nudge
 
 - `claude`: verified native `SessionStart` stdout injection; `.claude/settings.json` matches `startup`, `resume`, and `clear`, but not `compact`.
 - `codex`: verified on 0.144.4; `.codex/hooks.json` receives `source=startup`, and wrapper stdout reaches model context.
+- `cursor`: verified on 2026.08.04-aaa8809; tracked `sessionStart` uses `additional_context` from the shared nudge wrapper.
 - `pi`: verified native `session_start`; the existing primary extension handles `startup`, `new`, and `resume` and uses `pi.sendMessage` to inject context without racing a positional launch prompt.
 
 ## Primary watcher supervision
@@ -93,6 +95,7 @@ At session start, `bin/mx-session-start.sh` prints exactly one watcher supervisi
 Do not substitute another harness's wait shape when resuming supervision.
 Claude's Stop `asyncRewake` hook (`bin/mx-claude-stop-autoarm.sh`) owns tokenless re-arm around `bin/mx-watch-arm.sh`.
 Codex uses bounded foreground checkpoints through `bin/mx-watch-checkpoint.sh` because Codex cannot reason while a foreground tool call is running.
+Cursor uses the same bounded foreground-checkpoint contract.
 Pi uses the tracked `.pi/extensions/mx-primary-turnend-guard.ts` plus the tracked `.pi/extensions/mx-primary-pi-watch.ts`, both project-local extensions Pi auto-discovers once trusted.
 When changing any primary watcher adapter, update `docs/supervision-protocols/`, `docs/turnend-guard.md` if a shared idle or turn-end hook changed, and the relevant concise fact below.
 
@@ -115,6 +118,7 @@ The supported launch-profile flags below are verified locally; each row records 
 |---|---|---|---|
 | claude | `--model <model>` | `--effort <low\|medium\|high\|xhigh\|max>` | Verified on Claude Code 2.1.196. |
 | codex | `--model <model>` | `-c 'model_reasoning_effort="<low\|medium\|high\|xhigh>"'` | Verified on codex-cli 0.142.1. The installed binary schema contains `model_reasoning_effort`, the active config uses it, and the bundled model catalog advertises only low/medium/high/xhigh. `max` is omitted. |
+| cursor | `--model '<model>[effort=<level>]'` | Folded into the model token | Verified on Cursor CLI 2026.08.04-aaa8809. Availability remains account-specific; the authenticated free account exposed only `auto`. |
 | pi | `--model <model>` | `--thinking <low\|medium\|high\|xhigh\|max>` | Verified 2026-07-13 on Pi 0.80.6. `pi --help` advertises `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `pi --print --model openai-codex/gpt-5.6-sol --thinking max 'Reply with exactly OK.'` completed successfully. |
 
 ### Model support discovery
@@ -126,6 +130,7 @@ Use the discovery surface in the current authenticated environment because suppo
 |---|---|
 | claude | Open the current interactive session's `/model` picker; `claude --help` documents the accepted alias or full-model-name input shape. |
 | codex | Open the current interactive session's `/model` picker. |
+| cursor | Run `agent models`; model availability reflects the authenticated account. |
 | pi | Run `pi --list-models [search]`; Pi's installed `docs/models.md` owns how built-in, extension-registered, and custom provider/model entries reach that list. |
 
 For an unfamiliar harness or model namespace, establish support and provider identity from that harness's authoritative CLI help, model listing, or current documentation rather than guessing from a name or prefix.
@@ -152,6 +157,9 @@ The gate prompt remains authoritative and the lifecycle marker independently rem
   When project settings are disabled, launch from a fresh external directory with `--skip-git-repo-check`, add the task worktree through `--add-dir`, set `project_doc_max_bytes=0`, clear fallback instruction filenames, and pass `--ignore-rules`.
   This keeps automatic repository discovery outside the gate while the prompt directs work at the explicit isolated worktree.
   The noninteractive flags and output-schema behavior were checked against the installed CLI help and the current official Codex manual on 2026-07-30.
+- `cursor`: unsupported for deep-review.
+  Cursor 2026.08.04-aaa8809 has print and JSON output modes but no verified native schema constraint and no verified way to suppress tracked project rules and hooks while retaining explicit checkout access.
+  `dr_agent_oneshot` therefore refuses Cursor instead of weakening gate isolation.
 - `pi`: use `--print --approve --no-session --no-context-files --no-extensions`.
   Pi does not provide a verified native JSON-schema constraint or headless resume path, so deterministic validation is mandatory and a requested resume refuses.
   This command path is fail-closed when Pi is unavailable.
@@ -175,6 +183,8 @@ Both paths append the same validated event grammar, and neither replaces current
 - `codex`: verified on codex-cli 0.146.0-alpha.3.1 and the current Codex configuration reference.
   Codex supports trusted project `.codex/config.toml` files and `mcp_servers.<name>` configuration.
   `mx-spawn.sh` supplies the `multplx_status` stdio server as a per-run `-c` override, so existing project configuration remains untouched and the binding expires with the session.
+- `cursor`: use `mx-report`.
+  No project-scoped per-run MCP registration contract was verified, so Multplx leaves user configuration untouched.
 - `pi`: use `mx-report`.
   No project-scoped MCP registration contract has been verified for Pi, so Multplx does not guess or mutate Pi's user configuration.
 
@@ -238,6 +248,25 @@ Verified on 2026-07-08: Codex runs the Stop hook command with process PWD set to
 The tracked hook anchors to `pwd -P`, verifies that root is broker-shaped and hook-bearing, and then invokes `bin/mx-turnend-guard.sh` with the original payload.
 Codex's primary watcher protocol is `bin/mx-watch-checkpoint.sh --seconds "${MX_CODEX_WATCH_CHECKPOINT:-180}"`, not `bin/mx-watch-arm.sh`.
 The checkpoint is deliberately foreground and bounded so Codex regains control regularly to process user messages and queued wakes.
+
+## cursor (VERIFIED 2026-08-09, Cursor CLI 2026.08.04-aaa8809)
+
+| Fact | Value |
+|---|---|
+| Busy-pane signature | `Working` with `ctrl+c to stop` |
+| Exit command | Ctrl-D; Cursor prints the exact `agent --resume=<session-id>` command |
+| Interrupt | Ctrl-C |
+| Composer glyph | `→` |
+| Trust | Multplx passes scoped `--trust` for its validated checkout and never mutates persistent trust configuration |
+
+The canonical executable is `agent`; `cursor-agent` is an installation alias and Multplx provides a collision-safe shim for either spelling.
+Every launch passes `--sandbox enabled`; `--force`, `--yolo`, `--sandbox disabled`, and Cursor-owned worktrees are rejected by the launcher adapter.
+Tracked `.cursor/hooks.json` owns primary session-start, command, delegation-shape, and bounded stop adaptation.
+Actors receive a private per-run plugin under `/tmp/mx-<id>/` for collision-free native stop signaling.
+Cursor stop hooks do not fire in `--print` mode, so supervised lifecycle turns use interactive mode.
+Resume uses the exact id printed on Ctrl-D.
+The primary watcher protocol is the same bounded foreground checkpoint used for Codex.
+Full commands and negative controls live in `docs/verification/cursor-cli.md`.
 
 ## pi (VERIFIED 2026-06-11)
 

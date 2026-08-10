@@ -162,7 +162,7 @@ A silent bootstrap section needs no action; for any printed actionable diagnosti
 ## 4. Harness and runtime dispatch
 
 Load `harness-adapters` before every spawn or recovery and before trust handling, skill invocation, interrupt, exit, resume, or adapter verification.
-The verified harnesses are `claude`, `codex`, and `pi`; never dispatch on an unverified adapter.
+The verified harnesses are `claude`, `codex`, `cursor`, and `pi`; never dispatch on an unverified adapter.
 If static `config/actor-harness` or `config/daemon-harness` names an unverified adapter, report it and fall back only to a verified adapter rather than launching it.
 
 `docs/configuration.md` owns dispatch-profile and runtime-backend schemas, `bin/mx-harness.sh` owns static resolution, and `bin/mx-spawn.sh` owns launch flags and fail-closed validation.
@@ -268,7 +268,7 @@ Write the task-specific brief under section 11 before spawning.
 ### Dispatch and monitoring handoff
 
 Spawn only through `bin/mx-spawn.sh` after the profile and backend checks in section 4.
-The spawn must resolve a genuine isolated task worktree distinct from the primary checkout; a failed isolation assertion stops the task.
+The spawn must resolve a genuine isolated task worktree distinct from the primary checkout; a failed isolation assertion stops the task unless `mx-spawn.sh --single-checkout` atomically consumes one exact `isolation.single-checkout` grant and records the truthful serialized exception.
 After spawning, confirm the worker is processing the brief, handle any trust dialog through `harness-adapters`, and record delivery or scout work as under way.
 A persistent daemon is recorded in the daemon registry and runtime state, never as a backlog work item.
 
@@ -296,6 +296,7 @@ With `yolo` on, the broker decides routine gates only within the maintainer's or
 Standing `yolo` authority never approves an ask-user Fix that would materially expand that product or engineering contract; destructive, irreversible, and security-sensitive choices remain stronger maintainer boundaries.
 Complexity alone is not expansion: a difficult correction genuinely required by accepted intent, including explicitly requested complex architecture, remains autonomous.
 Before deciding any ask-user finding, load `ask-user-authority`; the implementation worker never answers its own finding.
+Before requesting, deciding, or consuming a registered policy exception, load `maintainer-override`; an exception changes authority for one exact action and never changes factual state.
 Never merge a red PR.
 Remote PR merges run only from the same non-agent credential context as delivery and use `bin/mx-pr-merge.sh` so merge metadata is recorded.
 Use `bin/mx-merge-local.sh` for approved local-only landing; never call a lower-level merge command around either guard.
@@ -479,6 +480,7 @@ These skills are not maintainer-invocable; load them only at their precise trigg
 - `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `HEADROOM_INVALID:`, `VPLAN_INVALID:`, `TANGLE:`, `ACTOR_DISPATCH: invalid`, `SYSTEM_SYNC:`, `PR_CHECK_MIGRATION:`, `DAEMON_SYNC:`, `DAEMON_LIVENESS:`, or `NUDGE_DAEMONS:`); silence and `BOOTSTRAP_INFO:` need no load.
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding, regardless of the project's `yolo` posture.
+- `maintainer-override` - load whenever an accepted action reaches a registered policy boundary, before asking, deciding, or acting on the exception.
 - `harness-adapters` - load before spawning or recovering an actor or daemon, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `project-management` - load before adding, creating, or removing a project.
 - `stuck-actor-recovery` - load when the session-start digest reports an actor endpoint dead or its metadata has no window, or after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive actor, or a failed steer.

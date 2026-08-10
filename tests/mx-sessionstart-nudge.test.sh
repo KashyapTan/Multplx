@@ -117,6 +117,14 @@ test_tracked_harness_registration() {
   ! grep -Eq '^[[:space:]]*approval_policy[[:space:]]*=' "$codex_config" \
     || fail "Codex project config must leave approval policy to the maintainer"
 
+  command=$(jq -r '.hooks.sessionStart[0].command' "$ROOT/.cursor/hooks.json")
+  assert_contains "$command" 'mx-cursor-hook.sh session-start' \
+    "Cursor sessionStart hook does not invoke the native adapter"
+  jq -e '.hooks.sessionStart[0].failClosed == true' "$ROOT/.cursor/hooks.json" >/dev/null \
+    || fail "Cursor sessionStart hook is not configured fail-closed"
+  grep -F 'bin/mx-session-start.sh' "$ROOT/.cursor/rules/multplx.mdc" >/dev/null \
+    || fail "Cursor always-applied rule does not retain the idempotent startup owner"
+
   pi_plugin=$(cat "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts")
   assert_contains "$pi_plugin" '["startup", "new", "resume"]' "Pi SessionStart handler has the wrong reason allowlist"
   assert_contains "$pi_plugin" 'mx-sessionstart-nudge.sh' "Pi SessionStart handler does not invoke the wrapper"
@@ -124,7 +132,7 @@ test_tracked_harness_registration() {
   assert_contains "$pi_plugin" 'details: { kind: "session-start" }' "Pi SessionStart context does not retain its exact structured kind"
   assert_contains "$pi_plugin" 'pi.sendMessage' "Pi SessionStart handler does not use the context-safe message API"
 
-  pass "all three verified harnesses register the shared session-start nudge and Codex retains required host access"
+  pass "all four verified harnesses register the shared session-start nudge and Codex retains required host access"
 }
 
 test_genuine_primary_nudges
