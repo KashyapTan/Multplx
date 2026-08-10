@@ -9,7 +9,7 @@
 # reference back to a removed subsystem.
 #
 # Scope: the Multplx tree only (bin/ tests/ docs/ skills/ .agents/ .github/
-# AGENTS.md README.md CONTRIBUTING.md .gitignore). The read-only upstream
+# AGENTS-PORTING.md README.md CONTRIBUTING.md .gitignore). The read-only upstream
 # reference folder and historical planning material legitimately describe the
 # removed subsystems and are excluded. Inert `# shellcheck` lint directives
 # inside scripts are allowed.
@@ -19,7 +19,7 @@
 
 cd "$ROOT"
 
-SCOPE=(bin tests docs skills .agents .github AGENTS.md README.md CONTRIBUTING.md .gitignore)
+SCOPE=(bin tests docs skills .agents .github AGENTS-PORTING.md README.md CONTRIBUTING.md .gitignore)
 SELF=tests/mx-removed-deps.test.sh
 
 # --- deleted files must stay deleted ----------------------------------------

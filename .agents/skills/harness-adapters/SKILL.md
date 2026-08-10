@@ -31,7 +31,7 @@ The primary-session watcher wake protocols are rendered from `docs/supervision-p
 The supervision knowledge lives here: busy signature, exit command, interrupt, dialogs, resume behavior, skill invocation, and quirks.
 
 Never dispatch an actor or daemon on an unverified adapter.
-If `config/actor-harness` or `config/daemon-harness` names an unverified adapter, tell the maintainer under `AGENTS.md` section 9 that the requested worker runtime is not verified yet, use broker's own verified runtime for current work, and ask only whether to verify the requested runtime before future use.
+If `config/actor-harness` or `config/daemon-harness` names an unverified adapter, tell the maintainer under `AGENTS-PORTING.md` section 9 during the Rust port that the requested worker runtime is not verified yet, use broker's own verified runtime for current work, and ask only whether to verify the requested runtime before future use.
 Do not pause current work for that future-verification choice, and never launch an unverified adapter.
 If the maintainer asks for a new harness, propose verifying it first: spawn a trivial supervised task using `mx-spawn`'s raw-launch-command escape hatch, confirm every fact empirically, then record the mechanics in `mx-spawn`, the busy signature in `mx-watch.sh` and `mx-tmux-lib.sh` defaults, any needed `MX_COMPOSER_IDLE_RE` empty-composer override plus any novel bare agent prompt glyph in `bin/mx-composer-lib.sh`'s shared composer classifier (the one system-wide owner of the empty/dead-shell/pending decision, so a new harness's own idle composer is not misread as a dead shell), the tmux agent-process liveness classification in `bin/backends/tmux.sh` when the harness can launch a daemon, and the verified knowledge here.
 
@@ -79,7 +79,7 @@ The subagent tool presents to the model as `Agent`, and on Claude Code 2.1.217 b
 
 ## Primary session-start nudge
 
-AGENTS.md section 3 remains the behavioral owner for session start, while tracked native adapters invoke `bin/mx-sessionstart-nudge.sh` as an idempotent enforcement layer.
+`AGENTS-PORTING.md` section 3 remains the behavioral owner for session start during the Rust port, while tracked native adapters invoke `bin/mx-sessionstart-nudge.sh` as an idempotent enforcement layer after final restoration.
 The wrapper prints one canonically typed `session-start` instruction to run `bin/mx-session-start.sh`; it never runs the digest, wake drain, bootstrap sweeps, lock, or supervision arm itself.
 Full mechanics, scoping, and fail-open behavior live in `docs/sessionstart-nudge.md`.
 `docs/verification/supervision.md` "Native session-start delivery" owns active dated commands, payloads, and evidence.

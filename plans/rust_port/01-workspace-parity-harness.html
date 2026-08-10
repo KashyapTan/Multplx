@@ -79,6 +79,7 @@ tr:nth-child(even) td{background:var(--surface)}
   </div>
 </div></header>
 <div class="wrap">
+<div class="callout warn"><div class="label">Ordinary contributor mode and temporary root contract</div><p style="margin:0">Run this portion in a fresh ordinary coding-agent session opened directly in the repo, never through the global <code>multplx</code> launcher, Multplx dispatch, session start, or supervision. Treat <code>AGENTS-PORTING.md</code> as dormant product source rather than active instructions, and make every would-be root <code>AGENTS.md</code> edit there. Do not create root <code>AGENTS.md</code> or enable auto-discovery of the temporary name; Portion 13 restores the standard filename only after the full Rust-port closeout gate passes. Project-level <code>AGENTS.md</code> files are unchanged.</p></div>
 <h2>Overview</h2>
 <p>This portion creates the engineering foundation for every later port without replacing a production behavior path.</p>
 <p>The existing shell implementation remains the normal runtime while Rust gains a build, test, packaging, and black-box comparison surface.</p>
@@ -152,7 +153,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <h2>Documentation and instruction updates</h2>
 <p>Update <code>CONTRIBUTING.md</code> for Cargo commands and differential testing.</p>
 <p>Update <code>docs/architecture.md</code> only with the new code organization and shadow boundary.</p>
-<p>Do not rewrite operator docs, skills, or <code>AGENTS.md</code> command paths because runtime behavior has not moved.</p>
+<p>Do not rewrite operator docs, skills, or <code>AGENTS-PORTING.md</code> command paths because runtime behavior has not moved.</p>
 
 <h2>Definition of done</h2>
 <ul>
@@ -170,4 +171,3 @@ tr:nth-child(even) td{background:var(--surface)}
 </div>
 </body>
 </html>
-

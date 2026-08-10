@@ -5,7 +5,20 @@ How broker works, in depth.
 The [README](../README.md) carries the high-level diagram and a short synopsis.
 The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
-The active broker contract and routing index for conditional procedures is [`AGENTS.md`](../AGENTS.md); this is the human-facing companion.
+The broker contract and routing index for conditional procedures is temporarily maintained in [`AGENTS-PORTING.md`](../AGENTS-PORTING.md); this is the human-facing companion.
+The temporary filename prevents auto-loading while Multplx ports itself, and portion 13 restores it to root `AGENTS.md` only after the full Rust-default gate passes.
+
+## Rust shadow workspace
+
+Rust-port Portion 01 adds one Cargo workspace without moving a production behavior path.
+`multplx-core` is the future owner of filesystem, process, record, clock, command, and lock primitives.
+`multplx-domain` is the future owner of typed durable records and lifecycle state machines.
+`multplx-backend` is the future owner of the runtime-backend interface and its supported adapters.
+`multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
+`multplx-services` is the future owner of MCP and loopback HTTP services.
+`multplx-test-support` owns deterministic Rust fixtures and the legacy-versus-Rust comparison self-tests.
+The release binary currently exposes only a hidden shadow diagnostic, and every operator command, hook, skill, workflow, and launcher continues to use the existing implementation.
+The cross-cutting port contract and cutover gates remain owned by [`plans/rust_port/PORTING.md`](../plans/rust_port/PORTING.md).
 
 ## Health probes and recovery ownership
 
@@ -167,7 +180,8 @@ Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show
 
 ## Deep-review gate authority boundary
 
-Multplx's own deep-review gate runs agents inside a checkout that also contains the system-maintainer identity in `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
+Multplx's own deep-review gate normally runs agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
+The Rust-port checkout intentionally keeps that identity in non-auto-loaded `AGENTS-PORTING.md` until final restoration.
 `bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
 Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
 `mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` source `bin/mx-gate-refuse-lib.sh` and exit with status 3 before system mutation when `DEEP_REVIEW_GATE` is present.
@@ -187,12 +201,12 @@ The upstream-sync workflow composes that engine with a fetch-only private clone 
 ## Two task shapes
 
 DELIVERY TASK change projects and delivery by project mode (`deep-review`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
-The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
+The intake and authority contract in `AGENTS-PORTING.md` owns when separate scout research is warranted during the port.
 
 ## Dispatch profiles
 
 Actor and scout dispatch can stay on the static actor harness resolved by `config/actor-harness`, or it can use local dispatch profiles in `config/actor-dispatch.json`.
-The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
+The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `AGENTS-PORTING.md` section 4 during the port, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh` after final restoration.
 The shell scripts validate the JSON shape and verified harness/effort combinations, but they do not parse task intent, match natural-language rules, or own array selection.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses actor and scout launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
@@ -258,7 +272,7 @@ Durable project-intrinsic agent knowledge lives in each project's committed `AGE
 Delivery briefs prompt actors to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 Each project `AGENTS.md` carries a short `## Maintaining this file` self-governance section; `bin/mx-ensure-agents-md.sh` owns the canonical wording and injects it idempotently when creating the skeleton, promoting an existing `CLAUDE.md`, or reconciling an existing `AGENTS.md` that still lacks it.
 It refuses a case-variant real memory file such as a lowercase `agents.md`, whose `CLAUDE.md` symlink would carry an uppercase literal target that dangles on a case-sensitive filesystem, and surfaces the mismatch for manual reconciliation.
-The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned by [`AGENTS.md`](../AGENTS.md) (project and knowledge management).
+The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned during the port by [`AGENTS-PORTING.md`](../AGENTS-PORTING.md) (project and knowledge management).
 
 ## Operational memory routing
 
@@ -283,7 +297,7 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 `/updatemultplx` fast-forwards the running Multplx repo and registered daemon homes from `origin`, then re-reads updated instructions and nudges updated daemons without touching project clones.
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 The origin-based updater and the local daemon sync share the same guarded fast-forward helper; only the origin mode fetches.
-The mechanics are owned by the `/updatemultplx` skill and broker's operating contract in [`AGENTS.md`](../AGENTS.md) (self-update).
+The mechanics are owned by the `/updatemultplx` skill and broker's operating contract, temporarily maintained in [`AGENTS-PORTING.md`](../AGENTS-PORTING.md) (self-update).
 
 ## Restart-proof
 

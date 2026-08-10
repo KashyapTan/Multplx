@@ -128,6 +128,7 @@ The delivered hook fires only in a genuine broker primary home, using the shared
 This is the same predicate `bin/mx-sessionstart-nudge.sh` and `bin/mx-turnend-guard.sh` use, so the three tracked primary-scoped hooks cannot drift apart.
 
 A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir or a valid `.mx-daemon-home` marker.
+The Rust-port checkout intentionally fails this exact-name test while its root contract is `AGENTS-PORTING.md`; do not extend the guard to accept that temporary filename.
 A marked daemon home is in scope on purpose: it operates its own system and must dispatch through it for the same durability reasons.
 
 an actor's disposable task worktree is a linked git worktree, which is the shape `bin/mx-spawn.sh` always hands out, so it is out of scope.

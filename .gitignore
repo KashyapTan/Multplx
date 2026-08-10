@@ -5,6 +5,10 @@ data/
 .DS_Store
 __pycache__/
 *.pyc
+/target/
+**/*.rs.bk
+*.profraw
+*.profdata
 .env
 config/actor-harness
 config/actor-dispatch.json

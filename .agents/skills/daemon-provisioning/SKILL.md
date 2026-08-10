@@ -13,7 +13,7 @@ metadata:
 
 Use this reference before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a persistent daemon, and before editing `data/daemons.md`.
 
-Keep the always-inline routing rules in `AGENTS.md` authoritative: route by natural-language `scope:`, local-only projects stay with the main broker, and daemons are idle by default.
+Keep the routing rules in `AGENTS-PORTING.md` authoritative during the Rust port: route by natural-language `scope:`, local-only projects stay with the main broker, and daemons are idle by default.
 
 ## Routing table
 
@@ -74,7 +74,7 @@ When the file's tokens do apply, an explicit per-spawn `--model` or `--effort` f
 Because this resolves from the file on every spawn, the pin is durable across every respawn (recovery, `/updatemultplx`, restart) exactly like the harness axis itself - e.g. `config/daemon-harness` containing `claude opus` keeps a daemon pinned to Opus even if the primary's own default model later changes.
 This is daemon-only: actor/scout model resolution is untouched by this file.
 
-This section is the single owner of the daemon sync and inherited-local-material propagation contract; `AGENTS.md` sections 3 and 4 point here.
+This section is the single owner of the daemon sync and inherited-local-material propagation contract; `AGENTS-PORTING.md` sections 3 and 4 point here during the Rust port.
 Before launch, `mx-spawn.sh --daemon` locally fast-forwards the home to the primary Multplx checkout's current default-branch commit when it is safe; dirty, diverged, or in-flight homes launch unchanged with a warning.
 The locked session-start bootstrap sweep runs the same guarded fast-forward for every live daemon home, discovered from `state/<id>.meta` records with `kind=daemon` (`data/daemons.md` only backfills `home=` for older records).
 That no-fetch path is a purely local fast-forward of tracked files, never an origin fetch, and it never touches the gitignored operational dirs, so a daemon's backlog, projects, and in-flight work are never disturbed; a linked worktree advances immediately, while a standalone clone that lacks the target receives broker updates through `/updatemultplx`'s origin refresh.
@@ -124,7 +124,7 @@ The in-repo deep-review gate requires no per-clone initialization during daemon 
 
 ## Backlog handoff
 
-Apply `AGENTS.md` section 10's work-items-only backlog contract before creation or handoff.
+Apply `AGENTS-PORTING.md` section 10's work-items-only backlog contract before creation or handoff during the Rust port.
 When a daemon is created for a domain, existing main-backlog items that fall under its scope should become its work instead of staying stranded in the main backlog.
 Scope-matching is broker's judgment against the daemon's natural-language scope, not a keyword rule.
 Read `data/backlog.md`, pick queued items that fit the new scope, and move them with:

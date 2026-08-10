@@ -16,6 +16,30 @@ The active source inventory is `git ls-files 'bin/*'`, and the active behavior-t
 At the time this guide was written, those inventories contain 113 tool files and 125 behavior-test scripts.
 Treat the commands above, rather than the counts in this paragraph, as authoritative when the repository changes.
 
+## Temporary root contract filename
+
+The root broker contract is intentionally named `AGENTS-PORTING.md` during the Rust port so agent harnesses do not auto-inject Multplx broker behavior while they modify Multplx itself.
+Run every portion from a fresh ordinary coding-agent session opened directly in the repository, not from the global `multplx` launcher or a Multplx-dispatched actor, daemon, or workflow.
+Do not run Multplx session start, adopt the broker role, arm supervision, or use Multplx operational state to execute the port.
+Treat `AGENTS-PORTING.md` as dormant product source to inspect and edit, not as active instructions for the porting agent.
+If a session already loaded the former root `AGENTS.md`, replace it with a fresh session because the rename cannot remove instructions already held in context.
+For portions 1 through 12 and the implementation work in portion 13, every edit that would normally change the root `AGENTS.md` must change `AGENTS-PORTING.md` instead.
+Do not create a root `AGENTS.md`, make hooks or launchers auto-discover `AGENTS-PORTING.md`, or relax the production active-home requirement for an exact root `AGENTS.md`.
+The port checkout is intentionally not an operational Multplx broker home while the temporary filename is present.
+This rule applies only to the root broker contract; managed projects continue to use their own `AGENTS.md` files normally.
+
+Portion 13 owns the only restoration path, after every prior portion and the complete Rust-default closeout gate have passed.
+The restoring agent must perform these steps in order.
+
+1. Prove that all thirteen portion gates, the full Rust-default behavior suite, supported integration checks, documentation and skill updates, packaging checks, and the legacy deletion gate are complete.
+2. Rename `AGENTS-PORTING.md` to the exact case-sensitive root filename `AGENTS.md` without leaving both files behind.
+3. Change temporary root-contract links, documentation inventory entries, authoring guidance, and contract tests back to `AGENTS.md` while leaving project-level references untouched.
+4. Keep production active-home detection and auto-discovery code unchanged so the restored standard filename re-enables them naturally.
+5. Run the documentation audience and link checks, instruction-owner and naming tests, complete behavior suite, Rust checks, release-build smoke tests, and supported platform lanes against the restored tree.
+6. Start a fresh supported harness session and record evidence that the restored `AGENTS.md` auto-loads and the Rust session-start path runs exactly once.
+
+Do not treat the port as complete if `AGENTS-PORTING.md` remains, if both root filenames coexist, or if restoration required teaching runtime code to accept the temporary filename.
+
 The following files are not Rust rewrite targets unless a later step explicitly says otherwise.
 
 - Keep `.pi/extensions/**/*.ts` in TypeScript because those files implement Pi's extension API.
@@ -435,8 +459,8 @@ Keep one full contract owner and turn every other mention into a pointer.
 
 ### Runtime agent instructions
 
-Review `AGENTS.md` after every cutover for command paths, script ownership statements, exact startup or supervision commands, state writers, and referenced headers.
-Do not enlarge `AGENTS.md` with Rust implementation detail.
+Review `AGENTS-PORTING.md` after every cutover for command paths, script ownership statements, exact startup or supervision commands, state writers, and referenced headers.
+Do not enlarge `AGENTS-PORTING.md` with Rust implementation detail.
 Keep only always-loaded policy and skill triggers there.
 Move conditional mechanics into the existing agent-only skill that owns the situation.
 
@@ -530,7 +554,8 @@ The Rust port is complete only when all of the following statements are true.
 - No agent process has remote-write credentials and only the credentialed delivery context can push or create a PR.
 - Existing operational homes work without a state migration.
 - Linux and macOS installation, upgrade, rollback-before-mutation, and uninstall paths are tested.
-- README, contributor guidance, operator docs, architecture docs, verification records, `AGENTS.md`, all affected skills, hook configuration, workflows, and CI describe the Rust implementation accurately.
+- README, contributor guidance, operator docs, architecture docs, verification records, the restored root `AGENTS.md`, all affected skills, hook configuration, workflows, and CI describe the Rust implementation accurately.
+- `AGENTS-PORTING.md` has been restored to the sole exact root filename `AGENTS.md`, all temporary pointers have been reverted, and a fresh supported harness session proves normal auto-loading and one-time Rust session start.
 - The documentation audience checker, link checks, Rust checks, full behavior suite, and release-build smoke tests pass.
 - Measured release-build performance and resource results are recorded against the pre-port baseline.
 - Bash, Node, and Python runtime dependencies removed by the port are no longer required by bootstrap or documentation.

@@ -28,6 +28,7 @@ It is a silent no-op (exit 0, no output) everywhere else, so it never interferes
 A plain, non-worktree checkout has `git rev-parse --git-dir` equal to `git rev-parse --git-common-dir`.
 an actor or scout task worktree - the shape `bin/mx-spawn.sh` always hands out - is a linked git worktree where the two differ, so the guard is inert there.
 The checkout must also carry `AGENTS.md` and `bin/`, and any failure to confirm the primary is treated as inert, never as a block.
+The Rust-port checkout intentionally carries only `AGENTS-PORTING.md`, so this guard remains inert there until portion 13 restores the exact operational filename.
 
 The cd-guard does not inspect `.mx-daemon-home`.
 It therefore applies in a git-cloned daemon home where git-dir equals git-common-dir, but remains inert in a treehouse-leased daemon home that is itself a linked worktree.

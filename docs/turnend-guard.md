@@ -1,6 +1,6 @@
 # Primary turn-end supervision guard
 
-This is the authoritative current contract for the "no turn ends blind" primary backstop referenced from `AGENTS.md` section 8.
+This is the authoritative current contract for the "no turn ends blind" primary backstop referenced from `AGENTS-PORTING.md` section 8 during the Rust port.
 The predicate lives in `bin/mx-turnend-guard.sh`.
 Primary scope lives in `bin/mx-primary-scope-lib.sh`, shared with the native session-start nudge in [`sessionstart-nudge.md`](sessionstart-nudge.md).
 Harness hook files only adapt each verified harness's turn-end mechanism to that shared predicate.
@@ -24,6 +24,7 @@ The marker must be a regular non-symlink file whose whitespace-stripped first li
 An unmarked checkout or invalid marker falls through to the git-dir check.
 That check keeps actor and scout linked worktrees inert because their git dir differs from their git common dir.
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
+The Rust-port checkout intentionally remains out of scope while its root contract is `AGENTS-PORTING.md`; portion 13 restores `AGENTS.md` only after the full closeout gate.
 
 For an in-scope primary, the guard counts in-flight work from `state/*.meta`.
 The default cross-harness mode exits silently with no work in flight.

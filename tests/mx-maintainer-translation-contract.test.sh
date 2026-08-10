@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Static regression tests for the maintainer-facing plain-English translation
-# contract owned by AGENTS.md section 9.
+# contract owned by AGENTS-PORTING.md section 9 during the Rust port.
 # shellcheck disable=SC2016
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-AGENTS="$ROOT/AGENTS.md"
+AGENTS="$ROOT/AGENTS-PORTING.md"
 BOOTSTRAP="$ROOT/.agents/skills/bootstrap-diagnostics/SKILL.md"
 AFK="$ROOT/.agents/skills/afk/SKILL.md"
 DECISION="$ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md"
@@ -113,25 +113,25 @@ test_routine_no_action_response_is_event_scoped() {
 }
 
 test_outward_facing_skill_points_reference_section_9_owner() {
-  assert_grep "using \`AGENTS.md\` section 9's maintainer-facing translation contract" "$BOOTSTRAP" \
+  assert_grep "using \`AGENTS-PORTING.md\` section 9's maintainer-facing translation contract during the port" "$BOOTSTRAP" \
     "bootstrap diagnostics do not reference section 9 at maintainer handoff"
-  assert_grep "Acknowledge** in \`AGENTS.md\` section 9 language" "$AFK" \
+  assert_grep "Acknowledge** in \`AGENTS-PORTING.md\` section 9 language during the Rust port" "$AFK" \
     "afk acknowledgement does not reference section 9"
   assert_grep "Maintainer, away mode is active; I will batch routine updates" "$AFK" \
     "afk acknowledgement lacks a local plain-English example"
-  assert_grep "as decisions from Catchup' Maintainer's Call section under \`AGENTS.md\` section 9" "$DECISION" \
+  assert_grep "as decisions from Catchup' Maintainer's Call section under \`AGENTS-PORTING.md\` section 9 during the Rust port" "$DECISION" \
     "decision relay does not reference section 9"
-  assert_grep "using \`AGENTS.md\` section 9; do not mention metadata, harness, window, or worktree" "$RECOVERY" \
+  assert_grep "using \`AGENTS-PORTING.md\` section 9 during the Rust port; do not mention metadata, harness, window, or worktree" "$RECOVERY" \
     "stuck-worker failure does not reference section 9"
-  assert_grep "under \`AGENTS.md\` section 9 that the requested worker runtime is not verified yet" "$HARNESS" \
+  assert_grep "under \`AGENTS-PORTING.md\` section 9 during the Rust port that the requested worker runtime is not verified yet" "$HARNESS" \
     "runtime fallback does not reference section 9"
   assert_grep "use broker's own verified runtime for current work" "$HARNESS" \
     "runtime fallback does not require the current-work fallback"
   assert_grep "Do not pause current work for that future-verification choice, and never launch an unverified adapter." "$HARNESS" \
     "runtime fallback permits waiting on future verification or launching an unverified adapter"
-  assert_grep "translate status prefixes and return-channel evidence through \`AGENTS.md\` section 9" "$CODEXAPP" \
+  assert_grep "translate status prefixes and return-channel evidence through \`AGENTS-PORTING.md\` section 9 during the Rust port" "$CODEXAPP" \
     "Codex Desktop result reporting does not reference section 9"
-  assert_grep "under \`AGENTS.md\` section 9 without broker's internal vocabulary" "$UPDATE" \
+  assert_grep "under \`AGENTS-PORTING.md\` section 9 during the Rust port without broker's internal vocabulary" "$UPDATE" \
     "Multplx update reporting does not reference section 9"
   pass "outward-facing skill handoffs point to the section 9 owner"
 }

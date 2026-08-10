@@ -16,9 +16,19 @@ The port must improve robustness and performance without changing authority, saf
 [`plans/rust_port/index.html`](plans/rust_port/index.html) divides the implementation into thirteen dependency-ordered portions.
 Work on one portion at a time and satisfy its definition of done before changing the next portion's default implementation.
 
+## Port execution mode
+
+Perform the Rust port as an ordinary repository contributor in a fresh coding-agent session opened directly in this checkout.
+Do not launch the session through the global `multplx` command.
+Do not adopt the Multplx broker role, run `bin/mx-session-start.sh`, dispatch actors or daemons, invoke Multplx supervision, or use the repo's private operational state to perform the port.
+Treat `AGENTS-PORTING.md` as dormant product source to inspect and edit, never as active instructions for the porting agent.
+An agent session that previously loaded root `AGENTS.md` must be closed and replaced because renaming the file cannot remove instructions already present in that session's context.
+
 ## Sources of truth
 
-- [`AGENTS.md`](AGENTS.md) is the active broker contract and must retain that exact case-sensitive filename.
+- [`AGENTS-PORTING.md`](AGENTS-PORTING.md) is the root broker-contract editing target during the Rust port.
+- Its temporary filename is intentional: do not create root `AGENTS.md` or make auto-discovery accept `AGENTS-PORTING.md` before the final restoration gate.
+- A managed project's own `AGENTS.md` convention remains unchanged.
 - [`.agents/skills/multplx-coding-guidelines/SKILL.md`](.agents/skills/multplx-coding-guidelines/SKILL.md) owns knowledge placement, contract ownership, compatibility review, documentation discipline, and repository style.
 - [`plans/rust_port/PORTING.md`](plans/rust_port/PORTING.md) owns port-wide compatibility, security, testing, packaging, and legacy-deletion rules.
 - The selected HTML portion under [`plans/rust_port/`](plans/rust_port/index.html) owns that portion's source slice, dependency boundary, implementation sequence, test plan, and completion gate.
@@ -75,7 +85,9 @@ Run the complete behavior inventory before changing the portion's default implem
 
 ### Update instructions and documentation
 
-Update command headers or generated help, human documentation, `AGENTS.md` pointers, skills, hooks, workflows, examples, verification records, and CI in the same portion that changes their current behavior or implementation owner.
+Update command headers or generated help, human documentation, `AGENTS-PORTING.md` pointers, skills, hooks, workflows, examples, verification records, and CI in the same portion that changes their current behavior or implementation owner.
+Make every root broker-contract Markdown edit in `AGENTS-PORTING.md` throughout the port, while leaving project-level `AGENTS.md` files and conventions alone.
+Port portion 13 must restore `AGENTS-PORTING.md` to the exact case-sensitive root filename `AGENTS.md` only after all portions and the full Rust-default release gate pass.
 Keep implementation detail out of always-loaded broker policy.
 Run `bin/mx-doc-audience-check.sh` after maintained prose changes until its Rust replacement becomes authoritative.
 

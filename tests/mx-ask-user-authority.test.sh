@@ -13,7 +13,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-AGENTS="$ROOT/AGENTS.md"
+AGENTS="$ROOT/AGENTS-PORTING.md"
 OWNER="$ROOT/.agents/skills/ask-user-authority/SKILL.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 DAEMON="$ROOT/.agents/skills/daemon-provisioning/SKILL.md"

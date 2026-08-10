@@ -193,7 +193,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "AGENTS.md",
+      "path": "AGENTS-PORTING.md",
       "audience": "agent-runtime"
     },
     {

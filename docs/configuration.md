@@ -4,9 +4,12 @@ The files and environment variables you set to operate broker.
 
 [Back to the documentation index](README.md).
 
-## Orchestrator behavior (`AGENTS.md`)
+## Orchestrator behavior (`AGENTS-PORTING.md` during the Rust port)
 
-The shared orchestrator behavior contract lives in [`AGENTS.md`](../AGENTS.md) and is auto-loaded by supported coding agents.
+The shared orchestrator behavior contract temporarily lives in [`AGENTS-PORTING.md`](../AGENTS-PORTING.md) while the active runtime is ported to Rust.
+The nonstandard filename intentionally prevents supported coding agents from auto-loading Multplx broker behavior while modifying Multplx itself.
+Make every would-be root `AGENTS.md` edit in `AGENTS-PORTING.md`, do not make active-home detection accept the temporary name, and leave managed projects' own `AGENTS.md` files unchanged.
+Port portion 13 restores the exact root filename `AGENTS.md` only after the full Rust-default closeout gate passes.
 
 ## Operational home layout and state
 
@@ -14,7 +17,7 @@ This section is the single owner of the top-level operational-home layout; produ
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `MX_HOME` contains private operational directories.
 `data/` holds durable private system records such as the project and daemon registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and scout reports.
 `state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private daemon config-reread generations with their retry and quarantine state, and parent-owned daemon pending-reply records under `state/pending-replies/` (`bin/mx-pending-reply-lib.sh`).
-`config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions defined in `AGENTS.md`.
+`config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions currently maintained in `AGENTS-PORTING.md`.
 
 `bin/mx-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 The producing PR helpers own the fields they append, `bin/mx-classify-lib.sh` owns status-event vocabulary, and `bin/mx-actor-state.sh` owns current-state reconciliation.
@@ -22,13 +25,14 @@ Wake, watcher, and away-mode state mechanics remain with their named scripts and
 
 `bin/mx-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.
-`AGENTS.md` owns the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
+`AGENTS-PORTING.md` owns the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries during the port because those facts apply at every session start after final restoration.
 Ordinary dead-direct-report recovery is owned by `stuck-actor-recovery`, while persistent-daemon recovery is owned by `daemon-provisioning`.
 
 ## Global launcher paths and activation
 
 The global launcher gives one persistent multi-project control plane two explicit path identities.
-`MX_ROOT_OVERRIDE` names the plain tracked checkout that supplies `AGENTS.md`, harness configuration, skills, extensions, workflows, documentation, and scripts.
+`MX_ROOT_OVERRIDE` names the plain tracked checkout that supplies `AGENTS.md`, harness configuration, skills, extensions, workflows, documentation, and scripts in an operational release.
+The Rust-port checkout intentionally lacks that exact root contract filename and therefore must fail active-home detection until portion 13 restores it.
 `MX_HOME` names the persistent operational home whose `config/`, `data/`, `projects/`, and `state/` directories retain all private configuration, registries, clones, artifacts, queues, reports, and runtime state.
 The launcher canonicalizes and validates both paths on every command and rejects a linked task worktree as the code root.
 A managed code root must remain clean, while an adopted checkout remains available for ordinary development edits whether it shares or separates its operational home.
@@ -227,11 +231,11 @@ Cursor deep-review is deliberately unsupported because schema enforcement and pr
 ## Actors dispatch profiles (config/actor-dispatch.json)
 
 `config/actor-dispatch.json` is an optional local, gitignored file containing natural-language rules that broker reads before dispatching an actor or scout.
-The shell scripts do not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
+The shell scripts do not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS-PORTING.md` section 4 during the port, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh` after final restoration.
 When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Daemon spawns are exempt and still resolve through `config/daemon-harness` and its optional model and effort tokens.
-This section is the single owner of the canonical schema and its per-field semantics; `AGENTS.md` section 4 owns the dispatch and array-selection procedure.
+This section is the single owner of the canonical schema and its per-field semantics; `AGENTS-PORTING.md` section 4 owns the dispatch and array-selection procedure during the port.
 
 ```json
 {

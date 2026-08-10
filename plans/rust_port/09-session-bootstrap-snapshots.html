@@ -79,6 +79,7 @@ tr:nth-child(even) td{background:var(--surface)}
   </div>
 </div></header>
 <div class="wrap">
+<div class="callout warn"><div class="label">Ordinary contributor mode and temporary root contract</div><p style="margin:0">Run this portion in a fresh ordinary coding-agent session opened directly in the repo, never through the global <code>multplx</code> launcher, Multplx dispatch, session start, or supervision. Treat <code>AGENTS-PORTING.md</code> as dormant product source rather than active instructions, and make every would-be root <code>AGENTS.md</code> edit there. Do not create root <code>AGENTS.md</code> or enable auto-discovery of the temporary name; Portion 13 restores the standard filename only after the full Rust-port closeout gate passes. Project-level <code>AGENTS.md</code> files are unchanged.</p></div>
 <h2>Overview</h2>
 <p>This portion ports the read and startup composition layer after state, backends, lifecycle, and supervision are Rust-native.</p>
 <p>It preserves the exact ordering that grants mutation authority and the bounded projections used for recovery and status reporting.</p>
@@ -131,7 +132,7 @@ tr:nth-child(even) td{background:var(--surface)}
 </ul>
 
 <h2>Documentation and instruction updates</h2>
-<p>Update <code>AGENTS.md</code> session-start command and header-owner pointers only when Rust becomes current.</p>
+<p>Update <code>AGENTS-PORTING.md</code> session-start command and header-owner pointers only when Rust becomes current, then restore the standard root filename only at Portion 13's final gate.</p>
 <p>Review <code>bootstrap-diagnostics</code>, <code>catchup</code>, <code>recap</code>, <code>harness-adapters</code>, and <code>stuck-actor-recovery</code>.</p>
 <p>Update configuration, doctor, architecture, supervision, snapshot, and operator entry-point documentation while preserving their ownership boundaries.</p>
 
@@ -151,4 +152,3 @@ tr:nth-child(even) td{background:var(--surface)}
 </div>
 </body>
 </html>
-

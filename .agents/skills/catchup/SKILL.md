@@ -68,7 +68,7 @@ Rules that keep the contract unambiguous:
 - The strict boundary keeps action-free items OUT of Maintainer's Call: a working or validating task, a queued item blocked on another task or a date, landed work, a completed scout's report pointer, a declared `paused:` external wait, and a bare recorded PR with no merge-ready signal each belong to one of the other three sections, never Maintainer's Call.
 - A daemon's own row appears Underway only for `active_child_work`; `externally_held` belongs in Charted Next, and `unknown` belongs there as an unavailable-state gate unless its reason requires the maintainer's action.
 - Do not suppress separately projected decisions, landed records, or gates from a `partial-structured` home merely because that daemon's own row is `unknown`.
-- The chat follows `AGENTS.md` section 9 and carries one scannable line per item, each PR as the full `https://...` URL; detailed decisions, plans, full gate reasons, and evidence live only in the report file, which the chat links to, so the chat stays materially shorter than that file.
+- The chat follows `AGENTS-PORTING.md` section 9 during the Rust port and carries one scannable line per item, each PR as the full `https://...` URL; detailed decisions, plans, full gate reasons, and evidence live only in the report file, which the chat links to, so the chat stays materially shorter than that file.
 
 ## Tone and content rules
 

@@ -1,0 +1,135 @@
+{
+  "schema": "mx-rust-port-baseline.v1",
+  "recorded_at": "2026-08-10T22:05:37Z",
+  "portion": "01-workspace-parity-harness",
+  "source_head": "2295a7488d27227124b27729123d763a20a2c56a",
+  "branch": "rust-port-plan-01-workspace-parity",
+  "platform": {
+    "os": "macOS 26.5.2 (25F84), Darwin 25.5.0 arm64",
+    "cpu": "Apple M5 Pro",
+    "cpu_count": 15,
+    "memory_bytes": 25769803776,
+    "filesystem": "local APFS-backed workspace volume",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866f 2026-06-30)",
+    "bash": "GNU bash 3.2.57(1)-release",
+    "git": "2.53.0",
+    "jq": "1.7.1-apple",
+    "node": "24.14.1",
+    "python": "3.14.4",
+    "tmux": "3.7b",
+    "herdr": "0.7.4 protocol 16",
+    "treehouse": "2.0.1"
+  },
+  "inventory": {
+    "active_source": {
+      "command": "git ls-files 'bin/*'",
+      "count": 113,
+      "output_sha256": "70c72d354f81bf56a667f715aa9346eb7e129c83afc88ab40f7873bf2234e4fb"
+    },
+    "behavior_tests": {
+      "command": "git ls-files 'tests/*.test.sh'",
+      "count": 125,
+      "output_sha256": "c73908f57dd5ad6b4a0b9f99503402d2de59f4c7e8cdc343b03569c826b5cdb3"
+    },
+    "ci_jobs_before_rust_addition": [
+      "test-coverage",
+      "tests-portable-parallel-1",
+      "tests-portable-parallel-2",
+      "tests-portable-serial",
+      "tests-herdr",
+      "tests-timing-aggregate",
+      "macos-stock-bash",
+      "invariants"
+    ],
+    "behavior_partition": {
+      "command": "bin/mx-test-run.sh --check-coverage",
+      "output": "MX_TEST_COVERAGE ok total=125 accelerated=104 serial=11 herdr=10 manifest=125"
+    }
+  },
+  "method": {
+    "build_mode": "legacy interpreted commands; Rust production behavior is not enabled in Portion 01",
+    "timer": "tests/lib.sh mx_test_now_ms monotonic millisecond clock",
+    "fixture": "isolated temporary MX_HOME directories with no production operational state",
+    "percentile": "nearest-rank p95",
+    "cold_definition": "first measured process invocation before the warm loop; operating-system caches were not forcibly dropped",
+    "watcher_definition": "one empty-home watcher with MX_POLL=60, MX_HEARTBEAT=999999, and MX_CHECK_INTERVAL=999999; five ps samples at 200 ms intervals"
+  },
+  "measurements": {
+    "cold_command_startup": {
+      "command": "bin/mx-backlog.sh --help >/dev/null",
+      "iterations": 1,
+      "raw_ms": [19]
+    },
+    "warm_command_startup": {
+      "command": "bin/mx-backlog.sh --help >/dev/null",
+      "iterations": 30,
+      "raw_ms": [18, 18, 18, 17, 18, 18, 17, 17, 18, 17, 18, 17, 17, 17, 17, 17, 18, 17, 17, 18, 17, 18, 18, 17, 18, 17, 18, 18, 18, 17],
+      "median_ms": 17.5,
+      "p95_ms": 18,
+      "max_ms": 18
+    },
+    "session_start": {
+      "command": "MX_HOME=<fresh-home> MX_STATE_OVERRIDE=<fresh-home>/state MX_DATA_OVERRIDE=<fresh-home>/data MX_CONFIG_OVERRIDE=<fresh-home>/config bin/mx-session-start.sh >/dev/null",
+      "iterations": 10,
+      "raw_ms": [1546, 1535, 1549, 1586, 1529, 1536, 1597, 1602, 1551, 1587],
+      "median_ms": 1550,
+      "p95_ms": 1602,
+      "max_ms": 1602
+    },
+    "empty_system_snapshot": {
+      "command": "MX_HOME=<isolated-home> MX_SNAPSHOT_NOW=2026-08-10T12:00:00Z MX_SNAPSHOT_NOW_EPOCH=1786363200 bin/mx-system-snapshot.sh --json >/dev/null",
+      "iterations": 20,
+      "raw_ms": [151, 150, 152, 153, 151, 151, 146, 147, 150, 150, 150, 148, 145, 150, 149, 150, 147, 145, 147, 151],
+      "median_ms": 150,
+      "p95_ms": 152,
+      "max_ms": 153
+    },
+    "workflow_validate": {
+      "command": "bin/mx-workflow.sh validate workflows/new-feature.workflow.md >/dev/null",
+      "iterations": 30,
+      "raw_ms": [56, 57, 56, 55, 56, 59, 53, 56, 55, 54, 53, 55, 57, 55, 58, 54, 56, 56, 54, 56, 56, 54, 56, 56, 54, 56, 54, 55, 56, 55],
+      "median_ms": 56,
+      "p95_ms": 58,
+      "max_ms": 59
+    },
+    "workflow_resume_parked": {
+      "command": "MX_HOME=<isolated-home> bin/mx-workflow.sh resume baseline-run >/dev/null",
+      "iterations": 20,
+      "raw_ms": [337, 339, 338, 336, 338, 338, 338, 331, 343, 335, 330, 333, 331, 339, 347, 330, 335, 340, 340, 355],
+      "median_ms": 338,
+      "p95_ms": 347,
+      "max_ms": 355
+    },
+    "wake_append_and_drain": {
+      "command": "mx_wake_append signal baseline 'signal: baseline'; MX_STATE_OVERRIDE=<fresh-state> bin/mx-wake-drain.sh >/dev/null",
+      "iterations": 30,
+      "raw_ms": [110, 108, 109, 117, 115, 107, 107, 110, 109, 110, 110, 109, 106, 109, 114, 116, 114, 114, 109, 109, 107, 106, 107, 114, 107, 111, 111, 115, 108, 109],
+      "median_ms": 109,
+      "p95_ms": 116,
+      "max_ms": 117
+    },
+    "watcher_idle": {
+      "command": "MX_HOME=<isolated-home> MX_STATE_OVERRIDE=<isolated-home>/state MX_POLL=60 MX_HEARTBEAT=999999 MX_CHECK_INTERVAL=999999 bin/mx-watch.sh",
+      "iterations": 5,
+      "raw": [
+        {"cpu_percent": 0.0, "rss_kib": 3600},
+        {"cpu_percent": 4.2, "rss_kib": 3920},
+        {"cpu_percent": 2.6, "rss_kib": 3920},
+        {"cpu_percent": 0.9, "rss_kib": 3920},
+        {"cpu_percent": 0.3, "rss_kib": 3920}
+      ]
+    },
+    "complete_behavior_suite": {
+      "command": "bin/mx-test-run.sh --all --jobs auto --json /tmp/rust-port-plan1-suite-clean.json",
+      "preconditions": "Herdr 0.7.4 default session running; temporary index represented the pre-existing AGENTS.md to AGENTS-PORTING.md worktree rename",
+      "total": 125,
+      "failed": 0,
+      "skipped_gate": 9,
+      "duration_ms": 406860,
+      "assertion_count": 1585,
+      "assertion_inventory_sha256": "bc19aac9e82dd74e0fce22bf17d6807b46d04486dff1d4c2e57450b725bee9b3",
+      "artifact_sha256": "00bb3f0b9fbb218f0afb65044152aaf371a535e8c91e2abd2f0c4c508789fc6c"
+    }
+  }
+}

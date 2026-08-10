@@ -10,6 +10,41 @@ permissions:
   contents: read
 
 jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install stable Rust toolchain
+        run: |
+          rustup set profile minimal
+          rustup toolchain install stable --component clippy,rustfmt --no-self-update
+          rustup default stable
+          rustc --version
+          cargo --version
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint workspace
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Test workspace
+        run: cargo test --locked --workspace
+      - name: Build release workspace
+        run: cargo build --release --workspace --locked
+
+  rust-advisories:
+    name: Rust dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit Cargo.lock
+        run: cargo audit --deny warnings
+
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates.
   test-coverage:

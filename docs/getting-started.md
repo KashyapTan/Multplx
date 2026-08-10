@@ -72,7 +72,9 @@ Pi needs that approval so the tracked `.pi/extensions/*.ts` files can load.
 Codex needs it so the tracked project configuration and hooks load.
 Multplx passes Cursor's scoped `--trust` flag only after validating the configured code root and keeps Cursor sandboxing enabled.
 
-The tracked `AGENTS.md` file defines the broker role.
+An operational Multplx release uses tracked root `AGENTS.md` to define and auto-load the broker role.
+During the incremental Rust port, this source checkout intentionally keeps that contract as `AGENTS-PORTING.md` and must not be used as an active broker home.
+Port contributors make root contract edits in `AGENTS-PORTING.md`; managed projects still use their own `AGENTS.md`, and portion 13 restores the root standard filename only after the complete port passes.
 At session start the broker runs `bin/mx-session-start.sh` exactly once, detects missing tools and invalid configuration, reconciles durable work, and emits the supervision instructions for the active harness.
 Supported installs happen only after you approve them in that session; manual-only dependencies remain your responsibility.
 

@@ -79,6 +79,7 @@ tr:nth-child(even) td{background:var(--surface)}
   </div>
 </div></header>
 <div class="wrap">
+<div class="callout warn"><div class="label">Ordinary contributor mode and temporary root contract</div><p style="margin:0">Run this portion in a fresh ordinary coding-agent session opened directly in the repo, never through the global <code>multplx</code> launcher, Multplx dispatch, session start, or supervision. Treat <code>AGENTS-PORTING.md</code> as dormant product source rather than active instructions, and make every would-be root <code>AGENTS.md</code> edit there. Do not create root <code>AGENTS.md</code> or enable auto-discovery of the temporary name until this portion's final restoration step, after the full Rust-port closeout gate passes. Project-level <code>AGENTS.md</code> files are unchanged.</p></div>
 <h2>Overview</h2>
 <p>This portion closes the program after Portions 01 through 12 have each completed their Rust-default rollback window.</p>
 <p>It ports the tools that launch, schedule, validate, and document the rest of the system, then removes legacy business logic under one repository-wide deletion gate.</p>
@@ -121,10 +122,11 @@ forbidden retained shell
 <li><b>Port the isolation proof.</b>Derive the same conflict matrix, repeat candidate combinations, detect leaked files and processes, and emit equivalent JSON evidence.</li>
 <li><b>Port the documentation checker.</b>Preserve scope, exclusions, exact-one classification, required pointers, setup routing, local links, and bounded errors.</li>
 <li><b>Update CI to Rust-native entry points.</b>Build release binaries once, run Rust tests, run every black-box lane against Rust, retain real Herdr and live-harness gates, and update measured shard evidence.</li>
-<li><b>Update every instruction surface.</b>Review README, contributor guidance, architecture, operator docs, verification records, <code>AGENTS.md</code>, all skills, hooks, Pi extensions, workflows, shell adapters, examples, and deep-review configuration.</li>
+<li><b>Update every instruction surface.</b>Review README, contributor guidance, architecture, operator docs, verification records, <code>AGENTS-PORTING.md</code>, all skills, hooks, Pi extensions, workflows, shell adapters, examples, and deep-review configuration.</li>
 <li><b>Run the repository-wide reference sweep.</b>Find every old path, sourced function, interpreter dependency, environment seam, hook command, workflow command, fixture assumption, and docs link.</li>
 <li><b>Remove legacy business logic.</b>Keep only documented host adapters, test that they contain no policy or state mutation, remove unused Bash, Node, and Python runtime requirements, and retain rollback through release installation rather than mixed engines.</li>
 <li><b>Publish final performance and compatibility evidence.</b>Compare release startup, session start, snapshots, watcher resources, queue latency, workflow, services, and full-suite wall time against Portion 01.</li>
+<li><b>Restore normal broker auto-discovery last.</b>After every closeout gate passes, rename <code>AGENTS-PORTING.md</code> to the sole exact root filename <code>AGENTS.md</code>, revert temporary links and contract tests, leave production exact-name detection unchanged, rerun all final gates, and prove a fresh supported harness auto-loads the contract and runs Rust session start exactly once.</li>
 </ol>
 
 <h2>Documentation completion map</h2>
@@ -134,7 +136,7 @@ forbidden retained shell
 <tr><td><code>docs/architecture.md</code>, <code>docs/scripts.md</code></td><td>Crate, process, command, adapter, and contract-owner boundaries.</td></tr>
 <tr><td><code>docs/configuration.md</code></td><td>Executable discovery, Rust binary, environment compatibility, and removed interpreter dependencies.</td></tr>
 <tr><td><code>docs/verification/*</code></td><td>Current date, Rust version, binary version, dependency versions, exact commands, and output proving each supported axis.</td></tr>
-<tr><td><code>AGENTS.md</code>, <code>.agents/skills/*</code></td><td>Current command paths and owner pointers without Rust implementation detail in always-loaded policy.</td></tr>
+<tr><td><code>AGENTS-PORTING.md</code>, then restored <code>AGENTS.md</code>; <code>.agents/skills/*</code></td><td>Current command paths and owner pointers without Rust implementation detail in always-loaded policy, followed by final exact-name restoration and temporary-pointer cleanup.</td></tr>
 <tr><td>Hooks, Pi extensions, workflows, shell adapters</td><td>Installed binary path and exec behavior with unchanged product semantics.</td></tr>
 </table>
 
@@ -161,6 +163,7 @@ forbidden retained shell
 <li>Operator, maintainer, agent, hook, workflow, CI, and verification surfaces describe the Rust implementation accurately.</li>
 <li>Removed Bash, Node, and Python runtime dependencies no longer appear in bootstrap or installation requirements.</li>
 <li>The measured release meets the accepted robustness and performance targets.</li>
+<li>The root contract exists only as <code>AGENTS.md</code>, <code>AGENTS-PORTING.md</code> is absent, temporary pointers are reverted, and fresh-session evidence proves normal auto-loading and one-time Rust session start.</li>
 </ul>
 <div class="footer-nav">
   <a href="12-viz-vplan-services.html">← Previous</a>
