@@ -35,7 +35,7 @@ pass "retired external-gate files are absent"
 
 legacy_hits=$(
   git -C "$ROOT" grep -Iin -e "$legacy_gate" -e 'NO_'"MISTAKES" -- \
-    bin tests docs skills .agents .github README.md CONTRIBUTING.md AGENTS.md \
+    bin tests docs skills .agents .github README.md CONTRIBUTING.md AGENTS-PORTING.md \
     ':!docs/upstream.md' \
     ':!tests/fixtures/upstream-sync/**' \
     ':!tests/mx-deep-review-config-contract.test.sh' 2>/dev/null || true

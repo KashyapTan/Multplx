@@ -79,6 +79,7 @@ tr:nth-child(even) td{background:var(--surface)}
   </div>
 </div></header>
 <div class="wrap">
+<div class="callout warn"><div class="label">Ordinary contributor mode and temporary root contract</div><p style="margin:0">Run this portion in a fresh ordinary coding-agent session opened directly in the repo, never through the global <code>multplx</code> launcher, Multplx dispatch, session start, or supervision. Treat <code>AGENTS-PORTING.md</code> as dormant product source rather than active instructions, and make every would-be root <code>AGENTS.md</code> edit there. Do not create root <code>AGENTS.md</code> or enable auto-discovery of the temporary name; Portion 13 restores the standard filename only after the full Rust-port closeout gate passes. Project-level <code>AGENTS.md</code> files are unchanged.</p></div>
 <h2>Overview</h2>
 <p>This portion is the first full orchestration slice built on Rust state and backend layers.</p>
 <p>It owns the paths that create, steer, synchronize, and retire work, so every mutation requires typed identity, transactional publication, and destructive-target proof.</p>
@@ -137,7 +138,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <h2>Documentation and instruction updates</h2>
 <p>Review <code>daemon-provisioning</code>, <code>stuck-actor-recovery</code>, <code>harness-adapters</code>, <code>project-management</code>, <code>updatemultplx</code>, and <code>stow</code>.</p>
 <p>Update architecture, configuration, getting-started, upstream, and backend docs only where current entry points or implementation ownership changes.</p>
-<p>Keep destructive policy and merge authority in <code>AGENTS.md</code>; do not duplicate implementation mechanics there.</p>
+<p>Keep destructive policy and merge authority in <code>AGENTS-PORTING.md</code> during the port; do not duplicate implementation mechanics there.</p>
 
 <h2>Definition of done</h2>
 <ul>
@@ -155,4 +156,3 @@ tr:nth-child(even) td{background:var(--surface)}
 </div>
 </body>
 </html>
-

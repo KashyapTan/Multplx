@@ -48,6 +48,185 @@ export MX_HEADROOM_SKIP_QUEUE=${MX_HEADROOM_SKIP_QUEUE:-1}
 # shellcheck disable=SC2034
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# --- Rust-port implementation and differential capture ---------------------
+#
+# These helpers are test-only. Production scripts never read
+# MX_TEST_IMPLEMENTATION and remain on the legacy engine until a later port
+# portion changes a command's default after parity proof.
+
+# mx_test_implementation: print the selected test engine.
+# Unset preserves the existing behavior suite's legacy default.
+mx_test_implementation() {
+  case "${MX_TEST_IMPLEMENTATION:-legacy}" in
+    legacy|rust) printf '%s\n' "${MX_TEST_IMPLEMENTATION:-legacy}" ;;
+    *)
+      printf 'error: MX_TEST_IMPLEMENTATION must be legacy or rust, got %s\n' \
+        "$MX_TEST_IMPLEMENTATION" >&2
+      return 2
+      ;;
+  esac
+}
+
+# mx_test_resolve_command <legacy-path> <rust-subcommand>: print an executable
+# and optional first argument for the explicitly selected test engine.
+# MX_TEST_RUST_BIN may override the release binary for focused fixtures.
+mx_test_resolve_command() {
+  local legacy_path=$1 rust_subcommand=$2 implementation
+  implementation=$(mx_test_implementation) || return $?
+  case "$implementation" in
+    legacy) printf '%s\n' "$legacy_path" ;;
+    rust)
+      printf '%s\n%s\n' "${MX_TEST_RUST_BIN:-$ROOT/target/release/mx}" "$rust_subcommand"
+      ;;
+  esac
+}
+
+mx_test_stat_mode() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
+mx_test_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+mx_test_hex_file() {
+  od -An -v -tx1 "$1" | tr -d ' \n'
+}
+
+mx_test_hex_text() {
+  printf '%s' "$1" | od -An -v -tx1 | tr -d ' \n'
+}
+
+# mx_test_filesystem_manifest <root>: emit relative paths, types, modes, sizes,
+# hashes, exact bytes, and symlink targets in byte-sorted order.
+mx_test_filesystem_manifest() {
+  local root=$1 path relative type mode size hash payload
+  [ -d "$root" ] || return 0
+  find "$root" -mindepth 1 -print | LC_ALL=C sort | while IFS= read -r path; do
+    relative=${path#"$root"/}
+    mode=$(mx_test_stat_mode "$path")
+    size=-
+    hash=-
+    payload=-
+    if [ -L "$path" ]; then
+      type='symlink'
+      payload=$(mx_test_hex_text "$(readlink "$path")")
+    elif [ -d "$path" ]; then
+      type='directory'
+    elif [ -f "$path" ]; then
+      type='file'
+      size=$(wc -c < "$path" | tr -d ' ')
+      hash=$(mx_test_sha256 "$path")
+      payload=$(mx_test_hex_file "$path")
+    else
+      type='other'
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$relative" "$type" "$mode" "$size" "$hash" "$payload"
+  done
+}
+
+# mx_test_process_manifest <home>: capture surviving processes whose command
+# contains the isolated home. PIDs are unstable and are the only normalized
+# fields; command ordering and extra processes remain observable.
+mx_test_process_manifest() {
+  local home=$1
+  MX_TEST_CAPTURE_HOME=$home
+  export MX_TEST_CAPTURE_HOME
+  ps -axo pid=,ppid=,command= 2>/dev/null \
+    | awk -v self="$$" '
+        function replace_literal(text, needle, replacement, offset) {
+          while ((offset = index(text, needle)) != 0) {
+            text = substr(text, 1, offset - 1) replacement \
+              substr(text, offset + length(needle))
+          }
+          return text
+        }
+        index($0, ENVIRON["MX_TEST_CAPTURE_HOME"]) && $1 != self {
+          line=$0
+          sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+/, "", line)
+          line=replace_literal(line, ENVIRON["MX_TEST_CAPTURE_HOME"], "<HOME>")
+          print "<PID> <PPID> " line
+        }
+      ' \
+    | LC_ALL=C sort
+  unset MX_TEST_CAPTURE_HOME
+}
+
+# mx_test_capture_command <output-dir> <home> -- <command> [args...]
+# Captures the complete observable differential record and always returns 0;
+# the command's exit status is stored in <output-dir>/status.
+mx_test_capture_command() {
+  local output_dir=$1 home=$2 status had_errexit=0
+  shift 2
+  [ "${1:-}" = -- ] || {
+    printf 'usage: mx_test_capture_command <output-dir> <home> -- <command> [args...]\n' >&2
+    return 2
+  }
+  shift
+  [ "$#" -gt 0 ] || {
+    printf 'error: mx_test_capture_command requires a command\n' >&2
+    return 2
+  }
+  mkdir -p "$output_dir" "$home"
+  case $- in *e*) had_errexit=1 ;; esac
+  set +e
+  MX_HOME="$home" "$@" >"$output_dir/stdout" 2>"$output_dir/stderr"
+  status=$?
+  [ "$had_errexit" -eq 0 ] || set -e
+  printf '%s\n' "$status" > "$output_dir/status"
+  mx_test_filesystem_manifest "$home" > "$output_dir/filesystem"
+  mx_test_process_manifest "$home" > "$output_dir/processes"
+  return 0
+}
+
+# mx_test_capture_implementation <implementation> <output-dir> <home>
+#   <legacy-path> <rust-subcommand> [args...]
+mx_test_capture_implementation() {
+  local implementation=$1 output_dir=$2 home=$3 legacy_path=$4 rust_subcommand=$5
+  shift 5
+  case "$implementation" in
+    legacy)
+      mx_test_capture_command "$output_dir" "$home" -- "$legacy_path" "$@"
+      ;;
+    rust)
+      mx_test_capture_command "$output_dir" "$home" -- \
+        "${MX_TEST_RUST_BIN:-$ROOT/target/release/mx}" "$rust_subcommand" "$@"
+      ;;
+    *)
+      printf 'error: implementation must be legacy or rust, got %s\n' "$implementation" >&2
+      return 2
+      ;;
+  esac
+}
+
+# mx_test_compare_captures <legacy-capture> <rust-capture>: compare status,
+# stdout, stderr, exact filesystem observations, and surviving processes.
+mx_test_compare_captures() {
+  local legacy_capture=$1 rust_capture=$2 field different=0
+  for field in status stdout stderr filesystem processes; do
+    if ! cmp -s "$legacy_capture/$field" "$rust_capture/$field"; then
+      printf 'differential mismatch: %s\n' "$field" >&2
+      diff -u "$legacy_capture/$field" "$rust_capture/$field" >&2 || true
+      different=1
+    fi
+  done
+  [ "$different" -eq 0 ]
+}
+
+mx_test_assert_differential_equal() {
+  mx_test_compare_captures "$1" "$2" \
+    || fail "legacy and Rust differential captures do not match"
+}
+
 # --- reporters --------------------------------------------------------------
 
 fail() {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Static contract tests for conditional instruction owners introduced before the
-# AGENTS.md reduction pass.
+# root broker-contract reduction pass.
 # shellcheck disable=SC2016
 set -u
 
@@ -14,18 +14,40 @@ CODING="$ROOT/.agents/skills/multplx-coding-guidelines/SKILL.md"
 RECOVERY="$ROOT/.agents/skills/stuck-actor-recovery/SKILL.md"
 DAEMON="$ROOT/.agents/skills/daemon-provisioning/SKILL.md"
 CONFIG="$ROOT/docs/configuration.md"
-AGENTS="$ROOT/AGENTS.md"
+AGENTS="$ROOT/AGENTS-PORTING.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
 CREATE_WORKFLOW="$ROOT/.agents/skills/create-workflow/SKILL.md"
+PRIMARY_SCOPE="$ROOT/bin/mx-primary-scope-lib.sh"
+LAUNCHER_LIB="$ROOT/bin/mx-launcher-lib.sh"
+CODEX_HOOKS="$ROOT/.codex/hooks.json"
+CLAUDE="$ROOT/CLAUDE.md"
+RUST_PORT="$ROOT/plans/rust_port/PORTING.md"
+CURSOR_RULE="$ROOT/.cursor/rules/multplx.mdc"
 
 test_active_agents_contract_path() {
-  local legacy_agents
-  legacy_agents="$ROOT/$(printf '%s%s' example_ agents.md)"
-  assert_present "$AGENTS" "active AGENTS.md contract is missing"
-  [ ! -e "$legacy_agents" ] \
-    || fail "legacy broker-contract alias must not coexist with the active AGENTS.md contract"
-  pass "AGENTS.md is the sole active broker-contract filename"
+  assert_present "$AGENTS" "temporary AGENTS-PORTING.md contract is missing"
+  [ ! -e "$ROOT/AGENTS.md" ] \
+    || fail "root AGENTS.md must remain absent until the final Rust-port restoration gate"
+  assert_grep 'Every port change that would normally edit the root `AGENTS.md` must edit this file instead' "$AGENTS" \
+    "temporary contract does not direct root Markdown edits to AGENTS-PORTING.md"
+  assert_grep 'final restoration gate in `plans/rust_port/PORTING.md`' "$AGENTS" \
+    "temporary contract does not point to the final restoration owner"
+  assert_grep 'This file is dormant product source during the port, not an instruction set for the agent performing the port.' "$AGENTS" \
+    "temporary contract can still be mistaken for active port-agent instructions"
+  assert_grep 'fresh, ordinary coding-agent session opened directly in this repository, never through the global `multplx` launcher' "$AGENTS" \
+    "temporary contract does not prohibit running the port through Multplx"
+  assert_grep 'Do not adopt the Multplx broker role' "$CLAUDE" \
+    "auto-loaded contributor guidance does not prohibit broker behavior during the port"
+  assert_grep 'Treat `AGENTS-PORTING.md` as dormant product source to inspect and edit, not as active instructions' "$RUST_PORT" \
+    "authoritative Rust plan does not distinguish product source from active instructions"
+  assert_grep 'ordinary repository contributor in a fresh Cursor session' "$CURSOR_RULE" \
+    "Cursor guidance does not establish ordinary contributor mode"
+  for detector in "$PRIMARY_SCOPE" "$LAUNCHER_LIB" "$CODEX_HOOKS"; do
+    assert_grep 'AGENTS.md' "$detector" "production auto-discovery no longer requires the standard root filename"
+    assert_no_grep 'AGENTS-PORTING.md' "$detector" "production auto-discovery accepts the temporary port filename"
+  done
+  pass "AGENTS-PORTING.md is the sole temporary root broker-contract filename"
 }
 
 test_new_skill_metadata_and_triggers() {
@@ -140,7 +162,7 @@ test_agent_owned_capacity_array_dispatch_contract() {
   done
   assert_grep 'not as a permanent namespace or provider mapping' "$HARNESS" \
     "model discovery guidance permits a fixed provider table"
-  assert_grep '`AGENTS.md` section 4 owns the dispatch and array-selection procedure.' "$CONFIG" \
+  assert_grep '`AGENTS-PORTING.md` section 4 owns the dispatch and array-selection procedure during the port.' "$CONFIG" \
     "configuration docs do not point to the agent-owned array procedure"
   assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP" \
     "bootstrap docs lost the owned-headroom failure procedure"

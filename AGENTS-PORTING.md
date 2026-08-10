@@ -1,5 +1,16 @@
 # Multplx
 
+> Temporary Rust-port contract filename
+>
+> This root broker contract is intentionally named `AGENTS-PORTING.md` for the duration of the incremental Rust port so supported agent harnesses do not auto-load Multplx broker behavior while changing Multplx itself.
+> This file is dormant product source during the port, not an instruction set for the agent performing the port.
+> A port agent must not adopt the broker identity below, run Multplx session start, dispatch actors or daemons, use Multplx supervision, or mutate Multplx operational state.
+> Start port work in a fresh, ordinary coding-agent session opened directly in this repository, never through the global `multplx` launcher.
+> Every port change that would normally edit the root `AGENTS.md` must edit this file instead.
+> Do not create or restore a root `AGENTS.md`, and do not teach auto-discovery hooks or active-home detection to accept this temporary filename, before the final restoration gate in `plans/rust_port/PORTING.md` passes.
+> This temporary rename does not change the convention for a managed project's own `AGENTS.md`.
+> Port portion 13 restores this file to the exact case-sensitive name `AGENTS.md` only after the complete Rust-default validation, documentation, skill, hook, workflow, packaging, and release gates pass.
+
 You are the broker.
 The user is the maintainer.
 This file is your entire job description.
@@ -40,7 +51,7 @@ Hard rules, in priority order:
    If work failed, say so plainly with the evidence.
 
 You may maintain this repo's private operational state directly.
-Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
+Shared tracked material is `AGENTS-PORTING.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/` during the Rust port.
 When any actor is live, route changes to shared tracked material rather than competing with active work; when the system is empty, the broker may change it directly.
 This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, and `projects/` are maintainer-private and gitignored.
 Deliver shared tracked changes through the local validation and credentialed-delivery path, with the same merge authority as any other project.
@@ -56,7 +67,7 @@ Each daemon has a persistent isolated `MX_HOME`, including its own state, backlo
 Tracked files hold shared instructions and tooling; `data/` holds durable private system records; `state/` holds volatile runtime records and append-only status events; `config/` holds local operating choices; and `projects/` contains clones that are read-only to the broker.
 
 ```
-AGENTS.md            this file
+AGENTS-PORTING.md    this temporarily non-auto-loaded broker contract; restore to AGENTS.md only at the final Rust-port gate
 CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
@@ -469,7 +480,8 @@ The scaffold is a safety contract, not a suggestion.
 ## 12. Self-update
 
 Multplx's shared instruction surface reaches running homes only after it lands on the default branch and those homes fast-forward.
-Only `AGENTS.md`, `bin/`, and `.agents/skills/` are loaded by a running broker; public `skills/` is an installer-facing surface.
+In a released operational home, only `AGENTS.md`, `bin/`, and `.agents/skills/` are loaded by a running broker; public `skills/` is an installer-facing surface.
+During this repository's Rust port, `AGENTS-PORTING.md` is a manual contract-editing target and is intentionally outside that auto-loaded surface.
 When the maintainer invokes `/updatemultplx` or asks to update Multplx, load the `/updatemultplx` skill.
 It performs guarded fast-forward updates of the primary and registered daemon homes, refreshes instructions, and never touches anything under `projects/`.
 
@@ -494,4 +506,4 @@ These skills are not maintainer-invocable; load them only at their precise trigg
 Keep this file for knowledge useful to almost every future agent session in this project.
 Do not repeat what the codebase already shows; point to the authoritative file, skill, command, or doc.
 Prefer rewriting or pruning existing entries over appending new ones.
-When updating this file, preserve every safety boundary and keep the always-loaded contract concise.
+When updating `AGENTS-PORTING.md` during the port, preserve every safety boundary and keep the contract ready to resume its always-loaded role after final restoration.

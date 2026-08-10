@@ -11,7 +11,7 @@ metadata:
 # ask-user-authority
 
 This skill is the single owner of the decision procedure for ask-user findings.
-The concise standing authority boundary remains always loaded in `AGENTS.md` section 7.
+The concise standing authority boundary remains in `AGENTS-PORTING.md` section 7 during the Rust port and becomes always loaded again after final filename restoration.
 When the accepted action also crosses a registered policy safeguard, load `maintainer-override`; contract authority and one-action exception authority are separate decisions.
 
 ## Decide who has authority

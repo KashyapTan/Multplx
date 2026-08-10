@@ -17,20 +17,26 @@ The actor runs `bin/mx-deep-review.sh <task-id> --intent-file <brief>` from its 
 That intent-targeted gate performs rebase, review, focused test, documentation, and lint locally, then writes a pending exact-SHA handoff without pushing.
 Only the separately approved, credentialed delivery service may consume that handoff, push its exact SHA, and open the PR.
 
+The Rust port is the deliberate exception to using Multplx to develop Multplx.
+Open a fresh ordinary coding-agent session directly in this checkout, not through the global `multplx` launcher, and do not run session start, dispatch actors or daemons, or use Multplx supervision for port work.
+Treat `AGENTS-PORTING.md` as dormant product source rather than active agent instructions.
+Close any session that already loaded the former root `AGENTS.md` before continuing the port.
+
 ## Repo conventions
 
 - This repo is a template for running the Multplx multi-agent orchestrator.
-  `AGENTS.md` is the active broker job description; `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
-- Only shared material is tracked: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
+  During the Rust port, `AGENTS-PORTING.md` is the root broker-contract editing target and is intentionally not auto-loaded; `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
+- Only shared material is tracked: `AGENTS-PORTING.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency.
   Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
   The in-repo backlog library owns `data/backlog.md`, its parser, retention defaults, and routine mutations as documented in [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
   A local `config/backlog-backend=manual` opt-out forces the broker's routine backlog updates to hand-editing and stays gitignored; validated daemon handoffs still route through the owned atomic move.
   A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; spawn-supported values are `tmux` plus experimental `herdr` and `cmux`, while `codex-app` is documented only in `docs/codex-app-backend.md`.
   It does not make `data/` tracked.
-- Helper scripts in `bin/` are plain bash.
+- Production helper scripts in `bin/` remain plain Bash during Rust-port Portion 01.
   Each starts with a usage header comment; keep it accurate when you change behavior.
-  Test scripts and helpers in `tests/` are plain bash too.
+  The shadow Rust workspace builds one `mx` multicall binary, but no production command selects it yet.
+  Test scripts and helpers in `tests/` remain plain Bash, with Rust-native fixtures and differential self-tests in `crates/multplx-test-support/`.
 - Changes to harness adapters (detection in `bin/mx-harness.sh`, launch and hook mechanics in `bin/mx-spawn.sh`, busy signatures in `bin/mx-watch.sh` and `bin/mx-tmux-lib.sh`, cleanup in `bin/mx-teardown.sh`, and facts in `.agents/skills/harness-adapters/SKILL.md`) must be verified empirically against the real harness, never written from documentation alone.
 - Changes to runtime session backends (`bin/mx-backend.sh`, `bin/backends/`, and the scripts that dispatch through them) keep current setup and limits in the relevant backend guide and active empirical evidence in [`docs/verification/runtime-backends.md`](docs/verification/runtime-backends.md).
 - [`docs/documentation-audiences.md`](docs/documentation-audiences.md) and its machine-consumed inventory own prose classification; run `bin/mx-doc-audience-check.sh` after documentation changes.
@@ -40,14 +46,17 @@ Only the separately approved, credentialed delivery service may consume that han
 
 ## Development
 
-Tracked changes to Multplx itself - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/` - run through the selected port-development workflow.
+Tracked changes to Multplx itself - `AGENTS-PORTING.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/` - run through the selected port-development workflow.
 Before making any such change, load the agent-only `multplx-coding-guidelines` skill (`.agents/skills/multplx-coding-guidelines/SKILL.md`).
-It has the knowledge-placement rules that keep `AGENTS.md` from regrowing after each diet pass.
+It has the knowledge-placement rules that keep the root broker contract from regrowing after each diet pass.
+Every root contract edit during the port belongs in `AGENTS-PORTING.md`; do not create root `AGENTS.md` or update hooks and active-home detection to accept the temporary name.
+This does not alter managed projects' own `AGENTS.md` files.
+Port portion 13 restores `AGENTS-PORTING.md` to `AGENTS.md` only after all portions and the full Rust-default validation, documentation, packaging, and release gates pass.
 There is no reliable way for `bin/mx-brief.sh`'s scaffold to detect that a task's repo is Multplx itself, so the broker adds this skill's load line to Multplx-repo briefs by hand.
 An actor picking up such a brief should load the skill even if the brief predates this instruction.
 When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
 Multplx actors stop at the local deep-review handoff and never push a branch or open a PR.
-The gate routes every `ask-user` finding through the validated status path under the authority contract in `AGENTS.md`.
+The gate routes every `ask-user` finding through the validated status path under the authority contract currently maintained in `AGENTS-PORTING.md`.
 Its private restart-safe evidence lives under `state/<task-id>.gate/`, outside project commits.
 The local gate's test step is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.
 
@@ -68,6 +77,22 @@ bin/mx-test-run.sh --compare-json /tmp/serial.json /tmp/accelerated.json
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]
 tmp=$(mktemp -d) && printf 'done: smoke\n' > "$tmp/smoke.status" && MX_STATE_OVERRIDE="$tmp" MX_SIGNAL_GRACE=1 MX_POLL=1 MX_HEARTBEAT=999999 bin/mx-watch-arm.sh  # watcher re-arm smoke test (prints arm status, then an actionable signal)
 ```
+
+Check the shadow Rust workspace independently:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace
+cargo build --release --workspace --locked
+target/release/mx shadow-diagnostic
+```
+
+`tests/lib.sh` owns the test-only `MX_TEST_IMPLEMENTATION=legacy|rust` selector and the differential capture helpers.
+The existing suite remains legacy by default, while a focused migrated test explicitly selects Rust and may override `MX_TEST_RUST_BIN` with the release binary under test.
+Differential capture compares exit status, standard output, standard error, relative filesystem paths, exact file bytes, file modes, and surviving child processes.
+Only temporary roots, PIDs, ports, timestamps, and random tokens may be normalized by a focused test, and no normalization is automatic.
+The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only; it is not an operator command or a production cutover.
 
 `bin/mx-test-run.sh` is the single owner of behavior-suite selection, the resource-conflict manifest, resource-aware scheduling, generated portable CI lanes, timing markers, family totals, the coverage guard, assertion parity, and JSON timing artifacts.
 Its header and `--help` own the flags, family labels, lanes, and changed-file map; this section only documents the entry points.

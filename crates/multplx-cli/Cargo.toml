@@ -1,0 +1,23 @@
+[package]
+name = "multplx-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "mx"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+multplx-backend = { path = "../multplx-backend" }
+multplx-core = { path = "../multplx-core" }
+multplx-domain = { path = "../multplx-domain" }
+multplx-services = { path = "../multplx-services" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

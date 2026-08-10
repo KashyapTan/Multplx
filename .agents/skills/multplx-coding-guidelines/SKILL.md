@@ -1,9 +1,9 @@
 ---
 name: multplx-coding-guidelines
 description: >-
-  Agent-only reference for changing broker's shared, tracked material per AGENTS.md section 1.
+  Agent-only reference for changing broker's shared, tracked material per AGENTS-PORTING.md section 1 during the Rust port.
   Use before editing any of that material, whether working as broker directly or as an actor briefed on a broker-repo task.
-  Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, AGENTS.md size discipline, trigger hygiene for new skills, and repo style rules (one sentence per line, plain dash, no agent co-author, colocated tests, and maintainer-verification evidence).
+  Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, root broker-contract size discipline, trigger hygiene for new skills, and repo style rules (one sentence per line, plain dash, no agent co-author, colocated tests, and maintainer-verification evidence).
 user-invocable: false
 metadata:
   internal: true
@@ -11,8 +11,11 @@ metadata:
 
 # multplx-coding-guidelines
 
-Load this before changing broker's shared, tracked material, as defined by `AGENTS.md` section 1.
-It exists because `AGENTS.md` grew from 585 to 958 lines between its last two restructures, entirely from conditional detail added inline instead of routed to its right home.
+Load this before changing broker's shared, tracked material, as defined by `AGENTS-PORTING.md` section 1 during the Rust port.
+The root contract's temporary filename prevents auto-loading while Multplx ports itself.
+Make every would-be root `AGENTS.md` edit in `AGENTS-PORTING.md`, do not make runtime discovery accept the temporary name, and leave managed projects' own `AGENTS.md` files unchanged.
+Only the final gate in `plans/rust_port/PORTING.md` may restore the exact root filename `AGENTS.md` after the full Rust-default port passes.
+The root contract grew from 585 to 958 lines between its last two restructures, entirely from conditional detail added inline instead of routed to its right home.
 Applying the rules below on every change is what keeps that from happening again.
 
 ## Knowledge-placement decision tree
@@ -20,9 +23,9 @@ Applying the rules below on every change is what keeps that from happening again
 Before writing a new fact anywhere in this repo, ask where it belongs, in this order.
 
 1. Does the broker AGENT need this on every session or every turn to operate?
-   If yes: `AGENTS.md`, inline.
+   If yes: `AGENTS-PORTING.md`, inline during the Rust port.
 2. Does the agent need it only in a nameable situation - a spawn, a recovery, a specific wake type, a specific lifecycle step?
-   If yes: an agent-only skill under `.agents/skills/`, plus a one-line trigger pointer left inline in `AGENTS.md` (usually section 13).
+   If yes: an agent-only skill under `.agents/skills/`, plus a one-line trigger pointer left inline in `AGENTS-PORTING.md` (usually section 13).
 3. Is it public product, setup, or user/operator reference?
    If yes: the surface classified for that audience in [`docs/documentation-audiences.md`](../../../docs/documentation-audiences.md), limited to current behavior, setup, supported limits, stable invariants, concise rationale, and current verification entry points.
 4. Is it contributor/maintainer architecture?
@@ -32,7 +35,7 @@ Before writing a new fact anywhere in this repo, ask where it belongs, in this o
 6. Is it task or incident evidence - chronology, transcripts, branches, temporary paths, failed hypotheses, or delivery proof?
    If yes: keep it in the private task report or PR evidence by default, after distilling every unique current fact into its authoritative owner.
 7. Is it mechanics - exact flags, exact commands, exact paths?
-   If yes: the script's own header comment plus its `--help` output, not prose in `AGENTS.md`, a skill, or a second documentation owner.
+   If yes: the script's own header comment plus its `--help` output, not prose in `AGENTS-PORTING.md`, a skill, or a second documentation owner.
 
 Stop at the first tier that answers yes.
 Do not place a fact at a more convenient tier than the one this tree gives you.
@@ -48,20 +51,20 @@ When you touch a contract, grep the repo for its other mentions and update the c
 
 ## Inline-stub pattern
 
-When content moves out of `AGENTS.md` into a skill, decide what stays behind by asking one question: what must survive with no skill loaded?
+When content moves out of `AGENTS-PORTING.md` into a skill, decide what stays behind by asking one question: what must survive with no skill loaded after the standard root filename is restored?
 That is the trigger condition for loading the skill, plus any safety-critical fact that fires on a wake the skill itself is not loaded for.
 Everything else - the procedure, the mechanism, the surrounding detail - moves out completely.
 Do not leave a partial restatement behind "just in case".
 A partial copy is exactly the duplication the one-owner rule forbids.
-The model to copy is `AGENTS.md` section 8's "Away-mode stub": it keeps only the marker format, the ownership-transfer rule, and the exit condition inline, and points everything else at the `/afk` skill.
+The model to copy is `AGENTS-PORTING.md` section 8's "Away-mode stub": it keeps only the marker format, the ownership-transfer rule, and the exit condition inline, and points everything else at the `/afk` skill.
 
 ## Size discipline
 
-Apply the decision tree above to every line you are about to add to `AGENTS.md`.
+Apply the decision tree above to every line you are about to add to `AGENTS-PORTING.md`.
 If an addition needs more than a few lines of conditional detail (detail that matters only in a specific situation) or reference detail (a wire format, an exact schema, historical rationale), you are almost certainly adding it to the wrong file.
-`AGENTS.md`'s token cost is paid by every session of every system member, every time, whether or not that session ever hits the situation the new lines describe.
+After final restoration, the root `AGENTS.md` token cost is paid by every session of every system member, every time, whether or not that session ever hits the situation the new lines describe.
 A skill's cost is paid only by the sessions that actually load it.
-When in doubt, write the fact into the skill or doc first, and add only the one-line trigger to `AGENTS.md`.
+When in doubt, write the fact into the skill or doc first, and add only the one-line trigger to `AGENTS-PORTING.md` during the port.
 
 ## Trigger hygiene
 
