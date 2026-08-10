@@ -119,10 +119,25 @@ SH
   git -C "$home" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' commit -qm initial
 }
 
-# Clone the active Multplx tree for a disposable broker fixture.
+# Clone the Multplx tree and activate only the disposable broker fixture.
+# During the Rust port, commit the standard contract name inside the fixture so
+# nested daemon-home clones retain it without relaxing production validation.
 make_activated_broker_clone() {
   local home=$1
   git clone --quiet "$ROOT" "$home"
+  if [ -f "$home/AGENTS-PORTING.md" ]; then
+    [ ! -e "$home/AGENTS.md" ] || {
+      printf 'error: disposable broker fixture contains both root contracts\n' >&2
+      return 1
+    }
+    git -C "$home" mv AGENTS-PORTING.md AGENTS.md
+    git -C "$home" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' \
+      commit -qm 'test: activate broker fixture'
+  fi
+  [ -f "$home/AGENTS.md" ] || {
+    printf 'error: disposable broker fixture is missing AGENTS.md\n' >&2
+    return 1
+  }
 }
 
 # Scaffold a filled daemon charter brief under <home>/data/<id>/brief.md.
