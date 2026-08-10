@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 11 - Review, Delivery, and PR Security · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 11 · Multplx</div>
+  <h1>Review, Delivery, and PR Security</h1>
+  <p class="subtitle">Port Multplx's highest-risk boundary: deep review, exact-SHA delivery handoff, authenticated PR polling, non-executing migration, maintainer-approved merge, local merge, promotion, and fault-safe artifact retirement.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 11 of 13</span>
+    <span class="badge effort">Effort: Very High</span>
+    <span class="badge risk">Risk: High</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This portion owns the transition from local work to an approved delivery handoff and the validated observation of remote PR state.</p>
+<p>It must preserve credential separation, exact identity binding, non-executing migration, quarantine, crash recovery, and explicit merge authority.</p>
+<div class="callout danger"><div class="label">Security review required</div><p style="margin:0">Treat every task ID, path, URL, SHA, branch, PR head, sidecar, registration, receipt, check result, and external command output as untrusted until it is validated and bound to the expected identity.</p></div>
+
+<h2>Owned source slice</h2>
+<table><tr><th>Legacy file</th><th>Port responsibility</th></tr>
+<tr><td><code>bin/mx-check-register.sh</code></td><td>Bind an intentional custom watcher check to its current bytes.</td></tr>
+<tr><td><code>bin/mx-deep-review-lib.sh</code>, <code>bin/mx-deep-review.sh</code></td><td>Intent, trusted configuration, headless review, findings, decisions, tests, documentation, lint, rebase, restart, and exact-SHA handoff.</td></tr>
+<tr><td><code>bin/mx-deliver-lib.sh</code>, <code>bin/mx-deliver.sh</code></td><td>Ready-to-push schema, exact-SHA verification, credentialed push and PR creation, stale handoff, and delivery archive.</td></tr>
+<tr><td><code>bin/mx-merge-local.sh</code></td><td>Guarded approved fast-forward for local-only delivery.</td></tr>
+<tr><td><code>bin/mx-pr-check-migrate.sh</code></td><td>Non-executing legacy check scan, canonical rebuild, quarantine, repair, and migration markers.</td></tr>
+<tr><td><code>bin/mx-pr-check.sh</code></td><td>Canonical PR metadata validation and static merge-poll publication.</td></tr>
+<tr><td><code>bin/mx-pr-lib.sh</code></td><td>Identifier, URL, SHA, file, registration, receipt, metadata, and atomic artifact validation.</td></tr>
+<tr><td><code>bin/mx-pr-merge.sh</code></td><td>Explicitly approved merge plus canonical poll registration.</td></tr>
+<tr><td><code>bin/mx-pr-poll.sh</code></td><td>Byte-static authenticated poll over validated sidecar data.</td></tr>
+<tr><td><code>bin/mx-promote.sh</code></td><td>Scout-to-delivery promotion mechanics.</td></tr>
+<tr><td><code>bin/mx-review-diff.sh</code></td><td>Bounded actor-branch review against the authoritative base.</td></tr>
+<tr><td><code>bin/mx-validation-waive.sh</code></td><td>Truthful exact-SHA waived handoff under one consumed override.</td></tr>
+</table>
+
+<h2>Trust and publication chain</h2>
+<pre><code>local actor commit
+  → trusted deep-review intent + config
+  → review, decisions, focused tests, docs, lint
+  → exact approved local SHA
+  → private ready-to-push handoff
+  → separately credentialed delivery service
+  → pushed branch and PR metadata
+  → canonical static authenticated poll
+  → validated merged observation
+  → durable wake + identity-bound retirement receipt
+  → safe teardown eligibility</code></pre>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Port task, path, URL, and SHA validators first.</b>Reject traversal, aliases, malformed providers, wrong hosts, abbreviated SHAs, non-regular files, link tricks, and mismatched metadata before any artifact opens.</li>
+<li><b>Port atomic PR artifact helpers.</b>Preserve private modes, same-directory publication, content hashes, inode or identity binding where required, registration provenance, and receipt-backed retirement.</li>
+<li><b>Port static poll and canonical registration.</b>Keep poll bytes static, sidecar data-only, provider validation, bounded official CLI calls, exact outputs, and no shell evaluation.</li>
+<li><b>Port the non-executing migration.</b>Never execute, source, or parse legacy check programs as shell. Rebuild only from validated canonical metadata and quarantine everything ambiguous.</li>
+<li><b>Port deep review.</b>Keep trusted default-branch config, fixed step order, structured findings, ask-user routing, restart evidence, command trust, exact rebase, and handoff publication.</li>
+<li><b>Port delivery records and credentialed execution.</b>Revalidate SHA, branch, repo, remote, permissions, and handoff freshness immediately before push and PR creation.</li>
+<li><b>Port merges, promotion, diff review, and waiver.</b>Preserve explicit maintainer authority, local fast-forward-only behavior, scout report retention, bounded review, and truthful waived status.</li>
+<li><b>Run adversarial and crash matrices.</b>Exercise link swaps, file replacement, stale metadata, concurrent replacement polls, mid-retirement death, credential absence, and remote divergence.</li>
+<li><b>Cut over only after independent security review.</b>Keep agents credential-free and test the credentialed service from its real external execution context.</li>
+</ol>
+
+<h2>Adversarial test matrix</h2>
+<table><tr><th>Attack or failure</th><th>Required result</th></tr>
+<tr><td>Task ID or URL path traversal</td><td>Rejected before path or network use.</td></tr>
+<tr><td>Sidecar replaced after validation</td><td>Identity or content binding detects the replacement and refuses.</td></tr>
+<tr><td>Legacy check contains executable payload</td><td>Migration quarantines or ignores it without executing or parsing it as shell.</td></tr>
+<tr><td>PR head changes</td><td>Exact-SHA handoff or poll becomes stale and cannot authorize delivery or teardown.</td></tr>
+<tr><td>Process dies during poll retirement</td><td>Receipt-backed recovery removes runnable artifacts first and remains safely retryable.</td></tr>
+<tr><td>Agent receives remote credentials</td><td>Test fails; no fallback push or PR path exists inside agent sessions.</td></tr>
+<tr><td>Override waives validation</td><td>Record says waived rather than passed and binds one exact SHA.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<ul>
+<li>Existing deep-review config/lib/full suites, PR fault quarantine, parser entry points, publication migration, retirement teardown, PR merge, push service, review diff, gate refusal, validation waiver callers, promote callers, and teardown security cases.</li>
+<li>Property and fuzz tests for identifiers, URLs, record parsers, sidecar schemas, poll output, and metadata.</li>
+<li>Filesystem race tests using symlinks, hardlinks, rename replacement, permissions, truncated files, duplicate registrations, and concurrent poll replacement.</li>
+<li>Crash injection after every artifact publication and retirement step.</li>
+<li>Real official <code>gh</code> read paths with remote writes disabled in agent sessions.</li>
+<li>Independent review of unsafe blocks, subprocess construction, filesystem boundaries, and secret handling.</li>
+</ul>
+
+<h2>Documentation and instruction updates</h2>
+<p>Review <code>maintainer-override</code>, <code>decision-hold-lifecycle</code>, <code>harness-adapters</code>, and delivery sections in <code>AGENTS.md</code>.</p>
+<p>Update delivery, deep-review, maintainer override, architecture, configuration, and PR polling documentation.</p>
+<p>Record current security and delivery verification without copying incident chronology into product docs.</p>
+
+<h2>Definition of done</h2>
+<ul>
+<li>All fourteen owned files run through Rust by default.</li>
+<li>No legacy check bytes can execute during migration or polling.</li>
+<li>Exact-SHA handoffs, registrations, sidecars, receipts, and metadata remain identity-bound.</li>
+<li>Agents remain unable to push, create a PR, or merge without the current external authority path.</li>
+<li>Every adversarial and crash-recovery case passes before legacy removal.</li>
+</ul>
+<div class="footer-nav">
+  <a href="10-decisions-overrides-workflows.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="12-viz-vplan-services.html">Next →</a>
+</div>
+</div>
+</body>
+</html>
+

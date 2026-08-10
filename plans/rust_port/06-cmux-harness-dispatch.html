@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 06 - cmux, Harnesses, and Dispatch · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 06 · Multplx</div>
+  <h1>cmux, Harnesses, and Dispatch</h1>
+  <p class="subtitle">Complete backend coverage with cmux, then port harness detection, primary launch, composite headroom, and Treehouse installation so the typed runtime-dispatch layer can safely become the default.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 6 of 13</span>
+    <span class="badge effort">Effort: Very High</span>
+    <span class="badge risk">Risk: High</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This portion closes the backend abstraction and ports the selection mechanisms that decide where and how work can run.</p>
+<p>After tmux, Herdr, and cmux all satisfy the same typed facade, runtime dispatch may cut over as one coherent layer.</p>
+
+<h2>Owned source slice</h2>
+<table><tr><th>Legacy file</th><th>Port responsibility</th></tr>
+<tr><td><code>bin/backends/cmux.sh</code></td><td>Socket authentication, workspace and surface identity, task lifecycle, capture, composer, submit, path, list, and kill.</td></tr>
+<tr><td><code>bin/mx-harness.sh</code></td><td>Primary, actor, and daemon harness detection plus model and effort configuration tokens.</td></tr>
+<tr><td><code>bin/mx-launch-harness.sh</code></td><td>Verified primary harness launch from the code root.</td></tr>
+<tr><td><code>bin/mx-headroom.sh</code></td><td>Composite local resource and configured API budget, candidate accounting, and durable dispatch queue.</td></tr>
+<tr><td><code>bin/mx-install-treehouse.sh</code></td><td>Pinned Treehouse artifact, checksum, version, and lease-capability verification.</td></tr>
+</table>
+
+<div class="callout danger"><div class="label">Adapter facts are empirical</div><p style="margin:0">Do not infer harness or cmux behavior from documentation alone. Re-run the existing real compatibility procedures for Claude, Codex, Cursor, Pi, cmux, and Treehouse before claiming Rust parity.</p></div>
+
+<h2>Target design</h2>
+<pre><code>DispatchResolver
+  ├─ explicit maintainer profile
+  ├─ validated actor-dispatch rule
+  ├─ configured default
+  └─ static harness fallback
+
+HeadroomEvaluator
+  ├─ discover every candidate's real model relationship
+  ├─ combine local resources and configured API budget
+  ├─ account for every candidate
+  └─ choose, stop, or durably queue
+
+RuntimeBackend
+  ├─ tmux   [Portion 04]
+  ├─ Herdr  [Portion 05]
+  └─ cmux   [this portion]</code></pre>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Port cmux authentication and version checks.</b>Read the password fresh, preserve ambient-password precedence, prevent diagnostic leakage, and classify denied versus unavailable states.</li>
+<li><b>Port cmux identity and lifecycle.</b>Keep home labels, scoped titles, workspace and surface lookup, readiness, path, capture, submit, list, and exact kill semantics.</li>
+<li><b>Port harness detection.</b>Preserve verified environment markers, process ancestry, unknown handling, static configuration, daemon pins, model tokens, and effort tokens.</li>
+<li><b>Port primary harness launch.</b>Resolve the real executable without shim recursion, validate the supported adapter, preserve arguments and environment, change only the child cwd, and exec.</li>
+<li><b>Port composite headroom.</b>Model every candidate explicitly, reject incomplete capacity interpretation, preserve strongest-reasoning behavior, and keep durable queue ordering and cancellation.</li>
+<li><b>Port Treehouse installation checks.</b>Preserve version and lease-capability requirements, checksums, supported platforms, modes, and detect-then-consent installation.</li>
+<li><b>Run cross-backend and cross-harness verification.</b>Exercise the same facade contract against tmux, Herdr, and cmux and the same launch contract against all four harnesses.</li>
+<li><b>Cut over the backend and harness layer.</b>Switch only after every supported axis passes; keep task lifecycle commands on their current implementation until Portion 07.</li>
+</ol>
+
+<h2>Test plan</h2>
+<ul>
+<li>Existing <code>mx-backend-cmux</code> and cmux smoke tests, including wrong password, missing app, version refusal, target collision, path mismatch, and cleanup.</li>
+<li>Existing backend facade, autodetect, dispatch queue, headroom, daemon harness model resolution, and launcher-harness callers against both implementations.</li>
+<li>Real empirical launch checks for Claude, Codex, Cursor, and Pi with exact versions recorded.</li>
+<li>Candidate-set property tests proving no candidate is omitted, duplicated, or selected by array order on a genuine tie.</li>
+<li>Queue contention, oldest-first retry, at-limit persistence, cancellation, malformed config, and crash-recovery tests.</li>
+<li>Treehouse checksum, wrong platform, stale version, missing lease support, and successful install fixtures.</li>
+</ul>
+
+<h2>Documentation and instruction updates</h2>
+<p>Update <code>docs/cmux-backend.md</code>, backend selection in <code>docs/configuration.md</code>, and active runtime verification.</p>
+<p>Update <code>harness-adapters</code> only from empirical results.</p>
+<p>Review launcher, daemon-provisioning, and dispatch-profile documentation for path and implementation ownership changes.</p>
+
+<h2>Definition of done</h2>
+<ul>
+<li>The cmux implementation satisfies the same typed backend contract as tmux and Herdr.</li>
+<li>All four harnesses are empirically verified or a claimed adapter is explicitly blocked.</li>
+<li>Headroom accounts for every candidate and preserves durable queue behavior.</li>
+<li>The general backend, harness, and headroom layer runs through Rust by default.</li>
+<li>Portion 07 can create tasks without sourcing backend or harness shell code.</li>
+</ul>
+<div class="footer-nav">
+  <a href="05-herdr-backend.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="07-task-daemon-lifecycle.html">Next →</a>
+</div>
+</div>
+</body>
+</html>
+

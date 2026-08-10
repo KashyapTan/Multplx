@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port Roadmap · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Multplx · Rust Port Roadmap</div>
+  <h1>Port the runtime in thirteen safe portions</h1>
+  <p class="subtitle">A dependency-ordered implementation roadmap that keeps Multplx runnable, preserves every safety contract, and proves each Rust slice against the existing behavior suite before the next slice begins.</p>
+  <div class="badges">
+    <span class="badge phase">13 portions</span>
+    <span class="badge effort">Program effort: Very High</span>
+    <span class="badge risk">Peak risk: High</span>
+    <span class="badge">Source owner: ../PORTING.md</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Execution rule</h2>
+<div class="callout danger"><div class="label">No big-bang rewrite</div>
+<p style="margin:0">Only one numbered portion may change its default implementation at a time. Every portion must leave the repository runnable, retain the black-box compatibility suite, and satisfy its own deletion gate before legacy code is removed.</p>
+</div>
+<div class="callout"><div class="label">Authoritative cross-cutting contract</div>
+<p style="margin:0"><a href="../PORTING.md" style="color:var(--accent)">PORTING.md</a> owns the rules shared by every portion: exact behavior parity, dual-engine testing, data compatibility, security review, documentation review, CI progression, and final legacy deletion. These artifacts divide the work without restating or weakening that contract.</p>
+</div>
+
+<h2>Dependency flow</h2>
+<pre><code>01 workspace + parity harness
+  └─ 02 core durability
+       ├─ 03 local state
+       ├─ 04 backend facade + tmux
+       │    ├─ 05 Herdr
+       │    └─ 06 cmux + harness dispatch
+       └─ 12 local services
+
+03 + 06
+  └─ 07 task and daemon lifecycle
+       ├─ 08 supervision, watcher, AFK
+       │    └─ 09 session start, health, snapshots
+       └─ 10 decisions, overrides, workflows
+            └─ 11 review, delivery, PR security
+
+All completed portions
+  └─ 13 launcher, test tooling, final cutover</code></pre>
+
+<h2>Portions</h2>
+<div class="cards">
+<a class="card" href="01-workspace-parity-harness.html" style="--card-accent:#58a6ff"><span class="num">PORTION 01</span><span class="title">Workspace and Parity Harness</span><span class="desc">Create the Cargo workspace, multicall binary skeleton, deterministic test support, baseline measurements, and legacy-versus-Rust comparison path without moving production behavior.</span><span class="meta"><span class="tag">Foundation</span><span class="tag">No cutover</span></span></a>
+<a class="card" href="02-core-primitives-durability.html" style="--card-accent:#39c5cf"><span class="num">PORTION 02</span><span class="title">Core Primitives and Durability</span><span class="desc">Port path safety, atomic files, process identity, locks, wake records, classification, journals, supervision predicates, and other shared primitives.</span><span class="meta"><span class="tag">18 files</span><span class="tag">High risk</span></span></a>
+<a class="card" href="03-local-state-backlog-config.html" style="--card-accent:#3fb950"><span class="num">PORTION 03</span><span class="title">Local State, Backlog, and Configuration</span><span class="desc">Port backlog transactions, daemon handoff, inherited configuration, project-mode resolution, and the operational-input protocol without changing any disk format.</span><span class="meta"><span class="tag">7 files</span><span class="tag">Schema parity</span></span></a>
+<a class="card" href="04-backend-facade-tmux.html" style="--card-accent:#bc8cff"><span class="num">PORTION 04</span><span class="title">Backend Facade and tmux</span><span class="desc">Define the typed backend trait and prove the reference tmux implementation while Herdr and cmux remain on the compatibility path.</span><span class="meta"><span class="tag">4 files</span><span class="tag">Shadow only</span></span></a>
+<a class="card" href="05-herdr-backend.html" style="--card-accent:#f0883e"><span class="num">PORTION 05</span><span class="title">Herdr Backend</span><span class="desc">Port the largest backend, both Python wire helpers, presentation safety, lab tooling, cleanup, and pinned installation checks.</span><span class="meta"><span class="tag">7 files</span><span class="tag">Real Herdr gate</span></span></a>
+<a class="card" href="06-cmux-harness-dispatch.html" style="--card-accent:#d29922"><span class="num">PORTION 06</span><span class="title">cmux, Harnesses, and Dispatch</span><span class="desc">Complete backend coverage, then port harness detection, launch, headroom, and send behavior so the runtime dispatch layer can cut over as one unit.</span><span class="meta"><span class="tag">5 files</span><span class="tag">Empirical adapters</span></span></a>
+<a class="card" href="07-task-daemon-lifecycle.html" style="--card-accent:#f778ba"><span class="num">PORTION 07</span><span class="title">Task and Daemon Lifecycle</span><span class="desc">Port briefs, pending replies, spawn, daemon homes, supervision, safe fast-forwards, teardown, project sync, and worktree tooling.</span><span class="meta"><span class="tag">13 files</span><span class="tag">Destructive boundary</span></span></a>
+<a class="card" href="08-supervision-watcher-afk.html" style="--card-accent:#f85149"><span class="num">PORTION 08</span><span class="title">Supervision, Watcher, and AFK</span><span class="desc">Port status reporting, hook policies, watcher locks and transitions, wake handling, away-mode supervision, and turn-end guard transports.</span><span class="meta"><span class="tag">19 files</span><span class="tag">Continuity critical</span></span></a>
+<a class="card" href="09-session-bootstrap-snapshots.html" style="--card-accent:#79c0ff"><span class="num">PORTION 09</span><span class="title">Session Start, Health, and Snapshots</span><span class="desc">Compose the Rust primitives into the exact startup digest, bootstrap, doctor, structured snapshots, human view, and task timeline.</span><span class="meta"><span class="tag">9 files</span><span class="tag">Ordering critical</span></span></a>
+<a class="card" href="10-decisions-overrides-workflows.html" style="--card-accent:#56d364"><span class="num">PORTION 10</span><span class="title">Decisions, Overrides, and Workflows</span><span class="desc">Port durable maintainer authority mechanics and the workflow engine as typed state machines with restart and single-use proofs.</span><span class="meta"><span class="tag">7 files</span><span class="tag">Authority critical</span></span></a>
+<a class="card" href="11-review-delivery-pr-security.html" style="--card-accent:#ff7b72"><span class="num">PORTION 11</span><span class="title">Review, Delivery, and PR Security</span><span class="desc">Port deep review, exact-SHA handoff, authenticated PR polling, migration quarantine, merge approval, and delivery from the highest-risk boundary.</span><span class="meta"><span class="tag">14 files</span><span class="tag">Security critical</span></span></a>
+<a class="card" href="12-viz-vplan-services.html" style="--card-accent:#a371f7"><span class="num">PORTION 12</span><span class="title">Viz and vplan Services</span><span class="desc">Replace the Node loopback servers and shell controllers while leaving browser assets unchanged for clean protocol parity.</span><span class="meta"><span class="tag">4 files</span><span class="tag">Loopback services</span></span></a>
+<a class="card" href="13-launcher-test-tooling-cutover.html" style="--card-accent:#3fb950"><span class="num">PORTION 13</span><span class="title">Launcher, Test Tooling, and Final Cutover</span><span class="desc">Port the launcher and test scheduler, complete packaging and documentation, remove legacy business logic, and prove the Rust-only release.</span><span class="meta"><span class="tag">6 files</span><span class="tag">Program closeout</span></span></a>
+</div>
+
+<h2>Program-wide gates</h2>
+<table>
+<tr><th>Gate</th><th>Required proof</th></tr>
+<tr><td>Source ownership</td><td>Every active <code>bin/*</code> file belongs to exactly one portion, and the final inventory check reports no missing or duplicate assignments.</td></tr>
+<tr><td>Behavior parity</td><td>The same black-box assertions pass against isolated legacy and Rust homes, with differences limited to explicitly normalized unstable values.</td></tr>
+<tr><td>Data safety</td><td>Existing operational homes require no migration, and every writer preserves record bytes, permissions, atomicity, and recovery behavior.</td></tr>
+<tr><td>Compatibility</td><td>Linux, macOS, tmux, Herdr, cmux, and every claimed harness are checked at the portion that owns their integration surface.</td></tr>
+<tr><td>Documentation</td><td>Current owners, skills, hooks, workflows, CI, and verification evidence change in the same portion as their implementation.</td></tr>
+<tr><td>Deletion</td><td>Legacy business logic is removed only in Portion 13 after all prior portions have passed their Rust-default rollback windows.</td></tr>
+</table>
+<div class="footer-nav"><a href="../index.html">← Main plans index</a><a href="../PORTING.md">Porting guide</a><a href="01-workspace-parity-harness.html">Begin Portion 01 →</a></div>
+</div>
+</body>
+</html>
+

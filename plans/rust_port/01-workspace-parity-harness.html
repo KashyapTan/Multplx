@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 01 - Workspace and Parity Harness · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 01 · Multplx</div>
+  <h1>Workspace and Parity Harness</h1>
+  <p class="subtitle">Build the migration runway first: a stable Cargo workspace, a release-mode multicall binary skeleton, deterministic Rust test support, and one differential harness that proves behavior before any production command changes default.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 1 of 13</span>
+    <span class="badge effort">Effort: Medium-High</span>
+    <span class="badge risk">Risk: Medium</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This portion creates the engineering foundation for every later port without replacing a production behavior path.</p>
+<p>The existing shell implementation remains the normal runtime while Rust gains a build, test, packaging, and black-box comparison surface.</p>
+<div class="callout ok"><div class="label">Safe stopping point</div><p style="margin:0">At the end of this portion, the repository builds and tests Rust code, but every operator command still uses the existing implementation. Reverting the new workspace removes the experiment without touching operational state.</p></div>
+
+<h2>Goals and non-goals</h2>
+<table><tr><th>Goals</th><th>Non-goals</th></tr><tr><td><ul>
+<li>Create a Cargo workspace with shared dependency and lint policy.</li>
+<li>Create crate skeletons for core, domain, backend, CLI, services, and test support.</li>
+<li>Build one release-mode <code>mx</code> multicall executable.</li>
+<li>Add an explicit test-only legacy-versus-Rust selector.</li>
+<li>Capture behavioral and performance baselines.</li>
+<li>Teach CI to build and test Rust without changing existing lanes.</li>
+</ul></td><td><ul>
+<li>No production command cutover.</li>
+<li>No durable-state format change.</li>
+<li>No shell script deletion or simplification.</li>
+<li>No new product command syntax.</li>
+<li>No benchmark claim before later release implementations exist.</li>
+</ul></td></tr></table>
+
+<h2>Planned file impact</h2>
+<table>
+<tr><th>Path</th><th>Action</th><th>Responsibility</th></tr>
+<tr><td><code>Cargo.toml</code>, <code>Cargo.lock</code></td><td><span class="pill new">new</span></td><td>Workspace membership, shared versions, release profile, and committed application lockfile.</td></tr>
+<tr><td><code>crates/multplx-core/</code></td><td><span class="pill new">new</span></td><td>Path, filesystem, process, lock, record, clock, and command primitives.</td></tr>
+<tr><td><code>crates/multplx-domain/</code></td><td><span class="pill new">new</span></td><td>Typed state machines and durable domain records.</td></tr>
+<tr><td><code>crates/multplx-backend/</code></td><td><span class="pill new">new</span></td><td>Backend trait and supported runtime adapters.</td></tr>
+<tr><td><code>crates/multplx-cli/</code></td><td><span class="pill new">new</span></td><td>Multicall command dispatch and compatibility entry points.</td></tr>
+<tr><td><code>crates/multplx-services/</code></td><td><span class="pill new">new</span></td><td>MCP and loopback HTTP services.</td></tr>
+<tr><td><code>crates/multplx-test-support/</code></td><td><span class="pill new">new</span></td><td>Temporary homes, fake executables, deterministic clocks, process fixtures, and filesystem snapshots.</td></tr>
+<tr><td><code>tests/lib.sh</code></td><td><span class="pill mod">modify</span></td><td>One implementation selector and differential capture helper used by existing tests.</td></tr>
+<tr><td><code>.github/workflows/ci.yml</code></td><td><span class="pill mod">modify</span></td><td>Rust format, clippy, tests, release build, and platform compilation alongside unchanged behavior lanes.</td></tr>
+</table>
+
+<h2>Target test architecture</h2>
+<pre><code>existing tests/*.test.sh
+  └─ tests/lib.sh implementation adapter
+       ├─ legacy command in isolated home
+       └─ Rust release command in isolated home
+            └─ compare:
+                 exit status
+                 stdout and stderr
+                 filesystem paths and bytes
+                 file modes
+                 surviving child processes</code></pre>
+<p>Normalization may cover only unstable roots, PIDs, ports, timestamps, and random tokens.</p>
+<p>Ordering, wording, permissions, missing fields, and extra processes are never normalized away.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Freeze the current inventory and baseline.</b>Record <code>git ls-files 'bin/*'</code>, <code>git ls-files 'tests/*.test.sh'</code>, the full behavior-suite result, current CI lane composition, and release-relevant command timing.</li>
+<li><b>Create the workspace and crate boundaries.</b>Keep dependencies centralized, commit the lockfile, deny warnings in CI, and leave crate APIs intentionally small until real ports exercise them.</li>
+<li><b>Create the multicall skeleton.</b>Support explicit subcommand dispatch and <code>argv[0]</code> compatibility, but expose only a diagnostic no-op until a command is actually ported.</li>
+<li><b>Add deterministic test support.</b>Provide isolated homes, fake PATH entries, clocks, process identities, permission inspection, bounded process cleanup, and structured filesystem manifests.</li>
+<li><b>Add the implementation selector.</b>Make selection explicit and test-only. Never silently fall back after a Rust command has started a mutation.</li>
+<li><b>Add CI without changing current proof.</b>Run formatting, clippy, unit tests, release build, and Linux/macOS compilation in addition to every current black-box job.</li>
+<li><b>Document the contributor workflow.</b>Update contributor commands and architecture pointers without claiming any runtime command has moved.</li>
+</ol>
+
+<h2>Test plan</h2>
+<ul>
+<li><code>cargo fmt --check</code>, clippy with warnings denied, workspace tests, and a release build.</li>
+<li>A multicall dispatch test covering explicit subcommands, <code>argv[0]</code>, help, unknown commands, and exit code <code>2</code> for usage failures.</li>
+<li>A differential harness self-test proving it detects stdout, stderr, status, mode, content, ordering, and process leaks.</li>
+<li>The complete existing behavior suite against the unchanged legacy default.</li>
+<li>Linux and macOS release compilation.</li>
+<li>A baseline timing artifact that records command, machine, build mode, iterations, and raw results.</li>
+</ul>
+
+<h2>Documentation and instruction updates</h2>
+<p>Update <code>CONTRIBUTING.md</code> for Cargo commands and differential testing.</p>
+<p>Update <code>docs/architecture.md</code> only with the new code organization and shadow boundary.</p>
+<p>Do not rewrite operator docs, skills, or <code>AGENTS.md</code> command paths because runtime behavior has not moved.</p>
+
+<h2>Definition of done</h2>
+<ul>
+<li>The workspace builds in release mode on Linux and macOS.</li>
+<li>The Rust test-support layer can prove intentionally injected differences.</li>
+<li>All existing behavior tests still pass against the legacy default.</li>
+<li>No operational file, hook, skill, workflow, or launcher selects Rust implicitly.</li>
+<li>Portion 02 can add real core modules without redesigning the test runway.</li>
+</ul>
+<div class="footer-nav">
+  <a href="index.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="02-core-primitives-durability.html">Next →</a>
+</div>
+</div>
+</body>
+</html>
+

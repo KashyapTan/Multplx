@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 12 - Viz and vplan Services · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 12 · Multplx</div>
+  <h1>Viz and vplan Services</h1>
+  <p class="subtitle">Replace the Node loopback servers and shell controllers with Rust services while freezing browser assets, port selection, tokens, paths, idle lifetime, run records, and atomic vplan confirmation behavior.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 12 of 13</span>
+    <span class="badge effort">Effort: High</span>
+    <span class="badge risk">Risk: Medium</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This portion removes the remaining Node service runtime from viz and vplan without combining the server migration with a UI redesign.</p>
+<p>Static assets remain unchanged so HTTP, lifecycle, and persistence parity can be tested independently.</p>
+
+<h2>Owned source slice</h2>
+<table><tr><th>Legacy file</th><th>Port responsibility</th></tr>
+<tr><td><code>bin/mx-viz-server.mjs</code></td><td>GET-only loopback dashboard service, snapshot cache, bounded artifact serving, port probing, and idle exit.</td></tr>
+<tr><td><code>bin/mx-viz.sh</code></td><td>Serve, status, stop, run-record identity, and stale cleanup.</td></tr>
+<tr><td><code>bin/mx-vplan-server.mjs</code></td><td>One-shot artifact service, SDK injection, comments read, authenticated confirm, atomic persistence, and exit.</td></tr>
+<tr><td><code>bin/mx-vplan.sh</code></td><td>New, review, comments, stop, self-check, artifact paths, run records, and identity-bound signaling.</td></tr>
+</table>
+
+<div class="callout warn"><div class="label">Freeze the front end</div><p style="margin:0">Do not change <code>share/viz/</code> or <code>share/vplan/</code> during protocol parity. A service and UI rewrite in one portion would make failures difficult to attribute and visual differences impossible to isolate.</p></div>
+
+<h2>Target service design</h2>
+<div class="flow">
+<div><b>LISTENER</b><span>Loopback only, twenty-port probe, bounded connections, and explicit idle timer.</span></div>
+<div><b>ROUTER</b><span>Small fixed route table with method, body, path, and content-type bounds.</span></div>
+<div><b>IDENTITY</b><span>Private run record, PID identity, token, artifact hash, home, state, and port.</span></div>
+<div><b>PERSISTENCE</b><span>Canonical roots, no traversal, atomic confirm, response-before-exit, and stale cleanup.</span></div>
+</div>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Freeze HTTP and run-record contracts.</b>Capture routes, methods, status codes, headers, MIME types, injected bytes, token location, port selection, idle timing, and cleanup order.</li>
+<li><b>Implement a minimal bounded HTTP layer.</b>Bind only <code>127.0.0.1</code>, cap headers and bodies, reject unsupported methods, avoid directory listing, and close malformed connections.</li>
+<li><b>Port viz snapshot serving.</b>Keep GET-only behavior, pull-through refresh bounds, canonical artifact roots, cache timing, and no control actions.</li>
+<li><b>Port viz lifecycle CLI.</b>Preserve singleton idempotency, private run record, identity-bound status and stop, stale cleanup, and URL-only serve output.</li>
+<li><b>Port vplan review serving.</b>Preserve relative asset rewriting, SDK injection, token-authenticated confirm, existing comment merge, body bounds, and one-shot exit.</li>
+<li><b>Port vplan lifecycle CLI.</b>Keep self-check hashes, artifact-under-root validation, record cleanup, comments JSON, exact stop identity, and stale-record behavior.</li>
+<li><b>Run browser and protocol parity.</b>Compare responses byte for byte where stable and visually inspect representative artifacts with unchanged assets.</li>
+<li><b>Remove Node from these paths only.</b>Do not remove Node from bootstrap until Portion 13 proves no retained integration needs it.</li>
+</ol>
+
+<h2>Test plan</h2>
+<ul>
+<li>Existing <code>mx-viz</code> and <code>mx-vplan</code> suites against both implementations.</li>
+<li>HTTP tests for every route, wrong method, missing or wrong token, oversized body, invalid path, encoded traversal, symlink escape, port collision, disconnect, and idle timeout.</li>
+<li>Run-record tests for mode, stale PID, reused PID, changed token, changed artifact, concurrent serve, and identity-bound stop.</li>
+<li>Atomic vplan confirmation tests with kill points before write, after rename, after response, and before record cleanup.</li>
+<li>Snapshot cache timing and bounded child-process tests.</li>
+<li>Visual comparison of new, review, comments, viz empty, viz active, and artifact-link states.</li>
+</ul>
+
+<h2>Documentation and instruction updates</h2>
+<p>Update <code>docs/viz.md</code>, <code>docs/vplan.md</code>, <code>docs/vplan-authoring.md</code>, architecture, configuration dependencies, and command header pointers.</p>
+<p>Keep browser asset ownership and authoring guidance unchanged unless a separately reviewed UI change is requested.</p>
+<p>Record the Rust service binary version and exact local verification commands.</p>
+
+<h2>Definition of done</h2>
+<ul>
+<li>All four owned files run through Rust by default.</li>
+<li>Loopback, port, token, path, record, timeout, and atomic-write behavior match.</li>
+<li>Static browser assets are unchanged.</li>
+<li>No Node process is required for viz or vplan.</li>
+<li>Portion 13 may remove the old Node service files after repository-wide reference checks.</li>
+</ul>
+<div class="footer-nav">
+  <a href="11-review-delivery-pr-security.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="13-launcher-test-tooling-cutover.html">Next →</a>
+</div>
+</div>
+</body>
+</html>
+

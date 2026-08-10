@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 13 - Launcher, Test Tooling, and Final Cutover · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 13 · Multplx</div>
+  <h1>Launcher, Test Tooling, and Final Cutover</h1>
+  <p class="subtitle">Port the outermost launcher and verification tools, build a supported release and installation path, update every human and agent instruction, remove legacy business logic, and prove the repository runs Rust-only.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 13 of 13</span>
+    <span class="badge effort">Effort: Very High</span>
+    <span class="badge risk">Risk: High</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This portion closes the program after Portions 01 through 12 have each completed their Rust-default rollback window.</p>
+<p>It ports the tools that launch, schedule, validate, and document the rest of the system, then removes legacy business logic under one repository-wide deletion gate.</p>
+<div class="callout danger"><div class="label">Entry condition</div><p style="margin:0">Do not begin legacy removal until every prior portion is Rust-default, every supported integration is re-verified, and no unresolved parity difference remains. This portion cannot be used to hide unfinished earlier work.</p></div>
+
+<h2>Owned source slice</h2>
+<table><tr><th>Legacy file</th><th>Port responsibility</th></tr>
+<tr><td><code>bin/mx-launcher-install.sh</code></td><td>Global bootstrap, root and home registration, managed installation, update, uninstall, and atomic configuration.</td></tr>
+<tr><td><code>bin/mx-launcher-lib.sh</code></td><td>Side-effect-free path, executable, recursion, and launcher validation.</td></tr>
+<tr><td><code>bin/mx-launcher.sh</code></td><td>Activated shell entry, environment, shims, status, doctor, update, and competing-broker preflight.</td></tr>
+<tr><td><code>bin/mx-test-isolation-proof.sh</code></td><td>Resource conflict matrix, repeated parallel proof, leak detection, and JSON evidence.</td></tr>
+<tr><td><code>bin/mx-test-run.sh</code></td><td>Test inventory, families, resource manifest, lanes, scheduler, timing, coverage, changed-file selection, and JSON comparison.</td></tr>
+<tr><td><code>bin/mx-doc-audience-check.sh</code></td><td>Maintained-prose inventory, classification, setup routing, owner pointers, and local-link validation.</td></tr>
+</table>
+
+<h2>Final installation model</h2>
+<pre><code>verified release artifact or explicit local Cargo build
+  └─ installed multicall Rust binary
+       ├─ stable global multplx entry
+       ├─ compatibility command names via links or exec-only adapters
+       ├─ registered code root and operational home
+       └─ interactive Bash or Zsh activation adapters
+
+retained shell
+  ├─ interactive shell initialization only
+  └─ minimal exec transport where a host requires a script path
+
+forbidden retained shell
+  ├─ domain parsing
+  ├─ policy decisions
+  ├─ locking or durable state mutation
+  └─ orchestration or lifecycle logic</code></pre>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Port launcher validation.</b>Preserve literal path files, executable discovery, shim recursion prevention, root and home validation, backend environment, nested activation, and child-only cwd changes.</li>
+<li><b>Port install, update, and uninstall.</b>Support verified prebuilt artifacts or an explicit local build, checksums, modes, atomic path records, existing-checkout and managed layouts, rollback before mutation, and safe removal.</li>
+<li><b>Retain minimal shell activation adapters.</b>Keep Bash and Zsh rc behavior, user configuration sourcing, prompt marker, real harness capture, and exec-only shims without moving policy back into shell.</li>
+<li><b>Port the behavior-test scheduler.</b>Reproduce exact inventory coverage, family mapping, resource manifest, conflict rules, LPT shards, changed-file selection, timing markers, JSON artifacts, aggregation, and exit behavior.</li>
+<li><b>Port the isolation proof.</b>Derive the same conflict matrix, repeat candidate combinations, detect leaked files and processes, and emit equivalent JSON evidence.</li>
+<li><b>Port the documentation checker.</b>Preserve scope, exclusions, exact-one classification, required pointers, setup routing, local links, and bounded errors.</li>
+<li><b>Update CI to Rust-native entry points.</b>Build release binaries once, run Rust tests, run every black-box lane against Rust, retain real Herdr and live-harness gates, and update measured shard evidence.</li>
+<li><b>Update every instruction surface.</b>Review README, contributor guidance, architecture, operator docs, verification records, <code>AGENTS.md</code>, all skills, hooks, Pi extensions, workflows, shell adapters, examples, and deep-review configuration.</li>
+<li><b>Run the repository-wide reference sweep.</b>Find every old path, sourced function, interpreter dependency, environment seam, hook command, workflow command, fixture assumption, and docs link.</li>
+<li><b>Remove legacy business logic.</b>Keep only documented host adapters, test that they contain no policy or state mutation, remove unused Bash, Node, and Python runtime requirements, and retain rollback through release installation rather than mixed engines.</li>
+<li><b>Publish final performance and compatibility evidence.</b>Compare release startup, session start, snapshots, watcher resources, queue latency, workflow, services, and full-suite wall time against Portion 01.</li>
+</ol>
+
+<h2>Documentation completion map</h2>
+<table><tr><th>Surface</th><th>Required final update</th></tr>
+<tr><td><code>README.md</code>, <code>docs/getting-started.md</code></td><td>Supported artifacts, checksums, installation, upgrade, rollback, and remaining prerequisites.</td></tr>
+<tr><td><code>CONTRIBUTING.md</code>, <code>CLAUDE.md</code></td><td>Cargo workflow, focused Rust tests, black-box parity, release builds, and current validation commands.</td></tr>
+<tr><td><code>docs/architecture.md</code>, <code>docs/scripts.md</code></td><td>Crate, process, command, adapter, and contract-owner boundaries.</td></tr>
+<tr><td><code>docs/configuration.md</code></td><td>Executable discovery, Rust binary, environment compatibility, and removed interpreter dependencies.</td></tr>
+<tr><td><code>docs/verification/*</code></td><td>Current date, Rust version, binary version, dependency versions, exact commands, and output proving each supported axis.</td></tr>
+<tr><td><code>AGENTS.md</code>, <code>.agents/skills/*</code></td><td>Current command paths and owner pointers without Rust implementation detail in always-loaded policy.</td></tr>
+<tr><td>Hooks, Pi extensions, workflows, shell adapters</td><td>Installed binary path and exec behavior with unchanged product semantics.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<ul>
+<li><code>cargo fmt --check</code>, clippy with warnings denied, all workspace tests, advisory and license checks, and optimized release builds.</li>
+<li>Every path returned by <code>git ls-files 'tests/*.test.sh'</code> through the Rust test scheduler with exact coverage proof.</li>
+<li>Portable parallel, portable serial, required Herdr, macOS, and live harness verification.</li>
+<li>Repeated isolation proof and leak-free scheduler evidence.</li>
+<li>Fresh install, existing-checkout install, managed install, upgrade, rollback before mutation, uninstall, and broken-download recovery on Linux and macOS.</li>
+<li>Documentation audience, link, naming, instruction-owner, hook, workflow, and compatibility checks.</li>
+<li>Repository search proving no removed interpreter or script path remains active.</li>
+<li>Release performance comparison with raw and summarized evidence.</li>
+</ul>
+
+<h2>Definition of done</h2>
+<ul>
+<li>All active runtime files are Rust or documented minimal host adapters.</li>
+<li>No retained shell adapter parses domain records, decides policy, locks state, or orchestrates lifecycle.</li>
+<li>The complete root behavior inventory passes against Rust only.</li>
+<li>Existing operational homes work without migration.</li>
+<li>All supported backends and harnesses are empirically re-verified.</li>
+<li>Agents remain credential-free and destructive boundaries remain fail closed.</li>
+<li>Operator, maintainer, agent, hook, workflow, CI, and verification surfaces describe the Rust implementation accurately.</li>
+<li>Removed Bash, Node, and Python runtime dependencies no longer appear in bootstrap or installation requirements.</li>
+<li>The measured release meets the accepted robustness and performance targets.</li>
+</ul>
+<div class="footer-nav">
+  <a href="12-viz-vplan-services.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="index.html">Next →</a>
+</div>
+</div>
+</body>
+</html>

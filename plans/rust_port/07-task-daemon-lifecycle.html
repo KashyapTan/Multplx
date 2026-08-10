@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 07 - Task and Daemon Lifecycle · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 07 · Multplx</div>
+  <h1>Task and Daemon Lifecycle</h1>
+  <p class="subtitle">Port the end-to-end lifecycle for briefs, pending replies, sends, isolated task spawn, daemon homes, safe synchronization, supervision, teardown, and project memory without crossing Multplx's destructive boundaries.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 7 of 13</span>
+    <span class="badge effort">Effort: Very High</span>
+    <span class="badge risk">Risk: High</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This portion is the first full orchestration slice built on Rust state and backend layers.</p>
+<p>It owns the paths that create, steer, synchronize, and retire work, so every mutation requires typed identity, transactional publication, and destructive-target proof.</p>
+
+<h2>Owned source slice</h2>
+<table><tr><th>Legacy file</th><th>Port responsibility</th></tr>
+<tr><td><code>bin/mx-brief.sh</code></td><td>Task and scout brief scaffolding and validated task paths.</td></tr>
+<tr><td><code>bin/mx-daemon-report.sh</code></td><td>Optional correlated parent report.</td></tr>
+<tr><td><code>bin/mx-home-seed.sh</code></td><td>Daemon-home provisioning, registry update, charter, lease, and launch preparation.</td></tr>
+<tr><td><code>bin/mx-pending-reply-lib.sh</code></td><td>Parent-owned correlation, delivery, reply, recovery, and escalation records.</td></tr>
+<tr><td><code>bin/mx-send.sh</code></td><td>Fail-closed target resolution, literal injection, submit acknowledgement, and marked daemon routing.</td></tr>
+<tr><td><code>bin/mx-spawn.sh</code></td><td>Profile validation, worktree isolation, backend task creation, metadata publication, and launch.</td></tr>
+<tr><td><code>bin/mx-supervise-daemon.sh</code></td><td>Presence-gated away-mode sub-supervisor and bounded escalation delivery.</td></tr>
+<tr><td><code>bin/mx-teardown.sh</code></td><td>Landed-work proof, worktree and daemon removal validation, and recoverable cleanup.</td></tr>
+<tr><td><code>bin/mx-system-sync.sh</code></td><td>Safe local clone refresh without forcing or discarding work.</td></tr>
+<tr><td><code>bin/mx-ff-lib.sh</code></td><td>Shared clean fast-forward mechanics for main and daemon homes.</td></tr>
+<tr><td><code>bin/mx-update.sh</code></td><td>Self-update of the primary and registered daemon homes.</td></tr>
+<tr><td><code>bin/mx-upstream-diff.sh</code></td><td>Read-only upstream review, relevance classification, and reviewed-record update.</td></tr>
+<tr><td><code>bin/mx-ensure-agents-md.sh</code></td><td>Project worktree agent-memory convention.</td></tr>
+</table>
+
+<h2>Transaction boundaries</h2>
+<div class="flow">
+<div><b>PREPARE</b><span>Validate identifiers, authority, project, profile, tools, paths, and current durable state.</span></div>
+<div><b>ACQUIRE</b><span>Claim worktree, backend endpoint, home lease, or mutation lock with exact identity.</span></div>
+<div><b>PUBLISH</b><span>Atomically write metadata, registry, backlog, pending reply, and status-visible records.</span></div>
+<div><b>RECOVER</b><span>Reconcile partially acquired resources and never tear down unlanded or unverified work.</span></div>
+</div>
+
+<div class="callout danger"><div class="label">Destructive path rule</div><p style="margin:0">Every recursive removal target must be an explicit, validated, canonical child of an allowed root. No unresolved environment variable, broad home, glob, symlink escape, or inferred endpoint may reach deletion or kill.</p></div>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Port brief creation.</b>Preserve task ID validation, existing-file refusal, delivery versus scout content, marker instructions, lab option, and private-home location.</li>
+<li><b>Port pending replies and correlated reporting.</b>Keep correlation identity, parent ownership, wrong-home detection, bounded recovery, escalation, and idempotent completion.</li>
+<li><b>Port send.</b>Resolve metadata and backend once, validate expected labels and harness, send literal text, submit with acknowledgement, and publish marked pending expectations atomically.</li>
+<li><b>Port spawn as a resumable transaction.</b>Validate profile and headroom, acquire a real isolated worktree, ensure project memory, create the backend task, publish metadata, launch the harness, and record backlog state.</li>
+<li><b>Port daemon-home provisioning.</b>Preserve leases, transactional seeding, inherited configuration, charter, registry format, isolated home identity, and failed-launch rollback.</li>
+<li><b>Port daemon supervision.</b>Keep AFK presence gating, composer safety, exact supervisor target, alarm channel bounds, marked injection, and no self-directed work.</li>
+<li><b>Port sync and update.</b>Keep clean fast-forward-only behavior, local-HEAD daemon sync, origin sync, branch safety, dirty and diverged refusal, and summary output.</li>
+<li><b>Port teardown.</b>Preserve landed proof, active endpoint checks, git-lock safety, daemon-child inspection, registry removal, state retirement, and refusal to discard unlanded work.</li>
+<li><b>Port upstream review and project memory helper.</b>Keep fetch-only scratch behavior, ancestry validation, relevance mapping, record locking, and project-write boundaries.</li>
+<li><b>Cut over lifecycle commands together.</b>Do not mix Rust spawn with legacy teardown or legacy spawn with Rust teardown during normal operation.</li>
+</ol>
+
+<h2>Test plan</h2>
+<ul>
+<li>Existing brief, send strict/settle/popup/daemon-marker, pending-reply, spawn batch/profile/worktree, daemon lifecycle/liveness/safety/sync, shared inheritance, system-sync, update, upstream-diff, ensure-agents, and teardown suites.</li>
+<li>Crash injection after each acquired resource and before or after each durable publication.</li>
+<li>Concurrent spawn, duplicate task ID, worktree collision, endpoint label collision, headroom queue, daemon reread, and sync contention.</li>
+<li>Destructive-target adversarial cases for symlinks, ancestors, root aliases, missing metadata, stale locks, dirty worktrees, unique detached commits, and nested homes.</li>
+<li>Real tmux and Herdr lifecycle smoke coverage plus cmux where the existing lane permits.</li>
+<li>Rollback tests proving a failed preparation leaves no false live task and no leaked removable resource.</li>
+</ul>
+
+<h2>Documentation and instruction updates</h2>
+<p>Review <code>daemon-provisioning</code>, <code>stuck-actor-recovery</code>, <code>harness-adapters</code>, <code>project-management</code>, <code>updatemultplx</code>, and <code>stow</code>.</p>
+<p>Update architecture, configuration, getting-started, upstream, and backend docs only where current entry points or implementation ownership changes.</p>
+<p>Keep destructive policy and merge authority in <code>AGENTS.md</code>; do not duplicate implementation mechanics there.</p>
+
+<h2>Definition of done</h2>
+<ul>
+<li>All thirteen lifecycle files run through Rust by default.</li>
+<li>Spawn, send, daemon, sync, update, and teardown compose without shell-library sourcing.</li>
+<li>Crash recovery cannot lose a task, duplicate a published identity, or remove unlanded work.</li>
+<li>Every recursive removal and process signal is identity-bound.</li>
+<li>Portion 08 can supervise Rust-created tasks and daemon homes.</li>
+</ul>
+<div class="footer-nav">
+  <a href="06-cmux-harness-dispatch.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="08-supervision-watcher-afk.html">Next →</a>
+</div>
+</div>
+</body>
+</html>
+

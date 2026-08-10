@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Port 02 - Core Primitives and Durability · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="plan-num">Rust Port 02 · Multplx</div>
+  <h1>Core Primitives and Durability</h1>
+  <p class="subtitle">Replace the shared shell foundations with typed Rust modules for safe paths, atomic files, process identity, locks, wake records, classification, journals, supervision predicates, and deterministic rendering.</p>
+  <div class="badges">
+    <span class="badge phase">Portion 2 of 13</span>
+    <span class="badge effort">Effort: Very High</span>
+    <span class="badge risk">Risk: High</span>
+    <span class="badge">Incremental Rust migration</span>
+  </div>
+</div></header>
+<div class="wrap">
+<h2>Overview</h2>
+<p>This is the foundational behavior port.</p>
+<p>Later lifecycle, watcher, delivery, and service commands depend on these primitives, so this portion prioritizes correctness, fault recovery, and byte compatibility over breadth.</p>
+<div class="callout danger"><div class="label">Do not cut over callers early</div><p style="margin:0">Rust primitives may be exercised through tests and dedicated compatibility commands, but shell callers remain authoritative until the entire primitive cluster passes concurrency, crash, and differential tests.</p></div>
+
+<h2>Owned source slice</h2>
+<table><tr><th>Legacy file</th><th>Rust module responsibility</th></tr>
+<tr><td><code>bin/mx-backend-hometag-lib.sh</code></td><td>Canonical home identity and backend-safe labels.</td></tr>
+<tr><td><code>bin/mx-check-lib.sh</code></td><td>Trusted check validation and safe check metadata.</td></tr>
+<tr><td><code>bin/mx-classify-lib.sh</code></td><td>Status vocabulary, precedence, actionable classification, and bounded tails.</td></tr>
+<tr><td><code>bin/mx-composer-lib.sh</code></td><td>Composer content and ghost-text classification.</td></tr>
+<tr><td><code>bin/mx-gate-refuse-lib.sh</code></td><td>Deep-review scope refusal.</td></tr>
+<tr><td><code>bin/mx-journal-lib.sh</code></td><td>Best-effort structured journal append.</td></tr>
+<tr><td><code>bin/mx-lock-lib.sh</code>, <code>bin/mx-lock.sh</code></td><td>Git-lock abandonment proof and session-lock CLI behavior.</td></tr>
+<tr><td><code>bin/mx-marker-lib.sh</code></td><td>Marked broker-routing compatibility.</td></tr>
+<tr><td><code>bin/mx-primary-scope-lib.sh</code></td><td>Primary-home scope predicate.</td></tr>
+<tr><td><code>bin/mx-probe-lib.sh</code></td><td>Read-only environment and compatibility probes.</td></tr>
+<tr><td><code>bin/mx-session-lock-lib.sh</code></td><td>Harness-bound session identity.</td></tr>
+<tr><td><code>bin/mx-supervision-lib.sh</code></td><td>Missing-supervision predicate.</td></tr>
+<tr><td><code>bin/mx-supervisor-target-lib.sh</code></td><td>Supervisor endpoint discovery.</td></tr>
+<tr><td><code>bin/mx-tangle-lib.sh</code></td><td>Primary checkout tangle detection.</td></tr>
+<tr><td><code>bin/mx-tmux-lib.sh</code></td><td>Shared tmux composer and submit primitives.</td></tr>
+<tr><td><code>bin/mx-transition-lib.sh</code></td><td>Normalized transition record and action policy.</td></tr>
+<tr><td><code>bin/mx-wake-lib.sh</code></td><td>Portable PID identity, lock directories, queue append, restore, and drain rendering.</td></tr>
+</table>
+
+<h2>Target design</h2>
+<div class="flow">
+<div><b>IDENTIFIERS</b><span>Validated task, home, pane, record, and path components.</span></div>
+<div><b>FILESYSTEM</b><span>Private create, same-directory temporary write, mode, flush, rename, and recovery.</span></div>
+<div><b>PROCESS</b><span>PID plus portable identity, owned-child lifecycle, bounded signals, and reaping.</span></div>
+<div><b>POLICY</b><span>Pure typed classification and transition functions with deterministic rendering.</span></div>
+</div>
+<p>Separate pure decisions from operating-system effects.</p>
+<p>Use injected clocks and process probes so unit tests do not depend on sleep or live PIDs.</p>
+<p>Represent existing line records with typed structs while preserving their exact on-disk bytes.</p>
+
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Inventory contracts and side effects.</b>For every function, capture accepted inputs, stdout, stderr, return status, globals read or written, files touched, permissions, and platform branches.</li>
+<li><b>Implement identifiers and path boundaries.</b>Validate components before joining them, canonicalize existing ancestors, and distinguish paths that may be absent from paths that must already exist.</li>
+<li><b>Implement atomic and private file operations.</b>Match same-directory rename, modes, truncation behavior, partial-write recovery, and cleanup without following unsafe links.</li>
+<li><b>Implement process identity and locks.</b>Preserve Linux and macOS identity sources, stale-owner rechecks, acquisition races, owner-directory publication, and safe release.</li>
+<li><b>Port pure classifiers and renderers.</b>Translate status, signal precedence, composer, transition, scope, and supervision rules as exhaustive enum matches.</li>
+<li><b>Port wake and journal writers.</b>Prove concurrent append, queue restoration, deduplication, annotation ordering, best-effort journal failure, and lock recovery.</li>
+<li><b>Expose compatibility subcommands.</b>Let black-box tests exercise Rust primitives without switching production callers.</li>
+<li><b>Run the deletion precheck but retain legacy files.</b>Confirm all direct callers are known, then leave the shell sources until their owning portions cut over.</li>
+</ol>
+
+<h2>Fault and concurrency matrix</h2>
+<table><tr><th>Failure point</th><th>Required result</th></tr>
+<tr><td>Before temporary write</td><td>No published file and no false success.</td></tr>
+<tr><td>During write or mode application</td><td>Old published record remains valid and private.</td></tr>
+<tr><td>After rename but before caller completion</td><td>Recovery recognizes the published state and does not duplicate the transition.</td></tr>
+<tr><td>PID reused between checks</td><td>Identity mismatch prevents signaling, cleanup, or lock theft.</td></tr>
+<tr><td>Two queue or lock writers race</td><td>Exactly one owner publishes, and no committed row is lost.</td></tr>
+<tr><td>Malformed or oversized record</td><td>Read fails closed with bounded diagnostics.</td></tr>
+<tr><td>Journal append fails</td><td>Authoritative state succeeds or fails according to its own contract, never the journal's.</td></tr>
+</table>
+
+<h2>Test plan</h2>
+<ul>
+<li>Rust unit and property tests for identifiers, record round trips, malformed input, path traversal, and transition tables.</li>
+<li>Concurrency tests for lock acquisition, wake append, drain restore, and journal append.</li>
+<li>Fault injection at every publication boundary.</li>
+<li>Existing <code>mx-composer-*</code>, <code>mx-journal</code>, <code>mx-lock-override</code>, <code>mx-signal-precedence</code>, <code>mx-transition-lib</code>, <code>mx-wake-queue</code>, <code>mx-watcher-lock</code>, <code>mx-tmux-submit-busy</code>, and gate-refusal tests against both implementations.</li>
+<li>Stock macOS and Linux path, stat, mode, process, and signal cases.</li>
+</ul>
+
+<h2>Documentation and instruction updates</h2>
+<p>Update architecture owners only when a Rust module becomes authoritative.</p>
+<p>Keep current command paths in skills and operator docs because no top-level lifecycle command cuts over in this portion.</p>
+<p>Add module-level Rust documentation for every contract transferred from a script header.</p>
+
+<h2>Definition of done</h2>
+<ul>
+<li>All eighteen legacy files have a named Rust module and parity evidence.</li>
+<li>No state format, output ordering, permission, or refusal path differs.</li>
+<li>Concurrent and killed-process tests pass repeatedly.</li>
+<li>Later portions can depend on stable Rust APIs rather than shell globals.</li>
+<li>Legacy libraries remain available until their final shell callers move.</li>
+</ul>
+<div class="footer-nav">
+  <a href="01-workspace-parity-harness.html">← Previous</a>
+  <a href="index.html">Rust port index</a>
+  <a href="03-local-state-backlog-config.html">Next →</a>
+</div>
+</div>
+</body>
+</html>
+

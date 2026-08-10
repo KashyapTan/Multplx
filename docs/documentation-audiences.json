@@ -209,6 +209,10 @@
       "audience": "public-product"
     },
     {
+      "path": "plans/PORTING.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/README.md",
       "audience": "public-product"
     },
