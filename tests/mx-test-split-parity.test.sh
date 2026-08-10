@@ -57,6 +57,17 @@ mx_test_wait_until 1000 "helper contract ready file" test -e "$tmp/ready" \
 wait "$producer"
 pass "bounded condition wait observes completion without a fixed settle delay"
 
+term_resistant_ready="$tmp/term-resistant-ready"
+bash -c 'trap "" TERM; : > "$1"; while :; do sleep 1; done' _ "$term_resistant_ready" &
+term_resistant=$!
+mx_test_wait_until 1000 "TERM-resistant child readiness" test -e "$term_resistant_ready" \
+  || fail "TERM-resistant cleanup fixture did not become ready"
+mx_test_stop_process "$term_resistant" 2
+if kill -0 "$term_resistant" 2>/dev/null; then
+  fail "bounded process cleanup left a TERM-resistant child alive"
+fi
+pass "bounded process cleanup escalates and reaps a TERM-resistant child"
+
 timed_output=$(mx_test_timed_case helper-contract printf 'ok - timed body\n')
 assert_contains "$timed_output" "MX_TEST_CASE_BEGIN label=helper-contract" "timed-case begin marker"
 assert_contains "$timed_output" "MX_TEST_CASE_END label=helper-contract exit=0 duration_ms=" "timed-case end marker"

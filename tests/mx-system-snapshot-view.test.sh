@@ -755,7 +755,7 @@ test_parked_scout_decision_stays_pending() {
 }
 
 test_observability_extension_fields() {
-  local home now headroom pid identity out
+  local home now headroom pid identity beacon_epoch out
   home=$(make_home observability-fields)
   now=$(date +%s)
   headroom="$home/fake-headroom"
@@ -792,6 +792,11 @@ SH
   printf '%s\n' "$ROOT/bin/mx-watch.sh" > "$home/state/.watch.lock/watcher-path"
   printf '%s\n' "$identity" > "$home/state/.watch.lock/pid-identity"
   touch "$home/state/.last-watcher-beat"
+  if [ "$(uname)" = Darwin ]; then
+    beacon_epoch=$(stat -f %m "$home/state/.last-watcher-beat")
+  else
+    beacon_epoch=$(stat -c %Y "$home/state/.last-watcher-beat")
+  fi
   cat > "$home/state/.vplan/live.run" <<EOF
 version=1
 artifact=$home/data/task-a/plan.html
@@ -826,7 +831,7 @@ EOF
 
   printf 'mismatched identity\n' > "$home/state/.watch.lock/pid-identity"
   out=$(FAKE_HEADROOM_FAIL=1 MX_HOME="$home" MX_WATCHER_STALE_GRACE=300 \
-    MX_SNAPSHOT_NOW_EPOCH="$((now + 1000))" MX_SNAPSHOT_HEADROOM_BIN="$headroom" \
+    MX_SNAPSHOT_NOW_EPOCH="$((beacon_epoch + 1000))" MX_SNAPSHOT_HEADROOM_BIN="$headroom" \
     "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e '
     .watcher.lock_present == true

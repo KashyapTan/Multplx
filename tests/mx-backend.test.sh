@@ -114,7 +114,7 @@ BASE_REF=$(resolve_base_ref) \
 # mx-backend.sh's own dispatch surface.
 OLD_BIN_UNCHANGED_SIBLINGS="mx-gate-refuse-lib.sh mx-guard.sh mx-lock-lib.sh mx-pr-lib.sh mx-tangle-lib.sh mx-tmux-lib.sh mx-composer-lib.sh mx-wake-lib.sh mx-classify-lib.sh mx-supervision-lib.sh mx-ff-lib.sh mx-config-inherit-lib.sh mx-project-mode.sh mx-harness.sh mx-actor-state.sh mx-decision-hold.sh mx-backlog-lib.sh mx-backend.sh mx-operational-input.sh"
 # A pull-request merge may add a new main-only dependency that the branch's older baseline does not have yet.
-OLD_BIN_OPTIONAL_SIBLINGS="mx-pending-reply-lib.sh"
+OLD_BIN_OPTIONAL_SIBLINGS="mx-pending-reply-lib.sh mx-maintainer-override-lib.sh"
 OLD_BIN_REFACTORED="mx-send.sh mx-peek.sh mx-watch.sh mx-spawn.sh mx-teardown.sh mx-marker-lib.sh"
 
 build_old_bin() {  # <name> -> echoes root dir (root/bin/<script> is the entry point)

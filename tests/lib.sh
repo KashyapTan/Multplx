@@ -169,6 +169,28 @@ mx_test_wait_until() {
   done
 }
 
+# mx_test_stop_process <pid> [term-attempts]
+# Gives a test-owned child a short TERM grace period, escalates to KILL when it
+# remains live, and always reaps it so fixture cleanup cannot hang a CI job.
+mx_test_stop_process() {
+  local pid=${1:-} max_attempts=${2:-30} attempt=0
+  case "$pid" in
+    ''|*[!0-9]*) return 2 ;;
+  esac
+  case "$max_attempts" in
+    ''|*[!0-9]*) return 2 ;;
+  esac
+  kill -TERM "$pid" 2>/dev/null || true
+  while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt "$max_attempts" ]; do
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" >/dev/null 2>&1 || true
+}
+
 # mx_test_assert_no_processes_for <literal>
 # Fails with a diagnostic if a surviving process command contains the private
 # test-owned path or token. Call after the suite's normal teardown.
