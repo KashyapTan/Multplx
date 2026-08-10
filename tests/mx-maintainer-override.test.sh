@@ -45,6 +45,37 @@ request_binding() {
     "$(printf '%s' "$bindings" | jq -r '.consequence')"
 }
 
+test_platform_stat_dispatch() {
+  (
+    uname() { printf '%s\n' Linux; }
+    stat() {
+      case "$1:$2" in
+        '-c:%a') printf '%s\n' 600 ;;
+        '-c:%h') printf '%s\n' 1 ;;
+        '-f:'*) printf '%s\n' 'GNU filesystem output' ;;
+        *) return 1 ;;
+      esac
+    }
+    [ "$(mx_override_file_mode ignored)" = 600 ] \
+      && [ "$(mx_override_link_count ignored)" = 1 ]
+  ) || fail "Linux mode/link checks used BSD stat syntax"
+
+  (
+    uname() { printf '%s\n' Darwin; }
+    stat() {
+      case "$1:$2" in
+        '-f:%Lp') printf '%s\n' 600 ;;
+        '-f:%l') printf '%s\n' 1 ;;
+        '-c:'*) printf '%s\n' 'BSD invalid option output' ;;
+        *) return 1 ;;
+      esac
+    }
+    [ "$(mx_override_file_mode ignored)" = 600 ] \
+      && [ "$(mx_override_link_count ignored)" = 1 ]
+  ) || fail "Darwin mode/link checks used GNU stat syntax"
+  pass "override record security selects the native stat interface explicitly"
+}
+
 test_schema_permissions_and_literal_transport() {
   local sentinel=$TMP_ROOT/must-not-run operation request file root
   operation="printf '%s' '\$(touch $sentinel)' && literal ; newline
@@ -265,6 +296,7 @@ test_operator_handoff_requires_consumption() {
   pass "authentication capability becomes an exact consumed operator handoff, never forged success"
 }
 
+test_platform_stat_dispatch
 test_schema_permissions_and_literal_transport
 test_primary_only_and_proactive_grant
 test_atomic_consume_replay_and_result

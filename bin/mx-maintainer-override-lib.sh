@@ -113,11 +113,19 @@ mx_override_boundary_alternate() {
 }
 
 mx_override_file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+  if [ "$(uname)" = Darwin ]; then
+    stat -f '%Lp' "$1" 2>/dev/null
+  else
+    stat -c '%a' "$1" 2>/dev/null
+  fi
 }
 
 mx_override_link_count() {
-  stat -f '%l' "$1" 2>/dev/null || stat -c '%h' "$1" 2>/dev/null
+  if [ "$(uname)" = Darwin ]; then
+    stat -f '%l' "$1" 2>/dev/null
+  else
+    stat -c '%h' "$1" 2>/dev/null
+  fi
 }
 
 mx_override_state_root() {
