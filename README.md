@@ -1,7 +1,7 @@
 <h1 align="center">Multplx</h1>
 
 <p align="center">
-  <strong>Talk to one agent. Deliver with independent actors.</strong>
+  <strong>The agent distro that extends yourself deterministically.</strong>
 </p>
 
 <p align="center">
