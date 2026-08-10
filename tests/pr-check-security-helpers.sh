@@ -2230,7 +2230,7 @@ test_returned_custom_check_descendants_are_drained() {
     chmod 0600 "$state/.pr-check-migration-v1"
     cat > "$state/custom.check.sh" <<'SH'
 #!/usr/bin/env bash
-perl -e '$SIG{TERM}="IGNORE"; open my $ready, ">", $ENV{MX_TEST_DESCENDANT_READY} or die $!; print {$ready} "ready\n"; close $ready; select undef, undef, undef, 4; open my $sentinel, ">", $ENV{MX_TEST_DESCENDANT_SENTINEL} or die $!; print {$sentinel} "late\n"; close $sentinel; select undef, undef, undef, 1' &
+perl -e '$SIG{TERM}="IGNORE"; open my $ready, ">", $ENV{MX_TEST_DESCENDANT_READY} or die $!; print {$ready} "ready\n"; close $ready; select undef, undef, undef, 15; open my $sentinel, ">", $ENV{MX_TEST_DESCENDANT_SENTINEL} or die $!; print {$sentinel} "late\n"; close $sentinel; select undef, undef, undef, 1' &
 printf '%s\n' "$!" > "$MX_TEST_DESCENDANT_PID"
 while [ ! -s "$MX_TEST_DESCENDANT_READY" ]; do sleep 0.01; done
 : > "$MX_TEST_DIRECT_DONE"
@@ -2259,7 +2259,8 @@ SH
       > "$dir/watch.out" 2> "$dir/watch.err" &
     watcher_pid=$!
     i=0
-    while [ "$i" -lt 200 ]; do
+    # Allow the configured 10-second check bound plus process-group cleanup on a loaded runner.
+    while [ "$i" -lt 650 ]; do
       [ -s "$ready" ] && [ -s "$child_pid_file" ] && [ -e "$direct_done" ] \
         && [ -e "$state/.last-check" ] && break
       kill -0 "$watcher_pid" 2>/dev/null || break

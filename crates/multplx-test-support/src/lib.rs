@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+use rustix::io::Errno;
+use rustix::process::{Pid, Signal, kill_process_group};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
@@ -304,14 +306,16 @@ impl ProcessFixture {
         if let Some(status) = child.try_wait()? {
             return Ok(status);
         }
-        let _term_sent = signal_group(child.id(), "TERM")?;
+        let _term_sent = signal_group(child.id(), Signal::TERM)?;
         let deadline = std::time::Instant::now() + self.cleanup_timeout;
         loop {
             if let Some(status) = child.try_wait()? {
                 return Ok(status);
             }
             if std::time::Instant::now() >= deadline {
-                let _kill_sent = signal_group(child.id(), "KILL")?;
+                if !signal_group(child.id(), Signal::KILL)? {
+                    child.kill()?;
+                }
                 return child.wait();
             }
             thread::sleep(Duration::from_millis(5));
@@ -325,11 +329,16 @@ impl Drop for ProcessFixture {
     }
 }
 
-fn signal_group(pid: u32, signal: &str) -> io::Result<bool> {
-    let status = Command::new("/bin/kill")
-        .args([format!("-{signal}"), format!("-{pid}")])
-        .status()?;
-    Ok(status.success())
+fn signal_group(pid: u32, signal: Signal) -> io::Result<bool> {
+    let raw_pid = i32::try_from(pid)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "child PID exceeds pid_t"))?;
+    let pid = Pid::from_raw(raw_pid)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "child PID must be positive"))?;
+    match kill_process_group(pid, signal) {
+        Ok(()) => Ok(true),
+        Err(Errno::SRCH) => Ok(false),
+        Err(error) => Err(io::Error::from_raw_os_error(error.raw_os_error())),
+    }
 }
 
 #[cfg(test)]
