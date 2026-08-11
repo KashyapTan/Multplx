@@ -567,7 +567,7 @@ mod tests {
 
         let temp = tempfile::tempdir().expect("tempdir");
         let probe = SystemProcessProbe::with_proc_root(temp.path());
-        assert!(probe.identity(41).is_err());
+        assert_eq!(probe.linux_identity(41).expect("missing process"), None);
 
         for (pid, stat, cmdline) in [
             (42, "missing delimiter", b"mx\0".as_slice()),
