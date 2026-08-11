@@ -374,7 +374,19 @@ mod tests {
                 .expect("fake executable");
 
             assert_eq!(permission_mode(&executable).expect("mode"), 0o755);
-            let output = Command::new(executable).output().expect("run fixture");
+            let deadline = std::time::Instant::now() + Duration::from_secs(1);
+            let output = loop {
+                match Command::new(&executable).output() {
+                    Ok(output) => break output,
+                    Err(error)
+                        if error.kind() == io::ErrorKind::ExecutableFileBusy
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("run fixture generation {generation}: {error}"),
+                }
+            };
             assert_eq!(output.stdout, format!("fixture-{generation}\n").as_bytes());
         }
     }
