@@ -148,6 +148,17 @@ jobs:
             exit 1
           }
           tmux -V
+      - name: Exercise the Rust tmux shadow path
+        env:
+          MX_BACKEND_IMPLEMENTATION: rust
+          MX_RUST_BIN: ${{ github.workspace }}/target/release/mx
+        run: |
+          tests/mx-backend.test.sh
+          tests/mx-backend-tmux-smoke.test.sh
+          tests/mx-actor-state.test.sh
+          tests/mx-composer-ghost.test.sh
+          tests/mx-tmux-submit-busy.test.sh
+          tests/mx-daemon-liveness.test.sh
       - name: Run portable serial remainder
         run: |
           set -eu

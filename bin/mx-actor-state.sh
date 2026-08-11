@@ -17,6 +17,27 @@ MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
 
+# Select the shadow Rust reader only for its completed tmux backend.
+# Herdr and cmux remain on the explicit compatibility path until Portions 05-06.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+MX_ACTOR_STATE_BACKEND_IMPLEMENTATION=$(mx_backend_implementation) || exit $?
+if [ "$MX_ACTOR_STATE_BACKEND_IMPLEMENTATION" = rust ]; then
+  MX_ACTOR_STATE_ID=${1:-}
+  case "$MX_ACTOR_STATE_ID" in
+    ''|.*|*[!A-Za-z0-9._-]*)
+      rust_bin=$(mx_rust_runtime_bin) || exit $?
+      exec "$rust_bin" actor-state "$@"
+      ;;
+  esac
+  MX_ACTOR_STATE_META="$STATE/$MX_ACTOR_STATE_ID.meta"
+  MX_ACTOR_STATE_BACKEND=$(grep '^backend=' "$MX_ACTOR_STATE_META" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  if [ -z "$MX_ACTOR_STATE_BACKEND" ] || [ "$MX_ACTOR_STATE_BACKEND" = tmux ]; then
+    rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$rust_bin" actor-state "$@"
+  fi
+fi
+
 # shellcheck source=bin/mx-tmux-lib.sh
 . "$SCRIPT_DIR/mx-tmux-lib.sh"
 # shellcheck source=bin/mx-backend.sh

@@ -259,7 +259,10 @@ case "${1:-}" in
     printf '%s\n' "$*" >> "${MX_TMUX_CALL_LOG:?}"
     [ "${1:-}" = kill-window ] && : > "${MX_TMUX_CALL_LOG}.killed"
     [ "${MX_TEST_FAIL_NEW_WINDOW:-0}" = 1 ] && [ "${1:-}" = new-window ] && exit 1
-    [ "${1:-}" = new-window ] && rm -f "${MX_TMUX_CALL_LOG}.killed"
+    if [ "${1:-}" = new-window ]; then
+      rm -f "${MX_TMUX_CALL_LOG}.killed"
+      printf '@1\n'
+    fi
     exit 0
     ;;
   has-session) exit 0 ;;

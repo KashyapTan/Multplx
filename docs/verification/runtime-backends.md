@@ -8,6 +8,38 @@ Exact task chronology, branch names, temporary homes, local paths, process ids, 
 
 ## tmux
 
+### Rust Portion 04 shadow adapter
+
+The Rust shadow adapter was verified on 2026-08-11 with tmux 3.7b on macOS 26.5.2 arm64.
+Legacy remained the default during this verification.
+The Rust path was selected once per command with `MX_BACKEND_IMPLEMENTATION=rust` and used no fallback after backend execution began.
+
+```sh
+cargo test --locked -p multplx-backend -p multplx-cli
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend.test.sh
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-tmux-smoke.test.sh
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-actor-state.test.sh
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-composer-ghost.test.sh
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-tmux-submit-busy.test.sh
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-daemon-liveness.test.sh
+```
+
+The real tmux smoke created a stable window id, pinned its name, verified target readiness and the requested current path, sent literal and submitted text, captured bounded history, resolved a bare name from exact inventory, killed the task window, and classified its absence authoritatively.
+The differential Rust test exercised every hidden facade command against an argument-recording fake and compared exact `mx-peek.sh` and `mx-actor-state.sh` status, stdout, stderr, and tmux argument observations with legacy.
+The timeout test spawned a descendant process and verified that the bounded runner killed the owned process group without leaving the descendant alive.
+The Linux portable-serial CI lane is configured to repeat the focused Rust shadow suite against its real tmux installation.
+
+Release-path timing used the same local APFS workspace, one real tmux session, one task metadata fixture, 100 warm interleaved iterations per implementation, Perl `Time::HiRes`, and nearest-rank p95.
+
+| Command | Legacy median | Rust median | Legacy p95 | Rust p95 |
+| --- | ---: | ---: | ---: | ---: |
+| `mx-peek.sh perf 4` | 35.039 ms | 35.541 ms | 38.813 ms | 37.792 ms |
+| `mx-actor-state.sh perf` | 44.972 ms | 31.359 ms | 47.089 ms | 32.297 ms |
+
+The Rust release path improved p95 for both commands and improved actor-state median by 13.613 ms.
+Peek median added 0.502 ms, or 1.4 percent, while its p95 improved by 1.021 ms; that startup-scale tradeoff retains typed selector validation, bounded output, process-group cleanup, and no-fallback execution.
+No safety bound was disabled for the comparison.
+
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.
 
 ```sh

@@ -16,11 +16,17 @@ The transferred contracts correspond to `mx-backend-hometag-lib.sh`, `mx-check-l
 The Rust modules use typed identifiers and records, bounded no-follow reads, durable same-directory replacement, single-write append, owner-directory locks, PID identity, injected clocks and process probes, and typed command transports.
 The maintainer-override grant state machine remains owned by its later port portion and plugs into the session-lock primitive through an explicit authority trait.
 `multplx-domain` is the future owner of typed durable records and lifecycle state machines.
-`multplx-backend` is the future owner of the runtime-backend interface and its supported adapters.
+Portion 04 makes `multplx-backend` the shadow owner of the typed runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
+The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
+Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
+Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
+The hidden `MX_BACKEND_IMPLEMENTATION=rust` selector chooses the Rust tmux path once before an operation and never falls back after execution begins.
+Legacy remains the production default, and Herdr plus cmux remain explicit compatibility adapters until their own port portions complete.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
 `multplx-services` is the future owner of MCP and loopback HTTP services.
 `multplx-test-support` owns shared deterministic Rust fixtures, while colocated core and CLI tests own Portion 02 fault, concurrency, and legacy-versus-Rust parity coverage.
-The release binary exposes a hidden shadow diagnostic and hidden `primitive` compatibility commands, and every operator command, hook, skill, workflow, and launcher continues to use the existing implementation.
+The release binary exposes hidden shadow diagnostics, primitive compatibility commands, and backend commands used only by the selected shadow transport.
+Every operator command, hook, skill, workflow, and launcher keeps its existing public interface.
 The cross-cutting port contract and cutover gates remain owned by [`plans/rust_port/PORTING.md`](../plans/rust_port/PORTING.md).
 
 ## Health probes and recovery ownership
