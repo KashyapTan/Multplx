@@ -541,6 +541,15 @@ test_resolve_selector_three_forms() {
     || fail "bare non-fm task id should use its recorded backend"
   [ "$(mx_backend_expected_label_of_selector 'dotfiles-d6' "$state")" = "mx-dotfiles-d6" ] \
     || fail "bare non-fm task id should report the spawned mx-<id> label"
+  [ "$(mx_backend_compatibility_backend_of_selector 'dotfiles-d6' "$state")" = herdr ] \
+    || fail "Rust preflight should retain an exact recorded Herdr task on its compatibility adapter"
+  [ "$(mx_backend_compatibility_backend_of_selector 'default:wA:p2' "$state")" = herdr ] \
+    || fail "Rust preflight should retain an explicit recorded Herdr target on its compatibility adapter"
+  [ "$(mx_backend_compatibility_backend_of_selector 'task1' "$state")" = tmux ] \
+    || fail "Rust preflight should select Rust for an exact tmux task"
+  mx_write_meta "$TMP_ROOT/escape.meta" "window=outside" "backend=herdr"
+  [ "$(mx_backend_compatibility_backend_of_selector '../escape' "$state")" = tmux ] \
+    || fail "Rust preflight must not traverse metadata for a malformed selector"
 
   [ "$(mx_backend_resolve_selector 'mx-turnend-all-harnesses-v9' "$state")" = "default:wB:p3" ] \
     || fail "exact mx-* task id should resolve through its exact metadata"
@@ -754,6 +763,7 @@ make_spawn_fakebin() {  # <dir> <fake-worktree-path> -> echoes fakebin dir
 set -u
 { printf 'tmux'; for a in "\$@"; do printf '\\x1f%s' "\$a"; done; printf '\\n'; } >> "\${MX_TMUX_LOG:?}"
 case "\${1:-}" in
+  new-window) printf '@1\n'; exit 0 ;;
   display-message)
     for a in "\$@"; do case "\$a" in *pane_current_path*) printf '%s\\n' "$wt"; exit 0 ;; esac; done
     printf 'broker\\n'; exit 0 ;;
@@ -816,6 +826,7 @@ make_spawn_symlink_fakebin() {  # <dir> <initial-project-path> <worktree-path> -
 set -u
 { printf 'tmux'; for a in "\$@"; do printf '\\x1f%s' "\$a"; done; printf '\\n'; } >> "\${MX_TMUX_LOG:?}"
 case "\${1:-}" in
+  new-window) printf '@1\n'; exit 0 ;;
   display-message)
     for a in "\$@"; do case "\$a" in *pane_current_path*)
       printf x >> "$counter"

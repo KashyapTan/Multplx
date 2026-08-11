@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # tests/mx-backend-tmux-smoke.test.sh - real tmux smoke test for the tmux
-# session-provider adapter (bin/backends/tmux.sh), the P1 checklist item
-# "run a real tmux smoke test (create session, send text + Enter, capture,
-# list, kill)" from data/mx-backend-design-d7/report.md. Every other suite in
-# this repo fakes tmux; this one is the one place that talks to a REAL tmux
-# server, isolated on a private socket (`-L`) so it never touches the host's
-# actual sessions.
+# session-provider adapters (bin/backends/tmux.sh and tmux-rust.sh), including
+# the Portion 04 lifecycle requirements. Every other suite in this repo fakes
+# tmux; this one is the one place that talks to a REAL tmux server, isolated on
+# a private socket (`-L`) so it never touches the host's actual sessions.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,6 +70,18 @@ if mx_backend_tmux_create_task "$SESSION" "$WINDOW" "$HOME" 2>/dev/null; then
   fail "mx_backend_tmux_create_task should refuse an existing window name"
 fi
 pass "real tmux: mx_backend_tmux_create_task creates a window and refuses a duplicate"
+
+# The facade's readiness and path reads are lifecycle operations in their own
+# right: prove both against the newly-created real pane before sending input.
+mx_backend_target_exists tmux "$TARGET" \
+  || fail "the newly-created tmux target did not pass its readiness check"
+EXPECTED_TASK_PATH=$(cd "$HOME" && pwd -P) \
+  || fail "could not resolve the expected task path"
+actual_task_path=$(mx_backend_tmux_current_path "$TARGET") \
+  || fail "mx_backend_tmux_current_path failed for the live target"
+[ "$actual_task_path" = "$EXPECTED_TASK_PATH" ] \
+  || fail "current path was '$actual_task_path', expected '$EXPECTED_TASK_PATH'"
+pass "real tmux: target readiness and current-path reporting match the live pane"
 
 # --- send text + Enter -------------------------------------------------------
 

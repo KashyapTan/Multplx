@@ -1,7 +1,7 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
 use std::ffi::{OsStr, OsString};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -24,6 +24,22 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Exercise the shadow runtime-backend facade.
+    #[command(hide = true)]
+    Backend {
+        #[command(subcommand)]
+        command: BackendCommand,
+    },
+    /// Capture a bounded endpoint tail through the shadow tmux backend.
+    #[command(hide = true)]
+    Peek {
+        target: String,
+        #[arg(default_value_t = 40)]
+        lines: u32,
+    },
+    /// Reconcile one actor's current state through the shadow tmux backend.
+    #[command(hide = true)]
+    ActorState { id: String },
     /// Operate on the durable local backlog.
     #[command(disable_help_flag = true)]
     Backlog {
@@ -67,6 +83,69 @@ enum Command {
     Primitive {
         #[command(subcommand)]
         command: PrimitiveCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BackendCommand {
+    ToolCheck,
+    VersionCheck,
+    ContainerEnsure,
+    TaskCreate {
+        container: String,
+        label: String,
+        working_directory: PathBuf,
+    },
+    TargetReady {
+        target: String,
+    },
+    CurrentPath {
+        target: String,
+    },
+    CurrentCommand {
+        target: String,
+    },
+    Capture {
+        target: String,
+        lines: u32,
+    },
+    ComposerState {
+        target: String,
+    },
+    SendLiteral {
+        target: String,
+        text: String,
+    },
+    SendKey {
+        target: String,
+        key: String,
+    },
+    SendSubmit {
+        target: String,
+        text: String,
+        retries: usize,
+        enter_delay: String,
+        settle: String,
+    },
+    SendTextLine {
+        target: String,
+        text: String,
+    },
+    Kill {
+        target: String,
+    },
+    AgentState {
+        target: String,
+    },
+    AgentAlive {
+        target: String,
+    },
+    ListLive {
+        #[arg(long)]
+        container: Option<String>,
+    },
+    ResolveBare {
+        name: String,
     },
 }
 
@@ -194,6 +273,9 @@ impl Cli {
     /// Runs the selected command.
     pub fn run(self) -> i32 {
         match self.command {
+            Command::Backend { command } => run_backend(command),
+            Command::Peek { target, lines } => run_peek(&target, lines),
+            Command::ActorState { id } => run_actor_state(&id),
             Command::Backlog { args } => run_backlog(&args),
             Command::BacklogHandoff {
                 daemon_id,
@@ -226,6 +308,233 @@ impl Cli {
                 }
             },
         }
+    }
+}
+
+fn tmux_target(value: &str) -> Result<multplx_backend::facade::BackendTarget, String> {
+    multplx_backend::facade::BackendTarget::new(
+        multplx_backend::facade::BackendName::Tmux,
+        value,
+        None,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn parse_seconds(value: &str) -> Result<Duration, String> {
+    let seconds = value
+        .parse::<f64>()
+        .map_err(|_| format!("invalid duration: {value}"))?;
+    if !seconds.is_finite() || seconds.is_sign_negative() {
+        return Err(format!("invalid duration: {value}"));
+    }
+    Ok(Duration::from_secs_f64(seconds))
+}
+
+fn backend_error(error: impl std::fmt::Display) -> i32 {
+    eprintln!("mx backend: {error}");
+    1
+}
+
+fn run_backend(command: BackendCommand) -> i32 {
+    use multplx_backend::facade::RuntimeBackend;
+
+    let mut backend = multplx_backend::tmux::TmuxBackend::system();
+    let result: Result<(), String> = (|| {
+        match command {
+            BackendCommand::ToolCheck => backend.tool_check().map_err(|error| error.to_string())?,
+            BackendCommand::VersionCheck => println!(
+                "{}",
+                backend.version_check().map_err(|error| error.to_string())?
+            ),
+            BackendCommand::ContainerEnsure => println!(
+                "{}",
+                backend
+                    .container_ensure()
+                    .map_err(|error| error.to_string())?
+                    .as_str()
+            ),
+            BackendCommand::TaskCreate {
+                container,
+                label,
+                working_directory,
+            } => {
+                let container = multplx_backend::facade::ContainerId::parse(container)
+                    .map_err(|error| error.to_string())?;
+                let task = multplx_backend::facade::TaskSpec {
+                    label,
+                    working_directory,
+                };
+                println!(
+                    "{}",
+                    backend
+                        .task_create(&container, &task)
+                        .map_err(|error| error.to_string())?
+                        .endpoint()
+                );
+            }
+            BackendCommand::TargetReady { target } => backend
+                .target_ready(&tmux_target(&target)?)
+                .map_err(|error| error.to_string())?,
+            BackendCommand::CurrentPath { target } => println!(
+                "{}",
+                backend
+                    .current_path(&tmux_target(&target)?)
+                    .map_err(|error| error.to_string())?
+                    .display()
+            ),
+            BackendCommand::CurrentCommand { target } => {
+                let target = tmux_target(&target)?;
+                println!(
+                    "{}",
+                    backend
+                        .current_command(&target)
+                        .map_err(|error| error.to_string())?
+                );
+            }
+            BackendCommand::Capture { target, lines } => {
+                let bytes = backend
+                    .capture(&multplx_backend::facade::CaptureRequest {
+                        target: tmux_target(&target)?,
+                        lines,
+                        byte_limit: 256 * 1024,
+                    })
+                    .map_err(|error| error.to_string())?;
+                io::stdout()
+                    .write_all(&bytes)
+                    .map_err(|error| error.to_string())?;
+            }
+            BackendCommand::ComposerState { target } => println!(
+                "{}",
+                backend
+                    .composer_state(&tmux_target(&target)?)
+                    .map_err(|error| error.to_string())?
+                    .as_str()
+            ),
+            BackendCommand::SendLiteral { target, text } => backend
+                .send_literal(&tmux_target(&target)?, &text)
+                .map_err(|error| error.to_string())?,
+            BackendCommand::SendKey { target, key } => backend
+                .send_key(&tmux_target(&target)?, &key)
+                .map_err(|error| error.to_string())?,
+            BackendCommand::SendSubmit {
+                target,
+                text,
+                retries,
+                enter_delay,
+                settle,
+            } => {
+                let target = tmux_target(&target)?;
+                match backend.send_submit(
+                    &target,
+                    multplx_backend::facade::SubmitRequest {
+                        text: &text,
+                        retries,
+                        enter_delay: parse_seconds(&enter_delay)?,
+                        settle: parse_seconds(&settle)?,
+                    },
+                ) {
+                    Ok(state) => print!("{}", state.as_str()),
+                    Err(_) => print!("send-failed"),
+                }
+            }
+            BackendCommand::SendTextLine { target, text } => backend
+                .send_text_line(&tmux_target(&target)?, &text)
+                .map_err(|error| error.to_string())?,
+            BackendCommand::Kill { target } => {
+                backend.kill_best_effort(&tmux_target(&target)?);
+            }
+            BackendCommand::AgentState { target } => {
+                println!("{}", backend.agent_state(&tmux_target(&target)?).as_str())
+            }
+            BackendCommand::AgentAlive { target } => println!(
+                "{}",
+                backend.agent_state(&tmux_target(&target)?).alive_token()
+            ),
+            BackendCommand::ListLive { container } => {
+                let container = container
+                    .map(multplx_backend::facade::ContainerId::parse)
+                    .transpose()
+                    .map_err(|error| error.to_string())?;
+                for target in backend
+                    .list_live(container.as_ref())
+                    .map_err(|error| error.to_string())?
+                {
+                    println!("{}", target.target.endpoint());
+                }
+            }
+            BackendCommand::ResolveBare { name } => {
+                let found = backend
+                    .list_live(None)
+                    .map_err(|error| error.to_string())?
+                    .into_iter()
+                    .find(|target| target.label == name)
+                    .ok_or_else(|| format!("no window named {name}"))?;
+                println!("{}", found.target.endpoint());
+            }
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(error) => backend_error(error),
+    }
+}
+
+fn run_peek(target: &str, lines: u32) -> i32 {
+    use multplx_backend::facade::RuntimeBackend;
+
+    let (_, home, _) = active_paths();
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    let mut backend = multplx_backend::tmux::TmuxBackend::system();
+    let resolved = match multplx_backend::facade::resolve_selector(target, &state, &mut backend) {
+        Ok(resolved) => resolved,
+        Err(error) => return backend_error(error),
+    };
+    if resolved.backend() != multplx_backend::facade::BackendName::Tmux {
+        return backend_error(format!(
+            "backend {} remains on the legacy compatibility path",
+            resolved.backend()
+        ));
+    }
+    match backend.capture(&multplx_backend::facade::CaptureRequest {
+        target: resolved,
+        lines,
+        byte_limit: 256 * 1024,
+    }) {
+        Ok(bytes) => match io::stdout().write_all(&bytes) {
+            Ok(()) => 0,
+            Err(error) => backend_error(error),
+        },
+        Err(error) => backend_error(error),
+    }
+}
+
+fn run_actor_state(id: &str) -> i32 {
+    let task = match multplx_core::identifiers::TaskId::parse(id) {
+        Ok(task) => task,
+        Err(_) => {
+            eprintln!("usage: mx-actor-state.sh <id>");
+            return 2;
+        }
+    };
+    let (_, home, _) = active_paths();
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    let request = multplx_backend::actor_state::ActorStateRequest::from_environment(state, task);
+    let mut backend = multplx_backend::tmux::TmuxBackend::system();
+    let mut runner = multplx_backend::command::SystemCommandRunner;
+    match multplx_backend::actor_state::reconcile(&request, &mut backend, &mut runner) {
+        Ok(output) => {
+            for warning in output.warnings {
+                eprintln!("{warning}");
+            }
+            print!("{}", output.line);
+            0
+        }
+        Err(error) => backend_error(error),
     }
 }
 

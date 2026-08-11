@@ -46,6 +46,12 @@ MX_BACKEND_DEFAULT_ROOT="$(cd "$MX_BACKEND_LIB_DIR/.." && pwd)"
 MX_ROOT="${MX_ROOT_OVERRIDE:-${MX_ROOT:-$MX_BACKEND_DEFAULT_ROOT}}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 MX_BACKEND_CONFIG_DIR="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$MX_BACKEND_LIB_DIR/mx-rust-runtime.sh"
+MX_BACKEND_IMPLEMENTATION_SELECTED=$(mx_backend_implementation) || {
+  _mx_backend_implementation_status=$?
+  return "$_mx_backend_implementation_status" 2>/dev/null || exit "$_mx_backend_implementation_status"
+}
 
 # Verified backend adapters. Extend only after a backend gets its own
 # bin/backends/<name>.sh and empirical verification, mirroring AGENTS.md
@@ -409,8 +415,16 @@ mx_backend_source() {  # <name>
   case "$name" in
     tmux)
       if [ -z "${_MX_BACKEND_TMUX_SOURCED:-}" ]; then
-        # shellcheck source=/dev/null
-        . "$MX_BACKEND_LIB_DIR/backends/tmux.sh" || return 1
+        case "$MX_BACKEND_IMPLEMENTATION_SELECTED" in
+          rust)
+            # shellcheck source=/dev/null
+            . "$MX_BACKEND_LIB_DIR/backends/tmux-rust.sh" || return 1
+            ;;
+          legacy)
+            # shellcheck source=/dev/null
+            . "$MX_BACKEND_LIB_DIR/backends/tmux.sh" || return 1
+            ;;
+        esac
         _MX_BACKEND_TMUX_SOURCED=1
       fi
       ;;
@@ -613,7 +627,12 @@ mx_backend_target_exists() {  # <backend> <target> [expected-label]
   local backend=$1 target=$2 expected_label=${3:-} session pane
   case "$backend" in
     tmux)
-      tmux display-message -p -t "$target" '#{pane_id}' >/dev/null 2>&1
+      if [ "$MX_BACKEND_IMPLEMENTATION_SELECTED" = rust ]; then
+        mx_backend_source tmux >/dev/null 2>&1 || return 1
+        mx_backend_tmux_target_ready "$target" >/dev/null 2>&1
+      else
+        tmux display-message -p -t "$target" '#{pane_id}' >/dev/null 2>&1
+      fi
       ;;
     herdr)
       mx_backend_source herdr || return 1
