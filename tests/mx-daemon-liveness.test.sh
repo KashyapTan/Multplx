@@ -187,7 +187,7 @@ test_agent_state_dispatcher_and_compatibility() {
   out=$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/mx-backend.sh"; mx_backend_agent_state tmux sess:win' "$ROOT")
   [ "$out" = alive ] || fail "detailed dispatcher should route tmux, got '$out'"
 
-  out=$(bash -c '. "$0/bin/mx-backend.sh"; mx_backend_source herdr; mx_backend_herdr_pane_agent_state() { printf "live"; }; mx_backend_agent_state herdr sess:p1' "$ROOT")
+  out=$(bash -c '. "$0/bin/mx-backend.sh"; mx_backend_source herdr; mx_backend_herdr_agent_state() { printf "alive"; }; mx_backend_agent_state herdr sess:p1' "$ROOT")
   [ "$out" = alive ] || fail "detailed dispatcher should route Herdr, got '$out'"
 
   out=$(bash -c '. "$0/bin/mx-backend.sh"; mx_backend_agent_state cmux ws:sf' "$ROOT")

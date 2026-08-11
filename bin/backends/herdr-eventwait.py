@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Raw AF_UNIX subscriber for herdr's native pane.agent_status_changed stream.
 
+The selected Portion 05 Rust adapter replaces this transport with
+``multplx_backend::herdr_wire``; this file remains the legacy rollback path.
+
 This is the WIRE TRANSPORT half of the herdr push-escalation path
 (bin/backends/herdr.sh mx_backend_herdr_wait_transition). It deliberately does
 NOT know broker's supervision policy: it opens ONE connection to a herdr

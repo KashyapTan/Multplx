@@ -12,9 +12,9 @@ Pick Herdr when you want native busy, idle, and blocked state and accept the exp
 Prerequisites:
 
 - Herdr protocol 14 or newer, installed from [herdr.dev](https://herdr.dev).
-- `jq` for JSON responses.
+- `jq` for the retained legacy adapter and shell-based verification harnesses; the Rust adapter parses Herdr JSON directly.
 - The universal harness and toolchain requirements in [`configuration.md`](configuration.md#toolchain).
-- `python3` only for optional protocol-16 presentation-space ordering and native event subscription.
+- `python3` only for the retained legacy protocol-16 presentation ordering and event transports; the Rust adapter uses its own bounded Unix-socket transport.
 
 Herdr is dual-licensed AGPL-3.0-or-later or commercial.
 Multplx invokes its CLI as a separate process.
@@ -24,12 +24,21 @@ It is also auto-detected when the primary runs natively under `HERDR_ENV=1` and 
 A tmux pane nested inside Herdr resolves to tmux because the innermost multiplexer wins.
 An auto-detected Herdr spawn prints an opt-out notice.
 
-Spawn stops before creating a Herdr container or acquiring a task worktree when `herdr`, `jq`, or the protocol floor is unavailable.
+The legacy adapter stops before creating a Herdr container or acquiring a task worktree when `herdr`, `jq`, or the protocol floor is unavailable.
+The selected Rust adapter has the same preflight boundary but requires only `herdr` and the protocol floor because it parses JSON internally.
 No separate first-run provisioning is required.
 
 The required CI lane uses the pinned installers in `bin/mx-install-herdr.sh` and `bin/mx-install-treehouse.sh`.
 Those script headers own release assets, checksums, download bounds, and post-install gates.
 Real harness credential tests remain opt-in rather than part of default CI.
+
+## Rust shadow adapter
+
+Portion 05 moves Herdr runtime operations, JSON policy, native events, presentation lifecycle, startup cleanup, guarded lab/CI cleanup, and pinned installation into `multplx-backend` and the hidden `mx herdr*` command surfaces.
+Set `MX_BACKEND_IMPLEMENTATION=rust` to select `bin/backends/herdr-rust.sh`, and set `MX_HERDR_TOOLS_IMPLEMENTATION=rust` to select the Rust implementations behind the four owned Herdr tool scripts.
+The Rust adapter always carries both `HERDR_SESSION` and a trailing `--session <name>`, uses bounded command output and timeouts, and never retries a selected Rust operation through the legacy implementation after it starts.
+It parses JSON with typed Rust code and performs event subscription and `workspace.move` directly over bounded AF_UNIX newline frames, so neither `jq` nor a Python process is part of those selected runtime paths.
+The seven legacy files remain available as one process-wide rollback implementation while the backend-wide default remains legacy until Portion 06 completes cmux and dispatch.
 
 ## Watching and task containers
 
@@ -72,8 +81,8 @@ Before and after create, prune, order, abort cleanup, and normal cleanup, Multpl
 An ambiguous response grants no mutation or cleanup authority.
 
 Protocol 16 exposes `workspace.move` over the named session socket but no CLI subcommand.
-`bin/backends/herdr-workspace-move.py` sends only that whitelisted method and verifies the complete returned workspace order.
-Projected children are placed in one contiguous block immediately after their owning home when the session layout, protocol, socket, `python3`, and machine-private per-session lock are all verifiable.
+The Rust wire module sends only that whitelisted method and verifies the complete returned workspace order; the retained Python helper serves only the legacy rollback path.
+Projected children are placed in one contiguous block immediately after their owning home when the session layout, protocol, socket, and machine-private per-session lock are all verifiable.
 Existing legacy child labels may extend an already adjacent block read-only but are never renamed or migrated.
 A foreign, ambiguous, detached, or manually interleaved child makes ordering skip with a warning rather than rewriting the layout.
 
@@ -157,7 +166,7 @@ Workspace and tab ids support verification and cleanup but are not inferred from
 ## Current transport behavior
 
 The adapter starts and polls a named server before workspace, tab, pane, or agent calls.
-Every Herdr invocation goes through `mx_backend_herdr_cli`, which sets the environment and passes an explicit trailing `--session <name>`.
+Every Herdr invocation goes through the selected scoped transport, which sets the environment and passes an explicit trailing `--session <name>`.
 An environment variable alone is not reliable when another Herdr server is running.
 
 Literal text and Enter are separate operations for ordinary steers.
@@ -222,8 +231,8 @@ The watcher maps the pane back to the task and skips daemon endpoints.
 A native `blocked` edge follows the precedence contract owned by `bin/mx-classify-lib.sh` and surfaces even when the latest self-report declared `paused:`.
 
 The push path only shortens latency.
-Polling runs every cycle and remains the permanent fallback when protocol 16, the event schema, Python, connection, subscription, or repeated reader execution is unavailable.
-There is still one watcher process; the event reader is a bounded child of that watcher.
+Polling runs every cycle and remains the permanent fallback when protocol 16, the event schema, connection, subscription, or repeated reader execution is unavailable.
+There is still one watcher process; the selected Rust event reader is a bounded cancellable thread with an owned socket, while the rollback adapter retains its bounded child process.
 
 `tests/mx-backend-herdr-eventwait-smoke.test.sh`, `tests/mx-transition-lib.test.sh`, and `tests/mx-supervision-events.test.sh` cover capability, subscribe-then-reconcile ordering, dedupe, exemptions, and polling fallback.
 

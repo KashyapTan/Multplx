@@ -17,11 +17,12 @@ The Rust modules use typed identifiers and records, bounded no-follow reads, dur
 The maintainer-override grant state machine remains owned by its later port portion and plugs into the session-lock primitive through an explicit authority trait.
 `multplx-domain` is the future owner of typed durable records and lifecycle state machines.
 Portion 04 makes `multplx-backend` the shadow owner of the typed runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
+Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
 Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
 Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
 The hidden `MX_BACKEND_IMPLEMENTATION=rust` selector chooses the Rust tmux path once before an operation and never falls back after execution begins.
-Legacy remains the production default, and Herdr plus cmux remain explicit compatibility adapters until their own port portions complete.
+Legacy remains the production default until cmux and backend-wide dispatch complete in Portion 06; Herdr can be selected independently with `MX_BACKEND_IMPLEMENTATION=rust` for shadow and required real-backend verification.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
 `multplx-services` is the future owner of MCP and loopback HTTP services.
 `multplx-test-support` owns shared deterministic Rust fixtures, while colocated core and CLI tests own Portion 02 fault, concurrency, and legacy-versus-Rust parity coverage.

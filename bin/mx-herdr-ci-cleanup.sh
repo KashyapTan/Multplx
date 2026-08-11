@@ -14,6 +14,14 @@
 # Usage:
 #   mx-herdr-ci-cleanup.sh snapshot <path>
 #   mx-herdr-ci-cleanup.sh teardown <snapshot-path>
+if [ "${BASH_SOURCE[0]}" = "$0" ] \
+  && [ "${MX_HERDR_TOOLS_IMPLEMENTATION:-${MX_BACKEND_IMPLEMENTATION:-legacy}}" = rust ]; then
+  _mx_herdr_tool_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_herdr_tool_dir/mx-rust-runtime.sh"
+  _mx_herdr_rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$_mx_herdr_rust_bin" herdr-ci-cleanup "$@"
+fi
 set -eu
 
 die() {

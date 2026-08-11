@@ -46,7 +46,7 @@ impl BackendName {
     pub fn required_tools(self) -> &'static [&'static str] {
         match self {
             Self::Tmux => &["tmux"],
-            Self::Herdr => &["herdr", "jq"],
+            Self::Herdr => &["herdr"],
             Self::Cmux => &["cmux", "jq"],
         }
     }
@@ -132,26 +132,48 @@ impl BackendTarget {
 
 /// Validated container or session name.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContainerId(String);
+pub struct ContainerId {
+    backend: BackendName,
+    value: String,
+}
 
 impl ContainerId {
     /// Parse one non-empty container name.
     pub fn parse(value: impl Into<String>) -> Result<Self, BackendError> {
+        Self::for_backend(BackendName::Tmux, value)
+    }
+
+    /// Parse a container identity using its backend-specific shape.
+    pub fn for_backend(
+        backend: BackendName,
+        value: impl Into<String>,
+    ) -> Result<Self, BackendError> {
         let value = value.into();
         if value.is_empty()
             || value
                 .bytes()
-                .any(|byte| byte == 0 || byte.is_ascii_control() || byte == b':')
+                .any(|byte| byte == 0 || byte.is_ascii_control())
+            || (backend != BackendName::Herdr && value.contains(':'))
+            || (backend == BackendName::Herdr
+                && value
+                    .split_once(':')
+                    .is_none_or(|(session, workspace)| session.is_empty() || workspace.is_empty()))
         {
             return Err(BackendError::InvalidContainer(value));
         }
-        Ok(Self(value))
+        Ok(Self { backend, value })
+    }
+
+    /// Return the bound backend.
+    #[must_use]
+    pub fn backend(&self) -> BackendName {
+        self.backend
     }
 
     /// Return literal container text.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.value
     }
 }
 
@@ -518,7 +540,7 @@ mod tests {
     fn backend_vocabulary_capabilities_and_targets_are_typed() {
         for (text, backend, tools) in [
             ("tmux", BackendName::Tmux, &["tmux"][..]),
-            ("herdr", BackendName::Herdr, &["herdr", "jq"][..]),
+            ("herdr", BackendName::Herdr, &["herdr"][..]),
             ("cmux", BackendName::Cmux, &["cmux", "jq"][..]),
         ] {
             assert_eq!(BackendName::parse(text).expect("backend"), backend);

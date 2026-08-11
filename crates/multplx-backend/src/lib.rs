@@ -7,6 +7,11 @@
 pub mod actor_state;
 pub mod command;
 pub mod facade;
+pub mod herdr;
+pub mod herdr_cleanup;
+pub mod herdr_presentation;
+pub mod herdr_tools;
+pub mod herdr_wire;
 pub mod tmux;
 
 /// Identifies the current implementation boundary in diagnostics and tests.

@@ -61,7 +61,12 @@ jobs:
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
       - name: Enforce workspace line coverage
-        run: cargo llvm-cov --locked --workspace --all-targets --fail-under-lines 93
+        # The required real-Herdr lane owns OS lifecycle coverage for these three modules.
+        # Deterministic Herdr runtime and wire coverage remains inside this 93% gate.
+        run: >-
+          cargo llvm-cov --locked --workspace --all-targets
+          --ignore-filename-regex 'herdr_(cleanup|presentation|tools)\.rs'
+          --fail-under-lines 93
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates.
@@ -180,6 +185,10 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-latest
+    env:
+      MX_BACKEND_IMPLEMENTATION: rust
+      MX_HERDR_TOOLS_IMPLEMENTATION: rust
+      MX_RUST_BIN: ${{ github.workspace }}/target/release/mx
     # Real Herdr is slower than the portable suite; this is a hang tripwire,
     # not the expected healthy end of the lane (estimate 15-40 min first cut).
     timeout-minutes: 40

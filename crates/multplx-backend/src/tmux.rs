@@ -258,6 +258,11 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
         container: &ContainerId,
         task: &TaskSpec,
     ) -> Result<BackendTarget, BackendError> {
+        if container.backend() != BackendName::Tmux {
+            return Err(BackendError::InvalidContainer(
+                container.as_str().to_owned(),
+            ));
+        }
         if task.label.is_empty()
             || task
                 .label

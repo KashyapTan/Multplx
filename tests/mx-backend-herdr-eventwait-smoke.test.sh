@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/mx-backend-herdr-eventwait-smoke.test.sh - REAL-herdr smoke test for the
 # native pane.agent_status_changed push escalation (mx_backend_herdr_wait_transition,
-# bin/backends/herdr.sh, and its raw-socket reader bin/backends/herdr-eventwait.py).
+# the selected Herdr adapter and its bounded Rust raw-socket reader.
 # It drives a real idle->blocked transition in an ISOLATED, never-default herdr
 # lab session and asserts the subscriber returns that transition sub-second and
 # that the watcher's handle_push_transition lands a stale record in a scratch

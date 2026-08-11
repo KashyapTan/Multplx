@@ -76,6 +76,30 @@ Expected matrix: pending plus busy is accepted as queued; pending plus idle rema
 The compatibility floor is protocol 14.
 The latest active verification uses Herdr 0.7.5 protocol 16 on macOS aarch64, with earlier 0.7.4, protocol-14, and 0.7.3 evidence retained where they define current behavior or fallbacks.
 
+The Portion 05 Rust-selected required family was reverified on 2026-08-11 with Herdr 0.7.4 protocol 16 on macOS aarch64.
+The run used `MX_BACKEND_IMPLEMENTATION=rust`, `MX_HERDR_TOOLS_IMPLEMENTATION=rust`, the release `mx` binary, a short isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server, and the guarded lab and CI cleanup tools.
+No real-Herdr test reported the `herdr not found` gate skip, and the pre-suite snapshot plus post-suite teardown found no unowned session eligible for cleanup.
+
+```sh
+cargo build --workspace --release --locked
+MX_BACKEND_IMPLEMENTATION=rust \
+MX_HERDR_TOOLS_IMPLEMENTATION=rust \
+MX_RUST_BIN="$PWD/target/release/mx" \
+bin/mx-test-run.sh --family real-herdr-gated \
+  --fail-on-gate-skip 'herdr not found'
+```
+
+Observed Rust and client/server evidence:
+
+```text
+mx 0.1.0
+herdr 0.7.4
+client protocol 16
+server protocol 16
+MX_TEST_SUMMARY total=10 failed=0 skipped_gate=0 duration_ms=332732
+MX_TEST_SUMMARY_FAMILY family=real-herdr-gated count=10 duration_ms=332418 failed=0
+```
+
 Core read-only probes:
 
 ```sh

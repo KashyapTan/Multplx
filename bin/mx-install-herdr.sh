@@ -13,6 +13,14 @@
 # with a bounded max size, verifies SHA-256 before install, then refuses to
 # finish unless the binary reports the exact pin version and a client protocol
 # at or above the required floor (16 for the real-Herdr family).
+if [ "${BASH_SOURCE[0]}" = "$0" ] \
+  && [ "${MX_HERDR_TOOLS_IMPLEMENTATION:-${MX_BACKEND_IMPLEMENTATION:-legacy}}" = rust ]; then
+  _mx_herdr_tool_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_herdr_tool_dir/mx-rust-runtime.sh"
+  _mx_herdr_rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$_mx_herdr_rust_bin" install-herdr "$@"
+fi
 set -eu
 
 # Exact pin - change only with a re-verified real-Herdr matrix.
