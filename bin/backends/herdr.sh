@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # bin/backends/herdr.sh - the herdr session-provider adapter (EXPERIMENTAL).
+# Portion 05 Rust replacement: bin/backends/herdr-rust.sh, selected atomically
+# by bin/mx-backend.sh when MX_BACKEND_IMPLEMENTATION=rust.
 #
 # Design: data/mx-backend-design-d7/herdr-addendum.md ("Interface mapping",
 # decisions D1-D6) and the empirical verification recorded in

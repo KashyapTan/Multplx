@@ -180,6 +180,10 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-latest
+    env:
+      MX_BACKEND_IMPLEMENTATION: rust
+      MX_HERDR_TOOLS_IMPLEMENTATION: rust
+      MX_RUST_BIN: ${{ github.workspace }}/target/release/mx
     # Real Herdr is slower than the portable suite; this is a hang tripwire,
     # not the expected healthy end of the lane (estimate 15-40 min first cut).
     timeout-minutes: 40

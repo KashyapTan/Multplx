@@ -430,8 +430,16 @@ mx_backend_source() {  # <name>
       ;;
     herdr)
       if [ -z "${_MX_BACKEND_HERDR_SOURCED:-}" ]; then
-        # shellcheck source=/dev/null
-        . "$MX_BACKEND_LIB_DIR/backends/herdr.sh" || return 1
+        case "$MX_BACKEND_IMPLEMENTATION_SELECTED" in
+          rust)
+            # shellcheck source=/dev/null
+            . "$MX_BACKEND_LIB_DIR/backends/herdr-rust.sh" || return 1
+            ;;
+          legacy)
+            # shellcheck source=/dev/null
+            . "$MX_BACKEND_LIB_DIR/backends/herdr.sh" || return 1
+            ;;
+        esac
         _MX_BACKEND_HERDR_SOURCED=1
       fi
       ;;

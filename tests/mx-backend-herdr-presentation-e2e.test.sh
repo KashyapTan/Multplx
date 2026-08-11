@@ -447,7 +447,8 @@ projection_labels_from_log() {  # <start-line>
 
 session_presentation_lock_path() {
   PATH="$FAKEBIN:$PATH" HERDR_SESSION="$HERDR_LAB_SESSION" bash -c '
-    . "$0/bin/backends/herdr.sh"
+    . "$0/bin/mx-backend.sh"
+    mx_backend_source herdr
     mx_backend_herdr_presentation_session_lock_path "$1"
   ' "$ROOT" "$HERDR_LAB_SESSION"
 }
@@ -612,7 +613,8 @@ ACTIVE_SEEDED_LOCK=$(session_presentation_lock_path) \
   || fail "could not resolve the session presentation lock for active-seeded cleanup"
 PATH="$FAKEBIN:$PATH" MX_HOME="$HOME_DIR" bash -c '
   . "$0/bin/mx-wake-lib.sh"
-  . "$0/bin/backends/herdr.sh"
+  . "$0/bin/mx-backend.sh"
+  mx_backend_source herdr
   lock=$1
   mx_lock_acquire_wait "$lock"
   mx_backend_herdr_projection_cleanup_exact "$2" "$3" "$4"
@@ -1284,7 +1286,8 @@ pass "real Herdr lab: multi-home exact-pane teardowns restore maintainer focus w
 # The duplicate case allows flat fallback only when every matching pane is
 # positively agent-free.
 # shellcheck source=/dev/null
-. "$ROOT/bin/backends/herdr.sh"
+. "$ROOT/bin/mx-backend.sh"
+mx_backend_source herdr
 
 MISSING_STATE="$TMP_ROOT/missing-state"; mkdir -p "$MISSING_STATE"
 mx_backend_herdr_projection_journal_create "$MISSING_STATE" missing1 >/dev/null

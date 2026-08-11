@@ -30,6 +30,33 @@ enum Command {
         #[command(subcommand)]
         command: BackendCommand,
     },
+    /// Exercise the shadow Herdr runtime and transport implementation.
+    #[command(hide = true, disable_help_flag = true)]
+    Herdr {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Guarded isolated Herdr lab lifecycle.
+    #[command(hide = true, disable_help_flag = true)]
+    HerdrLab {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// CI-owned Herdr lab-session cleanup.
+    #[command(hide = true, disable_help_flag = true)]
+    HerdrCiCleanup {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Conservatively retire stale Herdr presentation children.
+    #[command(hide = true)]
+    HerdrSessionCleanup,
+    /// Install the exact pinned Herdr CI artifact.
+    #[command(hide = true, disable_help_flag = true)]
+    InstallHerdr {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Capture a bounded endpoint tail through the shadow tmux backend.
     #[command(hide = true)]
     Peek {
@@ -274,6 +301,11 @@ impl Cli {
     pub fn run(self) -> i32 {
         match self.command {
             Command::Backend { command } => run_backend(command),
+            Command::Herdr { args } => run_herdr(&args),
+            Command::HerdrLab { args } => multplx_backend::herdr_tools::run_lab(&args),
+            Command::HerdrCiCleanup { args } => multplx_backend::herdr_tools::run_ci_cleanup(&args),
+            Command::HerdrSessionCleanup => multplx_backend::herdr_cleanup::run_session_cleanup(),
+            Command::InstallHerdr { args } => multplx_backend::herdr_tools::run_installer(&args),
             Command::Peek { target, lines } => run_peek(&target, lines),
             Command::ActorState { id } => run_actor_state(&id),
             Command::Backlog { args } => run_backlog(&args),
@@ -477,6 +509,782 @@ fn run_backend(command: BackendCommand) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => backend_error(error),
+    }
+}
+
+fn run_herdr(args: &[OsString]) -> i32 {
+    use multplx_backend::facade::{
+        BackendName, BackendTarget, CaptureRequest, ContainerId, RuntimeBackend, SubmitRequest,
+        TaskSpec,
+    };
+    use multplx_backend::herdr::{
+        HerdrBackend, PaneAgentState, clear_transition, commit_transition,
+    };
+    use multplx_backend::herdr_presentation::{
+        FocusSnapshot, ProjectionBinding, ProjectionJournal, ReclaimOutcome, bind_journal,
+        concise_task_label, create_journal, home_identity, journal_path, projection_id,
+        projection_workspace_label, read_journal, replace_journal_endpoint, write_journal_v2,
+    };
+    use multplx_core::transition::TransitionRecord;
+
+    let command = args
+        .first()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let result: Result<i32, String> = (|| {
+        let mut backend = HerdrBackend::system();
+        let target = |value: &str| {
+            BackendTarget::new(BackendName::Herdr, value.to_owned(), None)
+                .map_err(|error| error.to_string())
+        };
+        match command {
+            "cli" => {
+                let session = utf8_arg(args, 1, "session")?;
+                if args.len() < 3 {
+                    return Err("cli requires Herdr arguments".to_owned());
+                }
+                let output = backend
+                    .scoped_cli(session, &args[2..])
+                    .map_err(|error| error.to_string())?;
+                io::stdout()
+                    .write_all(&output.stdout)
+                    .map_err(|error| error.to_string())?;
+                io::stderr()
+                    .write_all(&output.stderr)
+                    .map_err(|error| error.to_string())?;
+                Ok(output.status.code().unwrap_or(1))
+            }
+            "workspace-label" => {
+                require_len(args, 1)?;
+                print!("{}", backend.workspace_label());
+                Ok(0)
+            }
+            "tool-check" => {
+                require_len(args, 1)?;
+                backend.tool_check().map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "version-check" => {
+                require_len(args, 1)?;
+                backend.version_check().map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "server-ensure" => {
+                let session = utf8_arg(args, 1, "session")?;
+                require_len(args, 2)?;
+                backend
+                    .server_ensure(session)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "workspace-find" => {
+                let session = utf8_arg(args, 1, "session")?;
+                require_len(args, 2)?;
+                if let Some(workspace) = backend.workspace_find(session) {
+                    print!("{workspace}");
+                }
+                Ok(0)
+            }
+            "container-ensure" => {
+                let cwd = args
+                    .get(1)
+                    .map(PathBuf::from)
+                    .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
+                require_len(args, if args.get(1).is_some() { 2 } else { 1 })?;
+                backend.version_check().map_err(|error| error.to_string())?;
+                let session = backend.session().to_owned();
+                backend
+                    .server_ensure(&session)
+                    .map_err(|error| error.to_string())?;
+                let workspace = backend
+                    .workspace_ensure(&session, &cwd)
+                    .map_err(|error| error.to_string())?;
+                print!(
+                    "{session}:{workspace}\t{}",
+                    backend.seeded_tab_id().unwrap_or_default()
+                );
+                Ok(0)
+            }
+            "task-create" => {
+                let container =
+                    ContainerId::for_backend(BackendName::Herdr, utf8_arg(args, 1, "container")?)
+                        .map_err(|error| error.to_string())?;
+                let label = utf8_arg(args, 2, "label")?.to_owned();
+                let cwd = PathBuf::from(
+                    args.get(3)
+                        .ok_or_else(|| "missing working directory".to_owned())?,
+                );
+                let seed = args
+                    .get(4)
+                    .and_then(|value| value.to_str())
+                    .filter(|value| !value.is_empty());
+                require_len(args, if args.get(4).is_some() { 5 } else { 4 })?;
+                let endpoint = backend
+                    .create_task_full(
+                        &container,
+                        &TaskSpec {
+                            label,
+                            working_directory: cwd,
+                        },
+                        seed,
+                    )
+                    .map_err(|error| error.to_string())?;
+                print!("{} {}", endpoint.tab_id, endpoint.pane_id);
+                Ok(0)
+            }
+            "target-ready" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                require_len(args, 2)?;
+                backend
+                    .target_ready(&target)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "current-path" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    backend
+                        .current_path(&target)
+                        .map_err(|error| error.to_string())?
+                        .display()
+                );
+                Ok(0)
+            }
+            "capture" | "capture-ansi" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                let lines = utf8_arg(args, 2, "lines")?.parse::<u32>().unwrap_or(200);
+                require_len(args, 3)?;
+                let bytes = if command == "capture" {
+                    backend.capture(&CaptureRequest {
+                        target,
+                        lines,
+                        byte_limit: 256 * 1024,
+                    })
+                } else {
+                    backend.capture_ansi(&target, lines)
+                }
+                .map_err(|error| error.to_string())?;
+                io::stdout()
+                    .write_all(&bytes)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "composer-state" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    backend
+                        .composer_state(&target)
+                        .map_err(|error| error.to_string())?
+                        .as_str()
+                );
+                Ok(0)
+            }
+            "send-literal" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                let text = utf8_arg(args, 2, "text")?;
+                require_len(args, 3)?;
+                backend
+                    .send_literal(&target, text)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "send-key" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                let key = utf8_arg(args, 2, "key")?;
+                require_len(args, 3)?;
+                backend
+                    .send_key(&target, key)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "send-text-line" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                let text = utf8_arg(args, 2, "text")?;
+                require_len(args, 3)?;
+                backend
+                    .send_text_line(&target, text)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "send-submit" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                let text = utf8_arg(args, 2, "text")?;
+                let retries = utf8_arg(args, 3, "retries")?
+                    .parse()
+                    .map_err(|_| "invalid retries".to_owned())?;
+                let enter_delay = parse_seconds(utf8_arg(args, 4, "enter delay")?)?;
+                let settle = parse_seconds(utf8_arg(args, 5, "settle")?)?;
+                require_len(args, 6)?;
+                match backend.send_submit(
+                    &target,
+                    SubmitRequest {
+                        text,
+                        retries,
+                        enter_delay,
+                        settle,
+                    },
+                ) {
+                    Ok(state) => print!("{}", state.as_str()),
+                    Err(_) => print!("send-failed"),
+                }
+                Ok(0)
+            }
+            "native-state" | "busy-state" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                require_len(args, 2)?;
+                let state = backend.native_state(&target).ok();
+                if command == "native-state" {
+                    print!(
+                        "{}",
+                        state.map_or("unknown", |state| match state {
+                            multplx_backend::facade::NativeState::Idle => "idle",
+                            multplx_backend::facade::NativeState::Working => "working",
+                            multplx_backend::facade::NativeState::Blocked => "blocked",
+                            multplx_backend::facade::NativeState::Done => "done",
+                        })
+                    );
+                } else {
+                    print!(
+                        "{}",
+                        match state {
+                            Some(multplx_backend::facade::NativeState::Working) => "busy",
+                            Some(
+                                multplx_backend::facade::NativeState::Idle
+                                | multplx_backend::facade::NativeState::Blocked
+                                | multplx_backend::facade::NativeState::Done,
+                            ) => "idle",
+                            None => "unknown",
+                        }
+                    );
+                }
+                Ok(0)
+            }
+            "pane-agent-state" => {
+                let session = utf8_arg(args, 1, "session")?;
+                let pane = utf8_arg(args, 2, "pane")?;
+                require_len(args, 3)?;
+                print!("{}", backend.pane_agent_state(session, pane).as_str());
+                Ok(0)
+            }
+            "agent-state" | "agent-alive" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                require_len(args, 2)?;
+                let state = backend.agent_state(&target);
+                print!(
+                    "{}",
+                    if command == "agent-state" {
+                        state.as_str()
+                    } else {
+                        state.alive_token()
+                    }
+                );
+                Ok(0)
+            }
+            "kill" => {
+                let target = target(utf8_arg(args, 1, "target")?)?;
+                require_len(args, 2)?;
+                let _ = backend.kill_verified(&target);
+                Ok(0)
+            }
+            "list-live" => {
+                let session = args
+                    .get(1)
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(backend.session())
+                    .to_owned();
+                require_len(args, if args.get(1).is_some() { 2 } else { 1 })?;
+                let Some(workspace) = backend.workspace_find(&session) else {
+                    return Ok(0);
+                };
+                let container =
+                    ContainerId::for_backend(BackendName::Herdr, format!("{session}:{workspace}"))
+                        .map_err(|error| error.to_string())?;
+                for live in backend
+                    .list_live(Some(&container))
+                    .map_err(|error| error.to_string())?
+                {
+                    println!("{}\t{}", live.target.endpoint(), live.label);
+                }
+                Ok(0)
+            }
+            "events-capable" => {
+                let session = utf8_arg(args, 1, "session")?;
+                require_len(args, 2)?;
+                Ok(if backend.events_capable(session) {
+                    0
+                } else {
+                    1
+                })
+            }
+            "event-reader" => {
+                let socket = PathBuf::from(
+                    args.get(1)
+                        .ok_or_else(|| "missing socket path".to_owned())?,
+                );
+                let timeout = parse_seconds(utf8_arg(args, 2, "timeout")?)?;
+                if args.len() < 4 {
+                    return Err("at least one pane is required".to_owned());
+                }
+                let panes = args[3..]
+                    .iter()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>();
+                match multplx_backend::herdr_wire::event_wait(&socket, timeout, &panes, |line| {
+                    writeln!(io::stdout(), "{line}")?;
+                    io::stdout().flush()
+                }) {
+                    Ok(()) => Ok(0),
+                    Err(
+                        multplx_backend::herdr_wire::WireError::Invalid(_)
+                        | multplx_backend::herdr_wire::WireError::Connect(_)
+                        | multplx_backend::herdr_wire::WireError::Send(_),
+                    ) => Ok(2),
+                    Err(multplx_backend::herdr_wire::WireError::Protocol(_)) => Ok(3),
+                    Err(multplx_backend::herdr_wire::WireError::Receive(_)) => Ok(4),
+                }
+            }
+            "workspace-move" => {
+                let socket = PathBuf::from(
+                    args.get(1)
+                        .ok_or_else(|| "missing socket path".to_owned())?,
+                );
+                let workspace = utf8_arg(args, 2, "workspace")?;
+                let index = utf8_arg(args, 3, "insert index")?
+                    .parse::<u64>()
+                    .map_err(|_| "invalid insert index".to_owned())?;
+                require_len(args, 4)?;
+                match multplx_backend::herdr_wire::workspace_move(&socket, workspace, index) {
+                    Ok(value) => {
+                        println!(
+                            "{}",
+                            serde_json::to_string(&value).map_err(|error| error.to_string())?
+                        );
+                        Ok(0)
+                    }
+                    Err(
+                        multplx_backend::herdr_wire::WireError::Invalid(_)
+                        | multplx_backend::herdr_wire::WireError::Connect(_),
+                    ) => Ok(2),
+                    Err(
+                        multplx_backend::herdr_wire::WireError::Send(_)
+                        | multplx_backend::herdr_wire::WireError::Receive(_),
+                    ) => Ok(3),
+                    Err(multplx_backend::herdr_wire::WireError::Protocol(_)) => Ok(4),
+                }
+            }
+            "wait-transition" => {
+                let session = utf8_arg(args, 1, "session")?;
+                let timeout = parse_seconds(utf8_arg(args, 2, "timeout")?)?;
+                let state =
+                    PathBuf::from(args.get(3).ok_or_else(|| "missing state dir".to_owned())?);
+                if args.len() < 5 {
+                    return Ok(2);
+                }
+                let windows = args[4..]
+                    .iter()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>();
+                match backend.wait_transition_in_state(session, timeout, &state, &windows) {
+                    Ok(Some(record)) => {
+                        print!("{}", record.render());
+                        Ok(0)
+                    }
+                    Ok(None) => Ok(1),
+                    Err(_) => Ok(2),
+                }
+            }
+            "transition-commit" => {
+                let state = PathBuf::from(args.get(1).ok_or_else(|| "missing state".to_owned())?);
+                let session = utf8_arg(args, 2, "session")?;
+                let record = TransitionRecord::parse(utf8_arg(args, 3, "record")?)
+                    .map_err(|error| error.to_string())?;
+                require_len(args, 4)?;
+                commit_transition(&state, session, &record).map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "transition-clear" => {
+                let state = PathBuf::from(args.get(1).ok_or_else(|| "missing state".to_owned())?);
+                let window = utf8_arg(args, 2, "window")?;
+                require_len(args, 3)?;
+                clear_transition(&state, window).map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "projection-id" => {
+                require_len(args, 1)?;
+                print!("{}", projection_id().map_err(|error| error.to_string())?);
+                Ok(0)
+            }
+            "projection-label" => {
+                let task = utf8_arg(args, 1, "task")?;
+                let token = utf8_arg(args, 2, "token")?;
+                require_len(args, 3)?;
+                print!("{}", projection_workspace_label(task, token));
+                Ok(0)
+            }
+            "concise-task-label" => {
+                let task = utf8_arg(args, 1, "task")?;
+                require_len(args, 2)?;
+                print!("{}", concise_task_label(task));
+                Ok(0)
+            }
+            "normalize-key" => {
+                let key = utf8_arg(args, 1, "key")?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    match key {
+                        "Enter" | "enter" => "enter",
+                        "Escape" | "escape" | "Esc" | "esc" => "escape",
+                        "C-c" | "c-c" | "ctrl+c" | "Ctrl+C" => "ctrl+c",
+                        other => other,
+                    }
+                );
+                Ok(0)
+            }
+            "journal-path" => {
+                let state = PathBuf::from(args.get(1).ok_or_else(|| "missing state".to_owned())?);
+                let task = utf8_arg(args, 2, "task")?;
+                require_len(args, 3)?;
+                print!("{}", journal_path(&state, task).display());
+                Ok(0)
+            }
+            "journal-create" => {
+                let state = PathBuf::from(args.get(1).ok_or_else(|| "missing state".to_owned())?);
+                let task = utf8_arg(args, 2, "task")?;
+                require_len(args, 3)?;
+                let token = projection_id().map_err(|error| error.to_string())?;
+                create_journal(&state, task, &token).map_err(|error| error.to_string())?;
+                print!("{token}");
+                Ok(0)
+            }
+            "journal-snapshot" => {
+                let path = PathBuf::from(args.get(1).ok_or_else(|| "missing journal".to_owned())?);
+                let task = utf8_arg(args, 2, "task")?;
+                require_len(args, 3)?;
+                match read_journal(&path, task).map_err(|error| error.to_string())? {
+                    ProjectionJournal::V1 {
+                        task_id,
+                        projection_id,
+                    } => print!("1\t{task_id}\t{projection_id}"),
+                    ProjectionJournal::V2(binding) => print!(
+                        "2\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                        binding.task_id,
+                        binding.projection_id,
+                        binding.home.display(),
+                        binding.session,
+                        binding.workspace_id,
+                        binding.tab_id,
+                        binding.pane_id,
+                        binding.parent_workspace_id,
+                        binding.parent_label,
+                        binding.workspace_label,
+                        binding.task_label
+                    ),
+                }
+                Ok(0)
+            }
+            "journal-bind" => {
+                require_len(args, 12)?;
+                let path = PathBuf::from(&args[1]);
+                let binding = ProjectionBinding {
+                    task_id: utf8_arg(args, 2, "task")?.to_owned(),
+                    projection_id: read_journal(&path, utf8_arg(args, 2, "task")?)
+                        .map_err(|error| error.to_string())?
+                        .projection_id()
+                        .to_owned(),
+                    home: home_identity(Path::new(
+                        args.get(3).ok_or_else(|| "missing home".to_owned())?,
+                    ))
+                    .map_err(|error| error.to_string())?,
+                    session: utf8_arg(args, 4, "session")?.to_owned(),
+                    workspace_id: utf8_arg(args, 5, "workspace")?.to_owned(),
+                    tab_id: utf8_arg(args, 6, "tab")?.to_owned(),
+                    pane_id: utf8_arg(args, 7, "pane")?.to_owned(),
+                    parent_workspace_id: utf8_arg(args, 8, "parent workspace")?.to_owned(),
+                    parent_label: utf8_arg(args, 9, "parent label")?.to_owned(),
+                    workspace_label: utf8_arg(args, 10, "workspace label")?.to_owned(),
+                    task_label: utf8_arg(args, 11, "task label")?.to_owned(),
+                };
+                bind_journal(&path, binding).map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "journal-write-v2" => {
+                require_len(args, 13)?;
+                write_journal_v2(
+                    Path::new(&args[1]),
+                    ProjectionBinding {
+                        task_id: utf8_arg(args, 2, "task")?.to_owned(),
+                        projection_id: utf8_arg(args, 3, "projection id")?.to_owned(),
+                        home: home_identity(Path::new(
+                            args.get(4).ok_or_else(|| "missing home".to_owned())?,
+                        ))
+                        .map_err(|error| error.to_string())?,
+                        session: utf8_arg(args, 5, "session")?.to_owned(),
+                        workspace_id: utf8_arg(args, 6, "workspace")?.to_owned(),
+                        tab_id: utf8_arg(args, 7, "tab")?.to_owned(),
+                        pane_id: utf8_arg(args, 8, "pane")?.to_owned(),
+                        parent_workspace_id: utf8_arg(args, 9, "parent workspace")?.to_owned(),
+                        parent_label: utf8_arg(args, 10, "parent label")?.to_owned(),
+                        workspace_label: utf8_arg(args, 11, "workspace label")?.to_owned(),
+                        task_label: utf8_arg(args, 12, "task label")?.to_owned(),
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "journal-replace" => {
+                require_len(args, 7)?;
+                replace_journal_endpoint(
+                    Path::new(&args[1]),
+                    utf8_arg(args, 2, "task")?,
+                    utf8_arg(args, 3, "old tab")?,
+                    utf8_arg(args, 4, "old pane")?,
+                    utf8_arg(args, 5, "new tab")?,
+                    utf8_arg(args, 6, "new pane")?,
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "home-identity" => {
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    home_identity(Path::new(&args[1]))
+                        .map_err(|error| error.to_string())?
+                        .display()
+                );
+                Ok(0)
+            }
+            "focus-snapshot" => {
+                let session = utf8_arg(args, 1, "session")?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    backend
+                        .focus_snapshot(session)
+                        .map_err(|error| error.to_string())?
+                        .render()
+                );
+                Ok(0)
+            }
+            "focus-restore" => {
+                let session = utf8_arg(args, 1, "session")?;
+                let raw = utf8_arg(args, 2, "snapshot")?;
+                require_len(args, 3)?;
+                let (workspace_id, tab_id) = raw
+                    .split_once('\t')
+                    .ok_or_else(|| "malformed focus snapshot".to_owned())?;
+                backend
+                    .focus_restore(
+                        session,
+                        &FocusSnapshot {
+                            workspace_id: workspace_id.to_owned(),
+                            tab_id: tab_id.to_owned(),
+                        },
+                    )
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "close-pane-focus" => {
+                let session = utf8_arg(args, 1, "session")?;
+                let pane = utf8_arg(args, 2, "pane")?;
+                let required = args
+                    .get(3)
+                    .and_then(|value| value.to_str())
+                    .filter(|value| !value.is_empty())
+                    .map(|value| match value {
+                        "dead" => Ok(PaneAgentState::Dead),
+                        "no-agent" => Ok(PaneAgentState::NoAgent),
+                        "live" => Ok(PaneAgentState::Live),
+                        "unknown" => Ok(PaneAgentState::Unknown),
+                        _ => Err("invalid pane state".to_owned()),
+                    })
+                    .transpose()?;
+                require_len(args, if args.get(3).is_some() { 4 } else { 3 })?;
+                backend
+                    .close_pane_focus_preserving(session, pane, required)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "presentation-lock-path" => {
+                let session = utf8_arg(args, 1, "session")?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    backend
+                        .presentation_session_lock_path(session)
+                        .map_err(|error| error.to_string())?
+                        .display()
+                );
+                Ok(0)
+            }
+            "presentation-socket-path" => {
+                let session = utf8_arg(args, 1, "session")?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    backend
+                        .presentation_session_socket_path(session)
+                        .map_err(|error| error.to_string())?
+                        .display()
+                );
+                Ok(0)
+            }
+            "parent-workspace" => {
+                let session = utf8_arg(args, 1, "session")?;
+                let label = utf8_arg(args, 2, "label")?;
+                require_len(args, 3)?;
+                print!(
+                    "{}",
+                    backend
+                        .parent_workspace_exact(session, label)
+                        .map_err(|error| error.to_string())?
+                );
+                Ok(0)
+            }
+            "projection-create" => {
+                require_len(args, 4)?;
+                let endpoint = backend
+                    .projection_create_task(
+                        Path::new(&args[1]),
+                        utf8_arg(args, 2, "workspace label")?,
+                        utf8_arg(args, 3, "task label")?,
+                    )
+                    .map_err(|error| error.to_string())?;
+                print!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    endpoint.session,
+                    endpoint.workspace_id,
+                    endpoint.seeded_tab_id,
+                    endpoint.seeded_pane_id,
+                    endpoint.tab_id,
+                    endpoint.pane_id
+                );
+                Ok(0)
+            }
+            "projection-order" => {
+                let session = utf8_arg(args, 1, "session")?;
+                let workspace = utf8_arg(args, 2, "workspace")?;
+                let parent = utf8_arg(args, 3, "parent")?;
+                require_len(args, 4)?;
+                // Best effort by contract: stable warnings belong to the shell adapter.
+                Ok(
+                    if backend
+                        .order_projection_best_effort(session, workspace, parent)
+                        .is_ok()
+                    {
+                        0
+                    } else {
+                        1
+                    },
+                )
+            }
+            "projection-live-binding" => {
+                require_len(args, 10)?;
+                let session = utf8_arg(args, 1, "session")?;
+                let binding = ProjectionBinding {
+                    task_id: "compat".to_owned(),
+                    projection_id: utf8_arg(args, 2, "token")?.to_owned(),
+                    home: PathBuf::from("/"),
+                    session: session.to_owned(),
+                    workspace_id: utf8_arg(args, 3, "workspace")?.to_owned(),
+                    tab_id: utf8_arg(args, 4, "tab")?.to_owned(),
+                    pane_id: utf8_arg(args, 5, "pane")?.to_owned(),
+                    parent_workspace_id: utf8_arg(args, 6, "parent workspace")?.to_owned(),
+                    parent_label: utf8_arg(args, 7, "parent label")?.to_owned(),
+                    workspace_label: utf8_arg(args, 8, "workspace label")?.to_owned(),
+                    task_label: utf8_arg(args, 9, "task label")?.to_owned(),
+                };
+                Ok(
+                    if backend.projection_live_binding_matches(session, &binding) {
+                        0
+                    } else {
+                        1
+                    },
+                )
+            }
+            "projection-recovery-allows-flat" => {
+                require_len(args, 4)?;
+                Ok(
+                    if backend.projection_recovery_allows_flat(
+                        utf8_arg(args, 1, "session")?,
+                        Path::new(&args[2]),
+                        utf8_arg(args, 3, "task")?,
+                    ) {
+                        0
+                    } else {
+                        1
+                    },
+                )
+            }
+            "projection-endpoint-matches" => {
+                require_len(args, 5)?;
+                Ok(
+                    if backend.projection_endpoint_matches_journal(
+                        utf8_arg(args, 1, "session")?,
+                        utf8_arg(args, 2, "workspace")?,
+                        Path::new(&args[3]),
+                        utf8_arg(args, 4, "task")?,
+                    ) {
+                        0
+                    } else {
+                        1
+                    },
+                )
+            }
+            "projection-reclaim" => {
+                require_len(args, 11)?;
+                match backend.projection_reclaim_task(
+                    utf8_arg(args, 1, "session")?,
+                    Path::new(&args[2]),
+                    utf8_arg(args, 3, "task")?,
+                    Path::new(&args[4]),
+                    utf8_arg(args, 5, "workspace")?,
+                    utf8_arg(args, 6, "tab")?,
+                    utf8_arg(args, 7, "pane")?,
+                    utf8_arg(args, 8, "parent label")?,
+                    utf8_arg(args, 9, "task label")?,
+                    Path::new(&args[10]),
+                ) {
+                    ReclaimOutcome::Reclaimed { tab_id, pane_id } => {
+                        print!("{tab_id}\t{pane_id}");
+                        Ok(0)
+                    }
+                    ReclaimOutcome::Flat => Ok(2),
+                    ReclaimOutcome::Refuse => Ok(1),
+                }
+            }
+            _ => Err(format!("unknown Herdr command: {command}")),
+        }
+    })();
+    match result {
+        Ok(status) => status,
+        Err(error) => {
+            eprintln!("mx herdr: {error}");
+            1
+        }
+    }
+}
+
+fn utf8_arg<'a>(args: &'a [OsString], index: usize, name: &str) -> Result<&'a str, String> {
+    args.get(index)
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("missing or non-UTF-8 {name}"))
+}
+
+fn require_len(args: &[OsString], expected: usize) -> Result<(), String> {
+    if args.len() == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected {} arguments, got {}",
+            expected.saturating_sub(1),
+            args.len().saturating_sub(1)
+        ))
     }
 }
 

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Send one narrowly scoped workspace.move request to a Herdr control socket.
 
+The selected Portion 05 Rust adapter replaces this transport with
+``multplx_backend::herdr_wire``; this file remains the legacy rollback path.
+
 This helper is the wire transport for Multplx's optional presentation-only
 workspace ordering. It accepts only an exact workspace id and a non-negative
 insert index, sends only the non-destructive ``workspace.move`` method, and

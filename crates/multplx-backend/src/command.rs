@@ -22,6 +22,8 @@ pub struct CommandRequest {
     pub program: OsString,
     /// Literal argument array.
     pub args: Vec<OsString>,
+    /// Explicit environment additions for this child.
+    pub env: Vec<(OsString, OsString)>,
     /// Wall-clock deadline.
     pub timeout: Duration,
     /// Independent stdout and stderr byte ceiling.
@@ -38,6 +40,7 @@ impl CommandRequest {
         Self {
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
+            env: Vec::new(),
             timeout: DEFAULT_TIMEOUT,
             output_limit: DEFAULT_OUTPUT_LIMIT,
         }
@@ -119,6 +122,7 @@ impl CommandRunner for SystemCommandRunner {
         let display = request.program.to_string_lossy().into_owned();
         let mut child = Command::new(&request.program)
             .args(&request.args)
+            .envs(request.env.iter().cloned())
             .env("LC_ALL", "C")
             .process_group(0)
             .stdin(Stdio::null())
@@ -242,6 +246,7 @@ mod tests {
         let missing = CommandRequest {
             program: OsString::from("/definitely/missing/mx-command"),
             args: Vec::new(),
+            env: Vec::new(),
             timeout: Duration::from_secs(1),
             output_limit: 8,
         };
