@@ -15,6 +15,7 @@ multplx-backend = { path = "../multplx-backend" }
 multplx-core = { path = "../multplx-core" }
 multplx-domain = { path = "../multplx-domain" }
 multplx-services = { path = "../multplx-services" }
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

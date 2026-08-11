@@ -140,3 +140,31 @@ Observed output:
 ```
 
 The safe command-channel contract is covered without a notification by `tests/mx-daemon.test.sh`: the summary reaches both `$1` and stdin, every channel is process-group bounded, and a failed channel falls through.
+
+## Rust Portion 02 shadow primitives
+
+This section owns the active Portion 02 shadow-port evidence for the core contracts listed in [`plans/rust_port/02-core-primitives-durability.html`](../../plans/rust_port/02-core-primitives-durability.html).
+It does not authorize a production cutover or deletion of a legacy script.
+
+The proof ran on 2026-08-10 on macOS 26.5.2 arm64 at legacy base `dfbb3698ace1b044e9f794b5d81fa666bafae9a8` with `rustc 1.97.1` and `cargo 1.97.1`.
+`cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`, `cargo test --locked --workspace`, and `cargo build --release --workspace --locked` passed.
+The workspace result included 60 `multplx-core` unit tests, eight black-box core-primitives compatibility tests, the pre-existing multicall and shell-harness tests, and all doc tests.
+`cargo audit --deny warnings` scanned 62 locked dependencies against 1,207 RustSec advisories and reported no vulnerability or warning.
+`target/release/mx shadow-diagnostic` printed `multplx rust shadow: ready`, while `target/release/mx --help` exposed no operator or production subcommand.
+
+The compatibility tests compare exit status, stdout, stderr, file bytes, and file modes against the current Bash owners for classification, transitions, routing markers, gate refusal, composer parsing, home tags, status folds, journals, wake queues, supervisor discovery, probes, custom-check trust, primary scope, tangle detection, supervision, session-lock status, and process identity.
+Colocated tests additionally cover malformed records, traversal and symlink refusal, exact private metadata, atomic-publication faults before and after rename, concurrent journal writes, concurrent lock acquisition, concurrent wake append, failed-drain restoration, record round-trip matrices, and PID-reuse rejection.
+`cargo llvm-cov --locked --workspace --all-features --lcov --output-path /tmp/mx-plan02-final.lcov` exercised every public `multplx-core` function entry and measured 3,594 of 4,025 core source lines, or 89.29 percent, on this macOS host.
+No public core function entry remains unexecuted on this host, while the remaining uncovered line-level branches include platform-specific implementations, non-public parsing variants, injected operating-system and filesystem failure arms, and defensive race outcomes.
+The Linux `/proc` identity parser has direct Linux-gated tests for valid records, missing records, malformed stat fields, nonnumeric start times, missing command lines, empty command lines, and oversized command lines.
+The concurrent lock-acquisition and wake-append tests each passed 20 consecutive focused repetitions after the final race review.
+
+The final directly named legacy behavior selection passed 11 of 11 scripts in 56,088 ms after the coverage additions and malformed-trust parser fix.
+The broader backend, daemon, Claude auto-arm, tangle-guard, and turn-end-guard selection passed five of five scripts in 113,487 ms.
+The unrestricted local `--all` run was not a valid portable gate because an installed Herdr instance failed the lab helper's pre-existing exact-system-state tripwire, causing the ten tests in the real-Herdr family to refuse setup before exercising product behavior.
+After that external family was excluded through the runner's owned gate, `bin/mx-test-run.sh --all --exclude-family real-herdr-gated --jobs auto` passed all 115 selected scripts with nine expected optional-tool or opt-in skips in 323,179 ms.
+
+A 200-process comparison of the same `blocked` transition-policy decision took 0.29 seconds through Bash and 0.32 seconds through the release Rust compatibility command on this host.
+The comparison is a process-bound shadow check rather than a claim about future in-process service performance, and it shows no material regression at the current compatibility boundary.
+All 18 Portion 02 legacy source files remain present.
+A bounded caller inventory found 78 current shell, test, skill, and documentation files referencing the transferred helper families, so no deletion or caller cutover is eligible in this portion.

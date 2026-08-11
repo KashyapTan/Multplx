@@ -33,10 +33,11 @@ Close any session that already loaded the former root `AGENTS.md` before continu
   A local `config/backlog-backend=manual` opt-out forces the broker's routine backlog updates to hand-editing and stays gitignored; validated daemon handoffs still route through the owned atomic move.
   A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; spawn-supported values are `tmux` plus experimental `herdr` and `cmux`, while `codex-app` is documented only in `docs/codex-app-backend.md`.
   It does not make `data/` tracked.
-- Production helper scripts in `bin/` remain plain Bash during Rust-port Portion 01.
+- Production helper scripts in `bin/` remain plain Bash during Rust-port Portion 02.
   Each starts with a usage header comment; keep it accurate when you change behavior.
   The shadow Rust workspace builds one `mx` multicall binary, but no production command selects it yet.
-  Test scripts and helpers in `tests/` remain plain Bash, with Rust-native fixtures and differential self-tests in `crates/multplx-test-support/`.
+  Portion 02 exposes hidden `mx primitive` compatibility commands for the transferred core contracts so exact legacy-versus-Rust parity can be tested without changing a caller.
+  Test scripts and helpers in `tests/` remain plain Bash, with Rust-native fixtures and differential self-tests in the Rust workspace.
 - Changes to harness adapters (detection in `bin/mx-harness.sh`, launch and hook mechanics in `bin/mx-spawn.sh`, busy signatures in `bin/mx-watch.sh` and `bin/mx-tmux-lib.sh`, cleanup in `bin/mx-teardown.sh`, and facts in `.agents/skills/harness-adapters/SKILL.md`) must be verified empirically against the real harness, never written from documentation alone.
 - Changes to runtime session backends (`bin/mx-backend.sh`, `bin/backends/`, and the scripts that dispatch through them) keep current setup and limits in the relevant backend guide and active empirical evidence in [`docs/verification/runtime-backends.md`](docs/verification/runtime-backends.md).
 - [`docs/documentation-audiences.md`](docs/documentation-audiences.md) and its machine-consumed inventory own prose classification; run `bin/mx-doc-audience-check.sh` after documentation changes.
@@ -92,7 +93,8 @@ target/release/mx shadow-diagnostic
 The existing suite remains legacy by default, while a focused migrated test explicitly selects Rust and may override `MX_TEST_RUST_BIN` with the release binary under test.
 Differential capture compares exit status, standard output, standard error, relative filesystem paths, exact file bytes, file modes, and surviving child processes.
 Only temporary roots, PIDs, ports, timestamps, and random tokens may be normalized by a focused test, and no normalization is automatic.
-The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only; it is not an operator command or a production cutover.
+The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only, while hidden `primitive` subcommands exercise Portion 02 contracts for differential tests.
+Neither surface is an operator command or a production cutover.
 
 `bin/mx-test-run.sh` is the single owner of behavior-suite selection, the resource-conflict manifest, resource-aware scheduling, generated portable CI lanes, timing markers, family totals, the coverage guard, assertion parity, and JSON timing artifacts.
 Its header and `--help` own the flags, family labels, lanes, and changed-file map; this section only documents the entry points.
