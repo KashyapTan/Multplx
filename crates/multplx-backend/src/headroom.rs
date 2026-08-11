@@ -809,7 +809,10 @@ mod tests {
     use std::thread;
 
     use super::{
-        HeadroomPaths, QueueRecord, configured_candidates, queue_add, queue_cancel, queue_list,
+        HeadroomPaths, QueueRecord, configured_candidates, configured_capacity, metadata_value,
+        parse_nonnegative_integer, parse_nonnegative_number, parse_positive_number,
+        profile_harnesses, queue_add, queue_cancel, queue_list, queue_records, read_compact,
+        valid_id,
     };
 
     fn paths(temp: &tempfile::TempDir) -> HeadroomPaths {
@@ -845,6 +848,133 @@ mod tests {
                 ["claude", "codex", "pi"]
             );
         }
+    }
+
+    #[test]
+    fn parsing_capacity_and_candidate_refusals_are_exhaustive() {
+        assert_eq!(parse_nonnegative_integer("0"), Some(0));
+        assert_eq!(parse_nonnegative_integer("42"), Some(42));
+        assert_eq!(parse_nonnegative_integer(""), None);
+        assert_eq!(parse_nonnegative_integer("-1"), None);
+        assert_eq!(parse_nonnegative_number("1.5"), Some(1.5));
+        assert_eq!(parse_nonnegative_number("NaN"), None);
+        assert_eq!(parse_nonnegative_number("1.2.3"), None);
+        assert_eq!(parse_positive_number("0"), None);
+        assert!(valid_id("task-1.ok"));
+        assert!(!valid_id("bad/id"));
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let compact = paths.config.join("compact");
+        std::fs::write(&compact, " 2 \n 0 \n").expect("compact");
+        assert_eq!(read_compact(&compact).as_deref(), Some("20"));
+        assert_eq!(configured_capacity(&paths, None).unwrap(), 20);
+        std::fs::write(paths.config.join("api-capacity"), "7\n").expect("capacity");
+        assert_eq!(configured_capacity(&paths, None).unwrap(), 7);
+        std::fs::write(paths.config.join("api-capacity-codex"), "3\n").expect("capacity");
+        assert_eq!(configured_capacity(&paths, Some("codex")).unwrap(), 3);
+        std::fs::write(paths.config.join("api-capacity-codex"), "bad\n").expect("capacity");
+        assert!(configured_capacity(&paths, Some("codex")).is_err());
+
+        let mut output = Vec::new();
+        profile_harnesses(&serde_json::json!({"harness":"codex"}), &mut output).unwrap();
+        assert_eq!(output, ["codex"]);
+        assert!(profile_harnesses(&serde_json::json!([]), &mut output).is_err());
+        assert!(profile_harnesses(&serde_json::json!({}), &mut output).is_err());
+
+        for (contents, expected) in [
+            ("{", "unreadable"),
+            (r#"{"rules":[],"default":[]}"#, "unreadable"),
+            (r#"{"rules":[]}"#, "empty"),
+            (r#"{"default":{"harness":"bad/name"}}"#, "invalid"),
+        ] {
+            std::fs::write(paths.config.join("actor-dispatch.json"), contents).expect("dispatch");
+            assert!(
+                configured_candidates(&paths)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(expected)
+            );
+        }
+        std::fs::remove_file(paths.config.join("actor-dispatch.json")).expect("remove");
+        std::fs::write(paths.config.join("actor-harness"), " \n").expect("actor");
+        assert!(configured_candidates(&paths).is_err());
+    }
+
+    #[test]
+    fn metadata_and_malformed_queue_records_fail_closed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let metadata = paths.state.join("actor.meta");
+        std::fs::write(&metadata, "key=first\nother=x\nkey=last\n").expect("metadata");
+        assert_eq!(metadata_value(&metadata, "key").as_deref(), Some("last"));
+        assert_eq!(metadata_value(&metadata, "missing"), None);
+
+        let directory = paths.queue_dir();
+        std::fs::create_dir(&directory).expect("queue");
+        let record = directory.join("bad.request");
+        for contents in [
+            "version=2\n",
+            "version=1\ntask_id=bad/id\n",
+            "version=1\ntask_id=other\n",
+            "version=1\ntask_id=bad\nproject=\n",
+            "version=1\ntask_id=bad\nproject=p\nkind=wrong\n",
+            "version=1\ntask_id=bad\nproject=p\nkind=delivery\nenqueued_at=x\n",
+        ] {
+            std::fs::write(&record, contents).expect("record");
+            std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o600))
+                .expect("mode");
+            assert!(queue_records(&paths).is_err(), "{contents}");
+        }
+        std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o644)).expect("mode");
+        assert!(queue_records(&paths).is_err());
+        std::fs::remove_file(&record).expect("remove");
+        std::fs::create_dir(&record).expect("directory record");
+        assert!(queue_records(&paths).is_err());
+    }
+
+    #[test]
+    fn queue_mutation_rejects_invalid_and_conflicting_requests() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let base = QueueRecord {
+            task_id: "one".to_owned(),
+            project: "project".to_owned(),
+            harness: String::new(),
+            model: String::new(),
+            effort: String::new(),
+            backend: String::new(),
+            kind: "delivery".to_owned(),
+            enqueued_at: 1,
+        };
+        for record in [
+            QueueRecord {
+                task_id: "bad/id".to_owned(),
+                ..base.clone()
+            },
+            QueueRecord {
+                project: "".to_owned(),
+                ..base.clone()
+            },
+            QueueRecord {
+                harness: "bad\nvalue".to_owned(),
+                ..base.clone()
+            },
+            QueueRecord {
+                kind: "wrong".to_owned(),
+                ..base.clone()
+            },
+        ] {
+            assert!(queue_add(&paths, &record).is_err());
+        }
+        queue_add(&paths, &base).expect("add");
+        let conflicting = QueueRecord {
+            project: "other".to_owned(),
+            ..base
+        };
+        assert!(queue_add(&paths, &conflicting).is_err());
+        assert!(queue_cancel(&paths, "bad/id").is_err());
+        assert!(queue_cancel(&paths, "missing").is_err());
     }
 
     #[test]

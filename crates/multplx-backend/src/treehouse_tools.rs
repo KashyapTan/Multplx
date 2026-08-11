@@ -106,6 +106,80 @@ fn verify_lease(status: ExitStatus, stdout: &[u8], stderr: &[u8]) -> Result<(), 
     Ok(())
 }
 
+fn install_archive(
+    destination: &Path,
+    temporary: &Path,
+    downloaded: &Path,
+    archive: &str,
+    expected: &str,
+) -> Result<String, InstallError> {
+    if fs::metadata(downloaded)
+        .map_err(io("inspect Treehouse archive"))?
+        .len()
+        > MAX_BYTES
+    {
+        return Err(InstallError::Message(
+            "download exceeded size limit".to_owned(),
+        ));
+    }
+    verify_checksum(downloaded, expected, archive)?;
+    let listing = Command::new("tar")
+        .args(["-tzf"])
+        .arg(downloaded)
+        .output()
+        .map_err(io("inspect Treehouse archive"))?;
+    if !listing.status.success() {
+        return Err(InstallError::Message(format!(
+            "could not inspect archive {archive}"
+        )));
+    }
+    let entries = String::from_utf8(listing.stdout)
+        .map_err(|_| InstallError::Message("archive listing is not UTF-8".to_owned()))?;
+    let wanted = if entries.lines().any(|line| line == "treehouse") {
+        "treehouse".to_owned()
+    } else {
+        format!("treehouse-v{VERSION}/treehouse")
+    };
+    if !entries.lines().any(|line| line == wanted) {
+        return Err(InstallError::Message(format!(
+            "archive {archive} did not contain a treehouse binary"
+        )));
+    }
+    let status = Command::new("tar")
+        .args(["-xzf"])
+        .arg(downloaded)
+        .args(["-C"])
+        .arg(temporary)
+        .arg(&wanted)
+        .status()
+        .map_err(io("extract Treehouse binary"))?;
+    if !status.success() {
+        return Err(InstallError::Message(format!(
+            "could not extract {archive}"
+        )));
+    }
+    fs::create_dir_all(destination).map_err(io("create Treehouse install destination"))?;
+    let installed = destination.join("treehouse");
+    fs::copy(temporary.join(wanted), &installed).map_err(io("install Treehouse binary"))?;
+    fs::set_permissions(&installed, fs::Permissions::from_mode(0o755))
+        .map_err(io("set Treehouse executable mode"))?;
+    let version_output = Command::new(&installed)
+        .arg("--version")
+        .output()
+        .map_err(io("run installed Treehouse version"))?;
+    let version = verified_version(version_output.status, &version_output.stdout)?;
+    let help = Command::new(&installed)
+        .args(["get", "--help"])
+        .output()
+        .map_err(io("inspect Treehouse lease support"))?;
+    verify_lease(help.status, &help.stdout, &help.stderr)?;
+    eprintln!(
+        "mx-install-treehouse.sh: installed treehouse v{version} with get --lease to {}",
+        installed.display()
+    );
+    Ok(format!("v{version}"))
+}
+
 fn install(destination: &Path) -> Result<String, InstallError> {
     let (archive, expected) = asset_for_platform(std::env::consts::OS, std::env::consts::ARCH)?;
     let url = format!("https://github.com/{REPOSITORY}/releases/download/v{VERSION}/{archive}");
@@ -135,71 +209,13 @@ fn install(destination: &Path) -> Result<String, InstallError> {
             "download failed for {url} (bounded at {MAX_BYTES} bytes)"
         )));
     }
-    if fs::metadata(&downloaded)
-        .map_err(io("inspect Treehouse archive"))?
-        .len()
-        > MAX_BYTES
-    {
-        return Err(InstallError::Message(
-            "download exceeded size limit".to_owned(),
-        ));
-    }
-    verify_checksum(&downloaded, expected, archive)?;
-    let listing = Command::new("tar")
-        .args(["-tzf"])
-        .arg(&downloaded)
-        .output()
-        .map_err(io("inspect Treehouse archive"))?;
-    if !listing.status.success() {
-        return Err(InstallError::Message(format!(
-            "could not inspect archive {archive}"
-        )));
-    }
-    let entries = String::from_utf8(listing.stdout)
-        .map_err(|_| InstallError::Message("archive listing is not UTF-8".to_owned()))?;
-    let wanted = if entries.lines().any(|line| line == "treehouse") {
-        "treehouse".to_owned()
-    } else {
-        format!("treehouse-v{VERSION}/treehouse")
-    };
-    if !entries.lines().any(|line| line == wanted) {
-        return Err(InstallError::Message(format!(
-            "archive {archive} did not contain a treehouse binary"
-        )));
-    }
-    let status = Command::new("tar")
-        .args(["-xzf"])
-        .arg(&downloaded)
-        .args(["-C"])
-        .arg(temporary.path())
-        .arg(&wanted)
-        .status()
-        .map_err(io("extract Treehouse binary"))?;
-    if !status.success() {
-        return Err(InstallError::Message(format!(
-            "could not extract {archive}"
-        )));
-    }
-    fs::create_dir_all(destination).map_err(io("create Treehouse install destination"))?;
-    let installed = destination.join("treehouse");
-    fs::copy(temporary.path().join(wanted), &installed).map_err(io("install Treehouse binary"))?;
-    fs::set_permissions(&installed, fs::Permissions::from_mode(0o755))
-        .map_err(io("set Treehouse executable mode"))?;
-    let version_output = Command::new(&installed)
-        .arg("--version")
-        .output()
-        .map_err(io("run installed Treehouse version"))?;
-    let version = verified_version(version_output.status, &version_output.stdout)?;
-    let help = Command::new(&installed)
-        .args(["get", "--help"])
-        .output()
-        .map_err(io("inspect Treehouse lease support"))?;
-    verify_lease(help.status, &help.stdout, &help.stderr)?;
-    eprintln!(
-        "mx-install-treehouse.sh: installed treehouse v{version} with get --lease to {}",
-        installed.display()
-    );
-    Ok(format!("v{version}"))
+    install_archive(
+        destination,
+        temporary.path(),
+        &downloaded,
+        archive,
+        expected,
+    )
 }
 
 pub fn run_installer(args: &[OsString]) -> i32 {
@@ -223,9 +239,12 @@ pub fn run_installer(args: &[OsString]) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::ExitStatusExt;
 
-    use super::{asset_for_platform, verified_version, verify_checksum, verify_lease};
+    use super::{
+        asset_for_platform, hash, install_archive, verified_version, verify_checksum, verify_lease,
+    };
 
     #[test]
     fn pinned_platform_matrix_is_complete() {
@@ -260,5 +279,47 @@ mod tests {
         assert!(verified_version(success, b"v2.0.0\n").is_err());
         assert!(verify_lease(success, b"get [--lease]\n", b"").is_ok());
         assert!(verify_lease(success, b"get\n", b"").is_err());
+    }
+
+    #[test]
+    fn verified_archive_installs_an_exact_version_with_lease_support() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("source");
+        let extraction = temp.path().join("extraction");
+        let destination = temp.path().join("destination");
+        std::fs::create_dir(&source).expect("source");
+        std::fs::create_dir(&extraction).expect("extraction");
+        let binary = source.join("treehouse");
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nif [ \"${1:-}\" = --version ]; then printf 'v2.0.1\\n'; else printf '%s\\n' 'get --lease'; fi\n",
+        )
+        .expect("binary");
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        let archive = temp.path().join("fixture.tar.gz");
+        assert!(
+            std::process::Command::new("tar")
+                .args(["-czf"])
+                .arg(&archive)
+                .args(["-C"])
+                .arg(&source)
+                .arg("treehouse")
+                .status()
+                .expect("tar")
+                .success()
+        );
+        let expected = hash(&archive).expect("hash");
+        assert_eq!(
+            install_archive(
+                &destination,
+                &extraction,
+                &archive,
+                "fixture.tar.gz",
+                &expected
+            )
+            .expect("install"),
+            "v2.0.1"
+        );
+        assert!(destination.join("treehouse").is_file());
     }
 }

@@ -233,6 +233,41 @@ mod tests {
     }
 
     #[test]
+    fn every_harness_shape_and_unknown_fallback_is_detected() {
+        for (command, arguments, expected) in [
+            ("/opt/claude", "", Harness::Claude),
+            ("codex-cli", "", Harness::Codex),
+            ("cursor-agent", "", Harness::Cursor),
+            ("pi", "", Harness::Pi),
+            ("node", "/tools/claude/index.js", Harness::Claude),
+            ("node", "/tools/codex/index.js", Harness::Codex),
+            ("python3", "/tools/cursor-agent/main.py", Harness::Cursor),
+            ("python", "runner /opt/pi", Harness::Pi),
+        ] {
+            let processes = Processes(HashMap::from([(
+                9,
+                AncestryRow {
+                    parent_pid: 1,
+                    command: command.to_owned(),
+                    arguments: arguments.to_owned(),
+                },
+            )]));
+            assert_eq!(detect_with(&|_| None, 9, &processes), expected);
+            assert_eq!(expected.to_string(), expected.as_str());
+        }
+        let empty = Processes(HashMap::new());
+        assert_eq!(detect_with(&|_| None, 9, &empty), Harness::Unknown);
+        assert_eq!(
+            detect_with(
+                &|name| (name == "PI_CODING_AGENT").then(|| "true".to_owned()),
+                9,
+                &empty
+            ),
+            Harness::Pi
+        );
+    }
+
+    #[test]
     fn static_actor_and_daemon_tokens_preserve_fallbacks() {
         let temp = tempfile::tempdir().expect("tempdir");
         let config = HarnessConfig::new(temp.path());
@@ -248,5 +283,16 @@ mod tests {
         assert_eq!(config.daemon(Harness::Claude), "pi");
         assert_eq!(config.daemon_model().as_deref(), Some("model/x"));
         assert_eq!(config.daemon_effort().as_deref(), Some("high"));
+
+        std::fs::write(temp.path().join("actor-harness"), " default \n").expect("actor");
+        std::fs::write(
+            temp.path().join("daemon-harness"),
+            "default ignored ignored\n",
+        )
+        .expect("daemon");
+        assert_eq!(config.actor(Harness::Cursor), "cursor");
+        assert_eq!(config.daemon(Harness::Cursor), "cursor");
+        assert_eq!(config.daemon_model(), None);
+        assert_eq!(config.daemon_effort(), None);
     }
 }

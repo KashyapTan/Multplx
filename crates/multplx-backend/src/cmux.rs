@@ -839,9 +839,13 @@ mod tests {
     use std::collections::VecDeque;
     use std::os::unix::process::ExitStatusExt;
     use std::process::ExitStatus;
+    use std::time::Duration;
 
     use crate::command::{CommandError, CommandOutput, CommandRequest, CommandRunner};
-    use crate::facade::{BackendName, BackendTarget, CaptureRequest, RuntimeBackend};
+    use crate::facade::{
+        AgentState, BackendName, BackendTarget, Capability, CaptureRequest, ContainerId,
+        KillOutcome, RuntimeBackend, SubmitRequest, TaskSpec,
+    };
 
     use super::{CmuxBackend, PingState, normalize_key, parse_target};
 
@@ -863,6 +867,14 @@ mod tests {
             status: ExitStatus::from_raw(0),
             stdout: stdout.to_vec(),
             stderr: Vec::new(),
+        })
+    }
+
+    fn failed(stderr: &'static [u8]) -> Result<CommandOutput, CommandError> {
+        Ok(CommandOutput {
+            status: ExitStatus::from_raw(1 << 8),
+            stdout: Vec::new(),
+            stderr: stderr.to_vec(),
         })
     }
 
@@ -923,15 +935,15 @@ mod tests {
 
     #[test]
     fn ping_and_capture_parse_structured_responses() {
-        let mut backend = backend(vec![
+        let mut fixture = backend(vec![
             ok(b"PONG\n"),
             ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
             ok(br#"{"text":"one\ntwo\nthree"}"#),
         ]);
-        assert_eq!(backend.ping_state(), PingState::Ok);
+        assert_eq!(fixture.ping_state(), PingState::Ok);
         let target = BackendTarget::new(BackendName::Cmux, "w:s", None).expect("target");
         assert_eq!(
-            backend
+            fixture
                 .capture(&CaptureRequest {
                     target,
                     lines: 2,
@@ -940,5 +952,186 @@ mod tests {
                 .expect("capture"),
             b"two\nthree"
         );
+    }
+
+    #[test]
+    fn ping_version_and_startup_failures_are_typed() {
+        for (text, expected) in [
+            (
+                "only processes started inside cmux can connect",
+                PingState::Denied,
+            ),
+            ("Authentication required", PingState::Unauthenticated),
+            ("Invalid password", PingState::Unauthenticated),
+            ("Socket not found", PingState::Down),
+            ("unexpected", PingState::Error),
+        ] {
+            let mut backend = CmuxBackend::new(
+                FakeRunner {
+                    calls: Vec::new(),
+                    outputs: vec![Ok(CommandOutput {
+                        status: ExitStatus::from_raw(0),
+                        stdout: text.as_bytes().to_vec(),
+                        stderr: Vec::new(),
+                    })]
+                    .into(),
+                },
+                "cmux",
+                "/tmp/root",
+                "/tmp/home",
+                "/tmp/config",
+            );
+            assert_eq!(backend.ping_state(), expected);
+            assert_eq!(expected.as_str(), expected.as_str());
+        }
+
+        let mut denied = backend(vec![ok(b"only processes started inside cmux can connect")]);
+        assert!(
+            denied
+                .ensure_running()
+                .unwrap_err()
+                .to_string()
+                .contains("cmuxOnly")
+        );
+        let mut unauth = backend(vec![ok(b"Password mode is enabled but no socket password")]);
+        assert!(
+            unauth
+                .ensure_running()
+                .unwrap_err()
+                .to_string()
+                .contains("requires a password")
+        );
+        let mut launch_failure = backend(vec![ok(b"Socket not found"), failed(b"no app")]);
+        assert!(launch_failure.ensure_running().is_err());
+        let mut launched = backend(vec![ok(b"Socket not found"), ok(b""), ok(b"PONG\n")]);
+        launched.ensure_running().expect("started");
+
+        for bytes in [&b"cmux\n"[..], &b"cmux bad\n"[..], &b"cmux 0.63.9\n"[..]] {
+            let mut backend = backend(vec![ok(bytes)]);
+            assert!(backend.version_check().is_err());
+        }
+        assert_eq!(
+            backend(vec![ok(b"cmux 1.2.3\n")])
+                .version_check()
+                .expect("version"),
+            "1.2.3"
+        );
+    }
+
+    #[test]
+    fn workspace_target_and_runtime_outcomes_cover_refresh_edges() {
+        let mut fixture = backend(vec![
+            ok(br#"{"workspaces":[{"id":"w","title":"wanted"}]}"#),
+            ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
+            ok(br#"{"panes":[{"selected_surface_id":"selected"}]}"#),
+            ok(br#"[{"id":"win"}]"#),
+            ok(br#"{"workspaces":[{"id":"w"},{"id":"other"}]}"#),
+        ]);
+        assert_eq!(
+            fixture.workspace_id_for_label("wanted").unwrap().as_deref(),
+            Some("w")
+        );
+        assert!(fixture.surface_exists("w", "s").unwrap());
+        assert_eq!(
+            fixture.surface_id_for_workspace("w").unwrap().as_deref(),
+            Some("selected")
+        );
+        assert_eq!(
+            fixture.window_of_workspace("w").unwrap(),
+            Some(("win".to_owned(), 2))
+        );
+
+        let target = BackendTarget::new(BackendName::Cmux, "w:s", None).unwrap();
+        let mut absent = backend(vec![ok(br#"{"panes":[]}"#)]);
+        assert!(absent.target_ready(&target).is_err());
+        let wrong = BackendTarget::new(BackendName::Tmux, "w:s", None).unwrap();
+        assert!(backend(vec![]).target_ready(&wrong).is_err());
+
+        let mut runtime = backend(vec![]);
+        assert_eq!(runtime.name(), BackendName::Cmux);
+        assert!(runtime.supports(Capability::ComposerState));
+        assert!(!runtime.supports(Capability::NativeState));
+        assert_eq!(runtime.agent_state(&target), AgentState::Unverified);
+        assert!(runtime.native_state(&target).is_err());
+        let container = ContainerId::for_backend(BackendName::Cmux, "cmux").unwrap();
+        assert!(
+            runtime
+                .wait_transition(&container, &[], Duration::ZERO)
+                .is_err()
+        );
+        assert_eq!(runtime.kill_verified(&target), KillOutcome::Unknown);
+    }
+
+    #[test]
+    fn capture_composer_submit_and_inventory_cover_public_contracts() {
+        let container = ContainerId::for_backend(BackendName::Cmux, "cmux").unwrap();
+        let task = TaskSpec {
+            label: "mx-task".to_owned(),
+            working_directory: "/tmp".into(),
+        };
+        let mut duplicate = backend(vec![ok(
+            br#"{"workspaces":[{"id":"w","title":"mx-home-task"}]}"#,
+        )]);
+        assert!(duplicate.task_create(&container, &task).is_err());
+
+        let target = BackendTarget::new(BackendName::Cmux, "w:s", None).unwrap();
+        let mut capture_too_large = backend(vec![
+            ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
+            ok(br#"{"text":"oversized"}"#),
+        ]);
+        assert!(
+            capture_too_large
+                .capture(&CaptureRequest {
+                    target: target.clone(),
+                    lines: 1,
+                    byte_limit: 2,
+                })
+                .is_err()
+        );
+
+        let mut unknown = backend(vec![
+            ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
+            ok(br#"{"text":"plain output"}"#),
+        ]);
+        assert_eq!(unknown.composer_state(&target).unwrap().as_str(), "unknown");
+
+        let mut submit = backend(vec![
+            ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
+            ok(b""),
+            ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
+            ok(b""),
+            ok(br#"{"panes":[{"surface_ids":["s"]}]}"#),
+            ok(br#"{"text":"| Type a message... |"}"#),
+        ]);
+        let state = submit
+            .send_submit(
+                &target,
+                SubmitRequest {
+                    text: "hello",
+                    retries: 1,
+                    enter_delay: Duration::ZERO,
+                    settle: Duration::ZERO,
+                },
+            )
+            .expect("submit");
+        assert_eq!(state.as_str(), "empty");
+
+        let mut inventory = backend(vec![]);
+        let title = inventory.scoped_title("mx-live").expect("title");
+        inventory.runner.outputs.push_back(Ok(CommandOutput {
+            status: ExitStatus::from_raw(0),
+            stdout: format!(
+                r#"{{"workspaces":[{{"id":"w","title":"{title}"}},{{"id":"x","title":"other"}}]}}"#
+            )
+            .into_bytes(),
+            stderr: Vec::new(),
+        }));
+        inventory
+            .runner
+            .outputs
+            .push_back(ok(br#"{"panes":[{"surface_ids":["s"]}]}"#));
+        let live = inventory.list_live(None).expect("inventory");
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].target.endpoint(), "w:s");
     }
 }
