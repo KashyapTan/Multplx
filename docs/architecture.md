@@ -10,14 +10,17 @@ The temporary filename prevents auto-loading while Multplx ports itself, and por
 
 ## Rust shadow workspace
 
-Rust-port Portion 01 adds one Cargo workspace without moving a production behavior path.
-`multplx-core` is the future owner of filesystem, process, record, clock, command, and lock primitives.
+Rust-port Portion 01 added one Cargo workspace without moving a production behavior path.
+Portion 02 makes `multplx-core` the shadow owner of filesystem, process, record, command, lock, session-lock, supervision, probe, transition, journal, tmux, and wake primitives.
+The transferred contracts correspond to `mx-backend-hometag-lib.sh`, `mx-check-lib.sh`, `mx-classify-lib.sh`, `mx-composer-lib.sh`, `mx-gate-refuse-lib.sh`, `mx-journal-lib.sh`, `mx-lock-lib.sh`, `mx-lock.sh`, `mx-marker-lib.sh`, `mx-primary-scope-lib.sh`, `mx-probe-lib.sh`, `mx-session-lock-lib.sh`, `mx-supervision-lib.sh`, `mx-supervisor-target-lib.sh`, `mx-tangle-lib.sh`, `mx-tmux-lib.sh`, `mx-transition-lib.sh`, and `mx-wake-lib.sh`.
+The Rust modules use typed identifiers and records, bounded no-follow reads, durable same-directory replacement, single-write append, owner-directory locks, PID identity, injected clocks and process probes, and typed command transports.
+The maintainer-override grant state machine remains owned by its later port portion and plugs into the session-lock primitive through an explicit authority trait.
 `multplx-domain` is the future owner of typed durable records and lifecycle state machines.
 `multplx-backend` is the future owner of the runtime-backend interface and its supported adapters.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
 `multplx-services` is the future owner of MCP and loopback HTTP services.
-`multplx-test-support` owns deterministic Rust fixtures and the legacy-versus-Rust comparison self-tests.
-The release binary currently exposes only a hidden shadow diagnostic, and every operator command, hook, skill, workflow, and launcher continues to use the existing implementation.
+`multplx-test-support` owns shared deterministic Rust fixtures, while colocated core and CLI tests own Portion 02 fault, concurrency, and legacy-versus-Rust parity coverage.
+The release binary exposes a hidden shadow diagnostic and hidden `primitive` compatibility commands, and every operator command, hook, skill, workflow, and launcher continues to use the existing implementation.
 The cross-cutting port contract and cutover gates remain owned by [`plans/rust_port/PORTING.md`](../plans/rust_port/PORTING.md).
 
 ## Health probes and recovery ownership
