@@ -5,7 +5,7 @@
 //! bounded test-child cleanup without adding seams to production commands.
 
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -123,8 +123,13 @@ impl FakePath {
     pub fn write_shell(&self, name: &str, body: &str) -> io::Result<PathBuf> {
         let path = self.directory.join(name);
         let script = format!("#!/bin/sh\n{body}\n");
-        fs::write(&path, script.as_bytes())?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+        temporary.write_all(script.as_bytes())?;
+        temporary
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o755))?;
+        let published = temporary.persist(&path).map_err(|error| error.error)?;
+        drop(published);
         Ok(path)
     }
 }
@@ -363,13 +368,15 @@ mod tests {
     fn fake_path_writes_executable_fixtures() {
         let home = TempHome::new().expect("home");
         let fake_path = FakePath::new(home.path()).expect("fake PATH");
-        let executable = fake_path
-            .write_shell("example", "printf 'fixture\\n'")
-            .expect("fake executable");
+        for generation in 0..8 {
+            let executable = fake_path
+                .write_shell("example", &format!("printf 'fixture-{generation}\\n'"))
+                .expect("fake executable");
 
-        assert_eq!(permission_mode(&executable).expect("mode"), 0o755);
-        let output = Command::new(executable).output().expect("run fixture");
-        assert_eq!(output.stdout, b"fixture\n");
+            assert_eq!(permission_mode(&executable).expect("mode"), 0o755);
+            let output = Command::new(executable).output().expect("run fixture");
+            assert_eq!(output.stdout, format!("fixture-{generation}\n").as_bytes());
+        }
     }
 
     #[test]
