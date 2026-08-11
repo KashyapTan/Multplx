@@ -666,3 +666,13 @@ mx_backend_cmux_list_live() {
     printf '%s:%s\tmx-%s\n' "$wsid" "$sfid" "$plain"
   done < <(printf '%s' "$wss" | jq -r --arg prefix "$prefix" '.workspaces[]? | select(.title | startswith($prefix)) | "\(.id)\t\(.title)"' 2>/dev/null)
 }
+
+# Directly sourced compatibility tests can select the Rust overlay explicitly.
+# Normal runtime selection happens in bin/mx-backend.sh before any operation.
+if [ "${MX_BACKEND_IMPLEMENTATION:-legacy}" = rust ] && [ -z "${_MX_CMUX_RUST_OVERLAY:-}" ]; then
+  _MX_CMUX_RUST_OVERLAY=1
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$MX_BACKEND_CMUX_ROOT/bin/mx-rust-runtime.sh"
+  # shellcheck source=bin/backends/cmux-rust.sh
+  . "$MX_BACKEND_CMUX_ROOT/bin/backends/cmux-rust.sh"
+fi

@@ -103,6 +103,7 @@ make_fake_ps_harness() {
 set -u
 harness=${MX_FAKE_HARNESS:-claude}
 case "$*" in
+  *"ppid="*"comm="*"args="*) printf '1 /usr/local/bin/%s %s\n' "$harness" "$harness"; exit 0 ;;
   *"comm="*) printf '/usr/local/bin/%s\n' "$harness"; exit 0 ;;
   *"args="*) printf '%s\n' "$harness"; exit 0 ;;
 esac
@@ -124,6 +125,14 @@ for arg in "\$@"; do
   prev="\$arg"
 done
 case "\$*" in
+  *"ppid="*"comm="*"args="*)
+    if [ "\$pid" = "$holder_pid" ]; then
+      printf '1 /usr/local/bin/pi pi\n'
+    else
+      printf '%s /bin/zsh zsh\n' "$holder_pid"
+    fi
+    exit 0
+    ;;
   *"comm="*)
     if [ "\$pid" = "$holder_pid" ]; then
       printf '/usr/local/bin/pi\n'
@@ -447,7 +456,8 @@ EOF
 
 run_session_start_herdr_daemon() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
-  MX_BACKEND=herdr MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" \
+  MX_BACKEND=herdr MX_BACKEND_IMPLEMENTATION=legacy \
+    MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" \
     MX_FAKE_DAEMON_ID="$SESSION_START_HERDR_DAEMON_ID" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }

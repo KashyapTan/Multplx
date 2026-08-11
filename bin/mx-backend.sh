@@ -445,8 +445,16 @@ mx_backend_source() {  # <name>
       ;;
     cmux)
       if [ -z "${_MX_BACKEND_CMUX_SOURCED:-}" ]; then
-        # shellcheck source=/dev/null
-        . "$MX_BACKEND_LIB_DIR/backends/cmux.sh" || return 1
+        case "$MX_BACKEND_IMPLEMENTATION_SELECTED" in
+          rust)
+            # shellcheck source=/dev/null
+            . "$MX_BACKEND_LIB_DIR/backends/cmux-rust.sh" || return 1
+            ;;
+          legacy)
+            # shellcheck source=/dev/null
+            . "$MX_BACKEND_LIB_DIR/backends/cmux.sh" || return 1
+            ;;
+        esac
         _MX_BACKEND_CMUX_SOURCED=1
       fi
       ;;

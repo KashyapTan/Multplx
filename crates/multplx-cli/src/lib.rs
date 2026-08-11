@@ -57,6 +57,36 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Exercise the Rust cmux transport implementation.
+    #[command(hide = true, disable_help_flag = true)]
+    Cmux {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Detect and resolve verified harness configuration.
+    #[command(hide = true, disable_help_flag = true)]
+    Harness {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Validate and exec one verified primary harness.
+    #[command(hide = true, disable_help_flag = true)]
+    LaunchHarness {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Compute dispatch capacity or operate on its durable queue.
+    #[command(hide = true, disable_help_flag = true)]
+    Headroom {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Install the exact pinned Treehouse CI artifact.
+    #[command(hide = true, disable_help_flag = true)]
+    InstallTreehouse {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Capture a bounded endpoint tail through the shadow tmux backend.
     #[command(hide = true)]
     Peek {
@@ -306,6 +336,13 @@ impl Cli {
             Command::HerdrCiCleanup { args } => multplx_backend::herdr_tools::run_ci_cleanup(&args),
             Command::HerdrSessionCleanup => multplx_backend::herdr_cleanup::run_session_cleanup(),
             Command::InstallHerdr { args } => multplx_backend::herdr_tools::run_installer(&args),
+            Command::Cmux { args } => run_cmux(&args),
+            Command::Harness { args } => run_harness(&args),
+            Command::LaunchHarness { args } => run_launch_harness(&args),
+            Command::Headroom { args } => run_headroom(&args),
+            Command::InstallTreehouse { args } => {
+                multplx_backend::treehouse_tools::run_installer(&args)
+            }
             Command::Peek { target, lines } => run_peek(&target, lines),
             Command::ActorState { id } => run_actor_state(&id),
             Command::Backlog { args } => run_backlog(&args),
@@ -509,6 +546,414 @@ fn run_backend(command: BackendCommand) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => backend_error(error),
+    }
+}
+
+fn cmux_target(
+    value: &str,
+    expected: Option<String>,
+) -> Result<multplx_backend::facade::BackendTarget, String> {
+    multplx_backend::facade::BackendTarget::new(
+        multplx_backend::facade::BackendName::Cmux,
+        value,
+        expected,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn run_cmux(args: &[OsString]) -> i32 {
+    use multplx_backend::facade::{
+        CaptureRequest, ContainerId, RuntimeBackend, SubmitRequest, TaskSpec,
+    };
+
+    let command = args
+        .first()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let result: Result<i32, String> = (|| {
+        let mut backend = multplx_backend::cmux::CmuxBackend::system();
+        let expected = |index: usize| {
+            args.get(index)
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        };
+        match command {
+            "bin" => {
+                require_len(args, 1)?;
+                if backend.executable_available() {
+                    print!("{}", backend.executable().to_string_lossy());
+                    Ok(0)
+                } else {
+                    Ok(1)
+                }
+            }
+            "password" => {
+                require_len(args, 1)?;
+                if let Some(value) = backend.socket_password() {
+                    print!("{value}");
+                }
+                Ok(0)
+            }
+            "cli" => {
+                if args.len() < 2 {
+                    return Err("cli requires cmux arguments".to_owned());
+                }
+                let output = backend
+                    .cli(args[1..].iter().cloned())
+                    .map_err(|error| error.to_string())?;
+                io::stdout()
+                    .write_all(&output.stdout)
+                    .map_err(|error| error.to_string())?;
+                io::stderr()
+                    .write_all(&output.stderr)
+                    .map_err(|error| error.to_string())?;
+                Ok(output.status.code().unwrap_or(1))
+            }
+            "tool-check" => {
+                require_len(args, 1)?;
+                backend.tool_check().map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "version-check" => {
+                require_len(args, 1)?;
+                backend.version_check().map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "ping-state" => {
+                require_len(args, 1)?;
+                print!("{}", backend.ping_state().as_str());
+                Ok(0)
+            }
+            "ensure-running" => {
+                require_len(args, 1)?;
+                backend
+                    .ensure_running()
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "container-ensure" => {
+                require_len(args, 1)?;
+                backend
+                    .container_ensure()
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "home-label" => {
+                require_len(args, 1)?;
+                print!(
+                    "{}",
+                    backend.home_label().map_err(|error| error.to_string())?
+                );
+                Ok(0)
+            }
+            "scoped-title" => {
+                let label = utf8_arg(args, 1, "label")?;
+                require_len(args, 2)?;
+                print!(
+                    "{}",
+                    backend
+                        .scoped_title(label)
+                        .map_err(|error| error.to_string())?
+                );
+                Ok(0)
+            }
+            "workspace-id-for-label" => {
+                let label = utf8_arg(args, 1, "label")?;
+                require_len(args, 2)?;
+                if let Some(value) = backend
+                    .workspace_id_for_label(label)
+                    .map_err(|error| error.to_string())?
+                {
+                    print!("{value}");
+                }
+                Ok(0)
+            }
+            "surface-id-for-workspace" => {
+                let workspace = utf8_arg(args, 1, "workspace")?;
+                require_len(args, 2)?;
+                if let Some(value) = backend
+                    .surface_id_for_workspace(workspace)
+                    .map_err(|error| error.to_string())?
+                {
+                    print!("{value}");
+                }
+                Ok(0)
+            }
+            "create-task" => {
+                let label = utf8_arg(args, 1, "label")?.to_owned();
+                let cwd = PathBuf::from(
+                    args.get(2)
+                        .ok_or_else(|| "missing working directory".to_owned())?,
+                );
+                require_len(args, 3)?;
+                let container =
+                    ContainerId::for_backend(multplx_backend::facade::BackendName::Cmux, "cmux")
+                        .map_err(|error| error.to_string())?;
+                let target = backend
+                    .task_create(
+                        &container,
+                        &TaskSpec {
+                            label,
+                            working_directory: cwd,
+                        },
+                    )
+                    .map_err(|error| error.to_string())?;
+                let (workspace, surface) = multplx_backend::cmux::parse_target(target.endpoint())
+                    .map_err(|error| error.to_string())?;
+                print!("{workspace} {surface}");
+                Ok(0)
+            }
+            "parse-target" => {
+                let target = utf8_arg(args, 1, "target")?;
+                require_len(args, 2)?;
+                let (workspace, surface) = multplx_backend::cmux::parse_target(target)
+                    .map_err(|error| error.to_string())?;
+                print!("{workspace}\t{surface}");
+                Ok(0)
+            }
+            "surface-exists" => {
+                let workspace = utf8_arg(args, 1, "workspace")?;
+                let surface = utf8_arg(args, 2, "surface")?;
+                require_len(args, 3)?;
+                Ok(
+                    if backend.surface_exists(workspace, surface).unwrap_or(false) {
+                        0
+                    } else {
+                        1
+                    },
+                )
+            }
+            "target-ready" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let target = cmux_target(target, expected(2))?;
+                backend
+                    .target_ready(&target)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "current-path" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let target = cmux_target(target, expected(2))?;
+                let path = backend
+                    .current_path(&target)
+                    .map_err(|error| error.to_string())?;
+                print!("{}", path.display());
+                Ok(0)
+            }
+            "send-literal" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let text = utf8_arg(args, 2, "text")?;
+                let target = cmux_target(target, expected(3))?;
+                backend
+                    .send_literal(&target, text)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "normalize-key" => {
+                let key = utf8_arg(args, 1, "key")?;
+                require_len(args, 2)?;
+                print!("{}", multplx_backend::cmux::normalize_key(key));
+                Ok(0)
+            }
+            "send-key" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let key = utf8_arg(args, 2, "key")?;
+                let target = cmux_target(target, expected(3))?;
+                backend
+                    .send_key(&target, key)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "send-text-line" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let text = utf8_arg(args, 2, "text")?;
+                let target = cmux_target(target, expected(3))?;
+                backend
+                    .send_text_line(&target, text)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "capture" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let lines = args
+                    .get(2)
+                    .and_then(|value| value.to_str())
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or(200);
+                let target = cmux_target(target, expected(3))?;
+                let bytes = backend
+                    .capture(&CaptureRequest {
+                        target,
+                        lines,
+                        byte_limit: 256 * 1024,
+                    })
+                    .map_err(|error| error.to_string())?;
+                io::stdout()
+                    .write_all(&bytes)
+                    .map_err(|error| error.to_string())?;
+                Ok(0)
+            }
+            "composer-state" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let target = cmux_target(target, expected(2))?;
+                print!(
+                    "{}",
+                    backend
+                        .composer_state(&target)
+                        .unwrap_or(multplx_core::composer::ComposerState::Unknown)
+                        .as_str()
+                );
+                Ok(0)
+            }
+            "send-submit" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let text = utf8_arg(args, 2, "text")?;
+                let retries = utf8_arg(args, 3, "retries")?
+                    .parse::<usize>()
+                    .map_err(|_| "invalid retries".to_owned())?;
+                let enter_delay = parse_seconds(utf8_arg(args, 4, "enter delay")?)?;
+                let settle = parse_seconds(utf8_arg(args, 5, "settle")?)?;
+                let target = cmux_target(target, expected(6))?;
+                match backend.send_submit(
+                    &target,
+                    SubmitRequest {
+                        text,
+                        retries,
+                        enter_delay,
+                        settle,
+                    },
+                ) {
+                    Ok(state) => print!("{}", state.as_str()),
+                    Err(_) => print!("send-failed"),
+                }
+                Ok(0)
+            }
+            "window-of-workspace" => {
+                let workspace = utf8_arg(args, 1, "workspace")?;
+                require_len(args, 2)?;
+                if let Some((window, count)) = backend
+                    .window_of_workspace(workspace)
+                    .map_err(|error| error.to_string())?
+                {
+                    print!("{window} {count}");
+                }
+                Ok(0)
+            }
+            "kill" => {
+                let target = utf8_arg(args, 1, "target")?;
+                let target = cmux_target(target, expected(3))?;
+                backend.kill_best_effort(&target);
+                Ok(0)
+            }
+            "list-live" => {
+                require_len(args, 1)?;
+                for item in backend.list_live(None).map_err(|error| error.to_string())? {
+                    println!("{}\t{}", item.target.endpoint(), item.label);
+                }
+                Ok(0)
+            }
+            _ => Err(format!("unknown cmux command: {command}")),
+        }
+    })();
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("error: {error}");
+            1
+        }
+    }
+}
+
+fn run_harness(args: &[OsString]) -> i32 {
+    let root = std::env::var_os("MX_ROOT_OVERRIDE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let home = std::env::var_os("MX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or(root);
+    let config = std::env::var_os("MX_CONFIG_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("config"));
+    let settings = multplx_backend::harness::HarnessConfig::new(config);
+    let own = multplx_backend::harness::detect();
+    let value = match args
+        .first()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+    {
+        "actor" => Some(settings.actor(own)),
+        "daemon" => Some(settings.daemon(own)),
+        "daemon-model" => settings.daemon_model(),
+        "daemon-effort" => settings.daemon_effort(),
+        _ => Some(own.to_string()),
+    };
+    if let Some(value) = value {
+        println!("{value}");
+    }
+    0
+}
+
+fn run_launch_harness(args: &[OsString]) -> i32 {
+    let Some(harness) = args.first().and_then(|value| value.to_str()) else {
+        eprintln!("multplx: harness must be claude, codex, cursor, or pi");
+        return 2;
+    };
+    multplx_backend::harness_launch::run(harness, &args[1..])
+}
+
+fn run_headroom(args: &[OsString]) -> i32 {
+    use multplx_backend::headroom::{HeadroomPaths, QueueRecord};
+
+    let paths = HeadroomPaths::from_environment();
+    let result: Result<String, String> = (|| {
+        match args.first().and_then(|value| value.to_str()).unwrap_or_default() {
+            "--json" if args.len() == 1 => serde_json::to_string(&multplx_backend::headroom::evaluate(&paths).map_err(|error| error.to_string())?).map(|value| format!("{value}\n")).map_err(|error| error.to_string()),
+            "--queue" if args.len() == 1 => multplx_backend::headroom::queue_list(&paths).map_err(|error| error.to_string()),
+            "--queue-cancel" if args.len() == 2 => multplx_backend::headroom::queue_cancel(&paths, utf8_arg(args, 1, "task id")?).map_err(|error| error.to_string()),
+            "--queue-drain" if args.len() == 1 => multplx_backend::headroom::queue_drain(&paths).map_err(|error| error.to_string()),
+            "--queue-add" if args.len() >= 3 => {
+                let id = utf8_arg(args, 1, "task id")?.to_owned();
+                let project = utf8_arg(args, 2, "project")?.to_owned();
+                let mut harness = String::new();
+                let mut model = String::new();
+                let mut effort = String::new();
+                let mut backend = String::new();
+                let mut kind = "delivery".to_owned();
+                let mut index = 3;
+                while index < args.len() {
+                    let flag = args[index].to_str().ok_or_else(|| "queue profile argument is not UTF-8".to_owned())?;
+                    match flag {
+                        "--scout" => { kind = "scout".to_owned(); index += 1; }
+                        "--harness" | "--model" | "--effort" | "--backend" => {
+                            let value = args.get(index + 1).and_then(|value| value.to_str()).ok_or_else(|| format!("{flag} requires a value"))?.to_owned();
+                            match flag { "--harness" => harness = value, "--model" => model = value, "--effort" => effort = value, _ => backend = value }
+                            index += 2;
+                        }
+                        _ => return Err(format!("unknown queue profile argument: {flag}")),
+                    }
+                }
+                multplx_backend::headroom::queue_add(&paths, &QueueRecord { task_id: id, project, harness, model, effort, backend, kind, enqueued_at: multplx_backend::headroom::now_epoch() }).map_err(|error| error.to_string())
+            }
+            "--json" => Err("--json takes no arguments".to_owned()),
+            "--queue" => Err("--queue takes no arguments".to_owned()),
+            "--queue-cancel" => Err("--queue-cancel requires exactly one task id".to_owned()),
+            "--queue-drain" => Err("--queue-drain takes no arguments".to_owned()),
+            "--queue-add" => Err("--queue-add requires task id and project".to_owned()),
+            "-h" | "--help" => Ok("Composite dispatch capacity and durable parked-dispatch queue.\n\nUsage:\n  mx-headroom.sh --json\n  mx-headroom.sh --queue\n  mx-headroom.sh --queue-add <id> <project> [profile flags]\n  mx-headroom.sh --queue-cancel <id>\n  mx-headroom.sh --queue-drain\n".to_owned()),
+            _ => Err("usage: mx-headroom.sh --json|--queue|--queue-add|--queue-cancel|--queue-drain".to_owned()),
+        }
+    })();
+    match result {
+        Ok(output) => {
+            print!("{output}");
+            0
+        }
+        Err(error) => {
+            eprintln!("mx-headroom: {error}");
+            1
+        }
     }
 }
 

@@ -8,7 +8,7 @@ This document expands every part of it.
 The broker contract and routing index for conditional procedures is temporarily maintained in [`AGENTS-PORTING.md`](../AGENTS-PORTING.md); this is the human-facing companion.
 The temporary filename prevents auto-loading while Multplx ports itself, and portion 13 restores it to root `AGENTS.md` only after the full Rust-default gate passes.
 
-## Rust shadow workspace
+## Rust runtime workspace
 
 Rust-port Portion 01 added one Cargo workspace without moving a production behavior path.
 Portion 02 makes `multplx-core` the shadow owner of filesystem, process, record, command, lock, session-lock, supervision, probe, transition, journal, tmux, and wake primitives.
@@ -16,17 +16,18 @@ The transferred contracts correspond to `mx-backend-hometag-lib.sh`, `mx-check-l
 The Rust modules use typed identifiers and records, bounded no-follow reads, durable same-directory replacement, single-write append, owner-directory locks, PID identity, injected clocks and process probes, and typed command transports.
 The maintainer-override grant state machine remains owned by its later port portion and plugs into the session-lock primitive through an explicit authority trait.
 `multplx-domain` is the future owner of typed durable records and lifecycle state machines.
-Portion 04 makes `multplx-backend` the shadow owner of the typed runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
+Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
+Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue, and pinned Treehouse installer.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
 Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
 Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
-The hidden `MX_BACKEND_IMPLEMENTATION=rust` selector chooses the Rust tmux path once before an operation and never falls back after execution begins.
-Legacy remains the production default until cmux and backend-wide dispatch complete in Portion 06; Herdr can be selected independently with `MX_BACKEND_IMPLEMENTATION=rust` for shadow and required real-backend verification.
+The backend, harness, headroom, and Treehouse shell entry points choose the Rust path once before an operation and never fall back after execution begins.
+Rust is the production default for that layer after Portion 06, while explicit `legacy` selectors retain a bounded rollback until the port closeout removes it.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
 `multplx-services` is the future owner of MCP and loopback HTTP services.
 `multplx-test-support` owns shared deterministic Rust fixtures, while colocated core and CLI tests own Portion 02 fault, concurrency, and legacy-versus-Rust parity coverage.
-The release binary exposes hidden shadow diagnostics, primitive compatibility commands, and backend commands used only by the selected shadow transport.
+The release binary exposes hidden diagnostics, primitive compatibility commands, and transport commands used by selected public shell adapters.
 Every operator command, hook, skill, workflow, and launcher keeps its existing public interface.
 The cross-cutting port contract and cutover gates remain owned by [`plans/rust_port/PORTING.md`](../plans/rust_port/PORTING.md).
 

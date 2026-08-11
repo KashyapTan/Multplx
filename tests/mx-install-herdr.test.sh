@@ -9,11 +9,13 @@ set -u
 
 HERDR_INSTALL="$ROOT/bin/mx-install-herdr.sh"
 TREEHOUSE_INSTALL="$ROOT/bin/mx-install-treehouse.sh"
+TREEHOUSE_RUST="$ROOT/crates/multplx-backend/src/treehouse_tools.rs"
 CLEANUP="$ROOT/bin/mx-herdr-ci-cleanup.sh"
 CI="$ROOT/.github/workflows/ci.yml"
 
 assert_present "$HERDR_INSTALL" "bin/mx-install-herdr.sh is missing"
 assert_present "$TREEHOUSE_INSTALL" "bin/mx-install-treehouse.sh is missing"
+assert_present "$TREEHOUSE_RUST" "Rust Treehouse installer is missing"
 assert_present "$CLEANUP" "bin/mx-herdr-ci-cleanup.sh is missing"
 [ -x "$HERDR_INSTALL" ] || fail "mx-install-herdr.sh must be executable"
 [ -x "$TREEHOUSE_INSTALL" ] || fail "mx-install-treehouse.sh must be executable"
@@ -42,8 +44,16 @@ test_herdr_installer_pins_exact_version_and_checksums() {
 }
 
 test_treehouse_installer_pins_exact_version_and_checksums() {
+  assert_grep 'const VERSION: &str = "2.0.1"' "$TREEHOUSE_RUST" \
+    "Rust Treehouse installer must pin the suite-verified 2.0.1 release"
+  assert_grep 'kunchenguid/treehouse' "$TREEHOUSE_RUST" \
+    "Rust Treehouse installer must use the official GitHub release source"
+  assert_grep '1d5a32751ab921670103fd201ddb2b91b47338cb13976f45642b827cf8976af2' "$TREEHOUSE_RUST" \
+    "Rust Treehouse installer must pin the Linux amd64 SHA-256"
+  assert_grep 'MAX_BYTES: u64 = 15_000_000' "$TREEHOUSE_RUST" \
+    "Rust Treehouse installer must bound the download size"
   assert_grep 'MX_TREEHOUSE_CI_VERSION=2.0.1' "$TREEHOUSE_INSTALL" \
-    "Treehouse installer must pin the suite-verified 2.0.1 release"
+    "legacy rollback must retain the suite-verified 2.0.1 release"
   assert_grep 'kunchenguid/treehouse' "$TREEHOUSE_INSTALL" \
     "Treehouse installer must use the official GitHub release source"
   assert_grep 'linux-amd64.tar.gz' "$TREEHOUSE_INSTALL" \
@@ -54,7 +64,7 @@ test_treehouse_installer_pins_exact_version_and_checksums() {
     "Treehouse installer must bound the download size"
   assert_no_grep 'brew install' "$TREEHOUSE_INSTALL" \
     "Treehouse installer must not use a floating package-manager install"
-  pass "Treehouse installer pins exact version, asset, and checksum"
+  pass "Rust-default and legacy Treehouse installers pin the exact version, asset, and checksum"
 }
 
 test_cleanup_only_targets_job_owned_lab_sessions() {

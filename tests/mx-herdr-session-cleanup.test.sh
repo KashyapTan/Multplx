@@ -21,6 +21,7 @@ FAKEBIN=$(mx_fakebin "$TMP_ROOT")
 mx_fake_exit0 "$FAKEBIN" herdr
 export PATH="$FAKEBIN:$PATH"
 export MX_HERDR_SESSION_CLEANUP_SOURCE_ONLY=1
+export MX_BACKEND_IMPLEMENTATION=legacy
 # shellcheck source=/dev/null
 . "$ROOT/bin/mx-herdr-session-cleanup.sh"
 unset MX_HERDR_SESSION_CLEANUP_SOURCE_ONLY

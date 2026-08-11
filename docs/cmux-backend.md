@@ -17,6 +17,8 @@ Prerequisites:
 
 The CLI is not always installed on `PATH` with the app.
 The adapter prefers `command -v cmux` and otherwise uses `/Applications/cmux.app/Contents/Resources/bin/cmux`.
+The public shell functions dispatch to the typed implementation in `crates/multplx-backend/src/cmux.rs` by default.
+Set `MX_BACKEND_IMPLEMENTATION=legacy` before a command to select the retained Bash adapter as a bounded rollback.
 
 ### Required socket access
 
@@ -92,7 +94,7 @@ Spawn-time worktree discovery sends begin and end markers around `pwd`, captures
 
 Literal send and Enter are separate calls.
 Enter, Escape, and Ctrl-C are supported.
-The composer verifier locates the last bordered composer row and delegates the content decision to `bin/mx-composer-lib.sh`.
+The composer verifier locates the last bordered composer row and delegates the content decision to the shared typed composer classifier.
 A bare shell prompt is `unknown`, and a slash-popup placeholder remains `pending`, so only Enter is retried and text is never retyped.
 cmux exposes no native generic agent busy signal, so supervision uses the shared capture/hash and busy-regex path.
 
@@ -123,8 +125,9 @@ Real tests share the maintainer's running app rather than creating an isolated c
 ## Regression entry points
 
 ```sh
-tests/mx-backend-cmux.test.sh
-tests/mx-backend-cmux-smoke.test.sh
+MX_BACKEND_IMPLEMENTATION=rust tests/mx-backend-cmux.test.sh
+MX_BACKEND_IMPLEMENTATION=legacy tests/mx-backend-cmux.test.sh
+MX_BACKEND_IMPLEMENTATION=rust tests/mx-backend-cmux-smoke.test.sh
 ```
 
 [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) records the active source and live evidence, including socket modes and last-in-window cleanup.

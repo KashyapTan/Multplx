@@ -15,7 +15,7 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 RUNTIME="$TMP_ROOT/runtime"
 mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
   "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state"
-for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh; do
+for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh; do
   cp "$ROOT/bin/$file" "$RUNTIME/bin/$file"
 done
 cp "$ROOT/share/shell/multplx.bash" "$RUNTIME/share/shell/multplx.bash"
@@ -29,12 +29,15 @@ git -C "$RUNTIME" add -A
 git -C "$RUNTIME" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' commit -qm initial
 
 ran=0
-for harness in claude codex pi; do
-  real=$(command -v "$harness" 2>/dev/null || true)
+for harness in claude codex cursor pi; do
+  executable=$harness
+  [ "$harness" = cursor ] && executable=cursor-agent
+  real=$(command -v "$executable" 2>/dev/null || true)
   [ -n "$real" ] || continue
   case "$harness" in
     claude) variable=MX_REAL_CLAUDE ;;
     codex) variable=MX_REAL_CODEX ;;
+    cursor) variable=MX_REAL_CURSOR_AGENT ;;
     pi) variable=MX_REAL_PI ;;
   esac
   output=$(env MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$RUNTIME" "$variable=$real" \

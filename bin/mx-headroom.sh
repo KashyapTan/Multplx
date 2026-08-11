@@ -29,6 +29,16 @@
 #   mx-headroom.sh --queue-add <id> <project> [profile flags]
 #   mx-headroom.sh --queue-cancel <id>
 #   mx-headroom.sh --queue-drain
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  _mx_headroom_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_headroom_dir/mx-rust-runtime.sh"
+  _mx_headroom_implementation=$(mx_headroom_implementation) || exit $?
+  if [ "$_mx_headroom_implementation" = rust ]; then
+    _mx_headroom_rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$_mx_headroom_rust_bin" headroom "$@"
+  fi
+fi
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -208,13 +218,17 @@ configured_candidates() {
     command -v jq >/dev/null 2>&1 || return 1
     jq -r '
       def profiles($value):
-        if ($value | type) == "array" then $value[]
+        if (($value | type) == "array" and ($value | length) > 0) then $value[]
         elif ($value | type) == "object" then $value
-        else empty
+        else error("profile set must be a non-empty object or array")
         end;
       ([.rules[]? | profiles(.use) | .harness]
        + [if has("default") then profiles(.default) | .harness else empty end])
-      | unique[]
+      | if length == 0
+           or any(.[]; (type != "string") or length == 0)
+        then error("every configured candidate needs a harness")
+        else unique[]
+        end
     ' "$CONFIG/actor-dispatch.json" 2>/dev/null
     return
   fi

@@ -246,13 +246,22 @@ test_propagate_lib() {
 # propagates the actor harness into the home's config.
 # ===========================================================================
 
-# A tmux stub that accepts every subcommand and prints nothing, so no window
-# pre-exists and the spawn proceeds to write its meta. Echoes the fakebin dir.
+# A tmux stub that accepts every subcommand and returns the stable window id
+# requested by the Rust task-create adapter. No window pre-exists, so spawn
+# proceeds to write its metadata under either implementation.
 make_noop_tmux() {
   local dir=$1 fakebin="$1/fakebin"
   mkdir -p "$fakebin"
-  cat > "$fakebin/tmux" <<'SH'
+cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+case "${1:-}" in
+  new-window) printf '@1\n' ;;
+  display-message)
+    case "$*" in
+      *"#{window_name}"*) printf 'mx-%s\n' "${MX_FAKE_TASK_ID:-sm}" ;;
+    esac
+    ;;
+esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
@@ -288,7 +297,7 @@ spawn_daemon() {
     MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$world/home" \
     MX_STATE_OVERRIDE="$world/home/state" MX_DATA_OVERRIDE="$world/home/data" \
     MX_PROJECTS_OVERRIDE="$world/home/projects" MX_CONFIG_OVERRIDE="$world/home/config" \
-    MX_SPAWN_NO_GUARD=1 \
+    MX_SPAWN_NO_GUARD=1 MX_FAKE_TASK_ID="$id" \
     "$ROOT/bin/mx-spawn.sh" "${spawn_args[@]}" >/dev/null 2>&1 || true
 }
 
@@ -433,9 +442,16 @@ case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${MX_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
 case "${1:-}" in
-  display-message) printf 'broker\n'; exit 0 ;;
+  display-message)
+    case "$*" in
+      *"#{window_name}"*) printf 'mx-%s\n' "${MX_FAKE_TASK_ID:-sm}" ;;
+      *) printf 'broker\n' ;;
+    esac
+    exit 0
+    ;;
   list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
+  new-window) printf '@1\n'; exit 0 ;;
+  has-session|new-session|kill-window) exit 0 ;;
   send-keys)
     if [ -n "${MX_FAKE_LAUNCH_LOG:-}" ]; then
       prev=
@@ -468,7 +484,7 @@ spawn_daemon_capture() {
     MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$world/home" \
     MX_STATE_OVERRIDE="$world/home/state" MX_DATA_OVERRIDE="$world/home/data" \
     MX_PROJECTS_OVERRIDE="$world/home/projects" MX_CONFIG_OVERRIDE="$world/home/config" \
-    MX_SPAWN_NO_GUARD=1 MX_FAKE_LAUNCH_LOG="$launchlog" \
+    MX_SPAWN_NO_GUARD=1 MX_FAKE_LAUNCH_LOG="$launchlog" MX_FAKE_TASK_ID="$id" \
     "$ROOT/bin/mx-spawn.sh" "$id" "$home" "$@" --daemon
 }
 

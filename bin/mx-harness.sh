@@ -20,6 +20,16 @@
 # name and is never parsed for a model.
 # Detection layers: verified environment markers first, then process ancestry.
 # Record each newly verified env marker here.
+if [ "${BASH_SOURCE[0]}" = "$0" ] && [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/mx-rust-runtime.sh" ]; then
+  _mx_harness_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_harness_dir/mx-rust-runtime.sh"
+  _mx_harness_implementation=$(mx_harness_implementation) || exit $?
+  if [ "$_mx_harness_implementation" = rust ]; then
+    _mx_harness_rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$_mx_harness_rust_bin" harness "$@"
+  fi
+fi
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

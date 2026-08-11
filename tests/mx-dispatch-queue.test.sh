@@ -16,6 +16,7 @@ mkdir -p "$HOME_DIR/state"
 cat > "$FAKE_SPAWN" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MX_QUEUE_TEST_SPAWN_LOG"
+[ "${MX_QUEUE_FAIL_TASK:-}" != "${1:-}" ]
 SH
 chmod +x "$FAKE_SPAWN"
 
@@ -124,8 +125,22 @@ test_cancel_removes_only_named_entry() {
   assert_absent "$HOME_DIR/state/.dispatch-queue/cancel.request" "cancel retained the named entry"
   assert_grep 'task_id=keep' "$HOME_DIR/state/.dispatch-queue/keep.request" \
     "cancel removed a different entry"
+  queue_cmd --queue-cancel keep >/dev/null || fail "queue cleanup cancel failed"
 
   pass "queue cancellation removes exactly the named parked request"
+}
+
+test_failed_launch_retains_record_for_retry() {
+  local record="$HOME_DIR/state/.dispatch-queue/retry.request" out rc=0
+  queue_cmd --queue-add retry projects/retry --harness pi >/dev/null
+  out=$(MX_QUEUE_FAIL_TASK=retry queue_cmd --queue-drain 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "failed queued launch reported success"
+  assert_contains "$out" 'record retained' "failed launch did not explain retry preservation"
+  assert_grep 'task_id=retry' "$record" "failed launch dropped its durable record"
+  queue_cmd --queue-drain >/dev/null || fail "retained request did not retry successfully"
+  assert_absent "$record" "successful retry retained the queue record"
+
+  pass "failed queue launch retains an exact crash-recovery record"
 }
 
 test_spawn_boundary_parks_before_allocation
@@ -133,5 +148,6 @@ test_queue_add_is_durable_and_visible
 test_at_limit_never_dispatches
 test_fifo_one_per_cycle_and_exactly_once
 test_cancel_removes_only_named_entry
+test_failed_launch_retains_record_for_retry
 
 echo "ALL TESTS PASSED"

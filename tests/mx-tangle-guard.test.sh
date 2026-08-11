@@ -164,7 +164,8 @@ esac
 case "${1:-}" in
   display-message) printf 'broker\n'; exit 0 ;;
   list-windows) exit 0 ;;
-  has-session|new-session|new-window|send-keys) exit 0 ;;
+  new-window) printf '@1\n'; exit 0 ;;
+  has-session|new-session|send-keys) exit 0 ;;
 esac
 exit 0
 SH

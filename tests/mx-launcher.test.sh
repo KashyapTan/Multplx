@@ -14,7 +14,7 @@ make_runtime() {
   mkdir -p "$target/bin" "$target/.agents/skills" "$target/share/shell/shims"
   for source_file in \
     mx-launcher-lib.sh mx-launcher.sh mx-launcher-install.sh \
-    mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh \
+    mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh \
     mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
     cp "$ROOT/bin/$source_file" "$target/bin/$source_file"
   done

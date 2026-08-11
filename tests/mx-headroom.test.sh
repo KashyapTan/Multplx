@@ -131,11 +131,29 @@ test_unreadable_signals_refuse() {
   pass "unreadable signals refuse instead of guessing"
 }
 
+test_malformed_candidate_configuration_refuses() {
+  local home="$TMP_ROOT/malformed-candidates" out rc=0
+  mkdir -p "$home/config"
+  printf '%s\n' '{"rules":[{"use":[{"model":"missing-harness"}]}]}' \
+    > "$home/config/actor-dispatch.json"
+  out=$(MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
+    MX_HEADROOM_MEM_AVAILABLE_BYTES=8589934592 MX_HEADROOM_IN_USE=0 \
+    MX_HEADROOM_API_CAPACITY=5 "$HEADROOM" --json 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "malformed candidate configuration produced capacity"
+  assert_contains "$out" 'configured dispatch candidates are unreadable' \
+    "malformed candidate diagnostic was vague"
+  assert_not_contains "$out" '"capacity"' \
+    "malformed candidate configuration emitted a partial capacity object"
+
+  pass "malformed dispatch candidates refuse instead of being omitted"
+}
+
 test_shape_and_internal_consistency
 test_each_half_can_bound_dispatch
 test_candidate_budgets_are_accounted
 test_unconfigured_api_capacity_defaults_to_twenty
 test_default_local_reservations_allow_twenty_remote_workers
 test_unreadable_signals_refuse
+test_malformed_candidate_configuration_refuses
 
 echo "ALL TESTS PASSED"

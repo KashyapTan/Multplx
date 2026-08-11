@@ -10,7 +10,7 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 RUNTIME="$TMP_ROOT/runtime"
 mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
   "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state"
-for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-lock.sh mx-session-lock-lib.sh \
+for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh \
   mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
   cp "$ROOT/bin/$file" "$RUNTIME/bin/$file"
 done

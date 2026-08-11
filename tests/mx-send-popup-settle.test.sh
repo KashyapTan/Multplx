@@ -100,7 +100,7 @@ first_settle() {  # <expected> <label> <harness|--explicit> <message> [selector-
     mx_write_meta "$home/state/$meta_id.meta" "window=sess:win" "harness=$harness"
   fi
   : > "$log"
-  env MX_SEND_SETTLE=0 PATH="$fb:$PATH" \
+  env MX_SEND_SETTLE=0 MX_BACKEND_IMPLEMENTATION=legacy PATH="$fb:$PATH" \
     MX_ROOT_OVERRIDE="$home" MX_HOME="$home" MX_SLEEP_LOG="$log" \
     "$SEND" "$target" "$msg" 2>/dev/null; rc=$?
   expect_code 0 "$rc" "$label: send should succeed"

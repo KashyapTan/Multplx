@@ -47,7 +47,7 @@ The `flag` class is also deliberate for mixed files where path-only matching can
 | `bin/fm-brief.sh` | relevant | `bin/mx-brief.sh`, with additive Multplx briefing behavior. |
 | `bin/fm-send.sh` | relevant | `bin/mx-send.sh`, with additive Multplx routing behavior. |
 | `bin/fm-decision-hold.sh` | relevant | `bin/mx-decision-hold.sh`. |
-| `bin/fm-install-treehouse.sh` | relevant | `bin/mx-install-treehouse.sh`, whose external pin remains separately reviewed. |
+| `bin/fm-install-treehouse.sh` | relevant | `bin/mx-install-treehouse.sh` and its Rust default implementation, whose external pin remains separately reviewed. |
 | `tests/fm-crew-state.test.sh` | relevant | Regression coverage for `bin/mx-actor-state.sh`. |
 | `tests/fm-watch*.test.sh` | relevant | Watcher and checkpoint regression coverage. |
 | `tests/fm-watcher-lock.test.sh` | relevant | Watcher-lock regression coverage. |
@@ -104,10 +104,10 @@ _No completed upstream review has been recorded._
 
 | Dependency | Upstream | Pin | Verification owner |
 |---|---|---|---|
-| Treehouse worktree provider | https://github.com/kunchenguid/treehouse | `v2.0.1` | `bin/mx-install-treehouse.sh` owns the per-platform SHA-256 table, bounded download, and exact post-install version check. |
+| Treehouse worktree provider | https://github.com/kunchenguid/treehouse | `v2.0.1` | `crates/multplx-backend/src/treehouse_tools.rs` owns the Rust-default per-platform SHA-256 table, bounded download, exact post-install version check, and `get --lease` gate; `bin/mx-install-treehouse.sh` retains the public command and legacy rollback. |
 
 Treehouse release review is part of the upstream watch.
-A pin bump is an ordinary reviewed change that updates both the version and every platform checksum in `bin/mx-install-treehouse.sh`.
+A pin bump is an ordinary reviewed change that updates both the version and every platform checksum in the Rust implementation and retained legacy rollback.
 
 ## Phase 0 baseline (2026-07-27, macOS; corrected after plan 01)
 
