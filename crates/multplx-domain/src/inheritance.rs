@@ -893,6 +893,7 @@ pub struct RereadContext<'a> {
     pub source_home: &'a Path,
     pub root: &'a Path,
     pub state: &'a Path,
+    pub skip_pending: bool,
 }
 
 pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
@@ -909,8 +910,17 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
         }
     };
     let changed = changed_items(context.report).unwrap_or_default();
-    let mut stages = pending_stages(context.source_home, context.id);
-    for report in pending_reports(context.source_home, context.id) {
+    let mut stages = if context.skip_pending {
+        Vec::new()
+    } else {
+        pending_stages(context.source_home, context.id)
+    };
+    let reports = if context.skip_pending {
+        Vec::new()
+    } else {
+        pending_reports(context.source_home, context.id)
+    };
+    for report in reports {
         let stage = PathBuf::from(report.to_string_lossy().trim_end_matches(".report"));
         match write_reread_instruction(&destination_home, &report, &stage) {
             Ok(true) => {
@@ -953,7 +963,11 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
             }
         }
     }
-    let mut delivery = pending_instructions(&destination_home);
+    let mut delivery = if context.skip_pending {
+        Vec::new()
+    } else {
+        pending_instructions(&destination_home)
+    };
     for stage in &stages {
         match publish_stage(&destination_home, stage) {
             Ok(path) => {
@@ -1585,6 +1599,7 @@ mod tests {
             source_home: &source_home,
             root: &root,
             state: &state,
+            skip_pending: false,
         };
         let (ok, output) = send_reread(&context);
         assert!(ok, "{output}");
@@ -1599,14 +1614,31 @@ mod tests {
         assert!(!ok);
         assert!(output.contains("delivery-refused"));
         assert!(has_pending(&daemon));
-        write_executable(&root.join("bin/mx-send.sh"), "#!/bin/sh\nexit 0\n");
         let empty_report = temp.path().join("empty-report");
         fs::write(&empty_report, "").expect("empty report");
+        let delivery_log = temp.path().join("delivery.log");
+        write_executable(
+            &root.join("bin/mx-send.sh"),
+            &format!("#!/bin/sh\nprintf sent >> '{}'\n", delivery_log.display()),
+        );
+        let skip = RereadContext {
+            id: "worker",
+            destination_home: &daemon,
+            report: &empty_report,
+            source_home: &source_home,
+            root: &root,
+            state: &state,
+            skip_pending: true,
+        };
+        assert!(send_reread(&skip).0);
+        assert!(!delivery_log.exists());
+        assert!(has_pending(&daemon));
         let retry = RereadContext {
             report: &empty_report,
             ..context
         };
         assert!(send_reread(&retry).0);
+        assert!(delivery_log.exists());
         assert!(!has_pending(&daemon));
 
         let missing = RereadContext {
@@ -1780,6 +1812,7 @@ mod tests {
             source_home: &source_home,
             root: &root,
             state: &state,
+            skip_pending: false,
         };
         assert!(send_reread(&context).0);
         assert!(pending_reports(&source_home, "worker").is_empty());
@@ -1802,6 +1835,7 @@ mod tests {
             source_home: &queue_home,
             root: &root,
             state: &state,
+            skip_pending: false,
         };
         let (ok, output) = send_reread(&full);
         assert!(!ok);
@@ -1957,6 +1991,7 @@ mod tests {
             source_home: &source_home,
             root: &root,
             state: &state,
+            skip_pending: false,
         };
         let (ok, output) = send_reread(&context);
         assert!(!ok);

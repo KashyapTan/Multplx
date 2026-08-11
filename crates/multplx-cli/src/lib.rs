@@ -534,6 +534,7 @@ fn run_config_inherit(args: &[OsString]) -> i32 {
                 source_home: &source_home,
                 root: &send_root,
                 state: &state,
+                skip_pending: std::env::var("MX_CONFIG_REREAD_SKIP_PENDING").as_deref() == Ok("1"),
             };
             let (ok, output) = inherit::send_reread(&context);
             print!("{output}");
@@ -709,6 +710,7 @@ fn run_config_push(args: &[OsString]) -> i32 {
                     source_home: &home,
                     root: &send_root,
                     state: &state,
+                    skip_pending: false,
                 };
                 let (_, output) = inherit::send_reread(&context);
                 print!("{output}");
@@ -757,6 +759,7 @@ fn run_config_push(args: &[OsString]) -> i32 {
             source_home: &home,
             root: &send_root,
             state: &state,
+            skip_pending: false,
         };
         let (sent, output) = inherit::send_reread(&context);
         if sent && (!changed.is_empty() || pending) {
