@@ -37,9 +37,11 @@ MX_SHARED_MAINTAINER_FILE="maintainer-shared.md"
 MX_SHARED_MAINTAINER_REL="data/$MX_SHARED_MAINTAINER_FILE"
 MX_SHARED_MAINTAINER_MODE="444"
 
-# The declared inheritable set (space-separated, config-dir-relative item paths).
-# Extend here to inherit more of the primary's local config; override via the
-# environment only in tests. Items must not contain whitespace.
+# The Rust `multplx-domain::inheritance` module owns validation and propagation.
+# This source-compatible adapter exposes the declared inheritable set to shell
+# callers and retains the historical implementation for explicit rollback.
+# Items are space-separated config-dir-relative paths and must not contain
+# whitespace.
 MX_INHERITABLE_CONFIG="${MX_INHERITABLE_CONFIG:-actor-dispatch.json actor-harness backlog-backend herdr-presentation-spaces}"
 
 mx_inherit_file_mode() {
@@ -1104,3 +1106,57 @@ EOF
   mx_config_reread_cleanup_sent "$dest_home_abs"
   return 0
 }
+
+# Rust owns the active implementation. These source-compatible functions are
+# transport adapters; the definitions above remain the explicit legacy path.
+MX_CONFIG_INHERIT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$MX_CONFIG_INHERIT_SCRIPT_DIR/mx-rust-runtime.sh"
+mx_config_inherit_implementation=$(mx_local_state_implementation) || {
+  return 2 2>/dev/null || exit 2
+}
+if [ "$mx_config_inherit_implementation" = rust ]; then
+  mx_config_inherit_rust() {
+    local rust_bin
+    rust_bin=$(mx_rust_runtime_bin) || return $?
+    MX_RUST_SOURCE_ROOT="${MX_CONFIG_INHERIT_SCRIPT_DIR%/bin}" \
+      "$rust_bin" config-inherit "$@"
+  }
+  mx_inherit_file_mode() { mx_config_inherit_rust file-mode "$1"; }
+  mx_inherit_file_device() { mx_config_inherit_rust file-device "$1"; }
+  mx_inherit_file_link_count() { mx_config_inherit_rust file-links "$1"; }
+  mx_inherit_sha256() { mx_config_inherit_rust sha256 "$1"; }
+  propagate_shared_maintainer_preferences() {
+    mx_config_inherit_rust propagate-shared "$1" "$2"
+  }
+  propagate_inheritable_config() {
+    mx_config_inherit_rust propagate-config "$1" "$2"
+  }
+  propagate_daemon_inheritance() {
+    mx_config_inherit_rust propagate-daemon "$@"
+  }
+  mx_config_reread_changed_items() { mx_config_inherit_rust changed-items "$1"; }
+  mx_config_inherit_lock_path() { mx_config_inherit_rust lock-path "$1"; }
+  mx_config_reread_retry_dir() { mx_config_inherit_rust retry-dir "$1" "$2"; }
+  mx_config_reread_pending_stages() { mx_config_inherit_rust pending-stages "$1" "$2"; }
+  mx_config_reread_pending_reports() { mx_config_inherit_rust pending-reports "$1" "$2"; }
+  mx_config_reread_has_staged() { mx_config_inherit_rust has-staged "$1" "$2"; }
+  mx_config_reread_retry_queue_is_full() { mx_config_inherit_rust queue-full "$1" "$2"; }
+  mx_config_reread_retry_pending() { mx_config_inherit_rust retry-pending "$1" "$2"; }
+  mx_config_reread_new_retry_stage_path() { mx_config_inherit_rust new-stage "$1" "$2"; }
+  mx_config_reread_save_retry_report() { mx_config_inherit_rust save-report "$1" "$2"; }
+  mx_config_write_reread_instruction() {
+    mx_config_inherit_rust write-instruction "$1" "$2" "$3"
+  }
+  mx_config_reread_pending_instructions() {
+    local state=$1
+    mx_config_inherit_rust pending-instructions "${state%/state}"
+  }
+  mx_config_reread_has_pending() { mx_config_inherit_rust has-pending "$1"; }
+  mx_config_reread_cleanup_sent() { mx_config_inherit_rust cleanup-sent "$1"; }
+  mx_config_reread_mark_pending() { mx_config_inherit_rust mark-pending "$1" "$2"; }
+  mx_config_reread_publish_stage() { mx_config_inherit_rust publish-stage "$1" "$2"; }
+  mx_config_reread_discard_pending() { mx_config_inherit_rust discard-pending "$@"; }
+  mx_config_reread_quarantine_pending() { mx_config_inherit_rust quarantine-pending "$@"; }
+  mx_config_send_reread_nudge() { mx_config_inherit_rust send-reread "$1" "$2" "$3"; }
+fi

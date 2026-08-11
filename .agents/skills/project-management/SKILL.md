@@ -18,7 +18,7 @@ It does not replace `daemon-provisioning`, which owns project clones inside pers
 ## Preconditions and registry
 
 Projects live flat under `projects/`, and `data/projects.md` is the private system registry.
-Use the registry format and parser contract owned by the header of `bin/mx-project-mode.sh`.
+Use the registry format and parser contract owned by `bin/mx-project-mode.sh` and its typed Rust `ProjectRegistry` implementation.
 Keep each registry description useful for identifying the project, but keep delivery posture, maintainer-private state, and detailed project knowledge in their existing designated homes.
 Do not turn the registry into project documentation.
 

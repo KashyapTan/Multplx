@@ -213,6 +213,7 @@ impl JournalWriter {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::os::unix::fs::symlink;
     use std::sync::{Arc, Barrier};
     use std::thread;
 
@@ -302,5 +303,84 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    #[test]
+    fn event_vocabulary_and_envelope_validation_are_exhaustive() {
+        let events = [
+            "task.spawned",
+            "status.reported",
+            "status.classified",
+            "gate.step.started",
+            "gate.step.finished",
+            "hold.opened",
+            "hold.resolved",
+            "workflow.stage.entered",
+            "workflow.stage.gated",
+            "delivery.queued",
+            "delivery.pushed",
+            "delivery.pr_opened",
+        ];
+        for token in events {
+            let event = JournalEvent::parse(token).expect("known event");
+            assert_eq!(event.as_str(), token);
+        }
+        assert!(JournalEvent::parse("unknown").is_err());
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let task = TaskId::parse("validation").expect("task");
+        let missing = JournalWriter::new(temp.path().join("missing"));
+        assert!(
+            missing
+                .emit(
+                    &task,
+                    JournalEvent::TaskSpawned,
+                    &json!({}),
+                    "mx-test",
+                    "2026-08-10T12:00:00Z"
+                )
+                .is_err()
+        );
+        let file = temp.path().join("file");
+        fs::write(&file, b"not a directory").expect("file");
+        let writer = JournalWriter::new(&file);
+        assert!(
+            writer
+                .emit(
+                    &task,
+                    JournalEvent::TaskSpawned,
+                    &json!({}),
+                    "mx-test",
+                    "2026-08-10T12:00:00Z"
+                )
+                .is_err()
+        );
+        let linked = temp.path().join("linked");
+        symlink(temp.path(), &linked).expect("state link");
+        let writer = JournalWriter::new(&linked);
+        assert!(
+            writer
+                .emit(
+                    &task,
+                    JournalEvent::TaskSpawned,
+                    &json!({}),
+                    "mx-test",
+                    "2026-08-10T12:00:00Z"
+                )
+                .is_err()
+        );
+        let writer = JournalWriter::new(temp.path());
+        for (detail, source, timestamp) in [
+            (json!([]), "mx-test", "2026-08-10T12:00:00Z"),
+            (json!({}), "bad/source", "2026-08-10T12:00:00Z"),
+            (json!({}), "mx-test", "2026-08-10 12:00:00"),
+        ] {
+            assert!(
+                writer
+                    .emit(&task, JournalEvent::TaskSpawned, &detail, source, timestamp)
+                    .is_err()
+            );
+        }
+        assert_eq!(writer.state(), temp.path());
     }
 }

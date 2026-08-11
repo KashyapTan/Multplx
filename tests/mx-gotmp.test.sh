@@ -18,6 +18,9 @@ set -u
 export MX_GATE_REFUSE_BYPASS=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -x "$ROOT/target/release/mx" ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
 SPAWN="$ROOT/bin/mx-spawn.sh"
 TEARDOWN="$ROOT/bin/mx-teardown.sh"
 
@@ -81,6 +84,7 @@ exit 0
 SH
   chmod +x "$fake/bin/mx-system-sync.sh"
   ln -s "$ROOT/bin/mx-backlog-lib.sh" "$fake/bin/mx-backlog-lib.sh"
+  ln -s "$ROOT/bin/mx-rust-runtime.sh" "$fake/bin/mx-rust-runtime.sh"
   # Meta with a nonexistent worktree so the dirty/treehouse blocks skip.
   cat > "$fake/state/$id.meta" <<META
 window=fakeses:mx-$id
@@ -176,6 +180,7 @@ exit 0
 SH
   chmod +x "$fake/bin/mx-system-sync.sh"
   ln -s "$ROOT/bin/mx-backlog-lib.sh" "$fake/bin/mx-backlog-lib.sh"
+  ln -s "$ROOT/bin/mx-rust-runtime.sh" "$fake/bin/mx-rust-runtime.sh"
   # No tasktmp= line at all.
   cat > "$fake/state/$id.meta" <<META
 window=fakeses:mx-$id

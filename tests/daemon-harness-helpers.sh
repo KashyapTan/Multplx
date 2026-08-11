@@ -1460,7 +1460,8 @@ exec "$real_mv" "\$@"
 SH
   chmod +x "$fakebin/mv"
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
-    MX_SEND_SETTLE=0 "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
+    MX_SEND_SETTLE=0 MX_CONFIG_INHERIT_TEST_FAIL_PUBLISH=1 \
+    "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "publication failure should remain diagnostic"
   assert_contains "$out" "CONFIG_REREAD: daemon" "publication failure diagnostic missing"
   assert_not_contains "$out" "config-reread: sent" \
@@ -1517,7 +1518,8 @@ exec "$real_mv" "\$@"
 SH
   chmod +x "$fakebin/mv"
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
-    MX_SEND_SETTLE=0 "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
+    MX_SEND_SETTLE=0 MX_CONFIG_INHERIT_TEST_FAIL_WRITE=retain-stage \
+    "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "instruction-write failure should remain diagnostic"
   assert_contains "$out" "retained exact retry generation" \
     "instruction-write failure did not retain exact retry bytes"
@@ -1582,7 +1584,8 @@ exec "$real_cp" "\$@"
 SH
   chmod +x "$fakebin/cp"
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
-    MX_SEND_SETTLE=0 "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
+    MX_SEND_SETTLE=0 MX_CONFIG_INHERIT_TEST_FAIL_WRITE=retain-temporary \
+    "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "exact temporary fallback failure should remain diagnostic"
   assert_contains "$out" "retained exact retry temporary" \
     "exact temporary fallback failure did not retain the immutable bytes"
@@ -2018,7 +2021,8 @@ SH
     MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$w/home" \
     MX_STATE_OVERRIDE="$w/home/state" MX_DATA_OVERRIDE="$w/home/data" \
     MX_PROJECTS_OVERRIDE="$w/home/projects" MX_CONFIG_OVERRIDE="$w/home/config" \
-    MX_SPAWN_NO_GUARD=1 MX_FAKE_LAUNCH_LOG="$launchlog" \
+    MX_SPAWN_NO_GUARD=1 MX_CONFIG_INHERIT_TEST_FAIL_DISCARD=1 \
+    MX_FAKE_LAUNCH_LOG="$launchlog" \
     "$ROOT/bin/mx-spawn.sh" sm "$sm" --daemon 2>&1); status=$?
   expect_code 0 "$status" "spawn should remain available after reread cleanup failure"
   assert_contains "$out" "CONFIG_REREAD: daemon sm: quarantined pre-relaunch generations" \

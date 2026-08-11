@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # mx-operational-input.sh - canonical Multplx operational-input protocol.
 #
-# This file is both a source-safe shell library and the cross-language CLI used
-# by JavaScript and TypeScript integrations. It is the single owner of current
-# construction, current parsing, and narrow pre-protocol transcript parsing.
+# This file is both a source-safe shell adapter and the cross-language CLI used
+# by JavaScript and TypeScript integrations.
+# The Rust `multplx-domain::operational_input` module owns current construction,
+# current parsing, and narrow pre-protocol transcript parsing.
 #
 # Current generic wire form:
 #   U+2063 MULTPLX_OP: v1 <kind>: <body>
@@ -123,6 +124,74 @@ MX_LEGACY_WATCHER_PREFIX='MULTPLX WATCHER WAKE: '
 MX_LEGACY_WATCHER_SUFFIX=$'\n\nRun bin/mx-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.'
 MX_LEGACY_TURNEND_PREFIX=$'TURN WOULD END BLIND - supervision is off. The watcher cycle is missing, failed, or unhealthy. Follow the harness recovery instruction below before ending the turn.\n\n'
 MX_LEGACY_AWAY_PREFIX="${MX_OPERATIONAL_MARK}Supervisor escalate ("
+
+# The constants above remain available to sourced callers while Rust owns the
+# behavior. The legacy definitions below remain selectable before any mutation.
+MX_OPERATIONAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$MX_OPERATIONAL_SCRIPT_DIR/mx-rust-runtime.sh"
+mx_operational_implementation=$(mx_local_state_implementation) || {
+  return 2 2>/dev/null || exit 2
+}
+if [ "$mx_operational_implementation" = rust ]; then
+  mx_operational_rust() {
+    local rust_bin
+    rust_bin=$(mx_rust_runtime_bin) || return $?
+    "$rust_bin" operational-input "$@"
+  }
+  mx_operational_kind_is_current() {
+    case " $MX_OPERATIONAL_KINDS from-broker " in *" $1 "*) return 0 ;; esac
+    return 1
+  }
+  mx_operational_input_construct() {
+    local _mx_operational_result
+    [ "$#" -eq 3 ] || return 2
+    _mx_operational_result=$(printf '%s' "$2" | mx_operational_rust encode "$1"; _mx_operational_status=$?; printf x; exit "$_mx_operational_status") || return $?
+    _mx_operational_result=${_mx_operational_result%x}
+    printf -v "$3" '%s' "$_mx_operational_result"
+  }
+  mx_operational_input_encode() { mx_operational_input_construct "$@"; }
+  mx_operational_input_kind() {
+    local _mx_operational_result
+    [ "$#" -eq 2 ] || return 2
+    _mx_operational_result=$(printf '%s' "$1" | mx_operational_rust kind) || return $?
+    printf -v "$2" '%s' "$_mx_operational_result"
+  }
+  mx_operational_input_body() {
+    local _mx_operational_result
+    [ "$#" -eq 2 ] || return 2
+    _mx_operational_result=$(printf '%s' "$1" | mx_operational_rust body; _mx_operational_status=$?; printf x; exit "$_mx_operational_status") || return $?
+    _mx_operational_result=${_mx_operational_result%x}
+    printf -v "$2" '%s' "$_mx_operational_result"
+  }
+  mx_legacy_operational_input_kind() {
+    local _mx_operational_result
+    [ "$#" -eq 2 ] || return 2
+    _mx_operational_result=$(printf '%s' "$1" | mx_operational_rust classify) || return $?
+    case "$_mx_operational_result" in
+      legacy-operational|session-start|watcher|turn-end-guard|away-supervisor) ;;
+      *) return 1 ;;
+    esac
+    printf -v "$2" '%s' "$_mx_operational_result"
+  }
+  mx_operational_input_classify() {
+    local _mx_operational_result
+    [ "$#" -eq 2 ] || return 2
+    _mx_operational_result=$(printf '%s' "$1" | mx_operational_rust classify) || return $?
+    printf -v "$2" '%s' "$_mx_operational_result"
+  }
+  mx_message_from_broker() {
+    local kind
+    mx_operational_input_kind "${1-}" kind && [ "$kind" = from-broker ]
+  }
+  mx_message_mark_from_broker() { mx_operational_input_construct from-broker "$1" "$2"; }
+  mx_operational_main() { mx_operational_rust "$@"; }
+  if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    mx_operational_main "$@"
+    exit $?
+  fi
+  return 0
+fi
 
 mx_legacy_operational_input_kind() {  # <message> <result-var>
   local message=${1-} result_var=${2-}

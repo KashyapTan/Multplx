@@ -258,6 +258,7 @@ cp "$ROOT/.pi/extensions/lib/mx-operational-input.ts" "$PROJECT/.pi/extensions/l
 cp "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts" "$PROJECT/.pi/extensions/mx-primary-turnend-guard.ts"
 cp "$ROOT/bin/mx-watch-arm.sh" "$PROJECT/bin/mx-watch-arm.sh"
 cp "$ROOT/bin/mx-operational-input.sh" "$PROJECT/bin/mx-operational-input.sh"
+cp "$ROOT/bin/mx-rust-runtime.sh" "$PROJECT/bin/mx-rust-runtime.sh"
 cp "$ROOT/bin/mx-supervision-instructions.sh" "$PROJECT/bin/mx-supervision-instructions.sh"
 chmod +x "$PROJECT/bin/mx-operational-input.sh"
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/config"

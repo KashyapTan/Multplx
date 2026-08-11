@@ -88,6 +88,7 @@ install_guard_scripts() {
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/mx-turnend-guard.sh" "$dir/bin/mx-turnend-guard.sh"
   cp "$ROOT/bin/mx-operational-input.sh" "$dir/bin/mx-operational-input.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/mx-rust-runtime.sh"
   cp "$ROOT/bin/mx-supervision-instructions.sh" "$dir/bin/mx-supervision-instructions.sh"
   cp "$ROOT/bin/mx-harness.sh" "$dir/bin/mx-harness.sh"
   cp "$ROOT/bin/mx-primary-scope-lib.sh" "$dir/bin/mx-primary-scope-lib.sh"
@@ -657,6 +658,7 @@ test_pi_extension_injects_once_per_logical_agent_run() {
   cp "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts" "$ext"
   cp "$ROOT/.pi/extensions/lib/mx-operational-input.ts" "$repo/.pi/extensions/lib/mx-operational-input.ts"
   cp "$ROOT/bin/mx-operational-input.sh" "$repo/bin/mx-operational-input.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$repo/bin/mx-rust-runtime.sh"
   cat > "$repo/bin/mx-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null
@@ -723,6 +725,7 @@ test_pi_extension_retries_after_followup_delivery_failure() {
   cp "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts" "$ext"
   cp "$ROOT/.pi/extensions/lib/mx-operational-input.ts" "$repo/.pi/extensions/lib/mx-operational-input.ts"
   cp "$ROOT/bin/mx-operational-input.sh" "$repo/bin/mx-operational-input.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$repo/bin/mx-rust-runtime.sh"
   cat > "$repo/bin/mx-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null

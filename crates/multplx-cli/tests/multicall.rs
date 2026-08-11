@@ -28,7 +28,7 @@ fn argv_zero_compatibility_dispatches_the_same_command() {
 }
 
 #[test]
-fn help_succeeds_without_advertising_a_production_command() {
+fn help_succeeds_and_advertises_ported_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_mx"))
         .arg("--help")
         .output()
@@ -36,7 +36,9 @@ fn help_succeeds_without_advertising_a_production_command() {
     let stdout = String::from_utf8(output.stdout).expect("UTF-8 help");
 
     assert!(output.status.success());
-    assert!(stdout.contains("Multplx Rust shadow runtime"));
+    assert!(stdout.contains("Multplx broker runtime"));
+    assert!(stdout.contains("backlog"));
+    assert!(stdout.contains("config-push"));
     assert!(!stdout.contains("shadow-diagnostic"));
 }
 

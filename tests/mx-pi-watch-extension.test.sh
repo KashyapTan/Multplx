@@ -24,6 +24,7 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/.pi/extensions/lib/mx-operational-input.ts" "$repo/.pi/extensions/lib/mx-operational-input.ts"
   mkdir -p "$repo/bin"
   cp "$ROOT/bin/mx-operational-input.sh" "$repo/bin/mx-operational-input.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$repo/bin/mx-rust-runtime.sh"
   chmod +x "$repo/bin/mx-operational-input.sh"
   cat > "$repo/node_modules/@earendil-works/pi-coding-agent/package.json" <<'JSON'
 {"name":"@earendil-works/pi-coding-agent","type":"module","exports":"./index.js"}

@@ -17,6 +17,16 @@
 # Warnings-only skips exit 0; real propagation or reread-send errors exit non-zero.
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_local_state_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  "$SCRIPT_DIR/mx-guard.sh" || true
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  MX_RUST_SOURCE_ROOT="${SCRIPT_DIR%/bin}" exec "$rust_bin" config-push "$@"
+fi
+
 usage() {
   cat <<'EOF'
 Usage: mx-config-push.sh [--help]
@@ -59,7 +69,6 @@ case "${1:-}" in
     ;;
 esac
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 CONFIG="${MX_CONFIG_OVERRIDE:-$MX_HOME/config}"
