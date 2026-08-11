@@ -1395,16 +1395,109 @@ fn array<'a>(value: &'a Value, pointer: &str) -> Result<&'a [Value], BackendErro
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::os::unix::process::ExitStatusExt;
+    use std::path::PathBuf;
+    use std::process::ExitStatus;
 
     use serde_json::json;
 
     use super::{
-        ProjectionBinding, ProjectionJournal, analyze_order, bind_journal, concise_task_label,
-        create_journal, journal_path, projection_workspace_label, read_journal,
-        replace_journal_endpoint,
+        FocusSnapshot, ProjectionBinding, ProjectionJournal, analyze_order, bind_journal,
+        concise_task_label, create_journal, home_identity, journal_path, projection_id,
+        projection_workspace_label, read_journal, replace_journal_endpoint,
     };
+    use crate::command::{CommandError, CommandOutput, CommandRequest, CommandRunner};
+    use crate::herdr::HerdrBackend;
 
     const TOKEN: &str = "abcdefghijklmnopqrstuv";
+
+    #[derive(Debug)]
+    struct PresentationRunner {
+        socket: PathBuf,
+        calls: Vec<CommandRequest>,
+    }
+
+    fn output(stdout: impl Into<Vec<u8>>) -> CommandOutput {
+        CommandOutput {
+            status: ExitStatus::from_raw(0),
+            stdout: stdout.into(),
+            stderr: Vec::new(),
+        }
+    }
+
+    impl CommandRunner for PresentationRunner {
+        fn run(&mut self, request: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            self.calls.push(request.clone());
+            let args = request
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>();
+            let workspace = args
+                .iter()
+                .position(|arg| arg == "--workspace")
+                .and_then(|index| args.get(index + 1))
+                .map(|arg| arg.as_ref());
+            let body = match args.first().map(|arg| arg.as_ref()) {
+                Some("--version") => b"herdr 0.7.4\n".to_vec(),
+                Some("status") => br#"{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}"#.to_vec(),
+                Some("workspace") if args.get(1).is_some_and(|arg| arg == "list") => format!(
+                    r#"{{"result":{{"workspaces":[{{"workspace_id":"parent","label":"broker","focused":true,"active_tab_id":"parent:t1"}},{{"workspace_id":"child","label":"└ task · p:{TOKEN}","focused":false,"active_tab_id":"child:t1"}}]}}}}"#
+                )
+                .into_bytes(),
+                Some("workspace") if args.get(1).is_some_and(|arg| arg == "create") => br#"{"result":{"workspace":{"workspace_id":"new"},"tab":{"tab_id":"new:seed"},"root_pane":{"pane_id":"new:seed-pane"}}}"#.to_vec(),
+                Some("tab") if args.get(1).is_some_and(|arg| arg == "list") => match workspace {
+                    Some("parent") => br#"{"result":{"tabs":[{"tab_id":"parent:t1","workspace_id":"parent","label":"maintainer","focused":true}]}}"#.to_vec(),
+                    Some("new") => br#"{"result":{"tabs":[{"tab_id":"new:t2","workspace_id":"new","label":"mx-task","focused":false}]}}"#.to_vec(),
+                    _ => br#"{"result":{"tabs":[{"tab_id":"child:t1","workspace_id":"child","label":"mx-task","focused":false}]}}"#.to_vec(),
+                },
+                Some("tab") if args.get(1).is_some_and(|arg| arg == "create") => br#"{"result":{"tab":{"tab_id":"new:t2"},"root_pane":{"pane_id":"new:p2"}}}"#.to_vec(),
+                Some("tab") if args.get(1).is_some_and(|arg| arg == "get") => {
+                    let tab = args.get(2).map_or("parent:t1", |arg| arg.as_ref());
+                    let workspace = if tab.starts_with("parent") { "parent" } else { "new" };
+                    format!(r#"{{"result":{{"tab":{{"tab_id":"{tab}","workspace_id":"{workspace}"}}}}}}"#).into_bytes()
+                }
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "list") => match workspace {
+                    Some("new") => br#"{"result":{"panes":[{"pane_id":"new:p2","tab_id":"new:t2","workspace_id":"new"}]}}"#.to_vec(),
+                    _ => br#"{"result":{"panes":[{"pane_id":"child:p1","tab_id":"child:t1","workspace_id":"child"}]}}"#.to_vec(),
+                },
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "get") => {
+                    let pane = args.get(2).map_or("child:p1", |arg| arg.as_ref());
+                    let (tab, workspace) = if pane.starts_with("new") {
+                        ("new:t2", "new")
+                    } else {
+                        ("child:t1", "child")
+                    };
+                    format!(r#"{{"result":{{"pane":{{"pane_id":"{pane}","tab_id":"{tab}","workspace_id":"{workspace}"}}}}}}"#).into_bytes()
+                }
+                Some("agent") => br#"{"error":{"code":"agent_not_found"}}"#.to_vec(),
+                Some("session") => format!(
+                    r#"{{"sessions":[{{"name":"named","running":true,"socket_path":"{}"}}]}}"#,
+                    self.socket.display()
+                )
+                .into_bytes(),
+                Some("api") => br#"{"methods":{"workspace.move":{"params":["workspace_id","insert_index"]}}}"#.to_vec(),
+                _ => Vec::new(),
+            };
+            Ok(output(body))
+        }
+    }
+
+    fn binding(home: &std::path::Path) -> ProjectionBinding {
+        ProjectionBinding {
+            task_id: "task".to_owned(),
+            projection_id: TOKEN.to_owned(),
+            home: home.to_owned(),
+            session: "named".to_owned(),
+            workspace_id: "child".to_owned(),
+            tab_id: "child:t1".to_owned(),
+            pane_id: "child:p1".to_owned(),
+            parent_workspace_id: "parent".to_owned(),
+            parent_label: "broker".to_owned(),
+            workspace_label: projection_workspace_label("task", TOKEN),
+            task_label: "mx-task".to_owned(),
+        }
+    }
 
     #[test]
     fn journal_versions_are_exact_private_and_atomic() {
@@ -1494,5 +1587,88 @@ mod tests {
         assert_eq!(analysis.desired, 2);
         assert_eq!(analysis.existing, ["parent", "old", "other"]);
         assert!(analyze_order(&value, "missing", "broker").is_err());
+    }
+
+    #[test]
+    fn projection_runtime_reads_exact_topology_focus_and_session_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let socket = temp.path().join("named.sock");
+        let mut backend = HerdrBackend::new(
+            PresentationRunner {
+                socket: socket.clone(),
+                calls: Vec::new(),
+            },
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        let binding = binding(temp.path());
+        let focus = FocusSnapshot {
+            workspace_id: "parent".to_owned(),
+            tab_id: "parent:t1".to_owned(),
+        };
+        assert_eq!(backend.focus_snapshot("named").expect("focus"), focus);
+        backend.focus_restore("named", &focus).expect("restore");
+        assert_eq!(
+            backend
+                .parent_workspace_exact("named", "broker")
+                .expect("parent"),
+            "parent"
+        );
+        assert!(backend.projection_live_binding_matches("named", &binding));
+        assert!(backend.live_binding_matches(&binding));
+        let journal = create_journal(temp.path(), "task", TOKEN).expect("journal");
+        assert!(backend.projection_endpoint_matches_journal("named", "child", &journal, "task"));
+        assert!(backend.projection_recovery_allows_flat("named", &journal, "task"));
+        backend
+            .close_pane_focus_preserving(
+                "named",
+                "child:p1",
+                Some(crate::herdr::PaneAgentState::NoAgent),
+            )
+            .expect("close");
+        assert_eq!(
+            backend
+                .presentation_session_socket_path("named")
+                .expect("socket"),
+            std::fs::canonicalize(socket.parent().expect("socket parent"))
+                .expect("canonical parent")
+                .join("named.sock")
+        );
+        assert!(
+            backend
+                .presentation_session_lock_path("named")
+                .expect("lock")
+                .starts_with("/tmp/broker-herdr-presentation")
+        );
+        assert_eq!(
+            home_identity(temp.path()).expect("home"),
+            std::fs::canonicalize(temp.path()).expect("canonical home")
+        );
+        let token = projection_id().expect("token");
+        assert_eq!(token.len(), 22);
+    }
+
+    #[test]
+    fn projection_create_converges_to_one_task_and_preserves_focus() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut backend = HerdrBackend::new(
+            PresentationRunner {
+                socket: temp.path().join("named.sock"),
+                calls: Vec::new(),
+            },
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        let endpoint = backend
+            .projection_create_task(temp.path(), "projection", "mx-task")
+            .expect("projection");
+        assert_eq!(endpoint.session, "named");
+        assert_eq!(endpoint.workspace_id, "new");
+        assert_eq!(endpoint.seeded_tab_id, "new:seed");
+        assert_eq!(endpoint.seeded_pane_id, "new:seed-pane");
+        assert_eq!(endpoint.tab_id, "new:t2");
+        assert_eq!(endpoint.pane_id, "new:p2");
     }
 }

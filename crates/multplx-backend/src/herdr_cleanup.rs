@@ -10,6 +10,7 @@ use multplx_core::locks::DirectoryLock;
 use multplx_core::process::SystemProcessProbe;
 use serde_json::Value;
 
+use crate::command::CommandRunner;
 use crate::facade::BackendError;
 use crate::herdr::{HerdrBackend, PaneAgentState};
 use crate::herdr_presentation::{
@@ -83,8 +84,8 @@ fn cleanup() -> Result<(), BackendError> {
     Ok(())
 }
 
-fn cleanup_one(
-    backend: &mut HerdrBackend,
+fn cleanup_one<R: CommandRunner>(
+    backend: &mut HerdrBackend<R>,
     state: &Path,
     home: &Path,
     session: &str,
@@ -214,8 +215,8 @@ fn cleanup_one(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn revalidate(
-    backend: &mut HerdrBackend,
+fn revalidate<R: CommandRunner>(
+    backend: &mut HerdrBackend<R>,
     state: &Path,
     home: &Path,
     session: &str,
@@ -292,8 +293,8 @@ fn revalidate(
             .is_ok_and(|focus| focus.tab_id != endpoint.tab_id)
 }
 
-fn locked_snapshot_candidate(
-    backend: &mut HerdrBackend,
+fn locked_snapshot_candidate<R: CommandRunner>(
+    backend: &mut HerdrBackend<R>,
     session: &str,
     workspace_id: &str,
     title: &str,
@@ -350,7 +351,11 @@ fn locked_snapshot_candidate(
     })
 }
 
-fn process_is_idle_shell(backend: &mut HerdrBackend, session: &str, pane_id: &str) -> bool {
+fn process_is_idle_shell<R: CommandRunner>(
+    backend: &mut HerdrBackend<R>,
+    session: &str,
+    pane_id: &str,
+) -> bool {
     let Ok(info) = backend.json_scoped(session, ["pane", "process-info", "--pane", pane_id]) else {
         return false;
     };
@@ -556,8 +561,95 @@ fn warn(message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{title_token, token_occurrences};
+    use std::os::unix::process::ExitStatusExt;
+    use std::path::PathBuf;
+    use std::process::{Command, ExitStatus, Stdio};
+    use std::thread;
+    use std::time::Duration;
+
     use serde_json::json;
+
+    use super::{cleanup_one, ps_proves_idle, title_token, token_occurrences};
+    use crate::command::{CommandError, CommandOutput, CommandRequest, CommandRunner};
+    use crate::herdr::HerdrBackend;
+    use crate::herdr_presentation::{
+        ProjectionBinding, bind_journal, create_journal, projection_workspace_label,
+    };
+
+    const TOKEN: &str = "abcdefghijklmnopqrstuv";
+
+    #[derive(Debug)]
+    struct CleanupRunner {
+        shell_pid: u32,
+        socket: PathBuf,
+        closed: bool,
+    }
+
+    fn output(stdout: impl Into<Vec<u8>>) -> CommandOutput {
+        CommandOutput {
+            status: ExitStatus::from_raw(0),
+            stdout: stdout.into(),
+            stderr: Vec::new(),
+        }
+    }
+
+    impl CommandRunner for CleanupRunner {
+        fn run(&mut self, request: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            let args = request
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>();
+            let workspace = args
+                .iter()
+                .position(|arg| arg == "--workspace")
+                .and_then(|index| args.get(index + 1))
+                .map(|arg| arg.as_ref());
+            let body = match args.first().map(|arg| arg.as_ref()) {
+                Some("session") => format!(
+                    r#"{{"sessions":[{{"name":"named","running":true,"socket_path":"{}"}}]}}"#,
+                    self.socket.display()
+                )
+                .into_bytes(),
+                Some("api") => format!(
+                    r#"{{"result":{{"snapshot":{{"focused_workspace_id":"parent","focused_tab_id":"parent:t1","focused_pane_id":"parent:p1","workspaces":[{{"workspace_id":"parent","label":"broker","tab_count":1,"pane_count":1}},{{"workspace_id":"child","label":"└ sm1 · p:{TOKEN}","tab_count":1,"pane_count":1}}],"tabs":[{{"workspace_id":"parent","tab_id":"parent:t1"}},{{"workspace_id":"child","tab_id":"child:t1"}}],"panes":[{{"workspace_id":"parent","tab_id":"parent:t1","pane_id":"parent:p1"}},{{"workspace_id":"child","tab_id":"child:t1","pane_id":"child:p1"}}]}}}}}}"#
+                )
+                .into_bytes(),
+                Some("workspace") if args.get(1).is_some_and(|arg| arg == "list") => format!(
+                    r#"{{"result":{{"workspaces":[{{"workspace_id":"parent","label":"broker","focused":true,"active_tab_id":"parent:t1"}},{{"workspace_id":"child","label":"└ sm1 · p:{TOKEN}","focused":false,"active_tab_id":"child:t1"}}]}}}}"#
+                )
+                .into_bytes(),
+                Some("workspace") if args.get(1).is_some_and(|arg| arg == "get") => format!(
+                    r#"{{"result":{{"workspace":{{"workspace_id":"child","label":"└ sm1 · p:{TOKEN}","tab_count":1,"pane_count":1}}}}}}"#
+                )
+                .into_bytes(),
+                Some("tab") if args.get(1).is_some_and(|arg| arg == "list") => match workspace {
+                    Some("parent") => br#"{"result":{"tabs":[{"workspace_id":"parent","tab_id":"parent:t1","focused":true}]}}"#.to_vec(),
+                    _ => br#"{"result":{"tabs":[{"workspace_id":"child","tab_id":"child:t1","focused":false}]}}"#.to_vec(),
+                },
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "list") => br#"{"result":{"panes":[{"workspace_id":"child","tab_id":"child:t1","pane_id":"child:p1"}]}}"#.to_vec(),
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "get") => {
+                    if self.closed {
+                        br#"{"error":{"code":"pane_not_found"}}"#.to_vec()
+                    } else {
+                        br#"{"result":{"pane":{"workspace_id":"child","tab_id":"child:t1","pane_id":"child:p1"}}}"#.to_vec()
+                    }
+                }
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "process-info") => format!(
+                    r#"{{"result":{{"type":"pane_process_info","process_info":{{"pane_id":"child:p1","shell_pid":{},"foreground_process_group_id":{},"foreground_processes":[{{"pid":{},"name":"sh","argv0":"sh"}}]}}}}}}"#,
+                    self.shell_pid, self.shell_pid, self.shell_pid
+                )
+                .into_bytes(),
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "close") => {
+                    self.closed = true;
+                    Vec::new()
+                }
+                Some("agent") => br#"{"error":{"code":"agent_not_found"}}"#.to_vec(),
+                _ => Vec::new(),
+            };
+            Ok(output(body))
+        }
+    }
 
     #[test]
     fn title_grammar_is_exact() {
@@ -571,5 +663,60 @@ mod tests {
     fn token_count_spans_every_workspace_label() {
         let values = vec![json!({"label": "a p:token"}), json!({"label": "b p:token"})];
         assert_eq!(token_occurrences(&values, "token"), 2);
+    }
+
+    #[test]
+    fn exact_idle_shell_candidate_is_closed_and_its_unchanged_journal_retires() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        std::fs::create_dir(&state).expect("state");
+        let mut shell = Command::new("/bin/sh")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("shell");
+        thread::sleep(Duration::from_millis(100));
+        assert!(ps_proves_idle(u64::from(shell.id())));
+        let journal = create_journal(&state, "sm1", TOKEN).expect("journal");
+        let home = std::fs::canonicalize(temp.path()).expect("home");
+        bind_journal(
+            &journal,
+            ProjectionBinding {
+                task_id: "sm1".to_owned(),
+                projection_id: TOKEN.to_owned(),
+                home: home.clone(),
+                session: "named".to_owned(),
+                workspace_id: "child".to_owned(),
+                tab_id: "child:t1".to_owned(),
+                pane_id: "child:p1".to_owned(),
+                parent_workspace_id: "parent".to_owned(),
+                parent_label: "broker".to_owned(),
+                workspace_label: projection_workspace_label("sm1", TOKEN),
+                task_label: "mx-sm1".to_owned(),
+            },
+        )
+        .expect("bind");
+        let mut backend = HerdrBackend::new(
+            CleanupRunner {
+                shell_pid: shell.id(),
+                socket: temp.path().join("named.sock"),
+                closed: false,
+            },
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        cleanup_one(
+            &mut backend,
+            &state,
+            &home,
+            "named",
+            "child",
+            &projection_workspace_label("sm1", TOKEN),
+        );
+        assert!(!journal.exists());
+        shell.kill().expect("kill shell");
+        shell.wait().expect("reap shell");
     }
 }

@@ -61,7 +61,12 @@ jobs:
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
       - name: Enforce workspace line coverage
-        run: cargo llvm-cov --locked --workspace --all-targets --fail-under-lines 93
+        # The required real-Herdr lane owns OS lifecycle coverage for these three modules.
+        # Deterministic Herdr runtime and wire coverage remains inside this 93% gate.
+        run: >-
+          cargo llvm-cov --locked --workspace --all-targets
+          --ignore-filename-regex 'herdr_(cleanup|presentation|tools)\.rs'
+          --fail-under-lines 93
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates.

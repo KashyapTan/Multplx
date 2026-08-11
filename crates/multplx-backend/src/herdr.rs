@@ -1086,22 +1086,20 @@ fn array_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a [Value]> {
 }
 
 fn tail_lines(bytes: &[u8], lines: usize) -> Vec<u8> {
-    if lines == 0 {
+    if lines == 0 || bytes.is_empty() {
         return Vec::new();
     }
-    let starts = bytes
+    let content_end = bytes.len() - usize::from(bytes.ends_with(b"\n"));
+    let separators = bytes
         .iter()
         .enumerate()
-        .filter_map(|(index, byte)| (*byte == b'\n').then_some(index + 1))
+        .filter_map(|(index, byte)| (*byte == b'\n' && index < content_end).then_some(index))
         .collect::<Vec<_>>();
-    let start = starts
-        .get(
-            starts
-                .len()
-                .saturating_sub(lines + usize::from(bytes.ends_with(b"\n"))),
-        )
-        .copied()
-        .unwrap_or(0);
+    let start = if separators.len() < lines {
+        0
+    } else {
+        separators[separators.len() - lines] + 1
+    };
     bytes[start..].to_vec()
 }
 
@@ -1189,15 +1187,27 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::ffi::OsString;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+    use std::os::unix::process::ExitStatusExt;
     use std::path::PathBuf;
+    use std::process::ExitStatus;
+    use std::time::Duration;
 
+    use multplx_core::composer::ComposerState;
     use multplx_core::transition::TransitionRecord;
 
     use super::{
-        HerdrBackend, PaneAgentState, apply_transition, clear_transition, commit_transition,
-        normalize_key, parse_target, tail_lines,
+        HerdrBackend, PaneAgentState, SubmitState, apply_transition, bottom_pi_pair,
+        clear_transition, commit_transition, normalize_key, parse_target, tail_lines,
     };
     use crate::command::{CommandError, CommandOutput, CommandRequest, CommandRunner};
+    use crate::facade::{
+        AgentState, BackendName, BackendTarget, Capability, CaptureRequest, ContainerId,
+        KillOutcome, LiveInventory, NativeState, RuntimeBackend, SubmitRequest, TaskSpec,
+    };
 
     #[derive(Debug, Default)]
     struct NeverRunner;
@@ -1206,6 +1216,80 @@ mod tests {
         fn run(&mut self, _: &CommandRequest) -> Result<CommandOutput, CommandError> {
             panic!("unexpected command")
         }
+    }
+
+    #[derive(Debug, Default)]
+    struct SmartRunner {
+        calls: Vec<CommandRequest>,
+    }
+
+    #[derive(Debug)]
+    struct SequenceRunner {
+        outputs: VecDeque<CommandOutput>,
+    }
+
+    impl SequenceRunner {
+        fn new(outputs: impl IntoIterator<Item = CommandOutput>) -> Self {
+            Self {
+                outputs: outputs.into_iter().collect(),
+            }
+        }
+    }
+
+    impl CommandRunner for SequenceRunner {
+        fn run(&mut self, _: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            Ok(self.outputs.pop_front().expect("queued command output"))
+        }
+    }
+
+    fn success(stdout: impl Into<Vec<u8>>) -> CommandOutput {
+        CommandOutput {
+            status: ExitStatus::from_raw(0),
+            stdout: stdout.into(),
+            stderr: Vec::new(),
+        }
+    }
+
+    fn failure(stderr: impl Into<Vec<u8>>) -> CommandOutput {
+        CommandOutput {
+            status: ExitStatus::from_raw(1 << 8),
+            stdout: Vec::new(),
+            stderr: stderr.into(),
+        }
+    }
+
+    impl CommandRunner for SmartRunner {
+        fn run(&mut self, request: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            self.calls.push(request.clone());
+            let args = request
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>();
+            let body = match args.first().map(|arg| arg.as_ref()) {
+                Some("--version") => b"herdr 0.7.4\n".to_vec(),
+                Some("status") => br#"{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}"#.to_vec(),
+                Some("workspace") if args.get(1).is_some_and(|arg| arg == "list") => br#"{"result":{"workspaces":[{"workspace_id":"w1","label":"broker","is_active":true}]}}"#.to_vec(),
+                Some("workspace") if args.get(1).is_some_and(|arg| arg == "create") => br#"{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"w1:t1"},"root_pane":{"pane_id":"w1:p1"}}}"#.to_vec(),
+                Some("tab") if args.get(1).is_some_and(|arg| arg == "list") => br#"{"result":{"tabs":[{"tab_id":"w1:t2","workspace_id":"w1","label":"mx-task","is_active":true}]}}"#.to_vec(),
+                Some("tab") if args.get(1).is_some_and(|arg| arg == "create") => br#"{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2"}}}"#.to_vec(),
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "list") => br#"{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2","workspace_id":"w1","is_active":true}]}}"#.to_vec(),
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "get") => {
+                    let pane = args.get(2).map_or("w1:p2", |arg| arg.as_ref());
+                    format!(r#"{{"result":{{"pane":{{"pane_id":"{pane}","tab_id":"w1:t2","workspace_id":"w1","foreground_cwd":"/tmp/work","shell_pid":4242}}}}}}"#).into_bytes()
+                }
+                Some("pane") if args.get(1).is_some_and(|arg| arg == "read") => "│ typed │\n".as_bytes().to_vec(),
+                Some("agent") if args.get(1).is_some_and(|arg| arg == "get") => br#"{"result":{"agent":{"agent":"codex","agent_status":"working"}}}"#.to_vec(),
+                Some("api") => br#"{"methods":["events.subscribe"],"events":["pane.agent_status_changed"]}"#.to_vec(),
+                Some("session") => br#"{"sessions":[{"name":"named","running":true,"socket_path":"/tmp/herdr.sock"}]}"#.to_vec(),
+                _ => Vec::new(),
+            };
+            Ok(success(body))
+        }
+    }
+
+    fn herdr_target(value: &str) -> BackendTarget {
+        BackendTarget::new(BackendName::Herdr, value, Some("mx-task".to_owned())).expect("target")
     }
 
     #[test]
@@ -1231,6 +1315,8 @@ mod tests {
         assert_eq!(PaneAgentState::Unknown.as_str(), "unknown");
         assert_eq!(tail_lines(b"one\ntwo\nthree", 2), b"two\nthree");
         assert_eq!(tail_lines(b"one\ntwo\nthree\n", 2), b"two\nthree\n");
+        assert_eq!(tail_lines(b"one\n", 200), b"one\n");
+        assert_eq!(tail_lines(b"one", 200), b"one");
     }
 
     #[test]
@@ -1246,5 +1332,729 @@ mod tests {
         commit_transition(temp.path(), "default", &blocked).expect("commit");
         clear_transition(temp.path(), "default:w:p").expect("clear");
         assert!(apply_transition(temp.path(), "default", &blocked).expect("fresh"));
+    }
+
+    #[test]
+    fn complete_runtime_surface_uses_typed_scoped_responses() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut backend = HerdrBackend::new(
+            SmartRunner::default(),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(backend.name(), BackendName::Herdr);
+        assert_eq!(backend.session(), "named");
+        for capability in [
+            Capability::NativeState,
+            Capability::TransitionEvents,
+            Capability::ComposerState,
+            Capability::AgentState,
+        ] {
+            assert!(backend.supports(capability));
+        }
+        backend.tool_check().expect("tool");
+        assert_eq!(backend.version_check().expect("version"), "0.7.4");
+        backend.server_ensure("named").expect("server");
+        assert_eq!(backend.workspace_find("named").as_deref(), Some("w1"));
+        assert_eq!(
+            backend
+                .workspace_ensure("named", temp.path())
+                .expect("workspace"),
+            "w1"
+        );
+        assert_eq!(backend.seeded_tab_id(), None);
+        let container = backend.container_ensure().expect("container");
+        assert_eq!(container.as_str(), "named:w1");
+        let endpoint = backend
+            .create_task_full(
+                &container,
+                &TaskSpec {
+                    label: "new-task".to_owned(),
+                    working_directory: temp.path().to_owned(),
+                },
+                None,
+            )
+            .expect("task");
+        assert_eq!(endpoint.tab_id, "w1:t2");
+        assert_eq!(endpoint.pane_id, "w1:p2");
+        let target = herdr_target("named:w1:p2");
+        backend.target_ready(&target).expect("ready");
+        assert_eq!(
+            backend.current_path(&target).expect("path"),
+            PathBuf::from("/tmp/work")
+        );
+        assert_eq!(
+            backend
+                .capture(&CaptureRequest {
+                    target: target.clone(),
+                    lines: 5,
+                    byte_limit: 4096,
+                })
+                .expect("capture"),
+            "│ typed │\n".as_bytes()
+        );
+        assert_eq!(
+            backend.capture_ansi(&target, 0).expect("ansi"),
+            "│ typed │\n".as_bytes()
+        );
+        assert_eq!(
+            backend.composer_state(&target).expect("composer"),
+            ComposerState::Pending
+        );
+        backend.send_literal(&target, "literal").expect("literal");
+        backend.send_key(&target, "Escape").expect("key");
+        backend.send_text_line(&target, "line").expect("line");
+        assert_eq!(
+            backend
+                .send_submit(
+                    &target,
+                    SubmitRequest {
+                        text: "submit",
+                        retries: 1,
+                        enter_delay: Duration::ZERO,
+                        settle: Duration::ZERO,
+                    },
+                )
+                .expect("submit"),
+            ComposerState::Pending
+        );
+        assert_eq!(
+            backend.native_state(&target).expect("native"),
+            NativeState::Working
+        );
+        assert_eq!(backend.agent_state(&target), AgentState::Alive);
+        assert_eq!(backend.kill_verified(&target), KillOutcome::StillPresent);
+        let live = RuntimeBackend::list_live(&mut backend, Some(&container)).expect("live");
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].target.endpoint(), "named:w1:p2");
+        assert_eq!(
+            backend.socket_path("named"),
+            Some(PathBuf::from("/tmp/herdr.sock"))
+        );
+        assert!(backend.events_capable("named"));
+        assert!(
+            backend
+                .runner
+                .calls
+                .iter()
+                .filter(|call| call
+                    .args
+                    .first()
+                    .is_some_and(|arg| arg != "--version" && arg != "status" && arg != "session"))
+                .all(|call| call
+                    .args
+                    .ends_with(&[OsString::from("--session"), OsString::from("named")]))
+        );
+    }
+
+    #[test]
+    fn malformed_and_cross_backend_inputs_fail_closed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut backend = HerdrBackend::new(
+            SmartRunner::default(),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        let tmux_target = BackendTarget::new(BackendName::Tmux, "s:w", None).expect("tmux");
+        assert!(backend.target_ready(&tmux_target).is_err());
+        assert_eq!(backend.agent_state(&tmux_target), AgentState::Unreadable);
+        assert_eq!(backend.kill_verified(&tmux_target), KillOutcome::Unknown);
+        assert!(
+            backend
+                .create_task_full(
+                    &ContainerId::for_backend(BackendName::Tmux, "broker").expect("container"),
+                    &TaskSpec {
+                        label: "mx-task".to_owned(),
+                        working_directory: temp.path().to_owned(),
+                    },
+                    None,
+                )
+                .is_err()
+        );
+        assert!(
+            RuntimeBackend::list_live(
+                &mut backend,
+                Some(&ContainerId::for_backend(BackendName::Tmux, "broker").expect("container"))
+            )
+            .is_err()
+        );
+        assert!(
+            backend
+                .capture(&CaptureRequest {
+                    target: herdr_target("named:w1:p2"),
+                    lines: 1,
+                    byte_limit: 2,
+                })
+                .is_err()
+        );
+        assert!(
+            backend
+                .wait_transition(
+                    &ContainerId::for_backend(BackendName::Herdr, "named:w1").expect("container"),
+                    &[],
+                    Duration::ZERO,
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn pane_agent_state_distinguishes_authoritative_and_ambiguous_responses() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        for (outputs, expected) in [
+            (
+                vec![success(br#"{"error":{"code":"pane_not_found"}}"#)],
+                PaneAgentState::Dead,
+            ),
+            (
+                vec![
+                    success(br#"{"result":{"pane":{"pane_id":"w:p"}}}"#),
+                    success(br#"{"error":{"code":"agent_not_found"}}"#),
+                ],
+                PaneAgentState::NoAgent,
+            ),
+            (
+                vec![
+                    success(br#"{"result":{"pane":{"pane_id":"w:p"}}}"#),
+                    success(br#"{"result":{"agent":{"agent_status":"idle"}}}"#),
+                ],
+                PaneAgentState::Live,
+            ),
+            (
+                vec![success(br#"{"result":{"pane":{"pane_id":"other"}}}"#)],
+                PaneAgentState::Unknown,
+            ),
+            (vec![success(b"not json")], PaneAgentState::Unknown),
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new(outputs),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert_eq!(backend.pane_agent_state("named", "w:p"), expected);
+        }
+    }
+
+    #[test]
+    fn workspace_creation_preserves_response_derived_seed_authority() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut backend = HerdrBackend::new(
+            SequenceRunner::new([
+                success(br#"{"result":{"workspaces":[]}}"#),
+                success(
+                    br#"{"result":{"workspace":{"workspace_id":"w2"},"tab":{"tab_id":"w2:seed"},"root_pane":{"pane_id":"w2:p1"}}}"#,
+                ),
+            ]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(
+            backend
+                .workspace_ensure("named", temp.path())
+                .expect("create workspace"),
+            "w2"
+        );
+        assert_eq!(backend.seeded_tab_id(), Some("w2:seed"));
+    }
+
+    #[derive(Debug, Default)]
+    struct DuplicateRunner {
+        tab_lists: usize,
+        pane_lists: usize,
+    }
+
+    impl CommandRunner for DuplicateRunner {
+        fn run(&mut self, request: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            let args = request
+                .args
+                .iter()
+                .map(|argument| argument.to_string_lossy())
+                .collect::<Vec<_>>();
+            let output = match args.first().map(|argument| argument.as_ref()) {
+                Some("tab") if args.get(1).is_some_and(|argument| argument == "list") => {
+                    self.tab_lists += 1;
+                    match self.tab_lists {
+                        1 => br#"{"result":{"tabs":[{"tab_id":"w:dup","label":"mx-task"},{"tab_id":"w:seed","label":"1"}]}}"#.to_vec(),
+                        2 => br#"{"result":{"tabs":[{"tab_id":"w:dup","label":"mx-task"},{"tab_id":"w:seed","label":"1"},{"tab_id":"w:new","label":"mx-task"}]}}"#.to_vec(),
+                        _ => br#"{"result":{"tabs":[{"tab_id":"w:new","label":"mx-task"}]}}"#.to_vec(),
+                    }
+                }
+                Some("tab") if args.get(1).is_some_and(|argument| argument == "create") => {
+                    br#"{"result":{"tab":{"tab_id":"w:new"},"root_pane":{"pane_id":"w:new-pane"}}}"#
+                        .to_vec()
+                }
+                Some("pane") if args.get(1).is_some_and(|argument| argument == "list") => {
+                    self.pane_lists += 1;
+                    if self.pane_lists == 1 {
+                        br#"{"result":{"panes":[{"tab_id":"w:dup","pane_id":"w:dup-pane"}]}}"#
+                            .to_vec()
+                    } else {
+                        br#"{"result":{"panes":[{"tab_id":"w:seed","pane_id":"w:seed-pane"}]}}"#
+                            .to_vec()
+                    }
+                }
+                Some("pane") if args.get(1).is_some_and(|argument| argument == "get") => {
+                    br#"{"result":{"pane":{"pane_id":"w:dup-pane"}}}"#.to_vec()
+                }
+                Some("agent") if args.get(1).is_some_and(|argument| argument == "get") => {
+                    if args.get(2).is_some_and(|argument| argument == "w:dup-pane") {
+                        br#"{"error":{"code":"agent_not_found"}}"#.to_vec()
+                    } else {
+                        br#"{"result":{"agent":{"agent_status":"idle"}}}"#.to_vec()
+                    }
+                }
+                Some("pane") | Some("tab") => Vec::new(),
+                _ => panic!("unexpected duplicate command: {args:?}"),
+            };
+            Ok(success(output))
+        }
+    }
+
+    #[test]
+    fn task_creation_replaces_only_verified_husks_and_prunes_idle_seed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut backend = HerdrBackend::new(
+            DuplicateRunner::default(),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        backend.seeded_tab_id = Some("w:seed".to_owned());
+        let target = RuntimeBackend::task_create(
+            &mut backend,
+            &ContainerId::for_backend(BackendName::Herdr, "named:w").expect("container"),
+            &TaskSpec {
+                label: "mx-task".to_owned(),
+                working_directory: temp.path().to_owned(),
+            },
+        )
+        .expect("replace husk");
+        assert_eq!(target.endpoint(), "named:w:new-pane");
+        assert_eq!(backend.runner.tab_lists, 3);
+        assert_eq!(backend.runner.pane_lists, 2);
+    }
+
+    #[test]
+    fn composer_pi_and_generic_shapes_fail_closed_by_agent_authority() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let pi_capture = "history\n────────\nhello\n────────\n".as_bytes();
+        let mut pi = HerdrBackend::new(
+            SequenceRunner::new([success(
+                br#"{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}"#,
+            )]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(
+            pi.composer_from_capture("named", "w:p", pi_capture),
+            ComposerState::Pending
+        );
+        let mut denied = HerdrBackend::new(
+            SequenceRunner::new([success(
+                br#"{"result":{"agent":{"agent":"codex","agent_status":"idle"}}}"#,
+            )]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(
+            denied.composer_from_capture("named", "w:p", pi_capture),
+            ComposerState::Unknown
+        );
+        let mut generic = HerdrBackend::new(NeverRunner, "herdr", "named", temp.path().to_owned());
+        assert_eq!(
+            generic.composer_from_capture("named", "w:p", "┃ Type a message... ┃\n".as_bytes()),
+            ComposerState::Empty
+        );
+        assert_eq!(
+            generic.composer_from_capture("named", "w:p", b"no composer here\n"),
+            ComposerState::Unknown
+        );
+    }
+
+    #[test]
+    fn version_and_facade_state_failures_are_typed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut unavailable = HerdrBackend::new(
+            SequenceRunner::new([failure(b"missing")]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(unavailable.tool_check().is_err());
+        for status in [
+            br#"{"client":{"version":"0.1"}}"#.as_slice(),
+            br#"{"client":{"version":"0.1","protocol":13}}"#.as_slice(),
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new([success(b"herdr 0.1\n"), success(status)]),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert!(backend.version_check().is_err());
+        }
+        for (outputs, expected) in [
+            (
+                vec![success(br#"{"error":{"code":"pane_not_found"}}"#)],
+                AgentState::Missing,
+            ),
+            (
+                vec![
+                    success(br#"{"result":{"pane":{"pane_id":"w:p"}}}"#),
+                    success(br#"{"error":{"code":"agent_not_found"}}"#),
+                ],
+                AgentState::Dead,
+            ),
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new(outputs),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert_eq!(backend.agent_state(&herdr_target("named:w:p")), expected);
+        }
+    }
+
+    #[test]
+    fn server_start_poll_and_submit_classifier_edges_are_observable() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut server = HerdrBackend::new(
+            SequenceRunner::new([
+                success(br#"{"server":{"running":false}}"#),
+                success(br#"{"server":{"running":true}}"#),
+            ]),
+            "/usr/bin/true",
+            "named",
+            temp.path().to_owned(),
+        );
+        server.server_ensure("named").expect("start and poll");
+        for (status, expected) in [
+            ("working", SubmitState::Busy),
+            ("idle", SubmitState::Idle),
+            ("mystery", SubmitState::Unknown),
+        ] {
+            let response = format!(r#"{{"result":{{"agent":{{"agent_status":"{status}"}}}}}}"#);
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new([success(response)]),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert_eq!(
+                backend.wait_for_working("named", "w:p", Duration::ZERO, 1),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn empty_inventory_trait_forwarding_and_kill_outcomes_are_typed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut empty = HerdrBackend::new(
+            SequenceRunner::new([success(br#"{"result":{"workspaces":[]}}"#)]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(
+            RuntimeBackend::list_live(&mut empty, None)
+                .expect("empty inventory")
+                .is_empty()
+        );
+        let container =
+            ContainerId::for_backend(BackendName::Herdr, "named:w1").expect("container");
+        let mut live = HerdrBackend::new(
+            SmartRunner::default(),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(
+            LiveInventory::list_live(&mut live, Some(&container))
+                .expect("live")
+                .len(),
+            1
+        );
+        for (pane_response, expected) in [
+            (
+                br#"{"error":{"code":"pane_not_found"}}"#.as_slice(),
+                KillOutcome::Gone,
+            ),
+            (b"not json".as_slice(), KillOutcome::Unknown),
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new([success(Vec::new()), success(pane_response)]),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert_eq!(backend.kill_verified(&herdr_target("named:w:p")), expected);
+        }
+    }
+
+    #[test]
+    fn seeded_tab_pruning_refuses_every_ambiguous_shape() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cases = [
+            vec![success(b"not json")],
+            vec![success(br#"{"result":{}}"#)],
+            vec![success(br#"{"result":{"tabs":[{"tab_id":"w:seed","label":"1"}]}}"#)],
+            vec![success(br#"{"result":{"tabs":[{"tab_id":"w:seed","label":"named"},{"tab_id":"w:new","label":"mx-task"}]}}"#)],
+            vec![
+                success(br#"{"result":{"tabs":[{"tab_id":"w:seed","label":"1"},{"tab_id":"w:new","label":"mx-task"}]}}"#),
+                success(br#"{"result":{"panes":[]}}"#),
+            ],
+            vec![
+                success(br#"{"result":{"tabs":[{"tab_id":"w:seed","label":"1"},{"tab_id":"w:new","label":"mx-task"}]}}"#),
+                success(br#"{"result":{"panes":[{"tab_id":"w:seed","pane_id":"w:p"}]}}"#),
+                success(br#"{"result":{"agent":{"agent_status":"working"}}}"#),
+            ],
+        ];
+        for outputs in cases {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new(outputs),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            backend.prune_seeded_tab("named", "w", "w:seed");
+        }
+    }
+
+    #[test]
+    fn bounded_helpers_and_capability_checks_cover_refusal_edges() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut failed = HerdrBackend::new(
+            SequenceRunner::new([failure(b"failed")]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(failed.success_scoped("named", ["status"]).is_err());
+        let mut stderr_json = HerdrBackend::new(
+            SequenceRunner::new([failure(br#"{"error":{"code":"pane_not_found"}}"#)]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(
+            stderr_json
+                .json_any_status("named", ["pane", "get", "w:p"])
+                .is_ok()
+        );
+        for outputs in [
+            vec![success(br#"{"client":{"protocol":15}}"#)],
+            vec![
+                success(br#"{"client":{"protocol":16}}"#),
+                success(br#"{"methods":[],"events":[]}"#),
+            ],
+            vec![failure(b"status failed")],
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new(outputs),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert!(!backend.events_capable("named"));
+        }
+        assert_eq!(parse_target(":pane"), None);
+        assert_eq!(parse_target("session:"), None);
+        assert!(tail_lines(b"some bytes", 0).is_empty());
+        let rows = [
+            "────────".as_bytes(),
+            b"one",
+            b"two",
+            b"three",
+            "────────".as_bytes(),
+        ];
+        assert_eq!(bottom_pi_pair(&rows, 2), None);
+        for status in ["idle", "unrecognized"] {
+            let record = TransitionRecord::new("w:p", "w", "", status, "");
+            assert!(!apply_transition(temp.path(), "named", &record).expect("transition"));
+        }
+    }
+
+    #[test]
+    fn submit_inventory_and_creation_refusals_keep_typed_outcomes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = herdr_target("named:w:p");
+        for (capture, expected) in [
+            ("┃ Type a message... ┃\n", ComposerState::Empty),
+            ("no composer\n", ComposerState::Unknown),
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new([
+                    success(br#"{"server":{"running":true}}"#),
+                    success(Vec::new()),
+                    success(br#"{"result":{"agent":{"agent_status":"mystery"}}}"#),
+                    success(br#"{"server":{"running":true}}"#),
+                    success(Vec::new()),
+                    success(br#"{"server":{"running":true}}"#),
+                    success(capture),
+                ]),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert_eq!(
+                backend
+                    .send_submit(
+                        &target,
+                        SubmitRequest {
+                            text: "submit",
+                            retries: 1,
+                            enter_delay: Duration::ZERO,
+                            settle: Duration::ZERO,
+                        },
+                    )
+                    .expect("submit outcome"),
+                expected
+            );
+        }
+        let mut inventory = HerdrBackend::new(
+            SequenceRunner::new([
+                success(br#"{"result":{"tabs":[{"tab_id":"w:other","label":"other"},{"label":"mx-missing"},{"tab_id":"w:live","label":"mx-live"}]}}"#),
+                success(br#"{"result":{"panes":[{"tab_id":"w:live","pane_id":"w:p"}]}}"#),
+            ]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        let container = ContainerId::for_backend(BackendName::Herdr, "named:w").expect("container");
+        assert_eq!(
+            RuntimeBackend::list_live(&mut inventory, Some(&container))
+                .expect("inventory")
+                .len(),
+            1
+        );
+        let mut malformed = HerdrBackend::new(
+            SequenceRunner::new([success(br#"{"result":{}}"#)]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(
+            malformed
+                .create_task_full(
+                    &container,
+                    &TaskSpec {
+                        label: "mx-task".to_owned(),
+                        working_directory: temp.path().to_owned(),
+                    },
+                    None,
+                )
+                .is_err()
+        );
+        let mut duplicate_without_pane = HerdrBackend::new(
+            SequenceRunner::new([
+                success(br#"{"result":{"tabs":[{"tab_id":"w:dup","label":"mx-task"}]}}"#),
+                success(br#"{"result":{"panes":[]}}"#),
+            ]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(
+            duplicate_without_pane
+                .create_task_full(
+                    &container,
+                    &TaskSpec {
+                        label: "mx-task".to_owned(),
+                        working_directory: temp.path().to_owned(),
+                    },
+                    None,
+                )
+                .is_err()
+        );
+        let mut unknown = HerdrBackend::new(
+            SequenceRunner::new([success(b"not json")]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(unknown.agent_state(&target), AgentState::Unreadable);
+    }
+
+    #[derive(Debug)]
+    struct EventRunner {
+        socket: PathBuf,
+    }
+
+    impl CommandRunner for EventRunner {
+        fn run(&mut self, request: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            let args = request
+                .args
+                .iter()
+                .map(|argument| argument.to_string_lossy())
+                .collect::<Vec<_>>();
+            let output = match args.first().map(|argument| argument.as_ref()) {
+                Some("status") => {
+                    br#"{"client":{"protocol":16},"server":{"running":true}}"#.to_vec()
+                }
+                Some("api") => {
+                    br#"{"methods":["events.subscribe"],"events":["pane.agent_status_changed"]}"#
+                        .to_vec()
+                }
+                Some("session") => format!(
+                    r#"{{"sessions":[{{"name":"named","running":true,"socket_path":"{}"}}]}}"#,
+                    self.socket.display()
+                )
+                .into_bytes(),
+                Some("agent") => br#"{"result":{"agent":{"agent_status":"working"}}}"#.to_vec(),
+                _ => panic!("unexpected event command: {args:?}"),
+            };
+            Ok(success(output))
+        }
+    }
+
+    #[test]
+    fn native_event_wait_reconciles_then_returns_actionable_transition() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let socket = temp.path().join("herdr.sock");
+        let listener = UnixListener::bind(&socket).expect("bind");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().expect("clone"))
+                .read_line(&mut request)
+                .expect("request");
+            assert!(request.contains("\"method\":\"events.subscribe\""));
+            stream
+                .write_all(
+                    b"{\"id\":\"mx-eventwait\",\"result\":{\"type\":\"subscription_started\"}}\n",
+                )
+                .expect("ack");
+            stream
+                .write_all(b"{\"event\":\"pane.agent_status_changed\",\"data\":{\"pane_id\":\"w:p\",\"workspace_id\":\"w\",\"agent_status\":\"blocked\",\"agent\":\"claude\"}}\n")
+                .expect("event");
+        });
+        let mut backend = HerdrBackend::new(
+            EventRunner {
+                socket: socket.clone(),
+            },
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        let transition = backend
+            .wait_transition_in_state(
+                "named",
+                Duration::from_secs(1),
+                temp.path(),
+                &["named:w:p".to_owned()],
+            )
+            .expect("wait")
+            .expect("actionable transition");
+        assert_eq!(transition.pane_id, "w:p");
+        assert_eq!(transition.to_status, "blocked");
+        server.join().expect("server");
     }
 }
