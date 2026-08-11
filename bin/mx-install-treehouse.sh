@@ -10,6 +10,16 @@
 #   mx-install-treehouse.sh <destination-directory>
 #
 # Pins Treehouse v2.0.1, the version exercised by the local real-Herdr suite.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  _mx_treehouse_tool_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_treehouse_tool_dir/mx-rust-runtime.sh"
+  _mx_treehouse_tools_implementation=$(mx_treehouse_tools_implementation) || exit $?
+  if [ "$_mx_treehouse_tools_implementation" = rust ]; then
+    _mx_treehouse_rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$_mx_treehouse_rust_bin" install-treehouse "$@"
+  fi
+fi
 set -eu
 
 MX_TREEHOUSE_CI_VERSION=2.0.1
@@ -90,6 +100,13 @@ case "$installed_version" in
     ;;
 esac
 
-printf 'mx-install-treehouse.sh: installed treehouse %s to %s\n' \
+lease_help=$("$DESTINATION/treehouse" get --help 2>&1) \
+  || die "could not inspect installed treehouse lease support"
+case "$lease_help" in
+  *--lease*) ;;
+  *) die "installed treehouse does not support the required 'get --lease' capability" ;;
+esac
+
+printf 'mx-install-treehouse.sh: installed treehouse %s with get --lease to %s\n' \
   "$installed_version" "$DESTINATION/treehouse" >&2
 "$DESTINATION/treehouse" --version

@@ -283,10 +283,7 @@ pub fn event_wait_cancelled(
 mod tests {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    };
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
     use std::time::Duration;
 
@@ -391,6 +388,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let socket = temp.path().join("cancel.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
+        let (server_done, server_status) = std::sync::mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             let mut request = String::new();
@@ -403,23 +401,26 @@ mod tests {
                 )
                 .expect("ack");
             thread::sleep(Duration::from_millis(200));
+            server_done.send(()).expect("server status");
         });
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let trigger = Arc::clone(&cancelled);
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(20));
-            trigger.store(true, Ordering::Release);
-        });
-        let started = std::time::Instant::now();
+        let cancelled = AtomicBool::new(false);
         event_wait_cancelled(
             &socket,
             Duration::from_secs(2),
             &["w:p".to_owned()],
             &cancelled,
-            |_| Ok(()),
+            |line| {
+                if line == "@subscribed" {
+                    cancelled.store(true, Ordering::Release);
+                }
+                Ok(())
+            },
         )
         .expect("cancelled read");
-        assert!(started.elapsed() < Duration::from_millis(150));
+        assert_eq!(
+            server_status.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
         server.join().expect("server");
     }
 

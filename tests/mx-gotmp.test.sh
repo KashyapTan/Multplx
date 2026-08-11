@@ -145,7 +145,7 @@ test_teardown_removes_tasktmp_dir() {
   # Sanity: dir + contents exist before teardown.
   [ -d "$task_tmp/gotmp" ] || fail "precondition: gotmp missing before teardown"
   # Run the REAL teardown against the fake root.
-  MX_HOME="$fake" bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \
+  MX_HOME="$fake" MX_BACKEND_IMPLEMENTATION=legacy bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \
     || fail "teardown exited non-zero with a valid tasktmp"
   [ ! -e "$task_tmp" ] \
     || fail "teardown did not remove the tasktmp dir ($task_tmp still exists)"
@@ -191,7 +191,7 @@ kind=delivery
 mode=deep-review
 yolo=off
 META
-  MX_HOME="$fake" bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \
+  MX_HOME="$fake" MX_BACKEND_IMPLEMENTATION=legacy bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \
     || fail "teardown exited non-zero when tasktmp= was absent"
   pass "mx-teardown skips gracefully when tasktmp= is absent (backward compat)"
 }
@@ -204,7 +204,7 @@ test_teardown_skips_gracefully_when_dir_missing() {
   [ ! -e "$task_tmp" ] || fail "precondition: task_tmp should not exist yet"
   local fake
   fake=$(make_fake_root "$id" "$task_tmp")
-  MX_HOME="$fake" bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \
+  MX_HOME="$fake" MX_BACKEND_IMPLEMENTATION=legacy bash "$fake/bin/mx-teardown.sh" "$id" >/dev/null 2>&1 \
     || fail "teardown exited non-zero when tasktmp dir was missing"
   [ ! -e "$task_tmp" ] || fail "teardown created/left the tasktmp dir unexpectedly"
   pass "mx-teardown skips gracefully when tasktmp= points to a nonexistent dir"

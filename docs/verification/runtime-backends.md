@@ -259,6 +259,22 @@ The dedicated Herdr daemon workspace topology is covered by `tests/mx-afk-launch
 
 ## cmux
 
+### Rust Portion 06 default adapter
+
+The cmux fake-CLI contract was reverified on 2026-08-11 against both the Rust default and retained legacy implementation.
+The suite covered the 0.64 minimum, missing and stale clients, fresh password reads, authentication classification, no-launch auth refusals, scoped identity, collision refusal, stale-target recovery, marker-delimited cwd, bounded capture, composer and submit behavior, window membership, last-workspace cleanup, best-effort kill, and home-filtered inventory.
+
+```sh
+cargo build --workspace --release --locked
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux.test.sh
+MX_BACKEND_IMPLEMENTATION=legacy MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux.test.sh
+MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux-smoke.test.sh
+```
+
+The deterministic suite passed under both implementations.
+The real smoke explicitly reported `skip: cmux CLI not found on PATH or at the bundle path` in this verification environment, so Portion 06 makes no new live-cmux claim and retains the earlier version-scoped live evidence below.
+The Rust-default cross-backend run also passed the real tmux contract; the local real-Herdr autodetect smoke stopped at its pre-existing default-session isolation tripwire, while the completed Portion 05 required Herdr family above remains the active Rust evidence.
+
 The current compatibility floor is cmux 0.64, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.
 Real tests use only exact `mx-test-` workspaces guarded by `tests/cmux-test-safety.sh` and never quit or relaunch the maintainer's app.
 
@@ -312,6 +328,63 @@ tests/mx-backend-cmux-smoke.test.sh
 ```
 
 The real smoke proves socket access, fresh readiness, current-path probing, send and keys, bounded capture, title identity, and guarded exact cleanup.
+
+## Harness and dispatch cutover
+
+The Rust-default harness launch and dispatch layer was verified on 2026-08-11.
+Codex and Cursor were present and executed their real version commands through the validated child-root launcher under both Rust and legacy implementations.
+Claude and Pi were not installed in this verification environment, so their new empirical launch checks are explicitly blocked here rather than inferred; the retained adapter evidence in `harness-adapters` remains the version-scoped source for those two adapters.
+
+```sh
+MX_HARNESS_IMPLEMENTATION=rust MX_LAUNCHER_LIVE_E2E=1 tests/mx-launcher-live-e2e.test.sh
+MX_HARNESS_IMPLEMENTATION=legacy MX_LAUNCHER_LIVE_E2E=1 tests/mx-launcher-live-e2e.test.sh
+MX_HARNESS_IMPLEMENTATION=rust tests/mx-launcher.test.sh
+MX_HARNESS_IMPLEMENTATION=legacy tests/mx-launcher.test.sh
+MX_HEADROOM_IMPLEMENTATION=rust tests/mx-headroom.test.sh
+MX_HEADROOM_IMPLEMENTATION=legacy tests/mx-headroom.test.sh
+MX_HEADROOM_IMPLEMENTATION=rust tests/mx-dispatch-queue.test.sh
+MX_HEADROOM_IMPLEMENTATION=legacy tests/mx-dispatch-queue.test.sh
+```
+
+Observed real versions:
+
+```text
+codex-cli 0.147.0-alpha.6.5
+Cursor CLI 2026.08.04-aaa8809
+Treehouse v2.0.1 with get --lease
+Claude unavailable
+Pi unavailable
+```
+
+The focused contracts covered environment-first and bounded-ancestry detection, actor and daemon fallback tokens, literal launcher argv and environment, child-only cwd, lock refusal, recursive-shim refusal, Cursor sandbox refusal, malformed candidate refusal, candidate deduplication independent of array order, configured global and per-harness budgets, queue contention, FIFO, at-limit persistence, cancellation, failed-launch recovery, private record modes, and ignored unpublished temporary records.
+The pinned Treehouse Rust module additionally exercised the four supported platform assets, wrong-platform refusal, exact checksum acceptance and mismatch, stale-version refusal, missing-lease refusal, and the installed real `v2.0.1` lease surface.
+
+The complete portable repository manifest passed with the Rust release binary and the Plan 06 defaults active.
+
+```sh
+MX_RUST_BIN="$PWD/target/release/mx" \
+  bin/mx-test-run.sh --all --exclude-family real-herdr-gated --jobs auto
+```
+
+Observed summary:
+
+```text
+MX_TEST_SUMMARY total=115 failed=0 skipped_gate=9 duration_ms=340048
+```
+
+The nine declared skips were optional live-tool or opt-in harness gates.
+The separate ten-test real-Herdr family was attempted without mutation and stopped at its system-state tripwire because the host did not have exactly one running default session.
+That current environmental refusal does not replace or weaken the completed Portion 05 Rust evidence recorded above.
+
+Release-path timing used 100 warm interleaved iterations with deterministic inputs on the same local checkout.
+
+| Command | Legacy median | Rust median | Legacy p95 | Rust p95 |
+| --- | ---: | ---: | ---: | ---: |
+| `mx-harness.sh actor` | 11.411 ms | 13.031 ms | 14.202 ms | 15.865 ms |
+| `mx-headroom.sh --json` | 24.942 ms | 11.522 ms | 29.773 ms | 14.454 ms |
+
+Harness resolution adds 1.620 ms median and 1.663 ms p95 for typed parsing and process startup.
+Headroom improves median by 13.420 ms and p95 by 15.319 ms while adding locked queue mutation and strict malformed-profile refusal.
 
 ## Codex App host tools
 

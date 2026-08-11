@@ -3,6 +3,16 @@
 # Usage: mx-launch-harness.sh claude|codex|cursor|pi [arguments...]
 # Exit 2 means launcher validation failed, 3 means another live broker owns the
 # home, and 127 means the selected real harness was not captured or disappeared.
+if [ "${BASH_SOURCE[0]}" = "$0" ] && [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/mx-rust-runtime.sh" ]; then
+  _mx_launch_harness_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_launch_harness_dir/mx-rust-runtime.sh"
+  _mx_launch_harness_implementation=$(mx_harness_implementation) || exit $?
+  if [ "$_mx_launch_harness_implementation" = rust ]; then
+    _mx_launch_harness_rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$_mx_launch_harness_rust_bin" launch-harness "$@"
+  fi
+fi
 set -u
 
 SCRIPT_PATH=${BASH_SOURCE[0]}

@@ -90,6 +90,15 @@ The only accepted selector values are `rust` and `legacy`, and an invalid value 
 The legacy selector is a bounded rollback mechanism for the Rust port and does not change file formats, command syntax, or policy.
 Build the default runtime with `cargo build --workspace --release` when running directly from a development checkout.
 
+## Backend, harness, and dispatch implementation rollback
+
+The backend facade, cmux transport, harness detection, primary harness launch, composite headroom, durable dispatch queue, and pinned Treehouse installer run through the release Rust binary by default.
+Each public shell command keeps its existing name, arguments, output vocabulary, and durable file formats.
+Set `MX_BACKEND_IMPLEMENTATION=legacy`, `MX_HARNESS_IMPLEMENTATION=legacy`, `MX_HEADROOM_IMPLEMENTATION=legacy`, or `MX_TREEHOUSE_TOOLS_IMPLEMENTATION=legacy` before invoking the corresponding entry point to select its retained Bash implementation before the operation begins.
+Each selector accepts only `rust` or `legacy`, and an invalid value refuses instead of falling through to another implementation.
+The selection is process-wide for that command and never falls back after a Rust operation starts.
+Task lifecycle orchestration in `mx-spawn.sh`, `mx-send.sh`, `mx-peek.sh`, and `mx-teardown.sh` remains on its current shell implementation until Rust-port Portion 07, while its backend operations already use the Rust facade by default.
+
 ## Runtime backend (config/backend / MX_BACKEND)
 
 For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.
@@ -281,7 +290,7 @@ Daemon homes inherit this file from the primary, so a daemon's own actors apply 
 
 ## Dispatch capacity (config/api-capacity / state/.dispatch-queue)
 
-`bin/mx-headroom.sh` is the single owner of dispatch-capacity calculation and parked-request record fields.
+The typed implementation in `crates/multplx-backend/src/headroom.rs` is the single owner of dispatch-capacity calculation and parked-request record fields, with `bin/mx-headroom.sh` retained as the public adapter.
 Its JSON combines spare CPU and available memory with a conservative configured API concurrency budget, and the tighter component controls `available` and `at_limit`.
 The default local reservation is one-quarter logical CPU and 256 MiB per additional actor, while `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain explicit overrides.
 The optional global API budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses a capacity of twenty.
@@ -303,9 +312,9 @@ The in-repo deep-review scripts supply local validation, while official gh cover
 Bootstrap does not require GitHub authentication in the broker session.
 The credential boundary and delivery-context setup are documented in [delivery.md](delivery.md).
 The in-repo vplan module covers rich-review operations and is self-checked with its vendored assets rather than probed as an external tool.
-Backlog mutations and dispatch capacity are owned by the repository's `bin/mx-backlog-lib.sh` and `bin/mx-headroom.sh`.
+Backlog mutations and dispatch capacity are owned by the repository's typed backlog and headroom modules behind their existing shell entry points.
 The per-backend delta is required only for the backend resolved from `MX_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
-That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh`: the resolved backend's own session-provider CLI (`tmux`, `herdr`, or `cmux`) plus `jq` for the JSON-emitting experimental adapters (`herdr`, `cmux`) whose spawn and liveness paths parse the backend's JSON output.
+That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh`: the resolved backend's own session-provider CLI (`tmux`, `herdr`, or `cmux`) plus the compatibility `jq` requirement for the JSON-emitting experimental adapters (`herdr`, `cmux`).
 Backend tool availability uses the adapter's own executable resolver, so bootstrap and spawn agree on supported non-`PATH` locations such as cmux's bundled CLI.
 An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead of silently dropping its dependency delta or falling back to tmux.
 A herdr or cmux home is therefore never told `tmux` is missing, while Treehouse's command and durable-lease checks still run unconditionally because every supported backend delegates worktree acquisition to it.

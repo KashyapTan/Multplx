@@ -33,10 +33,10 @@ Close any session that already loaded the former root `AGENTS.md` before continu
   A local `config/backlog-backend=manual` opt-out forces the broker's routine backlog updates to hand-editing and stays gitignored; validated daemon handoffs still route through the owned atomic move.
   A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; spawn-supported values are `tmux` plus experimental `herdr` and `cmux`, while `codex-app` is documented only in `docs/codex-app-backend.md`.
   It does not make `data/` tracked.
-- Production helper scripts in `bin/` remain plain Bash during Rust-port Portion 02.
+- Public helper entry points in `bin/` remain plain Bash adapters during the Rust port.
   Each starts with a usage header comment; keep it accurate when you change behavior.
-  The shadow Rust workspace builds one `mx` multicall binary, but no production command selects it yet.
-  Portion 02 exposes hidden `mx primitive` compatibility commands for the transferred core contracts so exact legacy-versus-Rust parity can be tested without changing a caller.
+  The Rust workspace builds one `mx` multicall binary, and the transferred backend, harness, headroom, and Treehouse operations select it by default after Portion 06.
+  Hidden compatibility commands preserve exact legacy-versus-Rust verification without changing public callers.
   Test scripts and helpers in `tests/` remain plain Bash, with Rust-native fixtures and differential self-tests in the Rust workspace.
 - Changes to harness adapters (detection in `bin/mx-harness.sh`, launch and hook mechanics in `bin/mx-spawn.sh`, busy signatures in `bin/mx-watch.sh` and `bin/mx-tmux-lib.sh`, cleanup in `bin/mx-teardown.sh`, and facts in `.agents/skills/harness-adapters/SKILL.md`) must be verified empirically against the real harness, never written from documentation alone.
 - Changes to runtime session backends (`bin/mx-backend.sh`, `bin/backends/`, and the scripts that dispatch through them) keep current setup and limits in the relevant backend guide and active empirical evidence in [`docs/verification/runtime-backends.md`](docs/verification/runtime-backends.md).
@@ -79,7 +79,7 @@ bin/mx-test-run.sh --compare-json /tmp/serial.json /tmp/accelerated.json
 tmp=$(mktemp -d) && printf 'done: smoke\n' > "$tmp/smoke.status" && MX_STATE_OVERRIDE="$tmp" MX_SIGNAL_GRACE=1 MX_POLL=1 MX_HEARTBEAT=999999 bin/mx-watch-arm.sh  # watcher re-arm smoke test (prints arm status, then an actionable signal)
 ```
 
-Check the shadow Rust workspace independently:
+Check the Rust workspace independently:
 
 ```sh
 cargo fmt --all -- --check
@@ -90,10 +90,10 @@ target/release/mx shadow-diagnostic
 ```
 
 `tests/lib.sh` owns the test-only `MX_TEST_IMPLEMENTATION=legacy|rust` selector and the differential capture helpers.
-The existing suite remains legacy by default, while a focused migrated test explicitly selects Rust and may override `MX_TEST_RUST_BIN` with the release binary under test.
+The test-only local-state selector remains legacy by default, while production backend, harness, and headroom entry points default to Rust and retain explicit legacy selectors for differential coverage.
 Differential capture compares exit status, standard output, standard error, relative filesystem paths, exact file bytes, file modes, and surviving child processes.
 Only temporary roots, PIDs, ports, timestamps, and random tokens may be normalized by a focused test, and no normalization is automatic.
-The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only, while hidden `primitive` subcommands exercise Portion 02 contracts for differential tests.
+The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only, while hidden compatibility subcommands exercise transferred contracts for differential tests.
 Neither surface is an operator command or a production cutover.
 
 `bin/mx-test-run.sh` is the single owner of behavior-suite selection, the resource-conflict manifest, resource-aware scheduling, generated portable CI lanes, timing markers, family totals, the coverage guard, assertion parity, and JSON timing artifacts.

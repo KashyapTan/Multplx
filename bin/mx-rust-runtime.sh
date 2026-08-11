@@ -11,15 +11,35 @@ mx_local_state_implementation() {
   esac
 }
 
-# Portion 04 remains shadow-only until every supported backend is Rust-native.
 # Selection is process-wide and happens before a backend operation starts.
 mx_backend_implementation() {
-  case "${MX_BACKEND_IMPLEMENTATION:-legacy}" in
-    rust|legacy) printf '%s\n' "${MX_BACKEND_IMPLEMENTATION:-legacy}" ;;
+  case "${MX_BACKEND_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_BACKEND_IMPLEMENTATION:-rust}" ;;
     *)
       echo "error: MX_BACKEND_IMPLEMENTATION must be rust or legacy" >&2
       return 2
       ;;
+  esac
+}
+
+mx_harness_implementation() {
+  case "${MX_HARNESS_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_HARNESS_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_HARNESS_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
+mx_headroom_implementation() {
+  case "${MX_HEADROOM_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_HEADROOM_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_HEADROOM_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
+mx_treehouse_tools_implementation() {
+  case "${MX_TREEHOUSE_TOOLS_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_TREEHOUSE_TOOLS_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_TREEHOUSE_TOOLS_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
   esac
 }
 
@@ -87,7 +107,7 @@ mx_rust_runtime_bin() {
   fi
   if [ ! -x "$candidate" ]; then
     echo "error: Multplx Rust runtime is unavailable at $candidate" >&2
-    echo "       run cargo build --workspace --release or select MX_LOCAL_STATE_IMPLEMENTATION=legacy" >&2
+    echo "       run cargo build --workspace --release or select the entry point's explicit legacy implementation" >&2
     return 1
   fi
   printf '%s\n' "$candidate"
