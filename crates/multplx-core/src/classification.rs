@@ -329,8 +329,8 @@ pub fn last_status_line(path: impl AsRef<Path>, limit: usize) -> Result<Option<S
 #[cfg(test)]
 mod tests {
     use super::{
-        Heuristic, NativeState, RunStep, open_activities, open_decisions, render_open_statuses,
-        resolve_signal,
+        Heuristic, NativeState, RunStep, is_maintainer_relevant, last_status_line, open_activities,
+        open_decisions, render_open_statuses, resolve_signal, status_line_note, status_line_verb,
     };
 
     #[test]
@@ -383,5 +383,114 @@ mod tests {
             )),
             "job\tworking\trun\n"
         );
+    }
+
+    #[test]
+    fn every_signal_token_and_fallback_path_is_observable() {
+        for (value, expected) in [
+            ("idle", "native:idle"),
+            ("working", "native:working"),
+            ("blocked", "native:blocked"),
+            ("done", "native:done"),
+        ] {
+            assert_eq!(
+                resolve_signal(
+                    NativeState::parse(value),
+                    RunStep::Unknown,
+                    "",
+                    Heuristic::Unknown,
+                    "paused",
+                ),
+                expected
+            );
+        }
+        for (value, expected) in [
+            ("working", "run-step:working"),
+            ("parked", "run-step:parked"),
+            ("done", "run-step:done"),
+            ("blocked", "run-step:blocked"),
+            ("paused", "run-step:paused"),
+            ("failed", "run-step:failed"),
+        ] {
+            assert_eq!(
+                resolve_signal(
+                    NativeState::Unknown,
+                    RunStep::parse(value),
+                    "",
+                    Heuristic::Unknown,
+                    "paused",
+                ),
+                expected
+            );
+        }
+        assert_eq!(
+            resolve_signal(
+                NativeState::Unknown,
+                RunStep::Unknown,
+                "",
+                Heuristic::Busy,
+                "paused",
+            ),
+            "heuristic:busy"
+        );
+        assert_eq!(
+            resolve_signal(
+                NativeState::Unknown,
+                RunStep::Unknown,
+                "",
+                Heuristic::Idle,
+                "paused",
+            ),
+            "heuristic:idle"
+        );
+        assert_eq!(
+            resolve_signal(
+                NativeState::parse("other"),
+                RunStep::parse("other"),
+                "other",
+                Heuristic::parse("other"),
+                "paused",
+            ),
+            "none"
+        );
+    }
+
+    #[test]
+    fn status_parsing_relevance_and_bounded_tail_fail_closed() {
+        assert_eq!(
+            status_line_verb("needs-decision [key=one]: why"),
+            "needs-decision"
+        );
+        assert_eq!(status_line_note("blocked"), "blocked");
+        let decisions = open_decisions(
+            "needs-decision [key=bad/key]: ignored\nneeds-decision: default\n",
+            "resolved",
+            "maintainer-held",
+        );
+        assert_eq!(decisions.len(), 1);
+        let activities = open_activities(
+            "working [key=a]: first\nfailed [key=a]: no\npaused [key=b]: wait\nmaintainer-held [key=b]: held\n",
+            "paused",
+            "resolved",
+            "maintainer-held",
+        );
+        assert!(activities.is_empty());
+        assert!(!is_maintainer_relevant("", None, "paused").expect("empty"));
+        assert!(!is_maintainer_relevant("working: now", None, "paused").expect("working"));
+        assert!(is_maintainer_relevant("done: yes", None, "paused").expect("done"));
+        assert!(is_maintainer_relevant("custom: PR ready", None, "paused").expect("default regex"));
+        assert!(is_maintainer_relevant("custom: ping", Some("ping"), "paused").expect("override"));
+        assert!(is_maintainer_relevant("custom", Some("["), "paused").is_err());
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("status");
+        assert_eq!(last_status_line(&path, 32).expect("absent"), None);
+        std::fs::write(&path, b"one\n\n two\n").expect("status");
+        assert_eq!(
+            last_status_line(&path, 32).expect("tail").as_deref(),
+            Some(" two")
+        );
+        std::fs::write(&path, [0xff]).expect("invalid");
+        assert!(last_status_line(&path, 32).is_err());
     }
 }

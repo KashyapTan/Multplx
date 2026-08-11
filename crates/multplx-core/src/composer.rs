@@ -68,7 +68,8 @@ fn colon_truecolor_dark(parameter: &str, luma_max: u16) -> Option<bool> {
     let red = fields.get(fields.len() - 3)?.parse::<u16>().ok()?;
     let green = fields.get(fields.len() - 2)?.parse::<u16>().ok()?;
     let blue = fields.last()?.parse::<u16>().ok()?;
-    Some((299 * red + 587 * green + 114 * blue) / 1000 < luma_max)
+    let luma = (299 * u32::from(red) + 587 * u32::from(green) + 114 * u32::from(blue)) / 1000;
+    Some(luma < u32::from(luma_max))
 }
 
 fn update_sgr(parameters: &str, dim: &mut bool, dark: &mut bool, luma_max: u16) {
@@ -106,7 +107,10 @@ fn update_sgr(parameters: &str, dim: &mut bool, dark: &mut bool, luma_max: u16) 
                         fields[index + 4].parse::<u16>(),
                     );
                     if let (Ok(red), Ok(green), Ok(blue)) = components {
-                        *dark = (299 * red + 587 * green + 114 * blue) / 1000 < luma_max;
+                        let luma =
+                            (299 * u32::from(red) + 587 * u32::from(green) + 114 * u32::from(blue))
+                                / 1000;
+                        *dark = luma < u32::from(luma_max);
                     }
                     index += 4;
                 } else if fields.get(index + 1) == Some(&"5") {
@@ -269,6 +273,63 @@ mod tests {
             classify_content(true, "type a message...", pattern, true, None)
                 .expect("classification"),
             ComposerState::Empty
+        );
+    }
+
+    #[test]
+    fn ansi_and_sgr_matrix_covers_every_supported_ghost_shape() {
+        assert_eq!(strip_ansi(b"a\x1b[31mb\x1b[0mc"), b"abc");
+        assert_eq!(strip_ansi(b"a\x1bb"), b"ab");
+        assert_eq!(strip_ansi(b"a\x1b["), b"a[");
+
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"\x1b[2mghost\x1b[22mreal", b"real"),
+            (b"\x1b[38;2;1;1;1mdark\x1b[39mreal", b"real"),
+            (b"\x1b[38;2;255;255;255mlight", b"light"),
+            (b"\x1b[38:2:1:1:1mdark\x1b[0mreal", b"real"),
+            (b"\x1b[38:2:255:255:255mlight", b"light"),
+            (b"\x1b[31mnormal", b"normal"),
+            (b"\x1b[91mnormal", b"normal"),
+            (b"\x1b[38;5;8mindexed", b"indexed"),
+            (b"\x1b[48;2;1;2;3mbackground", b"background"),
+            (b"\x1b[48;5;1mbackground", b"background"),
+            (b"\x1b[48:2:1:2:3mbackground", b"background"),
+            (b"\x1b[58;5;1munderline", b"underline"),
+            (b"\x1b[38;2;999999;1;1minvalid", b"invalid"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(strip_ghost(input, 128), *expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn classification_matrix_covers_plain_fallback_prompts_and_regex_errors() {
+        assert_eq!(
+            classify_content(false, "", None, false, Some("❯")).expect("plain prompt"),
+            ComposerState::Empty
+        );
+        assert_eq!(
+            classify_content(false, "", None, false, Some("restored shell")).expect("plain shell"),
+            ComposerState::Unknown
+        );
+        for prompt in ["❯", "›", "→"] {
+            assert_eq!(
+                classify_content(false, prompt, None, false, None).expect("agent prompt"),
+                ComposerState::Empty
+            );
+        }
+        assert_eq!(
+            classify_content(true, "> work", Some("work"), false, None).expect("idle remainder"),
+            ComposerState::Empty
+        );
+        assert_eq!(
+            classify_content(true, "❯ WORK", Some("^work$"), true, None).expect("insensitive"),
+            ComposerState::Empty
+        );
+        assert!(classify_content(true, "work", Some("["), false, None).is_err());
+        assert_eq!(
+            classify_content(true, "❯ pending", None, false, None).expect("pending"),
+            ComposerState::Pending
         );
     }
 }

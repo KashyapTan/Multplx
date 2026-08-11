@@ -43,6 +43,14 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+[ $# -ge 2 ] || { echo "usage: mx-backlog-handoff.sh <daemon-id> <item-key>..." >&2; exit 1; }
+implementation=$(mx_local_state_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" backlog-handoff "$@"
+fi
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
@@ -51,7 +59,6 @@ MAIN_BACKLOG="$DATA/backlog.md"
 # shellcheck source=bin/mx-backlog-lib.sh disable=SC1091
 . "$SCRIPT_DIR/mx-backlog-lib.sh"
 
-[ $# -ge 2 ] || { echo "usage: mx-backlog-handoff.sh <daemon-id> <item-key>..." >&2; exit 1; }
 ID=$1
 shift
 

@@ -1,7 +1,9 @@
 # shellcheck shell=bash
 # Multplx backlog format and mutation library.
 #
-# This file is the single owner of the durable backlog markdown format.
+# The Rust `multplx-domain::backlog` module owns the durable backlog format.
+# This file is the source-compatible launch adapter and retained legacy
+# rollback implementation.
 # A backlog contains exactly one each of `## In flight`, `## Queued`, and
 # `## Done`. New files use that standard order; the parser also preserves a
 # complete legacy file whose sections are arranged differently.
@@ -24,16 +26,77 @@
 #   mx_backlog_block <file> <id> --by <blocker-id>
 #   mx_backlog_unblock <file> <id> --by <blocker-id>
 #
-# The implementation is embedded here so parsing cannot drift between callers.
-# Node is part of Multplx's universal toolchain and supplies reliable byte
-# handling, JSON escaping, same-directory temporary writes, and rollback if the
-# second rename of a two-file transaction fails.
+# Rust is selected by default before any mutation and centralizes parsing,
+# validation, locking, atomic publication, and two-file rollback.
+# The embedded Node implementation below remains available only through the
+# explicit rollback selector.
 #
 # Defaults:
 #   MX_BACKLOG_DONE_KEEP=10
 #   MX_BACKLOG_ARCHIVE=<backlog-directory>/done-archive.md
 #   config/backlog-backend=manual opts routine broker operations into the
 #   documented manual path; absent or "owned" selects this library.
+
+MX_BACKLOG_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$MX_BACKLOG_SCRIPT_DIR/mx-rust-runtime.sh"
+mx_backlog_implementation=$(mx_local_state_implementation) || {
+  return 2 2>/dev/null || exit 2
+}
+if [ "$mx_backlog_implementation" = rust ]; then
+  mx_backlog_rust() {
+    local rust_bin
+    rust_bin=$(mx_rust_runtime_bin) || return $?
+    "$rust_bin" backlog "$@"
+  }
+  mx_backlog_backend_value() {
+    local rust_bin
+    rust_bin=$(mx_rust_runtime_bin) || return $?
+    "$rust_bin" backlog-backend "$1"
+  }
+  mx_backlog_backend_manual() { [ "$(mx_backlog_backend_value "$1")" = manual ]; }
+  mx_backlog_backend_available() { ! mx_backlog_backend_manual "$1"; }
+  mx_backlog_validate() { mx_backlog_rust validate --file "$1"; }
+  mx_backlog_list() { mx_backlog_rust list --file "$1" --limit "$2"; }
+  mx_backlog_show() { mx_backlog_rust show "$2" --file "$1"; }
+  mx_backlog_add() {
+    local file=$1 id=$2 title=$3
+    shift 3
+    mx_backlog_rust add "$id" "$title" --file "$file" "$@"
+  }
+  mx_backlog_done() {
+    local file=$1 id=$2
+    shift 2
+    mx_backlog_rust done "$id" --file "$file" "$@"
+  }
+  mx_backlog_ready() { mx_backlog_rust ready --file "$1"; }
+  mx_backlog_hold() {
+    local file=$1 id=$2
+    shift 2
+    mx_backlog_rust hold "$id" --file "$file" "$@"
+  }
+  mx_backlog_mv() {
+    local source=$1 destination=$2
+    shift 2
+    mx_backlog_rust mv "$@" --file "$source" --to "$destination"
+  }
+  mx_backlog_update() {
+    local file=$1 id=$2
+    shift 2
+    mx_backlog_rust update "$id" --file "$file" "$@"
+  }
+  mx_backlog_block() {
+    local file=$1 id=$2
+    shift 2
+    mx_backlog_rust block "$id" --file "$file" "$@"
+  }
+  mx_backlog_unblock() {
+    local file=$1 id=$2
+    shift 2
+    mx_backlog_rust unblock "$id" --file "$file" "$@"
+  }
+  return 0
+fi
 
 mx_backlog_backend_value() {
   local config_dir=$1 backend_file value

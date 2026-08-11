@@ -15,6 +15,13 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_local_state_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" backlog "$@"
+fi
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"

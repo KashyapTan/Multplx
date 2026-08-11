@@ -532,7 +532,10 @@ mod tests {
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use super::{WakeKind, WakeQueue, WakeRecord, dedupe, status_key_map, watcher_healthy};
+    use super::{
+        AnnotationLimits, WakeKind, WakeQueue, WakeRecord, dedupe, latest_event,
+        render_annotations, render_identity, status_key_map, watcher_healthy,
+    };
     use crate::error::{CoreError, Result};
     use crate::process::{AncestryRow, ProcessIdentity, ProcessProbe};
 
@@ -728,6 +731,187 @@ mod tests {
             )
             .expect("PID reuse is an ordinary mismatch")
             .is_none()
+        );
+    }
+
+    #[test]
+    fn malformed_records_and_status_annotations_fail_closed() {
+        assert!(WakeRecord::parse(&"x".repeat(super::MAX_RECORD_BYTES + 1)).is_err());
+        for line in [
+            "one\ttwo",
+            "x\t1\tsignal\tkey\tpayload",
+            "1\tx\tsignal\tkey\tpayload",
+            "1\t1\tunknown\tkey\tpayload",
+        ] {
+            assert!(WakeRecord::parse(line).is_err(), "{line}");
+        }
+        assert!(status_key_map("task.other").is_err());
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("status");
+        fs::write(&path, b"prefix\nlatest\trow\r\n").expect("status");
+        let event = latest_event(&path, 8).expect("event");
+        assert_eq!(event.line, "st row");
+        assert!(event.truncated);
+        fs::write(&path, b"\n\n").expect("blank");
+        assert!(latest_event(&path, 32).is_err());
+        fs::remove_file(&path).expect("remove");
+        fs::create_dir(&path).expect("directory");
+        assert!(latest_event(&path, 32).is_err());
+    }
+
+    #[test]
+    fn annotation_limits_cover_history_truncation_and_both_omission_caps() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        for id in ["a", "b", "c"] {
+            fs::write(
+                temp.path().join(format!("{id}.status")),
+                format!("{id}: {}\n", "x".repeat(80)),
+            )
+            .expect("status");
+        }
+        let records = vec![
+            WakeRecord::new(1, 1, WakeKind::Signal, "a.turn-ended", "old"),
+            WakeRecord::new(2, 2, WakeKind::Signal, "a.status", "new"),
+            WakeRecord::new(3, 3, WakeKind::Signal, "b.status", "new"),
+            WakeRecord::new(4, 4, WakeKind::Signal, "c.status", "new"),
+            WakeRecord::new(5, 5, WakeKind::Signal, "bad/key.status", "ignored"),
+        ];
+        let output = render_annotations(
+            temp.path(),
+            &records,
+            AnnotationLimits {
+                tail_bytes: 32,
+                item_bytes: 96,
+                global_bytes: 300,
+                read_cap: 2,
+            },
+        );
+        assert!(output.contains("a.status"));
+        assert!(output.contains("[truncated]"));
+        assert!(output.contains("enrichment read cap"));
+
+        let capped = render_annotations(
+            temp.path(),
+            &records,
+            AnnotationLimits {
+                tail_bytes: 128,
+                item_bytes: 256,
+                global_bytes: 193,
+                read_cap: 8,
+            },
+        );
+        assert!(capped.contains("global enrichment byte cap"));
+    }
+
+    #[test]
+    fn queue_empty_success_and_parse_failure_paths_are_transactional() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let queue = WakeQueue::new(temp.path());
+        let processes = FakeProcesses::default();
+        assert!(
+            queue
+                .drain_with_publish(&processes, |_| Ok(()))
+                .expect("absent")
+                .is_empty()
+        );
+        assert!(
+            queue
+                .drain_with_publish(&processes, |_| Ok(()))
+                .expect("empty")
+                .is_empty()
+        );
+        queue
+            .append(WakeKind::Heartbeat, "one", "first", UNIX_EPOCH, &processes)
+            .expect("first");
+        queue
+            .append(WakeKind::Heartbeat, "two", "latest", UNIX_EPOCH, &processes)
+            .expect("second");
+        let drained = queue
+            .drain_with_publish(&processes, |rows| {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].payload, "latest");
+                Ok(())
+            })
+            .expect("drain");
+        assert_eq!(drained.len(), 1);
+
+        fs::write(temp.path().join(".wake-queue"), [0xff]).expect("invalid queue");
+        assert!(queue.drain_with_publish(&processes, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn watcher_health_mismatch_matrix_and_identity_rendering_are_observable() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path();
+        let home = state.join("home");
+        let watcher = state.join("watcher");
+        let processes = FakeProcesses::default();
+        assert!(
+            watcher_healthy(
+                state,
+                &watcher,
+                &home,
+                Duration::from_secs(1),
+                SystemTime::now(),
+                &processes
+            )
+            .expect("missing")
+            .is_none()
+        );
+        let owner = state.join("owner");
+        fs::create_dir(&owner).expect("owner");
+        std::os::unix::fs::symlink("owner", state.join(".watch.lock")).expect("relative owner");
+        fs::write(owner.join("pid"), b"99\n").expect("pid");
+        processes.0.lock().expect("processes").insert(99, true);
+        assert!(
+            watcher_healthy(
+                state,
+                &watcher,
+                &home,
+                Duration::from_secs(1),
+                SystemTime::now(),
+                &processes
+            )
+            .expect("missing home")
+            .is_none()
+        );
+        fs::write(owner.join("mx-home"), format!("{}\n", home.display())).expect("home");
+        fs::write(
+            owner.join("watcher-path"),
+            format!("{}\n", watcher.display()),
+        )
+        .expect("watcher");
+        assert!(
+            watcher_healthy(
+                state,
+                &watcher,
+                &home,
+                Duration::from_secs(1),
+                SystemTime::now(),
+                &processes
+            )
+            .is_err()
+        );
+        fs::write(owner.join("pid-identity"), b"fixture-99\n").expect("identity");
+        assert!(
+            watcher_healthy(
+                state,
+                &watcher,
+                &home,
+                Duration::ZERO,
+                SystemTime::now(),
+                &processes
+            )
+            .expect("stale")
+            .is_none()
+        );
+        assert_eq!(
+            render_identity(&ProcessIdentity {
+                pid: 99,
+                marker: "fixture-99".to_owned()
+            }),
+            "fixture-99\n"
         );
     }
 }

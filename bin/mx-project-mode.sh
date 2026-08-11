@@ -22,12 +22,18 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+NAME=${1:?usage: mx-project-mode.sh <project-name>}
+implementation=$(mx_local_state_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" project-mode "$NAME"
+fi
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 DATA="${MX_DATA_OVERRIDE:-$MX_HOME/data}"
 REG="$DATA/projects.md"
-NAME=${1:?usage: mx-project-mode.sh <project-name>}
-
 if [ ! -f "$REG" ]; then
   echo "warn: no registry at $REG; defaulting $NAME to deep-review off" >&2
   echo "deep-review off"

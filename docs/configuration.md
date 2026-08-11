@@ -69,7 +69,8 @@ This preference is local to each Multplx home and is not part of daemon inherite
 
 ## Backlog backend (config/backlog-backend)
 
-The in-repo `bin/mx-backlog-lib.sh` is the single owner of the markdown backlog schema, parsing rules, mutation semantics, and retention defaults.
+The typed Rust `BacklogStore` is the single owner of the markdown backlog schema, parsing rules, mutation semantics, and retention defaults.
+The public functions in `bin/mx-backlog-lib.sh` and the `bin/mx-backlog.sh` command are transport adapters to it by default.
 It stores live work in `data/backlog.md`, keeps the newest 10 Done items inline by default, and moves retention overflow to `data/done-archive.md`.
 When the default backend is selected, broker uses the library for routine backlog mutations with no external package or version probe.
 Daemon handoffs are separate and unconditional: `mx-backlog-handoff.sh` keeps its system-level validation and routes the item move through the library's atomic `mx_backlog_mv`.
@@ -79,6 +80,15 @@ The `config/backlog-backend=manual` knob governs broker's own hand-editing of it
 Set the local, gitignored `config/backlog-backend` file to `manual` to force manual backlog editing; absent or `owned` selects the in-repo library.
 The file format is unchanged in both modes; the library and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.
 Use `bin/mx-backlog.sh` for routine list, show, add, done, ready, hold, update, block, unblock, move, and validation operations.
+
+## Local-state implementation rollback
+
+The backlog, daemon backlog handoff, inherited-configuration, config-push, project-mode, and operational-input entry points run through the release Rust binary by default.
+`MX_RUST_BIN` may name an alternate already-built `mx` binary for packaging and focused verification.
+Set `MX_LOCAL_STATE_IMPLEMENTATION=legacy` before invoking an entry point to select its retained Bash implementation before any mutation begins.
+The only accepted selector values are `rust` and `legacy`, and an invalid value refuses without touching local state.
+The legacy selector is a bounded rollback mechanism for the Rust port and does not change file formats, command syntax, or policy.
+Build the default runtime with `cargo build --workspace --release` when running directly from a development checkout.
 
 ## Runtime backend (config/backend / MX_BACKEND)
 

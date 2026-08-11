@@ -210,7 +210,10 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
-    use super::{PublicationFault, append_single_write, atomic_replace, atomic_replace_with_fault};
+    use super::{
+        PublicationFault, append_single_write, atomic_replace, atomic_replace_with_fault,
+        cleanup_regular, mode, read_bounded_regular,
+    };
 
     #[test]
     fn atomic_replace_preserves_old_bytes_before_rename() {
@@ -256,5 +259,48 @@ mod tests {
             fs::metadata(&path).expect("metadata").permissions().mode() & 0o777,
             0o600
         );
+
+        let outside = temp.path().join("outside");
+        let link = temp.path().join("link");
+        fs::write(&outside, "outside\n").expect("outside");
+        symlink(&outside, &link).expect("link");
+        assert!(append_single_write(&link, b"unsafe\n", 0o600).is_err());
+        assert!(append_single_write(temp.path(), b"unsafe\n", 0o600).is_err());
+    }
+
+    #[test]
+    fn bounded_reads_modes_and_cleanup_cover_safe_and_refusal_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("record");
+        fs::write(&path, b"bytes").expect("record");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).expect("mode");
+        assert_eq!(read_bounded_regular(&path, 5).expect("bounded"), b"bytes");
+        assert!(read_bounded_regular(&path, 4).is_err());
+        assert!(read_bounded_regular(temp.path(), 100).is_err());
+        assert_eq!(mode(&path).expect("mode") & 0o777, 0o640);
+        assert!(mode(temp.path().join("missing")).is_err());
+
+        let link = temp.path().join("link");
+        symlink(&path, &link).expect("link");
+        assert!(read_bounded_regular(&link, 100).is_err());
+        assert!(cleanup_regular(&link).is_err());
+        assert!(cleanup_regular(temp.path()).is_err());
+        assert!(cleanup_regular(temp.path().join("missing")).is_ok());
+        assert!(cleanup_regular(&path).is_ok());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn atomic_publication_rejects_unsafe_parents_and_destinations() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real");
+        let linked = temp.path().join("linked");
+        fs::create_dir(&real).expect("real parent");
+        symlink(&real, &linked).expect("linked parent");
+        assert!(atomic_replace(linked.join("record"), b"bytes", 0o600).is_err());
+        assert!(atomic_replace(temp.path().join("missing/record"), b"bytes", 0o600).is_err());
+        let directory = real.join("directory");
+        fs::create_dir(&directory).expect("directory destination");
+        assert!(atomic_replace(&directory, b"bytes", 0o600).is_err());
     }
 }

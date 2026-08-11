@@ -47,12 +47,14 @@ export MX_HEADROOM_SKIP_QUEUE=${MX_HEADROOM_SKIP_QUEUE:-1}
 # test files, not by this library, so it reads as "unused" here.
 # shellcheck disable=SC2034
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -x "$ROOT/target/release/mx" ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
 
 # --- Rust-port implementation and differential capture ---------------------
 #
-# These helpers are test-only. Production scripts never read
-# MX_TEST_IMPLEMENTATION and remain on the legacy engine until a later port
-# portion changes a command's default after parity proof.
+# These helpers are test-only. Production local-state scripts use
+# MX_LOCAL_STATE_IMPLEMENTATION and default to Rust after Portion 03 parity.
 
 # mx_test_implementation: print the selected test engine.
 # Unset preserves the existing behavior suite's legacy default.

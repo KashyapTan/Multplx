@@ -5,5 +5,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+multplx-core = { path = "../multplx-core" }
+regex.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+time.workspace = true
+
 [lints]
 workspace = true

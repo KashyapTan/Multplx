@@ -189,6 +189,7 @@ pub fn render_trust(digest: &Sha256Digest) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::fs::hard_link;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     use sha2::{Digest, Sha256};
@@ -260,5 +261,34 @@ mod tests {
         let state_link = temp.path().join("state-link");
         symlink(&state, &state_link).expect("state link");
         assert!(read_trust(&state_link, &task).is_err());
+    }
+
+    #[test]
+    fn missing_non_directory_and_multiply_linked_inputs_are_rejected() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let task = TaskId::parse("check-3").expect("task");
+        assert!(read_trust(temp.path().join("missing"), &task).is_err());
+
+        let file_state = temp.path().join("file-state");
+        fs::write(&file_state, b"state").expect("file state");
+        assert!(read_trust(&file_state, &task).is_err());
+
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        let bytes = b"#!/bin/sh\nexit 0\n";
+        let digest = Sha256Digest::parse(format!("{:x}", Sha256::digest(bytes))).expect("digest");
+        let trust = state.join("check-3.check-trust");
+        fs::write(&trust, render_trust(&digest)).expect("trust");
+        fs::set_permissions(&trust, fs::Permissions::from_mode(0o600)).expect("trust mode");
+        hard_link(&trust, state.join("trust-copy")).expect("trust hard link");
+        assert!(read_trust(&state, &task).is_err());
+
+        fs::remove_file(state.join("trust-copy")).expect("remove trust link");
+        let check = state.join("check-3.check.sh");
+        fs::write(&check, bytes).expect("check");
+        fs::set_permissions(&check, fs::Permissions::from_mode(0o700)).expect("check mode");
+        hard_link(&check, state.join("check-copy")).expect("check hard link");
+        assert!(registered(&state, &task).is_err());
+        assert!(CheckSnapshot::prepare(&state, &task).is_err());
     }
 }

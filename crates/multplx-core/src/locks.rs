@@ -347,7 +347,7 @@ mod tests {
 
     use super::{
         DirectoryLock, HolderProbe, HolderStatus, LsofProbe, epoch_seconds,
-        git_lock_is_provably_stale,
+        git_lock_is_provably_stale, remove_owner, try_publish_owner,
     };
     use crate::error::{CoreError, Result};
     use crate::process::{AncestryRow, ProcessIdentity, ProcessProbe};
@@ -516,5 +516,36 @@ mod tests {
             .expect("live pid");
         symlink(&live_owner, &path).expect("live owner link");
         assert!(DirectoryLock::acquire_wait(&path, &processes, Duration::ZERO).is_err());
+    }
+
+    #[test]
+    fn structural_refusals_depth_bound_and_release_idempotence_are_covered() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let processes = FakeProcesses::default();
+        let regular = temp.path().join("regular");
+        std::fs::write(&regular, b"not a lock").expect("regular");
+        assert!(remove_owner(&regular).is_err());
+        assert!(try_publish_owner(Path::new("/")).is_err());
+        assert!(try_publish_owner(&temp.path().join("missing/lock")).is_err());
+
+        let deep = temp.path().join("deep");
+        std::fs::create_dir(&deep).expect("deep lock");
+        std::fs::write(deep.join("pid"), b"424242\n").expect("dead pid");
+        assert!(DirectoryLock::try_acquire_inner(&deep, &processes, 8).is_err());
+
+        let path = temp.path().join("owned");
+        let mut lock = DirectoryLock::try_acquire(&path, &processes).expect("lock");
+        lock.release_inner().expect("first release");
+        lock.release_inner().expect("second release");
+
+        let displaced = temp.path().join("displaced");
+        let lock = DirectoryLock::try_acquire(&displaced, &processes).expect("displaced lock");
+        std::fs::remove_file(&displaced).expect("remove owner link");
+        std::fs::write(&displaced, b"replacement").expect("replacement");
+        lock.release().expect("release displaced owner");
+        assert_eq!(
+            std::fs::read(&displaced).expect("replacement remains"),
+            b"replacement"
+        );
     }
 }
