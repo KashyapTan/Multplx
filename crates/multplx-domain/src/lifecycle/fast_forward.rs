@@ -5,6 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use rustix::fs::Access;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Status {
     Updated,
@@ -248,6 +250,9 @@ pub fn validate_daemon_home(context: &Context, id: &str, home: &Path) -> Result<
         let resolved = if path.exists() {
             if !path.is_dir() {
                 return Err(format!("daemon {name} path is not a directory"));
+            }
+            if rustix::fs::access(&path, Access::EXEC_OK).is_err() {
+                return Err(format!("daemon {name} directory cannot be resolved"));
             }
             fs::canonicalize(&path)
                 .map_err(|_| format!("daemon {name} directory cannot be resolved"))?
@@ -814,6 +819,30 @@ mod tests {
                 .contains("resolve inside the daemon home")
         );
         fs::remove_file(daemon.join("data")).expect("remove link");
+
+        let data = daemon.join("data");
+        fs::create_dir(&data).expect("data directory");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(&data, fs::Permissions::from_mode(0o000))
+                .expect("lock data directory");
+            let traversal_denied = rustix::fs::access(&data, Access::EXEC_OK).is_err();
+            let validation = validate_daemon_home(&context, "id", &daemon);
+            fs::set_permissions(&data, fs::Permissions::from_mode(0o700))
+                .expect("restore data directory");
+            if traversal_denied {
+                assert!(
+                    validation
+                        .unwrap_err()
+                        .contains("data directory cannot be resolved")
+                );
+            } else {
+                assert_eq!(validation.expect("privileged traversal"), daemon);
+            }
+        }
+        fs::remove_dir(&data).expect("remove data directory");
 
         fs::remove_file(daemon.join(".mx-daemon-home")).expect("remove marker");
         #[cfg(unix)]

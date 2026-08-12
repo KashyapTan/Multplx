@@ -305,6 +305,7 @@ version = "0.1.0"
 dependencies = [
  "multplx-core",
  "regex",
+ "rustix",
  "serde_json",
  "sha2",
  "tempfile",

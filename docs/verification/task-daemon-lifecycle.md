@@ -28,7 +28,7 @@ Ten required Herdr tests could not provision their isolated lab because the main
 
 The AFK injection concurrency failure passed immediately when rerun alone, and the brief isolation failure was corrected and passed on rerun.
 
-The unrelated snapshot projection fixture still observed a chmod-000 daemon directory as readable on this macOS environment and remains an environmental full-suite exception outside the lifecycle slice.
+The snapshot projection chmod-000 daemon-home fixture passed after Rust validation restored the legacy operational-directory traversal check.
 
 ## Release performance comparison
 
