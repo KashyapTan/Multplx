@@ -52,6 +52,22 @@
 # default-mode transport for adapters that consume a decision JSON.
 set -u
 
+# Portion 08 Rust-default adapter. Keep the body below as the explicit bounded
+# rollback path and as the sourced-function ABI where this file is sourceable.
+MX_SUPERVISION_ADAPTER_DIR=${BASH_SOURCE[0]%/*}
+[ "$MX_SUPERVISION_ADAPTER_DIR" != "${BASH_SOURCE[0]}" ] || MX_SUPERVISION_ADAPTER_DIR=.
+MX_SUPERVISION_ADAPTER_DIR="$(CDPATH='' cd -- "$MX_SUPERVISION_ADAPTER_DIR" 2>/dev/null && pwd)" || exit 1
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$MX_SUPERVISION_ADAPTER_DIR/mx-rust-runtime.sh"
+  mx_supervision_adapter_implementation=$(mx_supervision_implementation) || exit $?
+  if [ "$mx_supervision_adapter_implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT="$(cd "$MX_SUPERVISION_ADAPTER_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+    mx_supervision_adapter_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$mx_supervision_adapter_bin" supervision mx-subagent-pretool-check.sh "$@"
+  fi
+fi
+
 # Lowercase substrings that mark a tool name as delegation-shaped: it creates
 # work, an agent, a schedule, or an isolated workspace that broker would not
 # know about. This list is the single owner of the delivered classification.

@@ -6,6 +6,49 @@ This record supports current session-start, turn-end, watcher-continuity, and we
 Operator behavior and active limits remain in the linked current guides.
 Task-specific chronology, temporary paths, run identifiers, and delivery transcripts remain in private reports or PR evidence.
 
+## Rust Portion 08 supervision cutover
+
+The Portion 08 Rust-default verification ran on 2026-08-11 on macOS 26.5.2 arm64 with Rust 1.97.1, Cargo 1.97.1, tmux 3.7b, Herdr 0.7.4, Codex CLI 0.146.1, and Cursor CLI 2026.08.04-aaa8809.
+The production selector is `MX_SUPERVISION_IMPLEMENTATION`, defaults to `rust`, rejects every value other than `rust` or explicit `legacy`, and is resolved before a mutable entry starts.
+The public adapters preserve stdin, stdout, stderr, exit status, and signal identity through the Rust multicall boundary.
+
+The Rust workspace passed these gates:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace
+cargo build --release --workspace --locked
+```
+
+Focused Rust-default behavior passed for watcher-arm policy, persistent-cd policy, delegation policy, task-bound reporting, report MCP framing, native-transition precedence, durable wake recovery, watcher singleton ownership, watcher triage, bounded checkpoints, watcher nudges, supervision events, turn-end blocking, Claude auto-arm, Cursor translation, Pi watcher continuity, AFK transfer and return, and daemon lifecycle.
+The wake recovery matrix killed a drain after publication began, restored its abandoned private drain file ahead of newly queued rows, and then drained every record exactly once under the queue lock.
+The status path proved append-before-best-effort journal and identity-checked nudge ordering, while the native transition suite retained queue-before-detector-publication ordering.
+
+The deterministic AFK suite and its real tmux injection path passed.
+The live Herdr AFK path could not prepare its isolated lab because the maintainer-owned `default` Herdr session was stopped; this run did not mutate or restart that external session.
+The required CI Herdr lane provisions its own pinned 0.7.4 server and remains the authoritative real-Herdr cutover gate.
+
+The full local inventory run selected all 125 behavior scripts and reported the ten live-Herdr-family failures caused by that stopped external session plus one launch-shape assertion that still assumed the pre-MCP option order.
+After making that assertion order-independent, its complete daemon harness-model matrix passed and the portable full-suite rerun passed all 115 selected scripts with zero failures and nine intentional opt-in skips in 328,047 ms.
+The coverage manifest assigned all 125 scripts: 104 accelerated, 11 serial, and 10 real-Herdr gated.
+
+Direct entry into the retained JavaScript and shell bodies is available only through explicit `MX_SUPERVISION_IMPLEMENTATION=legacy` differential selection during the bounded rollback window.
+The Rust dispatcher pins source-ABI and long-running compatibility handlers before mutation where adjacent shell callers still require those exact bodies; there is no post-mutation engine fallback, and public selection plus process ownership remain Rust-default at those boundaries.
+
+### Release performance
+
+The task-bound reporter ran 30 warm successful appends per implementation through the public `bin/mx-report` adapter with watcher nudging disabled and output discarded.
+Legacy measured a 25.230 ms median and 27.051 ms nearest-rank p95.
+Rust measured a 6.908 ms median and 7.431 ms nearest-rank p95, improving the representative transaction median by 72.6 percent and p95 by 72.6 percent without changing append or binding semantics.
+
+A two-second idle foreground checkpoint sampled the owned process after 700 ms.
+Legacy used 2,272 KiB RSS at 0.1 percent CPU and Rust used 2,272 KiB RSS at 0.2 percent CPU.
+Both returned the required exit 124 and left zero processes carrying the isolated home path after retirement.
+
+The workspace coverage gate passed at 93.01 percent line coverage (22,126 measured lines, 1,546 missed), above the required 93 percent floor.
+`cargo audit --deny warnings` scanned 68 dependencies against 1,211 advisories without a finding.
+
 ## Native session-start delivery
 
 The cross-harness transport pass ran on 2026-07-17 with Codex 0.144.4, Pi 0.80.10, and the tracked Claude hook wiring.

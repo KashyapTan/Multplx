@@ -1,10 +1,10 @@
 # Watcher arm PreToolUse seatbelt
 
 This document is the authoritative human-readable contract for the watcher arm PreToolUse seatbelt.
-`bin/mx-arm-command-policy.mjs` is the single semantic owner.
-`bin/mx-arm-pretool-check.sh` is only the stable harness transport and output renderer.
+`multplx_core::command_policy` is the single semantic owner.
+`bin/mx-arm-pretool-check.sh` is the stable harness transport into the Rust supervision runtime and output renderer.
 The tracked harness adapters forward command text without classifying it.
-`bin/mx-arm-command-policy.mjs` is also the sole owner of broker's shell classification: it exports the tokenizer and command-position analysis, which the sibling cd-guard seatbelt (`bin/mx-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
+The Rust command-policy module also owns broker's narrow shell tokenization and command-position analysis, which the sibling cd-guard seatbelt (`bin/mx-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
 
 ## Purpose and boundary
 
@@ -29,9 +29,9 @@ It tokenizes the bytes and classifies lexical execution positions only.
 
 The wrapper discovers the code root from its own location.
 The active Multplx home is `${MX_HOME:-<code-root>}`.
-It passes both roots and the exact command string to the Node policy owner.
+It passes both roots and the exact command string to the Rust policy owner.
 
-The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain the `mx-watch` byte sequence even after the classifier's decoders run.
+The transport fast-allows a command without invoking the full Rust classifier only when the command cannot contain the `mx-watch` byte sequence even after the classifier's decoders run.
 The fast path may allow only when both of these hold:
 
 1. The stripped text lacks the `mx-watch` watcher substring, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
@@ -40,7 +40,7 @@ The fast path may allow only when both of these hold:
 Any `mx-watch` match or any quoting-decoder marker delegates to the classifier.
 Normalizing first keeps this a strict superset: a protected watcher path obfuscated as `mx-watc\<newline>h-arm.sh` or `mx-"watch"-arm.sh` still delegates, and stripping only those non-alphanumeric bytes can never destroy an existing `mx-watch` run.
 The quoting-decoder marker closes the case the byte strip cannot: `bin/mx-$'\x77'atch-arm.sh` and `bin/mx-$"watch"-arm.sh` both resolve to `bin/mx-watch-arm.sh` only after the classifier decodes the encoded character, so a cheap byte strip would otherwise lose the `mx-watch` bytes and fast-allow them.
-This marker set is coupled to the classifier's decoder set in `bin/mx-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending this marker set in the same change, or the prefilter stops being a strict superset.
+This marker set is coupled to the decoder set in `multplx_core::command_policy`: adding any new quote or expansion form the classifier decodes requires extending this marker set in the same change, or the prefilter stops being a strict superset.
 The prefilter owns no semantic exception: it can only ever fast-allow a command that is definitely not a watcher command, so it never flips a classification and the classifier remains the single owner of every decision.
 
 The seatbelt's threat model is agent mistakes: no one accidentally writes an ANSI-C- or locale-obfuscated watcher path, and deliberate obfuscation is the post-arm liveness guard's territory.
@@ -48,8 +48,9 @@ The marker guard closes the static gap anyway because it is cheap and provable p
 Tripwire: if a third strict-superset gap is ever found after this marker generalization, that falsifies the "provable per encoding class" claim and the decision flips to Option B - drop the prefilter and always invoke the classifier.
 Deeper decode-required obfuscation beyond the coupled marker set stays the classifier's and the post-arm liveness guards' responsibility.
 
-Malformed or empty stdin, invalid JSON, missing `jq` for stdin transport, missing Node, a missing classifier, or an invalid classifier response fail open with exit 0 and no output.
+Malformed or empty stdin, invalid JSON, and missing `jq` for stdin transport fail open with exit 0 and no output.
 This transport behavior prevents a broken hook from denying every shell tool call.
+An unavailable Rust runtime fails the public adapter clearly before hook processing; explicit legacy selection retains the old missing-classifier fail-open behavior for rollback verification.
 Malformed or unsupported shell syntax that contains a protected command is a semantic classification result and fails closed.
 
 ## Command-position classification
@@ -167,7 +168,7 @@ Run:
 
 ```sh
 bash -n bin/mx-arm-pretool-check.sh
-node --check bin/mx-arm-command-policy.mjs
+cargo test -p multplx-core command_policy
 tests/mx-arm-pretool-check.test.sh
 bin/mx-test-run.sh --all
 ```

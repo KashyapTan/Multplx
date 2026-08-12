@@ -360,7 +360,7 @@ test_failopen_missing_jq() {
   pass "fail-open: missing jq on stdin path"
 }
 
-test_failopen_missing_node() {
+test_policy_runtime_without_node() {
   local dir fakebin rc real tool
   dir=$(mx_test_tmproot mx-arm-pretool-node)
   fakebin="$dir/fakebin"
@@ -371,8 +371,13 @@ test_failopen_missing_node() {
   done
   PATH="$fakebin" "$CHECK" --command 'bin/mx-watch-arm.sh &' >/dev/null 2>&1
   rc=$?
-  [ "$rc" -eq 0 ] || fail "missing node must fail open (exit 0), got exit $rc"
-  pass "fail-open: missing classifier runtime"
+  if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = legacy ]; then
+    [ "$rc" -eq 0 ] || fail "legacy missing-Node transport must fail open, got exit $rc"
+    pass "legacy command policy retains missing-Node fail-open rollback behavior"
+  else
+    [ "$rc" -eq 2 ] || fail "Rust policy must deny independently of Node availability, got exit $rc"
+    pass "Rust command policy no longer depends on Node"
+  fi
 }
 
 # --- --claude output shaping ---------------------------------------------------
@@ -484,7 +489,7 @@ test_prefilter_is_strict_superset
 test_failopen_empty_stdin
 test_failopen_garbage_stdin
 test_failopen_missing_jq
-test_failopen_missing_node
+test_policy_runtime_without_node
 test_claude_mode_stdout_empty_on_deny
 test_default_mode_stdout_has_decision_json_on_deny
 test_allow_is_silent_both_modes

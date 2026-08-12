@@ -5,8 +5,8 @@
 # shell silently relocates the shell, so a later broker-owned command (a
 # backlog write or an mx-* lifecycle call) runs inside a project clone
 # instead of the home. This seatbelt denies such a command before it runs.
-# bin/mx-cd-command-policy.mjs is the sole owner of the block/allow decision; it
-# reuses the shell classifier owned by bin/mx-arm-command-policy.mjs. This
+# multplx_core::command_policy is the sole owner of the block/allow decision
+# and shares its shell classifier with the watcher-arm policy. This
 # wrapper only scopes the guard to the real primary checkout, acquires the
 # harness payload, invokes that policy, and renders the established harness
 # responses. It never executes, sources, evaluates, or expands the command.
@@ -26,14 +26,29 @@
 #          {"decision":"deny",...} object on stdout unless --claude was supplied.
 #   INERT - not the real primary checkout (an actor/scout task worktree or a
 #           non-Multplx repo): exit 0 with no output, exactly like ALLOW.
-#   FAIL OPEN - malformed or empty stdin, missing jq for stdin transport,
-#               missing Node or policy owner, or an invalid policy response.
+#   FAIL OPEN - malformed or empty stdin or missing jq for stdin transport.
 #
 # Claude requires stdout to remain empty on deny.
 # Codex blocks on exit 2 and displays stderr.
 # Pi consumes exit 2 plus stderr; the stdout decision object remains the
 # default-mode transport for adapters that consume a decision JSON.
 set -u
+
+# Portion 08 Rust-default adapter. Keep the body below as the explicit bounded
+# rollback path and as the sourced-function ABI where this file is sourceable.
+MX_SUPERVISION_ADAPTER_DIR=${BASH_SOURCE[0]%/*}
+[ "$MX_SUPERVISION_ADAPTER_DIR" != "${BASH_SOURCE[0]}" ] || MX_SUPERVISION_ADAPTER_DIR=.
+MX_SUPERVISION_ADAPTER_DIR="$(CDPATH='' cd -- "$MX_SUPERVISION_ADAPTER_DIR" 2>/dev/null && pwd)" || exit 1
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$MX_SUPERVISION_ADAPTER_DIR/mx-rust-runtime.sh"
+  mx_supervision_adapter_implementation=$(mx_supervision_implementation) || exit $?
+  if [ "$mx_supervision_adapter_implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT="$(cd "$MX_SUPERVISION_ADAPTER_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+    mx_supervision_adapter_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$mx_supervision_adapter_bin" supervision mx-cd-pretool-check.sh "$@"
+  fi
+fi
 
 CMD=""
 CMD_SET=0
@@ -50,7 +65,8 @@ actor/scout task worktree or any non-Multplx repo.
 Exits 0 to allow and 2 to deny a persistent top-level cwd change.
 The deny reason is written to stderr, with a JSON decision object on stdout
 unless --claude is supplied.
-Malformed transport and an unavailable classifier runtime fail open.
+Malformed transport fails open. An unavailable Rust runtime fails clearly
+before hook processing.
 EOF
 }
 

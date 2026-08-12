@@ -14,6 +14,10 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
+
 TMP_ROOT=$(mx_test_tmproot mx-claude-stop-autoarm)
 mx_git_identity fmtest fmtest@example.invalid
 
@@ -26,6 +30,7 @@ install_autoarm_scripts() {
   local dir=$1
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/mx-claude-stop-autoarm.sh" "$dir/bin/mx-claude-stop-autoarm.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/mx-rust-runtime.sh"
   cp "$ROOT/bin/mx-primary-scope-lib.sh" "$dir/bin/mx-primary-scope-lib.sh"
   cp "$ROOT/bin/mx-supervision-lib.sh" "$dir/bin/mx-supervision-lib.sh"
   cp "$ROOT/bin/mx-wake-lib.sh" "$dir/bin/mx-wake-lib.sh"

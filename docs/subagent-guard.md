@@ -2,7 +2,7 @@
 
 This document is the authoritative human-readable contract for the guard that stops a broker primary from routing work outside the system.
 
-The delivered mechanism is `bin/mx-subagent-pretool-check.sh`, a PreToolUse guard that denies a delegation-SHAPED tool name in a genuine primary home.
+The delivered mechanism is the Rust supervision domain behind `bin/mx-subagent-pretool-check.sh`, a PreToolUse guard that denies a delegation-SHAPED tool name in a genuine primary home.
 Claude primaries should also use an untracked per-home local `permissions.deny` list as hardening for known Claude delegation tools, because it removes them from the model's schema entirely.
 That deny list must not land in tracked `.claude/settings.json` because it is Claude-only rather than harness-agnostic, and because tracked project settings propagate into linked worktrees where they disarm legitimate actors.
 
@@ -36,7 +36,7 @@ It says nothing about whether the resulting brief, project, or delivery mode is 
 
 ## Delivered mechanism
 
-`bin/mx-subagent-pretool-check.sh` is the delivered layer.
+`multplx_domain::supervision::subagent_guard` is the decision owner and `bin/mx-subagent-pretool-check.sh` is its stable hook adapter.
 It classifies the tool NAME by shape rather than against a fixed list.
 The tracked Claude PreToolUse matcher is `.*`, so every Claude tool name reaches the script and the script is the single owner of classification.
 A stem-enumerating matcher would reintroduce the fail-open-by-enumeration problem this guard exists to solve, because any future tool name outside the matcher would be silently missed before the script could inspect it.

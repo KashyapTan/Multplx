@@ -145,9 +145,8 @@ assert_claude_report_mcp_config() {
     --arg id "$id" --arg home "$home" --arg state "$state_real" \
     '.mcpServers.multplx_status |
       .type == "stdio" and
-      (.command | type == "string" and length > 0) and
-      (.args | length == 1) and
-      (.args[0] | endswith("/bin/mx-report-mcp.mjs")) and
+      (.command | endswith("/bin/mx-report-mcp")) and
+      (.args | length == 0) and
       .env.MX_TASK_ID == $id and
       .env.MX_HOME == $home and
       .env.MX_REPORT_STATE_OVERRIDE == $state' \

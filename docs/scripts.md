@@ -56,7 +56,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `mx-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `mx-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
-| `mx-arm-command-policy.mjs` | Semantic owner of the watcher-arm PreToolUse policy (docs/arm-pretool-check.md)   |
+| `mx-arm-command-policy.mjs` | Explicit-legacy rollback implementation of the Rust-owned watcher-arm policy (docs/arm-pretool-check.md)   |
 | `mx-subagent-pretool-check.sh` | Primary-home delegation-shape PreToolUse guard (docs/subagent-guard.md) |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `mx-home-seed.sh`        | Transactionally provision a daemon home and maintain `data/daemons.md`       |
@@ -79,7 +79,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-pending-reply-lib.sh` | Parent-owned daemon pending-reply expectations, recovery, and one-shot escalation |
 | `mx-daemon-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
 | `mx-report`           | Validate and durably append a task-bound status event, then best-effort nudge the identity-matched watcher |
-| `mx-report-mcp.mjs`   | Expose `report_status` over stdio MCP and delegate accepted calls to `mx-report`        |
+| `mx-report-mcp`       | Rust stdio MCP server exposing `report_status` through the shared task-bound reporter    |
+| `mx-report-mcp.mjs`   | Explicit-legacy rollback implementation of the report MCP transport                      |
 | `mx-gate-refuse-lib.sh`  | Refuse lifecycle entrypoints whenever a deep-review agent marker is present             |
 | `mx-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
 | `mx-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |

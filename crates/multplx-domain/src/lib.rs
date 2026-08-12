@@ -10,6 +10,7 @@ pub mod inheritance;
 pub mod lifecycle;
 pub mod operational_input;
 pub mod project_registry;
+pub mod supervision;
 
 /// Identifies the current implementation boundary in diagnostics and tests.
 pub const SHADOW_BOUNDARY: &str = "domain-local-state";

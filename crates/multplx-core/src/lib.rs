@@ -8,6 +8,7 @@
 pub mod backend_hometag;
 pub mod checks;
 pub mod classification;
+pub mod command_policy;
 pub mod composer;
 pub mod error;
 pub mod filesystem;

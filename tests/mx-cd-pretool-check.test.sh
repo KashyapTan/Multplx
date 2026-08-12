@@ -2,8 +2,8 @@
 # shellcheck disable=SC1091,SC2016
 # Behavior tests for the cd-guard PreToolUse seatbelt (docs/cd-guard.md).
 #
-# bin/mx-cd-command-policy.mjs is the single owner of the block/allow decision;
-# it reuses the shell classifier owned by bin/mx-arm-command-policy.mjs.
+# The Rust command-policy module owns the block/allow decision and shared shell
+# classification; the JavaScript policies remain explicit-legacy oracles.
 # bin/mx-cd-pretool-check.sh is the stable transport: it scopes the guard to the
 # real primary checkout, then drives all five harness entry forms. This suite
 # proves the decision matrix, the harness-output shaping, the primary-checkout
@@ -18,6 +18,9 @@ set -u
 
 mx_git_identity fmtest fmtest@example.invalid
 TMP_ROOT=$(mx_test_tmproot mx-cd-pretool-check)
+if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
 
 # A primary-shaped checkout: plain (non-worktree) git repo, AGENTS.md, bin/ with
 # the transport plus both policy files (mx-cd-command-policy.mjs imports the
@@ -27,6 +30,7 @@ install_cd_scripts() {
   local dir=$1
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/mx-cd-pretool-check.sh" "$dir/bin/mx-cd-pretool-check.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/mx-rust-runtime.sh"
   cp "$ROOT/bin/mx-cd-command-policy.mjs" "$dir/bin/mx-cd-command-policy.mjs"
   cp "$ROOT/bin/mx-arm-command-policy.mjs" "$dir/bin/mx-arm-command-policy.mjs"
   chmod +x "$dir/bin/mx-cd-pretool-check.sh" "$dir/bin/mx-cd-command-policy.mjs"
@@ -291,7 +295,7 @@ test_fail_open_unparseable_json() {
   pass "cd-guard: fails open on unparseable stdin JSON"
 }
 
-test_fail_open_missing_node() {
+test_policy_runtime_without_node() {
   local fakebin tool tool_path out rc
   fakebin=$(mx_fakebin "$TMP_ROOT/nonode")
   for tool in bash sh git dirname cat printf sed tr jq; do
@@ -300,9 +304,15 @@ test_fail_open_missing_node() {
   done
   # node deliberately absent from this PATH.
   out=$(PATH="$fakebin" "$CHECK" --command 'cd projects/foo' 2>&1); rc=$?
-  expect_code 0 "$rc" "transport must fail open when node is unavailable"
-  [ -z "$out" ] || fail "transport produced output without node: $out"
-  pass "cd-guard: fails open (never blocks) when node is missing"
+  if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = legacy ]; then
+    expect_code 0 "$rc" "legacy transport must fail open when node is unavailable"
+    [ -z "$out" ] || fail "legacy transport produced output without node: $out"
+    pass "cd-guard: legacy rollback fails open when Node is missing"
+  else
+    expect_code 2 "$rc" "Rust policy must deny independently of Node availability"
+    assert_contains "$out" '[persistent-cd]' "Rust deny without Node must preserve the reason code"
+    pass "cd-guard: Rust policy no longer depends on Node"
+  fi
 }
 
 test_fail_open_missing_jq_on_stdin() {
@@ -410,7 +420,7 @@ test_inert_when_not_a_git_repo
 test_e2e_cwd_leak_regression
 test_fail_open_empty_stdin
 test_fail_open_unparseable_json
-test_fail_open_missing_node
+test_policy_runtime_without_node
 test_fail_open_missing_jq_on_stdin
 test_prefilter_skips_node_without_cd_substring
 test_policy_cli_direct

@@ -5,6 +5,10 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
+
 mx_test_tmproot_into TMP_ROOT mx-cursor-adapter
 
 assert_file_has() {
@@ -60,6 +64,7 @@ make_hook_fixture() {
   local fixture=$1
   mkdir -p "$fixture/bin"
   cp "$ROOT/bin/mx-cursor-hook.sh" "$fixture/bin/"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$fixture/bin/"
   cat >"$fixture/bin/mx-sessionstart-nudge.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'RUN_SESSION_START_EXACTLY_ONCE\n'

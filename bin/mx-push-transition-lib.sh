@@ -7,6 +7,9 @@
 # Remote git pushes now originate only in bin/mx-deliver.sh outside agent
 # sessions and flow back through mx-pr-check.sh. They do not call this handler;
 # "push" here is the backend's native agent-state transition vocabulary.
+# Portion 08 keeps this sourced callback ABI for watcher rollback and injected
+# fault seams; normalized records, precedence, backend transition commits, and
+# durable wake transactions are owned by the Rust core and backend layers.
 
 MX_PUSH_TRANSITION_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

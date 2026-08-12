@@ -393,6 +393,55 @@ impl WakeQueue {
         Ok(record)
     }
 
+    /// Restore abandoned pre-publication drains left by a killed process.
+    ///
+    /// A drain filename is identity-local only while its numeric PID is alive.
+    /// Dead owners cannot complete publication, so their older bytes are
+    /// restored ahead of any rows appended after queue rotation.
+    pub fn recover_abandoned_drains(&self, processes: &impl ProcessProbe) -> Result<usize> {
+        let _lock = DirectoryLock::acquire_wait(&self.lock, processes, Duration::from_secs(5))?;
+        let mut abandoned = fs::read_dir(&self.state)
+            .map_err(|error| CoreError::io("scan abandoned wake drains", &self.state, error))?
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".wake-queue.drain."))
+            })
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| name.rsplit('.').next())
+                    .and_then(|pid| pid.parse::<u32>().ok())
+                    .is_none_or(|pid| !processes.is_alive(pid))
+            })
+            .collect::<Vec<_>>();
+        abandoned.sort();
+        if abandoned.is_empty() {
+            return Ok(0);
+        }
+        let mut restored = Vec::new();
+        for path in &abandoned {
+            restored.extend(read_bounded_regular(path, MAX_QUEUE_BYTES)?);
+            if restored.len() > MAX_QUEUE_BYTES {
+                return Err(CoreError::RecordTooLarge {
+                    kind: "restored wake queue",
+                    limit: MAX_QUEUE_BYTES,
+                });
+            }
+        }
+        if self.queue.exists() {
+            restored.extend(read_bounded_regular(&self.queue, MAX_QUEUE_BYTES)?);
+        }
+        atomic_replace(&self.queue, &restored, 0o600)?;
+        for path in &abandoned {
+            fs::remove_file(path)
+                .map_err(|error| CoreError::io("remove abandoned wake drain", path, error))?;
+        }
+        Ok(abandoned.len())
+    }
+
     /// Transactionally drain, publish under lock, and restore on publication
     /// failure. The callback is the print-before-delete boundary.
     pub fn drain_with_publish<F>(
@@ -683,6 +732,34 @@ mod tests {
             WakeRecord::parse(text.trim_end()).expect("record").payload,
             "first"
         );
+    }
+
+    #[test]
+    fn abandoned_drain_recovery_preserves_old_before_new_and_skips_live_owner() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let queue = WakeQueue::new(temp.path());
+        let processes = FakeProcesses::default();
+        let old = WakeRecord::new(1, 1, WakeKind::Signal, "old.status", "old");
+        let new = WakeRecord::new(2, 2, WakeKind::Signal, "new.status", "new");
+        let live = WakeRecord::new(3, 3, WakeKind::Signal, "live.status", "live");
+        fs::write(temp.path().join(".wake-queue.drain.424242"), old.render())
+            .expect("abandoned drain");
+        fs::write(temp.path().join(".wake-queue"), new.render()).expect("queue");
+        fs::write(temp.path().join(".wake-queue.drain.515151"), live.render()).expect("live drain");
+        processes.0.lock().expect("processes").insert(515151, true);
+
+        assert_eq!(
+            queue.recover_abandoned_drains(&processes).expect("recover"),
+            1
+        );
+        let restored = fs::read_to_string(temp.path().join(".wake-queue")).expect("restored");
+        let payloads = restored
+            .lines()
+            .map(|line| WakeRecord::parse(line).expect("record").payload)
+            .collect::<Vec<_>>();
+        assert_eq!(payloads, ["old", "new"]);
+        assert!(!temp.path().join(".wake-queue.drain.424242").exists());
+        assert!(temp.path().join(".wake-queue.drain.515151").exists());
     }
 
     #[test]

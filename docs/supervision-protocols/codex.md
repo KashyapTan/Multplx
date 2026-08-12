@@ -1,4 +1,5 @@
 Mode: Codex foreground checkpoint.
+The named `bin/` commands below select the Rust supervision runtime by default.
 
 When this session owns supervision and away mode is not active:
 1. Drain first with `bin/mx-wake-drain.sh`.
