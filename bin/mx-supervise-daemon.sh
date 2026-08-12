@@ -144,6 +144,15 @@
 set -u
 
 MX_DAEMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  . "$MX_DAEMON_DIR/mx-rust-runtime.sh"
+  implementation=$(mx_lifecycle_implementation) || exit $?
+  if [ "$implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT="$(cd "$MX_DAEMON_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+    rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$rust_bin" supervise-daemon "$@"
+  fi
+fi
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$MX_DAEMON_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 

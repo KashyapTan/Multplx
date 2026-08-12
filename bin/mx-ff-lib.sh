@@ -429,3 +429,37 @@ sweep_live_daemon_metas() {
     process_daemon "$id" "$home" "$window" "$base_mode" "$nudge_requires_instr"
   done < <(live_daemon_meta_records "$state" "$registry")
 }
+
+# Rust is the production owner of fast-forward validation and mutation.  Keep
+# these shell functions as the Plan 8 compatibility ABI for callers that still
+# source this file; each operation crosses one explicit process boundary and no
+# lifecycle implementation is sourced into the Rust command.
+if [ "${MX_LIFECYCLE_IMPLEMENTATION:-rust}" = rust ]; then
+  _mx_ff_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$_mx_ff_dir/mx-rust-runtime.sh"
+  MX_RUST_SOURCE_ROOT="$(cd "$_mx_ff_dir/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+  _MX_FF_RUST_BIN=$(mx_rust_runtime_bin) || return $?
+
+  default_branch() { "$_MX_FF_RUST_BIN" fast-forward default-branch "$1"; }
+  primary_head_commit() { "$_MX_FF_RUST_BIN" fast-forward primary-head "$1"; }
+  validate_daemon_home() {
+    local result
+    VALIDATED_HOME=""; VALIDATION_ERROR=""
+    if result=$(SUB_HOME_MARKER="$SUB_HOME_MARKER" "$_MX_FF_RUST_BIN" fast-forward validate-home "$MX_ROOT" "$MX_HOME" "$1" "$2"); then
+      VALIDATED_HOME=$result
+      return 0
+    fi
+    VALIDATION_ERROR=$result
+    return 1
+  }
+  ff_target() {
+    local result
+    FF_STATUS=skipped; FF_INSTR=""
+    result=$("$_MX_FF_RUST_BIN" fast-forward target "$1" "$2" "$3" "${4:-no}" "${5:-no}") || return $?
+    FF_STATUS=${result%%$'\t'*}
+    result=${result#*$'\t'}
+    FF_INSTR=${result%%$'\t'*}
+    printf '%s\n' "${result#*$'\t'}"
+  }
+fi

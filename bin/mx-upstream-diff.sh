@@ -13,6 +13,15 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  . "$SCRIPT_DIR/mx-rust-runtime.sh"
+  implementation=$(mx_lifecycle_implementation) || exit $?
+  if [ "$implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+    rust_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$rust_bin" upstream-diff "$@"
+  fi
+fi
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RECORD_FILE="${MX_UPSTREAM_RECORD_FILE:-$ROOT_DIR/docs/upstream.md}"
 RETIRED_EXIT=3

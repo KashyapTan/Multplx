@@ -43,6 +43,13 @@ mx_treehouse_tools_implementation() {
   esac
 }
 
+mx_lifecycle_implementation() {
+  case "${MX_LIFECYCLE_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_LIFECYCLE_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_LIFECYCLE_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
 mx_backend_shadow_meta_get() {  # <meta-file> <key>
   local meta=$1 key=$2
   [ -f "$meta" ] || return 0
@@ -99,7 +106,7 @@ mx_backend_compatibility_backend_of_selector() {  # <raw-target> <state-dir> [as
 mx_rust_runtime_bin() {
   local script_dir root candidate
   script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-  root=${MX_ROOT_OVERRIDE:-$(cd "$script_dir/.." && pwd)}
+  root=${MX_RUST_SOURCE_ROOT:-${MX_ROOT_OVERRIDE:-$(cd "$script_dir/.." && pwd)}}
   if [ -n "${MX_RUST_BIN:-}" ]; then
     candidate=$MX_RUST_BIN
   else

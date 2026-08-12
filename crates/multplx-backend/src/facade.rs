@@ -6,6 +6,17 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Preserve the black-box sleep-command seam while using in-process sleeps normally.
+pub(crate) fn compatibility_sleep(duration: Duration) {
+    if std::env::var_os("MX_SLEEP_LOG").is_some() {
+        let _ = std::process::Command::new("sleep")
+            .arg(duration.as_secs_f64().to_string())
+            .status();
+    } else {
+        std::thread::sleep(duration);
+    }
+}
+
 use multplx_core::composer::ComposerState;
 use multplx_core::identifiers::TaskId;
 

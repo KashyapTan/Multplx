@@ -7,6 +7,7 @@
 pub mod backlog;
 pub mod handoff;
 pub mod inheritance;
+pub mod lifecycle;
 pub mod operational_input;
 pub mod project_registry;
 

@@ -450,12 +450,9 @@ mod tests {
                     .expect("request");
                 let _ = stream.write_all(&response);
             });
-            let error = event_wait(
-                &socket,
-                Duration::from_millis(200),
-                &["w:p".to_owned()],
-                |_| Ok(()),
-            )
+            let error = event_wait(&socket, Duration::from_secs(5), &["w:p".to_owned()], |_| {
+                Ok(())
+            })
             .expect_err("malformed transport must fail");
             if protocol_error {
                 assert!(matches!(error, super::WireError::Protocol(_)));
