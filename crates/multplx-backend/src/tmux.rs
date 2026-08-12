@@ -2,7 +2,6 @@
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::thread;
 use std::time::Duration;
 
 use multplx_core::composer::ComposerState;
@@ -387,10 +386,10 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
         request: SubmitRequest<'_>,
     ) -> Result<ComposerState, BackendError> {
         self.send_literal(target, request.text)?;
-        thread::sleep(request.settle);
+        crate::facade::compatibility_sleep(request.settle);
         for _ in 0..request.retries.max(1) {
             let _ = self.success(["send-keys", "-t", target.endpoint(), "Enter"]);
-            thread::sleep(request.enter_delay);
+            crate::facade::compatibility_sleep(request.enter_delay);
             let state = self
                 .composer_state(target)
                 .unwrap_or(ComposerState::Unknown);

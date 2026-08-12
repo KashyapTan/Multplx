@@ -852,7 +852,7 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
         let session = session.to_owned();
         let pane = pane.to_owned();
         self.send_literal(target, request.text)?;
-        thread::sleep(request.settle);
+        crate::facade::compatibility_sleep(request.settle);
         let baseline = classify_submit(self.agent_status_raw(&session, &pane).as_deref());
         let attempts = request.retries.max(1);
         let budget = request.enter_delay.max(Duration::from_millis(600));
@@ -861,7 +861,7 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
             let verdict = if baseline == SubmitState::Idle {
                 self.wait_for_working(&session, &pane, budget, 6)
             } else {
-                thread::sleep(request.enter_delay);
+                crate::facade::compatibility_sleep(request.enter_delay);
                 match self.composer_state(target)? {
                     ComposerState::Empty => SubmitState::Busy,
                     ComposerState::Pending => SubmitState::Idle,

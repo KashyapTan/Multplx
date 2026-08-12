@@ -15,6 +15,16 @@
 # Usage: mx-ensure-agents-md.sh [repo-or-worktree-dir]
 set -eu
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_lifecycle_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" ensure-agents-md "$@"
+fi
+
 usage() {
   echo "usage: mx-ensure-agents-md.sh [repo-or-worktree-dir]" >&2
 }

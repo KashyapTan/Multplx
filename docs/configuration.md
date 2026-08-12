@@ -97,7 +97,8 @@ Each public shell command keeps its existing name, arguments, output vocabulary,
 Set `MX_BACKEND_IMPLEMENTATION=legacy`, `MX_HARNESS_IMPLEMENTATION=legacy`, `MX_HEADROOM_IMPLEMENTATION=legacy`, or `MX_TREEHOUSE_TOOLS_IMPLEMENTATION=legacy` before invoking the corresponding entry point to select its retained Bash implementation before the operation begins.
 Each selector accepts only `rust` or `legacy`, and an invalid value refuses instead of falling through to another implementation.
 The selection is process-wide for that command and never falls back after a Rust operation starts.
-Task lifecycle orchestration in `mx-spawn.sh`, `mx-send.sh`, `mx-peek.sh`, and `mx-teardown.sh` remains on its current shell implementation until Rust-port Portion 07, while its backend operations already use the Rust facade by default.
+Task and daemon lifecycle orchestration in `mx-brief.sh`, `mx-home-seed.sh`, `mx-spawn.sh`, `mx-send.sh`, `mx-system-sync.sh`, `mx-update.sh`, and `mx-teardown.sh` enters the Rust runtime by default.
+Set `MX_LIFECYCLE_IMPLEMENTATION=legacy` only for bounded differential verification of the retained compatibility bodies.
 
 ## Runtime backend (config/backend / MX_BACKEND)
 
@@ -224,7 +225,7 @@ claude, codex, cursor, and pi are empirically verified; new harnesses get verifi
 The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and actor launch require host operations that the default command sandbox denies.
 The project setting does not change `approval_policy`; Codex approval prompts remain under the maintainer's user-level or command-line policy.
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
-Launch mechanics, including the verified command templates, live in [`bin/mx-spawn.sh`](../bin/mx-spawn.sh).
+Launch mechanics are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) retains the compatibility contract and verified command templates while later port portions still source adjacent shell ABIs.
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Primary-session watcher wake protocols are rendered at session start by [`bin/mx-supervision-instructions.sh`](../bin/mx-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
 Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex and Cursor use bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
@@ -250,7 +251,7 @@ Cursor deep-review is deliberately unsupported because schema enforcement and pr
 ## Actors dispatch profiles (config/actor-dispatch.json)
 
 `config/actor-dispatch.json` is an optional local, gitignored file containing natural-language rules that broker reads before dispatching an actor or scout.
-The shell scripts do not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS-PORTING.md` section 4 during the port, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh` after final restoration.
+The lifecycle runtime does not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS-PORTING.md` section 4 during the port, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh` after final restoration.
 When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Daemon spawns are exempt and still resolve through `config/daemon-harness` and its optional model and effort tokens.
@@ -351,6 +352,7 @@ Runtime tuning via environment variables (defaults shown):
 
 ```sh
 MX_HOME=                 # optional operational home for most scripts, unset means this repo root; mx-send requires it explicitly
+MX_LIFECYCLE_IMPLEMENTATION=rust # task/daemon lifecycle engine; legacy is explicit rollback/differential mode only
 MX_ROOT_OVERRIDE=        # override Multplx repo root, tangle-guard target, and cmux home-title hash; also legacy whole-root override when MX_HOME is unset
 MX_STATE_OVERRIDE=       # alternate state dir, mainly for tests
 MX_DATA_OVERRIDE=        # alternate data dir, mainly for tests
@@ -457,4 +459,4 @@ Teardown never removes a lock during the retry window, and after that window it 
 Only after those retries exhaust does it remove the lock, and only when it is provably stale - still present, mtime age at least `MX_SYSTEM_SYNC_PACKED_REFS_LOCK_AGE_SECS` (default 30), and no `lsof` holder of the lock file or of the clone worktree itself (a live `git` keeps that as its cwd even in the window after it closes the lock and before it exits).
 A live lock, a missing `lsof`, any failed check, or any other fetch failure keeps today's behavior.
 Every wait, retry, and removal is printed to stderr, and a successful recovery also prints one `recovered:` summary line to stdout so a session-start refresh - which discards system-sync stderr and relays only stdout - still surfaces it.
-The shared staleness proof lives in `bin/mx-lock-lib.sh`, which both `mx-teardown.sh` and `mx-system-sync.sh` use.
+The shared staleness proof lives in `multplx-core`; the Rust teardown and system-sync lifecycle paths use that one fail-closed proof.

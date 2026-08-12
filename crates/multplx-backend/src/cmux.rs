@@ -730,10 +730,10 @@ impl<R: CommandRunner> RuntimeBackend for CmuxBackend<R> {
         request: SubmitRequest<'_>,
     ) -> Result<ComposerState, BackendError> {
         self.send_literal(target, request.text)?;
-        thread::sleep(request.settle);
+        crate::facade::compatibility_sleep(request.settle);
         for _ in 0..request.retries.max(1) {
             let _ = self.send_key(target, "Enter");
-            thread::sleep(request.enter_delay);
+            crate::facade::compatibility_sleep(request.enter_delay);
             let state = self
                 .composer_state(target)
                 .unwrap_or(ComposerState::Unknown);

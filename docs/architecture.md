@@ -15,7 +15,7 @@ Portion 02 makes `multplx-core` the shadow owner of filesystem, process, record,
 The transferred contracts correspond to `mx-backend-hometag-lib.sh`, `mx-check-lib.sh`, `mx-classify-lib.sh`, `mx-composer-lib.sh`, `mx-gate-refuse-lib.sh`, `mx-journal-lib.sh`, `mx-lock-lib.sh`, `mx-lock.sh`, `mx-marker-lib.sh`, `mx-primary-scope-lib.sh`, `mx-probe-lib.sh`, `mx-session-lock-lib.sh`, `mx-supervision-lib.sh`, `mx-supervisor-target-lib.sh`, `mx-tangle-lib.sh`, `mx-tmux-lib.sh`, `mx-transition-lib.sh`, and `mx-wake-lib.sh`.
 The Rust modules use typed identifiers and records, bounded no-follow reads, durable same-directory replacement, single-write append, owner-directory locks, PID identity, injected clocks and process probes, and typed command transports.
 The maintainer-override grant state machine remains owned by its later port portion and plugs into the session-lock primitive through an explicit authority trait.
-`multplx-domain` is the future owner of typed durable records and lifecycle state machines.
+`multplx-domain` owns typed durable records and the task/daemon lifecycle state machines.
 Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
 Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue, and pinned Treehouse installer.
@@ -195,7 +195,7 @@ Multplx's own deep-review gate normally runs agents inside a checkout that also 
 The Rust-port checkout intentionally keeps that identity in non-auto-loaded `AGENTS-PORTING.md` until final restoration.
 `bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
 Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
-`mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` source `bin/mx-gate-refuse-lib.sh` and exit with status 3 before system mutation when `DEEP_REVIEW_GATE` is present.
+The Rust lifecycle entry points for `mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` preserve the deep-review gate and exit with status 3 before system mutation when `DEEP_REVIEW_GATE` is present.
 A normal primary checkout or actor worktree has neither signal and remains unaffected.
 The helper's header owns the exact marker and test-harness bypass contract.
 
@@ -275,7 +275,7 @@ It consumes the private restart-safe handoff, re-verifies its gate and approved 
 PR-based task merges run from the same non-agent credential context through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
 The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
 Teardown is fail-closed for delivery worktrees: dirty worktrees refuse, committed work must be landed, and any ready-to-push handoff must be delivered or explicitly discarded before the worktree is returned.
-[`bin/mx-teardown.sh`](../bin/mx-teardown.sh)'s header owns the landed-work proofs, PR-discovery fallback, and stale-lock recovery procedure.
+The `mx teardown --help` contract and [`bin/mx-teardown.sh`](../bin/mx-teardown.sh)'s compatibility header describe the landed-work proofs, PR-discovery fallback, and stale-lock recovery procedure implemented by the Rust lifecycle layer.
 
 ## Project memory belongs to projects
 

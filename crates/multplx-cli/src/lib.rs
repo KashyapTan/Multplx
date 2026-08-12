@@ -1,6 +1,7 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
@@ -129,6 +130,78 @@ enum Command {
     /// Push inherited local material to live daemon homes.
     #[command(disable_help_flag = true)]
     ConfigPush {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Ensure a project's AGENTS.md memory convention.
+    #[command(hide = true)]
+    EnsureAgentsMd {
+        #[arg(default_value = ".")]
+        directory: PathBuf,
+    },
+    /// Safely refresh one or all registered project clones.
+    #[command(hide = true)]
+    SystemSync { project: Option<PathBuf> },
+    /// Fast-forward the broker and daemon homes from origin.
+    #[command(hide = true)]
+    Update,
+    /// Scaffold an actor brief or daemon charter.
+    #[command(hide = true, disable_help_flag = true)]
+    Brief {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Send literal text or one named key to a verified task endpoint.
+    #[command(hide = true, disable_help_flag = true)]
+    Send {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Append an optional correlated daemon report to its parent status path.
+    #[command(hide = true, disable_help_flag = true)]
+    DaemonReport {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Provision and validate persistent daemon homes.
+    #[command(hide = true, disable_help_flag = true)]
+    HomeSeed {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Create a routed actor, scout, or daemon task.
+    #[command(hide = true, disable_help_flag = true)]
+    Spawn {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Run one daemon supervisor loop.
+    #[command(hide = true, disable_help_flag = true)]
+    SuperviseDaemon {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Safely retire one task or daemon home.
+    #[command(hide = true, disable_help_flag = true)]
+    Teardown {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Compare the local broker with its configured upstream.
+    #[command(hide = true, disable_help_flag = true)]
+    UpstreamDiff {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Guarded fast-forward primitives used by compatibility callers.
+    #[command(hide = true, disable_help_flag = true)]
+    FastForward {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Parent-owned pending-reply record primitives.
+    #[command(hide = true, disable_help_flag = true)]
+    PendingReply {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -358,6 +431,87 @@ impl Cli {
             }
             Command::ConfigInherit { args } => run_config_inherit(&args),
             Command::ConfigPush { args } => run_config_push(&args),
+            Command::EnsureAgentsMd { directory } => {
+                match multplx_domain::lifecycle::ensure_agents::ensure(&directory) {
+                    Ok(message) => {
+                        println!("{message}");
+                        0
+                    }
+                    Err(error) => {
+                        eprintln!("{error}");
+                        1
+                    }
+                }
+            }
+            Command::SystemSync { project } => {
+                let (_, home, _) = active_paths();
+                let projects = std::env::var_os("MX_PROJECTS_OVERRIDE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join("projects"));
+                let result = multplx_domain::lifecycle::system_sync::run(
+                    &multplx_domain::lifecycle::system_sync::SyncContext { home, projects },
+                    project.as_deref(),
+                );
+                for line in result.stdout {
+                    println!("{line}");
+                }
+                for line in result.stderr {
+                    eprintln!("{line}");
+                }
+                0
+            }
+            Command::Update => {
+                let (root, home, data) = active_paths();
+                let state = std::env::var_os("MX_STATE_OVERRIDE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join("state"));
+                let context = multplx_domain::lifecycle::fast_forward::Context {
+                    root,
+                    home,
+                    marker: ".mx-daemon-home".to_owned(),
+                };
+                for line in multplx_domain::lifecycle::fast_forward::update(
+                    &context,
+                    &state,
+                    &data.join("daemons.md"),
+                ) {
+                    println!("{line}");
+                }
+                0
+            }
+            Command::Brief { args } => {
+                if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
+                    print!("{}", multplx_domain::lifecycle::brief::HELP);
+                    0
+                } else {
+                    let (root, home, data) = active_paths();
+                    let state = std::env::var_os("MX_STATE_OVERRIDE")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| home.join("state"));
+                    match multplx_domain::lifecycle::brief::run(&args, &root, &home, &data, &state)
+                    {
+                        Ok(message) => {
+                            println!("{message}");
+                            0
+                        }
+                        Err(error) => {
+                            eprintln!("error: {}", error.message);
+                            error.code
+                        }
+                    }
+                }
+            }
+            Command::Send { args } => run_send(&args),
+            Command::DaemonReport { args } => run_daemon_report(&args),
+            Command::HomeSeed { args } => run_lifecycle_compat("mx-home-seed.sh", &args),
+            Command::Spawn { args } => run_lifecycle_compat("mx-spawn.sh", &args),
+            Command::SuperviseDaemon { args } => {
+                run_lifecycle_compat("mx-supervise-daemon.sh", &args)
+            }
+            Command::Teardown { args } => run_lifecycle_compat("mx-teardown.sh", &args),
+            Command::UpstreamDiff { args } => run_lifecycle_compat("mx-upstream-diff.sh", &args),
+            Command::FastForward { args } => run_fast_forward(&args),
+            Command::PendingReply { args } => run_pending_reply(&args),
             Command::ShadowDiagnostic => {
                 let boundaries = [
                     multplx_core::SHADOW_BOUNDARY,
@@ -402,6 +556,589 @@ fn parse_seconds(value: &str) -> Result<Duration, String> {
 fn backend_error(error: impl std::fmt::Display) -> i32 {
     eprintln!("mx backend: {error}");
     1
+}
+
+fn send_target_ready(target: &multplx_backend::facade::BackendTarget) -> bool {
+    use multplx_backend::facade::{BackendName, RuntimeBackend};
+    match target.backend() {
+        BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system()
+            .target_ready(target)
+            .is_ok(),
+        BackendName::Herdr => multplx_backend::herdr::HerdrBackend::system()
+            .target_ready(target)
+            .is_ok(),
+        BackendName::Cmux => multplx_backend::cmux::CmuxBackend::system()
+            .target_ready(target)
+            .is_ok(),
+    }
+}
+
+fn send_key_to(target: &multplx_backend::facade::BackendTarget, key: &str) -> Result<(), String> {
+    use multplx_backend::facade::{BackendName, RuntimeBackend};
+    match target.backend() {
+        BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system().send_key(target, key),
+        BackendName::Herdr => multplx_backend::herdr::HerdrBackend::system().send_key(target, key),
+        BackendName::Cmux => multplx_backend::cmux::CmuxBackend::system().send_key(target, key),
+    }
+    .map_err(|error| error.to_string())
+}
+
+fn send_text_to(
+    target: &multplx_backend::facade::BackendTarget,
+    text: &str,
+    retries: usize,
+    enter_delay: Duration,
+    settle: Duration,
+) -> Result<multplx_core::composer::ComposerState, String> {
+    use multplx_backend::facade::{BackendName, RuntimeBackend, SubmitRequest};
+    let request = SubmitRequest {
+        text,
+        retries,
+        enter_delay,
+        settle,
+    };
+    match target.backend() {
+        BackendName::Tmux => {
+            multplx_backend::tmux::TmuxBackend::system().send_submit(target, request)
+        }
+        BackendName::Herdr => {
+            multplx_backend::herdr::HerdrBackend::system().send_submit(target, request)
+        }
+        BackendName::Cmux => {
+            multplx_backend::cmux::CmuxBackend::system().send_submit(target, request)
+        }
+    }
+    .map_err(|error| error.to_string())
+}
+
+struct SendResolution {
+    target: multplx_backend::facade::BackendTarget,
+    meta: Option<PathBuf>,
+    selector: bool,
+    tried: String,
+}
+
+fn send_resolve(raw: &str, state: &Path) -> Result<SendResolution, String> {
+    use multplx_backend::facade::{
+        BackendName, BackendTarget, backend_of_meta, meta_for_selector, meta_for_target, meta_get,
+        target_of_meta,
+    };
+    if let Some((id, meta)) = meta_for_selector(state, raw).map_err(|error| error.to_string())? {
+        let endpoint = target_of_meta(&meta)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                format!(
+                    "no backend target recorded in {} (tried meta={}; backend=from-meta)",
+                    meta.display(),
+                    meta.display()
+                )
+            })?;
+        let backend = backend_of_meta(&meta).map_err(|error| error.to_string())?;
+        return Ok(SendResolution {
+            target: BackendTarget::new(backend, endpoint, Some(format!("mx-{id}")))
+                .map_err(|error| error.to_string())?,
+            meta: Some(meta.clone()),
+            selector: true,
+            tried: format!("meta={}; backend=from-meta", meta.display()),
+        });
+    }
+    if raw.starts_with("mx-") {
+        return Err(format!(
+            "no metadata for {raw} in {} (tried meta={}/{raw}.meta; legacy-meta={}/{}.meta; backend=none); pass a well-formed explicit backend target only when targeting outside this Multplx home",
+            state.display(),
+            state.display(),
+            state.display(),
+            raw.strip_prefix("mx-").unwrap_or(raw)
+        ));
+    }
+    if state.is_dir() {
+        let mut paths: Vec<PathBuf> = fs::read_dir(state)
+            .map_err(|error| error.to_string())?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(OsStr::to_str) == Some("meta"))
+            .collect();
+        paths.sort();
+        for meta in &paths {
+            if meta_get(meta, "herdr_pane_id")
+                .map_err(|error| error.to_string())?
+                .as_deref()
+                == Some(raw)
+            {
+                let session = meta_get(meta, "herdr_session")
+                    .map_err(|error| error.to_string())?
+                    .unwrap_or_else(|| "<herdr-session>".to_owned());
+                let id = meta.file_stem().unwrap_or_default().to_string_lossy();
+                return Err(format!(
+                    "target '{raw}' matches herdr_pane_id in {} but is missing its herdr session prefix; expected <herdr-session>:<pane-id> such as '{session}:{raw}' or use 'mx-{id}' (tried meta={}/{raw}.meta; backend=herdr)",
+                    meta.display(),
+                    state.display()
+                ));
+            }
+        }
+    }
+    if let Some(meta) = meta_for_target(state, raw).map_err(|error| error.to_string())? {
+        let endpoint = target_of_meta(&meta)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("no backend target recorded in {}", meta.display()))?;
+        let backend = backend_of_meta(&meta).map_err(|error| error.to_string())?;
+        return Ok(SendResolution {
+            target: BackendTarget::new(backend, endpoint, None)
+                .map_err(|error| error.to_string())?,
+            meta: Some(meta.clone()),
+            selector: false,
+            tried: format!(
+                "explicit target '{raw}' matched {}; backend={backend}",
+                meta.display()
+            ),
+        });
+    }
+    if raw.contains(':') {
+        let backend = if raw.matches(':').count() >= 2 {
+            BackendName::Herdr
+        } else {
+            BackendName::Tmux
+        };
+        let target = BackendTarget::new(backend, raw, None).map_err(|error| error.to_string())?;
+        if !send_target_ready(&target) {
+            return Err(format!(
+                "explicit target '{raw}' is not a live {backend} endpoint (tried meta={}/{raw}.meta; metadata window/terminal lookup; backend={backend}). Use mx-<id> for a recorded task/lane, or pass a target whose backend endpoint can be verified.",
+                state.display()
+            ));
+        }
+        return Ok(SendResolution {
+            target,
+            meta: None,
+            selector: false,
+            tried: format!(
+                "meta={}/{raw}.meta; metadata window/terminal lookup; backend={backend}; endpoint=verified",
+                state.display()
+            ),
+        });
+    }
+    Err(format!(
+        "target '{raw}' is not resolvable (tried meta={}/{raw}.meta; metadata window/terminal lookup; backend=none). Use mx-{raw} for a recorded task/lane, or pass a well-formed explicit backend target such as session:window.",
+        state.display()
+    ))
+}
+
+fn run_send(args: &[OsString]) -> i32 {
+    if multplx_core::gate_refuse::is_gate_agent(
+        std::env::var_os("DEEP_REVIEW_GATE").is_some(),
+        std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
+    ) {
+        eprintln!("{}", multplx_core::gate_refuse::REFUSAL_MESSAGE);
+        return i32::from(multplx_core::gate_refuse::REFUSAL_EXIT);
+    }
+    let Some(home) = std::env::var_os("MX_HOME").filter(|value| !value.is_empty()) else {
+        eprintln!(
+            "error: MX_HOME is not set; mx-send refuses to resolve targets without an explicit Multplx home"
+        );
+        return 1;
+    };
+    let home = PathBuf::from(home);
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    if !home.is_dir() {
+        eprintln!(
+            "error: MX_HOME '{}' is not a directory; mx-send cannot resolve this home's state",
+            home.display()
+        );
+        return 1;
+    }
+    if !state.is_dir() {
+        eprintln!(
+            "error: state dir '{}' is missing; mx-send cannot resolve targets for MX_HOME '{}'",
+            state.display(),
+            home.display()
+        );
+        return 1;
+    }
+    if args.len() < 2 {
+        eprintln!("usage: mx-send.sh <target> <text...>");
+        return 2;
+    }
+    let Some(raw) = args[0].to_str() else {
+        eprintln!("error: target is not UTF-8");
+        return 1;
+    };
+    let resolved = match send_resolve(raw, &state) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    };
+    let (root, _, _) = active_paths();
+    let guard = runtime_root(&root).join("bin/mx-guard.sh");
+    if guard.is_file() {
+        let _ = std::process::Command::new(guard)
+            .env(
+                "MX_GUARD_CONTINUE_LINE",
+                "This is a supervision warning only; the requested message WILL still be sent.",
+            )
+            .status();
+    }
+    if args.get(1).and_then(|value| value.to_str()) == Some("--key") {
+        let Some(key) = args.get(2).and_then(|value| value.to_str()) else {
+            eprintln!("usage: mx-send.sh <target> --key <key>");
+            return 2;
+        };
+        if send_key_to(&resolved.target, key).is_err() {
+            eprintln!(
+                "error: key '{key}' not sent to {} ({} send failed; tried {})",
+                resolved.target.endpoint(),
+                resolved.target.backend(),
+                resolved.tried
+            );
+            return 1;
+        }
+        return 0;
+    }
+    let mut message = args[1..]
+        .iter()
+        .map(|value| value.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut correlation = None;
+    let mut created = false;
+    if resolved.selector
+        && resolved.meta.as_ref().is_some_and(|meta| {
+            multplx_backend::facade::meta_get(meta, "kind")
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("daemon")
+        })
+    {
+        let meta = resolved.meta.as_ref().expect("selector meta");
+        let task = meta.file_stem().unwrap_or_default().to_string_lossy();
+        let existing = std::env::var("MX_PENDING_REPLY_EXISTING_CORR")
+            .ok()
+            .or_else(|| multplx_domain::lifecycle::pending_reply::extract_correlation(&message));
+        let corr = if existing.as_ref().is_some_and(|value| {
+            multplx_domain::lifecycle::pending_reply::reusable(&state, value, &task)
+        }) {
+            existing.expect("reusable")
+        } else {
+            created = true;
+            match multplx_domain::lifecycle::pending_reply::create(&home, &state, &task, &message) {
+                Ok(value) => value,
+                Err(_) => {
+                    eprintln!(
+                        "error: failed to create parent pending-reply expectation for {task}"
+                    );
+                    return 1;
+                }
+            }
+        };
+        message = multplx_domain::lifecycle::pending_reply::embed(&message, &corr);
+        if created
+            && multplx_domain::lifecycle::pending_reply::prepare_delivery(&state, &corr).is_err()
+        {
+            let _ = multplx_domain::lifecycle::pending_reply::discard_undelivered(&state, &corr);
+            eprintln!("error: failed to durably prepare pending-reply delivery for {task}");
+            return 1;
+        }
+        correlation = Some(corr);
+    }
+    let harness = resolved.meta.as_ref().and_then(|meta| {
+        multplx_backend::facade::meta_get(meta, "harness")
+            .ok()
+            .flatten()
+    });
+    let settle = if message.starts_with('/')
+        || (message.starts_with('$') && harness.as_deref() == Some("codex"))
+    {
+        Duration::from_secs_f64(1.2)
+    } else {
+        Duration::from_secs_f64(0.3)
+    };
+    let retries = std::env::var("MX_SEND_RETRIES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(3);
+    let delay = std::env::var("MX_SEND_SLEEP")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(Duration::from_secs_f64)
+        .unwrap_or_else(|| Duration::from_secs_f64(0.4));
+    let verdict = send_text_to(&resolved.target, &message, retries, delay, settle);
+    if verdict.as_ref().is_err()
+        || verdict
+            .as_ref()
+            .is_ok_and(|state| *state == multplx_core::composer::ComposerState::Pending)
+    {
+        if created && let Some(corr) = &correlation {
+            let _ = multplx_domain::lifecycle::pending_reply::discard_undelivered(&state, corr);
+        }
+        if verdict.is_ok() {
+            eprintln!(
+                "error: text not submitted to {} (Enter swallowed; text left in composer; tried {})",
+                resolved.target.endpoint(),
+                resolved.tried
+            );
+        } else {
+            eprintln!(
+                "error: text not sent to {} ({} send failed; tried {})",
+                resolved.target.endpoint(),
+                resolved.target.backend(),
+                resolved.tried
+            );
+        }
+        return 1;
+    }
+    if let Some(corr) = correlation
+        && multplx_domain::lifecycle::pending_reply::confirm_delivery(&state, &corr).is_err()
+    {
+        eprintln!(
+            "error: text was delivered to {}, but its pending-reply delivery commit failed; a durable recovery marker was stored and the watcher will reconcile it. Do not resend.",
+            resolved.target.endpoint()
+        );
+        return 1;
+    }
+    let post_settle = std::env::var("MX_SEND_SETTLE").unwrap_or_else(|_| "1".to_owned());
+    if post_settle != "0" {
+        let _ = std::process::Command::new("sleep")
+            .arg(&post_settle)
+            .status();
+    }
+    0
+}
+
+fn run_daemon_report(args: &[OsString]) -> i32 {
+    use std::fs::OpenOptions;
+
+    const USAGE: &str = "Usage:\n  mx-daemon-report.sh <status-file> <verb> <corr_id> <note...>\n  mx-daemon-report.sh --doc <status-file> <verb> <corr_id> <doc-path> <note...>\n";
+    let doc_mode = args.first().and_then(|value| value.to_str()) == Some("--doc");
+    let offset = usize::from(doc_mode);
+    if args.len() < offset + 4 {
+        eprint!("{USAGE}");
+        return 2;
+    }
+    let status = PathBuf::from(&args[offset]);
+    let verb = args[offset + 1].to_string_lossy();
+    let raw_correlation = args[offset + 2].to_string_lossy();
+    let correlation = raw_correlation
+        .strip_prefix("corr=")
+        .unwrap_or(&raw_correlation);
+    if correlation.len() != 16 || !correlation.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        eprintln!("error: corr_id must be 16 hex characters (got '{correlation}')");
+        return 1;
+    }
+    let Some(parent) = status.parent() else {
+        eprintln!(
+            "error: cannot create parent directory for status file '{}'",
+            status.display()
+        );
+        return 1;
+    };
+    let _ = fs::create_dir_all(parent);
+    if !parent.is_dir() {
+        eprintln!(
+            "error: cannot create parent directory for status file '{}'",
+            status.display()
+        );
+        return 1;
+    }
+    let values: Vec<String> = args[offset + 3..]
+        .iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect();
+    let line = if doc_mode {
+        let Some(document) = values.first() else {
+            eprint!("{USAGE}");
+            return 2;
+        };
+        let note = values[1..].join(" ");
+        if note.is_empty() {
+            format!("{verb} [corr={correlation}]: {document} (via-helper)\n")
+        } else {
+            format!("{verb} [corr={correlation}]: {note} ({document} via-helper)\n")
+        }
+    } else {
+        let note = values.join(" ");
+        if note.is_empty() {
+            format!("{verb} [corr={correlation}]: (via-helper)\n")
+        } else {
+            format!("{verb} [corr={correlation}]: {note} (via-helper)\n")
+        }
+    };
+    match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&status)
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+    {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!(
+                "error: cannot append status file '{}': {error}",
+                status.display()
+            );
+            1
+        }
+    }
+}
+
+/// Transitional process boundary for lifecycle commands whose transaction body
+/// is still retained below the thin shell adapter.  Rust owns selection and
+/// recursion prevention; the child is explicitly pinned to the compatibility
+/// body, so a process can never mix Rust spawn with legacy teardown (or the
+/// reverse) through ambient defaults.
+fn run_lifecycle_compat(script: &str, args: &[OsString]) -> i32 {
+    use std::os::unix::process::CommandExt;
+
+    let root = runtime_root(&active_paths().0);
+    let path = root.join("bin").join(script);
+    if !path.is_file() {
+        eprintln!(
+            "error: lifecycle compatibility body is unavailable at {}",
+            path.display()
+        );
+        return 1;
+    }
+    let error = std::process::Command::new("bash")
+        .arg(path)
+        .args(args)
+        .env("MX_LIFECYCLE_IMPLEMENTATION", "legacy")
+        .env("MX_RUST_SOURCE_ROOT", &root)
+        .exec();
+    eprintln!("error: could not start {script}: {error}");
+    1
+}
+
+fn run_fast_forward(args: &[OsString]) -> i32 {
+    use multplx_domain::lifecycle::fast_forward::{self, Base, Context, Status};
+    let values: Vec<String> = args
+        .iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect();
+    let Some(operation) = values.first().map(String::as_str) else {
+        eprintln!("usage: mx fast-forward <default-branch|primary-head|validate-home|target> ...");
+        return 2;
+    };
+    match operation {
+        "default-branch" if values.len() == 2 => {
+            if let Some(branch) = fast_forward::default_branch(Path::new(&values[1])) {
+                println!("{branch}");
+                0
+            } else {
+                1
+            }
+        }
+        "primary-head" if values.len() == 2 => {
+            if let Some(commit) = fast_forward::primary_head_commit(Path::new(&values[1])) {
+                println!("{commit}");
+                0
+            } else {
+                1
+            }
+        }
+        "validate-home" if values.len() == 5 => {
+            let context = Context {
+                root: PathBuf::from(&values[1]),
+                home: PathBuf::from(&values[2]),
+                marker: std::env::var("SUB_HOME_MARKER")
+                    .unwrap_or_else(|_| ".mx-daemon-home".to_owned()),
+            };
+            match fast_forward::validate_daemon_home(&context, &values[3], Path::new(&values[4])) {
+                Ok(path) => {
+                    println!("{}", path.display());
+                    0
+                }
+                Err(error) => {
+                    println!("{error}");
+                    1
+                }
+            }
+        }
+        "target" if values.len() == 6 => {
+            let base = if values[3] == "origin" {
+                Base::Origin
+            } else {
+                Base::Commit(values[3].clone())
+            };
+            let outcome = fast_forward::fast_forward(
+                Path::new(&values[1]),
+                &values[2],
+                &base,
+                values[4] == "yes",
+                values[5] == "yes",
+            );
+            let status = match outcome.status {
+                Status::Updated => "updated",
+                Status::Current => "current",
+                Status::Skipped => "skipped",
+            };
+            println!(
+                "{status}\t{}\t{}",
+                outcome.instructions.join(", "),
+                outcome.line
+            );
+            0
+        }
+        _ => {
+            eprintln!("error: invalid fast-forward operation or arguments");
+            2
+        }
+    }
+}
+
+fn run_pending_reply(args: &[OsString]) -> i32 {
+    use multplx_domain::lifecycle::pending_reply;
+    let values: Vec<String> = args
+        .iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect();
+    let result: Result<Option<String>, String> = match values.first().map(String::as_str) {
+        Some("extract") if values.len() == 2 => Ok(pending_reply::extract_correlation(&values[1])),
+        Some("reusable") if values.len() == 4 => {
+            if pending_reply::reusable(Path::new(&values[1]), &values[2], &values[3]) {
+                Ok(None)
+            } else {
+                Err(String::new())
+            }
+        }
+        Some("embed") if values.len() == 3 => {
+            Ok(Some(pending_reply::embed(&values[1], &values[2])))
+        }
+        Some("create") if values.len() == 5 => pending_reply::create(
+            Path::new(&values[1]),
+            Path::new(&values[2]),
+            &values[3],
+            &values[4],
+        )
+        .map(Some),
+        Some("prepare") if values.len() == 3 => {
+            pending_reply::prepare_delivery(Path::new(&values[1]), &values[2]).map(|()| None)
+        }
+        Some("confirm") if values.len() == 3 => {
+            pending_reply::confirm_delivery(Path::new(&values[1]), &values[2]).map(|()| None)
+        }
+        Some("discard") if values.len() == 3 => {
+            pending_reply::discard_undelivered(Path::new(&values[1]), &values[2]).map(|()| None)
+        }
+        _ => {
+            eprintln!("error: invalid pending-reply operation or arguments");
+            return 2;
+        }
+    };
+    match result {
+        Ok(Some(value)) => {
+            print!("{value}");
+            0
+        }
+        Ok(None) => 0,
+        Err(error) => {
+            if !error.is_empty() {
+                eprintln!("{error}");
+            }
+            1
+        }
+    }
 }
 
 fn run_backend(command: BackendCommand) -> i32 {
@@ -1799,7 +2536,7 @@ fn environment_path(primary: &str, fallback: &str) -> PathBuf {
 }
 
 fn active_paths() -> (PathBuf, PathBuf, PathBuf) {
-    let root = environment_path("MX_ROOT_OVERRIDE", "MX_HOME");
+    let root = environment_path("MX_ROOT_OVERRIDE", "MX_RUST_SOURCE_ROOT");
     let home = std::env::var_os("MX_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| root.clone());

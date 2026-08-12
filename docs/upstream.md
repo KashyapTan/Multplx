@@ -10,7 +10,7 @@ retired_reason:
 
 This file is the authoritative fork point, review cursor, relevance map, retirement state, and completed-review log for the Multplx fork.
 [Back to the documentation index](README.md).
-`bin/mx-upstream-diff.sh` is the sole supported writer of `last_reviewed`.
+The Rust lifecycle command behind `bin/mx-upstream-diff.sh` is the sole supported writer of `last_reviewed`.
 The fork point never changes.
 The review cursor advances only after a completed upstream-sync workflow run receives its final maintainer approval.
 Setting `status` to `retired` requires a concise `retired_reason` and makes the diff command exit with status 3 without fetching or writing.
