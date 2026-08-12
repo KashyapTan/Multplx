@@ -367,6 +367,7 @@ jobs:
           MX_HARNESS_IMPLEMENTATION: legacy
           MX_HEADROOM_IMPLEMENTATION: legacy
           MX_TREEHOUSE_TOOLS_IMPLEMENTATION: legacy
+          MX_SUPERVISION_IMPLEMENTATION: legacy
         run: |
           set -eu
           case "$BASH_VERSION" in
