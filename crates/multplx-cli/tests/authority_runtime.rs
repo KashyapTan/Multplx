@@ -3,7 +3,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use std::process::{Command, Output};
 
-use multplx_domain::maintainer_override::{self, OverrideStore};
+use multplx_domain::maintainer_override::{self, Binding, OverrideStore, Request};
 
 fn mx() -> Command {
     Command::new(env!("CARGO_BIN_EXE_mx"))
@@ -235,4 +235,400 @@ fn decision_identity_is_native_and_rejects_traversal() {
         "choice",
     ]));
     assert!(!invalid.status.success());
+}
+
+#[test]
+fn native_override_cli_covers_decision_result_audit_and_handoff() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let state = temp.path().join("state");
+    fs::create_dir(&state).expect("state");
+    fs::write(state.join(".lock"), format!("{}\n", std::process::id())).expect("primary lock");
+    let digest = maintainer_override::sha256_text("state-v2");
+    let store = OverrideStore::new(&state);
+    let id = store
+        .request(&Request {
+            boundary: "workflow.skip-stage",
+            task: "run-2",
+            project: "multplx",
+            operation: "skip workflow stage test in run run-2",
+            target: "run-2#test",
+            expected_state_digest: &digest,
+            consequence: "Skip only the exact test stage.",
+            ttl: 300,
+        })
+        .expect("request");
+    let words = "Grant workflow.skip-stage for exact operation skip workflow stage test in run run-2 on exact target run-2#test.";
+    let grant = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "grant",
+        &id,
+        "--maintainer-words",
+        words,
+    ]));
+    assert!(
+        grant.status.success(),
+        "{}",
+        String::from_utf8_lossy(&grant.stderr)
+    );
+    store
+        .consume(
+            &id,
+            &Binding {
+                boundary: "workflow.skip-stage",
+                task: "run-2",
+                project: "multplx",
+                operation: "skip workflow stage test in run run-2",
+                target: "run-2#test",
+                expected_state_digest: &digest,
+            },
+        )
+        .expect("consume");
+    let result = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "result",
+        &id,
+        "--outcome",
+        "failed",
+        "--detail",
+        "test command exited 7",
+    ]));
+    assert!(result.status.success());
+    let inspect = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "inspect",
+        &id,
+    ]));
+    assert!(inspect.status.success());
+    let inspected: serde_json::Value =
+        serde_json::from_slice(&inspect.stdout).expect("inspect JSON");
+    assert_eq!(inspected["outcome"], "failed");
+
+    let handoff_id = store
+        .request(&Request {
+            boundary: "authentication.login",
+            task: "run-2",
+            project: "multplx",
+            operation: "authenticate gh for delivery",
+            target: "github.com/KashyapTan/Multplx",
+            expected_state_digest: &digest,
+            consequence: "The maintainer performs only this login.",
+            ttl: 300,
+        })
+        .expect("handoff request");
+    let handoff_words = "Grant authentication.login for exact operation authenticate gh for delivery on exact target github.com/KashyapTan/Multplx.";
+    store
+        .decide(&handoff_id, handoff_words, true)
+        .expect("handoff grant");
+    store
+        .consume(
+            &handoff_id,
+            &Binding {
+                boundary: "authentication.login",
+                task: "run-2",
+                project: "multplx",
+                operation: "authenticate gh for delivery",
+                target: "github.com/KashyapTan/Multplx",
+                expected_state_digest: &digest,
+            },
+        )
+        .expect("handoff consume");
+    let handoff = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "handoff",
+        &handoff_id,
+    ]));
+    assert!(handoff.status.success());
+    assert!(String::from_utf8_lossy(&handoff.stdout).contains("authentication.login"));
+
+    let audit = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "audit",
+    ]));
+    assert!(audit.status.success());
+    assert!(String::from_utf8_lossy(&audit.stdout).contains(&id));
+    let audit_json = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "audit",
+        "--json",
+    ]));
+    assert!(audit_json.status.success());
+    let records: serde_json::Value =
+        serde_json::from_slice(&audit_json.stdout).expect("audit JSON");
+    assert_eq!(records.as_array().expect("records").len(), 2);
+}
+
+#[test]
+fn native_override_cli_rejects_closed_usage_and_state_failures() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let state = temp.path().join("state");
+    fs::create_dir(&state).expect("state");
+    let cases: &[&[&str]] = &[
+        &["authority", "mx-maintainer-override.sh"],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "registry",
+            "--bad",
+        ],
+        &["authority", "mx-maintainer-override.sh", "digest"],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "request",
+            "literal",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "request",
+            "--boundary",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "request",
+            "--boundary",
+            "",
+        ],
+        &["authority", "mx-maintainer-override.sh", "inspect"],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "inspect",
+            "missing",
+        ],
+        &["authority", "mx-maintainer-override.sh", "audit", "--bad"],
+        &["authority", "mx-maintainer-override.sh", "grant"],
+        &["authority", "mx-maintainer-override.sh", "grant", "missing"],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "grant",
+            "missing",
+            "--maintainer-words",
+            "yes",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "consume",
+            "missing",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "consume",
+            "missing",
+            "literal",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "result",
+            "missing",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "result",
+            "missing",
+            "literal",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "result",
+            "missing",
+            "--outcome",
+            "maybe",
+            "--detail",
+            "detail",
+        ],
+        &[
+            "authority",
+            "mx-maintainer-override.sh",
+            "handoff",
+            "missing",
+        ],
+        &["authority", "mx-maintainer-override.sh", "unknown"],
+    ];
+    for args in cases {
+        let output = run(mx().env("MX_STATE_OVERRIDE", &state).args(*args));
+        assert!(!output.status.success(), "unexpected success: {args:?}");
+    }
+
+    let help = run(mx().args(["authority", "mx-maintainer-override.sh", "--help"]));
+    assert!(help.status.success());
+    assert!(String::from_utf8_lossy(&help.stdout).contains("Usage:"));
+    let registry = run(mx().args(["authority", "mx-maintainer-override.sh", "registry"]));
+    assert!(registry.status.success());
+    assert!(String::from_utf8_lossy(&registry.stdout).contains("workflow.skip-stage\tpolicy"));
+    let argv = run(mx().args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "argv",
+        "printf",
+        "two words",
+    ]));
+    assert_eq!(argv.stdout, b"[\"printf\",\"two words\"]\n");
+
+    let invalid_request = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "request",
+        "--boundary",
+        "integrity.validation-state",
+        "--task",
+        "task",
+        "--project",
+        "multplx",
+        "--operation",
+        "waive truth",
+        "--target",
+        "target",
+        "--expected-state",
+        "bad-digest",
+        "--consequence",
+        "No.",
+    ]));
+    assert!(!invalid_request.status.success());
+
+    let digest = maintainer_override::sha256_text("state");
+    let extra_request = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "request",
+        "--boundary",
+        "workflow.skip-stage",
+        "--task",
+        "task",
+        "--project",
+        "multplx",
+        "--operation",
+        "skip exact stage",
+        "--target",
+        "run#stage",
+        "--expected-state",
+        &digest,
+        "--consequence",
+        "Skip it.",
+        "--extra",
+        "value",
+    ]));
+    assert_eq!(extra_request.status.code(), Some(2));
+    let extra_consume = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "consume",
+        "missing",
+        "--boundary",
+        "workflow.skip-stage",
+        "--task",
+        "task",
+        "--project",
+        "multplx",
+        "--operation",
+        "skip exact stage",
+        "--target",
+        "run#stage",
+        "--expected-state",
+        &digest,
+        "--extra",
+        "value",
+    ]));
+    assert_eq!(extra_consume.status.code(), Some(2));
+
+    let store = OverrideStore::new(&state);
+    let denied_id = store
+        .request(&Request {
+            boundary: "workflow.skip-stage",
+            task: "task",
+            project: "multplx",
+            operation: "skip exact stage",
+            target: "run#stage",
+            expected_state_digest: &digest,
+            consequence: "Skip it.",
+            ttl: 300,
+        })
+        .expect("request");
+    fs::write(state.join(".lock"), format!("{}\n", std::process::id())).expect("primary lock");
+    let denied = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "deny",
+        &denied_id,
+        "--maintainer-words",
+        "Deny this request.",
+    ]));
+    assert!(denied.status.success());
+    let bad_handoff = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "handoff",
+        &denied_id,
+    ]));
+    assert!(!bad_handoff.status.success());
+
+    let malformed = store.root().join("pending/malformed.json");
+    fs::write(&malformed, b"not json\n").expect("malformed");
+    fs::set_permissions(&malformed, fs::Permissions::from_mode(0o600)).expect("mode");
+    let invalid_audit = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-maintainer-override.sh",
+        "audit",
+    ]));
+    assert_eq!(invalid_audit.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&invalid_audit.stdout).contains("invalid\t"));
+
+    let unknown_entry = run(mx().args(["authority", "not-an-entry"]));
+    assert_eq!(unknown_entry.status.code(), Some(2));
+
+    let missing_compat = run(mx().env("MX_RUST_SOURCE_ROOT", temp.path()).args([
+        "authority",
+        "mx-decision-hold.sh",
+        "id",
+    ]));
+    assert_eq!(missing_compat.status.code(), Some(1));
+    let invalid_key =
+        run(mx().args(["authority", "mx-decision-hold.sh", "id", "review", "../key"]));
+    assert_eq!(invalid_key.status.code(), Some(1));
+}
+
+#[test]
+fn native_workflow_cli_rejects_missing_invalid_and_extra_arguments() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let invalid = temp.path().join("invalid.workflow.md");
+    fs::write(&invalid, "not a workflow\n").expect("invalid definition");
+    let invalid_path = invalid.to_str().expect("path");
+    for args in [
+        vec!["authority", "mx-workflow.sh", "validate", invalid_path],
+        vec![
+            "authority",
+            "mx-workflow.sh",
+            "validate",
+            "missing.workflow.md",
+        ],
+        vec!["authority", "mx-workflow.sh", "dry-run", "missing"],
+    ] {
+        let output = run(mx().env("MX_RUST_SOURCE_ROOT", source_root()).args(args));
+        assert!(!output.status.success());
+    }
+
+    executable(
+        &temp.path().join("bin/mx-workflow.sh"),
+        "#!/bin/sh\nprintf '%s|%s\\n' \"${MX_AUTHORITY_IMPLEMENTATION:-unset}\" \"${1:-}\"\n",
+    );
+    let compatible = run(mx().env("MX_RUST_SOURCE_ROOT", temp.path()).args([
+        "authority",
+        "mx-workflow.sh",
+        "dry-run",
+    ]));
+    assert!(compatible.status.success());
+    assert_eq!(compatible.stdout, b"legacy|dry-run\n");
 }

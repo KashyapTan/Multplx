@@ -963,6 +963,20 @@ mod tests {
 
     const VALID: &str = "---\nworkflow_version: 1\nname: demo\ndescription: Demo workflow.\nstages:\n  - id: plan\n    title: Plan\n    type: agent\n    executor: broker\n    gate: auto\n    output: data/{run}/plan.md\n    contract: output\n  - id: build\n    title: Build\n    type: agent\n    executor: actor\n    fresh_session: true\n    brief_from: [plan]\n    gate: approve\n    output: data/{run}/build.md\n    contract: local-commits\n---\n\n## plan\n\nPlan {input} into {output}.\n\n## build\n\nBuild {input} from {output}.\n";
 
+    fn one_stage(fields: &str, body: &str) -> String {
+        format!(
+            "---\nworkflow_version: 1\nname: demo\ndescription: Demo workflow.\nstages:\n  - id: only\n    title: Only\n{fields}---\n\n## only\n\n{body}\n"
+        )
+    }
+
+    fn assert_invalid(definition: impl AsRef<str>, expected: &str) {
+        let error = parse_text(definition.as_ref()).expect_err("invalid definition");
+        assert!(
+            error.to_string().contains(expected),
+            "expected {expected:?}, got {error}"
+        );
+    }
+
     #[test]
     fn parser_closes_schema_and_command_substitutions() {
         let definition = parse_text(VALID).expect("valid definition");
@@ -1022,5 +1036,294 @@ mod tests {
             "exact input"
         );
         assert!(create_snapshot(&definition_path, &run, &definition, "again").is_err());
+    }
+
+    #[test]
+    fn parser_rejects_every_structural_frontmatter_class() {
+        assert_invalid("workflow_version: 1", "begin with YAML frontmatter");
+        assert_invalid("---\nworkflow_version: 1", "no closing");
+        assert_invalid(
+            VALID.replace("workflow_version: 1", "workflow_version:\t1"),
+            "contains a tab",
+        );
+        assert_invalid(
+            VALID.replace("name: demo", "unknown: demo"),
+            "unknown top-level field",
+        );
+        assert_invalid(
+            VALID.replace("name: demo", "name: demo\nname: again"),
+            "duplicate top-level field",
+        );
+        assert_invalid(
+            VALID.replace("stages:", "stages: inline"),
+            "stages must be a block list",
+        );
+        assert_invalid(
+            VALID.replace(
+                "description: Demo workflow.\nstages:",
+                "stages:\ndescription: Demo workflow.",
+            ),
+            "appears after stages",
+        );
+        assert_invalid(
+            VALID.replace("  - id: plan", "  - title: plan"),
+            "each stage must begin with id",
+        );
+        assert_invalid(
+            VALID.replace("    title: Plan", "    mystery: Plan"),
+            "unknown stage field",
+        );
+        assert_invalid(
+            VALID.replace("    title: Plan", "    title: Plan\n    title: Again"),
+            "duplicate field",
+        );
+        assert_invalid(
+            VALID.replace("workflow_version: 1", "workflow_version: false"),
+            "unsupported workflow_version",
+        );
+        assert_invalid(
+            VALID.replace("workflow_version: 1", "workflow_version: 9"),
+            "unsupported workflow_version '9'",
+        );
+        assert_invalid(
+            VALID.replace("name: demo", "name: ../demo"),
+            "privacy-safe slug",
+        );
+        assert_invalid(
+            "---\nworkflow_version: 1\nname: demo\ndescription: Demo.\nstages:\n---\n",
+            "at least one stage",
+        );
+    }
+
+    #[test]
+    fn parser_rejects_body_binding_and_stage_semantic_failures() {
+        assert_invalid(
+            VALID.replace("## plan\n\nPlan", "text before body\n\n## plan\n\nPlan"),
+            "content before first stage body",
+        );
+        assert_invalid(
+            VALID.replace("Plan {input} into {output}.", "   "),
+            "must not be empty",
+        );
+        assert_invalid(
+            VALID.replace("## build", "## plan\n\nDuplicate.\n\n## build"),
+            "duplicate stage body",
+        );
+        assert_invalid(
+            VALID.replace("  - id: build", "  - id: plan"),
+            "duplicate stage id",
+        );
+        assert_invalid(
+            VALID.replace("## build", "## extra"),
+            "has no matching markdown body",
+        );
+        assert_invalid(
+            VALID.replace("    type: agent", "    type: mystery"),
+            "unknown type",
+        );
+        assert_invalid(
+            VALID.replace("    gate: auto", "    gate: mystery"),
+            "unknown gate",
+        );
+        assert_invalid(
+            VALID.replace("brief_from: [plan]", "brief_from: [later]"),
+            "references non-prior stage",
+        );
+        assert_invalid(
+            "---\nworkflow_version: 1\nname: demo\ndescription: Demo.\nstages:\n  - id: source\n    title: Source\n    type: interactive\n    gate: approve\n  - id: sink\n    title: Sink\n    type: agent\n    executor: actor\n    gate: approve\n    brief_from: [source]\n---\n\n## source\n\nChoose.\n\n## sink\n\nBuild.\n",
+            "declares no output",
+        );
+        assert_invalid(
+            VALID.replace("data/{run}/plan.md", "../outside.md"),
+            "safe relative path",
+        );
+        assert_invalid(
+            VALID.replace("data/{run}/plan.md", "state/{run}.workflow/control"),
+            "workflow control state",
+        );
+        assert_invalid(
+            VALID.replace("data/{run}/plan.md", "data/{input}/plan.md"),
+            "unknown substitution",
+        );
+        assert_invalid(
+            VALID.replace("contract: output", "contract: mystery"),
+            "unknown contract",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: agent\n    executor: broker\n    gate: auto\n",
+                "Work.",
+            ),
+            "without a verifiable contract",
+        );
+    }
+
+    #[test]
+    fn parser_covers_each_stage_executor_constraint() {
+        let interactive = one_stage(
+            "    type: interactive\n    gate: approve\n",
+            "Approve {input}.",
+        );
+        assert_eq!(
+            parse_text(&interactive).expect("interactive").stages[0].kind,
+            StageType::Interactive
+        );
+        assert_invalid(
+            one_stage(
+                "    type: interactive\n    gate: auto\n    output: data/{run}/approval.md\n",
+                "Approve.",
+            ),
+            "must use gate approve",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: interactive\n    gate: approve\n    executor: broker\n",
+                "Approve.",
+            ),
+            "cannot set executor",
+        );
+        assert_invalid(
+            "---\nworkflow_version: 1\nname: demo\ndescription: Demo.\nstages:\n  - id: source\n    title: Source\n    type: agent\n    executor: broker\n    gate: approve\n    output: data/{run}/source.md\n  - id: approval\n    title: Approval\n    type: interactive\n    gate: approve\n    brief_from: [source]\n---\n\n## source\n\nWork.\n\n## approval\n\nApprove.\n",
+            "interactive stage approval cannot set brief_from",
+        );
+        assert_invalid(
+            "---\nworkflow_version: 1\nname: demo\ndescription: Demo.\nstages:\n  - id: source\n    title: Source\n    type: agent\n    executor: broker\n    gate: approve\n    output: data/{run}/source.md\n    contract: local-commits\n---\n\n## source\n\nWork.\n",
+            "cannot use local-commits",
+        );
+        assert_invalid(
+            one_stage("    type: agent\n    gate: approve\n", "Work."),
+            "requires executor broker or actor",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: agent\n    executor: broker\n    gate: approve\n    run: true\n",
+                "Work.",
+            ),
+            "cannot set run",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: agent\n    executor: broker\n    fresh_session: true\n    gate: approve\n",
+                "Work.",
+            ),
+            "cannot set fresh_session",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: agent\n    executor: actor\n    fresh_session: maybe\n    gate: approve\n",
+                "Work.",
+            ),
+            "fresh_session must be true or false",
+        );
+        let actor = one_stage(
+            "    type: agent\n    executor: actor\n    gate: approve\n",
+            "Work.",
+        );
+        assert_eq!(
+            parse_text(&actor).expect("actor default").stages[0].fresh_session,
+            Some(false)
+        );
+        let command = one_stage(
+            "    type: command\n    gate: auto\n    run: printf ok\n",
+            "Run for {run}.",
+        );
+        assert_eq!(
+            parse_text(&command).expect("command").stages[0]
+                .run
+                .as_deref(),
+            Some("printf ok")
+        );
+        assert_invalid(
+            one_stage(
+                "    type: command\n    gate: auto\n    run: printf {input}\n",
+                "Run.",
+            ),
+            "unknown substitution",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: command\n    gate: auto\n    executor: actor\n    run: printf ok\n",
+                "Run.",
+            ),
+            "cannot set executor",
+        );
+        assert_invalid(
+            "---\nworkflow_version: 1\nname: demo\ndescription: Demo.\nstages:\n  - id: first\n    title: First\n    type: command\n    gate: auto\n    output: data/{run}/first.md\n    run: printf ok\n  - id: second\n    title: Second\n    type: command\n    gate: auto\n    brief_from: [first]\n    run: printf ok\n---\n\n## first\n\nFirst.\n\n## second\n\nSecond.\n",
+            "cannot set brief_from",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: command\n    gate: auto\n    contract: local-commits\n    run: printf ok\n",
+                "Run.",
+            ),
+            "requires a prior actor stage",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: interactive\n    gate: approve\n",
+                "Use {output}.",
+            ),
+            "without declaring output",
+        );
+        assert_invalid(
+            one_stage(
+                "    type: command\n    gate: auto\n    contract: output\n    run: printf ok\n",
+                "Run.",
+            ),
+            "requires an output path",
+        );
+        assert_invalid(
+            format!("{VALID}\n## extra\n\nUnexpected.\n"),
+            "markdown body 'extra' has no matching stage",
+        );
+    }
+
+    #[test]
+    fn paths_records_and_snapshot_failures_are_closed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        fs::create_dir(&home).expect("home");
+        assert!(output_path(&home, "", "run").is_err());
+        assert!(output_path(&home, "/tmp/out", "run").is_err());
+        assert!(output_path(&home, "../out", "run").is_err());
+        assert_eq!(
+            output_path(&home, "data/{run}/out.md", "run-2").expect("safe output"),
+            home.canonicalize()
+                .expect("canonical home")
+                .join("data/run-2/out.md")
+        );
+        assert!(parse(&home).is_err());
+        assert!(parse(&home.join("missing.workflow.md")).is_err());
+
+        let definition = parse_text(VALID).expect("definition");
+        let statuses = BTreeMap::from([
+            ("plan".to_owned(), StageStatus::Passed),
+            ("build".to_owned(), StageStatus::Ready),
+        ]);
+        let state = RunState::from_records(
+            &definition,
+            vec!["plan".to_owned(), "build".to_owned()],
+            statuses,
+        )
+        .expect("ordered records");
+        assert_eq!(state.next(), Some("build"));
+        assert!(
+            RunState::from_records(&definition, vec!["plan".to_owned()], BTreeMap::new()).is_err()
+        );
+        let mut state = RunState::new(&definition);
+        assert!(state.skip("missing").is_err());
+        assert!(state.reorder("missing", "build").is_err());
+        assert!(state.reorder("plan", "missing").is_err());
+
+        let missing = temp.path().join("missing.workflow.md");
+        assert!(
+            create_snapshot(
+                &missing,
+                &temp.path().join("run.workflow"),
+                &definition,
+                "input"
+            )
+            .is_err()
+        );
     }
 }

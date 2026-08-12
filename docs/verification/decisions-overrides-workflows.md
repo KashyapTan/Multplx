@@ -38,15 +38,17 @@ Switching implementation after a published decision, override, or workflow recor
 
 `cargo clippy --workspace --all-targets --all-features -- -D warnings` completed successfully.
 
-`cargo test --workspace` passed all 312 Rust unit and integration tests plus the documentation-test targets.
+`cargo test --workspace` passed all 322 Rust unit and integration tests plus the documentation-test targets.
+
+The exact CI coverage command passed its enforced floor with 93.01 percent line coverage after applying only the CI-owned real-Herdr module exclusions.
 
 `cargo test -p multplx-domain decision_hold::` passed 2 focused tests.
 
-`cargo test -p multplx-domain maintainer_override::` passed 3 focused tests.
+`cargo test -p multplx-domain maintainer_override::` passed 6 focused tests.
 
-`cargo test -p multplx-domain workflow::` passed 4 focused tests.
+`cargo test -p multplx-domain workflow::` passed 8 focused tests.
 
-`cargo test -p multplx-cli --test authority_runtime` passed 6 integration tests covering native identities, registry and digests, private single-use records, native no-Node validation, compatibility pinning, and pre-mutation selector refusal.
+`cargo test -p multplx-cli --test authority_runtime` passed 9 integration tests covering native identities, registry and digests, private single-use records, decision and result transitions, audit and handoff behavior, native no-Node validation, compatibility pinning, closed usage failures, and pre-mutation selector refusal.
 
 `cargo audit --deny warnings` scanned all 68 locked dependencies against 1,216 RustSec advisories without a finding.
 

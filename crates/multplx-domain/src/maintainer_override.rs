@@ -996,4 +996,240 @@ mod tests {
             BoundaryClass::Policy
         );
     }
+
+    #[test]
+    fn record_validation_covers_denial_expiry_and_result_shapes() {
+        let digest = sha256_text("state-v1");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        let store = OverrideStore::new(&state);
+        let id = store.request(&request(&digest)).expect("request");
+        let (_, _, pending) = store.find(&id).expect("pending");
+
+        let denied = pending
+            .deny("Deny this exact request.", pending.requested_at + 1)
+            .expect("denied");
+        assert_eq!(denied.decision, Decision::Denied);
+        assert!(denied.validate(Some(RecordState::Denied)).is_ok());
+        assert!(pending.deny("", pending.requested_at + 1).is_err());
+        assert!(
+            pending
+                .grant(
+                    "Grant workflow.skip-stage for the wrong operation and target.",
+                    pending.expires_at,
+                )
+                .is_err()
+        );
+
+        let words = format!(
+            "Grant {} for exact operation {} on exact target {}.",
+            pending.boundary_id, pending.action_argv_or_operation, pending.target_identity
+        );
+        let granted = pending
+            .grant(&words, pending.requested_at + 1)
+            .expect("granted");
+        let expired_binding = Binding {
+            boundary: "workflow.skip-stage",
+            task: "run-1",
+            project: "multplx",
+            operation: "skip workflow stage build in run run-1",
+            target: "run-1#build",
+            expected_state_digest: &digest,
+        };
+        assert!(
+            granted
+                .consume(&expired_binding, granted.expires_at)
+                .is_err()
+        );
+        let consumed = granted
+            .consume(&expired_binding, pending.requested_at + 2)
+            .expect("consumed");
+        assert!(consumed.record_result(false, "").is_err());
+        let failed = consumed
+            .record_result(false, "command exited 7")
+            .expect("failed result");
+        assert_eq!(failed.outcome, Outcome::Failed);
+
+        for corrupt in [
+            {
+                let mut value = pending.clone();
+                value.schema_version = 2;
+                value
+            },
+            {
+                let mut value = pending.clone();
+                value.boundary_class = "integrity".to_owned();
+                value
+            },
+            {
+                let mut value = pending.clone();
+                value.action_digest = sha256_text("changed");
+                value
+            },
+            {
+                let mut value = pending.clone();
+                value.decision = Decision::Consumed;
+                value
+            },
+        ] {
+            assert!(corrupt.validate(None).is_err());
+        }
+        assert!(pending.validate(Some(RecordState::Granted)).is_err());
+    }
+
+    #[test]
+    fn store_transitions_results_and_audit_are_restart_safe() {
+        let digest = sha256_text("state-v1");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        let store = OverrideStore::new(&state);
+        assert_eq!(store.audit(), (Vec::new(), Vec::new()));
+        assert!(store.find("missing").is_err());
+        assert!(store.find("../bad").is_err());
+
+        let id = store.request(&request(&digest)).expect("request");
+        let (_, _, pending) = store.find(&id).expect("pending");
+        let words = format!(
+            "Grant {} for exact operation {} on exact target {}.",
+            pending.boundary_id, pending.action_argv_or_operation, pending.target_identity
+        );
+        store.decide(&id, &words, true).expect("decide");
+        assert!(store.decide(&id, &words, true).is_err());
+        let binding = Binding {
+            boundary: "workflow.skip-stage",
+            task: "run-1",
+            project: "multplx",
+            operation: "skip workflow stage build in run run-1",
+            target: "run-1#build",
+            expected_state_digest: &digest,
+        };
+        let consumed = store.consume(&id, &binding).expect("consume");
+        assert!(consumed.ends_with(format!("{id}.json")));
+        store
+            .result(&id, false, "command exited 7")
+            .expect("result");
+        assert!(store.result(&id, true, "rewrite").is_err());
+        let (record_state, _, record) = store.find(&id).expect("finished record");
+        assert_eq!(record_state, RecordState::Consumed);
+        assert_eq!(record.outcome, Outcome::Failed);
+
+        let denied_id = store.request(&request(&digest)).expect("denial request");
+        store
+            .decide(&denied_id, "Maintainer denies this request.", false)
+            .expect("deny");
+        let changed_id = store.request(&request(&digest)).expect("changed request");
+        let (_, _, changed_pending) = store.find(&changed_id).expect("pending");
+        let changed_words = format!(
+            "Grant {} for exact operation {} on exact target {}.",
+            changed_pending.boundary_id,
+            changed_pending.action_argv_or_operation,
+            changed_pending.target_identity
+        );
+        store
+            .decide(&changed_id, &changed_words, true)
+            .expect("grant changed");
+        let changed = Binding {
+            operation: "skip some other stage",
+            ..binding
+        };
+        assert!(store.consume(&changed_id, &changed).is_err());
+        assert_eq!(
+            store.find(&changed_id).expect("stale").0,
+            RecordState::Stale
+        );
+
+        let malformed = store.root().join("pending/malformed.json");
+        fs::write(&malformed, b"not json\n").expect("malformed");
+        fs::set_permissions(&malformed, fs::Permissions::from_mode(0o600)).expect("mode");
+        let ignored = store.root().join("pending/ignored.txt");
+        fs::write(&ignored, b"ignored\n").expect("ignored");
+        let (valid, invalid) = store.audit();
+        assert_eq!(valid.len(), 3);
+        assert!(invalid.iter().any(|path| path == &malformed));
+        assert!(invalid.iter().any(|path| path == &ignored));
+
+        let duplicate = store.root().join("consumed/copy.json");
+        fs::copy(store.root().join(format!("consumed/{id}.json")), &duplicate)
+            .expect("duplicate record");
+        fs::set_permissions(&duplicate, fs::Permissions::from_mode(0o600)).expect("duplicate mode");
+        let (valid, invalid) = store.audit();
+        assert_eq!(valid.len(), 2);
+        assert!(
+            invalid
+                .iter()
+                .any(|path| path.to_string_lossy().contains("duplicate:"))
+        );
+
+        let expired_id = store.request(&request(&digest)).expect("expired request");
+        let (_, expired_path, mut expired_record) =
+            store.find(&expired_id).expect("pending expiry");
+        expired_record.requested_at = 1;
+        expired_record.expires_at = 2;
+        let mut expired_bytes = serde_json::to_vec(&expired_record).expect("expired JSON");
+        expired_bytes.push(b'\n');
+        fs::write(expired_path, expired_bytes).expect("expired fixture");
+        assert!(
+            store
+                .decide(&expired_id, "Decision arrived too late.", false)
+                .is_err()
+        );
+        assert_eq!(
+            store.find(&expired_id).expect("expired record").0,
+            RecordState::Stale
+        );
+    }
+
+    #[test]
+    fn request_store_and_primary_lock_refuse_unsafe_shapes() {
+        let digest = sha256_text("state-v1");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        let store = OverrideStore::new(&state);
+        let mut invalid = request(&digest);
+        invalid.boundary = "integrity.validation-state";
+        assert!(store.request(&invalid).is_err());
+        invalid = request(&digest);
+        invalid.task = "../task";
+        assert!(store.request(&invalid).is_err());
+        invalid = request(&digest);
+        invalid.ttl = 0;
+        assert!(store.request(&invalid).is_err());
+        invalid = request(&digest);
+        invalid.target = "two\nlines";
+        assert!(store.request(&invalid).is_err());
+
+        assert!(require_primary_lock(&state).is_err());
+        fs::write(state.join(".lock"), b"not-a-pid\n").expect("bad lock");
+        assert!(require_primary_lock(&state).is_err());
+        fs::write(state.join(".lock"), format!("{}\n", std::process::id())).expect("lock");
+        assert!(require_primary_lock(&state).is_ok());
+
+        let unsafe_state = temp.path().join("unsafe-state");
+        fs::create_dir(&unsafe_state).expect("unsafe state");
+        std::os::unix::fs::symlink(temp.path(), unsafe_state.join("maintainer-overrides"))
+            .expect("root symlink");
+        assert!(
+            OverrideStore::new(&unsafe_state)
+                .request(&request(&digest))
+                .is_err()
+        );
+
+        let unsafe_child_state = temp.path().join("unsafe-child-state");
+        let unsafe_root = unsafe_child_state.join("maintainer-overrides");
+        fs::create_dir_all(&unsafe_root).expect("unsafe root");
+        fs::write(unsafe_root.join("pending"), b"not a directory\n").expect("unsafe child");
+        assert!(
+            OverrideStore::new(&unsafe_child_state)
+                .request(&request(&digest))
+                .is_err()
+        );
+
+        let foreign_state = temp.path().join("foreign-state");
+        fs::create_dir(&foreign_state).expect("foreign state");
+        fs::write(foreign_state.join(".lock"), b"1\n").expect("foreign lock");
+        assert!(require_primary_lock(&foreign_state).is_err());
+    }
 }
