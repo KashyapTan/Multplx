@@ -385,6 +385,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/decisions-overrides-workflows.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/task-daemon-lifecycle.md",
       "audience": "maintainer-verification"
     },

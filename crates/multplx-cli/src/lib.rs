@@ -1,5 +1,7 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
+mod authority;
+
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
@@ -25,6 +27,13 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run one decision, maintainer-override, or workflow entry point.
+    #[command(hide = true, disable_help_flag = true)]
+    Authority {
+        entry: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Exercise the shadow runtime-backend facade.
     #[command(hide = true)]
     Backend {
@@ -420,6 +429,7 @@ impl Cli {
     /// Runs the selected command.
     pub fn run(self) -> i32 {
         match self.command {
+            Command::Authority { entry, args } => authority::run(&entry, &args),
             Command::Backend { command } => run_backend(command),
             Command::Herdr { args } => run_herdr(&args),
             Command::HerdrLab { args } => multplx_backend::herdr_tools::run_lab(&args),

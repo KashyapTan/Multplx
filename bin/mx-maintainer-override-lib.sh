@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared owner of exact, single-use maintainer exceptions.
+# Source-compatible adapter for exact, single-use maintainer exceptions.
 #
 # Records live under state/maintainer-overrides/{pending,granted,denied,
 # consumed,stale}.  They are private JSON data, never shell source and never an
@@ -7,9 +7,11 @@
 # boundary, task, project, operation, target, expected-state digest, and expiry.
 # The exceptional caller must consume it atomically before mutation.
 #
-# This file owns the schema, registry, validation, transitions, and locking.
-# Subsystems own the exceptional action itself and call mx_override_consume with
-# freshly observed binding values immediately before that action.
+# The Rust multplx-domain::maintainer_override module owns the schema, registry,
+# validation, transitions, and locking. This retained library preserves sourced
+# Portion 11 callers and the explicit legacy rollback. Subsystems own the
+# exceptional action itself and call mx_override_consume with freshly observed
+# binding values immediately before that action.
 
 MX_OVERRIDE_SCHEMA_VERSION=1
 MX_OVERRIDE_DEFAULT_TTL=${MX_OVERRIDE_DEFAULT_TTL:-3600}

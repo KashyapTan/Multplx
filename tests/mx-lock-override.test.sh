@@ -12,7 +12,8 @@ BIN="$TMP_ROOT/bin"
 STATE="$TMP_ROOT/state"
 mkdir -p "$BIN" "$STATE"
 cp "$ROOT/bin/mx-lock.sh" "$ROOT/bin/mx-maintainer-override-lib.sh" \
-  "$ROOT/bin/mx-override-bindings.sh" "$ROOT/bin/mx-wake-lib.sh" "$BIN/"
+  "$ROOT/bin/mx-override-bindings.sh" "$ROOT/bin/mx-rust-runtime.sh" \
+  "$ROOT/bin/mx-wake-lib.sh" "$BIN/"
 cat > "$BIN/mx-session-lock-lib.sh" <<'SH'
 mx_harness_ancestry_pid() { printf '%s\n' "${MX_TEST_ME_PID:?}"; }
 mx_harness_pid_alive() {

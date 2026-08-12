@@ -14,7 +14,8 @@ Rust-port Portion 01 added one Cargo workspace without moving a production behav
 Portion 02 makes `multplx-core` the shadow owner of filesystem, process, record, command, lock, session-lock, supervision, probe, transition, journal, tmux, and wake primitives.
 The transferred contracts correspond to `mx-backend-hometag-lib.sh`, `mx-check-lib.sh`, `mx-classify-lib.sh`, `mx-composer-lib.sh`, `mx-gate-refuse-lib.sh`, `mx-journal-lib.sh`, `mx-lock-lib.sh`, `mx-lock.sh`, `mx-marker-lib.sh`, `mx-primary-scope-lib.sh`, `mx-probe-lib.sh`, `mx-session-lock-lib.sh`, `mx-supervision-lib.sh`, `mx-supervisor-target-lib.sh`, `mx-tangle-lib.sh`, `mx-tmux-lib.sh`, `mx-transition-lib.sh`, and `mx-wake-lib.sh`.
 The Rust modules use typed identifiers and records, bounded no-follow reads, durable same-directory replacement, single-write append, owner-directory locks, PID identity, injected clocks and process probes, and typed command transports.
-The maintainer-override grant state machine remains owned by its later port portion and plugs into the session-lock primitive through an explicit authority trait.
+The Portion 10 `multplx-domain` authority layer owns typed decision identities, the closed maintainer-override registry and record transitions, constrained workflow parsing, immutable snapshots, and stage-order validation.
+The exact maintainer-override state machine plugs into the session-lock primitive through its existing authority trait.
 `multplx-domain` owns typed durable records and the task/daemon lifecycle state machines.
 Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
@@ -22,6 +23,9 @@ Portion 06 adds the typed cmux runtime, harness detection and primary launch, co
 Portion 07 adds typed task and daemon lifecycle state machines behind the stable lifecycle entry points.
 Portion 08 makes Rust the production entry owner for supervision, watcher, wake, hook, reporting, and away-mode paths.
 Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
+Portion 10 makes Rust the production entry owner for decisions, maintainer overrides, canonical exception bindings, exact-command exceptions, and workflows.
+Native override transitions, decision identities, workflow validation, workflow dry-run rendering, snapshot construction, and stage-order checks live in `multplx-domain`.
+The decision/backlog composition, subsystem binding collection, exact shell-command execution, and workflow stage executors retain one process-pinned compatibility body during the differential rollback window because they compose sourced Plan 11 review and delivery adapters.
 The Portion 09 snapshot module parses the canonical JSON into typed task, endpoint, backlog, queue, daemon, lifecycle-run, and artifact containers before the native human renderer consumes it.
 The larger composed bootstrap, doctor, session-start, and canonical snapshot bodies retain an explicitly selected compatibility implementation during the differential rollback window, and the selector is pinned before lock acquisition, mutation, recursive cross-home reads, or projection begins.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
@@ -209,6 +213,8 @@ The helper's header owns the exact marker and test-harness bypass contract.
 ## Workflow composition
 
 `bin/mx-workflow.sh` composes existing Multplx primitives into user-defined strictly linear processes without copying their state machines.
+The stable entry point selects the Rust authority runtime before any snapshot, run lock, stage record, hold, command, or exception mutation.
+Rust parses and validates the constrained definition grammar without Node, models immutable run order and stage transitions as closed types, and rejects unsafe output traversal before execution.
 Repo-tracked definitions under `workflows/` declare stage order, executor type, deterministic contract, and approval gate.
 The engine snapshots a validated definition at launch and every resume reads only that snapshot, so a tracked edit cannot mutate an in-flight command boundary.
 Interactive approvals reuse durable decision holds, broker agent stages reuse the verified deep-review one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and delivery remains outside agent credential context.

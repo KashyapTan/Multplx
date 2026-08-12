@@ -14,6 +14,16 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# Portion 10 Rust-default adapter. Selection occurs before fresh binding
+# observation, grant consumption, or exact command execution.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_authority_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd -P); export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" authority mx-override-run.sh "$@"
+fi
 # shellcheck source=bin/mx-maintainer-override-lib.sh
 . "$SCRIPT_DIR/mx-maintainer-override-lib.sh"
 
