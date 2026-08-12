@@ -4,6 +4,7 @@ The broker drives these; interactive entrypoints work by hand too, while `*-lib.
 Portion 09 session, bootstrap, supervision, snapshot, view, and timeline entrypoints enter the Rust command boundary by default, with `MX_SESSION_IMPLEMENTATION=legacy` reserved for explicit rollback.
 Portion 10 decision, override, binding, exact-command, and workflow entrypoints enter the Rust authority boundary by default, with `MX_AUTHORITY_IMPLEMENTATION=legacy` reserved for explicit pre-mutation rollback.
 Portion 11 review, delivery, merge, promotion, and PR-security entrypoints enter the Rust review-delivery boundary by default, with `MX_REVIEW_DELIVERY_IMPLEMENTATION=legacy` reserved for explicit pre-mutation rollback.
+Portion 12 viz and vplan entrypoints enter the Rust local-services boundary by default, with `MX_LOCAL_SERVICES_IMPLEMENTATION=legacy` reserved for explicit pre-mutation rollback.
 Each row is one purpose clause only: the script's own header comment is the authoritative description of its behavior, flags, and contracts, so read the header before first use.
 If you have changed away from the Multplx home in an interactive shell, invoke these scripts by absolute path through the repo's `bin/` directory; the scripts self-locate internally after they start.
 The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#deep-review-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; `mx-gate-refuse-lib.sh`'s header owns its exact contract.
@@ -30,9 +31,9 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-backlog-handoff.sh`  | Validate and route queued backlog-item moves into a daemon home                  |
 | `mx-headroom.sh`         | Report composite dispatch capacity and inspect, cancel, or drain parked requests |
 | `mx-viz.sh`              | Start, inspect, and stop the disposable read-only loopback system dashboard |
-| `mx-viz-server.mjs`      | Serve the cached canonical snapshot, local assets, and allowlisted artifacts over GET-only loopback HTTP |
+| `mx-viz-server.mjs`      | Retain the explicit-legacy rollback implementation of the Rust-owned dashboard service until Portion 13 |
 | `mx-vplan.sh`            | Create, serve, inspect, and stop one-shot loopback HTML review artifacts |
-| `mx-vplan-server.mjs`    | Inject the local comment SDK, atomically persist confirmed feedback, and end the review |
+| `mx-vplan-server.mjs`    | Retain the explicit-legacy rollback implementation of the Rust-owned review service until Portion 13 |
 | `mx-timeline.sh`         | Render and filter one task's best-effort event journal as text, JSONL, or self-contained HTML |
 | `mx-journal-lib.sh`      | Validate and append closed-vocabulary task journal events without affecting writer success |
 | `mx-workflow.sh`         | Validate, launch, inspect, reconcile, abort, and dry-run linear workflow definitions |

@@ -3,6 +3,7 @@
 Use a vplan artifact when a plan, comparison, diagram, table, report, code review, or other structured response is easier to understand visually than as prose.
 Use plain chat for a yes-or-no decision.
 Task-linked artifacts live at `data/<id>/plan.html` and start from `bin/mx-vplan.sh new data/<id>/plan.html`.
+That stable command is Rust-backed by default; this authoring contract and the frozen browser assets are unchanged by the runtime port.
 The artifact is broker-authored and maintainer-facing.
 Actors may supply evidence, but the broker owns the review surface and the unresolved-decision return path.
 

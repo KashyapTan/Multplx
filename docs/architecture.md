@@ -34,7 +34,8 @@ Every tmux command is an argument array executed with a stable locale, bounded o
 The backend, harness, headroom, and Treehouse shell entry points choose the Rust path once before an operation and never fall back after execution begins.
 Rust is the production default for that layer after Portion 06, while explicit `legacy` selectors retain a bounded rollback until the port closeout removes it.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
-`multplx-services` is the future owner of MCP and loopback HTTP services.
+Portion 12 makes `multplx-services` the production owner of the disposable viz and vplan loopback HTTP services, their bounded HTTP framing, lifecycle records, token and PID-identity validation, child-command bounds, cache, and atomic confirmation persistence.
+The stable shell adapters select that Rust boundary before state access and retain the Node implementations only as an explicit rollback path until Portion 13.
 `multplx-test-support` owns shared deterministic Rust fixtures, while colocated core and CLI tests own Portion 02 fault, concurrency, and legacy-versus-Rust parity coverage.
 The release binary exposes hidden diagnostics, primitive compatibility commands, and transport commands used by selected public shell adapters.
 Every operator command, hook, skill, workflow, and launcher keeps its existing public interface.
@@ -105,7 +106,7 @@ No operational component reads a journal, and an absent, malformed, torn, or unw
 ## Visual review artifacts
 
 vplan provides the broker's maintainer-facing review surface for plans, structured reports, comparisons, and other responses that benefit from visual hierarchy.
-`bin/mx-vplan.sh review` starts one loopback-only Node server, injects the vendored comment SDK into the served copy, and records the exact process identity under `state/.vplan/`.
+`bin/mx-vplan.sh review` starts one loopback-only Rust service, injects the vendored comment SDK into the served copy, and records the exact process identity under `state/.vplan/`.
 The maintainer queues element or text-anchored comments and confirms once.
 The server atomically merges those comments into an inert `#vplan-comments` JSON block in the artifact, removes its matching run record, and exits.
 The artifact is the feedback channel, so vplan adds no polling protocol, persistent service, or parallel completion policy.
@@ -114,6 +115,7 @@ The artifact is the feedback channel, so vplan adds no polling protocol, persist
 ## Live system dashboard
 
 `bin/mx-viz.sh serve` starts a disposable loopback-only dashboard over the canonical `mx-system-snapshot.v1` feed.
+The stable adapter starts the Rust `multplx-services` process by default; the service bounds request parsing, connection concurrency, snapshot and diagnostic subprocesses, and response files while preserving the frozen browser asset contract.
 The page polls a bounded server-side cache, renders reconciled task and daemon state with signal provenance, and exposes allowlisted plans and artifacts without parsing operational state itself.
 Its HTTP surface is GET-only, its only lifecycle write is `state/.viz/server.run`, and no system behavior depends on whether the dashboard is running.
 Later-plan panels consume only their bounded snapshot projections, while doctor and timeline detail use their sanctioned readers on explicit request.

@@ -872,6 +872,11 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' snapshot-catchup
       ;;
+    crates/multplx-services/src/http.rs|crates/multplx-services/src/local_services/*|\
+    crates/multplx-cli/tests/services_runtime.rs)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' snapshot-catchup
+      ;;
     bin/mx-journal-lib.sh|bin/mx-timeline.sh|docs/journal-events.md|\
     tests/fixtures/timeline.*)
       printf '%s\n' pure-contract-unit

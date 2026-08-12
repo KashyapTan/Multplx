@@ -239,6 +239,13 @@ enum Command {
     /// Serve the task-bound status-reporting MCP protocol over stdio.
     #[command(hide = true)]
     ReportMcp,
+    /// Run one Rust-owned local viz or vplan lifecycle or service entry point.
+    #[command(hide = true, disable_help_flag = true)]
+    Services {
+        entry: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Verify that the release-mode shadow binary and crate graph are available.
     #[command(hide = true)]
     ShadowDiagnostic,
@@ -553,6 +560,10 @@ impl Cli {
             Command::ReportMcp => {
                 let root = runtime_root(&active_paths().0);
                 multplx_services::report_mcp::serve(&root)
+            }
+            Command::Services { entry, args } => {
+                let root = runtime_root(&active_paths().0);
+                multplx_services::local_services::run(&entry, &args, &root)
             }
             Command::ShadowDiagnostic => {
                 let boundaries = [

@@ -6,6 +6,52 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Viz and vplan Rust services
+
+Rust-port Portion 12 verification ran on 2026-08-12 with `mx 0.1.0` on macOS 26.5.2 arm64.
+The stable `bin/mx-viz.sh` and `bin/mx-vplan.sh` entry points selected the Rust `multplx-services` boundary before lifecycle state access, while the explicit `legacy` selector repeated the focused suites against the retained Node services.
+
+```sh
+cargo build --workspace --release --locked
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo llvm-cov --workspace --all-targets \
+  --ignore-filename-regex 'herdr_(cleanup|presentation|tools)\.rs' \
+  --fail-under-lines 93
+MX_LOCAL_SERVICES_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-viz.test.sh
+MX_LOCAL_SERVICES_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-vplan.test.sh
+MX_LOCAL_SERVICES_IMPLEMENTATION=legacy tests/mx-viz.test.sh
+MX_LOCAL_SERVICES_IMPLEMENTATION=legacy tests/mx-vplan.test.sh
+bin/mx-test-run.sh --check-coverage
+```
+
+The focused Cargo integration suite covered both service lifecycles, route and method boundaries, cache and conditional requests, token and content-type refusal, port exhaustion, stale-record recovery, identity-bound stop, artifact containment, encoded traversal, symlink escape, output and timeout bounds, review round trips, and every atomic publication fault seam.
+The workspace coverage gate passed at 93.02 percent lines without excluding the new service code.
+The complete portable behavior run passed all 115 selected scripts in 342.743 seconds, with nine declared environment-gated skips and no failure.
+The unfiltered 125-script run passed every portable script; its ten real-Herdr scripts could not provision their required isolated Herdr lab on this host and were the only failures.
+
+The in-app browser loaded the Rust dashboard from a foreground release service and rendered the maintainer-to-broker tree, system state, structured backlog, and read-only artifact panel with no console warning or error.
+It then loaded the unchanged Portion 12 artifact through the Rust vplan service, observed exactly one injected base and one injected SDK script, rendered the review panel and zero-comment confirm action, and reported no console warning or error.
+No confirmation was submitted, so the reviewed artifact was not mutated.
+
+The frozen browser assets retained these SHA-256 digests:
+
+```text
+9cfbdce58b58444e3e90bf2325d90f5b0eff7fdc0d96a41f68d61233d6c9ef2c  share/viz/app.css
+3ea2a9b8f4aec0c1171c1a4d3833e1d2172583e3bb769d9203b0f94f4d06712e  share/viz/app.js
+cd54d12672e19fce1bf4500500f2e8af43bd532027eb459913a7689c0e1a17ea  share/viz/index.html
+ca7d639537dd0d650c61151385b045b392aa5ebca3654770c755f21b501d02d5  share/vplan/manifest.json
+07fb9c98a9718885cb4b68c29bdfdbd1e96bc6e731f5387cdc70ce8aadd4b2a6  share/vplan/mermaid.min.js
+222e335a33a9f8e411277eff5146035f837feee2237d389efeeccf42ad8dfd06  share/vplan/sdk.css
+9969d8ebeb2847efe2422d167c8b82898da026f3a9c96b11f464f5ecc7abefe9  share/vplan/sdk.js
+c5f91527fda4355a2543393c855b047f0f0f8a0b04c48119dbc93f9c281d72b9  share/vplan/template.html
+```
+
+Release-path focused-suite timing used the same release binary and local APFS workspace with all safety checks enabled.
+`tests/mx-viz.test.sh` took 3.62 seconds through legacy and 3.14 seconds through Rust, a 13.3 percent reduction.
+`tests/mx-vplan.test.sh` took 3.78 seconds through legacy and 2.65 seconds through Rust, a 29.9 percent reduction.
+No request, identity, path, token, timeout, publication, or cleanup bound was disabled.
+
 ## tmux
 
 ### Rust Portion 04 shadow adapter

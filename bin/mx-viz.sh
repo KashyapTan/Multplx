@@ -23,11 +23,22 @@
 #   token=<random cleanup binding, never served>
 #   started_at=<UTC ISO-8601 time>
 # `stop` signals only a live identity-matched process. A dead or reused PID
-# causes record cleanup without signaling.
+# causes record cleanup without signaling. The Rust implementation owns these
+# mechanics by default; MX_LOCAL_SERVICES_IMPLEMENTATION=legacy selects this
+# retained rollback body before any state mutation.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+# Portion 12 Rust-default adapter.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_local_services_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT=$ROOT; export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" services mx-viz.sh "$@"
+fi
 SERVER="$SCRIPT_DIR/mx-viz-server.mjs"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$ROOT}}"
 STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"

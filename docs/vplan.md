@@ -38,6 +38,8 @@ The artifact must be inside the Multplx root.
 `new` refuses to overwrite an existing file and rewrites only the seed's Mermaid path so the copied artifact continues to load the vendored renderer by a relative path when opened directly.
 `review` returns an already-live identity-matched session's URL instead of starting a duplicate.
 `comments` returns `[]` when the artifact has no persisted review block and refuses malformed or duplicate blocks.
+The stable shell entry point selects the Rust `multplx-services` implementation before it reads or mutates review state.
+`MX_LOCAL_SERVICES_IMPLEMENTATION=legacy` is the explicit rollback selector during the port window; the default path does not start Node.
 
 ## Server lifecycle and port selection
 
@@ -147,5 +149,5 @@ Every unresolved maintainer decision found in the artifact or its comments must 
 ## Vendored assets
 
 `share/vplan/manifest.json` records the Mermaid version, npm source archive, npm integrity, and SHA-256 of `share/vplan/mermaid.min.js`.
-`bin/mx-vplan.sh --self-check` verifies the CLI help path, required assets, server syntax, template reference, and pinned Mermaid hash.
+`bin/mx-vplan.sh --self-check` verifies the Rust service boundary, required assets, template reference, and pinned Mermaid hash without launching a server.
 Session-start bootstrap runs that self-check and reports `VPLAN_INVALID` when the bundled module is incomplete or corrupt.

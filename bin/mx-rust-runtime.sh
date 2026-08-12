@@ -87,6 +87,16 @@ mx_review_delivery_implementation() {
   esac
 }
 
+# Selection for Portion 12 viz and vplan lifecycle and loopback services.
+# The choice is pinned before a listener, service lock, run record, artifact,
+# or review confirmation can be created, inspected, signaled, or mutated.
+mx_local_services_implementation() {
+  case "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_LOCAL_SERVICES_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
 mx_backend_shadow_meta_get() {  # <meta-file> <key>
   local meta=$1 key=$2
   [ -f "$meta" ] || return 0

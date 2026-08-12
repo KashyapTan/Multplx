@@ -6,8 +6,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+multplx-core = { path = "../multplx-core" }
 multplx-domain = { path = "../multplx-domain" }
+regex.workspace = true
+rustix.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+signal-hook.workspace = true
+tempfile.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true

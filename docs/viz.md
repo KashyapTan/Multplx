@@ -28,6 +28,8 @@ bin/mx-viz.sh stop
 
 `serve` is singleton and idempotent per `MX_HOME`.
 The script header owns the exact command, environment, and validation contract.
+The stable shell entry point selects the Rust `multplx-services` implementation before it reads or mutates lifecycle state.
+`MX_LOCAL_SERVICES_IMPLEMENTATION=legacy` is the explicit rollback selector during the port window; the default path does not start Node.
 
 ## Lifecycle and ports
 
@@ -39,6 +41,7 @@ Failure to bind the whole range is a hard error and leaves no run record.
 `MX_VIZ_IDLE_SECS` controls inactivity shutdown and defaults to 1800 seconds.
 Every request resets the timer, while a forgotten page eventually lets the server remove its record and exit.
 The server keeps no authoritative state, so terminating it loses nothing.
+HTTP framing, headers, bodies, child-command output, concurrent connections, and child-command runtimes are bounded by the Rust service.
 
 ## Snapshot polling and cache
 

@@ -7,12 +7,23 @@ set -u
 
 CLI="$ROOT/bin/mx-vplan.sh"
 SERVER="$ROOT/bin/mx-vplan-server.mjs"
+RUST_SERVICE="$ROOT/crates/multplx-services/src/local_services/vplan.rs"
 WAKE_LIB="$ROOT/bin/mx-wake-lib.sh"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-vplan-tests.XXXXXX")
 mkdir -p "$ROOT/data"
 ARTIFACT_ROOT=$(mktemp -d "$ROOT/data/.mx-vplan-test.XXXXXX")
 STATE="$TMP_ROOT/state"
 PIDS=()
+
+assert_selected_runtime() {
+  local pid=$1 command
+  [ "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" = rust ] || return 0
+  command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+  printf '%s\n' "$command" | grep -F 'services vplan-server' >/dev/null \
+    || fail "Rust-selected review PID is not the Rust service: $command"
+  ! printf '%s\n' "$command" | grep -E '(^|[/ ])node([ /]|$)' >/dev/null \
+    || fail "Rust-selected review started Node: $command"
+}
 
 cleanup() {
   local pid
@@ -162,6 +173,7 @@ test_round_trip_injection_shutdown_and_loopback() {
   token=$(record_value "$record" token)
   port=$(record_value "$record" port)
   track_pid "$pid"
+  assert_selected_runtime "$pid"
   [ "$(record_value "$record" artifact)" = "$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$file")" ] \
     || fail "run record did not preserve canonical artifact identity"
   if [ "$(uname)" = Darwin ]; then mode=$(stat -f %Lp "$record"); else mode=$(stat -c %a "$record"); fi
@@ -393,6 +405,8 @@ test_seed_self_containment_and_idle_timeout() {
   file="$dir/plan.html"
   mkdir -p "$dir"
   "$CLI" --self-check || fail "bundled vplan self-check failed"
+  grep -F 'bind_loopback(first_port)' "$RUST_SERVICE" >/dev/null \
+    || fail "Rust review server lost the bounded port-selection boundary"
   output=$("$CLI" new "$file") || fail "new did not create an artifact"
   [ "$output" = "$file" ] || fail "new printed an unexpected path: $output"
   [ -f "$file" ] || fail "new did not write the artifact"
