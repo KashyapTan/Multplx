@@ -49,6 +49,17 @@ jobs:
             MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-cd-pretool-check.test.sh
             MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-wake-queue.test.sh
           done
+      - name: Exercise Portion 09 Rust and explicit-legacy session paths
+        run: |
+          set -eu
+          for implementation in rust legacy; do
+            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-bootstrap.test.sh
+            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-doctor.test.sh
+            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-sessionstart-nudge.test.sh
+            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-supervision-instructions.test.sh
+            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-system-snapshot-view.test.sh
+            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-timeline.test.sh
+          done
 
   rust-advisories:
     name: Rust dependency advisories
@@ -368,6 +379,7 @@ jobs:
           MX_HEADROOM_IMPLEMENTATION: legacy
           MX_TREEHOUSE_TOOLS_IMPLEMENTATION: legacy
           MX_SUPERVISION_IMPLEMENTATION: legacy
+          MX_SESSION_IMPLEMENTATION: legacy
         run: |
           set -eu
           case "$BASH_VERSION" in

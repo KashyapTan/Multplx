@@ -90,7 +90,7 @@ target/release/mx shadow-diagnostic
 ```
 
 `tests/lib.sh` owns the test-only `MX_TEST_IMPLEMENTATION=legacy|rust` selector and the differential capture helpers.
-The test-only local-state selector remains legacy by default, while production backend, harness, and headroom entry points default to Rust and retain explicit legacy selectors for differential coverage.
+The test-only local-state selector remains legacy by default, while production backend, harness, headroom, lifecycle, supervision, session-start, health, snapshot, system-view, and timeline entry points default to Rust and retain explicit legacy selectors for differential coverage.
 Differential capture compares exit status, standard output, standard error, relative filesystem paths, exact file bytes, file modes, and surviving child processes.
 Only temporary roots, PIDs, ports, timestamps, and random tokens may be normalized by a focused test, and no normalization is automatic.
 The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only, while hidden compatibility subcommands exercise transferred contracts for differential tests.

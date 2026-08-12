@@ -7,9 +7,9 @@ The Recap skill owns the rule that this marked operational input is never a main
 
 ## Shared wrapper and safety
 
-`bin/mx-sessionstart-nudge.sh` is the single command every harness adapter invokes.
-It sources `bin/mx-gate-refuse-lib.sh` and stays silent whenever a gate agent carries the `DEEP_REVIEW_GATE` marker.
-It shares `bin/mx-primary-scope-lib.sh` with `bin/mx-turnend-guard.sh`, so the hooks use one primary-detection owner.
+`bin/mx-sessionstart-nudge.sh` is the single command every harness adapter invokes and enters the Rust Portion 09 runtime by default.
+The Rust handler reuses the typed deep-review refusal, primary-scope, process-ancestry, and operational-input owners and stays silent whenever a gate agent carries the `DEEP_REVIEW_GATE` marker.
+The explicit legacy selector retains `bin/mx-gate-refuse-lib.sh` and `bin/mx-primary-scope-lib.sh` only for differential rollback, so both implementations use the same behavioral contracts.
 The Shared Predicate section of [`turnend-guard.md`](turnend-guard.md#shared-predicate) owns marker validation, plain-checkout detection, and required Multplx-shaped paths.
 
 Before printing, the wrapper reads `state/.lock` and walks at most eight parents from its own pid, matching `bin/mx-lock.sh` and Pi's `lockOwnership()` ancestry depth.

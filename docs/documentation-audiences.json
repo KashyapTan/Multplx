@@ -381,6 +381,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/session-bootstrap-snapshots.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/task-daemon-lifecycle.md",
       "audience": "maintainer-verification"
     },

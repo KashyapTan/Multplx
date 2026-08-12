@@ -1,6 +1,7 @@
 # The bin/ toolbelt
 
 The broker drives these; interactive entrypoints work by hand too, while `*-lib.sh` files are sourced helpers.
+Portion 09 session, bootstrap, supervision, snapshot, view, and timeline entrypoints enter the Rust command boundary by default, with `MX_SESSION_IMPLEMENTATION=legacy` reserved for explicit rollback.
 Each row is one purpose clause only: the script's own header comment is the authoritative description of its behavior, flags, and contracts, so read the header before first use.
 If you have changed away from the Multplx home in an interactive shell, invoke these scripts by absolute path through the repo's `bin/` directory; the scripts self-locate internally after they start.
 The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#deep-review-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; `mx-gate-refuse-lib.sh`'s header owns its exact contract.
