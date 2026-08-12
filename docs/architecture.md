@@ -19,6 +19,11 @@ The maintainer-override grant state machine remains owned by its later port port
 Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
 Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue, and pinned Treehouse installer.
+Portion 07 adds typed task and daemon lifecycle state machines behind the stable lifecycle entry points.
+Portion 08 makes Rust the production entry owner for supervision, watcher, wake, hook, reporting, and away-mode paths.
+Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
+The Portion 09 snapshot module parses the canonical JSON into typed task, endpoint, backlog, queue, daemon, lifecycle-run, and artifact containers before the native human renderer consumes it.
+The larger composed bootstrap, doctor, session-start, and canonical snapshot bodies retain an explicitly selected compatibility implementation during the differential rollback window, and the selector is pinned before lock acquisition, mutation, recursive cross-home reads, or projection begins.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
 Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
 Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
@@ -33,7 +38,7 @@ The cross-cutting port contract and cutover gates remain owned by [`plans/rust_p
 
 ## Health probes and recovery ownership
 
-`bin/mx-doctor.sh` is the read-only on-demand projection of system invariants across locks, liveness, tasks, worktrees, queues, holds, runs, tools, and compatibility paths.
+`bin/mx-doctor.sh` enters the Rust Portion 09 command boundary before running the read-only on-demand projection of system invariants across locks, liveness, tasks, worktrees, queues, holds, runs, tools, and compatibility paths.
 It consumes the existing PID identity, stale-lock, backend target, supervision, backlog, and tangle owners instead of defining parallel proof rules.
 `bin/mx-probe-lib.sh` is the single owner of structured tool, Treehouse compatibility, and primary-tangle probes shared by doctor and session-start bootstrap.
 Doctor's `--fix` surface is limited to a proof-bound stale watcher-lock cleanup and an under-lock orphan wake-row prune, while every lifecycle decision remains with its existing command or recovery procedure.
@@ -80,8 +85,8 @@ Decision-only events such as `resolved` never become current state or leak their
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
 For Herdr, exact `working`, `blocked`, and `done` levels contribute native verdicts, while `idle` is not treated as task-progress evidence because it can occur between tool calls or while a foreground process continues.
 Herdr `idle` and unknown levels therefore leave the lower report and rendered busy-signature tiers available.
-For whole-system read-only review, `bin/mx-system-snapshot.sh --json` emits schema `mx-system-snapshot.v1` from the backlog, task metadata, current actor state, endpoint probes, PR/report pointers, scout reports, bounded current summaries from registered daemon homes, and daemon return-channel guidance.
-`bin/mx-system-view.sh` renders that snapshot as Markdown for humans, while `bin/mx-status-snapshot.sh` provides the bounded catchup projection, so both views consume one structured contract instead of reparsing raw system files.
+For whole-system read-only review, the Rust-default `bin/mx-system-snapshot.sh --json` entry emits schema `mx-system-snapshot.v1` from the backlog, task metadata, current actor state, endpoint probes, PR/report pointers, scout reports, bounded current summaries from registered daemon homes, and daemon return-channel guidance.
+The native Rust `bin/mx-system-view.sh` path parses that JSON into its typed snapshot model and renders it as Markdown for humans, while `bin/mx-status-snapshot.sh` provides the bounded catchup projection, so both views consume one structured contract instead of reparsing raw system files.
 The script header owns the exact JSON schema.
 
 ## Task event journals
@@ -89,7 +94,7 @@ The script header owns the exact JSON schema.
 Every durable task-state writer also emits a best-effort event to `state/<id>.journal`.
 The journal joins spawn, validated report, classification, deep-review, decision-hold, workflow, and delivery observations into append order without consolidating their authoritative state.
 `bin/mx-journal-lib.sh` owns the closed allowlist, envelope construction, append mechanics, and failure swallowing used by production writers.
-`bin/mx-timeline.sh` is the only production journal reader and can filter or render one task's history as text, JSONL, or a self-contained HTML artifact.
+The Rust `bin/mx-timeline.sh` path is the only production journal reader and can filter or render one task's history as text, exact JSONL, or a private atomically published self-contained HTML artifact.
 No operational component reads a journal, and an absent, malformed, torn, or unwritable journal has no effect on reconciliation or lifecycle behavior.
 [`journal-events.md`](journal-events.md) owns the event vocabulary, detail contracts, and retention boundary.
 

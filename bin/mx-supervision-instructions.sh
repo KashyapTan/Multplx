@@ -4,6 +4,16 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Portion 09 Rust-default adapter. The body below remains the exact renderer
+# used by the explicit legacy differential path.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_session_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" session mx-supervision-instructions.sh "$@"
+fi
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MX_ROOT="${MX_ROOT_OVERRIDE:-$REPO_ROOT}"
 DOC_DIR="$REPO_ROOT/docs/supervision-protocols"

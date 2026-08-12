@@ -57,6 +57,16 @@ mx_supervision_implementation() {
   esac
 }
 
+# Selection for Portion 09 session-start, health, and snapshot entry points.
+# The choice is made before any command can acquire a lock, mutate bootstrap
+# state, drain a wake, or begin a bounded projection.
+mx_session_implementation() {
+  case "${MX_SESSION_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_SESSION_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_SESSION_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
 mx_backend_shadow_meta_get() {  # <meta-file> <key>
   local meta=$1 key=$2
   [ -f "$meta" ] || return 0

@@ -1,6 +1,7 @@
 # System doctor
 
 `bin/mx-doctor.sh` is the on-demand, read-only health sweep for one Multplx home.
+The stable script enters the Rust session command boundary by default and accepts `MX_SESSION_IMPLEMENTATION=legacy` as the explicit rollback selector.
 Run it when the system looks inconsistent, after an interrupted lifecycle, or before choosing a recovery procedure.
 The default command inspects durable state and live process or backend evidence without changing the Multplx home.
 

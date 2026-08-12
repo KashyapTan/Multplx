@@ -59,6 +59,16 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Portion 09 Rust-default adapter. The implementation is selected before the
+# return-catch-up gate or canonical snapshot read begins.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_session_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" session mx-status-snapshot.sh "$@"
+fi
 SYSTEM="$SCRIPT_DIR/mx-system-snapshot.sh"
 
 # Bounds (overridable for tests / large systems).

@@ -100,6 +100,16 @@ The selection is process-wide for that command and never falls back after a Rust
 Task and daemon lifecycle orchestration in `mx-brief.sh`, `mx-home-seed.sh`, `mx-spawn.sh`, `mx-send.sh`, `mx-system-sync.sh`, `mx-update.sh`, and `mx-teardown.sh` enters the Rust runtime by default.
 Set `MX_LIFECYCLE_IMPLEMENTATION=legacy` only for bounded differential verification of the retained compatibility bodies.
 
+## Session, health, and snapshot implementation rollback
+
+The session-start, bootstrap, doctor, status snapshot, system snapshot, system view, supervision-instruction, session-start nudge, and timeline entry points run through the release Rust binary by default.
+The nudge, supervision renderer, typed system-view projection, and timeline renderer are native Rust paths.
+The larger composed commands retain their existing shell bodies only as an explicit bounded differential and rollback surface.
+Set `MX_SESSION_IMPLEMENTATION=legacy` before invoking one of these entry points to select that retained implementation before a lock, mutation, repair, recursive cross-home read, or projection begins.
+The selector accepts only `rust` or `legacy`, and an invalid value exits `2` without running the command body, except that the hook-facing session-start nudge preserves its established fail-open exit `0` contract.
+Nested Portion 09 calls inherit the already selected engine, so one session-start or snapshot composition cannot mix implementations.
+The [Portion 09 verification record](verification/session-bootstrap-snapshots.md) holds the focused parity, safety, suite, and release-performance evidence.
+
 ## Runtime backend (config/backend / MX_BACKEND)
 
 For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.
@@ -353,6 +363,7 @@ Runtime tuning via environment variables (defaults shown):
 ```sh
 MX_HOME=                 # optional operational home for most scripts, unset means this repo root; mx-send requires it explicitly
 MX_LIFECYCLE_IMPLEMENTATION=rust # task/daemon lifecycle engine; legacy is explicit rollback/differential mode only
+MX_SESSION_IMPLEMENTATION=rust # session/bootstrap/health/snapshot engine; legacy is explicit pre-operation rollback only
 MX_ROOT_OVERRIDE=        # override Multplx repo root, tangle-guard target, and cmux home-title hash; also legacy whole-root override when MX_HOME is unset
 MX_STATE_OVERRIDE=       # alternate state dir, mainly for tests
 MX_DATA_OVERRIDE=        # alternate data dir, mainly for tests

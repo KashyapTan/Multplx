@@ -212,6 +212,13 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Run one session-start, health, snapshot, or view entry point.
+    #[command(hide = true, disable_help_flag = true)]
+    Session {
+        entry: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Serve the task-bound status-reporting MCP protocol over stdio.
     #[command(hide = true)]
     ReportMcp,
@@ -523,6 +530,7 @@ impl Cli {
             Command::FastForward { args } => run_fast_forward(&args),
             Command::PendingReply { args } => run_pending_reply(&args),
             Command::Supervision { entry, args } => run_supervision(&entry, &args),
+            Command::Session { entry, args } => run_session(&entry, &args),
             Command::ReportMcp => {
                 let root = runtime_root(&active_paths().0);
                 multplx_services::report_mcp::serve(&root)
@@ -547,6 +555,160 @@ impl Cli {
             },
         }
     }
+}
+
+fn run_session(entry: &str, args: &[OsString]) -> i32 {
+    const ENTRIES: &[&str] = &[
+        "mx-bootstrap.sh",
+        "mx-doctor.sh",
+        "mx-session-start.sh",
+        "mx-sessionstart-nudge.sh",
+        "mx-supervision-instructions.sh",
+        "mx-status-snapshot.sh",
+        "mx-system-snapshot.sh",
+        "mx-system-view.sh",
+        "mx-timeline.sh",
+    ];
+    if !ENTRIES.contains(&entry) {
+        eprintln!("error: unknown session entry point: {entry}");
+        return 2;
+    }
+    if entry == "mx-sessionstart-nudge.sh" {
+        let (root, home, _) = active_paths();
+        let state = std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("state"));
+        let result = multplx_domain::session::sessionstart_nudge(&root, &state);
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
+    if entry == "mx-supervision-instructions.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let (root, _, _) = active_paths();
+        let source_root = runtime_root(&root);
+        let detected = detect_primary_harness(&source_root);
+        let result = multplx_domain::session::supervision_instructions(
+            &values,
+            &detected,
+            &source_root,
+            &root,
+        );
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
+    if entry == "mx-timeline.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let (root, home, data) = active_paths();
+        let state = std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("state"));
+        let result = multplx_domain::timeline::run(&values, &state, &data, &runtime_root(&root));
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
+    if entry == "mx-system-view.sh" {
+        return run_system_view(args);
+    }
+    run_session_compat(entry, args)
+}
+
+fn run_system_view(args: &[OsString]) -> i32 {
+    if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
+        print!("{}", multplx_domain::snapshot::SYSTEM_VIEW_USAGE);
+        return 0;
+    }
+    if args.len() == 1 && args[0] == OsStr::new("--json") {
+        return run_session_compat("mx-system-snapshot.sh", &[OsString::from("--json")]);
+    }
+    if !args.is_empty() {
+        eprint!("{}", multplx_domain::snapshot::SYSTEM_VIEW_USAGE);
+        return 2;
+    }
+    if !multplx_domain::snapshot::command_exists("jq") {
+        eprintln!("mx-system-view: jq not found");
+        return 1;
+    }
+    let (root, _, _) = active_paths();
+    let source_root = runtime_root(&root);
+    let output = std::process::Command::new("bash")
+        .arg(source_root.join("bin/mx-system-snapshot.sh"))
+        .arg("--json")
+        .env("MX_SESSION_IMPLEMENTATION", "legacy")
+        .env("MX_RUST_SOURCE_ROOT", &source_root)
+        .output();
+    let Ok(output) = output else {
+        eprintln!("error: could not start mx-system-snapshot.sh");
+        return 1;
+    };
+    if !output.status.success() {
+        let _ = io::stdout().write_all(&output.stdout);
+        let _ = io::stderr().write_all(&output.stderr);
+        return output.status.code().unwrap_or(1);
+    }
+    match multplx_domain::snapshot::parse_system_snapshot(&output.stdout) {
+        Ok(snapshot) => {
+            print!(
+                "{}",
+                multplx_domain::snapshot::render_system_view(&snapshot)
+            );
+            0
+        }
+        Err(result) => {
+            print!("{}", result.stdout);
+            eprint!("{}", result.stderr);
+            result.status
+        }
+    }
+}
+
+fn detect_primary_harness(root: &Path) -> String {
+    let output = std::process::Command::new(root.join("bin/mx-harness.sh")).output();
+    let Ok(output) = output else {
+        return "unknown".to_owned();
+    };
+    if !output.status.success() || output.stdout.len() > 4096 {
+        return "unknown".to_owned();
+    }
+    let harness = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if matches!(harness.as_str(), "claude" | "codex" | "cursor" | "pi") {
+        harness
+    } else {
+        "unknown".to_owned()
+    }
+}
+
+/// Transitional Portion 09 process boundary for the large composed readers.
+/// The selector is pinned before the shell body can acquire a lock, repair
+/// state, recurse into a daemon home, or invoke another Portion 09 entry.
+fn run_session_compat(script: &str, args: &[OsString]) -> i32 {
+    use std::os::unix::process::CommandExt;
+
+    let root = runtime_root(&active_paths().0);
+    let path = root.join("bin").join(script);
+    if !path.is_file() {
+        eprintln!(
+            "error: session compatibility body is unavailable at {}",
+            path.display()
+        );
+        return 1;
+    }
+    let error = std::process::Command::new("bash")
+        .arg(path)
+        .args(args)
+        .env("MX_SESSION_IMPLEMENTATION", "legacy")
+        .env("MX_RUST_SOURCE_ROOT", &root)
+        .exec();
+    eprintln!("error: could not start {script}: {error}");
+    1
 }
 
 fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
