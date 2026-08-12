@@ -27,6 +27,16 @@ REAL_STAT=$(command -v stat)
 REAL_CHMOD=$(command -v chmod)
 REAL_BASENAME=$(command -v basename)
 
+pr_test_process_running() {
+  local pid=$1 stat
+  kill -0 "$pid" 2>/dev/null || return 1
+  stat=$(ps -p "$pid" -o stat= 2>/dev/null || true)
+  case "$stat" in
+    ''|Z*) return 1 ;;
+  esac
+  return 0
+}
+
 # Exercise teardown's exceptional destructive path through the same exact,
 # one-use maintainer grant required by production. Environment assignments on
 # the call select the fixture home/root and remain visible inside this subshell.
@@ -2185,7 +2195,7 @@ SH
   i=0
   while [ "$i" -lt 100 ]; do
     [ -s "$child_pid_file" ] && break
-    kill -0 "$pid" 2>/dev/null || break
+    pr_test_process_running "$pid" || break
     sleep 0.02
     i=$((i + 1))
   done
@@ -2195,11 +2205,11 @@ SH
   child_pid=$(cat "$child_pid_file")
   kill -TERM "$pid" 2>/dev/null || fail "could not signal watcher during custom check"
   i=0
-  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 100 ]; do
+  while pr_test_process_running "$pid" && [ "$i" -lt 100 ]; do
     sleep 0.02
     i=$((i + 1))
   done
-  if kill -0 "$pid" 2>/dev/null; then
+  if pr_test_process_running "$pid"; then
     kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
     fail "signaled watcher did not exit promptly"
@@ -2207,7 +2217,7 @@ SH
   rc=0
   wait "$pid" || rc=$?
   [ "$rc" -ne 0 ] || fail "signaled watcher exited successfully"
-  ! kill -0 "$child_pid" 2>/dev/null || fail "signaled watcher left the custom check child running"
+  ! pr_test_process_running "$child_pid" || fail "signaled watcher left the custom check child running"
   ! find "$state" -maxdepth 1 -name '.mx-custom-check.*' -print | grep . >/dev/null \
     || fail "signaled watcher left a private custom check snapshot"
   ! find "$state" -maxdepth 1 -name '.mx-check-output.*' -print | grep . >/dev/null \
@@ -2263,7 +2273,7 @@ SH
     while [ "$i" -lt 650 ]; do
       [ -s "$ready" ] && [ -s "$child_pid_file" ] && [ -e "$direct_done" ] \
         && [ -e "$state/.last-check" ] && break
-      kill -0 "$watcher_pid" 2>/dev/null || break
+      pr_test_process_running "$watcher_pid" || break
       sleep 0.02
       i=$((i + 1))
     done
@@ -2273,11 +2283,11 @@ SH
     child_pid=$(cat "$child_pid_file")
     kill -TERM "$watcher_pid" 2>/dev/null || fail "could not stop $backend watcher"
     i=0
-    while kill -0 "$watcher_pid" 2>/dev/null && [ "$i" -lt 150 ]; do
+    while pr_test_process_running "$watcher_pid" && [ "$i" -lt 150 ]; do
       sleep 0.02
       i=$((i + 1))
     done
-    if kill -0 "$watcher_pid" 2>/dev/null; then
+    if pr_test_process_running "$watcher_pid"; then
       kill -KILL "$watcher_pid" 2>/dev/null || true
       wait "$watcher_pid" 2>/dev/null || true
       kill -KILL "$child_pid" 2>/dev/null || true
@@ -2287,7 +2297,7 @@ SH
     wait "$watcher_pid" || rc=$?
     [ "$rc" -ne 0 ] || fail "$backend signaled watcher exited successfully"
     alive=0
-    kill -0 "$child_pid" 2>/dev/null && alive=1
+    pr_test_process_running "$child_pid" && alive=1
     [ "$alive" -eq 0 ] || kill -KILL "$child_pid" 2>/dev/null || true
     wait "$child_pid" 2>/dev/null || true
     [ "$alive" -eq 0 ] || fail "$backend watcher left a returned check descendant alive"
