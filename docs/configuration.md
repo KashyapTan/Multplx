@@ -330,7 +330,8 @@ Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom
 On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is node, git, gh, jq, and Treehouse with durable `get --lease` support.
+The universal toolchain remains node, git, gh, jq, and Treehouse with durable `get --lease` support through the Portion 13 deletion gate.
+The default viz and vplan paths no longer invoke Node; their retained JavaScript servers exist only for explicit rollback during that window.
 [`upstream.md`](upstream.md#pinned-external-dependencies) owns Treehouse's exact version pin and points to the verified installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
 The in-repo deep-review scripts supply local validation, while official gh covers read-only agent operations plus credentialed non-agent delivery.
@@ -346,7 +347,7 @@ A herdr or cmux home is therefore never told `tmux` is missing, while Treehouse'
 When `config/actor-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
 Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
 An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
-Bootstrap also self-checks `bin/mx-vplan.sh`, its server syntax, seed template, review SDK, and pinned Mermaid hash.
+Bootstrap also self-checks `bin/mx-vplan.sh`, its Rust service boundary, seed template, review SDK, and pinned Mermaid hash without launching a review server.
 An incomplete or corrupt bundled review module reports `VPLAN_INVALID`.
 The "Dispatch capacity" section owns configuration and queue behavior.
 Bootstrap also reports a `TANGLE:` line when `MX_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.

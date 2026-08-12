@@ -17,10 +17,22 @@
 # `comments` prints the persisted #vplan-comments array as formatted JSON.
 # `stop` signals only a live process whose PID identity and review token still
 # match the artifact's run record; stale records are cleaned without signaling.
+# The Rust implementation owns these mechanics by default;
+# MX_LOCAL_SERVICES_IMPLEMENTATION=legacy selects this retained rollback body
+# before any state mutation.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+# Portion 12 Rust-default adapter.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_local_services_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT=$ROOT; export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" services mx-vplan.sh "$@"
+fi
 SERVER="$SCRIPT_DIR/mx-vplan-server.mjs"
 ASSET_DIR="$ROOT/share/vplan"
 TEMPLATE="$ASSET_DIR/template.html"

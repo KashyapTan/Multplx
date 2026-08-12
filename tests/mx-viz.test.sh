@@ -7,11 +7,22 @@ set -u
 
 CLI="$ROOT/bin/mx-viz.sh"
 SERVER="$ROOT/bin/mx-viz-server.mjs"
+RUST_SERVICE="$ROOT/crates/multplx-services/src/local_services/viz.rs"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-viz-tests.XXXXXX")
 mkdir -p "$ROOT/data" || fail "could not create the dashboard artifact root"
 ARTIFACT_DIR=$(mktemp -d "$ROOT/data/.mx-viz-test.XXXXXX") \
   || fail "could not create the dashboard artifact fixture"
 PIDS=()
+
+assert_selected_runtime() {
+  local pid=$1 command
+  [ "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" = rust ] || return 0
+  command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+  printf '%s\n' "$command" | grep -F 'services viz-server' >/dev/null \
+    || fail "Rust-selected dashboard PID is not the Rust service: $command"
+  ! printf '%s\n' "$command" | grep -E '(^|[/ ])node([ /]|$)' >/dev/null \
+    || fail "Rust-selected dashboard started Node: $command"
+}
 
 cleanup() {
   local pid
@@ -233,6 +244,7 @@ test_lifecycle_cache_and_read_only_contract() {
   pid=$(record_value "$record" pid)
   port=$(record_value "$record" port)
   track_pid "$pid"
+  assert_selected_runtime "$pid"
   if [ "$(uname)" = Darwin ]; then mode=$(stat -f %Lp "$record"); else mode=$(stat -c %a "$record"); fi
   [ "$mode" = 600 ] || fail "dashboard run record mode was $mode, expected 600"
   assert_loopback_only "$pid" "$port"
@@ -442,9 +454,13 @@ test_self_containment_and_contract_headers() {
     || fail "server lost the literal loopback bind"
   grep -F 'const PORT_COUNT = 20;' "$SERVER" >/dev/null \
     || fail "server lost the bounded port walk"
+  grep -F 'TcpListener::bind(("127.0.0.1", port))' "$ROOT/crates/multplx-services/src/local_services/mod.rs" >/dev/null \
+    || fail "Rust server lost the literal loopback bind"
+  grep -F 'bind_loopback(first_port)' "$RUST_SERVICE" >/dev/null \
+    || fail "Rust server lost the bounded port-selection boundary"
   local legacy_reference
   legacy_reference=$(printf '%s%s/' fir stmate)
-  ! grep -REn "$legacy_reference" "$CLI" "$SERVER" "$ROOT/share/viz" >/dev/null \
+  ! grep -REn "$legacy_reference" "$CLI" "$SERVER" "$RUST_SERVICE" "$ROOT/share/viz" >/dev/null \
     || fail "production viz implementation depends on the read-only upstream reference tree"
   node --check "$SERVER" >/dev/null || fail "dashboard server failed syntax validation"
   node --check "$ROOT/share/viz/app.js" >/dev/null || fail "dashboard client failed syntax validation"

@@ -80,6 +80,13 @@ jobs:
             MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-push-service.test.sh
             MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-review-diff.test.sh
           done
+      - name: Exercise Portion 12 Rust and explicit-legacy local-service paths
+        run: |
+          set -eu
+          for implementation in rust legacy; do
+            MX_LOCAL_SERVICES_IMPLEMENTATION="$implementation" tests/mx-viz.test.sh
+            MX_LOCAL_SERVICES_IMPLEMENTATION="$implementation" tests/mx-vplan.test.sh
+          done
 
   rust-advisories:
     name: Rust dependency advisories
