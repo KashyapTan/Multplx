@@ -755,6 +755,10 @@ fn run_send(args: &[OsString]) -> i32 {
         );
         return 1;
     }
+    run_send_in_home(args, home, state)
+}
+
+fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
     if args.len() < 2 {
         eprintln!("usage: mx-send.sh <target> <text...>");
         return 2;
@@ -3380,8 +3384,27 @@ fn multicall_alias(program: &OsStr) -> Option<OsString> {
 
 #[cfg(test)]
 mod tests {
-    use super::multicall_alias;
+    use super::*;
     use std::ffi::{OsStr, OsString};
+
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    fn run_git(dir: &Path, values: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(values)
+            .output()
+            .expect("git");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
 
     #[test]
     fn extracts_multicall_alias_from_executable_name() {
@@ -3394,5 +3417,410 @@ mod tests {
     #[test]
     fn leaves_canonical_binary_without_an_alias() {
         assert_eq!(multicall_alias(OsStr::new("/tmp/mx")), None);
+        assert!(parse_seconds("-1").is_err());
+        assert!(parse_seconds("NaN").is_err());
+    }
+
+    #[test]
+    fn lifecycle_command_helpers_cover_success_and_refusal_contracts() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let status = temp.path().join("state/daemon.status");
+        assert_eq!(run_daemon_report(&args(&[])), 2);
+        assert_eq!(
+            run_daemon_report(&args(&[status.to_str().unwrap(), "done", "bad", "note"])),
+            1
+        );
+        assert_eq!(
+            run_daemon_report(&args(&[
+                status.to_str().unwrap(),
+                "done",
+                "corr=0123456789abcdef",
+                "all",
+                "good"
+            ])),
+            0
+        );
+        assert_eq!(
+            run_daemon_report(&args(&[
+                "--doc",
+                status.to_str().unwrap(),
+                "done",
+                "0123456789abcdef",
+                "data/report.md",
+                "details"
+            ])),
+            0
+        );
+        let report = fs::read_to_string(&status).expect("status");
+        assert!(report.contains("all good (via-helper)"));
+        assert!(report.contains("details (data/report.md via-helper)"));
+
+        let repo = temp.path().join("repo");
+        fs::create_dir(&repo).expect("repo");
+        run_git(&repo, &["init", "-b", "main", "--quiet"]);
+        fs::write(repo.join("file"), "x").expect("file");
+        run_git(&repo, &["add", "."]);
+        run_git(
+            &repo,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-m",
+                "base",
+                "--quiet",
+            ],
+        );
+        let head = run_git(&repo, &["rev-parse", "HEAD"]);
+        assert_eq!(run_fast_forward(&args(&[])), 2);
+        assert_eq!(
+            run_fast_forward(&args(&["default-branch", repo.to_str().unwrap()])),
+            0
+        );
+        assert_eq!(
+            run_fast_forward(&args(&["primary-head", repo.to_str().unwrap()])),
+            0
+        );
+        assert_eq!(
+            run_fast_forward(&args(&[
+                "target",
+                repo.to_str().unwrap(),
+                "repo",
+                &head,
+                "no",
+                "no"
+            ])),
+            0
+        );
+        fs::write(repo.join("file"), "two").expect("second file");
+        run_git(&repo, &["add", "."]);
+        run_git(
+            &repo,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-m",
+                "second",
+                "--quiet",
+            ],
+        );
+        let second = run_git(&repo, &["rev-parse", "HEAD"]);
+        run_git(&repo, &["reset", "--hard", &head, "--quiet"]);
+        assert_eq!(
+            run_fast_forward(&args(&[
+                "target",
+                repo.to_str().unwrap(),
+                "repo",
+                &second,
+                "no",
+                "no"
+            ])),
+            0
+        );
+        assert_eq!(run_fast_forward(&args(&["unknown"])), 2);
+
+        let root = temp.path().join("root");
+        let home = temp.path().join("home");
+        let daemon = temp.path().join("daemon");
+        for dir in [&root, &home, &daemon] {
+            fs::create_dir(dir).expect("dir");
+        }
+        fs::create_dir(daemon.join("bin")).expect("bin");
+        fs::write(daemon.join("AGENTS.md"), "x").expect("agents");
+        fs::write(daemon.join(".mx-daemon-home"), "helper\n").expect("marker");
+        assert_eq!(
+            run_fast_forward(&args(&[
+                "validate-home",
+                root.to_str().unwrap(),
+                home.to_str().unwrap(),
+                "helper",
+                daemon.to_str().unwrap()
+            ])),
+            0
+        );
+        assert_eq!(
+            run_fast_forward(&args(&[
+                "validate-home",
+                root.to_str().unwrap(),
+                home.to_str().unwrap(),
+                "other",
+                daemon.to_str().unwrap()
+            ])),
+            1
+        );
+    }
+
+    #[test]
+    fn pending_reply_command_covers_each_primitive() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        assert_eq!(run_pending_reply(&args(&[])), 2);
+        assert_eq!(run_pending_reply(&args(&["extract", "nothing"])), 0);
+        assert_eq!(
+            run_pending_reply(&args(&["embed", "hello", "0123456789abcdef"])),
+            0
+        );
+        assert_eq!(
+            run_pending_reply(&args(&[
+                "reusable",
+                state.to_str().unwrap(),
+                "0123456789abcdef",
+                "task"
+            ])),
+            1
+        );
+        assert_eq!(
+            run_pending_reply(&args(&[
+                "create",
+                temp.path().to_str().unwrap(),
+                state.to_str().unwrap(),
+                "task",
+                "request"
+            ])),
+            0
+        );
+        let record = fs::read_dir(state.join("pending-replies"))
+            .expect("records")
+            .filter_map(Result::ok)
+            .find(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+            .expect("record");
+        let correlation = record.file_name().to_string_lossy().into_owned();
+        assert_eq!(
+            run_pending_reply(&args(&["prepare", state.to_str().unwrap(), &correlation])),
+            0
+        );
+        assert_eq!(
+            run_pending_reply(&args(&["confirm", state.to_str().unwrap(), &correlation])),
+            0
+        );
+        assert_eq!(
+            run_pending_reply(&args(&[
+                "reusable",
+                state.to_str().unwrap(),
+                &correlation,
+                "task"
+            ])),
+            0
+        );
+        assert_eq!(
+            run_pending_reply(&args(&["prepare", state.to_str().unwrap(), "missing"])),
+            1
+        );
+
+        let discard = multplx_domain::lifecycle::pending_reply::create(
+            temp.path(),
+            &state,
+            "task",
+            "discard",
+        )
+        .expect("discard record");
+        assert_eq!(
+            run_pending_reply(&args(&["discard", state.to_str().unwrap(), &discard])),
+            0
+        );
+        assert_eq!(
+            run_pending_reply(&args(&["discard", state.to_str().unwrap(), "missing"])),
+            0
+        );
+    }
+
+    #[test]
+    fn send_resolution_is_strict_and_backend_dispatch_is_typed() {
+        use multplx_backend::facade::{BackendName, BackendTarget};
+        use std::os::unix::ffi::OsStringExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        assert!(
+            send_resolve("plain", &state)
+                .err()
+                .expect("plain refusal")
+                .contains("not resolvable")
+        );
+        assert!(
+            send_resolve("mx-missing", &state)
+                .err()
+                .expect("metadata refusal")
+                .contains("no metadata")
+        );
+        match send_resolve("definitely-missing:target", &state) {
+            Ok(resolution) => assert_eq!(resolution.target.backend(), BackendName::Tmux),
+            Err(error) => assert!(error.contains("not a live tmux")),
+        }
+        match send_resolve("definitely-missing:workspace:pane", &state) {
+            Ok(resolution) => assert_eq!(resolution.target.backend(), BackendName::Herdr),
+            Err(error) => assert!(error.contains("not a live herdr")),
+        }
+
+        fs::write(
+            state.join("task.meta"),
+            "kind=actor\nwindow=session:window\nbackend=tmux\nherdr_session=lab\nherdr_pane_id=workspace:pane\n",
+        )
+        .expect("meta");
+        let selected = send_resolve("mx-task", &state).expect("selector");
+        assert!(selected.selector);
+        assert_eq!(selected.target.endpoint(), "session:window");
+        assert!(
+            send_resolve("workspace:pane", &state)
+                .err()
+                .expect("prefix refusal")
+                .contains("missing its herdr session prefix")
+        );
+        assert_eq!(
+            send_resolve("session:window", &state)
+                .expect("target metadata")
+                .target
+                .backend(),
+            BackendName::Tmux
+        );
+
+        for backend in [BackendName::Tmux, BackendName::Herdr, BackendName::Cmux] {
+            let target = BackendTarget::new(backend, "definitely-missing:target:pane", None)
+                .expect("target");
+            let _ = send_target_ready(&target);
+            let _ = send_key_to(&target, "Enter");
+            let _ = send_text_to(&target, "text", 0, Duration::ZERO, Duration::ZERO);
+        }
+        assert_eq!(run_send(&[]), 1);
+
+        assert_eq!(
+            run_send_in_home(&[], temp.path().to_owned(), state.clone()),
+            2
+        );
+        assert_eq!(
+            run_send_in_home(
+                &[OsString::from_vec(vec![0xff]), OsString::from("text")],
+                temp.path().to_owned(),
+                state.clone()
+            ),
+            1
+        );
+        assert_eq!(
+            run_send_in_home(
+                &args(&["missing", "text"]),
+                temp.path().to_owned(),
+                state.clone()
+            ),
+            1
+        );
+        assert_eq!(
+            run_send_in_home(
+                &args(&["mx-task", "--key"]),
+                temp.path().to_owned(),
+                state.clone()
+            ),
+            2
+        );
+        assert!(matches!(
+            run_send_in_home(
+                &args(&["mx-task", "--key", "Enter"]),
+                temp.path().to_owned(),
+                state.clone()
+            ),
+            0 | 1
+        ));
+
+        fs::write(
+            state.join("daemon.meta"),
+            "kind=daemon\nwindow=definitely-missing:daemon\nbackend=tmux\nharness=codex\n",
+        )
+        .expect("daemon meta");
+        assert!(matches!(
+            run_send_in_home(
+                &args(&["mx-daemon", "$status", "now"]),
+                temp.path().to_owned(),
+                state
+            ),
+            0 | 1
+        ));
+    }
+
+    #[test]
+    fn top_level_lifecycle_dispatch_covers_safe_boundaries() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let memory = temp.path().join("memory");
+        fs::create_dir(&memory).expect("memory");
+        assert_eq!(
+            Cli {
+                command: Command::EnsureAgentsMd { directory: memory }
+            }
+            .run(),
+            0
+        );
+        assert_eq!(
+            Cli {
+                command: Command::EnsureAgentsMd {
+                    directory: temp.path().join("missing-memory")
+                }
+            }
+            .run(),
+            1
+        );
+        assert_eq!(
+            Cli {
+                command: Command::Brief {
+                    args: args(&["--help"])
+                }
+            }
+            .run(),
+            0
+        );
+        assert_eq!(
+            Cli {
+                command: Command::Brief {
+                    args: args(&["invalid"])
+                }
+            }
+            .run(),
+            1
+        );
+        assert_eq!(
+            Cli {
+                command: Command::SystemSync {
+                    project: Some(temp.path().join("missing"))
+                }
+            }
+            .run(),
+            0
+        );
+        assert_eq!(
+            Cli {
+                command: Command::Send { args: Vec::new() }
+            }
+            .run(),
+            1
+        );
+        assert_eq!(
+            Cli {
+                command: Command::FastForward { args: Vec::new() }
+            }
+            .run(),
+            2
+        );
+        assert_eq!(
+            Cli {
+                command: Command::PendingReply { args: Vec::new() }
+            }
+            .run(),
+            2
+        );
+
+        let status = temp.path().join("dispatch/status");
+        assert_eq!(
+            Cli {
+                command: Command::DaemonReport {
+                    args: args(&[status.to_str().unwrap(), "done", "0123456789abcdef", "done"])
+                }
+            }
+            .run(),
+            0
+        );
     }
 }

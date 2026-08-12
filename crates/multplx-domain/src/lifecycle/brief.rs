@@ -258,3 +258,121 @@ pub fn run(
         ),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn scaffolds_every_brief_kind_and_delivery_mode() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("root");
+        let home = temp.path().join("home");
+        let data = home.join("data");
+        let state = home.join("state");
+        fs::create_dir_all(root.join("bin")).expect("root");
+        fs::create_dir_all(&data).expect("data");
+        fs::create_dir_all(&state).expect("state");
+        fs::write(
+            data.join("projects.md"),
+            "- direct [direct-PR] - direct\n- local [local-only] - local\n",
+        )
+        .expect("registry");
+
+        let direct =
+            run(&args(&["deliver", "direct"]), &root, &home, &data, &state).expect("direct brief");
+        assert!(direct.contains("mode=direct-PR"));
+        let direct_body = fs::read_to_string(data.join("deliver/brief.md")).expect("brief");
+        assert!(direct_body.contains("credentialed delivery service"));
+        assert!(direct_body.contains("Herdr lifecycle declaration - NOT ENABLED"));
+
+        run(
+            &args(&["local-task", "local", "--herdr-lab"]),
+            &root,
+            &home,
+            &data,
+            &state,
+        )
+        .expect("local brief");
+        let local = fs::read_to_string(data.join("local-task/brief.md")).expect("local");
+        assert!(local.contains("local-only"));
+        assert!(local.contains("Herdr isolation - HARD SAFETY CONTRACT"));
+
+        run(
+            &args(&["scout", "direct", "--scout", "--herdr-lab"]),
+            &root,
+            &home,
+            &data,
+            &state,
+        )
+        .expect("scout brief");
+        let scout = fs::read_to_string(data.join("scout/brief.md")).expect("scout");
+        assert!(scout.contains("SCOUT task"));
+        assert!(scout.contains("report.md"));
+
+        let daemon = run(
+            &args(&["daemon", "--daemon", "direct", "local"]),
+            &root,
+            &home,
+            &data,
+            &state,
+        )
+        .expect("daemon brief");
+        assert!(daemon.contains("replace {TASK}"));
+        let daemon_body = fs::read_to_string(data.join("daemon/brief.md")).expect("daemon");
+        assert!(daemon_body.contains("- direct\n- local"));
+
+        run(
+            &args(&["no-projects", "--daemon", "--no-projects"]),
+            &root,
+            &home,
+            &data,
+            &state,
+        )
+        .expect("project-less daemon");
+        assert!(
+            fs::read_to_string(data.join("no-projects/brief.md"))
+                .expect("project-less")
+                .contains("project-less domain")
+        );
+    }
+
+    #[test]
+    fn refuses_invalid_or_ambiguous_brief_requests() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let data = temp.path().join("data");
+        let state = temp.path().join("state");
+        for values in [
+            vec![],
+            vec!["bad/id", "repo"],
+            vec!["task"],
+            vec!["task", "repo", "--no-projects"],
+            vec!["daemon", "--daemon"],
+            vec!["daemon", "--daemon", "--herdr-lab", "repo"],
+            vec!["daemon", "--daemon", "--no-projects", "repo"],
+        ] {
+            assert!(run(&args(&values), temp.path(), temp.path(), &data, &state).is_err());
+        }
+        run(
+            &args(&["once", "repo"]),
+            temp.path(),
+            temp.path(),
+            &data,
+            &state,
+        )
+        .expect("first scaffold");
+        let error = run(
+            &args(&["once", "repo"]),
+            temp.path(),
+            temp.path(),
+            &data,
+            &state,
+        )
+        .expect_err("must not overwrite");
+        assert!(error.message.contains("already exists"));
+    }
+}

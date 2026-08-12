@@ -53,6 +53,10 @@ fn new_id() -> String {
     {
         return random.iter().map(|byte| format!("{byte:02x}")).collect();
     }
+    fallback_id()
+}
+
+fn fallback_id() -> String {
     let mut hash = Sha256::new();
     hash.update(std::process::id().to_le_bytes());
     hash.update(now().to_le_bytes());
@@ -70,6 +74,7 @@ pub fn extract_correlation(text: &str) -> Option<String> {
 }
 
 fn summarize(text: &str) -> String {
+    let text = text.strip_prefix(FROM_BROKER_MARK).unwrap_or(text);
     let mut cleaned: String = text
         .chars()
         .map(|ch| {
@@ -82,9 +87,6 @@ fn summarize(text: &str) -> String {
         .filter(|ch| ch.is_ascii() && (!ch.is_ascii_control() || *ch == '\t'))
         .collect();
     cleaned = cleaned.trim().to_owned();
-    if let Some(body) = cleaned.strip_prefix(FROM_BROKER_MARK) {
-        cleaned = body.to_owned();
-    }
     cleaned = Regex::new(r"^corr=[A-Fa-f0-9]{16}[ \t]*")
         .expect("static prefix regex")
         .replace(&cleaned, "")
@@ -264,5 +266,54 @@ mod tests {
         prepare_delivery(&state, &correlation).expect("prepare");
         confirm_delivery(&state, &correlation).expect("confirm");
         assert!(!record_get(&path(&state, &correlation), "delivered_epoch").is_empty());
+    }
+
+    #[test]
+    fn malformed_reuse_delivery_unknown_and_discard_edges_are_explicit() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("relative-state");
+        fs::create_dir(&state).expect("state");
+        assert_eq!(extract_correlation("no correlation"), None);
+        assert_eq!(
+            extract_correlation("corr=ABCDEF0123456789"),
+            Some("abcdef0123456789".to_owned())
+        );
+        assert!(!reusable(&state, "bad", "task"));
+        assert_eq!(summarize("\u{7f}  hello\tworld\n"), "hello world");
+        let summary = summarize(&format!(
+            "{FROM_BROKER_MARK}corr=0123456789abcdef {}",
+            "x".repeat(140)
+        ));
+        assert_eq!(summary, format!("{}...", "x".repeat(117)));
+        assert_eq!(fallback_id().len(), 16);
+        assert_eq!(
+            embed(
+                &format!("{FROM_BROKER_MARK}corr=fedcba9876543210 old"),
+                "0123456789abcdef"
+            ),
+            format!("{FROM_BROKER_MARK}corr=0123456789abcdef old")
+        );
+
+        let correlation = create(temp.path(), &state, "task", "request").expect("create");
+        let record = path(&state, &correlation);
+        record_set(&record, "phase", "delivery_unknown").expect("unknown phase");
+        prepare_delivery(&state, &correlation).expect("prepare");
+        prepare_delivery(&state, &correlation).expect("idempotent prepare");
+        confirm_delivery(&state, &correlation).expect("confirm");
+        assert_eq!(record_get(&record, "phase"), "awaiting_report");
+        assert!(
+            discard_undelivered(&state, &correlation)
+                .unwrap_err()
+                .contains("already delivered")
+        );
+        assert_eq!(discard_undelivered(&state, "missing"), Ok(()));
+
+        let missing = create(temp.path(), &state, "task", "second").expect("second");
+        fs::remove_file(path(&state, &missing)).expect("remove record");
+        assert!(
+            prepare_delivery(&state, &missing)
+                .unwrap_err()
+                .contains("missing pending reply")
+        );
     }
 }

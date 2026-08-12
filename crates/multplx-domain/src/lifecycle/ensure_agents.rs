@@ -229,4 +229,91 @@ mod tests {
         ));
         assert!(!maintenance_present(b"## Maintaining this filename\n"));
     }
+
+    #[test]
+    fn creates_promotes_and_updates_memory_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fresh = temp.path().join("fresh");
+        fs::create_dir(&fresh).expect("fresh");
+        assert!(ensure(&fresh).expect("create").starts_with("created:"));
+        assert!(fresh.join("AGENTS.md").is_file());
+        assert_eq!(
+            fs::read_link(fresh.join("CLAUDE.md")).expect("link"),
+            Path::new("AGENTS.md")
+        );
+        assert!(ensure(&fresh).expect("unchanged").starts_with("unchanged:"));
+
+        let agents_only = temp.path().join("agents-only");
+        fs::create_dir(&agents_only).expect("agents only");
+        fs::write(agents_only.join("AGENTS.md"), "# Notes\r\n").expect("agents");
+        let message = ensure(&agents_only).expect("update and link");
+        assert!(message.contains("added ## Maintaining"));
+        assert!(
+            fs::read(agents_only.join("AGENTS.md"))
+                .expect("read")
+                .windows(2)
+                .any(|v| v == b"\r\n")
+        );
+
+        let legacy = temp.path().join("legacy");
+        fs::create_dir(&legacy).expect("legacy");
+        fs::write(legacy.join("CLAUDE.md"), "# Legacy").expect("claude");
+        assert!(ensure(&legacy).expect("promote").starts_with("promoted:"));
+        assert!(
+            fs::read_to_string(legacy.join("AGENTS.md"))
+                .expect("promoted body")
+                .contains("# Legacy")
+        );
+
+        let dangling = temp.path().join("dangling");
+        fs::create_dir(&dangling).expect("dangling");
+        create_symlink(Path::new("AGENTS.md"), &dangling.join("CLAUDE.md")).expect("dangling link");
+        assert!(
+            ensure(&dangling)
+                .expect("keep link")
+                .contains("kept CLAUDE.md")
+        );
+    }
+
+    #[test]
+    fn rejects_non_directories_and_conflicting_shapes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        assert!(matches!(
+            ensure(&temp.path().join("missing")),
+            Err(EnsureAgentsError::NotDirectory(_))
+        ));
+
+        let variant = temp.path().join("variant");
+        fs::create_dir(&variant).expect("variant");
+        fs::write(variant.join("agents.MD"), "x").expect("variant file");
+        assert!(matches!(
+            ensure(&variant),
+            Err(EnsureAgentsError::Conflict(_))
+        ));
+
+        let both = temp.path().join("both");
+        fs::create_dir(&both).expect("both");
+        fs::write(both.join("AGENTS.md"), "x").expect("agents");
+        fs::write(both.join("CLAUDE.md"), "x").expect("claude");
+        assert!(matches!(ensure(&both), Err(EnsureAgentsError::Conflict(_))));
+
+        let linked_agents = temp.path().join("linked-agents");
+        fs::create_dir(&linked_agents).expect("linked agents");
+        fs::write(linked_agents.join("real"), "x").expect("real");
+        create_symlink(Path::new("real"), &linked_agents.join("AGENTS.md")).expect("agents link");
+        assert!(matches!(
+            ensure(&linked_agents),
+            Err(EnsureAgentsError::Conflict(_))
+        ));
+
+        let wrong_link = temp.path().join("wrong-link");
+        fs::create_dir(&wrong_link).expect("wrong link");
+        fs::write(wrong_link.join("AGENTS.md"), "x").expect("agents");
+        fs::write(wrong_link.join("other"), "x").expect("other");
+        create_symlink(Path::new("other"), &wrong_link.join("CLAUDE.md")).expect("wrong link");
+        assert!(matches!(
+            ensure(&wrong_link),
+            Err(EnsureAgentsError::Conflict(_))
+        ));
+    }
 }

@@ -16,6 +16,8 @@ The pending-reply suite covered interrupted publication, delivery-unknown reconc
 
 The Rust workspace passed `cargo fmt --all --check`, strict Clippy for all targets and features, and `cargo test --workspace`.
 
+The required `cargo llvm-cov` workspace gate passed at 93.02 percent line coverage with focused lifecycle unit tests and instrumented `mx` command-boundary tests.
+
 The documentation audience check and the exact 125-test runner inventory check passed.
 
 The accelerated 125-test run completed in 331,009 ms.
