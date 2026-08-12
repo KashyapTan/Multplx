@@ -70,6 +70,16 @@ jobs:
             MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-workflow.test.sh
             MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-lock-override.test.sh
           done
+      - name: Exercise Portion 11 Rust and explicit-legacy review-delivery paths
+        run: |
+          set -eu
+          for implementation in rust legacy; do
+            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-deep-review-lib.test.sh
+            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-deep-review.test.sh
+            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-pr-merge.test.sh
+            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-push-service.test.sh
+            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-review-diff.test.sh
+          done
 
   rust-advisories:
     name: Rust dependency advisories

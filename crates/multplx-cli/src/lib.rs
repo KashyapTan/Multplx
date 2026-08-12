@@ -1,6 +1,7 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
 mod authority;
+mod review;
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -27,6 +28,13 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run one review, delivery, or pull-request security entry point.
+    #[command(hide = true, disable_help_flag = true)]
+    Review {
+        entry: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Run one decision, maintainer-override, or workflow entry point.
     #[command(hide = true, disable_help_flag = true)]
     Authority {
@@ -429,6 +437,7 @@ impl Cli {
     /// Runs the selected command.
     pub fn run(self) -> i32 {
         match self.command {
+            Command::Review { entry, args } => review::run(&entry, &args),
             Command::Authority { entry, args } => authority::run(&entry, &args),
             Command::Backend { command } => run_backend(command),
             Command::Herdr { args } => run_herdr(&args),

@@ -2,7 +2,7 @@
 
 Multplx separates a completed local change from the credentialed act that sends it to GitHub.
 Broker, actor, daemon, and validation-gate sessions do not hold remote-write credentials and never push, open a pull request, or merge one.
-`bin/mx-deliver.sh` is the only remote-delivery entrypoint.
+`bin/mx-deliver.sh` is the only remote-delivery entrypoint and selects the Rust review-delivery boundary by default.
 It runs from the maintainer's shell or a separately credentialed scheduler, never from an agent session.
 
 [Back to the documentation index](README.md).
@@ -11,7 +11,7 @@ It runs from the maintainer's shell or a separately credentialed scheduler, neve
 
 The ordinary local validation path writes `state/<id>.ready-to-push` only after it has validated a clean local branch.
 An exact `validation.waive-gate` grant may instead create a version-2 handoff that says `validation=waived`, binds the consumed request and exact SHA, and leaves the failed gate unchanged.
-The exact line schema, private-file checks, gate-run fields, and PR-body rendering are owned by `bin/mx-deliver-lib.sh`.
+The typed exact line schema and inert private-file parsing are owned by `multplx-domain::review_delivery`, while `bin/mx-deliver-lib.sh` preserves the source-compatible gate and body-rendering ABI during the rollback window.
 The handoff pins the task, worktree, `mx/<id>` branch, base branch, gate run, approval state, PR title, and exact approved commit.
 
 Delivery reparses the record without sourcing it and re-verifies all of the following before any network write:
@@ -27,6 +27,9 @@ This guarantees that a newer local commit cannot be pushed through a check-to-pu
 After the push, the service opens the pull request with a deterministic summary and risk section, records the canonical URL through `mx-pr-check.sh`, and moves the handoff to `state/<id>.delivered`.
 A stale worktree, branch, SHA, or gate binding moves the handoff to `state/<id>.ready-to-push.stale` and requires validation again.
 A pending or malformed record stays in place and causes a nonzero exit.
+
+The implementation selector is `MX_REVIEW_DELIVERY_IMPLEMENTATION`.
+It defaults to `rust`, and `legacy` is accepted only before an invocation begins any review, record, branch, poll, or remote operation.
 
 Teardown refuses while a ready handoff exists, including after a partial delivery made the commit reachable on the remote.
 This keeps the source worktree available until PR creation and state recording finish.

@@ -14,7 +14,9 @@ The engine copies the definition into `state/<run>.workflow/definition.workflow.
 Every later stage reads only that launch-time snapshot.
 An edit to the tracked definition therefore affects future runs and never mutates an in-flight run.
 Command text is never read from a stage artifact, an agent result, or a maintainer answer.
-The public entry point selects the Rust authority engine before launch or resume can publish state, and the compatibility executor is process-pinned when a stage composes a not-yet-ported review or delivery adapter.
+The public entry point selects the Rust authority engine before launch or resume can publish state, and the compatibility executor is process-pinned before any retained stage composition begins.
+
+Review and delivery stages enter their separate Rust review-delivery boundary through the stable Portion 11 adapters.
 
 `run:` is arbitrary code execution approved by accepting the tracked workflow definition.
 The free-form `{input}` substitution is forbidden in `run:` because interpolating untrusted launch text into a shell command would violate the snapshot trust boundary.
