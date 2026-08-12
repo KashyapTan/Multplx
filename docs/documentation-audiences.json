@@ -381,6 +381,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/task-daemon-lifecycle.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/watcher-continuity.md",
       "audience": "operator-current"
     },
