@@ -114,7 +114,9 @@ The [Portion 09 verification record](verification/session-bootstrap-snapshots.md
 
 The decision-hold, maintainer-override, canonical binding, exact-command exception, and workflow entry points select the Rust authority runtime by default.
 Native Rust owns override records and transitions, decision identities, workflow parsing, immutable snapshots, and stage-order validation.
-The remaining sourced decision/backlog and workflow executor compositions are entered only through a process-pinned compatibility boundary while Portion 11 still supplies review and delivery shell adapters.
+The remaining sourced decision/backlog and workflow executor compositions are entered only through a process-pinned compatibility boundary.
+
+When a workflow stage invokes review or delivery, the stable shell name now enters the Portion 11 Rust review-delivery boundary before any retained composition is selected.
 Set `MX_AUTHORITY_IMPLEMENTATION=legacy` only for bounded differential verification before a backlog hold, authority record, workflow snapshot, stage record, or exact command can be mutated.
 The selector accepts only `rust` or `legacy`, and an invalid value exits `2` without touching state.
 Nested authority commands inherit the selected engine so one workflow or exception action cannot mix implementations.
@@ -183,6 +185,8 @@ See [`verification/supervision.md`](verification/supervision.md#wedge-alarm-chan
 ## Gate defaults (.deep-review.yaml)
 
 The tracked `.deep-review.yaml` is the project policy read by `bin/mx-deep-review.sh`.
+The review, delivery, and PR-security command family selects Rust by default through `MX_REVIEW_DELIVERY_IMPLEMENTATION`.
+Set it to `legacy` only for a bounded rollback or differential invocation before any local or remote mutation begins.
 Code-executing commands, the command-permission flag, project-settings suppression, and document instructions are loaded from the trusted default-branch copy.
 The reviewed branch may supply cosmetic fields, but its commands are inert unless the trusted copy explicitly sets `allow_repo_commands: true`.
 The Multplx default keeps repository commands empty, relies on the gate's focused fallback validation, and keeps evidence in private `state/<id>.gate/` records rather than the branch.

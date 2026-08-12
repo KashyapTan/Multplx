@@ -3,6 +3,7 @@
 The broker drives these; interactive entrypoints work by hand too, while `*-lib.sh` files are sourced helpers.
 Portion 09 session, bootstrap, supervision, snapshot, view, and timeline entrypoints enter the Rust command boundary by default, with `MX_SESSION_IMPLEMENTATION=legacy` reserved for explicit rollback.
 Portion 10 decision, override, binding, exact-command, and workflow entrypoints enter the Rust authority boundary by default, with `MX_AUTHORITY_IMPLEMENTATION=legacy` reserved for explicit pre-mutation rollback.
+Portion 11 review, delivery, merge, promotion, and PR-security entrypoints enter the Rust review-delivery boundary by default, with `MX_REVIEW_DELIVERY_IMPLEMENTATION=legacy` reserved for explicit pre-mutation rollback.
 Each row is one purpose clause only: the script's own header comment is the authoritative description of its behavior, flags, and contracts, so read the header before first use.
 If you have changed away from the Multplx home in an interactive shell, invoke these scripts by absolute path through the repo's `bin/` directory; the scripts self-locate internally after they start.
 The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#deep-review-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; `mx-gate-refuse-lib.sh`'s header owns its exact contract.
@@ -54,7 +55,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-maintainer-override-lib.sh` | Preserve the source-compatible exception adapter for later port portions |
 | `mx-override-bindings.sh` | Print fresh subsystem-owned bindings for workflow, validation, cleanup, isolation, and lock exceptions |
 | `mx-override-run.sh` | Bind and run exact direct-write, one-action elevation, and verified dependency-install exceptions |
-| `mx-validation-waive.sh` | Create an exact-SHA maintainer-waived delivery handoff without marking validation passed |
+| `mx-validation-waive.sh` | Enter the Rust review-delivery boundary to create an exact-SHA waived handoff without marking validation passed |
 | `mx-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `mx-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `mx-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
@@ -70,13 +71,13 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `backends/herdr.sh`      | Experimental herdr session-provider adapter                                          |
 | `backends/cmux.sh`       | Experimental cmux session-provider adapter                                           |
 | `mx-config-push.sh`      | Push declared inherited local material to live daemons mid-session and send a pointer to the literal-content config reread when config changed |
-| `mx-deliver.sh`          | Push one exact approved local SHA and open its PR from a credentialed non-agent context |
-| `mx-deliver-lib.sh`      | Validate private delivery handoffs, gate results, approved SHA bindings, and agent ambience |
-| `mx-deep-review.sh`      | Run, resume, or answer the actor-owned local intent-to-handoff validation gate |
-| `mx-deep-review-lib.sh`  | Own deep-review schemas, trusted config parsing, prompt assembly, and harness adapters |
+| `mx-deliver.sh`          | Enter the Rust review-delivery boundary to push one exact approved SHA and open its PR from a credentialed non-agent context |
+| `mx-deliver-lib.sh`      | Preserve the source-compatible delivery-record and eligibility adapter during the rollback window |
+| `mx-deep-review.sh`      | Enter the Rust review-delivery boundary to run, resume, or answer the actor-owned validation gate |
+| `mx-deep-review-lib.sh`  | Preserve source-compatible schemas, trusted config parsing, prompt assembly, and harness adapters |
 | `mx-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`           |
-| `mx-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval            |
-| `mx-review-diff.sh`      | Review an actor branch or resolved PR head against the authoritative base          |
+| `mx-merge-local.sh`      | Enter the Rust review-delivery boundary for an approved local-only fast-forward merge |
+| `mx-review-diff.sh`      | Enter the Rust review-delivery boundary for a bounded authoritative-base diff review |
 | `mx-marker-lib.sh`       | Compatibility entry point for the from-broker carrier owned by `mx-operational-input.sh` |
 | `mx-pending-reply-lib.sh` | Parent-owned daemon pending-reply expectations, recovery, and one-shot escalation |
 | `mx-daemon-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
@@ -104,14 +105,14 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-send.sh`             | Send one verified literal line or supported key through the target's recorded backend |
 | `mx-tmux-lib.sh`         | Shared tmux pane primitives for busy detection, composer capture, and verified submit |
 | `mx-peek.sh`             | Print a bounded tail of an actor endpoint                                          |
-| `mx-check-register.sh`   | Bind an intentional custom watcher check to its current bytes                       |
+| `mx-check-register.sh`   | Bind an intentional custom watcher check to its current bytes through Rust          |
 | `mx-check-lib.sh`        | Validate custom-check registrations and prepare private execution snapshots          |
-| `mx-pr-lib.sh`           | Own canonical task and PR validation plus private atomic PR-poll publication and identity-bound retirement |
-| `mx-pr-poll.sh`          | Provide the byte-static watcher program for validated PR/MR-poll sidecars           |
-| `mx-pr-check-migrate.sh` | Quarantine older task polls without execution and rebuild only canonical polls       |
-| `mx-pr-check.sh`         | Record validated `pr=` and `pr_head=` values, then atomically arm a static merge poll |
-| `mx-pr-merge.sh`         | From a non-agent credential context, record PR metadata then merge a task's canonical full GitHub URL |
-| `mx-promote.sh`          | Promote a scout task in place to a protected delivery task                               |
+| `mx-pr-lib.sh`           | Preserve the sourced PR-artifact ABI while Rust owns typed identities and closed records |
+| `mx-pr-poll.sh`          | Execute the byte-static validated GitHub merge poll through Rust                    |
+| `mx-pr-check-migrate.sh` | Enter the Rust review-delivery boundary for non-executing quarantine and canonical rebuild |
+| `mx-pr-check.sh`         | Enter the Rust boundary to record canonical PR metadata and arm a static merge poll |
+| `mx-pr-merge.sh`         | Enter the non-agent Rust boundary to record PR metadata and merge a canonical GitHub URL |
+| `mx-promote.sh`          | Atomically promote a scout task in place to a protected delivery task through Rust  |
 | `mx-teardown.sh`         | Fail-closed teardown: return landed delivery worktrees, require completed scout deliverables, retire daemon homes |
 | `mx-harness.sh`          | Detect the running harness and resolve the actor or daemon harness, model, and effort |
 | `mx-lock.sh`             | Per-home broker session lock                                                      |

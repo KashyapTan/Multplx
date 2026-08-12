@@ -106,7 +106,7 @@ state/               volatile runtime signals; gitignored
   <id>.pr-poll       private validated data sidecar for the byte-static PR merge poll
   <id>.pr-poll-registration  private transactional provenance record binding the task, canonical metadata identity, sidecar, and static poll publication
   <id>.pr-poll-retirement  private identity-bound crash-recovery receipt for one exact validated merged result; removed after its poll artifacts retire
-  <id>.ready-to-push  private validated delivery handoff; exact schema is owned by mx-deliver-lib.sh
+  <id>.ready-to-push  private validated delivery handoff; exact schema is owned by `multplx-domain::review_delivery`
   <id>.ready-to-push.stale  refused handoff whose worktree or approved SHA no longer matches
   <id>.delivered      archived handoff after push, PR creation, and PR-state recording succeed
   <id>.gate/          private resumable deep-review run, intent, findings, session ids, and command evidence

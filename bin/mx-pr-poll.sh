@@ -10,6 +10,27 @@ set -u
 LC_ALL=C
 export LC_ALL
 
+# Portion 11 Rust-default static poll adapter.  The repo copy self-locates,
+# while a published state copy uses the established home/root variables and
+# passes its invoked path as inert data.
+MX_POLL_SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+if [ -f "$MX_POLL_SCRIPT_DIR/mx-rust-runtime.sh" ]; then
+  MX_POLL_ROOT=$(CDPATH='' cd -- "$MX_POLL_SCRIPT_DIR/.." && pwd -P)
+else
+  MX_POLL_ROOT=${MX_ROOT_OVERRIDE:-${MX_HOME:-}}
+fi
+if [ -n "$MX_POLL_ROOT" ] && [ -f "$MX_POLL_ROOT/bin/mx-rust-runtime.sh" ]; then
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$MX_POLL_ROOT/bin/mx-rust-runtime.sh"
+  implementation=$(mx_review_delivery_implementation) || exit $?
+  if [ "$implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT=${MX_RUST_SOURCE_ROOT:-$MX_POLL_ROOT}; export MX_RUST_SOURCE_ROOT
+    rust_bin=$(mx_rust_runtime_bin) || exit $?
+    MX_PR_POLL_CHECK_PATH=$0; export MX_PR_POLL_CHECK_PATH
+    exec "$rust_bin" review mx-pr-poll.sh "$@"
+  fi
+fi
+
 if [ "$#" -eq 6 ] && [ "$1" = --validated ]; then
   provider=$2
   url=$3

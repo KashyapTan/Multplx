@@ -77,6 +77,16 @@ mx_authority_implementation() {
   esac
 }
 
+# Selection for Portion 11 review, delivery, and PR-security entry points.
+# The choice is pinned before any review state, delivery record, poll artifact,
+# local branch, or remote operation can be inspected or mutated.
+mx_review_delivery_implementation() {
+  case "${MX_REVIEW_DELIVERY_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_REVIEW_DELIVERY_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_REVIEW_DELIVERY_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
 mx_backend_shadow_meta_get() {  # <meta-file> <key>
   local meta=$1 key=$2
   [ -f "$meta" ] || return 0

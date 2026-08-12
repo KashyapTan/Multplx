@@ -10,6 +10,15 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Portion 11 Rust-default adapter.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_review_delivery_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" review mx-promote.sh "$@"
+fi
 MX_ROOT="${MX_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MX_HOME="${MX_HOME:-${MX_ROOT_OVERRIDE:-$MX_ROOT}}"
 STATE="${MX_STATE_OVERRIDE:-$MX_HOME/state}"
