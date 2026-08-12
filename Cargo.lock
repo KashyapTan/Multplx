@@ -316,6 +316,10 @@ dependencies = [
 [[package]]
 name = "multplx-services"
 version = "0.1.0"
+dependencies = [
+ "multplx-domain",
+ "serde_json",
+]
 
 [[package]]
 name = "multplx-test-support"

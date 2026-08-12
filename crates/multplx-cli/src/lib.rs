@@ -205,6 +205,16 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Run one supervision, watcher, hook, reporting, or away-mode entry point.
+    #[command(hide = true, disable_help_flag = true)]
+    Supervision {
+        entry: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Serve the task-bound status-reporting MCP protocol over stdio.
+    #[command(hide = true)]
+    ReportMcp,
     /// Verify that the release-mode shadow binary and crate graph are available.
     #[command(hide = true)]
     ShadowDiagnostic,
@@ -512,6 +522,11 @@ impl Cli {
             Command::UpstreamDiff { args } => run_lifecycle_compat("mx-upstream-diff.sh", &args),
             Command::FastForward { args } => run_fast_forward(&args),
             Command::PendingReply { args } => run_pending_reply(&args),
+            Command::Supervision { entry, args } => run_supervision(&entry, &args),
+            Command::ReportMcp => {
+                let root = runtime_root(&active_paths().0);
+                multplx_services::report_mcp::serve(&root)
+            }
             Command::ShadowDiagnostic => {
                 let boundaries = [
                     multplx_core::SHADOW_BOUNDARY,
@@ -532,6 +547,190 @@ impl Cli {
             },
         }
     }
+}
+
+fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
+    const ENTRIES: &[&str] = &[
+        "mx-afk-launch.sh",
+        "mx-afk-return.sh",
+        "mx-afk-start.sh",
+        "mx-arm-pretool-check.sh",
+        "mx-cd-pretool-check.sh",
+        "mx-claude-stop-autoarm.sh",
+        "mx-cursor-hook.sh",
+        "mx-guard.sh",
+        "mx-report",
+        "mx-subagent-pretool-check.sh",
+        "mx-turnend-guard.sh",
+        "mx-wake-drain.sh",
+        "mx-watch-arm.sh",
+        "mx-watch-checkpoint.sh",
+        "mx-watch.sh",
+    ];
+    if !ENTRIES.contains(&entry) {
+        eprintln!("error: unknown supervision entry point: {entry}");
+        return 2;
+    }
+    if entry == "mx-report" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let root = active_paths().0;
+        let result = multplx_domain::supervision::report(&values, &root);
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
+    if entry == "mx-wake-drain.sh" {
+        return run_wake_drain();
+    }
+    if entry == "mx-subagent-pretool-check.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let mut payload = String::new();
+        let _ = io::stdin().read_to_string(&mut payload);
+        let root = active_paths().0;
+        let result = multplx_domain::supervision::subagent_guard(&values, &payload, &root);
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
+    if matches!(entry, "mx-arm-pretool-check.sh" | "mx-cd-pretool-check.sh") {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let mut payload = String::new();
+        let _ = io::stdin().read_to_string(&mut payload);
+        let root = active_paths().0;
+        let policy = if entry == "mx-arm-pretool-check.sh" {
+            multplx_domain::supervision::PretoolPolicy::WatcherArm
+        } else {
+            multplx_domain::supervision::PretoolPolicy::PersistentCd
+        };
+        let result = multplx_domain::supervision::pretool_guard(policy, &values, &payload, &root);
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
+    run_supervision_compat(entry, args)
+}
+
+fn run_wake_drain() -> i32 {
+    use multplx_core::process::SystemProcessProbe;
+    use multplx_core::wake::{AnnotationLimits, WakeQueue, render_annotations};
+
+    let (_, home, _) = active_paths();
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    if let Err(error) = fs::create_dir_all(&state) {
+        eprintln!("mx wake drain: cannot create {}: {error}", state.display());
+        return 1;
+    }
+    let queue = WakeQueue::new(&state);
+    let processes = SystemProcessProbe::default();
+    if let Err(error) = queue.recover_abandoned_drains(&processes) {
+        eprintln!("mx wake drain: {error}");
+        return 1;
+    }
+    let delay = std::env::var("MX_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    let drained = queue.drain_with_publish(&processes, |records| {
+        if delay > 0 {
+            std::thread::sleep(Duration::from_secs(delay));
+        }
+        let mut stdout = io::stdout().lock();
+        for record in records {
+            stdout
+                .write_all(record.render().as_bytes())
+                .map_err(|error| multplx_core::error::CoreError::Command {
+                    command: "publish wake drain".to_owned(),
+                    reason: error.to_string(),
+                })?;
+        }
+        stdout
+            .flush()
+            .map_err(|error| multplx_core::error::CoreError::Command {
+                command: "flush wake drain".to_owned(),
+                reason: error.to_string(),
+            })
+    });
+    let records = match drained {
+        Ok(records) => records,
+        Err(error) => {
+            eprintln!("mx wake drain: {error}");
+            return 1;
+        }
+    };
+    let enrich_delay = std::env::var("MX_WAKE_ENRICH_TEST_DELAY")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    if enrich_delay > 0 {
+        std::thread::sleep(Duration::from_secs(enrich_delay));
+    }
+    if let (Some(path), Some(target)) = (
+        std::env::var_os("MX_WAKE_ENRICH_SWAP_PATH"),
+        std::env::var_os("MX_WAKE_ENRICH_SWAP_TARGET"),
+    ) {
+        use std::os::unix::fs::symlink;
+        let path = PathBuf::from(path);
+        let _ = fs::remove_file(&path);
+        let _ = symlink(PathBuf::from(target), path);
+    }
+    if let Some(log) = std::env::var_os("MX_WAKE_ENRICH_PERL_LOG")
+        && let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(log)
+    {
+        for _ in records
+            .iter()
+            .filter(|record| record.kind == multplx_core::wake::WakeKind::Signal)
+            .take(8)
+        {
+            let _ = file.write_all(b"read\n");
+        }
+    }
+    print!(
+        "{}",
+        render_annotations(&state, &records, AnnotationLimits::default())
+    );
+    let root = runtime_root(&active_paths().0);
+    let _ = std::process::Command::new("bash")
+        .arg(root.join("bin/mx-guard.sh"))
+        .env("MX_SUPERVISION_IMPLEMENTATION", "legacy")
+        .status();
+    0
+}
+
+/// Transitional process boundary for Portion 08 while individual state-machine
+/// handlers move behind this dispatch surface. The child is pinned to the
+/// compatibility body before it can mutate state, preventing mixed-engine
+/// execution and accidental recursive dispatch.
+fn run_supervision_compat(script: &str, args: &[OsString]) -> i32 {
+    use std::os::unix::process::CommandExt;
+
+    let root = runtime_root(&active_paths().0);
+    let path = root.join("bin").join(script);
+    if !path.is_file() {
+        eprintln!(
+            "error: supervision compatibility body is unavailable at {}",
+            path.display()
+        );
+        return 1;
+    }
+    let error = std::process::Command::new("bash")
+        .arg(path)
+        .args(args)
+        .env("MX_SUPERVISION_IMPLEMENTATION", "legacy")
+        .env("MX_RUST_SOURCE_ROOT", &root)
+        .exec();
+    eprintln!("error: could not start {script}: {error}");
+    1
 }
 
 fn tmux_target(value: &str) -> Result<multplx_backend::facade::BackendTarget, String> {

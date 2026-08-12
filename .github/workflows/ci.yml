@@ -39,6 +39,16 @@ jobs:
         run: cargo test --locked --workspace
       - name: Build release workspace
         run: cargo build --release --workspace --locked
+      - name: Exercise Portion 08 Rust and explicit-legacy supervision paths
+        run: |
+          set -eu
+          for implementation in rust legacy; do
+            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-report.test.sh
+            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-subagent-pretool-check.test.sh
+            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-arm-pretool-check.test.sh
+            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-cd-pretool-check.test.sh
+            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-wake-queue.test.sh
+          done
 
   rust-advisories:
     name: Rust dependency advisories

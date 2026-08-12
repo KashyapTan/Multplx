@@ -1,8 +1,8 @@
 # cd-guard PreToolUse seatbelt
 
 This document is the authoritative human-readable contract for the cd-guard PreToolUse seatbelt.
-`bin/mx-cd-command-policy.mjs` is the single decision owner.
-`bin/mx-cd-pretool-check.sh` is the stable harness transport, primary-checkout scope, and output renderer.
+`multplx_core::command_policy` is the single decision owner.
+`bin/mx-cd-pretool-check.sh` is the stable harness transport into the Rust supervision runtime, primary-checkout scope, and output renderer.
 The tracked harness adapters forward command text without classifying it.
 
 It is the third member of a family of primary-session guards that share the same cross-harness hook machinery:
@@ -81,12 +81,13 @@ It does not permit `cd /home/project`, because an absolute-path `cd` remains a p
 - Codex sends stdin JSON at `.tool_input.command` without `--claude`.
 - Pi sends the exact command string through `--command <exact string>`.
 
-Processing order is cheapest-first: a strict-superset prefilter, then the primary-checkout scope, then the Node policy owner.
-The prefilter removes ordinary single quotes, double quotes, backslashes, carriage returns, and newlines before fast-allowing any command that carries no `cd`, `pushd`, or `popd` substring and no quoting-decoder marker (`$'` ANSI-C or `$"` locale), so quoted or escaped command-word fragments delegate to the policy while most commands never pay for the git scoping calls or the Node process.
-The quoting-decoder marker set is coupled to the classifier's decoder set in `bin/mx-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending the prefilter marker set in the same change, or it stops being a strict superset.
+Processing order is cheapest-first: a strict-superset prefilter, then the primary-checkout scope, then the Rust policy owner.
+The prefilter removes ordinary single quotes, double quotes, backslashes, carriage returns, and newlines before fast-allowing any command that carries no `cd`, `pushd`, or `popd` substring and no quoting-decoder marker (`$'` ANSI-C or `$"` locale), so quoted or escaped command-word fragments delegate to the policy while most commands never pay for the git scoping calls or Rust policy process.
+The quoting-decoder marker set is coupled to the decoder set in `multplx_core::command_policy`: adding any new quote or expansion form the classifier decodes requires extending the prefilter marker set in the same change, or it stops being a strict superset.
 
-Empty stdin, unparseable JSON, missing `jq` on the stdin path, missing Node, a missing policy owner, or an invalid policy response all fail open with exit 0 and no output.
+Empty stdin, unparseable JSON, and missing `jq` on the stdin path fail open with exit 0 and no output.
 A broken hook must never deny every shell tool call.
+An unavailable Rust runtime fails the public adapter clearly before hook processing; explicit legacy selection retains the old missing-classifier fail-open behavior for rollback verification.
 
 ## Output contract
 
@@ -101,10 +102,9 @@ Identical in shape to `docs/arm-pretool-check.md`:
 
 ## Shared classifier ownership
 
-`bin/mx-cd-command-policy.mjs` imports the shell tokenizer and command-position analysis (`Lexer`, `splitProgram`, `commandPosition`) from `bin/mx-arm-command-policy.mjs`, the sole owner of broker's shell classification.
-`basename` remains a private helper of the shared arm classifier because the cd policy identifies shell builtins by exact cooked-word identity.
+The Rust module shares one tokenizer and command-position analysis between watcher-arm and persistent-cd decisions.
 The cd-guard never duplicates shell lexing; it adds only the cd-specific decision on top of that shared classifier.
-`bin/mx-arm-command-policy.mjs` runs its own CLI entry point only when invoked directly, never on import, so the two policies stay independent CLIs over one parser.
+The retained `.mjs` files are explicit-legacy rollback implementations and are never selected implicitly.
 
 ## Harness wiring
 
@@ -126,8 +126,7 @@ Run:
 
 ```sh
 bash -n bin/mx-cd-pretool-check.sh
-node --check bin/mx-cd-command-policy.mjs
-node --check bin/mx-arm-command-policy.mjs
+cargo test -p multplx-core command_policy
 tests/mx-cd-pretool-check.test.sh
 tests/mx-arm-pretool-check.test.sh
 ```

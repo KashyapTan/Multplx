@@ -5,5 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+multplx-domain = { path = "../multplx-domain" }
+serde_json.workspace = true
+
 [lints]
 workspace = true

@@ -5,14 +5,14 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-SERVER="$ROOT/bin/mx-report-mcp.mjs"
+SERVER="$ROOT/bin/mx-report-mcp"
 REPORT="$ROOT/bin/mx-report"
 TMP_ROOT=$(mx_test_tmproot mx-report-mcp)
 
 run_rpc() {
   local home=$1 task_id=$2 input=$3
   MX_HOME="$home" MX_REPORT_STATE_OVERRIDE="$home/state" MX_TASK_ID="$task_id" \
-    node "$SERVER" <<EOF
+    "$SERVER" <<EOF
 $input
 EOF
 }
@@ -105,7 +105,7 @@ test_missing_binding_fails_closed() {
   pass "mx-report MCP: a server without launch-time MX_TASK_ID refuses writes"
 }
 
-node --check "$SERVER" || fail "mx-report-mcp.mjs does not parse"
+bash -n "$SERVER" || fail "mx-report-mcp adapter does not parse"
 test_schema_matches_wrapper
 test_valid_call_appends_and_stays_bound
 test_schema_rejections_write_nothing

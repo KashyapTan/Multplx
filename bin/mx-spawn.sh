@@ -1395,22 +1395,19 @@ REPORT_MCP_CLAUDE=
 REPORT_MCP_CODEX=
 REPORT_RUNTIME_HOME=$MX_HOME
 [ "$KIND" != daemon ] || REPORT_RUNTIME_HOME=$PROJ_ABS
-REPORT_MCP_SERVER="$MX_ROOT/bin/mx-report-mcp.mjs"
-if case "$HARNESS" in claude|codex) true ;; *) false ;; esac; then
-  NODE_BIN=$(command -v node || true)
-  if [ -n "$NODE_BIN" ] && [ -f "$REPORT_MCP_SERVER" ] && command -v jq >/dev/null 2>&1; then
-    if [ "$HARNESS" = claude ]; then
+REPORT_MCP_SERVER="$MX_ROOT/bin/mx-report-mcp"
+if [ "$HARNESS" = claude ]; then
+  if [ -x "$REPORT_MCP_SERVER" ] && command -v jq >/dev/null 2>&1; then
       REPORT_MCP_CONFIG="$TASK_TMP/report-mcp.json"
       if jq -n \
-        --arg node "$NODE_BIN" \
         --arg server "$REPORT_MCP_SERVER" \
         --arg id "$ID" \
         --arg home "$REPORT_RUNTIME_HOME" \
         --arg state "$STATE_REAL" \
         '{mcpServers:{multplx_status:{
           type:"stdio",
-          command:$node,
-          args:[$server],
+          command:$server,
+          args:[],
           env:{
             MX_TASK_ID:$id,
             MX_HOME:$home,
@@ -1424,17 +1421,19 @@ if case "$HARNESS" in claude|codex) true ;; *) false ;; esac; then
         rm -f "$REPORT_MCP_CONFIG.tmp"
         echo "warning: report_status MCP config could not be generated for claude; mx-report remains available" >&2
       fi
-    else
-      NODE_TOML=$(toml_basic_string "$NODE_BIN")
+  else
+    echo "warning: report_status MCP requires the Rust runtime, jq, and bin/mx-report-mcp for claude; mx-report remains available" >&2
+  fi
+elif [ "$HARNESS" = codex ]; then
+  if [ -x "$REPORT_MCP_SERVER" ]; then
       SERVER_TOML=$(toml_basic_string "$REPORT_MCP_SERVER")
       ID_TOML=$(toml_basic_string "$ID")
       HOME_TOML=$(toml_basic_string "$REPORT_RUNTIME_HOME")
       STATE_TOML=$(toml_basic_string "$STATE_REAL")
-      REPORT_MCP_CODEX_VALUE="mcp_servers.multplx_status={command=$NODE_TOML,args=[$SERVER_TOML],env={MX_TASK_ID=$ID_TOML,MX_HOME=$HOME_TOML,MX_REPORT_STATE_OVERRIDE=$STATE_TOML}}"
+      REPORT_MCP_CODEX_VALUE="mcp_servers.multplx_status={command=$SERVER_TOML,args=[],env={MX_TASK_ID=$ID_TOML,MX_HOME=$HOME_TOML,MX_REPORT_STATE_OVERRIDE=$STATE_TOML}}"
       REPORT_MCP_CODEX="-c $(shell_quote "$REPORT_MCP_CODEX_VALUE") "
-    fi
   else
-    echo "warning: report_status MCP requires node, jq, and bin/mx-report-mcp.mjs; mx-report remains available" >&2
+    echo "warning: report_status MCP requires the Rust runtime and bin/mx-report-mcp; mx-report remains available" >&2
   fi
 fi
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL" "$EFFORT")

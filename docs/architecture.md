@@ -41,7 +41,9 @@ Doctor's `--fix` surface is limited to a proof-bound stale watcher-lock cleanup 
 
 ## Event-driven supervision
 
-A zero-token bash watcher (`bin/mx-watch.sh`) sleeps on the system, classifies detected wakes in bash, and wakes the broker only when something is actionable.
+The Rust supervision runtime is the production entry owner for status reporting, hook policies, durable wake draining, watcher cycles, checkpoints, turn-end adapters, and AFK transfer.
+The stable `bin/` names are source-compatible adapters that select Rust by default and retain an explicit pre-mutation `legacy` rollback path during the port window.
+The zero-token watcher (`bin/mx-watch.sh`) sleeps on the system and wakes the broker only when something is actionable.
 Actionable wakes include maintainer-relevant status signals, no-verb signals whose actor is not provably working, authenticated check output such as PR merge polling, stale panes whose actor is not provably working whether their status log looks terminal or non-terminal, provably-working stale panes that persist past `MX_STALE_ESCALATE_SECS`, declared external waits that remain paused past `MX_PAUSE_RESURFACE_SECS`, and heartbeat backstop hits.
 Repeated provably-working stale escalations on the same unchanged pane add an escalation count to the wake reason and, at `MX_WEDGE_DEMAND_INSPECT_COUNT`, a `demand-deep-inspection` marker.
 Those actionable wakes are written to a durable local queue (`state/.wake-queue`) before detector state advances, so a missed process exit can be recovered by draining the queue.
@@ -137,7 +139,7 @@ It leads with a prominent bordered tangle banner, while `bin/mx-guard.sh` owns t
 On every verified primary harness, tracked hook integration gives the primary session a push-based backstop: when work is in flight and no identity-matched watcher lock with a fresh beacon is live, direct Stop hooks block and passive turn-end hooks force one bounded follow-up.
 The guard covers the main primary and genuinely marked daemon homes, exempts child actor/scout worktrees, is loop-safe per harness, and is documented in [turnend-guard.md](turnend-guard.md).
 
-A presence-gated sub-supervisor (`bin/mx-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill starts it through the tracked foreground helper `bin/mx-afk-start.sh`, after which the watcher reverts to daemon-managed one-shot mode and the daemon self-handles routine wakes in bash.
+A presence-gated sub-supervisor (`bin/mx-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill starts it through the Rust-dispatched foreground helper `bin/mx-afk-start.sh`, after which the watcher reverts to daemon-managed one-shot mode and the daemon self-handles routine wakes without a broker turn.
 The watcher and daemon share `bin/mx-classify-lib.sh` for maintainer-relevant status verbs, declared-external-wait vocabulary, and status-scan primitives.
 Terminal verbs remain maintainer-relevant, while a nonterminal progress verb cannot become terminal merely because its prose contains a legacy free-text token such as `merged`; bare legacy free-text lines remain compatible.
 The always-on watcher also uses that library's absorb classification on no-verb signals and first-sighting stale panes before status-log terminality is trusted, while the daemon maintains distinct wedge and declared-pause recheck cadences.

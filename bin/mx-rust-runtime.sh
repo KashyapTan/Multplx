@@ -50,6 +50,13 @@ mx_lifecycle_implementation() {
   esac
 }
 
+mx_supervision_implementation() {
+  case "${MX_SUPERVISION_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_SUPERVISION_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_SUPERVISION_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
 mx_backend_shadow_meta_get() {  # <meta-file> <key>
   local meta=$1 key=$2
   [ -f "$meta" ] || return 0
@@ -105,7 +112,9 @@ mx_backend_compatibility_backend_of_selector() {  # <raw-target> <state-dir> [as
 
 mx_rust_runtime_bin() {
   local script_dir root candidate
-  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  script_dir=${BASH_SOURCE[0]%/*}
+  [ "$script_dir" != "${BASH_SOURCE[0]}" ] || script_dir=.
+  script_dir=$(CDPATH='' cd -- "$script_dir" 2>/dev/null && pwd) || return 1
   root=${MX_RUST_SOURCE_ROOT:-${MX_ROOT_OVERRIDE:-$(cd "$script_dir/.." && pwd)}}
   if [ -n "${MX_RUST_BIN:-}" ]; then
     candidate=$MX_RUST_BIN

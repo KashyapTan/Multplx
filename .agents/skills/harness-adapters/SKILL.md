@@ -92,6 +92,7 @@ Full mechanics, scoping, and fail-open behavior live in `docs/sessionstart-nudge
 ## Primary watcher supervision
 
 At session start, `bin/mx-session-start.sh` prints exactly one watcher supervision block for the detected primary harness.
+Every stable watcher, checkpoint, hook, report, and AFK command in that block enters the Rust supervision runtime by default.
 Do not substitute another harness's wait shape when resuming supervision.
 Claude's Stop `asyncRewake` hook (`bin/mx-claude-stop-autoarm.sh`) owns tokenless re-arm around `bin/mx-watch-arm.sh`.
 Codex uses bounded foreground checkpoints through `bin/mx-watch-checkpoint.sh` because Codex cannot reason while a foreground tool call is running.

@@ -3,6 +3,22 @@
 # signal status keys after raw consumption commits, then assert liveness.
 set -u
 
+# Portion 08 Rust-default adapter. Keep the body below as the explicit bounded
+# rollback path and as the sourced-function ABI where this file is sourceable.
+MX_SUPERVISION_ADAPTER_DIR=${BASH_SOURCE[0]%/*}
+[ "$MX_SUPERVISION_ADAPTER_DIR" != "${BASH_SOURCE[0]}" ] || MX_SUPERVISION_ADAPTER_DIR=.
+MX_SUPERVISION_ADAPTER_DIR="$(CDPATH='' cd -- "$MX_SUPERVISION_ADAPTER_DIR" 2>/dev/null && pwd)" || exit 1
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$MX_SUPERVISION_ADAPTER_DIR/mx-rust-runtime.sh"
+  mx_supervision_adapter_implementation=$(mx_supervision_implementation) || exit $?
+  if [ "$mx_supervision_adapter_implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT="$(cd "$MX_SUPERVISION_ADAPTER_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+    mx_supervision_adapter_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$mx_supervision_adapter_bin" supervision mx-wake-drain.sh "$@"
+  fi
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/mx-wake-lib.sh
 . "$SCRIPT_DIR/mx-wake-lib.sh"

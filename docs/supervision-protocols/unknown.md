@@ -1,4 +1,5 @@
 Mode: Unknown harness fallback.
+The named `bin/` commands below select the Rust supervision runtime by default.
 
 This primary harness does not have a verified watcher wake adapter.
 Follow the generic supervision contract currently maintained in `AGENTS-PORTING.md`; after the Rust port's final gate it returns to root `AGENTS.md`.

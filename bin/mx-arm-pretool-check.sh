@@ -3,7 +3,7 @@
 #
 # A broker primary must arm the watcher or run a Codex checkpoint as a
 # standalone verified harness call.
-# bin/mx-arm-command-policy.mjs is the sole owner of shell classification,
+# The Rust command-policy module is the sole owner of shell classification,
 # protected execution identity, the blessed setup tree, and deny reason codes.
 # This wrapper only acquires the harness payload, discovers the active roots,
 # invokes that policy, and renders the established harness-specific responses.
@@ -24,14 +24,29 @@
 #   ALLOW - exit 0 and no output.
 #   DENY - exit 2, a Claude-shaped deny object on stderr, and a plain
 #          {"decision":"deny",...} object on stdout unless --claude was supplied.
-#   FAIL OPEN - malformed or empty stdin, missing jq for stdin transport,
-#               missing Node or policy owner, or an invalid policy response.
+#   FAIL OPEN - malformed or empty stdin or missing jq for stdin transport.
 #
 # Claude requires stdout to remain empty on deny.
 # Codex blocks on exit 2 and displays stderr.
 # Pi consumes exit 2 plus stderr; the stdout decision object remains the
 # default-mode transport for adapters that consume a decision JSON.
 set -u
+
+# Portion 08 Rust-default adapter. Keep the body below as the explicit bounded
+# rollback path and as the sourced-function ABI where this file is sourceable.
+MX_SUPERVISION_ADAPTER_DIR=${BASH_SOURCE[0]%/*}
+[ "$MX_SUPERVISION_ADAPTER_DIR" != "${BASH_SOURCE[0]}" ] || MX_SUPERVISION_ADAPTER_DIR=.
+MX_SUPERVISION_ADAPTER_DIR="$(CDPATH='' cd -- "$MX_SUPERVISION_ADAPTER_DIR" 2>/dev/null && pwd)" || exit 1
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$MX_SUPERVISION_ADAPTER_DIR/mx-rust-runtime.sh"
+  mx_supervision_adapter_implementation=$(mx_supervision_implementation) || exit $?
+  if [ "$mx_supervision_adapter_implementation" = rust ]; then
+    MX_RUST_SOURCE_ROOT="$(cd "$MX_SUPERVISION_ADAPTER_DIR/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+    mx_supervision_adapter_bin=$(mx_rust_runtime_bin) || exit $?
+    exec "$mx_supervision_adapter_bin" supervision mx-arm-pretool-check.sh "$@"
+  fi
+fi
 
 CMD=""
 CMD_SET=0
@@ -47,7 +62,8 @@ With no --command, reads a PreToolUse-style JSON payload on stdin
 Exits 0 to allow and 2 to deny.
 The deny reason is written to stderr, with a JSON decision object on stdout
 unless --claude is supplied.
-Malformed transport and an unavailable classifier runtime fail open.
+Malformed transport fails open. An unavailable Rust runtime fails clearly
+before hook processing.
 EOF
 }
 

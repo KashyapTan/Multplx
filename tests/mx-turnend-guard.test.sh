@@ -13,6 +13,10 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
+
 # shellcheck source=/dev/null
 . "$ROOT/bin/mx-supervision-lib.sh"
 
@@ -87,6 +91,7 @@ install_guard_scripts() {
   local dir=$1
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/mx-turnend-guard.sh" "$dir/bin/mx-turnend-guard.sh"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/mx-rust-runtime.sh"
   cp "$ROOT/bin/mx-operational-input.sh" "$dir/bin/mx-operational-input.sh"
   cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/mx-rust-runtime.sh"
   cp "$ROOT/bin/mx-supervision-instructions.sh" "$dir/bin/mx-supervision-instructions.sh"

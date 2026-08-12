@@ -11,12 +11,17 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
+  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
+fi
+
 TMP_ROOT=$(mx_test_tmproot mx-afk-return-tests)
 
 install_runner() {  # <case-dir>
   local dir=$1
   mkdir -p "$dir/bin" "$dir/home/state" "$dir/home/data" "$dir/home/config"
   cp "$ROOT/bin/mx-afk-return.sh" "$dir/bin/"
+  cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/"
   cp "$ROOT/bin/mx-wake-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/mx-classify-lib.sh" "$dir/bin/"
   cat > "$dir/bin/mx-afk-launch.sh" <<'SH'

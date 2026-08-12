@@ -19,6 +19,7 @@ batched digest rather than per-wake injections.
 ## What it does
 
 1. **Enter the lifecycle through `bin/mx-afk-launch.sh`.**
+   The stable entry selects the Rust supervision runtime by default; never set the rollback selector during an active away-mode transfer.
    This owns the durable state write, session-scoped stale-artifact clearing,
    terminal record, and rollback.
    The flag survives a broker restart, so recovery re-enters afk when it is present.
@@ -146,7 +147,7 @@ behavior but needs a separate fix; the gap is recorded in
 ## Classification policy
 
 The daemon wraps `mx-watch.sh`, runs the watcher as a child, classifies each
-wake reason in bash, and self-handles the routine majority without consuming a
+wake reason in the shared supervision policy, and self-handles the routine majority without consuming a
 broker turn.
 Maintainer-relevant events, plus a bounded recheck of a declared external wait that remains idle, escalate to broker's context as one pre-read, single-line, batched digest.
 The classification predicates (the maintainer-relevant verb set, declared-pause vocabulary, signal/stale tests, and system-scan) live in the shared `bin/mx-classify-lib.sh`, the same library the always-on watcher uses for its own triage when afk is off, so the two modes apply one identical policy.

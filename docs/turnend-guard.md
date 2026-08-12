@@ -1,9 +1,9 @@
 # Primary turn-end supervision guard
 
 This is the authoritative current contract for the "no turn ends blind" primary backstop referenced from `AGENTS-PORTING.md` section 8 during the Rust port.
-The predicate lives in `bin/mx-turnend-guard.sh`.
+The production entry lives behind the Rust supervision dispatcher at `bin/mx-turnend-guard.sh`.
 Primary scope lives in `bin/mx-primary-scope-lib.sh`, shared with the native session-start nudge in [`sessionstart-nudge.md`](sessionstart-nudge.md).
-Harness hook files only adapt each verified harness's turn-end mechanism to that shared predicate.
+Harness hook files only adapt each verified harness's turn-end mechanism to that shared predicate and never choose the legacy implementation implicitly.
 
 Related PreToolUse guards deny unsafe commands before execution rather than detecting a blind turn end afterward.
 Their separate owners are [`arm-pretool-check.md`](arm-pretool-check.md), [`cd-guard.md`](cd-guard.md), and [`subagent-guard.md`](subagent-guard.md).
