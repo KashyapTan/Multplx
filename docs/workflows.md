@@ -2,7 +2,8 @@
 
 This document is the single authoritative owner of the Multplx workflow-definition format.
 `bin/mx-workflow.sh` is the operator entrypoint, and its header owns exact command syntax.
-`bin/mx-workflow-lib.sh` owns parsing, validation, snapshots, run records, contracts, and execution mechanics.
+`multplx-domain::workflow` owns the constrained parser, immutable snapshot model, and typed stage-order transitions.
+`bin/mx-workflow-lib.sh` remains the source-compatible stage-executor and rollback adapter while the later review and delivery composition moves to Rust.
 
 ## Definition location and trust
 
@@ -13,6 +14,7 @@ The engine copies the definition into `state/<run>.workflow/definition.workflow.
 Every later stage reads only that launch-time snapshot.
 An edit to the tracked definition therefore affects future runs and never mutates an in-flight run.
 Command text is never read from a stage artifact, an agent result, or a maintainer answer.
+The public entry point selects the Rust authority engine before launch or resume can publish state, and the compatibility executor is process-pinned when a stage composes a not-yet-ported review or delivery adapter.
 
 `run:` is arbitrary code execution approved by accepting the tracked workflow definition.
 The free-form `{input}` substitution is forbidden in `run:` because interpolating untrusted launch text into a shell command would violate the snapshot trust boundary.

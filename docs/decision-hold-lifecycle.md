@@ -5,7 +5,8 @@ This document records the deterministic mechanism, structured surfaces, and priv
 
 ## Mechanism
 
-`bin/mx-decision-hold.sh` is the only lifecycle command for an investigation or visual review's unresolved maintainer decisions.
+`bin/mx-decision-hold.sh` remains the only lifecycle command for an investigation or visual review's unresolved maintainer decisions and selects the Rust authority entry before mutation.
+`multplx-domain::decision_hold` owns typed hold identities, sorted inventory unions, and exact resolution retry identities.
 The command uses the owned backlog library in the active `MX_HOME`, so the existing backlog remains the only durable work database and a daemon-owned decision stays in the daemon home.
 It never reads report bodies, review artifacts, terminal output, or chat.
 

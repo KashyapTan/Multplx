@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Shared implementation for the Multplx linear workflow engine.
+# Source-compatible adapter for the Multplx linear workflow engine.
 #
 # docs/workflows.md is the single owner of the workflow-definition format.
-# This library owns its constrained frontmatter parser, launch-time definition
-# snapshot, run records, deterministic contracts, and stage executors.
+# The Rust multplx-domain::workflow module owns the constrained frontmatter
+# parser, launch-time definition snapshot, and typed run-order validation. This
+# retained library preserves sourced stage executors and the explicit legacy
+# rollback until their Portion 11 dependencies have moved.
 # Sourcing this file has no side effects.
 #
 # Runtime seams used by focused tests:

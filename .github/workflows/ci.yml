@@ -60,6 +60,16 @@ jobs:
             MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-system-snapshot-view.test.sh
             MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-timeline.test.sh
           done
+      - name: Exercise Portion 10 Rust and explicit-legacy authority paths
+        run: |
+          set -eu
+          for implementation in rust legacy; do
+            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-decision-hold-lifecycle.test.sh
+            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-maintainer-override.test.sh
+            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-workflow-lib.test.sh
+            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-workflow.test.sh
+            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-lock-override.test.sh
+          done
 
   rust-advisories:
     name: Rust dependency advisories
@@ -380,6 +390,7 @@ jobs:
           MX_TREEHOUSE_TOOLS_IMPLEMENTATION: legacy
           MX_SUPERVISION_IMPLEMENTATION: legacy
           MX_SESSION_IMPLEMENTATION: legacy
+          MX_AUTHORITY_IMPLEMENTATION: legacy
         run: |
           set -eu
           case "$BASH_VERSION" in

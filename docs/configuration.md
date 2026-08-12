@@ -110,6 +110,16 @@ The selector accepts only `rust` or `legacy`, and an invalid value exits `2` wit
 Nested Portion 09 calls inherit the already selected engine, so one session-start or snapshot composition cannot mix implementations.
 The [Portion 09 verification record](verification/session-bootstrap-snapshots.md) holds the focused parity, safety, suite, and release-performance evidence.
 
+## Decision, override, and workflow implementation rollback
+
+The decision-hold, maintainer-override, canonical binding, exact-command exception, and workflow entry points select the Rust authority runtime by default.
+Native Rust owns override records and transitions, decision identities, workflow parsing, immutable snapshots, and stage-order validation.
+The remaining sourced decision/backlog and workflow executor compositions are entered only through a process-pinned compatibility boundary while Portion 11 still supplies review and delivery shell adapters.
+Set `MX_AUTHORITY_IMPLEMENTATION=legacy` only for bounded differential verification before a backlog hold, authority record, workflow snapshot, stage record, or exact command can be mutated.
+The selector accepts only `rust` or `legacy`, and an invalid value exits `2` without touching state.
+Nested authority commands inherit the selected engine so one workflow or exception action cannot mix implementations.
+The [Portion 10 verification record](verification/decisions-overrides-workflows.md) holds focused parity, transition, restart, and performance evidence.
+
 ## Runtime backend (config/backend / MX_BACKEND)
 
 For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.

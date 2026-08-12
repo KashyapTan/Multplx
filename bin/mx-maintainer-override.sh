@@ -25,6 +25,16 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# Portion 10 Rust-default adapter. The retained body is the source-compatible
+# rollback path for callers that have not yet moved in Portion 11.
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
+implementation=$(mx_authority_implementation) || exit $?
+if [ "$implementation" = rust ]; then
+  MX_RUST_SOURCE_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd -P); export MX_RUST_SOURCE_ROOT
+  rust_bin=$(mx_rust_runtime_bin) || exit $?
+  exec "$rust_bin" authority mx-maintainer-override.sh "$@"
+fi
 # shellcheck source=bin/mx-maintainer-override-lib.sh
 . "$SCRIPT_DIR/mx-maintainer-override-lib.sh"
 trap mx_override_lock_release EXIT

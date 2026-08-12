@@ -35,7 +35,7 @@ Close any session that already loaded the former root `AGENTS.md` before continu
   It does not make `data/` tracked.
 - Public helper entry points in `bin/` remain plain Bash adapters during the Rust port.
   Each starts with a usage header comment; keep it accurate when you change behavior.
-  The Rust workspace builds one `mx` multicall binary, and the transferred backend, harness, headroom, and Treehouse operations select it by default after Portion 06.
+  The Rust workspace builds one `mx` multicall binary, and transferred backend, harness, lifecycle, supervision, session, authority, and workflow operations select it by default after their numbered portion.
   Hidden compatibility commands preserve exact legacy-versus-Rust verification without changing public callers.
   Test scripts and helpers in `tests/` remain plain Bash, with Rust-native fixtures and differential self-tests in the Rust workspace.
 - Changes to harness adapters (detection in the Rust harness layer, launch and hook mechanics in the Rust lifecycle layer, busy signatures in `bin/mx-watch.sh` and the Rust backend facade, cleanup in the Rust teardown lifecycle, and facts in `.agents/skills/harness-adapters/SKILL.md`) must be verified empirically against the real harness, never written from documentation alone.
@@ -90,7 +90,7 @@ target/release/mx shadow-diagnostic
 ```
 
 `tests/lib.sh` owns the test-only `MX_TEST_IMPLEMENTATION=legacy|rust` selector and the differential capture helpers.
-The test-only local-state selector remains legacy by default, while production backend, harness, headroom, lifecycle, supervision, session-start, health, snapshot, system-view, and timeline entry points default to Rust and retain explicit legacy selectors for differential coverage.
+The test-only local-state selector remains legacy by default, while production backend, harness, headroom, lifecycle, supervision, session-start, health, snapshot, system-view, timeline, decision, override, and workflow entry points default to Rust and retain explicit legacy selectors for differential coverage.
 Differential capture compares exit status, standard output, standard error, relative filesystem paths, exact file bytes, file modes, and surviving child processes.
 Only temporary roots, PIDs, ports, timestamps, and random tokens may be normalized by a focused test, and no normalization is automatic.
 The hidden `shadow-diagnostic` command verifies the Portion 01 binary and crate graph only, while hidden compatibility subcommands exercise transferred contracts for differential tests.

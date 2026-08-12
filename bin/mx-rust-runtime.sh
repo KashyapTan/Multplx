@@ -67,6 +67,16 @@ mx_session_implementation() {
   esac
 }
 
+# Selection for Portion 10 decision, override, and workflow entry points.
+# The choice is pinned before an authority record, backlog hold, workflow
+# snapshot, stage record, or exceptional command can be mutated.
+mx_authority_implementation() {
+  case "${MX_AUTHORITY_IMPLEMENTATION:-rust}" in
+    rust|legacy) printf '%s\n' "${MX_AUTHORITY_IMPLEMENTATION:-rust}" ;;
+    *) echo "error: MX_AUTHORITY_IMPLEMENTATION must be rust or legacy" >&2; return 2 ;;
+  esac
+}
+
 mx_backend_shadow_meta_get() {  # <meta-file> <key>
   local meta=$1 key=$2
   [ -f "$meta" ] || return 0
