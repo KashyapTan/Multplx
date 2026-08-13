@@ -613,15 +613,9 @@ elif [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
   echo "BOOTSTRAP_INFO: vplan self-check passed"
 fi
 if ! headroom_json=$(MX_HEADROOM_IGNORE_DISPATCH_CONFIG=1 "$SCRIPT_DIR/mx-headroom.sh" --json 2>/dev/null) \
-  || ! printf '%s\n' "$headroom_json" | node -e '
-    let input = "";
-    process.stdin.on("data", chunk => input += chunk);
-    process.stdin.on("end", () => {
-      const value = JSON.parse(input);
-      for (const key of ["model", "capacity", "in_use", "available", "candidates", "at_limit"]) {
-        if (!(key in value)) process.exit(1);
-      }
-    });
+  || ! printf '%s\n' "$headroom_json" | jq -e '
+    has("model") and has("capacity") and has("in_use") and
+    has("available") and has("candidates") and has("at_limit")
   ' >/dev/null 2>&1; then
   echo "HEADROOM_INVALID: bundled mx-headroom.sh self-check failed"
 elif [ "${MX_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then

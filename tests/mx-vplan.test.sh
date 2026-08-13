@@ -6,7 +6,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CLI="$ROOT/bin/mx-vplan.sh"
-SERVER="$ROOT/bin/mx-vplan-server.mjs"
 RUST_SERVICE="$ROOT/crates/multplx-services/src/local_services/vplan.rs"
 WAKE_LIB="$ROOT/bin/mx-wake-lib.sh"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-vplan-tests.XXXXXX")
@@ -149,7 +148,7 @@ assert_loopback_only() {
       || fail "vplan socket was not listed on loopback: $output"
     return
   fi
-  grep -q '^const HOST = "127.0.0.1";$' "$SERVER" \
+  grep -Fq 'bind_loopback(first_port)' "$RUST_SERVICE" \
     || fail "no socket inspection tool was available and the server lost its literal loopback bind"
 }
 

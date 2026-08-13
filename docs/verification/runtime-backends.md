@@ -54,7 +54,7 @@ No request, identity, path, token, timeout, publication, or cleanup bound was di
 
 ## tmux
 
-### Rust Portion 04 shadow adapter
+### Rust Portion 04 shadow-period evidence
 
 The Rust shadow adapter was verified on 2026-08-11 with tmux 3.7b on macOS 26.5.2 arm64.
 Legacy remained the default during this verification.
@@ -73,7 +73,7 @@ MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-dae
 The real tmux smoke created a stable window id, pinned its name, verified target readiness and the requested current path, sent literal and submitted text, captured bounded history, resolved a bare name from exact inventory, killed the task window, and classified its absence authoritatively.
 The differential Rust test exercised every hidden facade command against an argument-recording fake and compared exact `mx-peek.sh` and `mx-actor-state.sh` status, stdout, stderr, and tmux argument observations with legacy.
 The timeout test spawned a descendant process and verified that the bounded runner killed the owned process group without leaving the descendant alive.
-The Linux portable-serial CI lane is configured to repeat the focused Rust shadow suite against its real tmux installation.
+The Linux portable-serial CI lane now repeats the same focused suite against the production Rust tmux implementation.
 
 Release-path timing used the same local APFS workspace, one real tmux session, one task metadata fixture, 100 warm interleaved iterations per implementation, Perl `Time::HiRes`, and nearest-rank p95.
 
@@ -123,6 +123,7 @@ The compatibility floor is protocol 14.
 The latest active verification uses Herdr 0.7.5 protocol 16 on macOS aarch64, with earlier 0.7.4, protocol-14, and 0.7.3 evidence retained where they define current behavior or fallbacks.
 
 The Portion 05 Rust-selected required family was reverified on 2026-08-11 with Herdr 0.7.4 protocol 16 on macOS aarch64.
+The selector shown below records that dated shadow-period command; Plan 13 runs the same family directly through `target/release/mx test-run`.
 The run used `MX_BACKEND_IMPLEMENTATION=rust`, `MX_HERDR_TOOLS_IMPLEMENTATION=rust`, the release `mx` binary, a short isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server, and the guarded lab and CI cleanup tools.
 No real-Herdr test reported the `herdr not found` gate skip, and the pre-suite snapshot plus post-suite teardown found no unowned session eligible for cleanup.
 
@@ -307,14 +308,13 @@ The dedicated Herdr daemon workspace topology is covered by `tests/mx-afk-launch
 
 ### Rust Portion 06 default adapter
 
-The cmux fake-CLI contract was reverified on 2026-08-11 against both the Rust default and retained legacy implementation.
+The cmux fake-CLI contract was reverified on 2026-08-11 against both implementations during the bounded shadow period.
 The suite covered the 0.64 minimum, missing and stale clients, fresh password reads, authentication classification, no-launch auth refusals, scoped identity, collision refusal, stale-target recovery, marker-delimited cwd, bounded capture, composer and submit behavior, window membership, last-workspace cleanup, best-effort kill, and home-filtered inventory.
 
 ```sh
 cargo build --workspace --release --locked
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux.test.sh
-MX_BACKEND_IMPLEMENTATION=legacy MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux-smoke.test.sh
+target/release/mx test-run tests/mx-backend-cmux.test.sh
+target/release/mx test-run tests/mx-backend-cmux-smoke.test.sh
 ```
 
 The deterministic suite passed under both implementations.

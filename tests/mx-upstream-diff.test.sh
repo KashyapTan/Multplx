@@ -229,9 +229,8 @@ test_workflow_definition_contract() {
     || fail "upstream-sync workflow does not validate"
   assert_contains "$normalized" "valid: upstream-sync (6 stages)" \
     "workflow validation returned the wrong definition"
-  normalized=$(bash -c \
-    '. "$1/bin/mx-workflow-lib.sh"; wf_definition_json "$2"' \
-    _ "$ROOT" "$definition") || fail "workflow normalization failed"
+  normalized=$("$ROOT/target/release/mx" authority mx-workflow.sh parse-json "$definition") \
+    || fail "workflow normalization failed"
   jq -e '
     ([.stages[] | select(.gate == "auto") |
       (.type == "command" or (.output | type == "string"))] | all) and

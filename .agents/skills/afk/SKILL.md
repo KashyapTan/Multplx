@@ -19,7 +19,7 @@ batched digest rather than per-wake injections.
 ## What it does
 
 1. **Enter the lifecycle through `bin/mx-afk-launch.sh`.**
-   The stable entry selects the Rust supervision runtime by default; never set the rollback selector during an active away-mode transfer.
+   The stable entry reaches the installed Rust supervision runtime.
    This owns the durable state write, session-scoped stale-artifact clearing,
    terminal record, and rollback.
    The flag survives a broker restart, so recovery re-enters afk when it is present.
@@ -53,7 +53,7 @@ batched digest rather than per-wake injections.
 3. **Do not separately arm `mx-watch.sh`.** The daemon manages the watcher as
    its child; the singleton lock no-ops a stray arm harmlessly.
 
-4. **Acknowledge** in `AGENTS-PORTING.md` section 9 language during the Rust port: "Maintainer, away mode is active; I will batch routine updates and surface only decisions, failures, credentials, or review-ready work until you return."
+4. **Acknowledge** in `AGENTS.md` section 9 language: "Maintainer, away mode is active; I will batch routine updates and surface only decisions, failures, credentials, or review-ready work until you return."
 
 ## How to exit afk
 
@@ -76,7 +76,7 @@ a false exit is self-correcting (the maintainer re-runs `/afk`).
 
 afk changes how aggressively broker surfaces things, **not who approves what**.
 "Away" never means "approves more" or "approves less."
-A PR ready for merge or a needs-decision finding keeps the same configured authority and exceptions from `AGENTS-PORTING.md` section 7 during the Rust port, while anything requiring the maintainer still waits for the maintainer's explicit word.
+A PR ready for merge or a needs-decision finding keeps the same configured authority and exceptions from `AGENTS.md` section 7, while anything requiring the maintainer still waits for the maintainer's explicit word.
 The daemon only batches the notification.
 
 ## Operational prefix contract

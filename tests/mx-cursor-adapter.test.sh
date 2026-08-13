@@ -20,7 +20,7 @@ make_runtime() {
   local runtime=$1
   mkdir -p "$runtime/bin" "$runtime/.agents/skills" "$runtime/share/shell/shims" \
     "$runtime/config" "$runtime/data" "$runtime/projects" "$runtime/state"
-  cp "$ROOT/bin/mx-launcher.sh" "$ROOT/bin/mx-launcher-lib.sh" \
+  cp "$ROOT/bin/mx-launcher.sh" \
     "$ROOT/bin/mx-launch-harness.sh" "$ROOT/bin/mx-lock.sh" \
     "$ROOT/bin/mx-session-lock-lib.sh" "$runtime/bin/"
   cp "$ROOT/share/shell/shims/"* "$runtime/share/shell/shims/"

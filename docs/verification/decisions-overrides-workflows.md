@@ -56,7 +56,7 @@ The exact CI coverage command passed its enforced floor with 93.01 percent line 
 
 `MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-maintainer-override.test.sh` and its `legacy` equivalent each passed 9 cases.
 
-`MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-workflow-lib.test.sh` and its `legacy` equivalent each passed 6 cases.
+`tests/mx-workflow-lib.test.sh` passes six schema and path-contract cases directly against the Rust owner.
 
 `MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-workflow.test.sh` and its `legacy` equivalent each passed 11 cases, including restart resume, per-run locking, actor reconciliation, command truth, skip, and reorder.
 

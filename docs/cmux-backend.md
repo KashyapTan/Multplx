@@ -18,7 +18,7 @@ Prerequisites:
 The CLI is not always installed on `PATH` with the app.
 The adapter prefers `command -v cmux` and otherwise uses `/Applications/cmux.app/Contents/Resources/bin/cmux`.
 The public shell functions dispatch to the typed implementation in `crates/multplx-backend/src/cmux.rs` by default.
-Set `MX_BACKEND_IMPLEMENTATION=legacy` before a command to select the retained Bash adapter as a bounded rollback.
+The backend command executes the Rust cmux adapter.
 
 ### Required socket access
 
@@ -125,9 +125,8 @@ Real tests share the maintainer's running app rather than creating an isolated c
 ## Regression entry points
 
 ```sh
-MX_BACKEND_IMPLEMENTATION=rust tests/mx-backend-cmux.test.sh
-MX_BACKEND_IMPLEMENTATION=legacy tests/mx-backend-cmux.test.sh
-MX_BACKEND_IMPLEMENTATION=rust tests/mx-backend-cmux-smoke.test.sh
+target/release/mx test-run tests/mx-backend-cmux.test.sh
+target/release/mx test-run tests/mx-backend-cmux-smoke.test.sh
 ```
 
 [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) records the active source and live evidence, including socket modes and last-in-window cleanup.

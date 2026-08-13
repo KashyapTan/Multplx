@@ -40,7 +40,7 @@ Current deterministic entry points:
 
 ```sh
 bash -n bin/mx-arm-pretool-check.sh
-node --check bin/mx-arm-command-policy.mjs
+cargo test --locked -p multplx-core command_policy
 tests/mx-arm-pretool-check.test.sh
 ```
 
@@ -64,8 +64,7 @@ Current deterministic entry points:
 
 ```sh
 bash -n bin/mx-cd-pretool-check.sh
-node --check bin/mx-cd-command-policy.mjs
-node --check bin/mx-arm-command-policy.mjs
+cargo test --locked -p multplx-core command_policy
 tests/mx-cd-pretool-check.test.sh
 tests/mx-arm-pretool-check.test.sh
 ```

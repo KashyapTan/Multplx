@@ -105,7 +105,7 @@ tests/mx-pr-check-security-retirement-teardown.test.sh
 
 Their authority, decision-routing, and headless harness contracts remain unchanged, so no skill procedure changed.
 
-`AGENTS-PORTING.md`, delivery, architecture, configuration, scripts, workflow, hook, and CI references were reviewed.
+`AGENTS.md`, delivery, architecture, configuration, scripts, workflow, hook, and CI references were reviewed.
 
 The root broker contract now points the handoff schema at its Rust owner without adding implementation procedure to the always-loaded surface.
 

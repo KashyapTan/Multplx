@@ -612,6 +612,20 @@ pub struct BacklogStore {
     path: PathBuf,
 }
 
+/// Stable decision-oriented view of one backlog item.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemSnapshot {
+    pub id: String,
+    pub state: String,
+    pub title: String,
+    pub kind: String,
+    pub repo: String,
+    pub held: bool,
+    pub hold_kind: String,
+    pub blockers: Vec<String>,
+    pub body: String,
+}
+
 impl BacklogStore {
     #[must_use]
     pub fn new(path: impl Into<PathBuf>) -> Self {
@@ -707,6 +721,26 @@ impl BacklogStore {
             metadata.get("hold").map_or("", String::as_str),
             json_string(&opened.backlog.body_text(item)),
         ))
+    }
+
+    /// Read one item without exposing the Markdown parser's mutation internals.
+    pub fn snapshot(&self, id: &str) -> Result<ItemSnapshot, BacklogError> {
+        let opened = open(&self.path, false)?;
+        let item = opened
+            .backlog
+            .item(id)
+            .ok_or_else(|| BacklogError::new(format!("backlog item not found: {id}")))?;
+        Ok(ItemSnapshot {
+            id: item.id.clone(),
+            state: item.state.clone(),
+            title: item.title.clone(),
+            kind: item.metadata.get("kind").cloned().unwrap_or_default(),
+            repo: item.metadata.get("repo").cloned().unwrap_or_default(),
+            held: item.state == "queued" && item.metadata.contains_key("hold"),
+            hold_kind: item.metadata.get("hold_kind").cloned().unwrap_or_default(),
+            blockers: item.blockers.clone(),
+            body: opened.backlog.body_text(item),
+        })
     }
 
     pub fn ready(&self) -> Result<String, BacklogError> {

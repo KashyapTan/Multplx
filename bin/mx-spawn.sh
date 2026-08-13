@@ -416,14 +416,8 @@ if [ "$KIND" != daemon ] && [ "${MX_HEADROOM_SKIP_QUEUE:-0}" != 1 ]; then
     echo "error: dispatch capacity could not be established; refusing to spawn $ID" >&2
     exit 1
   fi
-  if ! HEADROOM_AT_LIMIT=$(printf '%s\n' "$HEADROOM_JSON" | node -e '
-    let input = "";
-    process.stdin.on("data", chunk => input += chunk);
-    process.stdin.on("end", () => {
-      const value = JSON.parse(input);
-      process.stdout.write(value.at_limit === true ? "true" : "false");
-    });
-  '); then
+  if ! HEADROOM_AT_LIMIT=$(printf '%s\n' "$HEADROOM_JSON" | jq -er \
+    'if .at_limit == true then "true" elif .at_limit == false then "false" else error("invalid at_limit") end'); then
     echo "error: dispatch capacity output is invalid; refusing to spawn $ID" >&2
     exit 1
   fi

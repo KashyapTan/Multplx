@@ -34,6 +34,10 @@ set -u
 LOG="${MX_HERDR_LOG:?}"
 RESP="${MX_HERDR_RESPONSES:?}"
 COUNT_FILE="$RESP/.count"
+current=$(cat "$COUNT_FILE" 2>/dev/null || echo 0)
+if [ "${1:-}" = status ] && [ "${2:-}" = --json ] && [ "$current" -ge 2 ] && [ -f "$RESP/.wait-for-server-start" ]; then
+  while [ ! -f "$RESP/.server-started" ]; do sleep 0.01; done
+fi
 next=$(( $(cat "$COUNT_FILE" 2>/dev/null || echo 0) + 1 ))
 {
   printf 'HERDR_SESSION=%s' "${HERDR_SESSION:-}"
@@ -46,6 +50,7 @@ if [ "${1:-}" = status ] && [ "${2:-}" = --json ] && [ "${MX_HERDR_SCRIPT_STATUS
 fi
 n=$next
 echo "$n" > "$COUNT_FILE"
+[ "${1:-}" = server ] && : > "$RESP/.server-started"
 if [ -f "$RESP/$n.exit" ]; then
   exit "$(cat "$RESP/$n.exit")"
 fi
@@ -291,6 +296,7 @@ test_container_ensure_starts_server_and_workspace() {
   printf '{"client":{"version":"0.7.1","protocol":14}}\n' > "$resp/1.out"
   # 2: server_ensure's status --json check -> not running
   printf '{"server":{"running":false}}\n' > "$resp/2.out"
+  : > "$resp/.wait-for-server-start"
   # 3: `herdr server` backgrounded launch - no meaningful output
   # 4: server_ensure poll -> now running
   printf '{"server":{"running":true}}\n' > "$resp/4.out"

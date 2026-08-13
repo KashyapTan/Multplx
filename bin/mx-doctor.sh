@@ -992,70 +992,29 @@ doctor_render_human() {
     "$OK_COUNT" "$WARN_COUNT" "$FAIL_COUNT" "$EXIT_CODE"
 }
 
-doctor_render_json_node() {
-  node - "$RESULTS" "$FIXES" "$WORST" "$EXIT_CODE" \
-    "$OK_COUNT" "$WARN_COUNT" "$FAIL_COUNT" <<'NODE'
-const fs = require("node:fs");
-const [resultsPath, fixesPath, worst, exitCode, ok, warn, fail] = process.argv.slice(2);
-const findings = fs.readFileSync(resultsPath, "utf8").split("\n").filter(Boolean).map(line => {
-  const [severity, category, name, message, suggestion, fixable] = line.split("\t");
-  return {severity, category, name, message, suggestion: suggestion || null, fixable: fixable === "true"};
-});
-const fixes = fs.readFileSync(fixesPath, "utf8").split("\n").filter(Boolean);
-process.stdout.write(JSON.stringify({
-  schema: "mx-doctor.v1",
-  worst_severity: worst,
-  exit_code: Number(exitCode),
-  summary: {ok: Number(ok), warn: Number(warn), fail: Number(fail)},
-  findings,
-  fixes
-}, null, 2) + "\n");
-NODE
-}
-
-doctor_render_json_python() {
-  python3 - "$RESULTS" "$FIXES" "$WORST" "$EXIT_CODE" \
-    "$OK_COUNT" "$WARN_COUNT" "$FAIL_COUNT" <<'PY'
-import json
-import sys
-
-results_path, fixes_path, worst, exit_code, ok, warn, fail = sys.argv[1:]
-findings = []
-with open(results_path, encoding="utf-8") as source:
-    for line in source:
-        if not line.rstrip("\n"):
-            continue
-        severity, category, name, message, suggestion, fixable = line.rstrip("\n").split("\t")
-        findings.append({
-            "severity": severity,
-            "category": category,
-            "name": name,
-            "message": message,
-            "suggestion": suggestion or None,
-            "fixable": fixable == "true",
-        })
-with open(fixes_path, encoding="utf-8") as source:
-    fixes = [line.rstrip("\n") for line in source if line.rstrip("\n")]
-print(json.dumps({
-    "schema": "mx-doctor.v1",
-    "worst_severity": worst,
-    "exit_code": int(exit_code),
-    "summary": {"ok": int(ok), "warn": int(warn), "fail": int(fail)},
-    "findings": findings,
-    "fixes": fixes,
-}, indent=2))
-PY
+doctor_render_json() {
+  jq -n --rawfile results "$RESULTS" --rawfile fixes "$FIXES" \
+    --arg worst "$WORST" --argjson exit_code "$EXIT_CODE" \
+    --argjson ok "$OK_COUNT" --argjson warn "$WARN_COUNT" --argjson fail "$FAIL_COUNT" '
+      def rows: split("\n") | map(select(length > 0));
+      {
+        schema: "mx-doctor.v1",
+        worst_severity: $worst,
+        exit_code: $exit_code,
+        summary: {ok: $ok, warn: $warn, fail: $fail},
+        findings: ($results | rows | map(
+          split("\t") as $r |
+          {severity:$r[0], category:$r[1], name:$r[2], message:$r[3],
+           suggestion:(if $r[4] == "" then null else $r[4] end),
+           fixable:($r[5] == "true")}
+        )),
+        fixes: ($fixes | rows)
+      }
+    '
 }
 
 if [ "$OUTPUT_JSON" -eq 1 ]; then
-  if command -v node >/dev/null 2>&1; then
-    doctor_render_json_node
-  elif command -v python3 >/dev/null 2>&1; then
-    doctor_render_json_python
-  else
-    printf 'mx-doctor: --json requires node or python3\n' >&2
-    exit 2
-  fi
+  doctor_render_json
 else
   doctor_render_human
 fi

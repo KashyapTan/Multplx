@@ -5,11 +5,19 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-LIB="$ROOT/bin/mx-workflow-lib.sh"
-# shellcheck source=bin/mx-workflow-lib.sh
-. "$LIB"
-
 mx_test_tmproot_into TMP_ROOT workflow-lib
+
+wf_definition_json() {
+  "$ROOT/target/release/mx" authority mx-workflow.sh parse-json "$1"
+}
+
+wf_substitute() {
+  "$ROOT/target/release/mx" authority mx-workflow.sh substitute "$1" "$2" "$3" "$4"
+}
+
+wf_output_path() {
+  "$ROOT/target/release/mx" authority mx-workflow.sh output-path "$1" "$2" "$3"
+}
 
 assert_eq() {
   [ "$1" = "$2" ] || fail "$3: expected '$1', got '$2'"

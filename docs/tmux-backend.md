@@ -44,11 +44,8 @@ Verify setup by spawning a small task and confirming its `mx-<id>` window appear
 
 ## Current behavior and safety
 
-The production default still loads `bin/backends/tmux.sh`.
-Portion 04 also provides a complete Rust shadow adapter selected only with `MX_BACKEND_IMPLEMENTATION=rust` for verification.
-That selector is test-only, is resolved before backend work begins, and does not permit mid-operation fallback.
-The Rust adapter preserves the existing shell function surface while routing typed operations through the release `mx` binary.
-Malformed selectors are rejected before metadata traversal or tmux execution.
+The installed `mx` binary owns the production tmux implementation.
+Compatibility command names reach that implementation through exec-only adapters, with no mixed-engine fallback after an operation starts.
 Command output and runtime are bounded, timeouts kill and reap the owned subprocess group, and recovery decisions use exact live-window inventory rather than substring matches.
 
 A target-existence check proves only that the pane exists.
@@ -61,10 +58,10 @@ An existing Pi pane is therefore reported as ambiguous rather than auto-healed, 
 This is the active tmux liveness limitation.
 
 Agent liveness and composer safety are separate checks.
-The shared classifier in `bin/mx-composer-lib.sh` accepts a shell glyph as an empty agent composer only inside a verified bordered composer.
+The shared Rust classifier accepts a shell glyph as an empty agent composer only inside a verified bordered composer.
 A bare shell prompt is `unknown`, so away-mode escalation is never injected into a dead shell.
 
-`bin/mx-tmux-lib.sh` owns exact type-and-submit mechanics on the legacy production path, and `multplx-core::tmux` plus `multplx-backend::tmux` own the byte-compatible Rust shadow path.
+`multplx-core::tmux` and `multplx-backend::tmux` own exact type-and-submit mechanics.
 It types a message once and retries Enter only until the composer clears.
 A cleared composer is the positive delivery acknowledgement; text left in the composer remains `pending`, and `mx-send.sh` reports the failure instead of retyping.
 
@@ -81,7 +78,6 @@ After the normal retry budget, a provably busy pane is accepted as queued, while
 
 ```sh
 tests/mx-backend-tmux-smoke.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-tmux-smoke.test.sh
 tests/mx-tmux-submit-busy.test.sh
 tests/mx-bootstrap.test.sh
 cargo test --locked -p multplx-cli --test backend_differential

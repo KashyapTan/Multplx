@@ -43,7 +43,7 @@ grant_binding() (
 
 test_terminate_owner_and_reacquire() {
   local owner bindings request out status me
-  sleep 60 & owner=$!
+  bash -c 'exec -a codex sleep 60' & owner=$!
   printf '%s\n' "$owner" > "$STATE/.lock"
   me=$$
   if out=$(MX_STATE_OVERRIDE="$STATE" MX_TEST_ME_PID="$me" "$BIN/mx-lock.sh" 2>&1); then status=0; else status=$?; fi

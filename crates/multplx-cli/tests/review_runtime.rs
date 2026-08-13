@@ -30,11 +30,11 @@ fn unknown_review_entry_is_rejected_before_execution() {
 }
 
 #[test]
-fn compatibility_child_is_pinned_to_legacy_before_mutation() {
+fn deep_review_is_native_and_does_not_execute_a_same_named_shell_body() {
     let temp = tempfile::tempdir().expect("tempdir");
     let bin = temp.path().join("bin");
     fs::create_dir(&bin).expect("bin");
-    let script = bin.join("mx-deliver.sh");
+    let script = bin.join("mx-deep-review.sh");
     fs::write(
         &script,
         "#!/bin/sh\nprintf '%s\\n' \"$MX_REVIEW_DELIVERY_IMPLEMENTATION\"\n",
@@ -42,25 +42,27 @@ fn compatibility_child_is_pinned_to_legacy_before_mutation() {
     .expect("script");
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).expect("mode");
     let output = mx()
-        .args(["review", "mx-deliver.sh"])
+        .args(["review", "mx-deep-review.sh"])
         .env("MX_RUST_SOURCE_ROOT", temp.path())
         .env("MX_REVIEW_DELIVERY_IMPLEMENTATION", "rust")
         .output()
         .expect("run mx");
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "legacy\n");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("legacy"));
 }
 
 #[test]
-fn compatibility_refuses_a_missing_retained_body() {
+fn deep_review_rejects_closed_usage_without_a_retained_body() {
     let temp = tempfile::tempdir().expect("tempdir");
     let output = mx()
-        .args(["review", "mx-deliver.sh"])
+        .args(["review", "mx-deep-review.sh"])
         .env("MX_RUST_SOURCE_ROOT", temp.path())
         .output()
         .expect("run mx");
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("compatibility body is unavailable"));
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Usage:"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("compatibility body"));
 }
 
 #[test]

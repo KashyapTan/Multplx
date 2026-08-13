@@ -502,6 +502,12 @@ ensure_home() {
   else
     mkdir -p "$(dirname "$home")"
     git clone --quiet "$MX_ROOT" "$home"
+    # A source checkout may be verifying its final root-contract rename before
+    # commit. Git cannot clone that pending rename,
+    # so carry the exact active root contract into the disposable clone.
+    if [ ! -f "$home/AGENTS.md" ] && [ -f "$MX_ROOT/AGENTS.md" ]; then
+      cp "$MX_ROOT/AGENTS.md" "$home/AGENTS.md"
+    fi
   fi
   verify_broker_home "$home"
 }

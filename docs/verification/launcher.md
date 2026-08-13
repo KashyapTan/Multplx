@@ -17,7 +17,7 @@ The command grammar and exit statuses remain owned by `bin/mx-launcher.sh`; path
 Command:
 
 ```sh
-bin/mx-test-run.sh \
+target/release/mx test-run \
   tests/mx-launcher.test.sh \
   tests/mx-launcher-shell.test.sh \
   tests/mx-launcher-live-e2e.test.sh
@@ -38,7 +38,7 @@ Command:
 
 ```sh
 MX_LAUNCHER_LIVE_E2E=1 \
-  bin/mx-test-run.sh tests/mx-launcher-live-e2e.test.sh
+  target/release/mx test-run tests/mx-launcher-live-e2e.test.sh
 ```
 
 Result:

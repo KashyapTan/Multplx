@@ -20,27 +20,15 @@ fn source_root() -> &'static Path {
         .expect("workspace root")
 }
 
-fn executable(path: &Path, body: &str) {
-    fs::create_dir_all(path.parent().expect("parent")).expect("parent");
-    fs::write(path, body).expect("script");
-    let mut permissions = fs::metadata(path).expect("metadata").permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).expect("mode");
-}
-
 #[test]
-fn compatibility_compositions_are_process_pinned_to_legacy() {
+fn workflow_composition_never_dispatches_to_a_legacy_body() {
     let temp = tempfile::tempdir().expect("tempdir");
-    executable(
-        &temp.path().join("bin/mx-workflow.sh"),
-        "#!/bin/sh\nprintf '%s|%s\\n' \"${MX_AUTHORITY_IMPLEMENTATION:-unset}\" \"${1:-}\"\n",
-    );
     let output = run(mx()
         .env("MX_ROOT_OVERRIDE", temp.path())
         .env("MX_RUST_SOURCE_ROOT", temp.path())
         .args(["authority", "mx-workflow.sh", "resume"]));
-    assert!(output.status.success());
-    assert_eq!(output.stdout, b"legacy|resume\n");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("resume requires one run id"));
 }
 
 #[test]
@@ -620,15 +608,11 @@ fn native_workflow_cli_rejects_missing_invalid_and_extra_arguments() {
         assert!(!output.status.success());
     }
 
-    executable(
-        &temp.path().join("bin/mx-workflow.sh"),
-        "#!/bin/sh\nprintf '%s|%s\\n' \"${MX_AUTHORITY_IMPLEMENTATION:-unset}\" \"${1:-}\"\n",
-    );
-    let compatible = run(mx().env("MX_RUST_SOURCE_ROOT", temp.path()).args([
+    let missing = run(mx().env("MX_RUST_SOURCE_ROOT", temp.path()).args([
         "authority",
         "mx-workflow.sh",
         "dry-run",
     ]));
-    assert!(compatible.status.success());
-    assert_eq!(compatible.stdout, b"legacy|dry-run\n");
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("dry-run requires a definition"));
 }

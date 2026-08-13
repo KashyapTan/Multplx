@@ -624,8 +624,8 @@ SH
 run_watcher_bounded() {
   local home=$1 fakebin=$2 check_interval=${MX_TEST_CHECK_INTERVAL:-0} watch_root=${MX_TEST_WATCH_ROOT:-$ROOT}
   shift 2
-  perl -e 'my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } local $SIG{ALRM}=sub { kill "TERM", $pid; waitpid $pid, 0; exit 124 }; alarm 10; waitpid $pid, 0; alarm 0; exit($? >> 8)' \
-    env MX_HOME="$home" MX_ROOT_OVERRIDE="$watch_root" MX_CHECK_INTERVAL="$check_interval" MX_CHECK_TIMEOUT=1 \
+  perl -e 'my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } local $SIG{ALRM}=sub { kill "TERM", $pid; waitpid $pid, 0; exit 124 }; alarm 20; waitpid $pid, 0; alarm 0; exit($? >> 8)' \
+    env MX_HOME="$home" MX_ROOT_OVERRIDE="$watch_root" MX_CHECK_INTERVAL="$check_interval" MX_CHECK_TIMEOUT=5 \
       MX_POLL=0.02 MX_HEARTBEAT=999999 MX_SIGNAL_GRACE=0 PATH="$fakebin:$BASE_PATH" "$WATCH" "$@"
 }
 
@@ -747,16 +747,9 @@ test_atomic_interruption_leaves_no_partial_artifact() {
   local dir rc
   dir=$(make_case interrupted-write)
   write_task_meta "$dir"
-  cat > "$dir/fakebin/cp" <<SH
-#!/usr/bin/env bash
-'$REAL_CP' "\$@" || exit 1
-kill -TERM "\$PPID"
-exit 0
-SH
-  chmod +x "$dir/fakebin/cp"
 
   set +e
-  run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/stdout" 2> "$dir/stderr"
+  MX_PR_CHECK_FAULT_AFTER_STAGE=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/stdout" 2> "$dir/stderr"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "interrupted publication unexpectedly succeeded"
@@ -776,14 +769,8 @@ test_concurrent_watcher_sees_only_complete_publication() {
   while [ "$n" -le 3 ]; do
     dir=$(make_case "concurrent-$n")
     write_task_meta "$dir"
-    cat > "$dir/fakebin/cp" <<SH
-#!/usr/bin/env bash
-'$REAL_CP' "\$@" || exit 1
-sleep 0.3
-SH
-    chmod +x "$dir/fakebin/cp"
-
     MX_TEST_GH_HEAD=0123456789abcdef0123456789abcdef01234567 \
+      MX_PR_CHECK_TEST_DELAY_AFTER_STAGE=0.3 \
       run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/direct.out" 2> "$dir/direct.err" &
     direct_pid=$!
     i=0

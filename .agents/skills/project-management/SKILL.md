@@ -36,7 +36,7 @@ Choose the delivery mode when adding or creating the project:
 
 The optional `+yolo` posture changes routine approval authority but does not change the delivery mode.
 Default it off, and enable it only on the maintainer's explicit instruction.
-`AGENTS-PORTING.md` section 7 owns the complete authority boundary and exceptions during the Rust port when it is on.
+`AGENTS.md` section 7 owns the complete authority boundary and exceptions.
 
 ## Add or clone an existing project
 

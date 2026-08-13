@@ -1,6 +1,6 @@
 # Native session-start nudge
 
-`AGENTS-PORTING.md` section 3 is the authoritative behavioral contract during the Rust port, and the exact root `AGENTS.md` filename resumes that role only after the final restoration gate.
+`AGENTS.md` section 3 is the authoritative behavioral contract.
 The tracked native adapters inject one instruction and never run the digest, acquire the lock, perform bootstrap work, drain notifications, or arm supervision themselves.
 The payload starts with U+2063 and the stable `MULTPLX_OP: ` label, carries the current `session-start` protocol kind, and retains exactly ``Run `bin/mx-session-start.sh` now, exactly once, before executing any other instructions.`` as its body.
 The Recap skill owns the rule that this marked operational input is never a maintainer-authored session boundary, including its narrow legacy compatibility cases.
@@ -9,7 +9,7 @@ The Recap skill owns the rule that this marked operational input is never a main
 
 `bin/mx-sessionstart-nudge.sh` is the single command every harness adapter invokes and enters the Rust Portion 09 runtime by default.
 The Rust handler reuses the typed deep-review refusal, primary-scope, process-ancestry, and operational-input owners and stays silent whenever a gate agent carries the `DEEP_REVIEW_GATE` marker.
-The explicit legacy selector retains `bin/mx-gate-refuse-lib.sh` and `bin/mx-primary-scope-lib.sh` only for differential rollback, so both implementations use the same behavioral contracts.
+The Rust command reuses the gate-refusal and primary-scope behavioral contracts.
 The Shared Predicate section of [`turnend-guard.md`](turnend-guard.md#shared-predicate) owns marker validation, plain-checkout detection, and required Multplx-shaped paths.
 
 Before printing, the wrapper reads `state/.lock` and walks at most eight parents from its own pid, matching `bin/mx-lock.sh` and Pi's `lockOwnership()` ancestry depth.

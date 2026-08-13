@@ -94,13 +94,13 @@ test_docs_and_ci_describe_the_resource_scheduler() {
   assert_present "$PROOF_DOC" "docs/mx-test-isolation-proof.md missing"
   grep -Fq 'resource manifest' "$PROOF_DOC" \
     || fail "proof documentation must describe the resource manifest"
-  grep -Fq 'bin/mx-test-isolation-proof.sh --list-conflicts' "$PROOF_DOC" \
+  grep -Fq 'target/release/mx test-isolation-proof --list-conflicts' "$PROOF_DOC" \
     || fail "proof documentation must show conflict-matrix inspection"
-  grep -Fq 'bin/mx-test-run.sh --all --jobs auto' "$CONTRIB" \
+  grep -Fq 'target/release/mx test-run --all --jobs auto' "$CONTRIB" \
     || fail "CONTRIBUTING does not show the accelerated full run"
-  grep -Fq 'bin/mx-test-run.sh --all --jobs 1' "$CONTRIB" \
+  grep -Fq 'target/release/mx test-run --all --jobs 1' "$CONTRIB" \
     || fail "CONTRIBUTING does not show the serial reference"
-  grep -Fq 'bin/mx-test-run.sh --lane portable-parallel-1' "$CI" \
+  grep -Fq 'target/release/mx test-run --lane portable-parallel-1' "$CI" \
     || fail "CI shard 1 is not runner-owned"
   grep -Fq -- '--jobs auto' "$CI" \
     || fail "CI portable lanes do not use the resource scheduler"

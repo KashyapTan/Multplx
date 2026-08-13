@@ -28,7 +28,7 @@ It is a silent no-op (exit 0, no output) everywhere else, so it never interferes
 A plain, non-worktree checkout has `git rev-parse --git-dir` equal to `git rev-parse --git-common-dir`.
 an actor or scout task worktree - the shape `bin/mx-spawn.sh` always hands out - is a linked git worktree where the two differ, so the guard is inert there.
 The checkout must also carry `AGENTS.md` and `bin/`, and any failure to confirm the primary is treated as inert, never as a block.
-The Rust-port checkout intentionally carries only `AGENTS-PORTING.md`, so this guard remains inert there until portion 13 restores the exact operational filename.
+The guard recognizes the exact operational root `AGENTS.md` filename.
 
 The cd-guard does not inspect `.mx-daemon-home`.
 It therefore applies in a git-cloned daemon home where git-dir equals git-common-dir, but remains inert in a treehouse-leased daemon home that is itself a linked worktree.
@@ -87,7 +87,7 @@ The quoting-decoder marker set is coupled to the decoder set in `multplx_core::c
 
 Empty stdin, unparseable JSON, and missing `jq` on the stdin path fail open with exit 0 and no output.
 A broken hook must never deny every shell tool call.
-An unavailable Rust runtime fails the public adapter clearly before hook processing; explicit legacy selection retains the old missing-classifier fail-open behavior for rollback verification.
+An unavailable Rust runtime fails the public adapter clearly before hook processing.
 
 ## Output contract
 
@@ -104,7 +104,7 @@ Identical in shape to `docs/arm-pretool-check.md`:
 
 The Rust module shares one tokenizer and command-position analysis between watcher-arm and persistent-cd decisions.
 The cd-guard never duplicates shell lexing; it adds only the cd-specific decision on top of that shared classifier.
-The retained `.mjs` files are explicit-legacy rollback implementations and are never selected implicitly.
+The command-policy implementation is Rust-native and has no Node runtime path.
 
 ## Harness wiring
 

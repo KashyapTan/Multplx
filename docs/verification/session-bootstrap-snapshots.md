@@ -1,8 +1,9 @@
 # Session, bootstrap, health, and snapshot verification
 
-This record covers Rust-port Portion 09 on 2026-08-12.
+This is the dated Rust-port Portion 09 shadow-period record from 2026-08-12.
+Plan 13 supersedes its selector and rollback notes with the final installed Rust command boundary.
 
-The production selector is `MX_SESSION_IMPLEMENTATION`, defaults to `rust`, and accepts `legacy` only for bounded differential verification before an operation begins.
+During Portion 09, `MX_SESSION_IMPLEMENTATION` selected the differential engine before an operation began.
 
 The Rust release binary was built with `cargo build --workspace --release` on macOS arm64 with Rust 1.97.1 and Cargo 1.97.1.
 
@@ -87,7 +88,7 @@ The multi-sample release medians and p95 values are no worse for either target; 
 
 The stable shell filenames remain because hooks, skills, workflows, operating homes, and later Rust portions call them directly.
 
-Stock macOS Bash remains covered by an explicit `MX_SESSION_IMPLEMENTATION=legacy` CI lane until Portion 13 removes the rollback bodies.
+Stock macOS Bash was covered by an explicit legacy differential lane during the Portion 09 rollback window.
 
 The command names, arguments, environment overrides, output schemas, labels, ordering, and exit codes are unchanged.
 

@@ -391,29 +391,29 @@ test_ci_and_docs_call_the_owner() {
     || fail "CI must define portable parallel shard 2"
   grep -Fq 'tests-portable-serial:' "$CI" \
     || fail "CI must define the portable serial lane"
-  grep -Fq 'bin/mx-test-run.sh --lane portable-parallel-1' "$CI" \
+  grep -Fq 'target/release/mx test-run --lane portable-parallel-1' "$CI" \
     || fail "CI shard 1 must invoke --lane portable-parallel-1"
-  grep -Fq 'bin/mx-test-run.sh --lane portable-parallel-2' "$CI" \
+  grep -Fq 'target/release/mx test-run --lane portable-parallel-2' "$CI" \
     || fail "CI shard 2 must invoke --lane portable-parallel-2"
   if grep -Fq 'npm install -g' "$CI"; then
     fail "CI must not install retired global helper packages"
   fi
-  grep -Fq 'bin/mx-test-run.sh --lane portable-serial' "$CI" \
+  grep -Fq 'target/release/mx test-run --lane portable-serial' "$CI" \
     || fail "CI portable serial must invoke --lane portable-serial"
-  grep -Fq 'bin/mx-test-run.sh --check-coverage' "$CI" \
+  grep -Fq 'target/release/mx test-run --check-coverage' "$CI" \
     || fail "CI must run the coverage guard"
   grep -Fq 'tests-herdr:' "$CI" \
     || fail "CI must define the required tests-herdr job"
-  grep -Fq 'bin/mx-test-run.sh --family real-herdr-gated' "$CI" \
+  grep -Fq 'target/release/mx test-run --family real-herdr-gated' "$CI" \
     || fail "Herdr CI job must run the real-herdr-gated family via mx-test-run"
   grep -Fq -- "--fail-on-gate-skip 'herdr not found'" "$CI" \
     || fail "Herdr CI job must fail on herdr-not-found skips"
-  grep -Fq 'bin/mx-install-herdr.sh' "$CI" \
-    || fail "Herdr CI job must install via bin/mx-install-herdr.sh"
-  grep -Fq 'bin/mx-install-treehouse.sh' "$CI" \
-    || fail "Herdr CI job must install via bin/mx-install-treehouse.sh"
-  grep -Fq 'bin/mx-herdr-ci-cleanup.sh' "$CI" \
-    || fail "Herdr CI job must use bounded lab cleanup"
+  grep -Fq 'target/release/mx install-herdr' "$CI" \
+    || fail "Herdr CI job must install via the Rust binary"
+  grep -Fq 'target/release/mx install-treehouse' "$CI" \
+    || fail "Herdr CI job must install Treehouse via the Rust binary"
+  grep -Fq 'target/release/mx herdr-ci-cleanup' "$CI" \
+    || fail "Herdr CI job must use Rust-owned bounded lab cleanup"
   grep -Fq 'tests-timing-aggregate:' "$CI" \
     || fail "CI must aggregate per-lane timing artifacts"
   grep -Fq 'timeout-minutes: 20' "$CI" \
@@ -440,15 +440,15 @@ test_ci_and_docs_call_the_owner() {
   fi
   grep -Fq 'mx-test-timing' "$CI" \
     || fail "CI must upload timing artifacts"
-  grep -Fq 'bin/mx-test-run.sh --all' "$CONTRIB" \
-    || fail "CONTRIBUTING must document bin/mx-test-run.sh --all"
-  grep -Fq 'bin/mx-test-run.sh --family' "$CONTRIB" \
+  grep -Fq 'target/release/mx test-run --all' "$CONTRIB" \
+    || fail "CONTRIBUTING must document the Rust --all command"
+  grep -Fq 'target/release/mx test-run --family' "$CONTRIB" \
     || fail "CONTRIBUTING must document family selection"
-  grep -Fq 'bin/mx-test-run.sh --changed' "$CONTRIB" \
+  grep -Fq 'target/release/mx test-run --changed' "$CONTRIB" \
     || fail "CONTRIBUTING must document changed-file selection"
-  grep -Fq 'bin/mx-test-run.sh --all --jobs 1' "$CONTRIB" \
+  grep -Fq 'target/release/mx test-run --all --jobs 1' "$CONTRIB" \
     || fail "CONTRIBUTING must document the serial reference"
-  grep -Fq 'bin/mx-test-run.sh --all --jobs auto' "$CONTRIB" \
+  grep -Fq 'target/release/mx test-run --all --jobs auto' "$CONTRIB" \
     || fail "CONTRIBUTING must document the accelerated full run"
   grep -Fq 'intent-targeted' "$CONTRIB" \
     || fail "CONTRIBUTING must document intent-targeted deep-review Test"
@@ -504,6 +504,27 @@ test_portable_shard_docs_match_lanes() {
   grep -Fq 'resource manifest' "$SHARD_DOC" \
     || fail "portable shard documentation does not identify conflict owner"
   pass "portable shard documentation matches generated scheduler ownership"
+}
+
+test_internal_multicall_marker_does_not_leak_to_tests() {
+  local fixture output temp
+  temp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-multicall.XXXXXX")
+  fixture="$temp/multicall-env.test.sh"
+  cat > "$fixture" <<'SH'
+#!/usr/bin/env bash
+[ -z "${MX_MULTICALL_EXPLICIT:-}" ] || {
+  printf 'not ok - internal multicall marker leaked into a test child\n'
+  exit 1
+}
+printf 'ok - internal multicall marker is absent\n'
+SH
+  chmod +x "$fixture"
+  output=$(MX_MULTICALL_EXPLICIT=1 "$RUNNER" --jobs 2 "$fixture") \
+    || fail "runner leaked its internal multicall marker: $output"
+  assert_contains "$output" 'ok - internal multicall marker is absent' \
+    "test child did not prove the internal marker was removed"
+  rm -rf "$temp"
+  pass "runner removes its internal multicall marker at every test boundary"
 }
 
 test_resource_manifest_is_exact_and_unknown_fails_closed() {
@@ -833,6 +854,7 @@ test_exclude_family
 test_ci_and_docs_call_the_owner
 test_portable_shard_union_and_coverage_guard
 test_portable_shard_docs_match_lanes
+test_internal_multicall_marker_does_not_leak_to_tests
 test_resource_manifest_is_exact_and_unknown_fails_closed
 test_jobs_parallel_scheduler_and_failure_propagation
 test_scheduler_resource_conflicts

@@ -29,11 +29,11 @@ if ! command -v mx_primary_tangle_branch >/dev/null 2>&1; then
   . "$MX_PROBE_LIB_DIR/mx-tangle-lib.sh"
 fi
 
-MX_PROBE_COMMON_TOOLS="node git gh jq treehouse"
+MX_PROBE_COMMON_TOOLS="git gh jq treehouse"
 
 mx_probe_install_cmd() {
   case "$1" in
-    tmux|node|git|gh|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
+    tmux|git|gh|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
     cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     *) return 1 ;;

@@ -61,14 +61,8 @@ new_world() {
 # and compatible, so its own detect-only section stays quiet except where a
 # test deliberately breaks one. Mirrors mx-bootstrap.test.sh's fixture.
 make_fake_toolchain() {
-  local fakebin=$1 real_node
+  local fakebin=$1
   mx_fake_exit0 "$fakebin" tmux
-  real_node=$(command -v node) || fail "node is required for owned backlog tests"
-  cat > "$fakebin/node" <<SH
-#!/usr/bin/env bash
-exec '$real_node' "\$@"
-SH
-  chmod +x "$fakebin/node"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -727,7 +721,7 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   # Force a MISSING diagnostic line so the bootstrap section is non-trivial.
-  rm -f "$fakebin/node"
+  rm -f "$fakebin/gh"
 
   printf 'window=mx-sess:w1\nkind=delivery\n' > "$home/state/task-a.meta"
 
@@ -750,7 +744,7 @@ EOF
   [ "$context_line" -lt "$system_line" ] || fail "CONTEXT did not precede SYSTEM STATE"
   [ "$system_line" -lt "$next_line" ] || fail "SYSTEM STATE did not precede NEXT STEP"
 
-  missing_line=$(printf '%s\n' "$out" | grep -n 'MISSING: node' | head -1 | cut -d: -f1)
+  missing_line=$(printf '%s\n' "$out" | grep -n 'MISSING: gh' | head -1 | cut -d: -f1)
   [ -n "$missing_line" ] || fail "MISSING diagnostic did not appear at all"
   [ "$missing_line" -lt "$system_line" ] || fail "actionable MISSING diagnostic was buried after the bulk system-state digest"
 
@@ -1009,7 +1003,7 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
-  rm -f "$fakebin/node"
+  rm -f "$fakebin/gh"
 
   printf 'needs-decision: pick a library\n' > "$home/state/task-z.status"
   append_wake "$home/state" signal task-z.status "needs-decision: pick a library"
@@ -1019,7 +1013,7 @@ EOF
   # mx-lock.sh's own exact success text.
   assert_contains "$out" "lock acquired: harness pid" "mx-lock.sh's real output did not appear (composition, not reimplementation)"
   # mx-bootstrap.sh's own exact MISSING-tool line format.
-  assert_contains "$out" "MISSING: node (install:" "mx-bootstrap.sh's real detect line did not appear verbatim"
+  assert_contains "$out" "MISSING: gh (install:" "mx-bootstrap.sh's real detect line did not appear verbatim"
   # mx-wake-drain.sh's real drained record (raw tab-separated queue line).
   assert_contains "$out" "$(printf 'signal\ttask-z.status\tneeds-decision: pick a library')" "mx-wake-drain.sh's real drained record did not appear"
   assert_contains "$out" "wake annotation: latest wake-EVENT observed at drain, not current state: task-z.status: needs-decision: pick a library" "mx-session-start.sh did not preserve the drain's separate annotation line"

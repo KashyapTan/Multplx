@@ -163,7 +163,7 @@ mx_rust_runtime_bin() {
   fi
   if [ ! -x "$candidate" ]; then
     echo "error: Multplx Rust runtime is unavailable at $candidate" >&2
-    echo "       run cargo build --workspace --release or select the entry point's explicit legacy implementation" >&2
+    echo "       run cargo build --release --workspace --locked or reinstall Multplx" >&2
     return 1
   fi
   printf '%s\n' "$candidate"

@@ -1,7 +1,11 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
 mod authority;
+mod deep_review;
+mod launcher;
 mod review;
+mod tooling;
+mod workflow_runtime;
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -28,6 +32,36 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Activate or operate one globally configured Multplx control plane.
+    #[command(disable_help_flag = true)]
+    Launcher {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Install, upgrade, or uninstall the global Multplx binary.
+    #[command(disable_help_flag = true)]
+    LauncherInstall {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Run the resource-aware behavior-test scheduler.
+    #[command(disable_help_flag = true)]
+    TestRun {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Run the repeated behavior-test isolation proof.
+    #[command(disable_help_flag = true)]
+    TestIsolationProof {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Validate maintained documentation classification and local links.
+    #[command(disable_help_flag = true)]
+    DocAudienceCheck {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Run one review, delivery, or pull-request security entry point.
     #[command(hide = true, disable_help_flag = true)]
     Review {
@@ -433,7 +467,8 @@ impl Cli {
         T: Into<OsString> + Clone,
     {
         let mut args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-        if let Some(program) = args.first().cloned()
+        if std::env::var("MX_MULTICALL_EXPLICIT").as_deref() != Ok("1")
+            && let Some(program) = args.first().cloned()
             && let Some(alias) = multicall_alias(&program)
         {
             args.insert(1, alias);
@@ -444,6 +479,11 @@ impl Cli {
     /// Runs the selected command.
     pub fn run(self) -> i32 {
         match self.command {
+            Command::Launcher { args } => launcher::run(&args),
+            Command::LauncherInstall { args } => launcher::run_installer(&args),
+            Command::TestRun { args } => tooling::run_tests(&args),
+            Command::TestIsolationProof { args } => tooling::run_isolation_proof(&args),
+            Command::DocAudienceCheck { args } => tooling::run_documentation_check(&args),
             Command::Review { entry, args } => review::run(&entry, &args),
             Command::Authority { entry, args } => authority::run(&entry, &args),
             Command::Backend { command } => run_backend(command),
@@ -546,13 +586,13 @@ impl Cli {
             }
             Command::Send { args } => run_send(&args),
             Command::DaemonReport { args } => run_daemon_report(&args),
-            Command::HomeSeed { args } => run_lifecycle_compat("mx-home-seed.sh", &args),
+            Command::HomeSeed { args } => run_home_seed(&args),
             Command::Spawn { args } => run_lifecycle_compat("mx-spawn.sh", &args),
             Command::SuperviseDaemon { args } => {
                 run_lifecycle_compat("mx-supervise-daemon.sh", &args)
             }
             Command::Teardown { args } => run_lifecycle_compat("mx-teardown.sh", &args),
-            Command::UpstreamDiff { args } => run_lifecycle_compat("mx-upstream-diff.sh", &args),
+            Command::UpstreamDiff { args } => run_upstream_diff(&args),
             Command::FastForward { args } => run_fast_forward(&args),
             Command::PendingReply { args } => run_pending_reply(&args),
             Command::Supervision { entry, args } => run_supervision(&entry, &args),
@@ -1403,6 +1443,37 @@ fn run_lifecycle_compat(script: &str, args: &[OsString]) -> i32 {
         .exec();
     eprintln!("error: could not start {script}: {error}");
     1
+}
+
+fn run_upstream_diff(args: &[OsString]) -> i32 {
+    let values = args
+        .iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let root = runtime_root(&active_paths().0);
+    let record = std::env::var_os("MX_UPSTREAM_RECORD_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("docs/upstream.md"));
+    let output = multplx_domain::lifecycle::upstream_diff::run(&values, &record);
+    print!("{}", output.stdout);
+    eprint!("{}", output.stderr);
+    output.status
+}
+
+fn run_home_seed(args: &[OsString]) -> i32 {
+    if args.len() == 1 && args[0] == OsStr::new("validate") {
+        let (_, _, data) = active_paths();
+        return match multplx_domain::lifecycle::home_seed::validate_registry(
+            &data.join("daemons.md"),
+        ) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprint!("{error}");
+                1
+            }
+        };
+    }
+    run_lifecycle_compat("mx-home-seed.sh", args)
 }
 
 fn run_fast_forward(args: &[OsString]) -> i32 {
@@ -3770,6 +3841,9 @@ fn run_primitive(command: PrimitiveCommand) -> Result<i32, String> {
 
 fn multicall_alias(program: &OsStr) -> Option<OsString> {
     let file_name = Path::new(program).file_name()?.to_str()?;
+    if file_name == "multplx" {
+        return Some(OsString::from("launcher"));
+    }
     file_name.strip_prefix("mx-").map(OsString::from)
 }
 

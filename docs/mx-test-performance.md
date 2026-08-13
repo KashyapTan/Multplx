@@ -7,7 +7,7 @@ This document records evidence and does not redefine scheduler behavior.
 ## Plan-06 boundary
 
 The authoritative Plan-06 confirmation run occurred on 2026-07-29 UTC.
-`bin/mx-test-run.sh --all` executed the complete 96-script inventory in 3,127,519 ms, or 52 minutes 7.5 seconds.
+The archived Plan-06 `bin/mx-test-run.sh --all` run executed the complete 96-script inventory in 3,127,519 ms, or 52 minutes 7.5 seconds.
 Ninety-five scripts passed.
 Nine scripts reported expected environment-gated skips.
 One existing feature-branch merge-base conformance case failed without aborting aggregate evidence.
@@ -70,25 +70,25 @@ None of these retained smokes changes a production timeout or makes the runner w
 Capture the serial reference:
 
 ```sh
-bin/mx-test-run.sh --all --jobs 1 --json /tmp/mx-test-serial.json
+target/release/mx test-run --all --jobs 1 --json /tmp/mx-test-serial.json
 ```
 
 Capture the accelerated run:
 
 ```sh
-bin/mx-test-run.sh --all --jobs auto --json /tmp/mx-test-accelerated.json
+target/release/mx test-run --all --jobs auto --json /tmp/mx-test-accelerated.json
 ```
 
 Compare contract parity:
 
 ```sh
-bin/mx-test-run.sh --compare-json /tmp/mx-test-serial.json /tmp/mx-test-accelerated.json
+target/release/mx test-run --compare-json /tmp/mx-test-serial.json /tmp/mx-test-accelerated.json
 ```
 
 Re-run the resource proof:
 
 ```sh
-bin/mx-test-isolation-proof.sh --jobs 4 --repeats 2 --json /tmp/mx-isolation-proof.json
+target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /tmp/mx-isolation-proof.json
 ```
 
 The accepted local runs used Herdr 0.7.4 with the same headless default-session precondition as the required CI lane.
@@ -103,6 +103,7 @@ The accepted proof table is updated only from complete runner JSON artifacts.
 | Plan-06 serial boundary | 2026-07-29 UTC | 96 scripts, 3,127,519 ms, 1 known branch-topology failure, 9 expected skips |
 | Plan-6.5 split assertion map | 2026-07-29 UTC | 140 cases mapped exactly once |
 | Resource isolation proof | 2026-08-03 UTC | 100 portable candidates x 2 rounds, 518,489 ms, 0 failed rounds, 0 leaks, 503 conflict pairs |
+| Plan-13 resource isolation proof | 2026-08-13 EDT | 103 portable candidates x 2 rounds, 1,270,859 ms, 0 failed rounds, 0 leaks |
 | Accelerated local run 1 | 2026-07-29 UTC | 106 scripts, 365,595 ms, 0 failed, 9 expected skips, 1,501 assertions |
 | Accelerated local run 2 | 2026-07-29 UTC | 106 scripts, 370,606 ms, 0 failed, 9 expected skips, 1,501 assertions |
 | Accelerated local run 3 | 2026-07-29 UTC | 106 scripts, 367,851 ms, 0 failed, 9 expected skips, 1,501 assertions |
@@ -113,8 +114,8 @@ The three-run accelerated median is 367,851 ms, or 6 minutes 7.9 seconds.
 The maximum is 370,606 ms, or 6 minutes 10.6 seconds.
 The current serial-to-accelerated speedup is 3.40x.
 The exact parity command reported `MX_TEST_PARITY ok scripts=106 assertions=1501`.
-The accepted resource proof was produced with `bin/mx-test-isolation-proof.sh --jobs 4 --repeats 2 --json docs/mx-test-isolation-proof.json`.
-It reported `MX_ISOLATION_SUMMARY total=100 failed_rounds=0 concurrency=4 repeats=2 duration_ms=518489 leaks=0`.
+The current accepted resource proof was produced with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json docs/mx-test-isolation-proof.json`.
+It reported `MX_ISOLATION_SUMMARY total=103 failed_rounds=0 concurrency=4 repeats=2 duration_ms=1270859 leaks=0`.
 The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 125-script runner manifest.
 
 CI evidence cannot be manufactured locally.

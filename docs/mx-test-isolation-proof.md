@@ -1,8 +1,8 @@
 # Multplx resource isolation proof
 
 This document is the human-readable owner for the resource-scheduler proof archived in `docs/mx-test-isolation-proof.json`.
-`bin/mx-test-run.sh` owns the resource manifest and production scheduling.
-`bin/mx-test-isolation-proof.sh` consumes that manifest and owns conflict-matrix inspection, repeated portable stress rounds, and leak checks.
+The Rust `test-run` command owns the resource manifest and production scheduling.
+The Rust `test-isolation-proof` command consumes that manifest and owns conflict-matrix inspection, repeated portable stress rounds, and leak checks.
 
 ## Proof contract
 
@@ -27,10 +27,10 @@ No other nonzero script exit is accepted.
 ## Inspect and reproduce
 
 ```sh
-bin/mx-test-run.sh --list-resources --all
-bin/mx-test-isolation-proof.sh --list-conflicts
-bin/mx-test-isolation-proof.sh --list-exclusions
-bin/mx-test-isolation-proof.sh --jobs 4 --repeats 2 --json /tmp/mx-isolation-proof.json
+target/release/mx test-run --list-resources --all
+target/release/mx test-isolation-proof --list-conflicts
+target/release/mx test-isolation-proof --list-exclusions
+target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /tmp/mx-isolation-proof.json
 bash tests/mx-test-isolation-proof.test.sh
 ```
 

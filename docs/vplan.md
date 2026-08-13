@@ -39,7 +39,7 @@ The artifact must be inside the Multplx root.
 `review` returns an already-live identity-matched session's URL instead of starting a duplicate.
 `comments` returns `[]` when the artifact has no persisted review block and refuses malformed or duplicate blocks.
 The stable shell entry point selects the Rust `multplx-services` implementation before it reads or mutates review state.
-`MX_LOCAL_SERVICES_IMPLEMENTATION=legacy` is the explicit rollback selector during the port window; the default path does not start Node.
+The service is Rust-native and does not start Node.
 
 ## Server lifecycle and port selection
 

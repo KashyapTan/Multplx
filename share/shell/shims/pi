@@ -2,4 +2,6 @@
 SHIM_PATH=${BASH_SOURCE[0]}
 case "$SHIM_PATH" in */*) ;; *) SHIM_PATH=$PWD/$SHIM_PATH ;; esac
 SHIM_DIR=$(cd "${SHIM_PATH%/*}" && pwd -P)
-exec "$SHIM_DIR/../../../bin/mx-launch-harness.sh" pi "$@"
+MX_ROOT=${MX_ROOT_OVERRIDE:-$(cd "$SHIM_DIR/../../.." && pwd -P)}
+MX_BINARY=${MX_LAUNCH_BIN_PATH:-${MX_RUST_BIN:-$MX_ROOT/target/release/mx}}
+MX_MULTICALL_EXPLICIT=1 exec "$MX_BINARY" launch-harness pi "$@"

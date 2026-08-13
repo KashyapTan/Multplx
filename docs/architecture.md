@@ -5,8 +5,7 @@ How broker works, in depth.
 The [README](../README.md) carries the high-level diagram and a short synopsis.
 The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
-The broker contract and routing index for conditional procedures is temporarily maintained in [`AGENTS-PORTING.md`](../AGENTS-PORTING.md); this is the human-facing companion.
-The temporary filename prevents auto-loading while Multplx ports itself, and portion 13 restores it to root `AGENTS.md` only after the full Rust-default gate passes.
+The broker contract and routing index for conditional procedures is maintained in [`AGENTS.md`](../AGENTS.md); this is the human-facing companion.
 
 ## Rust runtime workspace
 
@@ -25,17 +24,14 @@ Portion 08 makes Rust the production entry owner for supervision, watcher, wake,
 Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
 Portion 10 makes Rust the production entry owner for decisions, maintainer overrides, canonical exception bindings, exact-command exceptions, and workflows.
 Native override transitions, decision identities, workflow validation, workflow dry-run rendering, snapshot construction, and stage-order checks live in `multplx-domain`.
-The decision/backlog composition, subsystem binding collection, exact shell-command execution, and workflow stage executors retain one process-pinned compatibility body during the differential rollback window because they compose sourced Plan 11 review and delivery adapters.
 The Portion 09 snapshot module parses the canonical JSON into typed task, endpoint, backlog, queue, daemon, lifecycle-run, and artifact containers before the native human renderer consumes it.
-The larger composed bootstrap, doctor, session-start, and canonical snapshot bodies retain an explicitly selected compatibility implementation during the differential rollback window, and the selector is pinned before lock acquisition, mutation, recursive cross-home reads, or projection begins.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
 Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
 Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
-The backend, harness, headroom, and Treehouse shell entry points choose the Rust path once before an operation and never fall back after execution begins.
-Rust is the production default for that layer after Portion 06, while explicit `legacy` selectors retain a bounded rollback until the port closeout removes it.
+The backend, harness, headroom, and Treehouse entry points execute the Rust path and never fall back after execution begins.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
 Portion 12 makes `multplx-services` the production owner of the disposable viz and vplan loopback HTTP services, their bounded HTTP framing, lifecycle records, token and PID-identity validation, child-command bounds, cache, and atomic confirmation persistence.
-The stable shell adapters select that Rust boundary before state access and retain the Node implementations only as an explicit rollback path until Portion 13.
+The stable shell adapters execute that Rust boundary before state access.
 `multplx-test-support` owns shared deterministic Rust fixtures, while colocated core and CLI tests own Portion 02 fault, concurrency, and legacy-versus-Rust parity coverage.
 The release binary exposes hidden diagnostics, primitive compatibility commands, and transport commands used by selected public shell adapters.
 Every operator command, hook, skill, workflow, and launcher keeps its existing public interface.
@@ -52,7 +48,7 @@ Doctor's `--fix` surface is limited to a proof-bound stale watcher-lock cleanup 
 ## Event-driven supervision
 
 The Rust supervision runtime is the production entry owner for status reporting, hook policies, durable wake draining, watcher cycles, checkpoints, turn-end adapters, and AFK transfer.
-The stable `bin/` names are source-compatible adapters that select Rust by default and retain an explicit pre-mutation `legacy` rollback path during the port window.
+The stable `bin/` names are source-compatible transports to the Rust runtime.
 The zero-token watcher (`bin/mx-watch.sh`) sleeps on the system and wakes the broker only when something is actionable.
 Actionable wakes include maintainer-relevant status signals, no-verb signals whose actor is not provably working, authenticated check output such as PR merge polling, stale panes whose actor is not provably working whether their status log looks terminal or non-terminal, provably-working stale panes that persist past `MX_STALE_ESCALATE_SECS`, declared external waits that remain paused past `MX_PAUSE_RESURFACE_SECS`, and heartbeat backstop hits.
 Repeated provably-working stale escalations on the same unchanged pane add an escalation count to the wake reason and, at `MX_WEDGE_DEMAND_INSPECT_COUNT`, a `demand-deep-inspection` marker.
@@ -205,7 +201,6 @@ Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show
 ## Deep-review gate authority boundary
 
 Multplx's own deep-review gate normally runs agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
-The Rust-port checkout intentionally keeps that identity in non-auto-loaded `AGENTS-PORTING.md` until final restoration.
 `bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
 Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
 The Rust lifecycle entry points for `mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` preserve the deep-review gate and exit with status 3 before system mutation when `DEEP_REVIEW_GATE` is present.
@@ -227,12 +222,12 @@ The upstream-sync workflow composes that engine with a fetch-only private clone 
 ## Two task shapes
 
 DELIVERY TASK change projects and delivery by project mode (`deep-review`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
-The intake and authority contract in `AGENTS-PORTING.md` owns when separate scout research is warranted during the port.
+The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
 
 ## Dispatch profiles
 
 Actor and scout dispatch can stay on the static actor harness resolved by `config/actor-harness`, or it can use local dispatch profiles in `config/actor-dispatch.json`.
-The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `AGENTS-PORTING.md` section 4 during the port, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh` after final restoration.
+The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
 The shell scripts validate the JSON shape and verified harness/effort combinations, but they do not parse task intent, match natural-language rules, or own array selection.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses actor and scout launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
@@ -290,7 +285,7 @@ It consumes the private restart-safe handoff, re-verifies its gate and approved 
 PR-based task merges run from the same non-agent credential context through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
 The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
 `multplx-domain::review_delivery` owns canonical GitHub identity reconstruction, exact SHA and ref validation, closed delivery and poll schemas, no-follow private-file reads, and the inert intent sanitizer.
-The fixed shell filenames and sourced helper ABIs remain available only for existing-home compatibility and explicit rollback until Portion 13's deletion gate.
+Fixed shell filenames remain available where existing homes or host integrations require a pathname, and they delegate to the Rust command boundary.
 Teardown is fail-closed for delivery worktrees: dirty worktrees refuse, committed work must be landed, and any ready-to-push handoff must be delivered or explicitly discarded before the worktree is returned.
 The `mx teardown --help` contract and [`bin/mx-teardown.sh`](../bin/mx-teardown.sh)'s compatibility header describe the landed-work proofs, PR-discovery fallback, and stale-lock recovery procedure implemented by the Rust lifecycle layer.
 
@@ -300,7 +295,7 @@ Durable project-intrinsic agent knowledge lives in each project's committed `AGE
 Delivery briefs prompt actors to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 Each project `AGENTS.md` carries a short `## Maintaining this file` self-governance section; `bin/mx-ensure-agents-md.sh` owns the canonical wording and injects it idempotently when creating the skeleton, promoting an existing `CLAUDE.md`, or reconciling an existing `AGENTS.md` that still lacks it.
 It refuses a case-variant real memory file such as a lowercase `agents.md`, whose `CLAUDE.md` symlink would carry an uppercase literal target that dangles on a case-sensitive filesystem, and surfaces the mismatch for manual reconciliation.
-The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned during the port by [`AGENTS-PORTING.md`](../AGENTS-PORTING.md) (project and knowledge management).
+The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned by [`AGENTS.md`](../AGENTS.md) (project and knowledge management).
 
 ## Operational memory routing
 
@@ -325,7 +320,7 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 `/updatemultplx` fast-forwards the running Multplx repo and registered daemon homes from `origin`, then re-reads updated instructions and nudges updated daemons without touching project clones.
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 The origin-based updater and the local daemon sync share the same guarded fast-forward helper; only the origin mode fetches.
-The mechanics are owned by the `/updatemultplx` skill and broker's operating contract, temporarily maintained in [`AGENTS-PORTING.md`](../AGENTS-PORTING.md) (self-update).
+The mechanics are owned by the `/updatemultplx` skill and broker's operating contract in [`AGENTS.md`](../AGENTS.md) (self-update).
 
 ## Restart-proof
 

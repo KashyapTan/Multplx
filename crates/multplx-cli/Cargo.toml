@@ -17,6 +17,11 @@ multplx-domain = { path = "../multplx-domain" }
 multplx-services = { path = "../multplx-services" }
 tempfile.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+sha2.workspace = true
+rustix.workspace = true
+time.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

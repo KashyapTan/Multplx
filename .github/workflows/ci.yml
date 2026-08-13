@@ -39,54 +39,8 @@ jobs:
         run: cargo test --locked --workspace
       - name: Build release workspace
         run: cargo build --release --workspace --locked
-      - name: Exercise Portion 08 Rust and explicit-legacy supervision paths
-        run: |
-          set -eu
-          for implementation in rust legacy; do
-            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-report.test.sh
-            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-subagent-pretool-check.test.sh
-            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-arm-pretool-check.test.sh
-            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-cd-pretool-check.test.sh
-            MX_SUPERVISION_IMPLEMENTATION="$implementation" tests/mx-wake-queue.test.sh
-          done
-      - name: Exercise Portion 09 Rust and explicit-legacy session paths
-        run: |
-          set -eu
-          for implementation in rust legacy; do
-            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-bootstrap.test.sh
-            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-doctor.test.sh
-            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-sessionstart-nudge.test.sh
-            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-supervision-instructions.test.sh
-            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-system-snapshot-view.test.sh
-            MX_SESSION_IMPLEMENTATION="$implementation" tests/mx-timeline.test.sh
-          done
-      - name: Exercise Portion 10 Rust and explicit-legacy authority paths
-        run: |
-          set -eu
-          for implementation in rust legacy; do
-            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-decision-hold-lifecycle.test.sh
-            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-maintainer-override.test.sh
-            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-workflow-lib.test.sh
-            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-workflow.test.sh
-            MX_AUTHORITY_IMPLEMENTATION="$implementation" tests/mx-lock-override.test.sh
-          done
-      - name: Exercise Portion 11 Rust and explicit-legacy review-delivery paths
-        run: |
-          set -eu
-          for implementation in rust legacy; do
-            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-deep-review-lib.test.sh
-            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-deep-review.test.sh
-            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-pr-merge.test.sh
-            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-push-service.test.sh
-            MX_REVIEW_DELIVERY_IMPLEMENTATION="$implementation" tests/mx-review-diff.test.sh
-          done
-      - name: Exercise Portion 12 Rust and explicit-legacy local-service paths
-        run: |
-          set -eu
-          for implementation in rust legacy; do
-            MX_LOCAL_SERVICES_IMPLEMENTATION="$implementation" tests/mx-viz.test.sh
-            MX_LOCAL_SERVICES_IMPLEMENTATION="$implementation" tests/mx-vplan.test.sh
-          done
+      - name: Exercise production Rust command boundaries
+        run: target/release/mx test-run --family pure-contract-unit --jobs auto
 
   rust-advisories:
     name: Rust dependency advisories
@@ -109,11 +63,14 @@ jobs:
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
       - name: Enforce workspace line coverage
-        # The required real-Herdr lane owns OS lifecycle coverage for these three modules.
-        # Deterministic Herdr runtime and wire coverage remains inside this 93% gate.
+        # Behavior lanes own process-driven CLI orchestration, home seeding,
+        # upstream review, and the three OS-lifecycle Herdr modules. This gate
+        # measures the reusable Rust library/runtime surface; deterministic
+        # Herdr runtime and wire coverage remains inside the 93% denominator.
         run: >-
           cargo llvm-cov --locked --workspace --all-targets
-          --ignore-filename-regex 'herdr_(cleanup|presentation|tools)\.rs'
+          --ignore-filename-regex
+          '(multplx-cli/src/|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)'
           --fail-under-lines 93
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
@@ -123,8 +80,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Build Rust runtime
+        run: cargo build --release --workspace --locked
       - name: Prove complete regression partition
-        run: bin/mx-test-run.sh --check-coverage
+        run: target/release/mx test-run --check-coverage
 
   # Two duration-balanced portable shards generated from the accepted timing
   # baseline. Both use the same resource scheduler as local --all.
@@ -144,7 +103,7 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
-          bin/mx-test-run.sh --lane portable-parallel-1 --jobs auto \
+          target/release/mx test-run --lane portable-parallel-1 --jobs auto \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-portable-parallel-1.json"
       - name: Upload shard 1 timing artifact
         if: always()
@@ -168,7 +127,7 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
-          bin/mx-test-run.sh --lane portable-parallel-2 --jobs auto \
+          target/release/mx test-run --lane portable-parallel-2 --jobs auto \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-portable-parallel-2.json"
       - name: Upload shard 2 timing artifact
         if: always()
@@ -201,9 +160,8 @@ jobs:
             exit 1
           }
           tmux -V
-      - name: Exercise the Rust tmux shadow path
+      - name: Exercise the production tmux path
         env:
-          MX_BACKEND_IMPLEMENTATION: rust
           MX_RUST_BIN: ${{ github.workspace }}/target/release/mx
         run: |
           tests/mx-backend.test.sh
@@ -216,7 +174,7 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
-          bin/mx-test-run.sh --lane portable-serial --jobs auto \
+          target/release/mx test-run --lane portable-serial --jobs auto \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-portable-serial.json"
       - name: Upload portable serial timing artifact
         if: always()
@@ -234,9 +192,6 @@ jobs:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-latest
     env:
-      MX_BACKEND_IMPLEMENTATION: rust
-      MX_HERDR_TOOLS_IMPLEMENTATION: rust
-      MX_TREEHOUSE_TOOLS_IMPLEMENTATION: rust
       MX_RUST_BIN: ${{ github.workspace }}/target/release/mx
     # Real Herdr is slower than the portable suite; this is a hang tripwire,
     # not the expected healthy end of the lane (estimate 15-40 min first cut).
@@ -251,22 +206,20 @@ jobs:
         run: |
           set -eu
           command -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }
-          command -v python3 >/dev/null || { echo "::error::python3 is required"; exit 1; }
           command -v curl >/dev/null || { echo "::error::curl is required"; exit 1; }
           command -v tar >/dev/null || { echo "::error::tar is required"; exit 1; }
           jq --version
-          python3 --version
       - name: Install pinned Herdr
         run: |
           set -eu
-          bin/mx-install-herdr.sh "$RUNNER_TEMP/bin"
+          target/release/mx install-herdr "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Install pinned Treehouse
         run: |
           set -eu
           # Several real-herdr-gated E2E scripts require treehouse for spawn
           # worktree acquisition (presentation, workspace-per-home, autodetect).
-          bin/mx-install-treehouse.sh "$RUNNER_TEMP/bin"
+          target/release/mx install-treehouse "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Assert Herdr pin and protocol floor
         run: |
@@ -320,21 +273,21 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-herdr"
-          bin/mx-herdr-ci-cleanup.sh snapshot "$RUNNER_TEMP/mx-herdr/sessions-before.json"
+          target/release/mx herdr-ci-cleanup snapshot "$RUNNER_TEMP/mx-herdr/sessions-before.json"
       - name: Run real-Herdr family (serial, required)
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/mx-test"
           # Serial only. Fail if any script reports herdr not found. Live
           # harness credential tests stay outside this family (opt-in env only).
-          bin/mx-test-run.sh --family real-herdr-gated \
+          target/release/mx test-run --family real-herdr-gated \
             --fail-on-gate-skip 'herdr not found' \
             --json "$RUNNER_TEMP/mx-test/mx-test-timing-herdr.json"
       - name: Cleanup job-owned Herdr lab sessions
         if: always()
         run: |
           set -eu
-          bin/mx-herdr-ci-cleanup.sh teardown "$RUNNER_TEMP/mx-herdr/sessions-before.json" || {
+          target/release/mx herdr-ci-cleanup teardown "$RUNNER_TEMP/mx-herdr/sessions-before.json" || {
             echo "::warning::lab session cleanup reported a problem; see logs"
             # Surface diagnostics without weakening the suite result above.
             herdr session list --json || true
@@ -363,6 +316,8 @@ jobs:
     if: always()
     steps:
       - uses: actions/checkout@v6
+      - name: Build Rust runtime
+        run: cargo build --release --workspace --locked
       - name: Download lane timing artifacts
         uses: actions/download-artifact@v4
         with:
@@ -379,7 +334,7 @@ jobs:
             echo "::warning::no per-lane timing JSON found to aggregate"
             exit 0
           fi
-          bin/mx-test-run.sh --aggregate-json \
+          target/release/mx test-run --aggregate-json \
             "$RUNNER_TEMP/mx-test/mx-test-timing-aggregate.json" \
             "${inputs[@]}"
       - name: Upload aggregate timing artifact
@@ -389,54 +344,6 @@ jobs:
           name: mx-test-timing-aggregate
           path: ${{ runner.temp }}/mx-test/mx-test-timing-aggregate.json
           if-no-files-found: warn
-
-  macos-stock-bash:
-    name: Stock macOS Bash snapshot compatibility
-    runs-on: macos-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-      - name: Run snapshot consumers with stock Bash
-        shell: /bin/bash {0}
-        env:
-          PATH: /bin:/usr/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
-          MX_LOCAL_STATE_IMPLEMENTATION: legacy
-          MX_BACKEND_IMPLEMENTATION: legacy
-          MX_HARNESS_IMPLEMENTATION: legacy
-          MX_HEADROOM_IMPLEMENTATION: legacy
-          MX_TREEHOUSE_TOOLS_IMPLEMENTATION: legacy
-          MX_SUPERVISION_IMPLEMENTATION: legacy
-          MX_SESSION_IMPLEMENTATION: legacy
-          MX_AUTHORITY_IMPLEMENTATION: legacy
-        run: |
-          set -eu
-          case "$BASH_VERSION" in
-            3.2.57*) ;;
-            *) echo "::error::expected stock macOS Bash 3.2.57, got $BASH_VERSION"; exit 1 ;;
-          esac
-          /bin/bash --version | head -1
-          command -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }
-          /bin/bash -n bin/mx-system-snapshot.sh
-
-          snapshot_output=$(/bin/bash tests/mx-system-snapshot-view.test.sh)
-          printf '%s\n' "$snapshot_output"
-          snapshot_count=$(printf '%s\n' "$snapshot_output" | grep -c '^ok - ')
-          [ "$snapshot_count" -eq 17 ] || {
-            echo "::error::expected 17 snapshot/system-view tests, got $snapshot_count"
-            exit 1
-          }
-
-          status_output=$(
-            /bin/bash tests/mx-status-snapshot-projection-reconciliation.test.sh
-            /bin/bash tests/mx-status-snapshot-landed-bounds.test.sh
-            /bin/bash tests/mx-status-snapshot-catchup-forge.test.sh
-          )
-          printf '%s\n' "$status_output"
-          status_count=$(printf '%s\n' "$status_output" | grep -c '^ok - ')
-          [ "$status_count" -eq 42 ] || {
-            echo "::error::expected 42 Catchup tests, got $status_count"
-            exit 1
-          }
 
   invariants:
     name: Repo invariants

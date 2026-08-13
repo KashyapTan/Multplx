@@ -11,13 +11,14 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 
 make_runtime() {
   local target=$1 source_file
-  mkdir -p "$target/bin" "$target/.agents/skills" "$target/share/shell/shims"
+  mkdir -p "$target/bin" "$target/.agents/skills" "$target/share/shell/shims" "$target/target/release"
   for source_file in \
-    mx-launcher-lib.sh mx-launcher.sh mx-launcher-install.sh \
+    mx-launcher.sh mx-launcher-install.sh \
     mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh \
     mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
     cp "$ROOT/bin/$source_file" "$target/bin/$source_file"
   done
+  cp "$ROOT/target/release/mx" "$target/target/release/mx"
   cp "$ROOT/share/shell/multplx.bash" "$target/share/shell/multplx.bash"
   cp "$ROOT/share/shell/multplx.zsh" "$target/share/shell/multplx.zsh"
   cp "$ROOT/share/shell/shims/claude" "$target/share/shell/shims/claude"
@@ -25,7 +26,7 @@ make_runtime() {
   cp "$ROOT/share/shell/shims/agent" "$target/share/shell/shims/agent"
   cp "$ROOT/share/shell/shims/cursor-agent" "$target/share/shell/shims/cursor-agent"
   cp "$ROOT/share/shell/shims/pi" "$target/share/shell/shims/pi"
-  chmod +x "$target/bin/"*.sh "$target/share/shell/shims/"*
+  chmod +x "$target/bin/"*.sh "$target/share/shell/shims/"* "$target/target/release/mx"
   printf '# launcher fixture\n' >"$target/AGENTS.md"
   printf '# skill fixture\n' >"$target/.agents/skills/fixture.md"
   git -C "$target" init -q
@@ -81,7 +82,8 @@ test_existing_install_paths_and_literal_safety() {
   for part in config data projects state; do
     [ -d "$root/$part" ] || fail "existing mode did not create $part"
   done
-  output=$("$case_dir/bin/multplx" paths)
+  output=$("$case_dir/bin/multplx" paths 2>&1) \
+    || fail "installed launcher paths command failed: $output"
   assert_contains "$output" "root=$root" "paths root mismatch"
   assert_contains "$output" "home=$root" "paths home mismatch"
   assert_contains "$output" "bin=$case_dir/bin/multplx" "paths bootstrap mismatch"
@@ -174,6 +176,70 @@ test_atomic_interruption_recovery() {
   "$case_dir/bin/multplx" paths >/dev/null \
     || fail "managed install did not converge after runtime interruption"
   pass "atomic publication interruptions leave every install recoverable"
+}
+
+test_verified_artifact_upgrade_and_broken_download_recovery() {
+  local root="$TMP_ROOT/artifact-root" case_dir="$TMP_ROOT/artifact-case"
+  local broken_case="$TMP_ROOT/artifact-broken" artifact checksum bad_checksum status before
+  make_runtime "$root"
+  artifact="$TMP_ROOT/multplx-release-artifact"
+  cp "$ROOT/target/release/mx" "$artifact"
+  chmod +x "$artifact"
+  checksum=$(shasum -a 256 "$artifact" | awk '{print $1}')
+  case "$checksum" in
+    0*) bad_checksum="1${checksum#?}" ;;
+    *) bad_checksum="0${checksum#?}" ;;
+  esac
+
+  if "$INSTALLER" --root "$root" --binary "$artifact" --checksum "$bad_checksum" \
+      --bin-dir "$broken_case/bin" --config-dir "$broken_case/config" \
+      --data-dir "$broken_case/data" >/dev/null 2>&1; then status=0; else status=$?; fi
+  expect_code 2 "$status" "mismatched release checksum"
+  [ ! -e "$broken_case" ] || fail "bad artifact mutated install directories before verification"
+
+  "$INSTALLER" --root "$root" --binary "$artifact" --checksum "$checksum" \
+    --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+    --data-dir "$case_dir/data" >/dev/null
+  [ "$(cat "$case_dir/config/binary.sha256")" = "$checksum" ] \
+    || fail "verified artifact receipt mismatch"
+  before=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
+  "$INSTALLER" --upgrade --root "$root" --binary "$artifact" --checksum "$checksum" \
+    --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+    --data-dir "$case_dir/data" >/dev/null
+  [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$before" ] \
+    || fail "verified upgrade changed artifact bytes"
+  "$case_dir/bin/multplx" paths >/dev/null \
+    || fail "verified artifact installation is not launchable"
+  pass "verified artifacts, upgrades, and broken downloads preserve install ownership"
+}
+
+test_plan13_adapters_are_exec_only() {
+  local adapter lines
+  [ ! -e "$ROOT/bin/mx-launcher-lib.sh" ] \
+    || fail "retired launcher policy library still exists"
+  for adapter in \
+    bin/backends/herdr-eventwait bin/backends/herdr-workspace-move \
+    bin/mx-actor-state.sh bin/mx-arm-pretool-check.sh \
+    bin/mx-backlog-handoff.sh bin/mx-backlog.sh bin/mx-brief.sh \
+    bin/mx-cd-pretool-check.sh bin/mx-check-register.sh bin/mx-config-push.sh \
+    bin/mx-daemon-report.sh bin/mx-deep-review.sh bin/mx-deliver.sh bin/mx-doc-audience-check.sh bin/mx-ensure-agents-md.sh \
+    bin/mx-harness.sh bin/mx-headroom.sh bin/mx-herdr-ci-cleanup.sh \
+    bin/mx-install-herdr.sh bin/mx-install-treehouse.sh bin/mx-launch-harness.sh \
+    bin/mx-launcher-install.sh bin/mx-launcher.sh bin/mx-maintainer-override.sh bin/mx-override-run.sh \
+    bin/mx-merge-local.sh bin/mx-pr-check.sh bin/mx-pr-merge.sh bin/mx-pr-poll.sh bin/mx-project-mode.sh bin/mx-promote.sh \
+    bin/mx-report bin/mx-report-mcp bin/mx-send.sh \
+    bin/mx-supervision-instructions.sh bin/mx-system-sync.sh bin/mx-system-view.sh \
+    bin/mx-review-diff.sh bin/mx-test-isolation-proof.sh bin/mx-test-run.sh bin/mx-timeline.sh \
+    bin/mx-update.sh bin/mx-validation-waive.sh bin/mx-viz.sh bin/mx-vplan.sh bin/mx-wake-drain.sh; do
+    lines=$(wc -l <"$ROOT/$adapter" | tr -d ' ')
+    [ "$lines" -le 10 ] || fail "$adapter contains more than minimal transport logic"
+    grep -Eq '^exec ' "$ROOT/$adapter" \
+      || fail "$adapter does not end at an exec boundary"
+    if grep -Eq '(^|[[:space:]])(git|awk|sed|jq|node|python3|flock|mkdir|mv|rm)([[:space:]]|$)' "$ROOT/$adapter"; then
+      fail "$adapter contains policy, parsing, or state-mutation commands"
+    fi
+  done
+  pass "Plan 13 compatibility paths contain only executable-location transport"
 }
 
 test_managed_clone_and_linked_worktree_refusal() {
@@ -305,7 +371,8 @@ SH
   output=$("$case_dir/bin/multplx" doctor --json)
   [ "$output" = "doctor:$root:$root:--json" ] || fail "doctor delegation changed arguments or home"
   output=$("$case_dir/bin/multplx" update)
-  [ "$output" = "update:$root:$root" ] || fail "update delegation changed root/home"
+  assert_not_contains "$output" "update:$root:$root" \
+    "update unexpectedly delegated back into the retired shell body"
   if MULTPLX_ACTIVE=1 "$case_dir/bin/multplx" shell >/dev/null 2>&1; then status=0; else status=$?; fi
   expect_code 2 "$status" "nested activation"
   pass "operator commands delegate and nested activation refuses cleanly"
@@ -314,6 +381,8 @@ SH
 test_existing_install_paths_and_literal_safety
 test_collisions_uninstall_and_private_preservation
 test_atomic_interruption_recovery
+test_verified_artifact_upgrade_and_broken_download_recovery
+test_plan13_adapters_are_exec_only
 test_managed_clone_and_linked_worktree_refusal
 test_harness_cwd_arguments_environment_and_backend
 test_live_lock_refusal_and_stale_permission

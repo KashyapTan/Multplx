@@ -29,7 +29,7 @@ bin/mx-viz.sh stop
 `serve` is singleton and idempotent per `MX_HOME`.
 The script header owns the exact command, environment, and validation contract.
 The stable shell entry point selects the Rust `multplx-services` implementation before it reads or mutates lifecycle state.
-`MX_LOCAL_SERVICES_IMPLEMENTATION=legacy` is the explicit rollback selector during the port window; the default path does not start Node.
+The service is Rust-native and does not start Node.
 
 ## Lifecycle and ports
 

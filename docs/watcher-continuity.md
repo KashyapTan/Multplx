@@ -2,7 +2,7 @@
 
 The watcher remains intentionally one-shot: one actionable reason closes one watcher cycle.
 Must-work continuity now lives above that process boundary instead of depending on the model remembering a re-arm step.
-The stable watcher, arm, checkpoint, Claude auto-arm, drain, and AFK entry names select the Rust supervision runtime by default; `MX_SUPERVISION_IMPLEMENTATION=legacy` exists only for bounded differential rollback before mutation.
+The stable watcher, arm, checkpoint, Claude auto-arm, drain, and AFK entry names execute the Rust supervision runtime.
 
 ## Ownership
 
