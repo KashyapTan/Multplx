@@ -80,6 +80,20 @@ SH
   printf '%s\n' manual > "${fakebin%/*}/home-placeholder" 2>/dev/null || true
 }
 
+# make_missing_gh_mask <path>: make command discovery report gh as absent even
+# when the host runner installs it in the base system PATH.
+make_missing_gh_mask() {
+  local path=$1
+  cat > "$path" <<'SH'
+command() {
+  if [ "${1:-}" = -v ] && [ "${2:-}" = gh ]; then
+    return 1
+  fi
+  builtin command "$@"
+}
+SH
+}
+
 # make_fake_ps_claude <fakebin>: harness_pid()/holder_alive() (mx-lock.sh) walk
 # `ps` output looking for a harness command name; this fake reports EVERY
 # queried pid as a live `claude` harness, so the very first ancestry check
@@ -713,7 +727,7 @@ SH
 # --- output ordering ----------------------------------------------------------
 
 test_output_ordering_diagnostics_lead() {
-  local rec root home fakebin out lock_line boot_line wake_line context_line system_line next_line
+  local rec root home fakebin mask out lock_line boot_line wake_line context_line system_line next_line
   rec=$(new_world ordering)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -722,10 +736,12 @@ EOF
   make_fake_ps_claude "$fakebin"
   # Force a MISSING diagnostic line so the bootstrap section is non-trivial.
   rm -f "$fakebin/gh"
+  mask="$home/mask-gh.bash"
+  make_missing_gh_mask "$mask"
 
   printf 'window=mx-sess:w1\nkind=delivery\n' > "$home/state/task-a.meta"
 
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  out=$(BASH_ENV="$mask" run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
   lock_line=$(printf '%s\n' "$out" | grep -n '^LOCK$' | head -1 | cut -d: -f1)
   boot_line=$(printf '%s\n' "$out" | grep -n '^BOOTSTRAP$' | head -1 | cut -d: -f1)
@@ -996,7 +1012,7 @@ EOF
 # --- composition: real scripts run, not reimplemented ------------------------
 
 test_composition_invokes_real_scripts() {
-  local rec root home fakebin out
+  local rec root home fakebin mask out
   rec=$(new_world composition)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -1004,11 +1020,13 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   rm -f "$fakebin/gh"
+  mask="$home/mask-gh.bash"
+  make_missing_gh_mask "$mask"
 
   printf 'needs-decision: pick a library\n' > "$home/state/task-z.status"
   append_wake "$home/state" signal task-z.status "needs-decision: pick a library"
 
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  out=$(BASH_ENV="$mask" run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
   # mx-lock.sh's own exact success text.
   assert_contains "$out" "lock acquired: harness pid" "mx-lock.sh's real output did not appear (composition, not reimplementation)"
