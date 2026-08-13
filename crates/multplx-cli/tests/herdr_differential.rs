@@ -1002,6 +1002,7 @@ esac
             .read_line(&mut request)
             .expect("read event request");
         assert!(request.contains("\"method\":\"events.subscribe\""));
+        thread::sleep(Duration::from_millis(30));
         stream
             .write_all(
                 b"{\"id\":\"mx-eventwait\",\"result\":{\"type\":\"subscription_started\"}}\n",
@@ -1010,7 +1011,7 @@ esac
         stream
             .write_all(b"{\"event\":\"pane.agent_status_changed\",\"data\":{\"pane_id\":\"parent:p2\",\"workspace_id\":\"parent\",\"agent_status\":\"blocked\",\"agent\":\"claude\"}}\n")
             .expect("write event");
-        thread::sleep(Duration::from_millis(30));
+        thread::sleep(Duration::from_millis(1_200));
     });
     let event = success_output(run(
         &fake,
@@ -1020,7 +1021,7 @@ esac
             "herdr",
             "event-reader",
             event_socket.to_str().expect("event socket"),
-            "0.02",
+            "1",
             "parent:p2",
         ],
     ));
