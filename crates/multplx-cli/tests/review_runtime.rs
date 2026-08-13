@@ -83,6 +83,7 @@ fn every_public_adapter_rejects_an_invalid_selector_before_state_access() {
     ] {
         let output = Command::new(source_root().join("bin").join(entry))
             .env("MX_ROOT_OVERRIDE", source_root())
+            .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
             .env("MX_STATE_OVERRIDE", temp.path().join("missing-state"))
             .env("MX_REVIEW_DELIVERY_IMPLEMENTATION", "invalid")
             .output()
