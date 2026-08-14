@@ -15,6 +15,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use multplx_core::classification::{open_activities, open_decisions};
+use multplx_core::process::{ProcessProbe, SystemProcessProbe};
 use regex::Regex;
 
 pub(crate) struct Paths {
@@ -1595,21 +1596,10 @@ fn watcher(paths: &Paths) -> Value {
     json!({"lock_present":lock.is_dir(),"pid":pid,"identity_verified":verified,"alive":verified,"beacon_age_secs":age,"stale":age.is_none_or(|age|age>=grace),"afk":paths.state.join(".afk").exists()})
 }
 fn process_identity(pid: u32) -> Option<String> {
-    let output = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "lstart=", "-o", "command="])
-        .env("LC_ALL", "C")
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| {
-            String::from_utf8_lossy(&output.stdout)
-                .trim_start()
-                .trim_end()
-                .to_owned()
-        })
-        .filter(|v| !v.is_empty())
+    SystemProcessProbe::default()
+        .identity(pid)
+        .ok()
+        .map(|identity| identity.marker)
 }
 fn wake_queue(paths: &Paths) -> Value {
     let records = fs::read_to_string(paths.state.join(".wake-queue"))

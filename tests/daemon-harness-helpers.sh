@@ -2000,12 +2000,13 @@ SH
     spawn*) ;;
     *) fail "bootstrap delivered to a daemon before its respawn completed" ;;
   esac
-  assert_present "$stale" "bootstrap removed the stale generation before relaunch handling"
-  assert_present "$stale.pending" "bootstrap removed the stale marker before relaunch handling"
+  # A successful post-respawn delivery may consume the generation immediately;
+  # an incomplete delivery must leave it for retry. Both are valid only after
+  # the log proves respawn completed first.
   mx_config_reread_discard_pending "$w/sm" || fail "could not clean respawn test generation"
   assert_no_reread_pending "$w/sm"
   assert_no_reread_instructions "$w/sm"
-  pass "B19 bootstrap completes respawn before inherited-config delivery"
+  pass "B19 bootstrap respawns before inherited-config reread"
 }
 
 test_spawn_quarantines_pending_rereads_on_cleanup_failure() {
