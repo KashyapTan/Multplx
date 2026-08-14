@@ -133,8 +133,18 @@ fn run_quiet(path: &Path, args: &[&str]) -> bool {
 }
 
 fn self_checks(paths: &Paths, output: &mut String, verbose: bool) {
-    let vplan = std::env::var_os("MX_VPLAN_SELF_CHECK_OVERRIDE")
-        .map(PathBuf::from)
+    let vplan_override = std::env::var_os("MX_VPLAN_SELF_CHECK_OVERRIDE").map(PathBuf::from);
+    self_checks_with_vplan(paths, output, verbose, vplan_override.as_deref());
+}
+
+fn self_checks_with_vplan(
+    paths: &Paths,
+    output: &mut String,
+    verbose: bool,
+    vplan_override: Option<&Path>,
+) {
+    let vplan = vplan_override
+        .map(Path::to_path_buf)
         .unwrap_or_else(|| paths.source_root.join("bin/mx-vplan.sh"));
     if !run_quiet(&vplan, &["--self-check"]) {
         output.push_str("VPLAN_INVALID: bundled mx-vplan.sh self-check failed\n");
@@ -1249,7 +1259,7 @@ mod tests {
             "printf '%s\\n' '{\"model\":\"x\",\"capacity\":1,\"in_use\":0,\"available\":1,\"candidates\":[],\"at_limit\":false}'",
         );
         let mut output = String::new();
-        self_checks(&fixture, &mut output, true);
+        self_checks_with_vplan(&fixture, &mut output, true, None);
         assert!(output.contains("vplan self-check passed"));
         assert!(output.contains("headroom self-check passed"));
 
@@ -1259,7 +1269,7 @@ mod tests {
             "printf 'not-json\\n'",
         );
         output.clear();
-        self_checks(&fixture, &mut output, false);
+        self_checks_with_vplan(&fixture, &mut output, false, None);
         assert!(output.contains("VPLAN_INVALID"));
         assert!(output.contains("HEADROOM_INVALID"));
         assert!(run_quiet(Path::new("/bin/sh"), &["-c", "exit 0"]));

@@ -72,7 +72,7 @@ make_case() {
   local name=$1 case_dir fakebin
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
-  mkdir -p "$case_dir/state" "$case_dir/config" "$fakebin"
+  mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
 
   # Mocks for the post-check teardown steps. Refuse logic exits before these
   # run; the ALLOW cases need them so the script can complete cleanly.
@@ -449,10 +449,12 @@ run_teardown() {
   if [ "${1:-}" = --force ]; then
     shift
     bindings=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-override-bindings.sh" cleanup task-x1) || return 1
     operation=$(printf '%s' "$bindings" | jq -r '.operation')
     target=$(printf '%s' "$bindings" | jq -r '.target')
     request=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-maintainer-override.sh" request \
       --boundary cleanup.discard-unlanded --task task-x1 \
       --project "$(printf '%s' "$bindings" | jq -r '.project')" \
@@ -464,6 +466,7 @@ run_teardown() {
     # authority without bypassing the lock proof.
     printf '%s\n' "$$" > "$case_dir/state/.lock"
     MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-maintainer-override.sh" grant "$request" \
       --maintainer-words "Grant cleanup.discard-unlanded for $operation on $target only." \
       || return 1
@@ -472,6 +475,7 @@ run_teardown() {
   MX_ROOT_OVERRIDE="$ROOT" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   MX_CONFIG_OVERRIDE="$case_dir/config" \
+  MX_DATA_OVERRIDE="$case_dir/data" \
   PATH="$case_dir/fakebin:$PATH" \
     "$TEARDOWN" task-x1 "$@"
 }
