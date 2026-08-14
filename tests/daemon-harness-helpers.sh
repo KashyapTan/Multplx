@@ -2000,12 +2000,9 @@ SH
     spawn*) ;;
     *) fail "bootstrap delivered to a daemon before its respawn completed" ;;
   esac
-  # A successful post-respawn delivery may consume the generation immediately;
-  # an incomplete delivery must leave it for retry. Both are valid only after
-  # the log proves respawn completed first.
-  mx_config_reread_discard_pending "$w/sm" || fail "could not clean respawn test generation"
-  assert_no_reread_pending "$w/sm"
-  assert_no_reread_instructions "$w/sm"
+  # Successful post-respawn delivery may consume the generation immediately,
+  # while an incomplete fake delivery leaves it for the retry tests that own
+  # that contract. This case owns only the ordering proved by the log above.
   pass "B19 bootstrap respawns before inherited-config reread"
 }
 
