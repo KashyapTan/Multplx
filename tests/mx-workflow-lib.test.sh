@@ -6,17 +6,18 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 mx_test_tmproot_into TMP_ROOT workflow-lib
+RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 wf_definition_json() {
-  "$ROOT/target/release/mx" authority mx-workflow.sh parse-json "$1"
+  "$RUST_BIN" authority mx-workflow.sh parse-json "$1"
 }
 
 wf_substitute() {
-  "$ROOT/target/release/mx" authority mx-workflow.sh substitute "$1" "$2" "$3" "$4"
+  "$RUST_BIN" authority mx-workflow.sh substitute "$1" "$2" "$3" "$4"
 }
 
 wf_output_path() {
-  "$ROOT/target/release/mx" authority mx-workflow.sh output-path "$1" "$2" "$3"
+  "$RUST_BIN" authority mx-workflow.sh output-path "$1" "$2" "$3"
 }
 
 assert_eq() {

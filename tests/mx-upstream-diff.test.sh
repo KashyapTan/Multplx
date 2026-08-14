@@ -225,11 +225,12 @@ test_record_transitions_and_retirement() {
 
 test_workflow_definition_contract() {
   local definition="$ROOT/workflows/upstream-sync.workflow.md" normalized
+  local rust_bin=${MX_RUST_BIN:-$ROOT/target/release/mx}
   normalized=$("$ROOT/bin/mx-workflow.sh" validate "$definition") \
     || fail "upstream-sync workflow does not validate"
   assert_contains "$normalized" "valid: upstream-sync (6 stages)" \
     "workflow validation returned the wrong definition"
-  normalized=$("$ROOT/target/release/mx" authority mx-workflow.sh parse-json "$definition") \
+  normalized=$("$rust_bin" authority mx-workflow.sh parse-json "$definition") \
     || fail "workflow normalization failed"
   jq -e '
     ([.stages[] | select(.gate == "auto") |

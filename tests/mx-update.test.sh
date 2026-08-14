@@ -23,6 +23,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 UPDATE="$ROOT/bin/mx-update.sh"
+RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 # Deterministic, isolated git identity for fixture commits.
 mx_git_identity fmtest fmtest@example.com
@@ -301,11 +302,11 @@ test_registered_launcher_binary_updates_after_fast_forward() {
   installed="$w/installed/multplx"
   config="$w/launcher-config"
   mkdir -p "$fakebin" "${installed%/*}" "$config"
-  cp "$ROOT/target/release/mx" "$installed"
+  cp "$RUST_BIN" "$installed"
   printf '\0old-installed-generation\0' >>"$installed"
   chmod +x "$installed"
   old_hash=$(shasum -a 256 "$installed" | awk '{print $1}')
-  new_hash=$(shasum -a 256 "$ROOT/target/release/mx" | awk '{print $1}')
+  new_hash=$(shasum -a 256 "$RUST_BIN" | awk '{print $1}')
   printf '%s\n' "$(cd "$w/main" && pwd -P)" >"$config/root"
   printf '%s\n' "$(cd "$w/home" && pwd -P)" >"$config/home"
   printf '%s\n' "$old_hash" >"$config/binary.sha256"
@@ -321,7 +322,7 @@ cp "$MX_UPDATE_ARTIFACT" "$MX_ROOT_OVERRIDE/target/release/mx"
 chmod +x "$MX_ROOT_OVERRIDE/target/release/mx"
 SH
   chmod +x "$fakebin/cargo"
-  out=$(PATH="$fakebin:$PATH" MX_UPDATE_ARTIFACT="$ROOT/target/release/mx" \
+  out=$(PATH="$fakebin:$PATH" MX_UPDATE_ARTIFACT="$RUST_BIN" \
     MX_ROOT_OVERRIDE="$w/main" MX_HOME="$w/home" \
     MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
     "$UPDATE" 2>"$w/update.err") \
@@ -346,7 +347,7 @@ test_failed_release_build_preserves_installed_generation() {
   installed="$w/installed/multplx"
   config="$w/launcher-config"
   mkdir -p "$fakebin" "${installed%/*}" "$config"
-  cp "$ROOT/target/release/mx" "$installed"
+  cp "$RUST_BIN" "$installed"
   printf '\0preserved-installed-generation\0' >>"$installed"
   chmod +x "$installed"
   old_hash=$(shasum -a 256 "$installed" | awk '{print $1}')
@@ -384,8 +385,8 @@ cp "$MX_UPDATE_ARTIFACT" "$MX_ROOT_OVERRIDE/target/release/mx"
 chmod +x "$MX_ROOT_OVERRIDE/target/release/mx"
 SH
   chmod +x "$fakebin/cargo"
-  new_hash=$(shasum -a 256 "$ROOT/target/release/mx" | awk '{print $1}')
-  out=$(PATH="$fakebin:$PATH" MX_UPDATE_ARTIFACT="$ROOT/target/release/mx" \
+  new_hash=$(shasum -a 256 "$RUST_BIN" | awk '{print $1}')
+  out=$(PATH="$fakebin:$PATH" MX_UPDATE_ARTIFACT="$RUST_BIN" \
     MX_ROOT_OVERRIDE="$w/main" MX_HOME="$w/home" \
     MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
     "$UPDATE" 2>"$w/retry.err") \
