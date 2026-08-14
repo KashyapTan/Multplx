@@ -11,7 +11,9 @@ fn repo_root() -> PathBuf {
 }
 
 fn legacy_bash() -> Command {
-    Command::new("/bin/bash")
+    let mut command = Command::new("/bin/bash");
+    command.env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"));
+    command
 }
 
 fn shell(script: &str) -> Output {
