@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
-# tests/mx-backend.test.sh - P1 runtime-backend extraction conformance
-# (data/mx-backend-design-d7/report.md, herdr-addendum.md "events as the core
-# abstraction"). bin/mx-backend.sh and bin/backends/tmux.sh move the tmux
-# command sequences that mx-send.sh, mx-peek.sh, mx-spawn.sh, and
-# mx-teardown.sh used to run inline into named adapter functions. This suite:
+# tests/mx-backend.test.sh - native runtime-backend contract coverage.
+# The typed backend facade now owns selection, metadata, capture, send, spawn,
+# and teardown behavior. This suite:
 #
 #   1. Unit-tests bin/mx-backend.sh's selection, meta, and dispatch helpers.
-#   2. Runs the PRE-REFACTOR versions of mx-send.sh, mx-peek.sh, mx-spawn.sh,
-#      and mx-teardown.sh (checked out from the merge-base with `main`, the
-#      commit this branch started from) against the SAME fake tmux/treehouse
-#      binaries and fixtures as the REFACTORED versions in this checkout, then
-#      diffs the two command logs byte-for-byte - the report's P1 checklist
-#      item "run current main scripts and refactored scripts against the same
-#      fake tools and compare command logs".
+#   2. Exercises native send, capture, and spawn behavior against deterministic
+#      fake backend tools without depending on repository history.
 #   3. Asserts the `--backend`/`MX_BACKEND` selection refuses unknown backends
 #      and the blocked `codex-app` backend loudly.
 #
@@ -77,74 +70,6 @@ exit 1
 SH
   chmod +x "$fb/uname" "$fb/lsappinfo" "$fb/ps"
   printf '%s\n' "$fb"
-}
-
-# The commit this branch started from - the P1 "current main" baseline.
-resolve_base_ref() {
-  local ref base
-  for ref in main refs/heads/main origin/main refs/remotes/origin/main origin/HEAD refs/remotes/origin/HEAD; do
-    if git -C "$ROOT" rev-parse --verify -q "$ref^{commit}" >/dev/null; then
-      base=$(git -C "$ROOT" merge-base HEAD "$ref" 2>/dev/null) || continue
-      [ -n "$base" ] || continue
-      printf '%s\n' "$base"
-      return 0
-    fi
-  done
-  return 1
-}
-BASE_REF=$(resolve_base_ref) \
-  || fail "mx-backend baseline requires local main or origin/main; fetch the default branch before running this test"
-
-# --- shared: a pre-refactor bin/ shim --------------------------------------
-#
-# build_old_bin echoes a directory whose bin/ subdir holds the PRE-REFACTOR
-# mx-send.sh, mx-peek.sh, mx-watch.sh, mx-spawn.sh, mx-teardown.sh, and any
-# changed source-library dependency (all extracted from BASE_REF), plus copies
-# of every OTHER sibling script those five entrypoints source, so those copies are exactly
-# what BASE_REF would have used too. Copies keep BASH_SOURCE-based sibling
-# resolution inside the synthetic tree on both macOS and Linux; symlinks make
-# that resolution shell/platform-dependent. MX_ROOT_OVERRIDE pointed at this dir's
-# root makes "$MX_ROOT/bin/mx-project-mode.sh" (etc.) resolve correctly.
-# mx-backend.sh (and its bin/backends/ adapters) is the dispatcher every one
-# of the five REFACTORED scripts sources; it must be a real, reachable file in
-# the old bin/ too or `. "$SCRIPT_DIR/mx-backend.sh"` aborts under set -eu -
-# hence it is a copied sibling, not an extracted-from-BASE_REF file: for a
-# tmux-only conformance run the tmux adapter's behavior is what is under test,
-# and that is unchanged by any later (e.g. non-tmux backend) addition to
-# mx-backend.sh's own dispatch surface.
-OLD_BIN_UNCHANGED_SIBLINGS="mx-gate-refuse-lib.sh mx-guard.sh mx-lock-lib.sh mx-pr-lib.sh mx-tangle-lib.sh mx-tmux-lib.sh mx-composer-lib.sh mx-wake-lib.sh mx-classify-lib.sh mx-supervision-lib.sh mx-ff-lib.sh mx-config-inherit-lib.sh mx-project-mode.sh mx-harness.sh mx-actor-state.sh mx-decision-hold.sh mx-backlog-lib.sh mx-backend.sh mx-operational-input.sh mx-rust-runtime.sh"
-# A pull-request merge may add a new main-only dependency that the branch's older baseline does not have yet.
-OLD_BIN_OPTIONAL_SIBLINGS="mx-pending-reply-lib.sh mx-maintainer-override-lib.sh"
-OLD_BIN_REFACTORED="mx-send.sh mx-peek.sh mx-watch.sh mx-spawn.sh mx-teardown.sh mx-marker-lib.sh"
-
-build_old_bin() {  # <name> -> echoes root dir (root/bin/<script> is the entry point)
-  local name=$1 root bin f
-  root="$TMP_ROOT/$name"
-  bin="$root/bin"
-  mkdir -p "$bin"
-  for f in $OLD_BIN_UNCHANGED_SIBLINGS; do
-    cp "$ROOT/bin/$f" "$bin/$f"
-  done
-  for f in $OLD_BIN_OPTIONAL_SIBLINGS; do
-    [ -f "$ROOT/bin/$f" ] || continue
-    cp "$ROOT/bin/$f" "$bin/$f"
-  done
-  cp -R "$ROOT/bin/backends" "$bin/backends"
-  for f in $OLD_BIN_REFACTORED; do
-    git -C "$ROOT" show "$BASE_REF:bin/$f" > "$bin/$f"
-    chmod +x "$bin/$f"
-  done
-  # This suite compares backend command logs, not the retired backlog backend.
-  # Retarget the historical teardown fixture onto the owned compatibility
-  # functions so the baseline can run without reconstructing an external tool.
-  local legacy_lib='mx-tasks'"-axi-lib.sh"
-  local legacy_function='mx_tasks'"_axi_backend_available"
-  sed -e "s/$legacy_lib/mx-backlog-lib.sh/g" \
-    -e "s/$legacy_function/mx_backlog_backend_available/g" \
-    "$bin/mx-teardown.sh" > "$bin/mx-teardown.sh.next"
-  mv "$bin/mx-teardown.sh.next" "$bin/mx-teardown.sh"
-  chmod +x "$bin/mx-teardown.sh"
-  printf '%s\n' "$root"
 }
 
 # --- mx-backend.sh unit tests ------------------------------------------------
@@ -851,80 +776,6 @@ test_spawn_symlinked_project_prefix_avoids_false_refusal() {
   run_spawn_symlink_case physical physical
   run_spawn_symlink_case logical logical
   pass "mx-spawn.sh: a project reached through a symlinked prefix (e.g. macOS /tmp -> /private/tmp) does not trip the isolation guard's false refusal"
-}
-
-# --- old vs new: mx-teardown.sh ----------------------------------------------
-
-make_teardown_fakebin() {  # <dir> -> echoes fakebin dir; logs tmux+treehouse calls
-  local dir=$1 fb="$1/fakebin"
-  mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-{ printf 'tmux'; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "${MX_TMUX_LOG:?}"
-exit 0
-SH
-  cat > "$fb/treehouse" <<'SH'
-#!/usr/bin/env bash
-set -u
-{ printf 'treehouse'; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "${MX_TMUX_LOG:?}"
-exit 0
-SH
-  chmod +x "$fb/tmux" "$fb/treehouse"
-  printf '%s\n' "$fb"
-}
-
-run_teardown_case() {
-  local script=$1 fmroot=$2 fb=$3 log=$4 state=$5 data=$6 config=$7 id=$8
-  : > "$log"
-  env PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$fmroot" \
-    MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" \
-    MX_TMUX_LOG="$log" \
-    "$script" "$id"
-}
-
-test_teardown_conformance_old_vs_new() {
-  local old_bin fb proj wt id
-  local state_old state_new config_old config_new data log_old log_new out_old out_new rc_old rc_new
-  old_bin=$(build_old_bin teardown-old)
-  proj="$TMP_ROOT/teardown-project"; wt="$TMP_ROOT/teardown-wt"
-  id="teardownconform1"
-  mx_git_worktree "$proj" "$wt" "mx/$id"
-  fb=$(make_teardown_fakebin "$TMP_ROOT/teardown-fake")
-
-  data="$TMP_ROOT/teardown-data"
-  mkdir -p "$data/$id"
-  printf 'scout findings\n' > "$data/$id/report.md"
-  printf '## In flight\n\n## Queued\n\n## Done\n' > "$data/backlog.md"
-
-  state_old="$TMP_ROOT/teardown-state-old"; state_new="$TMP_ROOT/teardown-state-new"
-  config_old="$TMP_ROOT/teardown-config-old"; config_new="$TMP_ROOT/teardown-config-new"
-  mkdir -p "$state_old" "$state_new" "$config_old" "$config_new"
-
-  mx_write_meta "$state_old/$id.meta" \
-    "window=broker:mx-$id" "worktree=$wt" "project=$proj" "harness=claude" "kind=scout" "mode=deep-review" "yolo=off" \
-    "decisions_reviewed=1" "decision_keys="
-  mx_write_meta "$state_new/$id.meta" \
-    "window=broker:mx-$id" "worktree=$wt" "project=$proj" "harness=claude" "kind=scout" "mode=deep-review" "yolo=off" \
-    "decisions_reviewed=1" "decision_keys="
-  touch "$state_old/.last-watcher-beat" "$state_new/.last-watcher-beat"
-
-  log_old="$TMP_ROOT/teardown-old.log"; log_new="$TMP_ROOT/teardown-new.log"
-  out_old=$(run_teardown_case "$old_bin/bin/mx-teardown.sh" "$old_bin" "$fb" "$log_old" "$state_old" "$data" "$config_old" "$id" 2>&1)
-  rc_old=$?
-  out_new=$(run_teardown_case "$ROOT/bin/mx-teardown.sh" "$ROOT" "$fb" "$log_new" "$state_new" "$data" "$config_new" "$id" 2>&1)
-  rc_new=$?
-
-  expect_code 0 "$rc_old" "old mx-teardown.sh (scout, report present) should succeed"$'\n'"$out_old"
-  expect_code 0 "$rc_new" "new mx-teardown.sh (scout, report present) should succeed"$'\n'"$out_new"
-  diff -u "$log_old" "$log_new" > "$TMP_ROOT/teardown-diff.txt" 2>&1 \
-    || fail "mx-teardown.sh: tmux+treehouse command log differs old vs new"$'\n'"$(cat "$TMP_ROOT/teardown-diff.txt")"
-  assert_contains "$(cat "$log_new")" "treehouse"$'\x1f''return'$'\x1f''--force'$'\x1f'"$wt" \
-    "teardown did not call treehouse return --force <worktree>"
-  assert_contains "$(cat "$log_new")" "tmux"$'\x1f''kill-window'$'\x1f''-t'$'\x1f'"broker:mx-$id" \
-    "teardown did not call tmux kill-window -t <window>"
-
-  pass "mx-teardown.sh: treehouse return + tmux kill-window command log stays byte-identical across the backlog backend replacement"
 }
 
 # --- backend selection loudly refuses an unknown backend --------------------

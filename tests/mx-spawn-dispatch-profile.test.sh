@@ -365,7 +365,7 @@ test_cursor_private_plugin_and_effort_model() {
   assert_present "$plugin/hooks/stop.sh" "cursor private stop hook missing"
   assert_grep "$id.turn-ended'" "$plugin/hooks/stop.sh" \
     "cursor private stop hook is not bound to the task turn-end marker"
-  [ "$(stat -f '%Lp' "$plugin/hooks/stop.sh")" = 700 ] \
+  [ "$(mx_test_stat_mode "$plugin/hooks/stop.sh")" = 700 ] \
     || fail "cursor private stop hook is not executable owner-only"
   pass "cursor spawn enforces sandbox, scoped trust, private stop plugin, and effort model token"
 }
