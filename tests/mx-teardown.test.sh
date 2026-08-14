@@ -459,12 +459,14 @@ run_teardown() {
       --operation "$operation" --target "$target" \
       --expected-state "$(printf '%s' "$bindings" | jq -r '.expected_state_digest')" \
       --consequence "$(printf '%s' "$bindings" | jq -r '.consequence')") || return 1
-    MX_STATE_OVERRIDE="$case_dir/state"
-    export MX_STATE_OVERRIDE
-    # shellcheck source=bin/mx-maintainer-override-lib.sh
-    . "$ROOT/bin/mx-maintainer-override-lib.sh"
-    mx_override_require_primary_lock() { return 0; }
-    mx_override_grant "$request" "Grant cleanup.discard-unlanded for $operation on $target only." || return 1
+    # Exercise the production native grant path. The current test shell is the
+    # lock owner and the grant command is its descendant, matching real primary
+    # authority without bypassing the lock proof.
+    printf '%s\n' "$$" > "$case_dir/state/.lock"
+    MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      "$ROOT/bin/mx-maintainer-override.sh" grant "$request" \
+      --maintainer-words "Grant cleanup.discard-unlanded for $operation on $target only." \
+      || return 1
     set -- --override "$request" "$@"
   fi
   MX_ROOT_OVERRIDE="$ROOT" \
