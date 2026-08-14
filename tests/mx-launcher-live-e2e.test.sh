@@ -14,14 +14,15 @@ mx_test_tmproot_into TMP_ROOT mx-launcher-live
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 RUNTIME="$TMP_ROOT/runtime"
 mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
-  "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state"
-for file in mx-launcher-lib.sh mx-launcher.sh mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh; do
+  "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state" "$RUNTIME/target/release"
+for file in mx-launcher.sh mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh; do
   cp "$ROOT/bin/$file" "$RUNTIME/bin/$file"
 done
+cp "$ROOT/target/release/mx" "$RUNTIME/target/release/mx"
 cp "$ROOT/share/shell/multplx.bash" "$RUNTIME/share/shell/multplx.bash"
 cp "$ROOT/share/shell/multplx.zsh" "$RUNTIME/share/shell/multplx.zsh"
 cp "$ROOT/share/shell/shims/"* "$RUNTIME/share/shell/shims/"
-chmod +x "$RUNTIME/bin/"*.sh "$RUNTIME/share/shell/shims/"*
+chmod +x "$RUNTIME/bin/"*.sh "$RUNTIME/share/shell/shims/"* "$RUNTIME/target/release/mx"
 printf '# live launcher fixture\n' >"$RUNTIME/AGENTS.md"
 printf '# fixture\n' >"$RUNTIME/.agents/skills/fixture.md"
 git -C "$RUNTIME" init -q

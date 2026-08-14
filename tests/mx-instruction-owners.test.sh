@@ -14,40 +14,34 @@ CODING="$ROOT/.agents/skills/multplx-coding-guidelines/SKILL.md"
 RECOVERY="$ROOT/.agents/skills/stuck-actor-recovery/SKILL.md"
 DAEMON="$ROOT/.agents/skills/daemon-provisioning/SKILL.md"
 CONFIG="$ROOT/docs/configuration.md"
-AGENTS="$ROOT/AGENTS-PORTING.md"
+AGENTS="$ROOT/AGENTS.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
+BOOTSTRAP_DIAGNOSTICS="$ROOT/.agents/skills/bootstrap-diagnostics/SKILL.md"
 CREATE_WORKFLOW="$ROOT/.agents/skills/create-workflow/SKILL.md"
 PRIMARY_SCOPE="$ROOT/bin/mx-primary-scope-lib.sh"
-LAUNCHER_LIB="$ROOT/bin/mx-launcher-lib.sh"
 CODEX_HOOKS="$ROOT/.codex/hooks.json"
 CLAUDE="$ROOT/CLAUDE.md"
 RUST_PORT="$ROOT/plans/rust_port/PORTING.md"
 CURSOR_RULE="$ROOT/.cursor/rules/multplx.mdc"
 
 test_active_agents_contract_path() {
-  assert_present "$AGENTS" "temporary AGENTS-PORTING.md contract is missing"
-  [ ! -e "$ROOT/AGENTS.md" ] \
-    || fail "root AGENTS.md must remain absent until the final Rust-port restoration gate"
-  assert_grep 'Every port change that would normally edit the root `AGENTS.md` must edit this file instead' "$AGENTS" \
-    "temporary contract does not direct root Markdown edits to AGENTS-PORTING.md"
-  assert_grep 'final restoration gate in `plans/rust_port/PORTING.md`' "$AGENTS" \
-    "temporary contract does not point to the final restoration owner"
-  assert_grep 'This file is dormant product source during the port, not an instruction set for the agent performing the port.' "$AGENTS" \
-    "temporary contract can still be mistaken for active port-agent instructions"
-  assert_grep 'fresh, ordinary coding-agent session opened directly in this repository, never through the global `multplx` launcher' "$AGENTS" \
-    "temporary contract does not prohibit running the port through Multplx"
-  assert_grep 'Do not adopt the Multplx broker role' "$CLAUDE" \
-    "auto-loaded contributor guidance does not prohibit broker behavior during the port"
+  assert_present "$AGENTS" "root AGENTS.md contract is missing"
+  [ ! -e "$ROOT/AGENTS-PORTING.md" ] \
+    || fail "temporary AGENTS-PORTING.md survived final restoration"
+  assert_grep 'Shared tracked material is `AGENTS.md`' "$AGENTS" \
+    "active contract does not own the standard root filename"
+  assert_grep 'The Cargo workspace builds one release `mx` multicall binary' "$CLAUDE" \
+    "contributor guidance does not describe the production runtime"
   assert_grep 'Treat `AGENTS-PORTING.md` as dormant product source to inspect and edit, not as active instructions' "$RUST_PORT" \
     "authoritative Rust plan does not distinguish product source from active instructions"
-  assert_grep 'ordinary repository contributor in a fresh Cursor session' "$CURSOR_RULE" \
-    "Cursor guidance does not establish ordinary contributor mode"
-  for detector in "$PRIMARY_SCOPE" "$LAUNCHER_LIB" "$CODEX_HOOKS"; do
+  assert_grep 'Read root `AGENTS.md` and `CLAUDE.md`' "$CURSOR_RULE" \
+    "Cursor guidance does not load the restored contract"
+  for detector in "$PRIMARY_SCOPE" "$CODEX_HOOKS"; do
     assert_grep 'AGENTS.md' "$detector" "production auto-discovery no longer requires the standard root filename"
     assert_no_grep 'AGENTS-PORTING.md' "$detector" "production auto-discovery accepts the temporary port filename"
   done
-  pass "AGENTS-PORTING.md is the sole temporary root broker-contract filename"
+  pass "AGENTS.md is the sole active root broker-contract filename"
 }
 
 test_new_skill_metadata_and_triggers() {
@@ -162,9 +156,9 @@ test_agent_owned_capacity_array_dispatch_contract() {
   done
   assert_grep 'not as a permanent namespace or provider mapping' "$HARNESS" \
     "model discovery guidance permits a fixed provider table"
-  assert_grep '`AGENTS-PORTING.md` section 4 owns the dispatch and array-selection procedure during the port.' "$CONFIG" \
+  assert_grep '`AGENTS.md` section 4 owns the dispatch and array-selection procedure.' "$CONFIG" \
     "configuration docs do not point to the agent-owned array procedure"
-  assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP" \
+  assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP_DIAGNOSTICS" \
     "bootstrap docs lost the owned-headroom failure procedure"
   pass "broker directly compares every capacity candidate with authoritative model discovery"
 }
@@ -222,8 +216,8 @@ test_daemon_registry_contract_stays_concise() {
 test_state_startup_and_ordinary_recovery_placement() {
   assert_grep "single owner of the top-level operational-home layout" "$CONFIG" \
     "configuration docs do not own the operational state layout"
-  assert_grep "header is the single owner of session-start ordering" "$CONFIG" \
-    "session-start mechanism is not assigned to the script header"
+  assert_grep "single implementation owner of session-start ordering" "$CONFIG" \
+    "session-start mechanism is not assigned to the Rust implementation owner"
   assert_grep "Ordinary dead-direct-report recovery is owned by \`stuck-actor-recovery\`" "$CONFIG" \
     "D05 ordinary recovery placement is missing"
   assert_grep "## Session-start reconciliation for a dead actor" "$RECOVERY" \

@@ -2,7 +2,7 @@
 
 This record covers Rust-port Portion 07 on 2026-08-11.
 
-The production lifecycle selector is `MX_LIFECYCLE_IMPLEMENTATION`, defaults to `rust`, and accepts `legacy` only for bounded differential verification before mutation.
+Production task and daemon lifecycle have one implementation: the Rust multicall boundary.
 
 The Rust release binary was built with `cargo build --workspace --release` on macOS 26.5.2 arm64 with Rust 1.97.1.
 
@@ -48,8 +48,8 @@ The Rust path improved the representative transaction median by 69.2 percent and
 
 ## Retained compatibility surfaces
 
-The public shell filenames remain because operating homes and later port portions call them directly.
+The public shell filenames remain as stable transports for existing operating homes.
 
-`mx-ff-lib.sh` and `mx-pending-reply-lib.sh` retain sourced function ABIs for Portion 08 callers, while their mutation primitives dispatch to typed Rust operations by default.
+`mx-ff-lib.sh` and `mx-pending-reply-lib.sh` retain sourced function ABIs for remaining callers, while their mutation primitives always dispatch to typed Rust operations.
 
-The explicit legacy selector remains only for the rollback and differential window and is never selected implicitly.
+Plan 13 removed the explicit legacy selector and retained executable bodies after the differential window.

@@ -1,7 +1,7 @@
 # Documentation audiences
 
 [`documentation-audiences.json`](documentation-audiences.json) is the machine-consumed classification owner for every maintained prose surface.
-`bin/mx-doc-audience-check.sh` validates exact inventory coverage, README setup routing, required owner pointers, and local link targets.
+The Rust `doc-audience-check` command validates exact inventory coverage, README setup routing, required owner pointers, and local link targets.
 Audience metadata is centralized there rather than copied into front matter on every page.
 The tracked `firstmate/` tree is excluded because it is a read-only upstream reference, not a Multplx documentation surface.
 [The documentation index](README.md) is the human navigation owner.
@@ -22,7 +22,7 @@ Before removing that evidence from a tracked page, distill every unique current 
 Run the structural check directly with:
 
 ```sh
-bin/mx-doc-audience-check.sh
+target/release/mx doc-audience-check
 ```
 
 The check intentionally does not lint dates, versions, commands, paths, incident language, or transcript-like prose.

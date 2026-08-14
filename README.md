@@ -24,15 +24,6 @@ You work through one broker, which routes delivery and investigation work to ind
 The repository is the distribution: a broker contract, focused skills, local orchestration tools, safety policy, and durable state conventions.
 The global `multplx` command activates that distribution from any directory, after which a verified coding-agent harness takes the broker role while you retain product direction, architecture decisions, destructive choices, and merge approval.
 
-> [!WARNING]
-> This source checkout is intentionally not an operational Multplx broker home during the incremental Rust port.
-> Its root contract is temporarily named `AGENTS-PORTING.md` so harnesses do not auto-load broker behavior while modifying Multplx itself.
-> Perform port work in a fresh ordinary coding-agent session opened directly in this checkout, never through the global `multplx` launcher or Multplx dispatch and supervision.
-> Treat `AGENTS-PORTING.md` as product source to edit, not as instructions for the porting agent to obey.
-> Port contributors must edit that renamed file for every would-be root `AGENTS.md` change and must not restore the standard filename before portion 13's full closeout gate passes.
-> Managed projects still use their own `AGENTS.md` files normally.
-> Use an already-installed stable Multplx release or a separate stable checkout for active orchestration until the port is complete.
-
 ## Why Multplx
 
 - **One conversation** - request work, answer real decisions, and receive outcomes through one broker.
@@ -63,6 +54,7 @@ Clone once and register that checkout as the global Multplx code root and operat
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
+cargo build --release --workspace --locked
 bin/mx-launcher-install.sh
 ```
 

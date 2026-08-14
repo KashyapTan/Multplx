@@ -1030,34 +1030,30 @@ mx_pending_reply_task_has_open() {  # <state-dir> <task_id>
   return 1
 }
 
-# Plan 8 still sources this file for the watcher tick, but the record creation
-# and delivery transaction is Rust-owned by default.  These functions preserve
-# the established shell ABI while keeping durable publication in one typed
-# implementation.
-if [ "${MX_LIFECYCLE_IMPLEMENTATION:-rust}" = rust ]; then
-  _mx_pending_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-  . "$_mx_pending_dir/mx-rust-runtime.sh"
-  MX_RUST_SOURCE_ROOT="$(cd "$_mx_pending_dir/.." && pwd)"; export MX_RUST_SOURCE_ROOT
-  _MX_PENDING_RUST_BIN=$(mx_rust_runtime_bin) || return $?
+# This file remains a sourced watcher ABI, but record creation and delivery
+# mutation always cross into the single typed Rust implementation.
+_mx_pending_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$_mx_pending_dir/mx-rust-runtime.sh"
+MX_RUST_SOURCE_ROOT="$(cd "$_mx_pending_dir/.." && pwd)"; export MX_RUST_SOURCE_ROOT
+_MX_PENDING_RUST_BIN=$(mx_rust_runtime_bin) || return $?
 
-  mx_pending_reply_extract_corr() {
+mx_pending_reply_extract_corr() {
     "$_MX_PENDING_RUST_BIN" pending-reply extract "$1"
-  }
-  mx_pending_reply_corr_reusable() {
+}
+mx_pending_reply_corr_reusable() {
     "$_MX_PENDING_RUST_BIN" pending-reply reusable "$1" "$2" "$3"
-  }
-  mx_pending_reply_embed_corr() {
+}
+mx_pending_reply_embed_corr() {
     local embedded
     embedded=$("$_MX_PENDING_RUST_BIN" pending-reply embed "$1" "$2") || return $?
     printf -v "$3" '%s' "$embedded"
-  }
-  mx_pending_reply_create() {
+}
+mx_pending_reply_create() {
     "$_MX_PENDING_RUST_BIN" pending-reply create "$1" "$2" "$3" "$4"
-  }
-  mx_pending_reply_prepare_delivery() {
+}
+mx_pending_reply_prepare_delivery() {
     "$_MX_PENDING_RUST_BIN" pending-reply prepare "$1" "$2"
-  }
-  mx_pending_reply_discard_undelivered() {
+}
+mx_pending_reply_discard_undelivered() {
     "$_MX_PENDING_RUST_BIN" pending-reply discard "$1" "$2"
-  }
-fi
+}

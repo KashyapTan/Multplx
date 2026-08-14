@@ -72,7 +72,7 @@ make_case() {
   local name=$1 case_dir fakebin
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
-  mkdir -p "$case_dir/state" "$case_dir/config" "$fakebin"
+  mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
 
   # Mocks for the post-check teardown steps. Refuse logic exits before these
   # run; the ALLOW cases need them so the script can complete cleanly.
@@ -449,27 +449,33 @@ run_teardown() {
   if [ "${1:-}" = --force ]; then
     shift
     bindings=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-override-bindings.sh" cleanup task-x1) || return 1
     operation=$(printf '%s' "$bindings" | jq -r '.operation')
     target=$(printf '%s' "$bindings" | jq -r '.target')
     request=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-maintainer-override.sh" request \
       --boundary cleanup.discard-unlanded --task task-x1 \
       --project "$(printf '%s' "$bindings" | jq -r '.project')" \
       --operation "$operation" --target "$target" \
       --expected-state "$(printf '%s' "$bindings" | jq -r '.expected_state_digest')" \
       --consequence "$(printf '%s' "$bindings" | jq -r '.consequence')") || return 1
-    MX_STATE_OVERRIDE="$case_dir/state"
-    export MX_STATE_OVERRIDE
-    # shellcheck source=bin/mx-maintainer-override-lib.sh
-    . "$ROOT/bin/mx-maintainer-override-lib.sh"
-    mx_override_require_primary_lock() { return 0; }
-    mx_override_grant "$request" "Grant cleanup.discard-unlanded for $operation on $target only." || return 1
+    # Exercise the production native grant path. The current test shell is the
+    # lock owner and the grant command is its descendant, matching real primary
+    # authority without bypassing the lock proof.
+    printf '%s\n' "$$" > "$case_dir/state/.lock"
+    MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+      MX_DATA_OVERRIDE="$case_dir/data" \
+      "$ROOT/bin/mx-maintainer-override.sh" grant "$request" \
+      --maintainer-words "Grant cleanup.discard-unlanded for $operation on $target only." \
+      || return 1
     set -- --override "$request" "$@"
   fi
   MX_ROOT_OVERRIDE="$ROOT" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   MX_CONFIG_OVERRIDE="$case_dir/config" \
+  MX_DATA_OVERRIDE="$case_dir/data" \
   PATH="$case_dir/fakebin:$PATH" \
     "$TEARDOWN" task-x1 "$@"
 }
@@ -1052,15 +1058,14 @@ test_index_lock_mtime_read_failure_refuses() {
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
-  add_stat_error "$case_dir"
-
   lock=$(git_index_lock_path "$case_dir/wt")
   mkdir -p "$(dirname "$lock")"
   : > "$lock"
   touch -t 200001010000 "$lock"
 
   set +e
-  MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 MX_STALE_WORKTREE_LOCK_AGE_SECS=1 \
+  MX_TEARDOWN_TEST_LOCK_MTIME_ERROR=1 \
+    MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 MX_STALE_WORKTREE_LOCK_AGE_SECS=1 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
@@ -1233,7 +1238,8 @@ test_local_only_force_overrides_unpushed() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "discard-override: exact grant should authorize the bound unpushed-work discard"
+  expect_code 0 "$rc" \
+    "discard-override: exact grant should authorize the bound unpushed-work discard"$'\n'"$(cat "$case_dir/stderr")"
   ! grep -q REFUSED "$case_dir/stderr" || fail "discard-override: REFUSED printed despite an exact grant"
   pass "local-only worktree with unpushed work is torn down under one exact discard grant"
 }

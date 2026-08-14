@@ -115,14 +115,22 @@ test_vocabulary_and_writer_registration() {
     grep -F "$event" "$ROOT/docs/journal-events.md" >/dev/null \
       || fail "documentation omits $event"
   done
-  for file in \
-    bin/mx-spawn.sh bin/mx-report bin/mx-actor-state.sh \
-    bin/mx-push-transition-lib.sh bin/mx-deep-review.sh \
-    bin/mx-workflow.sh bin/mx-workflow-lib.sh \
-    bin/mx-decision-hold.sh bin/mx-deliver.sh; do
+  for file in bin/mx-push-transition-lib.sh; do
     grep -E 'mx_journal_try|wf_journal_stage_' "$ROOT/$file" >/dev/null \
       || fail "$file has no journal emission seam"
   done
+  grep -F 'JournalEvent::TaskSpawned' "$ROOT/crates/multplx-cli/src/lib.rs" >/dev/null \
+    || fail "Rust mx-spawn owner has no journal emission seam"
+  grep -F 'JournalEvent::WorkflowStageEntered' "$ROOT/crates/multplx-cli/src/workflow_runtime.rs" >/dev/null \
+    || fail "Rust workflow owner has no stage-entered journal seam"
+  grep -F 'JournalEvent::GateStepStarted' "$ROOT/crates/multplx-cli/src/deep_review.rs" >/dev/null \
+    || fail "Rust deep-review owner has no gate-start journal seam"
+  grep -F 'JournalEvent::HoldOpened' "$ROOT/crates/multplx-cli/src/authority.rs" >/dev/null \
+    || fail "Rust decision-hold owner has no journal seam"
+  grep -F 'JournalEvent::StatusReported' "$ROOT/crates/multplx-domain/src/supervision.rs" >/dev/null \
+    || fail "Rust mx-report owner has no journal emission seam"
+  grep -F 'JournalEvent::StatusClassified' "$ROOT/crates/multplx-backend/src/actor_state.rs" >/dev/null \
+    || fail "Rust mx-actor-state owner has no journal emission seam"
   pass "event vocabulary is synchronized and every planned writer has an emit seam"
 }
 

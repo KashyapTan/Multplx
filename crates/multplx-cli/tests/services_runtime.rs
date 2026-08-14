@@ -154,8 +154,12 @@ fn free_port() -> u16 {
     loop {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("ephemeral listener");
         let port = listener.local_addr().expect("address").port();
-        if port <= 65_516 && claimed.lock().expect("claimed ports").insert(port) {
-            return port;
+        if port <= 65_516 {
+            let mut claimed = claimed.lock().expect("claimed ports");
+            if (port..port + 20).all(|candidate| !claimed.contains(&candidate)) {
+                claimed.extend(port..port + 20);
+                return port;
+            }
         }
     }
 }

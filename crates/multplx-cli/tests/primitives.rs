@@ -12,7 +12,7 @@ fn repo_root() -> PathBuf {
 
 fn legacy_bash() -> Command {
     let mut command = Command::new("/bin/bash");
-    command.env("MX_LOCAL_STATE_IMPLEMENTATION", "legacy");
+    command.env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"));
     command
 }
 

@@ -159,8 +159,49 @@ test_deep_review_document_schema() {
   pass "deep-review uses the supported trusted document.instructions schema"
 }
 
+test_adapter_cwd_schema_and_symlink_escape() {
+  local out repo="$TMP_ROOT/schema-fixture" outside="$TMP_ROOT/outside.md"
+  out=$(cd "$TMP_ROOT" && "$CHECK") \
+    || fail "documentation adapter did not resolve its repository outside the checkout"
+  assert_contains "$out" "mx-doc-audience-check: ok surfaces=" \
+    "documentation adapter checked the caller directory"
+
+  mkdir -p "$repo/docs"
+  git -C "$repo" init -q
+  printf '%s\n' '[Setup](docs/setup.md) [Policy](docs/policy.md) [Outside](docs/outside.md)' >"$repo/README.md"
+  printf '%s\n' '# Setup' >"$repo/docs/setup.md"
+  printf '%s\n' '# Policy' >"$repo/docs/policy.md"
+  printf '%s\n' '# Evidence' >"$repo/docs/evidence.md"
+  printf '%s\n' '# Outside' >"$outside"
+  ln -s "$outside" "$repo/docs/outside.md"
+  write_fixture_inventory "$repo"
+  python3 - "$repo/docs/documentation-audiences.json" <<'PY'
+import json,sys
+path=sys.argv[1]
+data=json.load(open(path))
+data["surfaces"].append({"path":"docs/outside.md","audience":"operator-current"})
+json.dump(data,open(path,"w"),indent=2)
+PY
+  git -C "$repo" add README.md docs
+  run_expect_failure "local link escapes repository" "$CHECK" --root "$repo"
+
+  rm "$repo/docs/outside.md"
+  printf '%s\n' '# Outside' >"$repo/docs/outside.md"
+  python3 - "$repo/docs/documentation-audiences.json" <<'PY'
+import json,sys
+path=sys.argv[1]
+data=json.load(open(path))
+data["setupAudiences"]=[]
+json.dump(data,open(path,"w"),indent=2)
+PY
+  git -C "$repo" add docs
+  run_expect_failure "must be non-empty string arrays" "$CHECK" --root "$repo"
+  pass "documentation adapter, schema, and symlink boundaries fail safely"
+}
+
 test_repository_inventory_passes
 test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic
 test_deep_review_document_schema
+test_adapter_cwd_schema_and_symlink_escape

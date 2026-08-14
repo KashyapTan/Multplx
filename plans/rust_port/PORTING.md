@@ -278,7 +278,7 @@ Port the watcher only after its classification, lock, backend, and pending-reply
 - `bin/mx-watch-checkpoint.sh`
 - `bin/mx-watch.sh`
 
-Port the two JavaScript command policies to a shared Rust parser without broadening accepted shell grammar.
+Port the two JavaScript command policies to a shared Rust parser without broadening the accepted command grammar.
 Port the MCP adapter to `multplx-services` while keeping `mx-report` the sole owner of status vocabulary, binding checks, append format, journal behavior, and watcher nudge semantics.
 Preserve signal handling, foreground checkpoint exit `124`, queue-before-detector publication, lock ownership, liveness beacon, wake precedence, wedge escalation, pause resurfacing, and turn-end fail-open or fail-closed behavior for each harness.
 Test forced termination at every publication boundary and prove the next process can recover without duplicate or lost actionable wakes.
@@ -353,7 +353,7 @@ Port these last because they build, install, launch, validate, or test the rest 
 Keep installation detect-then-consent-then-install behavior unchanged.
 Keep the Herdr destructive-lab tripwires and cleanup scoping unchanged.
 Port the test runner only after it can run the entire Rust-default black-box suite, reproduce its resource conflict graph, generate the same CI partitions, and compare timing artifacts.
-Port the documentation checker only after its Python-backed current behavior has equivalent Rust fixtures and failure messages.
+Port the documentation checker only after its current behavior has equivalent Rust fixtures and failure messages.
 
 ## Non-`bin/` integration surfaces
 
@@ -439,10 +439,10 @@ Run migrated focused tests once against legacy and once against Rust.
 Upload differential reports and both timing artifacts.
 Do not allow normalization rules to hide output or state differences.
 
-### Phase C: Rust default with rollback
+### Phase C: historical Rust-default transition
 
 Make Rust the default only for batches that have clean shadow evidence.
-Keep an explicit legacy selector for a short, documented rollback window.
+During a batch's transition, keep any explicitly approved test-only legacy selector for the documented differential window.
 Fail if the legacy path is selected implicitly.
 
 ### Phase D: Rust only
@@ -534,7 +534,7 @@ A batch may become Rust-default only when all of the following are true.
 
 ## Legacy deletion gate
 
-Delete a legacy Bash, JavaScript, or Python implementation only when its Rust path has been the default through the agreed rollback window and every external caller has moved.
+Delete a legacy Bash, JavaScript, or Python implementation only when its Rust path has passed the agreed differential and cutover gates and every external caller has moved.
 Before deletion, use `rg` to find direct paths, sourced functions, environment seams, docs links, skill links, hooks, workflow commands, fixtures, and tests.
 Keep the old filename only as a minimal exec adapter when external compatibility requires it.
 Add a test proving the adapter contains no policy or state mutation.

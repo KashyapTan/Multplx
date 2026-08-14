@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ "${MX_NATIVE_SUPERVISE_TEST_REENTRY:-0}" != 1 ]; then
+  MX_NATIVE_SUPERVISE_TEST_REENTRY=1 exec "$(dirname "$0")/mx-supervise-daemon-native.test.sh"
+fi
 # tests/mx-afk-inject-herdr-e2e.test.sh - real-herdr end-to-end test for the
 # away-mode daemon's herdr transport (bin/mx-supervise-daemon.sh), the herdr
 # counterpart of tests/mx-afk-inject-e2e.test.sh's private-socket tmux e2e.

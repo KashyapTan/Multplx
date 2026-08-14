@@ -104,10 +104,10 @@ _No completed upstream review has been recorded._
 
 | Dependency | Upstream | Pin | Verification owner |
 |---|---|---|---|
-| Treehouse worktree provider | https://github.com/kunchenguid/treehouse | `v2.0.1` | `crates/multplx-backend/src/treehouse_tools.rs` owns the Rust-default per-platform SHA-256 table, bounded download, exact post-install version check, and `get --lease` gate; `bin/mx-install-treehouse.sh` retains the public command and legacy rollback. |
+| Treehouse worktree provider | https://github.com/kunchenguid/treehouse | `v2.0.1` | `crates/multplx-backend/src/treehouse_tools.rs` owns the per-platform SHA-256 table, bounded download, exact post-install version check, and `get --lease` gate; `bin/mx-install-treehouse.sh` is the public Rust transport. |
 
 Treehouse release review is part of the upstream watch.
-A pin bump is an ordinary reviewed change that updates both the version and every platform checksum in the Rust implementation and retained legacy rollback.
+A pin bump is an ordinary reviewed change that updates both the version and every platform checksum in the Rust implementation.
 
 ## Phase 0 baseline (2026-07-27, macOS; corrected after plan 01)
 

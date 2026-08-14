@@ -91,7 +91,7 @@ For Multplx reconciliation, prefer concrete evidence:
 
 Avoid repeating long transcripts into Multplx docs or PR bodies.
 Summarize only the host-tool calls, the status-file result, and the archive result.
-When reporting a Desktop-thread result to the maintainer, translate status prefixes and return-channel evidence through `AGENTS-PORTING.md` section 9 during the Rust port.
+When reporting a Desktop-thread result to the maintainer, translate status prefixes and return-channel evidence through `AGENTS.md` section 9.
 
 ## Archive
 

@@ -50,7 +50,7 @@ Deeper decode-required obfuscation beyond the coupled marker set stays the class
 
 Malformed or empty stdin, invalid JSON, and missing `jq` for stdin transport fail open with exit 0 and no output.
 This transport behavior prevents a broken hook from denying every shell tool call.
-An unavailable Rust runtime fails the public adapter clearly before hook processing; explicit legacy selection retains the old missing-classifier fail-open behavior for rollback verification.
+An unavailable Rust runtime fails the public adapter clearly before hook processing.
 Malformed or unsupported shell syntax that contains a protected command is a semantic classification result and fails closed.
 
 ## Command-position classification

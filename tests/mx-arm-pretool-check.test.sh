@@ -2,7 +2,7 @@
 # shellcheck disable=SC1091,SC2016,SC2088
 # Behavior tests for the watcher-arm PreToolUse seatbelt (docs/arm-pretool-check.md).
 #
-# bin/mx-arm-command-policy.mjs is the single owner of command classification.
+# The Rust command-policy module is the single owner of command classification.
 # This suite drives the stable shell transport through all five harness entry
 # forms and asserts the per-harness wiring contract without spawning a harness.
 # Empirical harness evidence lives in docs/arm-pretool-check.md.
@@ -12,7 +12,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CHECK="$ROOT/bin/mx-arm-pretool-check.sh"
-POLICY="$ROOT/bin/mx-arm-command-policy.mjs"
 
 # --- full cross-harness acceptance matrix ----------------------------------
 
@@ -188,12 +187,16 @@ test_full_acceptance_matrix() {
 }
 
 assert_policy() {
-  local id=$1 expected=$2 command=$3 output
-  output=$(node "$POLICY" --root "$ROOT" --home "$ROOT" --command "$command") \
-    || fail "$id direct policy invocation failed"
-  case "$output" in
-    "$expected"|"$expected"$'\t'*) : ;;
-    *) fail "$id direct policy expected $expected, got: $output" ;;
+  local id=$1 expected=$2 command=$3 output rc reason
+  output=$($CHECK --command "$command" 2>&1); rc=$?
+  case "$expected" in
+    allow) expect_code 0 "$rc" "$id direct policy allow" ;;
+    deny*)
+      expect_code 2 "$rc" "$id direct policy deny"
+      reason=${expected#*$'\t'}
+      assert_contains "$output" "[$reason]" "$id direct policy reason"
+      ;;
+    *) fail "$id has invalid expected policy result: $expected" ;;
   esac
   pass "direct policy $id: $expected"
 }
@@ -371,13 +374,8 @@ test_policy_runtime_without_node() {
   done
   PATH="$fakebin" "$CHECK" --command 'bin/mx-watch-arm.sh &' >/dev/null 2>&1
   rc=$?
-  if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = legacy ]; then
-    [ "$rc" -eq 0 ] || fail "legacy missing-Node transport must fail open, got exit $rc"
-    pass "legacy command policy retains missing-Node fail-open rollback behavior"
-  else
-    [ "$rc" -eq 2 ] || fail "Rust policy must deny independently of Node availability, got exit $rc"
-    pass "Rust command policy no longer depends on Node"
-  fi
+  [ "$rc" -eq 2 ] || fail "Rust policy must deny independently of Node availability, got exit $rc"
+  pass "Rust command policy does not depend on Node"
 }
 
 # --- --claude output shaping ---------------------------------------------------

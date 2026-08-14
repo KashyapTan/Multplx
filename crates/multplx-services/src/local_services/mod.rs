@@ -1,9 +1,4 @@
-//! Rust-default lifecycle and service boundary for viz and vplan.
-//!
-//! The retained `bin/mx-viz.sh` and `bin/mx-vplan.sh` files select this
-//! boundary before any state mutation. Their legacy bodies and Node servers
-//! remain available only through the explicit rollback selector until the
-//! Portion 13 deletion gate.
+//! Native lifecycle and service boundary for viz and vplan.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};

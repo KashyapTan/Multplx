@@ -9,7 +9,7 @@
 # reference back to a removed subsystem.
 #
 # Scope: the Multplx tree only (bin/ tests/ docs/ skills/ .agents/ .github/
-# AGENTS-PORTING.md README.md CONTRIBUTING.md .gitignore). The read-only upstream
+# AGENTS.md README.md CONTRIBUTING.md .gitignore). The read-only upstream
 # reference folder and historical planning material legitimately describe the
 # removed subsystems and are excluded. Inert `# shellcheck` lint directives
 # inside scripts are allowed.
@@ -19,7 +19,7 @@
 
 cd "$ROOT"
 
-SCOPE=(bin tests docs skills .agents .github AGENTS-PORTING.md README.md CONTRIBUTING.md .gitignore)
+SCOPE=(bin tests docs skills .agents .github AGENTS.md README.md CONTRIBUTING.md .gitignore)
 SELF=tests/mx-removed-deps.test.sh
 
 # --- deleted files must stay deleted ----------------------------------------
@@ -41,7 +41,12 @@ test_deleted_files_absent() {
     tests/mx-backend-zellij.test.sh tests/mx-backend-zellij-smoke.test.sh \
     tests/zellij-test-safety.sh tests/mx-backend-orca.test.sh \
     tests/mx-grok-continuity-live-e2e.test.sh tests/mx-grok-harness.test.sh \
-    tests/mx-opencode-primary-live-e2e.test.sh; do
+    tests/mx-opencode-primary-live-e2e.test.sh \
+    bin/mx-launcher-lib.sh bin/mx-arm-command-policy.mjs \
+    bin/mx-cd-command-policy.mjs bin/mx-report-mcp.mjs \
+    bin/mx-viz-server.mjs bin/mx-vplan-server.mjs \
+    bin/backends/herdr-eventwait.py bin/backends/herdr-workspace-move.py \
+    tests/mx-backend-herdr-eventwait.test.py AGENTS-PORTING.md; do
     [ ! -e "$path" ] || fail "removed path has reappeared: $path"
   done
   pass "every plan-01-deleted path stays deleted"
@@ -55,6 +60,7 @@ grep_hits() {
   local pattern=$1
   grep -rniE "$pattern" "${SCOPE[@]}" 2>/dev/null \
     | grep -Fv "$SELF:" \
+    | grep -Fv 'docs/mx-test-isolation-proof.json:' \
     | grep -Fv 'docs/upstream.md:' \
     | grep -Fv 'tests/mx-upstream-diff.test.sh:' \
     | grep -Fv 'tests/fixtures/upstream-sync/' || true
@@ -119,6 +125,14 @@ test_ci_has_no_lint_step() {
   pass "ci.yml carries no standalone lint step"
 }
 
+test_no_retired_plan13_runtime_paths() {
+  local hits
+  hits=$(grep -rniE \
+    'mx-launcher-lib\.sh|mx-report-mcp\.mjs|mx-viz-server\.mjs|mx-vplan-server\.mjs|herdr-eventwait\.py|herdr-workspace-move\.py' \
+    bin share/shell .github .agents README.md CONTRIBUTING.md CLAUDE.md AGENTS.md 2>/dev/null || true)
+  assert_no_hits "retired Plan 13 runtime paths" "$hits"
+}
+
 test_deleted_files_absent
 test_no_x_mode_references
 test_no_lint_gate_references
@@ -128,3 +142,4 @@ test_no_pruned_backend_references
 test_no_pruned_harness_references
 test_backend_registry_is_pruned
 test_ci_has_no_lint_step
+test_no_retired_plan13_runtime_paths

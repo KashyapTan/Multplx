@@ -20,7 +20,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Workflow definitions and runs](workflows.md) owns the declarative workflow schema and lifecycle.
 - [Maintainer-scoped exceptions](maintainer-overrides.md) explains exact one-use authority, truthful exceptional outcomes, and the boundary registry.
 - [Pi Calm mode](calm.md) describes the optional Pi-only presentation toggle.
-- [The `bin/` toolbelt](scripts.md) is a concise script index; each script header and `--help` own exact mechanics.
+- [The `bin/` toolbelt](scripts.md) is a concise compatibility-path index; release-command `--help` and the named Rust modules own exact mechanics.
 - [Task journal events](journal-events.md) defines the best-effort event vocabulary used by `mx-timeline`.
 
 ## Runtime backends
@@ -38,6 +38,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.
 - [Launcher verification](verification/launcher.md) records global path, shell, lock, harness, and performance evidence.
+- [Rust port final cutover](verification/rust-port-final-cutover.md) records the Portion 13 full-suite, isolation, fresh-session, dependency, and performance closeout evidence.
 - [Cursor CLI verification](verification/cursor-cli.md) records the pinned live adapter matrix and explicit unsupported boundaries.
 
 ## Contribute and maintain
@@ -45,7 +46,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Contributing](../CONTRIBUTING.md) covers the contribution workflow, repository conventions, and test entry points.
 - [Documentation audiences](documentation-audiences.md) owns placement policy and the machine-consumed maintained-surface inventory.
 - [Upstream review](upstream.md) owns the fork point, relevance map, review cursor, and review-and-reimplement process.
-- [Test performance](mx-test-performance.md), [test isolation proof](mx-test-isolation-proof.md), [portable shards](mx-test-portable-shards.md), and [Pi Calm feasibility](calm-mode-feasibility.md) are maintained verification records.
+- [Test performance](mx-test-performance.md), [test isolation proof](mx-test-isolation-proof.md), [portable shards](mx-test-portable-shards.md), [Rust port final cutover](verification/rust-port-final-cutover.md), and [Pi Calm feasibility](calm-mode-feasibility.md) are maintained verification records.
 
 ## Reading paths
 

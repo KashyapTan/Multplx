@@ -1071,6 +1071,7 @@ test_per_repository_pr_cap_is_disclosed() {
 
 install_failing_jq() {  # <fakebin> <model|toon>
   local fakebin=$1 phase=$2 real
+  export MX_STATUS_TEST_FAIL_PHASE=$phase
   real=$(command -v jq)
   cat > "$fakebin/jq" <<SH
 #!/usr/bin/env bash

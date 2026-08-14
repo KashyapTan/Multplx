@@ -1,8 +1,7 @@
 //! Session-start transport and deterministic supervision rendering.
 //!
-//! The composed bootstrap, doctor, and snapshot commands enter Rust through
-//! the CLI before their compatibility bodies run.  This module owns the two
-//! self-contained Portion 09 surfaces that no longer need a shell policy body.
+//! The CLI owns the native composed session-start transaction.
+//! This module owns its reusable supervision surfaces.
 
 use std::fs;
 use std::path::Path;

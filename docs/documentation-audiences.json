@@ -193,7 +193,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "AGENTS-PORTING.md",
+      "path": "AGENTS.md",
       "audience": "agent-runtime"
     },
     {
@@ -394,6 +394,10 @@
     },
     {
       "path": "docs/verification/review-delivery-pr-security.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/rust-port-final-cutover.md",
       "audience": "maintainer-verification"
     },
     {

@@ -1,7 +1,9 @@
 # Global launcher verification
 
 This maintained record holds current empirical evidence for the global bootstrap, activated shell, and primary-harness launch path.
-The command grammar and exit statuses remain owned by `bin/mx-launcher.sh`; path publication and uninstall mechanics remain owned by `bin/mx-launcher-install.sh`.
+`multplx --help` and `multplx launcher-install --help` expose the command grammar and exit statuses owned by `multplx-cli::launcher`.
+The public `bin/mx-launcher.sh` and `bin/mx-launcher-install.sh` filenames are transport-only adapters.
+The Rust launcher owns verified binary publication, root and home records, update, rollback recovery, and uninstall.
 
 ## Verification environment
 
@@ -17,7 +19,7 @@ The command grammar and exit statuses remain owned by `bin/mx-launcher.sh`; path
 Command:
 
 ```sh
-bin/mx-test-run.sh \
+target/release/mx test-run \
   tests/mx-launcher.test.sh \
   tests/mx-launcher-shell.test.sh \
   tests/mx-launcher-live-e2e.test.sh
@@ -38,7 +40,7 @@ Command:
 
 ```sh
 MX_LAUNCHER_LIVE_E2E=1 \
-  bin/mx-test-run.sh tests/mx-launcher-live-e2e.test.sh
+  target/release/mx test-run tests/mx-launcher-live-e2e.test.sh
 ```
 
 Result:

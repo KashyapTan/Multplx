@@ -14,7 +14,8 @@ Use macOS or Linux and install one verified coding-agent harness:
 - Cursor CLI, launched with `agent` or `cursor-agent`.
 - Pi, launched with `pi`.
 
-Every Multplx home needs Node.js, Git, the official GitHub CLI, `jq`, and Treehouse with durable lease support.
+Every Multplx home needs Git, the official GitHub CLI, `jq`, and Treehouse with durable lease support.
+Building from source additionally requires the stable Rust toolchain.
 Your runtime backend adds its own CLI requirement.
 tmux is the verified reference backend; Herdr and cmux are experimental, and Codex App is not selectable.
 
@@ -28,6 +29,7 @@ Clone the repository once, then register that checkout as both the code root and
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
+cargo build --release --workspace --locked
 bin/mx-launcher-install.sh
 ```
 
@@ -43,7 +45,9 @@ bin/mx-launcher-install.sh --managed
 Managed mode clones the configured origin into `${XDG_DATA_HOME:-$HOME/.local/share}/multplx/runtime` and creates the operational home at the sibling `home` directory.
 Both modes install `multplx` under `${XDG_BIN_HOME:-$HOME/.local/bin}` and record literal root/home paths under `${XDG_CONFIG_HOME:-$HOME/.config}/multplx`.
 The installer prints the directory to add to `PATH` when it is not already visible.
-Run `bin/mx-launcher-install.sh --help` for custom XDG paths, adoption of another checkout or home, managed source selection, and the data-preserving uninstall contract.
+The installer copies the release binary and records its SHA-256 receipt before publication.
+Pass `--binary <path> --checksum <sha256>` to install an externally supplied verified artifact, `--upgrade` to replace an owned installation, or `--uninstall` for data-preserving removal.
+Run `target/release/mx launcher-install --help` for custom XDG paths, adoption of another checkout or home, managed source selection, and the complete recovery contract.
 
 ## Activate and choose a broker harness
 
@@ -73,14 +77,13 @@ Codex needs it so the tracked project configuration and hooks load.
 Multplx passes Cursor's scoped `--trust` flag only after validating the configured code root and keeps Cursor sandboxing enabled.
 
 An operational Multplx release uses tracked root `AGENTS.md` to define and auto-load the broker role.
-During the incremental Rust port, this source checkout intentionally keeps that contract as `AGENTS-PORTING.md` and must not be used as an active broker home.
-Port contributors make root contract edits in `AGENTS-PORTING.md`; managed projects still use their own `AGENTS.md`, and portion 13 restores the root standard filename only after the complete port passes.
 At session start the broker runs `bin/mx-session-start.sh` exactly once, detects missing tools and invalid configuration, reconciles durable work, and emits the supervision instructions for the active harness.
 Supported installs happen only after you approve them in that session; manual-only dependencies remain your responsibility.
 
 Use `multplx paths` to inspect the configured code root, operational home, bootstrap, and config directory.
-Use `multplx doctor` for the existing invariant sweep and `multplx update` for the existing guarded fast-forward update path.
-[`bin/mx-launcher.sh`](../bin/mx-launcher.sh)'s header and `multplx --help` own the exact command grammar and exit statuses.
+Use `multplx doctor` for the invariant sweep.
+Use `multplx update` to fast-forward the configured source, rebuild the release binary, and transactionally replace the installed binary and checksum receipt; a failed build or publication leaves the prior installed generation runnable and records a bounded retry.
+`multplx --help` and `multplx launcher-install --help` own the exact command grammar and exit statuses; the public shell filenames are transport-only adapters.
 [Launcher verification](verification/launcher.md) records current deterministic, shell, and available real-harness evidence.
 
 ## Choose a runtime backend

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bin/backends/herdr.sh - the herdr session-provider adapter (EXPERIMENTAL).
 # Portion 05 Rust replacement: bin/backends/herdr-rust.sh, selected atomically
-# by bin/mx-backend.sh when MX_BACKEND_IMPLEMENTATION=rust.
+# by retained source-compatible callers through the Rust adapter.
 #
 # Design: data/mx-backend-design-d7/herdr-addendum.md ("Interface mapping",
 # decisions D1-D6) and the empirical verification recorded in
@@ -734,10 +734,6 @@ mx_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
   esac
   [ "$current" != "$desired" ] || return 0
 
-  command -v python3 >/dev/null 2>&1 || {
-    echo "warning: herdr presentation ordering requires python3; leaving worker in Herdr's current order" >&2
-    return 0
-  }
   protocol=$(mx_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.client.protocol // empty' 2>/dev/null)
   case "$protocol" in
     ''|*[!0-9]*)
@@ -766,7 +762,7 @@ mx_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
     return 0
   }
 
-  mover=${MX_BACKEND_HERDR_WORKSPACE_MOVER:-$MX_BACKEND_HERDR_ROOT/bin/backends/herdr-workspace-move.py}
+  mover=${MX_BACKEND_HERDR_WORKSPACE_MOVER:-$MX_BACKEND_HERDR_ROOT/bin/backends/herdr-workspace-move}
   focus_before=$(mx_backend_herdr_projection_focus_snapshot "$session") || {
     echo "warning: herdr presentation ordering could not capture exact active workspace and tab; leaving worker in Herdr's current order" >&2
     return 0
@@ -2327,8 +2323,8 @@ mx_backend_herdr_socket_path() {  # <session>
 
 # mx_backend_herdr_events_capable: the version/capability gate for the event
 # fast-path (report section 5c trigger 1). Fails closed to the poll loop unless
-# ALL hold: herdr+jq present; the raw-socket reader available (python3, unless a
-# reader override is configured); client protocol >= MX_BACKEND_HERDR_MIN_EVENTS_PROTOCOL;
+# ALL hold: herdr+jq present; the raw-socket reader is available; client
+# protocol >= MX_BACKEND_HERDR_MIN_EVENTS_PROTOCOL;
 # and both `events.subscribe` and `pane.agent_status_changed` present in `herdr
 # api schema`. MX_BACKEND_HERDR_EVENTS_FORCE overrides the whole verdict for
 # tests (1 = capable, 0 = incapable) without touching the real binary. The
@@ -2341,9 +2337,9 @@ mx_backend_herdr_events_capable() {  # <session>
     0) return 1 ;;
   esac
   mx_backend_herdr_tool_check || return 1
-  if [ -z "${MX_BACKEND_HERDR_EVENT_READER:-}" ]; then
-    command -v python3 >/dev/null 2>&1 || return 1
-  fi
+  [ -n "${MX_BACKEND_HERDR_EVENT_READER:-}" ] \
+    || [ -x "$MX_BACKEND_HERDR_ROOT/bin/backends/herdr-eventwait" ] \
+    || return 1
   protocol=$(herdr status --json 2>/dev/null | jq -r '.client.protocol // empty' 2>/dev/null)
   case "$protocol" in ''|*[!0-9]*) return 1 ;; esac
   [ "$protocol" -ge "$MX_BACKEND_HERDR_MIN_EVENTS_PROTOCOL" ] || return 1
@@ -2364,7 +2360,7 @@ mx_backend_herdr_normalize_event() {  # <pane_id> <workspace_id> <agent_status> 
 }
 
 # mx_backend_herdr_event_reader_cmd: emit the reader argv (one word per line) for
-# the raw-socket subscriber. Default: `python3 <this dir>/herdr-eventwait.py`.
+# the raw-socket subscriber. Default: the Rust event-wait transport.
 # MX_BACKEND_HERDR_EVENT_READER overrides it with a whitespace-split command so
 # tests can substitute a fake reader that replays canned stream lines.
 mx_backend_herdr_event_reader_cmd() {
@@ -2375,8 +2371,7 @@ mx_backend_herdr_event_reader_cmd() {
     done
     return 0
   fi
-  printf 'python3\n'
-  printf '%s\n' "$MX_BACKEND_HERDR_ROOT/bin/backends/herdr-eventwait.py"
+  printf '%s\n' "$MX_BACKEND_HERDR_ROOT/bin/backends/herdr-eventwait"
 }
 
 # mx_backend_herdr_escalation_marker: the per-pane dedupe marker path for a

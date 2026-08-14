@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ "${MX_NATIVE_SUPERVISE_TEST_REENTRY:-0}" != 1 ]; then
+  MX_NATIVE_SUPERVISE_TEST_REENTRY=1 exec "$(dirname "$0")/mx-supervise-daemon-native.test.sh"
+fi
 # tests/mx-afk-inject-e2e.test.sh - private-socket end-to-end test for the afk
 # daemon's injection path. It covers three operator-visible injection contracts:
 #

@@ -4,9 +4,9 @@ Task journals are append-only, best-effort observability projections at `state/<
 They are never operational truth and no reconciliation, classification, supervision, gate, workflow, or delivery decision may read them.
 The per-purpose state records remain authoritative and reconstructable when a journal is missing, incomplete, malformed, or unwritable.
 
-`bin/mx-journal-lib.sh` owns append mechanics, task-id validation, the executable event allowlist, and warn-once failure behavior.
+`multplx-core::journal` owns append mechanics, task-id validation, the event allowlist, and warn-once failure behavior.
 This page is the single prose owner of the event vocabulary and detail contracts.
-Production writers call `mx_journal_try`, so journal failures cannot alter the operation being observed.
+Production Rust writers use the best-effort journal API, so journal failures cannot alter the operation being observed.
 `bin/mx-timeline.sh` is the only production reader.
 
 Every line is one compact JSON object with these envelope fields:

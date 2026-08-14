@@ -781,7 +781,9 @@ SH
   printf '%s\t1\tsignal\ttask-a.status\tfirst\n' "$((now - 12))" > "$home/state/.wake-queue"
   printf '%s\t2\theartbeat\twatcher\tsecond\n' "$((now - 3))" >> "$home/state/.wake-queue"
   touch "$home/state/.afk"
-  sleep 30 &
+  # Keep the identity fixture alive across slow parallel and instrumented runs.
+  # The test reaps it explicitly after both snapshots.
+  sleep 300 &
   pid=$!
   identity=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" bash -c \
     '. "$1"; mx_pid_identity "$2"' _ "$ROOT/bin/mx-wake-lib.sh" "$pid") \

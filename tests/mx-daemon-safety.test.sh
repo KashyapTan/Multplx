@@ -10,7 +10,7 @@ set -u
 # shellcheck source=tests/daemon-helpers.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/daemon-helpers.sh"
 
-TMP_ROOT=$(mx_test_tmproot mx-daemon-safety)
+mx_test_tmproot_into TMP_ROOT mx-daemon-safety
 export MX_BACKEND=tmux
 ACTIVE_ROOT="$TMP_ROOT/active-root"
 make_activated_broker_clone "$ACTIVE_ROOT"
@@ -1092,6 +1092,66 @@ test_home_seed_refuses_symlinked_leaf_files() {
   pass "home seeding refuses symlinked leaf files"
 }
 
+test_home_seed_crash_recovery_and_concurrency() {
+  local home crash_home first second err pid_a pid_b status status_a status_b
+  home="$TMP_ROOT/native-seed-transaction-home"
+  crash_home="$TMP_ROOT/native-seed-crash-home"
+  first="$TMP_ROOT/native-seed-first-home"
+  second="$TMP_ROOT/native-seed-second-home"
+  err="$TMP_ROOT/native-seed-crash.err"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  mx_git_init_commit "$home/projects/alpha"
+  mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/native-seed-alpha.git"
+  printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
+
+  if MX_HOME="$home" MX_DAEMON_CHARTER='crash charter' \
+      MX_HOME_SEED_CRASH_AFTER=registry mx_home_seed crash "$crash_home" alpha \
+      >/dev/null 2>"$err"; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 96 "$status" "native home seed crash after registry publication"
+  [ -d "$home/data/.home-seed.transaction.crash" ] \
+    || fail "native home seed crash did not retain a recovery journal"
+
+  if MX_HOME="$home" MX_DAEMON_CHARTER='crash charter' \
+      MX_HOME_SEED_FAIL_AFTER=home mx_home_seed crash "$crash_home" alpha \
+      >/dev/null 2>"$err"; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 1 "$status" "native home seed recovery followed by an injected fault"
+  [ ! -e "$crash_home" ] || fail "native home seed recovery left the crashed home"
+  [ ! -e "$home/data/crash/brief.md" ] \
+    || fail "native home seed recovery left the generated charter"
+  [ ! -e "$home/data/.home-seed.transaction.crash" ] \
+    || fail "native home seed recovery left its journal"
+  if [ -f "$home/data/daemons.md" ]; then
+    ! grep -F -- '- crash ' "$home/data/daemons.md" >/dev/null \
+      || fail "native home seed recovery left a registry route"
+  fi
+
+  MX_HOME="$home" MX_DAEMON_CHARTER='first charter' \
+    mx_home_seed first "$first" alpha >/dev/null 2>"$TMP_ROOT/native-first.err" &
+  pid_a=$!
+  MX_HOME="$home" MX_DAEMON_CHARTER='second charter' \
+    mx_home_seed second "$second" alpha >/dev/null 2>"$TMP_ROOT/native-second.err" &
+  pid_b=$!
+  if wait "$pid_a"; then status_a=0; else status_a=$?; fi
+  if wait "$pid_b"; then status_b=0; else status_b=$?; fi
+  [ "$status_a:$status_b" = 0:0 ] \
+    || fail "concurrent native home seeds did not serialize successfully"
+  grep -F -- '- first ' "$home/data/daemons.md" >/dev/null \
+    && grep -F -- '- second ' "$home/data/daemons.md" >/dev/null \
+    || fail "concurrent native home seeds lost a registry generation"
+  [ "$(cat "$first/.mx-daemon-home")" = first ] \
+    && [ "$(cat "$second/.mx-daemon-home")" = second ] \
+    || fail "concurrent native home seeds published mismatched identities"
+  pass "native home seed journals recover crashes and serialize concurrent generations"
+}
+
 test_daemon_spawn_requires_seeded_matching_home() {
   local home subhome wronghome marker_only active_descendant active_ancestor ancestor_active_home fakeroot root_descendant root_ancestor root_inside fakebin log err
   home="$TMP_ROOT/spawn-validate-home"
@@ -1371,6 +1431,72 @@ EOF
   pass "daemon teardown raw-removes plain-clone homes"
 }
 
+test_daemon_teardown_crash_recovery_and_concurrency() {
+  local home crash_home trigger_home first_home second_home fakebin log err status pid_a pid_b status_a status_b
+  home="$TMP_ROOT/native-teardown-transaction-home"
+  crash_home="$TMP_ROOT/native-teardown-crash-home"
+  trigger_home="$TMP_ROOT/native-teardown-trigger-home"
+  first_home="$TMP_ROOT/native-teardown-first-home"
+  second_home="$TMP_ROOT/native-teardown-second-home"
+  err="$TMP_ROOT/native-teardown-crash.err"
+  mkdir -p "$home/state" "$home/data"
+  for spec in "crash:$crash_home" "trigger:$trigger_home" "first:$first_home" "second:$second_home"; do
+    tid=${spec%%:*}
+    subhome=${spec#*:}
+    mkdir -p "$subhome/state"
+    mark_broker_home "$subhome"
+    printf '%s\n' "$tid" > "$subhome/.mx-daemon-home"
+    mx_write_daemon_meta "$home/state/$tid.meta" "$subhome"
+    printf -- '- %s - native transaction fixture (home: %s; scope: native teardown; projects: alpha; added 2026-06-22)\n' \
+      "$tid" "$subhome" >> "$home/data/daemons.md"
+  done
+  fakebin=$(make_fake_tmux "$TMP_ROOT/native-teardown-transaction-fake")
+  log="$TMP_ROOT/native-teardown-transaction-fake/tmux.log"
+
+  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
+      MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/native-teardown-transaction-fake/pane.txt" \
+      MX_TEARDOWN_CRASH_AFTER=home "$ROOT/bin/mx-teardown.sh" crash \
+      >/dev/null 2>"$err"; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 96 "$status" "native daemon teardown crash after home retirement"
+  [ ! -e "$crash_home" ] || fail "native teardown crash left the retired home"
+  [ -e "$home/state/.teardown.transaction.crash" ] \
+    || fail "native teardown crash did not retain its recovery journal"
+  [ -e "$home/state/crash.meta" ] \
+    || fail "native teardown crash cleared metadata before recording the generation"
+
+  PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
+    MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/native-teardown-transaction-fake/pane.txt" \
+    "$ROOT/bin/mx-teardown.sh" trigger >/dev/null 2>"$err" \
+    || fail "native teardown did not recover the crashed generation"
+  [ ! -e "$home/state/.teardown.transaction.crash" ] \
+    && [ ! -e "$home/state/crash.meta" ] \
+    && ! grep -F -- '- crash ' "$home/data/daemons.md" >/dev/null \
+    || fail "native teardown recovery did not finish the crashed generation"
+
+  PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
+    MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/native-teardown-transaction-fake/pane.txt" \
+    "$ROOT/bin/mx-teardown.sh" first >/dev/null 2>"$TMP_ROOT/native-teardown-first.err" &
+  pid_a=$!
+  PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
+    MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/native-teardown-transaction-fake/pane.txt" \
+    "$ROOT/bin/mx-teardown.sh" second >/dev/null 2>"$TMP_ROOT/native-teardown-second.err" &
+  pid_b=$!
+  if wait "$pid_a"; then status_a=0; else status_a=$?; fi
+  if wait "$pid_b"; then status_b=0; else status_b=$?; fi
+  [ "$status_a:$status_b" = 0:0 ] \
+    || fail "concurrent native daemon teardowns did not serialize successfully"
+  [ ! -e "$first_home" ] && [ ! -e "$second_home" ] \
+    && [ ! -e "$home/state/first.meta" ] && [ ! -e "$home/state/second.meta" ] \
+    || fail "concurrent native daemon teardowns left resources behind"
+  ! grep -E '^- (first|second) ' "$home/data/daemons.md" >/dev/null \
+    || fail "concurrent native daemon teardowns lost a registry generation"
+  pass "native daemon teardown journals recover crashes and serialize concurrent retirements"
+}
+
 test_daemon_force_teardown_discards_child_work() {
   local home subhome childproj childwt fakebin log
   home="$TMP_ROOT/force-teardown-home"
@@ -1591,7 +1717,9 @@ EOF
     PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/pane.txt" \
       override_teardown domain >/dev/null 2>"$err" \
       || fail "override teardown refused $opdir symlinked inside the daemon home"
-    [ ! -e "$subhome" ] || fail "force teardown did not remove subhome with inside $opdir symlink"
+    if [ -e "$subhome" ] || [ -L "$subhome" ]; then
+      fail "force teardown did not remove subhome with inside $opdir symlink: $(cat "$err")"
+    fi
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
     grep -F 'kill-window -t broker:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
   done
@@ -2178,12 +2306,14 @@ test_home_seed_resolves_relative_source_origins
 test_home_seed_refuses_project_destinations_outside_subhome
 test_home_seed_refuses_operational_dirs_outside_subhome
 test_home_seed_refuses_symlinked_leaf_files
+test_home_seed_crash_recovery_and_concurrency
 test_daemon_spawn_requires_seeded_matching_home
 test_daemon_spawn_refuses_operational_dirs_outside_subhome
 test_mx_send_refuses_bare_window_without_home_meta
 test_daemon_teardown_retires_empty_home
 test_daemon_teardown_refuses_failed_leased_home_return
 test_daemon_teardown_removes_plain_clone_home_without_treehouse_return
+test_daemon_teardown_crash_recovery_and_concurrency
 test_daemon_force_teardown_discards_child_work
 test_daemon_force_teardown_refuses_child_quarantine_symlink
 test_daemon_force_teardown_preserves_child_on_unproven_lock
@@ -2200,3 +2330,4 @@ test_daemon_idle_pane_is_not_stale
 test_daemon_charter_brief_is_idle_by_default
 test_backlog_handoff_aborts_safely
 test_backlog_handoff_refuses_done_items_and_non_daemon_homes
+exit 0

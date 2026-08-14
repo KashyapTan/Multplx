@@ -456,6 +456,40 @@ mod tests {
     }
 
     #[test]
+    fn system_terminator_signals_only_the_verified_process_generation() {
+        use std::fs;
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        use super::{ProcessProbe, ProcessTerminator, SystemProcessProbe, SystemProcessTerminator};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let ready = temp.path().join("ready");
+        let mut child = Command::new("/bin/sh")
+            .args([
+                "-c",
+                "trap 'exit 0' TERM; : > \"$1\"; while :; do :; done",
+                "sh",
+            ])
+            .arg(&ready)
+            .spawn()
+            .expect("spawn child");
+        let started = Instant::now();
+        while !ready.is_file() && started.elapsed() < Duration::from_secs(2) {
+            std::thread::yield_now();
+        }
+        assert!(fs::metadata(&ready).is_ok(), "child did not become ready");
+
+        let identity = SystemProcessProbe::default()
+            .identity(child.id())
+            .expect("child identity");
+        let mut terminator = SystemProcessTerminator::default();
+        terminator.terminate(&identity).expect("verified TERM");
+        assert!(child.wait().expect("reap child").success());
+        assert!(terminator.wait_gone(&identity, Duration::ZERO));
+    }
+
+    #[test]
     fn owned_child_wait_and_cooperative_termination_are_reaped() {
         use std::process::Command;
         use std::time::Duration;

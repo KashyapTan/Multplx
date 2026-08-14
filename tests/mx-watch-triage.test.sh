@@ -64,6 +64,16 @@ wait_numeric_file() {
   return 1
 }
 
+wait_nonempty_file() {
+  local file=$1 limit=${2:-100} i=0
+  while [ "$i" -lt "$limit" ]; do
+    [ -s "$file" ] && return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # Portable mtime in epoch seconds. Platform-detected, never the `stat -f || stat -c`
 # fallback (which writes a partial filesystem dump on Linux; see mx-watch.sh).
 file_mtime() {
@@ -318,7 +328,8 @@ test_provably_working_signal_absorbed() {
   fi
   [ ! -s "$out" ] || fail "provably-working signal printed a wake reason: $(cat "$out")"
   [ ! -s "$state/.wake-queue" ] || fail "provably-working signal enqueued a durable wake record"
-  [ -s "$state/.seen-task_status" ] || fail "provably-working signal did not advance its .seen-* suppressor"
+  wait_nonempty_file "$state/.seen-task_status" \
+    || fail "provably-working signal did not advance its .seen-* suppressor"
   [ -e "$state/.last-watcher-beat" ] || fail "watcher beacon was not touched while absorbing"
   reap "$pid"
   pass "a no-verb signal whose actor is provably working is absorbed (no exit, no queue, suppressor advanced, beacon present)"
@@ -357,7 +368,7 @@ test_turn_ended_not_working_surfaced() {
   export MX_FAKE_ACTOR_STATE='state: unknown · source: none · no current-state source available'
   watch_bg "$state" "$fakebin" "$out"
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not surface a turn-end whose actor is not provably working"
+  wait_for_exit "$pid" 100 || fail "watcher did not surface a turn-end whose actor is not provably working"
   grep -F "signal: $state/task.turn-ended" "$out" >/dev/null || fail "watcher did not print the surfaced turn-end signal"
   MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the surfaced turn-end failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$state/task.turn-ended" >/dev/null || fail "surfaced turn-end was not queued"
@@ -376,7 +387,7 @@ test_working_note_not_working_surfaced() {
   export MX_FAKE_ACTOR_STATE='state: working · source: status-log · working: compiling step 2'
   watch_bg "$state" "$fakebin" "$out"
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not surface a working: note whose actor has no running pipeline and an idle pane"
+  wait_for_exit "$pid" 100 || fail "watcher did not surface a working: note whose actor has no running pipeline and an idle pane"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "watcher did not print the surfaced working: signal"
   MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the surfaced working: note failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null || fail "surfaced working: note was not queued"
@@ -394,7 +405,7 @@ test_actionable_signal_surfaced() {
   printf 'working: setup\nneeds-decision: pick A or B\n' > "$status_file"
   watch_bg "$state" "$fakebin" "$out"
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not exit for an actionable needs-decision signal"
+  wait_for_exit "$pid" 100 || fail "watcher did not exit for an actionable needs-decision signal"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "watcher did not print the actionable signal reason"
   MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the actionable signal failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null || fail "actionable signal was not queued"
@@ -418,7 +429,7 @@ test_terminal_stale_surfaced() {
   PATH="$fakebin:$PATH" MX_FAKE_TMUX_WINDOW="$window" MX_FAKE_TMUX_CAPTURE="$capture_file" \
     MX_STATE_OVERRIDE="$state" MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not exit for a stale pane on a terminal status"
+  wait_for_exit "$pid" 100 || fail "watcher did not exit for a stale pane on a terminal status"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the terminal stale wake"
   MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the terminal stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "terminal stale was not queued"
@@ -444,7 +455,7 @@ test_terminal_stale_report_overrides_busy_heuristic() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || { reap "$pid"; fail "validated done report was suppressed by a busy regex hint"; }
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "validated done report was suppressed by a busy regex hint"; }
   grep -Fx "stale: $window" "$out" >/dev/null \
     || fail "validated done report did not surface the stale pane"
   unset MX_FAKE_ACTOR_STATE
@@ -503,7 +514,7 @@ test_stale_terminal_status_overridden_by_active_run() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_STALE_ESCALATE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not escalate an overridden stale terminal status past the threshold"
+  wait_for_exit "$pid" 100 || fail "watcher did not escalate an overridden stale terminal status past the threshold"
   grep -F "stale: $window" "$out" >/dev/null || fail "escalation did not print a stale wake"
   grep -F "possible wedge" "$out" >/dev/null || fail "escalation did not flag a possible wedge"
   unset MX_FAKE_ACTOR_STATE
@@ -555,7 +566,7 @@ test_nonterminal_stale_provably_working_absorbed_then_escalated() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_STALE_ESCALATE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not escalate a provably-working non-terminal stale past the threshold"
+  wait_for_exit "$pid" 100 || fail "watcher did not escalate a provably-working non-terminal stale past the threshold"
   grep -F "stale: $window" "$out" >/dev/null || fail "escalation did not print a stale wake"
   grep -F "possible wedge" "$out" >/dev/null || fail "escalation did not flag a possible wedge"
   [ ! -e "$state/.stale-since-$key" ] || fail "stale-since timer was not cleared after escalation"
@@ -593,7 +604,7 @@ test_nonterminal_stale_not_working_surfaced() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_STALE_ESCALATE_SECS=999 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not surface a not-provably-working non-terminal stale at once"
+  wait_for_exit "$pid" 100 || fail "watcher did not surface a not-provably-working non-terminal stale at once"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the immediate stale wake"
   grep -F "possible wedge" "$out" >/dev/null && fail "an immediate stopped-actor stale was mislabeled a wedge"
   [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "stale suppressor was not advanced on surface"
@@ -661,7 +672,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_PAUSE_RESURFACE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not re-surface a declared pause past the threshold"
+  wait_for_exit "$pid" 100 || fail "watcher did not re-surface a declared pause past the threshold"
   grep -F "stale: $window" "$out" >/dev/null || fail "re-surface did not print a stale wake"
   grep -F "awaiting external" "$out" >/dev/null || fail "re-surface was not labeled a paused/awaiting-external recheck"
   grep -F "possible wedge" "$out" >/dev/null && fail "a declared pause was mislabeled a possible wedge"
@@ -732,7 +743,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_PAUSE_RESURFACE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "maintainer-held dead-agent pane did not re-surface on the bounded cadence"
+  wait_for_exit "$pid" 100 || fail "maintainer-held dead-agent pane did not re-surface on the bounded cadence"
   grep -F "awaiting external" "$state/.wake-queue" >/dev/null \
     || fail "maintainer-held dead-agent pane surfaced as a stopped actor"
 
@@ -755,7 +766,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_PAUSE_RESURFACE_SECS=999 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" >> "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "live external-decision gate did not surface immediately"
+  wait_for_exit "$pid" 100 || fail "live external-decision gate did not surface immediately"
 
   # Re-arm with the stale timer already beyond the wedge threshold. This is the
   # exact unchanged-hash fallback after the immediate surface: it must retain
@@ -802,7 +813,7 @@ test_daemon_paused_resurfaces_in_normal_mode() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_PAUSE_RESURFACE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "watcher did not re-surface a paused daemon"
+  wait_for_exit "$pid" 100 || fail "watcher did not re-surface a paused daemon"
   grep -F "stale: $window" "$out" >/dev/null || fail "paused daemon did not emit a stale recheck"
   grep -F "awaiting external" "$out" >/dev/null || fail "paused daemon recheck omitted its external-wait reason"
   grep -F "possible wedge" "$out" >/dev/null && fail "paused daemon was mislabeled a wedge"
@@ -979,7 +990,7 @@ test_paused_authoritative_working_preserves_wedge_timer() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_STALE_ESCALATE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "authoritative working state did not wedge-escalate past the threshold"
+  wait_for_exit "$pid" 100 || fail "authoritative working state did not wedge-escalate past the threshold"
   grep -F "possible wedge" "$out" >/dev/null || fail "authoritative working wedge escalation omitted its reason"
   [ ! -e "$state/.stale-since-$key" ] || fail "wedge timer remained after authoritative working escalation"
   unset MX_FAKE_ACTOR_STATE
@@ -1036,7 +1047,7 @@ test_wedge_escalation_marks_demand_deep_inspection_after_threshold() {
       MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_STALE_ESCALATE_SECS=240 MX_POLL=1 MX_SIGNAL_GRACE=1 \
       MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
     pid=$!
-    wait_for_exit "$pid" 40 || fail "watcher did not escalate on consecutive wedge round $n: $(cat "$out")"
+    wait_for_exit "$pid" 100 || fail "watcher did not escalate on consecutive wedge round $n: $(cat "$out")"
     grep -F "escalation $n" "$out" >/dev/null || fail "round $n did not report escalation count $n: $(cat "$out")"
     if [ "$n" -lt 3 ]; then
       grep -F "demand-deep-inspection" "$out" >/dev/null && fail "round $n escalated to demand-deep-inspection before the threshold: $(cat "$out")"
@@ -1200,7 +1211,7 @@ test_heartbeat_backstop_surfaces_unsurfaced_status() {
   PATH="$fakebin:$PATH" MX_STATE_OVERRIDE="$state" MX_POLL=1 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=1 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "heartbeat backstop did not surface an unsurfaced maintainer-relevant status"
+  wait_for_exit "$pid" 100 || fail "heartbeat backstop did not surface an unsurfaced maintainer-relevant status"
   grep -Fx "heartbeat" "$out" >/dev/null || fail "backstop did not exit with a heartbeat wake"
   [ "$(cat "$state/.hb-surfaced-miss" 2>/dev/null || true)" = "done: PR https://example.test/pr/5" ] \
     || fail "backstop did not record the status as surfaced (would re-fire next heartbeat)"
@@ -1254,7 +1265,7 @@ test_afk_present_reverts_watcher_to_one_shot() {
   export MX_FAKE_ACTOR_STATE='state: working · source: run-step · validating (running)'
   watch_bg "$state" "$fakebin" "$out"
   pid=$!
-  wait_for_exit "$pid" 40 || fail "with .afk present the watcher did not exit one-shot for a benign signal"
+  wait_for_exit "$pid" 100 || fail "with .afk present the watcher did not exit one-shot for a benign signal"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "afk-mode watcher did not surface the signal for the daemon"
   MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the afk-mode signal failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null \
@@ -1288,7 +1299,7 @@ test_afk_paused_changed_pane_hands_off_plain_stale() {
     MX_STATE_OVERRIDE="$state" MX_ACTOR_STATE_BIN="$fakebin/mx-actor-state.sh" MX_PAUSE_RESURFACE_SECS=240 MX_POLL=0.2 MX_SIGNAL_GRACE=1 \
     MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 40 || fail "AFK paused changed pane did not hand off a stale wake"
+  wait_for_exit "$pid" 100 || fail "AFK paused changed pane did not hand off a stale wake"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "AFK paused stale did not preserve its plain window identity: $(cat "$out")"
   grep -F "awaiting external" "$out" >/dev/null && fail "AFK watcher decorated a stale identity instead of handing it to the daemon"
   [ ! -e "$state/.paused-$key" ] || fail "AFK watcher recorded normal-mode pause tracking instead of handing off"

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ "${MX_NATIVE_SUPERVISE_TEST_REENTRY:-0}" != 1 ]; then
+  MX_NATIVE_SUPERVISE_TEST_REENTRY=1 exec "$(dirname "$0")/mx-supervise-daemon-native.test.sh"
+fi
 # tests/mx-daemon.test.sh - supervise-daemon classifiers, the maintainer-relevant
 # status-phrase matrix (a product contract), escalation batching/dedupe, afk
 # presence-gating, and the injection-hardening units that an e2e cannot

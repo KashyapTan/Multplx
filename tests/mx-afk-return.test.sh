@@ -11,9 +11,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
-  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
-fi
+export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 TMP_ROOT=$(mx_test_tmproot mx-afk-return-tests)
 

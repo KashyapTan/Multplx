@@ -36,7 +36,8 @@ while IFS= read -r file; do
   [ -f "$ROOT/$file" ] || continue
   if LC_ALL=C grep -Iq . "$ROOT/$file"; then
     case "$file" in
-      bin/mx-doc-audience-check.sh|docs/documentation-audiences.json)
+      bin/mx-doc-audience-check.sh|docs/documentation-audiences.json|\
+      crates/multplx-cli/src/tooling/documentation.rs)
         sed -e 's#firstmate/##g' "$ROOT/$file"
         ;;
       *)

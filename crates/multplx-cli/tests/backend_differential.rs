@@ -18,7 +18,6 @@ fn executable(path: &Path, body: &str) {
 #[allow(clippy::too_many_arguments)]
 fn run_adapter(
     script: &str,
-    implementation: &str,
     fakebin: &Path,
     home: &Path,
     state: &Path,
@@ -42,7 +41,6 @@ fn run_adapter(
         .env("MX_ROOT_OVERRIDE", neutral_root)
         .env("MX_HOME", home)
         .env("MX_STATE_OVERRIDE", state)
-        .env("MX_BACKEND_IMPLEMENTATION", implementation)
         .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
         .env("MX_TMUX_LOG", log);
     for (key, value) in extra {
@@ -68,7 +66,7 @@ fn run_mx(fakebin: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
-fn peek_matches_status_streams_bytes_and_tmux_arguments() {
+fn peek_streams_bytes_and_preserves_tmux_arguments() {
     let temp = tempfile::tempdir().expect("tempdir");
     let fakebin = temp.path().join("fakebin");
     let home = temp.path().join("home");
@@ -87,36 +85,23 @@ case "$1" in
 esac
 "#,
     );
-    let legacy_log = temp.path().join("legacy.log");
-    let rust_log = temp.path().join("rust.log");
-    let legacy = run_adapter(
+    let log = temp.path().join("tmux.log");
+    let output = run_adapter(
         "mx-peek.sh",
-        "legacy",
         &fakebin,
         &home,
         &state,
-        &legacy_log,
+        &log,
         &["broker:mx-one", "7"],
         &[],
     );
-    let rust = run_adapter(
-        "mx-peek.sh",
-        "rust",
-        &fakebin,
-        &home,
-        &state,
-        &rust_log,
-        &["broker:mx-one", "7"],
-        &[],
-    );
-    assert_eq!(rust.status.code(), legacy.status.code());
-    assert_eq!(rust.stdout, legacy.stdout);
-    assert_eq!(rust.stderr, legacy.stderr);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(output.stdout, b"line one\nline two\n");
     assert_eq!(
-        fs::read(rust_log).expect("Rust log"),
-        fs::read(legacy_log).expect("legacy log")
+        fs::read(log).expect("tmux log"),
+        b"tmux\x1fcapture-pane\x1f-p\x1f-t\x1fbroker:mx-one\x1f-S\x1f-7\n"
     );
-    assert_eq!(rust.stdout, b"line one\nline two\n");
 }
 
 fn git_fixture(path: &Path) {
@@ -140,7 +125,7 @@ fn git_fixture(path: &Path) {
 }
 
 #[test]
-fn actor_state_matches_report_busy_gone_and_missing_metadata() {
+fn actor_state_reports_busy_gone_and_missing_metadata() {
     let temp = tempfile::tempdir().expect("tempdir");
     let fakebin = temp.path().join("fakebin");
     let home = temp.path().join("home");
@@ -174,65 +159,37 @@ esac
         (vec!["one"], vec![("MX_FAKE_GONE", "1")]),
         (vec!["missing"], vec![]),
     ] {
-        let legacy = run_adapter(
+        let output = run_adapter(
             "mx-actor-state.sh",
-            "legacy",
             &fakebin,
             &home,
             &state,
-            &temp.path().join("unused-legacy"),
+            &temp.path().join("unused"),
             &args,
             &extra,
         );
-        let rust = run_adapter(
-            "mx-actor-state.sh",
-            "rust",
-            &fakebin,
-            &home,
-            &state,
-            &temp.path().join("unused-rust"),
-            &args,
-            &extra,
-        );
-        assert_eq!(
-            rust.status.code(),
-            legacy.status.code(),
-            "status for {args:?}"
-        );
-        assert_eq!(rust.stdout, legacy.stdout, "stdout for {args:?}");
-        assert_eq!(rust.stderr, legacy.stderr, "stderr for {args:?}");
+        assert!(output.status.success(), "status for {args:?}");
+        assert!(output.stderr.is_empty(), "stderr for {args:?}");
     }
 
     fs::remove_file(state.join("one.status")).expect("remove status");
-    let legacy = run_adapter(
+    let output = run_adapter(
         "mx-actor-state.sh",
-        "legacy",
         &fakebin,
         &home,
         &state,
-        &temp.path().join("unused-legacy-busy"),
+        &temp.path().join("unused-busy"),
         &["one"],
         &[("MX_FAKE_PANE_TEXT", "Working... esc to interrupt")],
     );
-    let rust = run_adapter(
-        "mx-actor-state.sh",
-        "rust",
-        &fakebin,
-        &home,
-        &state,
-        &temp.path().join("unused-rust-busy"),
-        &["one"],
-        &[("MX_FAKE_PANE_TEXT", "Working... esc to interrupt")],
-    );
-    assert_eq!(rust.stdout, legacy.stdout);
     assert_eq!(
-        rust.stdout,
+        output.stdout,
         b"state: working \xc2\xb7 source: pane \xc2\xb7 harness busy\n"
     );
 }
 
 #[test]
-fn invalid_shadow_selector_fails_before_backend_execution() {
+fn invalid_target_fails_before_backend_execution_and_errors_do_not_retry() {
     let temp = tempfile::tempdir().expect("tempdir");
     let fakebin = temp.path().join("fakebin");
     let home = temp.path().join("home");
@@ -246,7 +203,6 @@ fn invalid_shadow_selector_fails_before_backend_execution() {
     );
     let output = run_adapter(
         "mx-peek.sh",
-        "rust",
         &fakebin,
         &home,
         &state,
@@ -256,19 +212,6 @@ fn invalid_shadow_selector_fails_before_backend_execution() {
     );
     assert!(!output.status.success());
     assert!(!marker.exists(), "invalid selector reached tmux");
-
-    let output = run_adapter(
-        "mx-peek.sh",
-        "unknown",
-        &fakebin,
-        &home,
-        &state,
-        &temp.path().join("unused-implementation"),
-        &["one", "4"],
-        &[],
-    );
-    assert!(!output.status.success());
-    assert!(!marker.exists(), "invalid implementation reached tmux");
 
     executable(
         &fakebin.join("tmux"),
@@ -280,7 +223,6 @@ fn invalid_shadow_selector_fails_before_backend_execution() {
     );
     let output = run_adapter(
         "mx-peek.sh",
-        "rust",
         &fakebin,
         &home,
         &state,

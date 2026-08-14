@@ -61,14 +61,8 @@ new_world() {
 # and compatible, so its own detect-only section stays quiet except where a
 # test deliberately breaks one. Mirrors mx-bootstrap.test.sh's fixture.
 make_fake_toolchain() {
-  local fakebin=$1 real_node
+  local fakebin=$1
   mx_fake_exit0 "$fakebin" tmux
-  real_node=$(command -v node) || fail "node is required for owned backlog tests"
-  cat > "$fakebin/node" <<SH
-#!/usr/bin/env bash
-exec '$real_node' "\$@"
-SH
-  chmod +x "$fakebin/node"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -84,6 +78,20 @@ exit 0
 SH
   chmod +x "$fakebin/treehouse"
   printf '%s\n' manual > "${fakebin%/*}/home-placeholder" 2>/dev/null || true
+}
+
+# make_missing_gh_mask <path>: make command discovery report gh as absent even
+# when the host runner installs it in the base system PATH.
+make_missing_gh_mask() {
+  local path=$1
+  cat > "$path" <<'SH'
+command() {
+  if [ "${1:-}" = -v ] && [ "${2:-}" = gh ]; then
+    return 1
+  fi
+  builtin command "$@"
+}
+SH
 }
 
 # make_fake_ps_claude <fakebin>: harness_pid()/holder_alive() (mx-lock.sh) walk
@@ -282,6 +290,9 @@ killed="${state}.killed"
 spawned="${state}.spawned"
 printf '%s\n' "$*" >> "$log"
 case "${1:-} ${2:-}" in
+  "--version ")
+    printf '%s\n' 'herdr test'
+    ;;
   "status --json")
     printf '%s\n' '{"client":{"protocol":14,"version":"test"},"server":{"running":true}}'
     ;;
@@ -335,6 +346,7 @@ case "${1:-} ${2:-}" in
   "pane run"|"pane send-text"|"pane send-keys"|"tab close")
     ;;
   *)
+    printf 'unexpected fake Herdr command: %s\n' "$*" >&2
     exit 1
     ;;
 esac
@@ -456,7 +468,7 @@ EOF
 
 run_session_start_herdr_daemon() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
-  MX_BACKEND=herdr MX_BACKEND_IMPLEMENTATION=legacy \
+  MX_BACKEND=herdr \
     MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" \
     MX_FAKE_DAEMON_ID="$SESSION_START_HERDR_DAEMON_ID" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
@@ -719,7 +731,7 @@ SH
 # --- output ordering ----------------------------------------------------------
 
 test_output_ordering_diagnostics_lead() {
-  local rec root home fakebin out lock_line boot_line wake_line context_line system_line next_line
+  local rec root home fakebin mask out lock_line boot_line wake_line context_line system_line next_line
   rec=$(new_world ordering)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -727,11 +739,13 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   # Force a MISSING diagnostic line so the bootstrap section is non-trivial.
-  rm -f "$fakebin/node"
+  rm -f "$fakebin/gh"
+  mask="$home/mask-gh.bash"
+  make_missing_gh_mask "$mask"
 
   printf 'window=mx-sess:w1\nkind=delivery\n' > "$home/state/task-a.meta"
 
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  out=$(BASH_ENV="$mask" run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
   lock_line=$(printf '%s\n' "$out" | grep -n '^LOCK$' | head -1 | cut -d: -f1)
   boot_line=$(printf '%s\n' "$out" | grep -n '^BOOTSTRAP$' | head -1 | cut -d: -f1)
@@ -750,7 +764,7 @@ EOF
   [ "$context_line" -lt "$system_line" ] || fail "CONTEXT did not precede SYSTEM STATE"
   [ "$system_line" -lt "$next_line" ] || fail "SYSTEM STATE did not precede NEXT STEP"
 
-  missing_line=$(printf '%s\n' "$out" | grep -n 'MISSING: node' | head -1 | cut -d: -f1)
+  missing_line=$(printf '%s\n' "$out" | grep -n 'MISSING: gh' | head -1 | cut -d: -f1)
   [ -n "$missing_line" ] || fail "MISSING diagnostic did not appear at all"
   [ "$missing_line" -lt "$system_line" ] || fail "actionable MISSING diagnostic was buried after the bulk system-state digest"
 
@@ -1002,24 +1016,26 @@ EOF
 # --- composition: real scripts run, not reimplemented ------------------------
 
 test_composition_invokes_real_scripts() {
-  local rec root home fakebin out
+  local rec root home fakebin mask out
   rec=$(new_world composition)
   IFS='|' read -r root home fakebin <<EOF
 $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
-  rm -f "$fakebin/node"
+  rm -f "$fakebin/gh"
+  mask="$home/mask-gh.bash"
+  make_missing_gh_mask "$mask"
 
   printf 'needs-decision: pick a library\n' > "$home/state/task-z.status"
   append_wake "$home/state" signal task-z.status "needs-decision: pick a library"
 
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  out=$(BASH_ENV="$mask" run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
   # mx-lock.sh's own exact success text.
   assert_contains "$out" "lock acquired: harness pid" "mx-lock.sh's real output did not appear (composition, not reimplementation)"
   # mx-bootstrap.sh's own exact MISSING-tool line format.
-  assert_contains "$out" "MISSING: node (install:" "mx-bootstrap.sh's real detect line did not appear verbatim"
+  assert_contains "$out" "MISSING: gh (install:" "mx-bootstrap.sh's real detect line did not appear verbatim"
   # mx-wake-drain.sh's real drained record (raw tab-separated queue line).
   assert_contains "$out" "$(printf 'signal\ttask-z.status\tneeds-decision: pick a library')" "mx-wake-drain.sh's real drained record did not appear"
   assert_contains "$out" "wake annotation: latest wake-EVENT observed at drain, not current state: task-z.status: needs-decision: pick a library" "mx-session-start.sh did not preserve the drain's separate annotation line"

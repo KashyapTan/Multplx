@@ -13,8 +13,8 @@ metadata:
 
 Handle each printed line as below, before dispatching work that depends on it.
 The line formats themselves are owned by `bin/mx-bootstrap.sh`'s header; this playbook owns the response to actionable lines.
-The inline rules in `AGENTS-PORTING.md` section 3 still bind during the Rust port: detect, then consent, then install - never install anything the maintainer has not approved in this session - and no work is dispatched until the tools it needs are present.
-When any diagnostic needs maintainer attention, report the plain consequence and requested action using `AGENTS-PORTING.md` section 9's maintainer-facing translation contract during the port; do not name the diagnostic label unless the maintainer needs to paste it into a command or issue.
+The inline rules in `AGENTS.md` section 3 bind: detect, then consent, then install - never install anything the maintainer has not approved in this session - and no work is dispatched until the tools it needs are present.
+When any diagnostic needs maintainer attention, report the plain consequence and requested action using `AGENTS.md` section 9's maintainer-facing translation contract; do not name the diagnostic label unless the maintainer needs to paste it into a command or issue.
 
 - `MISSING: <tool> (install: <command>)` - list the missing tools to the maintainer with a one-line purpose each plus the printed install commands, wait for consent (one approval may cover the list), then run `bin/mx-bootstrap.sh install <approved tools...>`.
   For `treehouse`, this also covers an installed version whose `treehouse get` lacks `--lease`; treat it as an upgrade request.
@@ -25,7 +25,7 @@ When any diagnostic needs maintainer attention, report the plain consequence and
   Do not dispatch or bypass the check; correct the named signal or configuration and rerun bootstrap.
 - `VPLAN_INVALID: <reason>` - the bundled review CLI, server, template, SDK, or pinned Mermaid asset failed its integrity self-check.
   Do not start a visual review until the tracked module is restored and bootstrap passes.
-- `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS-PORTING.md` section 8 explains why this guard exists and what it protects during the port.
+- `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.
   This is the only sanctioned broker-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
 - `ACTOR_DISPATCH: invalid config/actor-dispatch.json - <reason>` - the optional dispatch profile file exists but failed low-cost bootstrap validation; stop profile-based dispatch, report the actionable error, and require correction of the malformed schema, unverified harness name, or invalid harness/effort pair rather than falling back around it or selecting a bad profile.

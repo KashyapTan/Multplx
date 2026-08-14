@@ -6,7 +6,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CLI="$ROOT/bin/mx-vplan.sh"
-SERVER="$ROOT/bin/mx-vplan-server.mjs"
 RUST_SERVICE="$ROOT/crates/multplx-services/src/local_services/vplan.rs"
 WAKE_LIB="$ROOT/bin/mx-wake-lib.sh"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-vplan-tests.XXXXXX")
@@ -17,7 +16,6 @@ PIDS=()
 
 assert_selected_runtime() {
   local pid=$1 command
-  [ "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" = rust ] || return 0
   command=$(ps -p "$pid" -o command= 2>/dev/null || true)
   printf '%s\n' "$command" | grep -F 'services vplan-server' >/dev/null \
     || fail "Rust-selected review PID is not the Rust service: $command"
@@ -149,7 +147,7 @@ assert_loopback_only() {
       || fail "vplan socket was not listed on loopback: $output"
     return
   fi
-  grep -q '^const HOST = "127.0.0.1";$' "$SERVER" \
+  grep -Fq 'bind_loopback(first_port)' "$RUST_SERVICE" \
     || fail "no socket inspection tool was available and the server lost its literal loopback bind"
 }
 
@@ -164,6 +162,8 @@ test_round_trip_injection_shutdown_and_loopback() {
   payload="$dir/payload.json"
   response="$dir/response.json"
   make_payload "$payload"
+
+  port_available 4870 || fail "default review port 4870 was occupied before the test"
 
   url=$(start_review "$file") || fail "review did not start"
   [ "$url" = "http://127.0.0.1:4870/" ] || fail "default review URL mismatch: $url"

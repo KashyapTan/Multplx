@@ -44,7 +44,7 @@ This touches only the Multplx repo and its own worktrees, never anything under `
    A daemon that was skipped, already current, or has no live metadata is not on the list and needs no nudge.
 
 4. **Surface plain outcomes to the maintainer.**
-   Summarize what landed under `AGENTS-PORTING.md` section 9 during the Rust port without broker's internal vocabulary: which parts of the system are now on the latest, and which were left as-is and why.
+   Summarize what landed under `AGENTS.md` section 9 without broker's internal vocabulary: which parts of the system are now on the latest, and which were left as-is and why.
    For example: "Maintainer, broker and both daemons are now on the latest."
    Surface any skipped target whose reason needs the maintainer's attention - for instance a home with its own un-landed changes (diverged) or local edits (dirty), which were left untouched on purpose.
 

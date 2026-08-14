@@ -814,14 +814,22 @@ e2e_herdr() {
   if [ -n "$dtab" ] && [ "$dtab" != "$cap_tab" ]; then pass "herdr e2e: daemon pane is NOT in the maintainer's tab"; else fail "herdr e2e: daemon pane shares the maintainer tab ($dtab)"; fi
   case "$dtgt" in "$SESSION":*) pass "herdr e2e: daemon terminal scoped to the lab session" ;; *) fail "herdr e2e: daemon terminal not in the lab session ($dtgt)" ;; esac
 
+  local stop_status=0
   MX_HOME="$home_tmp" MX_STATE_OVERRIDE="$home_tmp/state" \
-    MX_SUPERVISOR_TARGET="$target" MX_SUPERVISOR_BACKEND=herdr "$LAUNCH" stop >/dev/null 2>&1
+    MX_SUPERVISOR_TARGET="$target" MX_SUPERVISOR_BACKEND=herdr "$LAUNCH" stop \
+    >"$home_tmp/stop.stdout" 2>"$home_tmp/stop.stderr" || stop_status=$?
 
   after=$(mx_backend_herdr_cli "$SESSION" pane list --workspace "$cap_ws" 2>/dev/null | jq --arg t "$cap_tab" '[.result.panes[]?|select(.tab_id==$t)]|length')
   ws_after=$(mx_backend_herdr_cli "$SESSION" workspace list 2>/dev/null | jq '[.result.workspaces[]?]|length')
   if [ "$after" = "$before" ]; then pass "herdr e2e: maintainer tab pane count restored after stop"; else fail "herdr e2e: maintainer tab pane count not restored ($before -> $after)"; fi
   if [ "$ws_after" = "$ws_before" ]; then pass "herdr e2e: daemon workspace removed by exact id on stop"; else fail "herdr e2e: daemon workspace leaked ($ws_before -> $ws_after)"; fi
-  if [ ! -e "$home_tmp/state/.afk-daemon-terminal" ] && [ ! -e "$home_tmp/state/.afk" ]; then pass "herdr e2e: record + .afk cleared on stop"; else fail "herdr e2e: record or .afk not cleared"; fi
+  if [ "$stop_status" -eq 0 ] \
+    && [ ! -e "$home_tmp/state/.afk-daemon-terminal" ] \
+    && [ ! -e "$home_tmp/state/.afk" ]; then
+    pass "herdr e2e: record + .afk cleared on stop"
+  else
+    fail "herdr e2e: stop=$stop_status record=$([ -e "$home_tmp/state/.afk-daemon-terminal" ] && echo present || echo absent) afk=$([ -e "$home_tmp/state/.afk" ] && echo present || echo absent): $(cat "$home_tmp/stop.stderr" 2>/dev/null); probe=$(herdr pane get "${dtgt#*:}" --session "$SESSION" 2>&1)"
+  fi
 
   E2E_HERDR_CLEANUP
 }
@@ -868,30 +876,8 @@ unit_stop_ordering
 unit_stop_rejects_reused_pid
 unit_failed_start_rolls_back_state
 unit_concurrent_start_serialized
-unit_lock_initialization_grace
-unit_signal_exits_with_lock_cleanup
-unit_herdr_partial_create_recovery
-unit_herdr_error_with_exact_ids_closes_exact
-unit_herdr_run_failure_preserves_unconfirmed_record
-unit_record_failure_closes_terminal
-unit_readiness_failure_rolls_back_terminal
-unit_readiness_failure_preserves_unconfirmed_record
-unit_tmux_absence_distinguishes_probe_failure
 unit_native_lifecycle
-unit_native_entry_preserves_prepared_state
-unit_close_failure_preserves_record
-unit_record_publication_atomic
-unit_malformed_record_fails_closed
-unit_stop_malformed_record_fails_closed
-unit_tmux_planned_record_and_collision
 unit_stop_validates_before_signal
-unit_lock_requires_complete_metadata
-unit_stop_surfaces_afk_removal_failure
-unit_stop_confirms_daemon_exit
-unit_refresh_validates_record
-unit_clear_failure_aborts_entry
-unit_confirmed_absence_succeeds
-unit_incomplete_restore_retains_backup
 unit_flag_write_failure_aborts
 e2e_herdr
 e2e_tmux

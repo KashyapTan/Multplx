@@ -345,6 +345,31 @@ test_pi_threads_model_and_max_effort() {
   pass "pi receives --model and --thinking max profile flags"
 }
 
+test_cursor_private_plugin_and_effort_model() {
+  local rec id out status launch plugin
+  id=profile-cursor-z17
+  rec=$(make_spawn_case profile-cursor cursor "$id")
+  read_case_record "$rec"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model composer-2 --effort high)
+  status=$?
+  expect_code 0 "$status" "cursor spawn with profile flags should succeed"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor composer-2 high
+  launch=$(cat "$LAUNCH_LOG")
+  plugin="/tmp/mx-$id/cursor-turnend-plugin"
+  assert_contains "$launch" "agent --sandbox enabled --trust '$plugin' --model 'composer-2[effort=high]'" \
+    "cursor launch did not preserve sandbox, scoped trust, and effort model token"
+  assert_present "$plugin/.cursor-plugin/plugin.json" "cursor private plugin manifest missing"
+  assert_present "$plugin/hooks/hooks.json" "cursor private plugin hook map missing"
+  assert_present "$plugin/hooks/stop.sh" "cursor private stop hook missing"
+  assert_grep "$id.turn-ended'" "$plugin/hooks/stop.sh" \
+    "cursor private stop hook is not bound to the task turn-end marker"
+  [ "$(mx_test_stat_mode "$plugin/hooks/stop.sh")" = 700 ] \
+    || fail "cursor private stop hook is not executable owner-only"
+  pass "cursor spawn enforces sandbox, scoped trust, private stop plugin, and effort model token"
+}
+
 test_batch_forwards_shared_profile_flags() {
   local rec id1 id2 out status
   id1=profile-batch-a-z9
@@ -397,6 +422,7 @@ test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
 test_pi_threads_model_and_max_effort
+test_cursor_private_plugin_and_effort_model
 test_batch_forwards_shared_profile_flags
 test_active_dispatch_profile_does_not_block_daemon_launch
 

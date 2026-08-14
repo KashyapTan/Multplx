@@ -3,11 +3,7 @@ description: Multplx broker operating contract for Cursor CLI
 alwaysApply: true
 ---
 
-This checkout is in temporary Rust-port mode and intentionally has no auto-loaded root `AGENTS.md`.
-Work as an ordinary repository contributor in a fresh Cursor session opened directly here, never through the global `multplx` launcher or Multplx dispatch and supervision.
-Read `CLAUDE.md`, the selected plan under `plans/rust_port/`, and `AGENTS-PORTING.md` only when the work changes the root broker contract.
-Treat `AGENTS-PORTING.md` as dormant product source, not as active instructions or a reason to adopt the broker role.
-Make every would-be root `AGENTS.md` edit in `AGENTS-PORTING.md`, leave project-level `AGENTS.md` conventions unchanged, and do not restore the root filename before port portion 13 passes the full final gate.
-When Multplx operation resumes after final restoration, the primary broker dispatches through Multplx and never through Cursor subagents, background agents, or Cursor-owned worktrees.
+Read root `AGENTS.md` and `CLAUDE.md` before changing the broker contract or shared tracked material.
+The primary broker dispatches through Multplx and never through Cursor subagents, background agents, or Cursor-owned worktrees.
 Keep Cursor sandboxing enabled; never use `--force`, `--yolo`, or `--sandbox disabled` for routine work.
-Run `bin/mx-session-start.sh` exactly once at session start only after `AGENTS-PORTING.md` has been restored to root `AGENTS.md` by the final port gate and the tracked session hook instructs it.
+Run `bin/mx-session-start.sh` exactly once at session start when the tracked session hook instructs it.

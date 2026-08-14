@@ -142,12 +142,14 @@ run_bootstrap_timeout_case() {
     export -f git
     if [ "$override" = __unset__ ]; then
       PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$fake_root" \
+        MX_BOOTSTRAP_TEST_TICK_MS=10 \
         MX_FAKE_SYSTEM_SYNC_STARTED_MARKER="$started_marker" \
         MX_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
         MX_FAKE_GIT_WAIT_FOR_SYSTEM_START="$wait_for_marker" \
         MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null
     else
       PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$fake_root" \
+        MX_BOOTSTRAP_TEST_TICK_MS=10 \
         MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT="$override" \
         MX_FAKE_SYSTEM_SYNC_STARTED_MARKER="$started_marker" \
         MX_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
@@ -578,7 +580,7 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
 test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
   local trigger
   # shellcheck disable=SC2016 # The backtick-delimited skill names are literal Markdown.
-  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/AGENTS-PORTING.md")
+  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/AGENTS.md")
   assert_contains "$trigger" "actionable diagnostic line" "bootstrap-diagnostics trigger should be action-scoped"
   assert_contains "$trigger" "BOOTSTRAP_INFO:" "bootstrap-diagnostics trigger should classify BOOTSTRAP_INFO as no-load"
   assert_contains "$trigger" "HEADROOM_INVALID" "invalid owned headroom must trigger diagnostics loading"

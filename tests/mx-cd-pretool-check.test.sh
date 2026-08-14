@@ -3,7 +3,7 @@
 # Behavior tests for the cd-guard PreToolUse seatbelt (docs/cd-guard.md).
 #
 # The Rust command-policy module owns the block/allow decision and shared shell
-# classification; the JavaScript policies remain explicit-legacy oracles.
+# classification.
 # bin/mx-cd-pretool-check.sh is the stable transport: it scopes the guard to the
 # real primary checkout, then drives all five harness entry forms. This suite
 # proves the decision matrix, the harness-output shaping, the primary-checkout
@@ -18,22 +18,17 @@ set -u
 
 mx_git_identity fmtest fmtest@example.invalid
 TMP_ROOT=$(mx_test_tmproot mx-cd-pretool-check)
-if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
-  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
-fi
+export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 # A primary-shaped checkout: plain (non-worktree) git repo, AGENTS.md, bin/ with
-# the transport plus both policy files (mx-cd-command-policy.mjs imports the
-# shared classifier from mx-arm-command-policy.mjs). This is what the transport's
+# the transport and the release binary. This is what the transport's
 # scoping treats as the real primary Multplx checkout.
 install_cd_scripts() {
   local dir=$1
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/mx-cd-pretool-check.sh" "$dir/bin/mx-cd-pretool-check.sh"
   cp "$ROOT/bin/mx-rust-runtime.sh" "$dir/bin/mx-rust-runtime.sh"
-  cp "$ROOT/bin/mx-cd-command-policy.mjs" "$dir/bin/mx-cd-command-policy.mjs"
-  cp "$ROOT/bin/mx-arm-command-policy.mjs" "$dir/bin/mx-arm-command-policy.mjs"
-  chmod +x "$dir/bin/mx-cd-pretool-check.sh" "$dir/bin/mx-cd-command-policy.mjs"
+  chmod +x "$dir/bin/mx-cd-pretool-check.sh"
 }
 
 make_primary_fixture() {
@@ -304,15 +299,9 @@ test_policy_runtime_without_node() {
   done
   # node deliberately absent from this PATH.
   out=$(PATH="$fakebin" "$CHECK" --command 'cd projects/foo' 2>&1); rc=$?
-  if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = legacy ]; then
-    expect_code 0 "$rc" "legacy transport must fail open when node is unavailable"
-    [ -z "$out" ] || fail "legacy transport produced output without node: $out"
-    pass "cd-guard: legacy rollback fails open when Node is missing"
-  else
-    expect_code 2 "$rc" "Rust policy must deny independently of Node availability"
-    assert_contains "$out" '[persistent-cd]' "Rust deny without Node must preserve the reason code"
-    pass "cd-guard: Rust policy no longer depends on Node"
-  fi
+  expect_code 2 "$rc" "Rust policy must deny independently of Node availability"
+  assert_contains "$out" '[persistent-cd]' "Rust deny without Node must preserve the reason code"
+  pass "cd-guard: Rust policy does not depend on Node"
 }
 
 test_fail_open_missing_jq_on_stdin() {
@@ -331,7 +320,7 @@ test_fail_open_missing_jq_on_stdin() {
 
 # --- prefilter fast path ----------------------------------------------------
 
-test_prefilter_skips_node_without_cd_substring() {
+test_prefilter_skips_policy_without_cd_substring() {
   local dir fakebin marker tool tool_path out rc
   dir="$TMP_ROOT/prefilter"
   make_primary_fixture "$dir" >/dev/null
@@ -352,25 +341,11 @@ EOF
   out=$(PATH="$fakebin" "$dir/bin/mx-cd-pretool-check.sh" --command 'git status' 2>&1); rc=$?
   expect_code 0 "$rc" "prefilter must fast-allow a command with no cd/pushd/popd substring"
   [ -z "$out" ] || fail "prefilter fast-allow produced output: $out"
-  [ ! -e "$marker" ] || fail "prefilter fast-allow still invoked the node policy owner"
-  pass "cd-guard: prefilter fast-allows (skips node) when no cd/pushd/popd substring is present"
+  [ ! -e "$marker" ] || fail "prefilter fast-allow invoked an unrelated Node sentinel"
+  pass "cd-guard: prefilter fast-allows when no cd/pushd/popd substring is present"
 }
 
 # --- policy CLI contract ----------------------------------------------------
-
-test_policy_cli_direct() {
-  local policy
-  policy="$ROOT/bin/mx-cd-command-policy.mjs"
-  [ "$(node "$policy" --command 'cd projects/foo' | cut -f1)" = deny ] \
-    || fail "policy CLI must deny a bare top-level cd"
-  [ "$(node "$policy" --command 'git -C projects/foo status')" = allow ] \
-    || fail "policy CLI must allow git -C"
-  [ "$(node "$policy" --command '(cd projects/foo && pwd)')" = allow ] \
-    || fail "policy CLI must allow a subshell-local cd"
-  [ "$(node "$policy")" = allow ] \
-    || fail "policy CLI must allow when no command is supplied"
-  pass "cd-guard: mx-cd-command-policy.mjs CLI honors the deny/allow output contract"
-}
 
 # --- per-harness wiring -----------------------------------------------------
 
@@ -422,8 +397,7 @@ test_fail_open_empty_stdin
 test_fail_open_unparseable_json
 test_policy_runtime_without_node
 test_fail_open_missing_jq_on_stdin
-test_prefilter_skips_node_without_cd_substring
-test_policy_cli_direct
+test_prefilter_skips_policy_without_cd_substring
 test_claude_wiring
 test_codex_wiring
 test_pi_wiring

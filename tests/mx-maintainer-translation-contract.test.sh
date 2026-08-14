@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Static regression tests for the maintainer-facing plain-English translation
-# contract owned by AGENTS-PORTING.md section 9 during the Rust port.
+# contract owned by AGENTS.md section 9.
 # shellcheck disable=SC2016
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-AGENTS="$ROOT/AGENTS-PORTING.md"
+AGENTS="$ROOT/AGENTS.md"
 BOOTSTRAP="$ROOT/.agents/skills/bootstrap-diagnostics/SKILL.md"
 AFK="$ROOT/.agents/skills/afk/SKILL.md"
 DECISION="$ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md"
@@ -113,25 +113,25 @@ test_routine_no_action_response_is_event_scoped() {
 }
 
 test_outward_facing_skill_points_reference_section_9_owner() {
-  assert_grep "using \`AGENTS-PORTING.md\` section 9's maintainer-facing translation contract during the port" "$BOOTSTRAP" \
+  assert_grep "using \`AGENTS.md\` section 9's maintainer-facing translation contract" "$BOOTSTRAP" \
     "bootstrap diagnostics do not reference section 9 at maintainer handoff"
-  assert_grep "Acknowledge** in \`AGENTS-PORTING.md\` section 9 language during the Rust port" "$AFK" \
+  assert_grep "Acknowledge** in \`AGENTS.md\` section 9 language" "$AFK" \
     "afk acknowledgement does not reference section 9"
   assert_grep "Maintainer, away mode is active; I will batch routine updates" "$AFK" \
     "afk acknowledgement lacks a local plain-English example"
-  assert_grep "as decisions from Catchup' Maintainer's Call section under \`AGENTS-PORTING.md\` section 9 during the Rust port" "$DECISION" \
+  assert_grep "as decisions from Catchup' Maintainer's Call section under \`AGENTS.md\` section 9" "$DECISION" \
     "decision relay does not reference section 9"
-  assert_grep "using \`AGENTS-PORTING.md\` section 9 during the Rust port; do not mention metadata, harness, window, or worktree" "$RECOVERY" \
+  assert_grep "using \`AGENTS.md\` section 9; do not mention metadata, harness, window, or worktree" "$RECOVERY" \
     "stuck-worker failure does not reference section 9"
-  assert_grep "under \`AGENTS-PORTING.md\` section 9 during the Rust port that the requested worker runtime is not verified yet" "$HARNESS" \
+  assert_grep "under \`AGENTS.md\` section 9 that the requested worker runtime is not verified yet" "$HARNESS" \
     "runtime fallback does not reference section 9"
   assert_grep "use broker's own verified runtime for current work" "$HARNESS" \
     "runtime fallback does not require the current-work fallback"
   assert_grep "Do not pause current work for that future-verification choice, and never launch an unverified adapter." "$HARNESS" \
     "runtime fallback permits waiting on future verification or launching an unverified adapter"
-  assert_grep "translate status prefixes and return-channel evidence through \`AGENTS-PORTING.md\` section 9 during the Rust port" "$CODEXAPP" \
+  assert_grep "translate status prefixes and return-channel evidence through \`AGENTS.md\` section 9" "$CODEXAPP" \
     "Codex Desktop result reporting does not reference section 9"
-  assert_grep "under \`AGENTS-PORTING.md\` section 9 during the Rust port without broker's internal vocabulary" "$UPDATE" \
+  assert_grep "under \`AGENTS.md\` section 9 without broker's internal vocabulary" "$UPDATE" \
     "Multplx update reporting does not reference section 9"
   pass "outward-facing skill handoffs point to the section 9 owner"
 }
@@ -235,29 +235,34 @@ test_recap_scans_visible_history_for_open_decisions() {
 }
 
 test_recap_user_role_injections_share_one_marker() {
-  local daemon pi_guard pi_watch owner sessionstart spawn
-  daemon=$(cat "$ROOT/bin/mx-supervise-daemon.sh")
+  local pi_guard pi_watch owner nudge_body nudge kind
   pi_guard=$(cat "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts")
   pi_watch=$(cat "$ROOT/.pi/extensions/mx-primary-pi-watch.ts")
   owner=$(cat "$ROOT/bin/mx-operational-input.sh")
-  sessionstart=$(cat "$ROOT/bin/mx-sessionstart-nudge.sh")
-  spawn=$(cat "$ROOT/bin/mx-spawn.sh")
 
   assert_contains "$owner" 'MX_OPERATIONAL_PREFIX="${MX_OPERATIONAL_MARK}MULTPLX_OP: "' \
     "canonical owner lost the landed Recap prefix"
-  assert_contains "$sessionstart" 'mx_operational_input_encode session-start' \
-    "session-start does not use the canonical typed constructor"
-  assert_contains "$daemon" 'mx_operational_input_encode away-supervisor' \
-    "away-mode does not use the canonical typed constructor"
+  nudge_body='Run `bin/mx-session-start.sh` now, exactly once, before executing any other instructions.'
+  nudge=$(printf '%s' "$nudge_body" | "$ROOT/bin/mx-operational-input.sh" encode session-start) \
+    || fail "canonical owner could not construct the session-start message"
+  kind=$(printf '%s' "$nudge" | "$ROOT/bin/mx-operational-input.sh" kind) \
+    || fail "canonical owner could not classify the constructed session-start message"
+  [ "$kind" = session-start ] || fail "constructed session-start message had kind $kind"
+  [ "$(printf '%s' "$nudge" | "$ROOT/bin/mx-operational-input.sh" body)" = "$nudge_body" ] \
+    || fail "constructed session-start message changed its body"
+  assert_grep 'native supervisor did not submit a typed away-supervisor escalation' \
+    "$ROOT/tests/mx-supervise-daemon-native.test.sh" \
+    "native away-supervisor producer lost its black-box typed-input contract"
   assert_contains "$pi_guard" 'encodeMultplxOperationalInput(' \
     "Pi guard does not use the cross-language constructor"
   assert_contains "$pi_guard" '"turn-end-guard"' \
     "Pi guard does not retain its exact current kind"
   assert_contains "$pi_watch" '"watcher"' \
     "Pi watcher does not retain its exact current kind"
-  assert_contains "$spawn" 'encode launch-brief' \
-    "cross-harness launches do not use the canonical launch-instruction kind"
-  for producer in "$daemon" "$pi_guard" "$pi_watch" "$sessionstart" "$spawn"; do
+  assert_grep 'encode launch-brief' \
+    "$ROOT/tests/mx-spawn-dispatch-profile.test.sh" \
+    "cross-harness launches lost their black-box typed launch-input contract"
+  for producer in "$pi_guard" "$pi_watch"; do
     assert_not_contains "$producer" 'MULTPLX_OP: ' \
       "a current producer copied the canonical marker grammar"
   done

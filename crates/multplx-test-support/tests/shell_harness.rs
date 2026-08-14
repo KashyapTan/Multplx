@@ -18,36 +18,6 @@ fn run_bash(script: &str) -> std::process::Output {
 }
 
 #[test]
-fn selector_is_test_only_explicit_and_rejects_unknown_values() {
-    let output = run_bash(
-        r#"
-set -eu
-. "$REPO_ROOT/tests/lib.sh"
-[ "$(mx_test_implementation)" = legacy ]
-[ "$(MX_TEST_IMPLEMENTATION=rust mx_test_implementation)" = rust ]
-[ "$(MX_TEST_IMPLEMENTATION=legacy mx_test_resolve_command /legacy/path shadow-fixture)" = /legacy/path ]
-resolved=$(MX_TEST_IMPLEMENTATION=rust MX_TEST_RUST_BIN=/rust/mx \
-  mx_test_resolve_command /legacy/path shadow-fixture)
-[ "$resolved" = "$(printf "/rust/mx\\nshadow-fixture")" ]
-set +e
-MX_TEST_IMPLEMENTATION=automatic mx_test_implementation >/dev/null 2>selector.err
-status=$?
-set -e
-[ "$status" -eq 2 ]
-grep -F 'must be legacy or rust' selector.err >/dev/null
-rm -f selector.err
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "stdout={}\nstderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
 fn equal_legacy_and_rust_observations_compare_cleanly() {
     let output = run_bash(
         r#"
@@ -74,10 +44,10 @@ chmod 600 "$MX_HOME/state/record"
 SH
 chmod +x "$temp/tools/legacy" "$temp/tools/rust"
 export MX_TEST_RUST_BIN="$temp/tools/rust"
-mx_test_capture_implementation legacy "$temp/legacy" "$temp/legacy-home" \
-  "$temp/tools/legacy" shadow-fixture
-mx_test_capture_implementation rust "$temp/rust" "$temp/rust-home" \
-  "$temp/tools/legacy" shadow-fixture
+mx_test_capture_command "$temp/legacy" "$temp/legacy-home" -- \
+  "$temp/tools/legacy"
+mx_test_capture_command "$temp/rust" "$temp/rust-home" -- \
+  "$MX_TEST_RUST_BIN" shadow-fixture
 mx_test_assert_differential_equal "$temp/legacy" "$temp/rust"
 "#,
     );

@@ -27,9 +27,9 @@ bin/mx-viz.sh stop
 ```
 
 `serve` is singleton and idempotent per `MX_HOME`.
-The script header owns the exact command, environment, and validation contract.
+The Rust local-service command help and `multplx-services::local_services::viz` own the exact command, environment, and validation contract.
 The stable shell entry point selects the Rust `multplx-services` implementation before it reads or mutates lifecycle state.
-`MX_LOCAL_SERVICES_IMPLEMENTATION=legacy` is the explicit rollback selector during the port window; the default path does not start Node.
+The service is Rust-native and does not start Node.
 
 ## Lifecycle and ports
 
@@ -79,7 +79,7 @@ Static dashboard assets are vendored under `share/viz/` and make no external net
 
 The singleton record is `state/.viz/server.run` with mode `0600`.
 It contains the canonical home and state paths, bound port, PID, portable PID identity, private cleanup token, and start timestamp.
-The exact key set and serialization are owned by the `bin/mx-viz.sh` header.
+The exact key set and serialization are owned by `multplx-services::local_services::viz`; `bin/mx-viz.sh` is a transport-only adapter.
 
 `stop` signals a process only when its current portable identity matches the record.
 A dead or identity-mismatched record is removed without signaling the recorded PID.

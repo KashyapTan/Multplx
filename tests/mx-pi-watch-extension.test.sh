@@ -102,12 +102,13 @@ test_tracked_extension_present_and_self_hashing() {
 
 test_spawn_template_mentions_pi_watch_placeholder() {
   local text
-  text=$(cat "$ROOT/bin/mx-spawn.sh")
-  assert_contains "$text" "-e __PITURNEND__ -e __PIWATCH__" "Pi daemon launch template does not include both primary extensions"
-  assert_contains "$text" "\$PROJ_ABS/.pi/extensions/mx-primary-pi-watch.ts" "mx-spawn does not point the Pi daemon watch placeholder at the tracked extension"
-  assert_not_contains "$text" "mx-pi-watch-extension.sh" "mx-spawn should no longer generate the Pi watch extension before launch"
-  assert_contains "$text" "__PITURNEND__" "mx-spawn does not replace the Pi turn-end guard extension placeholder"
-  assert_contains "$text" "__PIWATCH__" "mx-spawn does not replace the Pi watch extension placeholder"
+  text=$(cat "$ROOT/crates/multplx-cli/src/lib.rs")
+  assert_contains "$text" '.join(".pi/extensions/mx-primary-turnend-guard.ts")' \
+    "native Pi daemon launch does not include the primary turn-end extension"
+  assert_contains "$text" '.join(".pi/extensions/mx-primary-pi-watch.ts")' \
+    "native Pi daemon launch does not include the primary watcher extension"
+  assert_not_contains "$text" "mx-pi-watch-extension.sh" \
+    "native mx-spawn should not generate the Pi watch extension before launch"
   pass "Pi daemon launch wiring includes both tracked primary extensions"
 }
 

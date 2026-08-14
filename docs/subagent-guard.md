@@ -128,7 +128,7 @@ The delivered hook fires only in a genuine broker primary home, using the shared
 This is the same predicate `bin/mx-sessionstart-nudge.sh` and `bin/mx-turnend-guard.sh` use, so the three tracked primary-scoped hooks cannot drift apart.
 
 A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir or a valid `.mx-daemon-home` marker.
-The Rust-port checkout intentionally fails this exact-name test while its root contract is `AGENTS-PORTING.md`; do not extend the guard to accept that temporary filename.
+The guard accepts only the exact root `AGENTS.md` filename.
 A marked daemon home is in scope on purpose: it operates its own system and must dispatch through it for the same durability reasons.
 
 an actor's disposable task worktree is a linked git worktree, which is the shape `bin/mx-spawn.sh` always hands out, so it is out of scope.
@@ -203,7 +203,7 @@ Current dated Claude proof lives in [`verification/guards.md`](verification/guar
 
 ## Automated validation
 
-`tests/mx-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/mx-test-run.sh`.
+`tests/mx-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the Rust runner's `pure-contract-unit` family.
 It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop and MCP exclusions; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-Multplx repo; in-scope enforcement for a marked daemon home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
 
 Run:

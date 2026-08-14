@@ -40,6 +40,8 @@ mx_herdr_lab_prepare "$SESSION" || fail "could not prepare the isolated Herdr la
 # shellcheck source=/dev/null
 . "$ROOT/bin/mx-backend.sh"
 mx_backend_source herdr || fail "mx_backend_source herdr failed"
+# shellcheck source=bin/mx-transition-lib.sh
+. "$ROOT/bin/mx-transition-lib.sh"
 
 HERDR_VERSION=$(herdr --version 2>/dev/null | head -1)
 
@@ -74,7 +76,7 @@ backend=herdr
 kind=delivery
 EOF
 
-SOCK=$(mx_backend_herdr_socket_path "$SESSION")
+SOCK=$(mx_backend_herdr_projection_session_socket_path "$SESSION")
 [ -n "$SOCK" ] || fail "could not resolve the isolated session's socket path"
 
 # --- register the pane's agent idle, then drive idle->blocked ----------------

@@ -1,5 +1,6 @@
 use std::fs::{self, Permissions};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -36,6 +37,37 @@ fn assert_success(output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn native_teardown_reports_owned_and_manual_backlog_follow_up() {
+    for manual in [false, true] {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (home, root, fake) = fixture(&temp);
+        fs::create_dir_all(home.join("config")).expect("config");
+        if manual {
+            fs::write(home.join("config/backlog-backend"), "manual\n").expect("backend");
+        }
+        fs::write(
+            home.join("state/task.meta"),
+            "window=missing\nkind=delivery\nmode=deep-review\npr=https://example.invalid/pull/7\n",
+        )
+        .expect("meta");
+        let output = run(command(&home, &root, &fake).args(["teardown", "task"]));
+        assert_success(&output);
+        let text = String::from_utf8(output.stdout).expect("UTF-8");
+        assert!(text.starts_with("teardown task complete"));
+        if manual {
+            assert!(text.contains("Update data/backlog.md - move task to Done"));
+            assert!(!text.contains("bin/mx-backlog.sh done"));
+        } else {
+            assert!(
+                text.contains("bin/mx-backlog.sh done task --pr https://example.invalid/pull/7")
+            );
+            assert!(text.contains("bin/mx-backlog.sh ready"));
+        }
+        assert!(!home.join("state/task.meta").exists());
+    }
 }
 
 fn fixture(temp: &tempfile::TempDir) -> (PathBuf, PathBuf, PathBuf) {
@@ -282,20 +314,71 @@ fn lifecycle_dispatch_covers_briefs_reports_update_and_compatibility_refusals() 
         .env("MX_STATE_OVERRIDE", home.join("state"))
         .args(["update"])));
 
-    for lifecycle in [
-        "home-seed",
-        "spawn",
-        "supervise-daemon",
-        "teardown",
-        "upstream-diff",
+    for (lifecycle, expected) in [
+        ("home-seed", 0),
+        ("spawn", 1),
+        ("teardown", 2),
+        ("upstream-diff", 1),
     ] {
         assert_eq!(
             run(command(&home, &broker, &fake).args([lifecycle]))
                 .status
                 .code(),
-            Some(1)
+            Some(expected),
+            "unexpected zero-argument status for {lifecycle}"
         );
     }
+
+    assert_eq!(
+        run(command(&home, &broker, &fake).args(["supervise-daemon", "unexpected"]))
+            .status
+            .code(),
+        Some(2)
+    );
+    let watcher = temp.path().join("watcher");
+    executable(&watcher, "#!/bin/sh\nexit 0\n");
+    let supervisor_state = temp.path().join("supervisor-state");
+    let mut supervisor_command = command(&home, &broker, &fake);
+    supervisor_command
+        .env("MX_STATE_OVERRIDE", &supervisor_state)
+        .env("MX_SUPERVISE_WATCH_EXEC", &watcher)
+        .arg("supervise-daemon");
+    let mut supervisor = supervisor_command.spawn().expect("spawn supervisor");
+    let pidfile = supervisor_state.join(".supervise-daemon.pid");
+    for _ in 0..100 {
+        if pidfile.is_file() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(pidfile.is_file(), "supervisor did not publish its pid");
+    assert!(
+        supervisor.try_wait().expect("poll supervisor").is_none(),
+        "zero-argument supervisor did not remain in the foreground"
+    );
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &supervisor.id().to_string()])
+            .status()
+            .expect("signal supervisor")
+            .success()
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let supervisor_status = loop {
+        if let Some(status) = supervisor.try_wait().expect("wait supervisor") {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = supervisor.kill();
+            panic!("supervisor did not stop after SIGTERM");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(
+        supervisor_status.success() || supervisor_status.signal() == Some(15),
+        "supervisor exited unexpectedly after SIGTERM: {supervisor_status:?}"
+    );
+    assert!(!pidfile.exists(), "supervisor retained its pidfile");
 
     for arguments in [
         vec!["fast-forward", "default-branch", "/definitely/missing"],

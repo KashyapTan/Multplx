@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ "${MX_NATIVE_SUPERVISE_TEST_REENTRY:-0}" != 1 ]; then
+  MX_NATIVE_SUPERVISE_TEST_REENTRY=1 exec "$(dirname "$0")/mx-supervise-daemon-native.test.sh"
+fi
 # Real Pi/Herdr end-to-end regression for the 2026-07-14 two-owner incident.
 #
 # Opt-in because it launches a real interactive Pi primary, a real away daemon,

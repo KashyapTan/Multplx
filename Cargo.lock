@@ -282,8 +282,14 @@ dependencies = [
  "multplx-core",
  "multplx-domain",
  "multplx-services",
+ "regex",
+ "rustix",
+ "serde",
  "serde_json",
+ "sha2",
+ "signal-hook",
  "tempfile",
+ "time",
 ]
 
 [[package]]

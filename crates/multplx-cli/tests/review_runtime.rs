@@ -2,18 +2,10 @@ use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{PermissionsExt, symlink};
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn mx() -> Command {
     Command::new(env!("CARGO_BIN_EXE_mx"))
-}
-
-fn source_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("source root")
 }
 
 #[test]
@@ -30,69 +22,55 @@ fn unknown_review_entry_is_rejected_before_execution() {
 }
 
 #[test]
-fn compatibility_child_is_pinned_to_legacy_before_mutation() {
+fn deep_review_is_native_and_does_not_execute_a_same_named_shell_body() {
     let temp = tempfile::tempdir().expect("tempdir");
     let bin = temp.path().join("bin");
     fs::create_dir(&bin).expect("bin");
-    let script = bin.join("mx-deliver.sh");
-    fs::write(
-        &script,
-        "#!/bin/sh\nprintf '%s\\n' \"$MX_REVIEW_DELIVERY_IMPLEMENTATION\"\n",
-    )
-    .expect("script");
+    let script = bin.join("mx-deep-review.sh");
+    fs::write(&script, "#!/bin/sh\nprintf 'retained shell ran\\n'\n").expect("script");
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).expect("mode");
     let output = mx()
-        .args(["review", "mx-deliver.sh"])
+        .args(["review", "mx-deep-review.sh"])
         .env("MX_RUST_SOURCE_ROOT", temp.path())
-        .env("MX_REVIEW_DELIVERY_IMPLEMENTATION", "rust")
         .output()
         .expect("run mx");
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "legacy\n");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("legacy"));
 }
 
 #[test]
-fn compatibility_refuses_a_missing_retained_body() {
+fn deep_review_rejects_closed_usage_without_a_retained_body() {
     let temp = tempfile::tempdir().expect("tempdir");
     let output = mx()
-        .args(["review", "mx-deliver.sh"])
+        .args(["review", "mx-deep-review.sh"])
         .env("MX_RUST_SOURCE_ROOT", temp.path())
         .output()
         .expect("run mx");
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("compatibility body is unavailable"));
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Usage:"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("compatibility body"));
 }
 
 #[test]
-fn every_public_adapter_rejects_an_invalid_selector_before_state_access() {
+fn ambient_legacy_named_variable_cannot_redirect_a_native_entry_to_shell() {
     let temp = tempfile::tempdir().expect("tempdir");
-    for entry in [
-        "mx-check-register.sh",
-        "mx-deep-review.sh",
-        "mx-deliver.sh",
-        "mx-merge-local.sh",
-        "mx-pr-check-migrate.sh",
-        "mx-pr-check.sh",
-        "mx-pr-merge.sh",
-        "mx-pr-poll.sh",
-        "mx-promote.sh",
-        "mx-review-diff.sh",
-        "mx-validation-waive.sh",
-    ] {
-        let output = Command::new(source_root().join("bin").join(entry))
-            .env("MX_ROOT_OVERRIDE", source_root())
-            .env("MX_STATE_OVERRIDE", temp.path().join("missing-state"))
-            .env("MX_REVIEW_DELIVERY_IMPLEMENTATION", "invalid")
-            .output()
-            .expect("run adapter");
-        assert_eq!(output.status.code(), Some(2), "{entry}");
-        assert_eq!(
-            String::from_utf8_lossy(&output.stderr),
-            "error: MX_REVIEW_DELIVERY_IMPLEMENTATION must be rust or legacy\n",
-            "{entry}"
-        );
-    }
-    assert!(!temp.path().join("missing-state").exists());
+    let marker = temp.path().join("shell-ran");
+    let fake_root = temp.path().join("root");
+    fs::create_dir_all(fake_root.join("bin")).expect("bin");
+    fs::write(
+        fake_root.join("bin/mx-deep-review.sh"),
+        format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+    )
+    .expect("script");
+    let output = mx()
+        .args(["review", "mx-deep-review.sh"])
+        .env("MX_RUST_SOURCE_ROOT", &fake_root)
+        .env("MX_SHELL_REDIRECT_PROBE", "legacy")
+        .output()
+        .expect("run native review");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!marker.exists());
 }
 
 #[test]

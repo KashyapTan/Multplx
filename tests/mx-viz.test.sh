@@ -6,7 +6,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CLI="$ROOT/bin/mx-viz.sh"
-SERVER="$ROOT/bin/mx-viz-server.mjs"
 RUST_SERVICE="$ROOT/crates/multplx-services/src/local_services/viz.rs"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mx-viz-tests.XXXXXX")
 mkdir -p "$ROOT/data" || fail "could not create the dashboard artifact root"
@@ -16,7 +15,6 @@ PIDS=()
 
 assert_selected_runtime() {
   local pid=$1 command
-  [ "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" = rust ] || return 0
   command=$(ps -p "$pid" -o command= 2>/dev/null || true)
   printf '%s\n' "$command" | grep -F 'services viz-server' >/dev/null \
     || fail "Rust-selected dashboard PID is not the Rust service: $command"
@@ -161,7 +159,7 @@ assert_loopback_only() {
       && fail "dashboard socket was exposed on all interfaces: $output"
     return
   fi
-  grep -q '^const HOST = "127.0.0.1";$' "$SERVER" \
+  grep -Fq 'bind_loopback(first_port)' "$RUST_SERVICE" \
     || fail "no socket inspection tool was available and the literal loopback bind was lost"
 }
 
@@ -444,26 +442,22 @@ EOF
 }
 
 test_self_containment_and_contract_headers() {
-  grep -F 'MX_VIZ_PORT (default 4890) plus 19 upward ports' "$CLI" >/dev/null \
+  local help
+  help=$($CLI --help)
+  printf '%s\n' "$help" | grep -F 'MX_VIZ_PORT (default 4890) plus 19 upward ports' >/dev/null \
     || fail "CLI header lost the bounded default port contract"
-  grep -F 'MX_VIZ_IDLE_SECS (default' "$CLI" >/dev/null \
+  printf '%s\n' "$help" | grep -F 'MX_VIZ_IDLE_SECS (default' >/dev/null \
     || fail "CLI header lost the idle contract"
-  grep -F 'state/.viz/server.run' "$CLI" >/dev/null \
+  printf '%s\n' "$help" | grep -F 'state/.viz/server.run' >/dev/null \
     || fail "CLI header lost the run-record contract"
-  grep -F 'const HOST = "127.0.0.1";' "$SERVER" >/dev/null \
-    || fail "server lost the literal loopback bind"
-  grep -F 'const PORT_COUNT = 20;' "$SERVER" >/dev/null \
-    || fail "server lost the bounded port walk"
   grep -F 'TcpListener::bind(("127.0.0.1", port))' "$ROOT/crates/multplx-services/src/local_services/mod.rs" >/dev/null \
     || fail "Rust server lost the literal loopback bind"
   grep -F 'bind_loopback(first_port)' "$RUST_SERVICE" >/dev/null \
     || fail "Rust server lost the bounded port-selection boundary"
   local legacy_reference
   legacy_reference=$(printf '%s%s/' fir stmate)
-  ! grep -REn "$legacy_reference" "$CLI" "$SERVER" "$RUST_SERVICE" "$ROOT/share/viz" >/dev/null \
+  ! grep -REn "$legacy_reference" "$CLI" "$RUST_SERVICE" "$ROOT/share/viz" >/dev/null \
     || fail "production viz implementation depends on the read-only upstream reference tree"
-  node --check "$SERVER" >/dev/null || fail "dashboard server failed syntax validation"
-  node --check "$ROOT/share/viz/app.js" >/dev/null || fail "dashboard client failed syntax validation"
   pass "viz is self-contained and keeps its public contract in executable headers"
 }
 

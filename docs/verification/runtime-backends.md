@@ -9,7 +9,7 @@ Exact task chronology, branch names, temporary homes, local paths, process ids, 
 ## Viz and vplan Rust services
 
 Rust-port Portion 12 verification ran on 2026-08-12 with `mx 0.1.0` on macOS 26.5.2 arm64.
-The stable `bin/mx-viz.sh` and `bin/mx-vplan.sh` entry points selected the Rust `multplx-services` boundary before lifecycle state access, while the explicit `legacy` selector repeated the focused suites against the retained Node services.
+The stable `bin/mx-viz.sh` and `bin/mx-vplan.sh` entry points use the Rust `multplx-services` boundary before lifecycle state access.
 
 ```sh
 cargo build --workspace --release --locked
@@ -18,10 +18,8 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo llvm-cov --workspace --all-targets \
   --ignore-filename-regex 'herdr_(cleanup|presentation|tools)\.rs' \
   --fail-under-lines 93
-MX_LOCAL_SERVICES_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-viz.test.sh
-MX_LOCAL_SERVICES_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-vplan.test.sh
-MX_LOCAL_SERVICES_IMPLEMENTATION=legacy tests/mx-viz.test.sh
-MX_LOCAL_SERVICES_IMPLEMENTATION=legacy tests/mx-vplan.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-viz.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-vplan.test.sh
 bin/mx-test-run.sh --check-coverage
 ```
 
@@ -54,26 +52,26 @@ No request, identity, path, token, timeout, publication, or cleanup bound was di
 
 ## tmux
 
-### Rust Portion 04 shadow adapter
+### Rust Portion 04 shadow-period evidence
 
 The Rust shadow adapter was verified on 2026-08-11 with tmux 3.7b on macOS 26.5.2 arm64.
 Legacy remained the default during this verification.
-The Rust path was selected once per command with `MX_BACKEND_IMPLEMENTATION=rust` and used no fallback after backend execution began.
+The native path is selected once per command and uses no fallback after backend execution begins.
 
 ```sh
 cargo test --locked -p multplx-backend -p multplx-cli
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-tmux-smoke.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-actor-state.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-composer-ghost.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-tmux-submit-busy.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-daemon-liveness.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-tmux-smoke.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-actor-state.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-composer-ghost.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-tmux-submit-busy.test.sh
+MX_RUST_BIN="$PWD/target/release/mx" tests/mx-daemon-liveness.test.sh
 ```
 
 The real tmux smoke created a stable window id, pinned its name, verified target readiness and the requested current path, sent literal and submitted text, captured bounded history, resolved a bare name from exact inventory, killed the task window, and classified its absence authoritatively.
 The differential Rust test exercised every hidden facade command against an argument-recording fake and compared exact `mx-peek.sh` and `mx-actor-state.sh` status, stdout, stderr, and tmux argument observations with legacy.
 The timeout test spawned a descendant process and verified that the bounded runner killed the owned process group without leaving the descendant alive.
-The Linux portable-serial CI lane is configured to repeat the focused Rust shadow suite against its real tmux installation.
+The Linux portable-serial CI lane now repeats the same focused suite against the production Rust tmux implementation.
 
 Release-path timing used the same local APFS workspace, one real tmux session, one task metadata fixture, 100 warm interleaved iterations per implementation, Perl `Time::HiRes`, and nearest-rank p95.
 
@@ -123,13 +121,12 @@ The compatibility floor is protocol 14.
 The latest active verification uses Herdr 0.7.5 protocol 16 on macOS aarch64, with earlier 0.7.4, protocol-14, and 0.7.3 evidence retained where they define current behavior or fallbacks.
 
 The Portion 05 Rust-selected required family was reverified on 2026-08-11 with Herdr 0.7.4 protocol 16 on macOS aarch64.
-The run used `MX_BACKEND_IMPLEMENTATION=rust`, `MX_HERDR_TOOLS_IMPLEMENTATION=rust`, the release `mx` binary, a short isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server, and the guarded lab and CI cleanup tools.
+The command below records the current direct native family invocation.
+The run used the release `mx` binary, a short isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server, and the guarded lab and CI cleanup tools.
 No real-Herdr test reported the `herdr not found` gate skip, and the pre-suite snapshot plus post-suite teardown found no unowned session eligible for cleanup.
 
 ```sh
 cargo build --workspace --release --locked
-MX_BACKEND_IMPLEMENTATION=rust \
-MX_HERDR_TOOLS_IMPLEMENTATION=rust \
 MX_RUST_BIN="$PWD/target/release/mx" \
 bin/mx-test-run.sh --family real-herdr-gated \
   --fail-on-gate-skip 'herdr not found'
@@ -307,14 +304,13 @@ The dedicated Herdr daemon workspace topology is covered by `tests/mx-afk-launch
 
 ### Rust Portion 06 default adapter
 
-The cmux fake-CLI contract was reverified on 2026-08-11 against both the Rust default and retained legacy implementation.
+The cmux fake-CLI contract was reverified on 2026-08-11 against both implementations during the bounded shadow period.
 The suite covered the 0.64 minimum, missing and stale clients, fresh password reads, authentication classification, no-launch auth refusals, scoped identity, collision refusal, stale-target recovery, marker-delimited cwd, bounded capture, composer and submit behavior, window membership, last-workspace cleanup, best-effort kill, and home-filtered inventory.
 
 ```sh
 cargo build --workspace --release --locked
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux.test.sh
-MX_BACKEND_IMPLEMENTATION=legacy MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux.test.sh
-MX_BACKEND_IMPLEMENTATION=rust MX_RUST_BIN="$PWD/target/release/mx" tests/mx-backend-cmux-smoke.test.sh
+target/release/mx test-run tests/mx-backend-cmux.test.sh
+target/release/mx test-run tests/mx-backend-cmux-smoke.test.sh
 ```
 
 The deterministic suite passed under both implementations.
@@ -378,18 +374,14 @@ The real smoke proves socket access, fresh readiness, current-path probing, send
 ## Harness and dispatch cutover
 
 The Rust-default harness launch and dispatch layer was verified on 2026-08-11.
-Codex and Cursor were present and executed their real version commands through the validated child-root launcher under both Rust and legacy implementations.
+Codex and Cursor were present and executed their real version commands through the validated child-root launcher during the shadow-period comparison.
 Claude and Pi were not installed in this verification environment, so their new empirical launch checks are explicitly blocked here rather than inferred; the retained adapter evidence in `harness-adapters` remains the version-scoped source for those two adapters.
 
 ```sh
-MX_HARNESS_IMPLEMENTATION=rust MX_LAUNCHER_LIVE_E2E=1 tests/mx-launcher-live-e2e.test.sh
-MX_HARNESS_IMPLEMENTATION=legacy MX_LAUNCHER_LIVE_E2E=1 tests/mx-launcher-live-e2e.test.sh
-MX_HARNESS_IMPLEMENTATION=rust tests/mx-launcher.test.sh
-MX_HARNESS_IMPLEMENTATION=legacy tests/mx-launcher.test.sh
-MX_HEADROOM_IMPLEMENTATION=rust tests/mx-headroom.test.sh
-MX_HEADROOM_IMPLEMENTATION=legacy tests/mx-headroom.test.sh
-MX_HEADROOM_IMPLEMENTATION=rust tests/mx-dispatch-queue.test.sh
-MX_HEADROOM_IMPLEMENTATION=legacy tests/mx-dispatch-queue.test.sh
+MX_LAUNCHER_LIVE_E2E=1 tests/mx-launcher-live-e2e.test.sh
+tests/mx-launcher.test.sh
+tests/mx-headroom.test.sh
+tests/mx-dispatch-queue.test.sh
 ```
 
 Observed real versions:

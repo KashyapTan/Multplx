@@ -2,7 +2,7 @@
 
 This document is the human-facing owner for exact, single-use maintainer exceptions.
 The semantic procedure lives in [the maintainer-override skill](../.agents/skills/maintainer-override/SKILL.md), while `multplx-domain::maintainer_override` owns the executable schema, registry, validation, locking, and transitions.
-`bin/mx-maintainer-override-lib.sh` remains the source-compatible adapter for later review and delivery callers during the Rust rollback window.
+`bin/mx-maintainer-override-lib.sh` remains the sourced-function adapter for callers that require the shell ABI.
 
 ## Invariant
 
@@ -18,7 +18,7 @@ Every request binds a stable boundary id, task, project, literal operation or ca
 Private mode-`0700` state lives below `state/maintainer-overrides/` in `pending`, `granted`, `denied`, `consumed`, and `stale` directories.
 Records are regular mode-`0600` single-link JSON files and are never sourced as shell.
 One transition lock serializes every move, and a request identity must exist in exactly one lifecycle directory.
-The public command selects Rust before reading or mutating an authority record, while an explicit legacy selector is accepted only before an operation begins.
+The public command enters the Rust authority boundary before reading or mutating an authority record.
 
 Workers may create a pending request, but only the lock-owning primary broker may grant or deny it.
 Grant wording must name the exact boundary, operation, and target.
@@ -59,7 +59,7 @@ Their concrete next actions are an exact verified install, interactive login, cr
 ## Subsystem commands
 
 `bin/mx-override-bindings.sh` prints fresh bindings for cleanup, validation, workflow changes, single-checkout launch, and owner termination.
-`bin/mx-pr-merge.sh --print-override-bindings` owns red-merge bindings.
+The Rust review command exposed through `bin/mx-pr-merge.sh --print-override-bindings` owns red-merge bindings.
 `bin/mx-validation-waive.sh`, `bin/mx-workflow.sh`, `bin/mx-teardown.sh`, `bin/mx-spawn.sh`, `bin/mx-lock.sh`, `bin/mx-pr-merge.sh`, and `bin/mx-override-run.sh` each consume immediately before their own exceptional action.
 
 The ordinary command remains the default when no exact grant exists.
