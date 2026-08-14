@@ -554,7 +554,47 @@ fn registry_home(path: &Path, id: &str) -> String {
 }
 
 fn daemon_liveness(paths: &Paths, output: &mut String, verbose: bool) {
-    use multplx_backend::facade::{AgentState, BackendName, BackendTarget, RuntimeBackend};
+    use multplx_backend::facade::{BackendName, RuntimeBackend};
+
+    daemon_liveness_with(
+        paths,
+        output,
+        verbose,
+        |backend_name, target| match backend_name {
+            BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system().agent_state(target),
+            BackendName::Herdr => {
+                multplx_backend::herdr::HerdrBackend::system().agent_state(target)
+            }
+            BackendName::Cmux => multplx_backend::cmux::CmuxBackend::system().agent_state(target),
+        },
+        |backend_name, target| match backend_name {
+            BackendName::Tmux => {
+                let _ = multplx_backend::tmux::TmuxBackend::system().kill_verified(target);
+            }
+            BackendName::Herdr => {
+                let _ = multplx_backend::herdr::HerdrBackend::system().kill_verified(target);
+            }
+            BackendName::Cmux => {
+                let _ = multplx_backend::cmux::CmuxBackend::system().kill_verified(target);
+            }
+        },
+    );
+}
+
+fn daemon_liveness_with(
+    paths: &Paths,
+    output: &mut String,
+    verbose: bool,
+    mut agent_state: impl FnMut(
+        multplx_backend::facade::BackendName,
+        &multplx_backend::facade::BackendTarget,
+    ) -> multplx_backend::facade::AgentState,
+    mut kill_verified: impl FnMut(
+        multplx_backend::facade::BackendName,
+        &multplx_backend::facade::BackendTarget,
+    ),
+) {
+    use multplx_backend::facade::{AgentState, BackendName, BackendTarget};
 
     let mut metas = fs::read_dir(&paths.state)
         .into_iter()
@@ -589,13 +629,7 @@ fn daemon_liveness(paths: &Paths, output: &mut String, verbose: bool) {
             output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: endpoint probe unreadable (backend={backend_text})\n"));
             continue;
         };
-        let state = match backend_name {
-            BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system().agent_state(&target),
-            BackendName::Herdr => {
-                multplx_backend::herdr::HerdrBackend::system().agent_state(&target)
-            }
-            BackendName::Cmux => multplx_backend::cmux::CmuxBackend::system().agent_state(&target),
-        };
+        let state = agent_state(backend_name, &target);
         let harness = meta_value(&raw, "harness");
         let verified_harness = matches!(harness.as_str(), "claude" | "codex" | "cursor" | "pi");
         match state {
@@ -606,11 +640,7 @@ fn daemon_liveness(paths: &Paths, output: &mut String, verbose: bool) {
             AgentState::Dead | AgentState::Missing if !verified_harness => output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: recorded harness '{harness}' is unverified for recovery (backend={backend_text})\n")),
             AgentState::Dead | AgentState::Missing => {
                 let cause = if state == AgentState::Dead {
-                    match backend_name {
-                        BackendName::Tmux => { let _ = multplx_backend::tmux::TmuxBackend::system().kill_verified(&target); }
-                        BackendName::Herdr => { let _ = multplx_backend::herdr::HerdrBackend::system().kill_verified(&target); }
-                        BackendName::Cmux => { let _ = multplx_backend::cmux::CmuxBackend::system().kill_verified(&target); }
-                    }
+                    kill_verified(backend_name, &target);
                     "confirmed agent absence on existing endpoint"
                 } else { "recorded endpoint confidently missing" };
                 let daemon_home = meta_value(&raw, "home");
@@ -1373,7 +1403,13 @@ mod tests {
         )
         .expect("empty");
         let mut output = String::new();
-        daemon_liveness(&fixture, &mut output, false);
+        daemon_liveness_with(
+            &fixture,
+            &mut output,
+            false,
+            |_, _| multplx_backend::facade::AgentState::Missing,
+            |_, _| {},
+        );
         assert!(output.contains("unknown: skipped: agent recovery classifier unverified"));
         assert!(output.contains("missing: skipped: recorded harness 'spaceship' is unverified"));
         assert!(!output.contains("ignored"));
@@ -1396,7 +1432,13 @@ mod tests {
         )
         .expect("meta");
         let mut output = String::new();
-        daemon_liveness(&fixture, &mut output, false);
+        daemon_liveness_with(
+            &fixture,
+            &mut output,
+            false,
+            |_, _| multplx_backend::facade::AgentState::Missing,
+            |_, _| {},
+        );
         assert!(output.contains("respawn failed after recorded endpoint confidently missing"));
         assert!(output.contains("spawn refused for fixture"));
     }

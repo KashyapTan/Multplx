@@ -1668,6 +1668,8 @@ fn park_spawn_if_at_limit(
     if positional.len() > 3 {
         return Err("invalid spawn request".to_owned());
     }
+    multplx_backend::facade::BackendName::parse(&backend)
+        .map_err(|_| format!("unsupported backend: {backend}"))?;
     let paths = HeadroomPaths::from_environment();
     let headroom = multplx_backend::headroom::evaluate(&paths).map_err(|error| {
         format!("dispatch capacity could not be established; refusing to spawn {id}: {error}")
