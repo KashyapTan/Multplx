@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -1033,11 +1033,15 @@ fn treehouse_slot(root: &Path, home: &Path) -> Result<bool, String> {
 }
 
 fn remove_home(context: &Context, home: &Path) -> Result<(), String> {
+    remove_home_with(context, home, OsStr::new("treehouse"))
+}
+
+fn remove_home_with(context: &Context, home: &Path, treehouse: &OsStr) -> Result<(), String> {
     if !home.exists() {
         return Ok(());
     }
     if treehouse_slot(&context.root, home)? {
-        let output = Command::new("treehouse")
+        let output = Command::new(treehouse)
             .args(["return".as_ref(), "--force".as_ref(), home.as_os_str()])
             .current_dir(&context.root)
             .output()
@@ -2610,7 +2614,19 @@ mod tests {
         );
         let mut return_context = context.clone();
         return_context.root = project;
-        remove_home(&return_context, &removable).expect("return worktree home");
+        let treehouse = temp.path().join("treehouse");
+        fs::write(
+            &treehouse,
+            "#!/bin/sh\n[ \"$1\" = return ] && [ \"$2\" = --force ] || exit 2\nexec git worktree remove --force \"$3\"\n",
+        )
+        .expect("treehouse fixture");
+        let mut permissions = fs::metadata(&treehouse)
+            .expect("treehouse metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&treehouse, permissions).expect("treehouse mode");
+        remove_home_with(&return_context, &removable, treehouse.as_os_str())
+            .expect("return worktree home");
         assert!(!removable.exists());
     }
 
