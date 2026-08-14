@@ -400,7 +400,7 @@ test_registration_conflict_mode_and_uninstall_preflight() {
   mkdir -p "$case_dir/bin"
   chmod 700 "$case_dir/bin"
   install_fixture "$case_dir" "$root_a"
-  [ "$(stat -f %Lp "$case_dir/bin" 2>/dev/null || stat -c %a "$case_dir/bin")" = 700 ] \
+  [ "$(mx_test_stat_mode "$case_dir/bin")" = 700 ] \
     || fail "installer weakened an existing private bin directory"
   if install_fixture "$case_dir" "$root_b" >/dev/null 2>&1; then status=0; else status=$?; fi
   expect_code 2 "$status" "conflicting root registration"
@@ -467,8 +467,8 @@ test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
     || fail "synchronous publication fault did not restore the old binary"
   [ "$(cat "$case_dir/config/binary.sha256")" = "$old_hash" ] \
     || fail "synchronous publication fault did not restore the old digest"
-  [ "$(stat -f %Lp "$case_dir/bin/multplx" 2>/dev/null || stat -c %a "$case_dir/bin/multplx")" = 700 ] \
-    && [ "$(stat -f %Lp "$case_dir/config/root" 2>/dev/null || stat -c %a "$case_dir/config/root")" = 640 ] \
+  [ "$(mx_test_stat_mode "$case_dir/bin/multplx")" = 700 ] \
+    && [ "$(mx_test_stat_mode "$case_dir/config/root")" = 640 ] \
     || fail "synchronous publication fault did not restore the old generation modes"
   [ ! -e "$case_dir/config/.launcher-install.transaction" ] \
     || fail "synchronous rollback left a transaction journal"
