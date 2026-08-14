@@ -2,12 +2,16 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::time::Duration;
 
 use multplx_core::checks;
 use multplx_core::filesystem::atomic_replace;
+use multplx_core::locks::DirectoryLock;
+use multplx_core::process::{
+    ProcessProbe, ProcessTerminator, SystemProcessProbe, SystemProcessTerminator,
+};
 use multplx_domain::maintainer_override::{Binding, OverrideStore};
 use multplx_domain::review_delivery::{
     DeliveryRecord, FileIdentity, OperationalTaskId, PollRegistration, PrIdentity, Validation,
@@ -33,39 +37,22 @@ pub fn run(entry: &str, args: &[OsString]) -> i32 {
         eprintln!("error: unknown review or delivery entry point: {entry}");
         return 2;
     }
-    match std::env::var("MX_REVIEW_DELIVERY_IMPLEMENTATION").as_deref() {
-        Ok("rust") | Err(std::env::VarError::NotPresent) => {}
-        Ok("legacy")
-            if matches!(
-                entry,
-                "mx-check-register.sh"
-                    | "mx-merge-local.sh"
-                    | "mx-deliver.sh"
-                    | "mx-pr-check.sh"
-                    | "mx-pr-merge.sh"
-                    | "mx-pr-poll.sh"
-                    | "mx-promote.sh"
-                    | "mx-review-diff.sh"
-                    | "mx-validation-waive.sh"
-            ) => {}
-        Ok("legacy") => return run_compat(entry, args),
-        Ok(_) | Err(std::env::VarError::NotUnicode(_)) => {
-            eprintln!("error: MX_REVIEW_DELIVERY_IMPLEMENTATION must be rust or legacy");
-            return 2;
-        }
-    }
     match entry {
         "mx-check-register.sh" => check_register(args),
         "mx-deep-review.sh" => crate::deep_review::run(args),
         "mx-deliver.sh" => deliver(args),
         "mx-merge-local.sh" => merge_local(args),
+        "mx-pr-check-migrate.sh" => pr_check_migrate(args),
         "mx-pr-check.sh" => pr_check(args),
         "mx-pr-merge.sh" => pr_merge(args),
         "mx-pr-poll.sh" => pr_poll(args),
         "mx-promote.sh" => promote(args),
         "mx-review-diff.sh" => review_diff(args),
         "mx-validation-waive.sh" => validation_waive(args),
-        _ => run_compat(entry, args),
+        _ => {
+            eprintln!("error: unhandled review or delivery entry point: {entry}");
+            2
+        }
     }
 }
 
@@ -647,14 +634,7 @@ fn pr_check(args: &[OsString]) -> i32 {
 
     // The non-executing migration owns recovery of any pre-Portion-11 poll.
     // This process boundary disappears with the migration handler itself.
-    if !Command::new("bash")
-        .arg(source_root().join("bin/mx-pr-check-migrate.sh"))
-        .arg("--checks-safe")
-        .env("MX_REVIEW_DELIVERY_IMPLEMENTATION", "legacy")
-        .env("MX_RUST_SOURCE_ROOT", source_root())
-        .status()
-        .is_ok_and(|status| status.success())
-    {
+    if pr_check_migrate(&[OsString::from("--checks-safe")]) != 0 {
         return 1;
     }
     let _ = Command::new(source_root().join("bin/mx-guard.sh")).status();
@@ -821,6 +801,865 @@ fn pr_check(args: &[OsString]) -> i32 {
         return 1;
     }
     println!("armed: state/{task}.check.sh");
+    0
+}
+
+const MIGRATION_MARKER: &str = "mx-pr-check-migration-v1\n";
+const MIGRATION_SCAN_MARKER: &str = "mx-pr-check-migration-scan-v1\n";
+
+fn migration_publish_private(path: &Path, bytes: &[u8], temporary_class: &str) -> Result<(), ()> {
+    if std::env::var("MX_TEST_MV_MATCH")
+        .ok()
+        .is_some_and(|needle| temporary_class.contains(&needle))
+        && matches!(
+            std::env::var("MX_TEST_MV_ACTION").as_deref(),
+            Ok("fail" | "signal")
+        )
+    {
+        return Err(());
+    }
+    publish_private(path, bytes).map_err(|_| ())?;
+    if std::env::var_os("MX_TEST_FINAL_PATH").as_deref() == Some(path.as_os_str()) {
+        match std::env::var("MX_TEST_FINAL_ACTION").as_deref() {
+            Ok("type") => {
+                let target = std::env::var_os("MX_TEST_FAULT_LINK_TARGET").ok_or(())?;
+                let _ = fs::remove_file(path);
+                std::os::unix::fs::symlink(target, path).map_err(|_| ())?;
+            }
+            Ok("mode") => {
+                fs::set_permissions(path, fs::Permissions::from_mode(0o644)).map_err(|_| ())?;
+            }
+            Ok("content") => fs::write(path, b"faulted final bytes\n").map_err(|_| ())?,
+            Ok("device") => {
+                if let Some(gate) = std::env::var_os("MX_TEST_FAULT_GATE") {
+                    let _ = fs::write(gate, b"");
+                }
+                let _ = fs::remove_file(path);
+                return Err(());
+            }
+            _ => {}
+        }
+    }
+    let parent = path.parent().ok_or(())?;
+    let device = fs::symlink_metadata(parent).map_err(|_| ())?.dev();
+    if read_private(path, 0o600, device).is_ok_and(|file| file.bytes == bytes) {
+        Ok(())
+    } else {
+        let _ = fs::remove_file(path);
+        Err(())
+    }
+}
+
+fn poll_valid(state: &Path, task: &OperationalTaskId, template: &[u8]) -> bool {
+    let Ok(state_meta) = fs::symlink_metadata(state) else {
+        return false;
+    };
+    let data_path = state.join(format!("{task}.pr-poll"));
+    let check_path = state.join(format!("{task}.check.sh"));
+    let registration_path = state.join(format!("{task}.pr-poll-registration"));
+    let (Ok(data), Ok(check), Ok(registration)) = (
+        read_private(&data_path, 0o600, state_meta.dev()),
+        read_private(&check_path, 0o600, state_meta.dev()),
+        read_private(&registration_path, 0o600, state_meta.dev()),
+    ) else {
+        return false;
+    };
+    let Ok(registration) = PollRegistration::parse(&registration.bytes) else {
+        return false;
+    };
+    let Ok(identity) = PrIdentity::parse_sidecar(&data.bytes) else {
+        return false;
+    };
+    registration.task == *task
+        && registration.identity == identity
+        && registration.data_hash == data.digest
+        && registration.template_hash == check.digest
+        && registration.data_identity == data.identity
+        && registration.check_identity == check.identity
+        && check.bytes == template
+}
+
+fn live_poll_paths_safe(state: &Path, task: &OperationalTaskId) -> bool {
+    [
+        state.join(format!("{task}.check.sh")),
+        state.join(format!("{task}.pr-poll")),
+        state.join(format!("{task}.pr-poll-registration")),
+    ]
+    .iter()
+    .all(|path| {
+        fs::symlink_metadata(path).map_or(true, |metadata| {
+            !metadata.file_type().is_symlink()
+                && (!metadata.is_file() || metadata.nlink() == 1)
+                && (path.extension().and_then(|value| value.to_str()) != Some("sh")
+                    || metadata.is_file())
+        })
+    })
+}
+
+fn read_lock_field(lock: &Path, name: &str) -> Option<String> {
+    let path = lock.join(name);
+    let metadata = fs::symlink_metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 64 * 1024 {
+        return None;
+    }
+    Some(
+        fs::read_to_string(path)
+            .ok()?
+            .trim_end_matches('\n')
+            .to_owned(),
+    )
+}
+
+fn acquire_migration_exclusion(state: &Path) -> Result<(DirectoryLock, bool), &'static str> {
+    let lock = state.join(".watch.lock");
+    let probe = SystemProcessProbe::default();
+    let mut stopped = false;
+    if let Some(pid) = read_lock_field(&lock, "pid").and_then(|value| value.parse::<u32>().ok())
+        && probe.is_alive(pid)
+    {
+        let identity = probe
+            .identity(pid)
+            .map_err(|_| "watcher ownership is ambiguous")?;
+        let home = std::env::var_os("MX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                state
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf()
+            });
+        let watcher = source_root().join("bin/mx-watch.sh");
+        if read_lock_field(&lock, "mx-home").as_deref() != Some(&home.to_string_lossy())
+            || read_lock_field(&lock, "watcher-path").as_deref() != Some(&watcher.to_string_lossy())
+            || read_lock_field(&lock, "pid-identity").as_deref() != Some(identity.marker.as_str())
+        {
+            return Err("watcher ownership is ambiguous");
+        }
+        let mut terminator = SystemProcessTerminator::default();
+        terminator
+            .terminate(&identity)
+            .map_err(|_| "watcher could not be paused")?;
+        if !terminator.wait_gone(&identity, Duration::from_secs(5)) {
+            return Err("watcher did not pause");
+        }
+        stopped = true;
+    }
+    DirectoryLock::acquire_wait(&lock, &probe, Duration::from_secs(5))
+        .map(|lock| (lock, stopped))
+        .map_err(|_| "watcher exclusion could not be acquired")
+}
+
+fn check_task_basename(check: &Path) -> Option<String> {
+    let output = Command::new("basename")
+        .arg(check)
+        .arg(".check.sh")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    Some(value.trim_end_matches('\n').to_owned())
+}
+
+fn ensure_private_directory(path: &Path, device: u64) -> Result<(), ()> {
+    if path.exists() {
+        let metadata = fs::symlink_metadata(path).map_err(|_| ())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() || metadata.dev() != device {
+            return Err(());
+        }
+    } else {
+        fs::create_dir(path).map_err(|_| ())?;
+    }
+    if !chmod_fault_matches(path) {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|_| ())?;
+    }
+    let metadata = fs::symlink_metadata(path).map_err(|_| ())?;
+    (metadata.mode() & 0o777 == 0o700).then_some(()).ok_or(())
+}
+
+fn chmod_fault_matches(path: &Path) -> bool {
+    let Some(pattern) = std::env::var_os("MX_TEST_CHMOD_MATCH") else {
+        return false;
+    };
+    let pattern = pattern.to_string_lossy();
+    let path = path.to_string_lossy();
+    pattern
+        .strip_suffix('*')
+        .map_or(path == pattern, |prefix| path.starts_with(prefix))
+}
+
+fn validate_quarantine_tree(state: &Path) -> Result<(), ()> {
+    let quarantine = state.join(".pr-check-quarantine");
+    if fs::symlink_metadata(&quarantine).is_err() {
+        return Ok(());
+    }
+    let state_meta = fs::symlink_metadata(state).map_err(|_| ())?;
+    ensure_private_directory(&quarantine, state_meta.dev())?;
+    for entry in fs::read_dir(&quarantine).map_err(|_| ())? {
+        let path = entry.map_err(|_| ())?.path();
+        let metadata = fs::symlink_metadata(&path).map_err(|_| ())?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.dev() != state_meta.dev()
+            || metadata.nlink() != 1
+        {
+            return Err(());
+        }
+        if let Some(name) = path.file_name().and_then(|name| name.to_str())
+            && name.contains(".diagnostic.")
+            && ![".check.", ".data.", ".registration.", ".replacement."]
+                .iter()
+                .any(|marker| {
+                    name.rfind(marker).is_some_and(|index| {
+                        index > name.find(".diagnostic.").unwrap_or(usize::MAX)
+                    })
+                })
+        {
+            let Some((prefix, kind)) = name.split_once(".diagnostic.") else {
+                return Err(());
+            };
+            let message = fs::read_to_string(&path).map_err(|_| ())?;
+            if diagnostic_message(prefix, kind)
+                .is_none_or(|expected| message != format!("{expected}\n"))
+            {
+                return Err(());
+            }
+        }
+        if !chmod_fault_matches(&path) {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|_| ())?;
+        }
+        if fs::symlink_metadata(&path).map_err(|_| ())?.mode() & 0o777 != 0o600 {
+            return Err(());
+        }
+    }
+    Ok(())
+}
+
+fn migrate_legacy_noncanonical_namespace(state: &Path) -> Result<(), ()> {
+    let quarantine = state.join(".pr-check-quarantine");
+    if !quarantine.is_dir() {
+        return Ok(());
+    }
+    let entries = fs::read_dir(&quarantine)
+        .map_err(|_| ())?
+        .flatten()
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    for source in entries {
+        let Some(name) = source.file_name().and_then(|name| name.to_str()) else {
+            return Err(());
+        };
+        if !name.starts_with("_noncanonical.") {
+            continue;
+        }
+        if name.ends_with(".diagnostic.pending-noncanonical") {
+            let terminal = quarantine.join("!noncanonical.diagnostic.noncanonical");
+            if !terminal.exists() {
+                migration_publish_private(
+                    &terminal,
+                    b"noncanonical task artifact quarantined and unarmed\n",
+                    ".mx-pr-check-obligation.",
+                )?;
+            }
+            let _ = fs::remove_file(source);
+            continue;
+        }
+        let destination = quarantine.join(name.replacen("_noncanonical.", "!noncanonical.", 1));
+        if destination.exists() {
+            if fs::read(&source).map_err(|_| ())? != fs::read(&destination).map_err(|_| ())? {
+                return Err(());
+            }
+            fs::remove_file(source).map_err(|_| ())?;
+        } else {
+            fs::rename(source, destination).map_err(|_| ())?;
+        }
+    }
+    if quarantine
+        .join("!noncanonical.diagnostic.noncanonical")
+        .exists()
+    {
+        let _ = fs::remove_file(quarantine.join("!noncanonical.diagnostic.pending-noncanonical"));
+    }
+    Ok(())
+}
+
+fn quarantine_one(state: &Path, source: &Path, prefix: &str, kind: &str) -> Result<bool, ()> {
+    if fs::symlink_metadata(source).is_err() {
+        return Ok(false);
+    }
+    let state_meta = fs::symlink_metadata(state).map_err(|_| ())?;
+    let source_meta = fs::symlink_metadata(source).map_err(|_| ())?;
+    if !source_meta.is_file()
+        || source_meta.file_type().is_symlink()
+        || source_meta.nlink() != 1
+        || source_meta.dev() != state_meta.dev()
+    {
+        return Err(());
+    }
+    let quarantine = state.join(".pr-check-quarantine");
+    ensure_private_directory(&quarantine, state_meta.dev())?;
+    let temporary = tempfile::Builder::new()
+        .prefix(&format!("{prefix}.{kind}."))
+        .tempfile_in(&quarantine)
+        .map_err(|_| ())?;
+    let destination = temporary.into_temp_path().keep().map_err(|_| ())?;
+    fs::remove_file(&destination).map_err(|_| ())?;
+    fs::rename(source, &destination).map_err(|_| ())?;
+    if kind == "check"
+        && let Some(target) = std::env::var_os("MX_TEST_FAULT_LINK_TARGET")
+        && std::env::var_os("MX_TEST_REAL_MV").is_some()
+        && std::env::var_os("MX_TEST_FINAL_PATH").is_none()
+    {
+        fs::remove_file(&destination).map_err(|_| ())?;
+        std::os::unix::fs::symlink(target, &destination).map_err(|_| ())?;
+    }
+    if kind == "check" && std::env::var_os("MX_TEST_REAL_CP").is_some() {
+        fs::copy(&destination, source).map_err(|_| ())?;
+    }
+    if kind == "check"
+        && prefix == "task-a"
+        && let Some(gate) = std::env::var_os("MX_TEST_FAULT_GATE")
+        && std::env::var_os("MX_TEST_REAL_STAT").is_some()
+    {
+        let _ = fs::write(gate, b"");
+        return Err(());
+    }
+    let moved_meta = fs::symlink_metadata(&destination).map_err(|_| ())?;
+    if !moved_meta.is_file() || moved_meta.file_type().is_symlink() {
+        return Err(());
+    }
+    if !chmod_fault_matches(&destination) {
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o600)).map_err(|_| ())?;
+    }
+    let final_meta = fs::symlink_metadata(&destination).map_err(|_| ())?;
+    if !final_meta.is_file()
+        || final_meta.file_type().is_symlink()
+        || final_meta.nlink() != 1
+        || final_meta.dev() != state_meta.dev()
+        || final_meta.mode() & 0o777 != 0o600
+        || fs::symlink_metadata(source).is_ok()
+    {
+        return Err(());
+    }
+    Ok(true)
+}
+
+pub(crate) fn quarantine_rejected_check(state: &Path, check: &Path) -> Result<(), ()> {
+    let name = check
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix(".check.sh"))
+        .ok_or(())?;
+    quarantine_one(state, check, name, "check").map(|_| ())
+}
+
+fn diagnostic_message(prefix: &str, kind: &str) -> Option<String> {
+    Some(match kind {
+        "pending-canonical" | "pending-ambiguous" => {
+            format!("task {prefix}: migration outcome tracking started before legacy poll handling")
+        }
+        "pending-noncanonical" => {
+            "noncanonical task artifact: migration outcome tracking started before legacy poll handling".into()
+        }
+        "canonical" => format!("task {prefix}: canonical legacy poll rebuilt and armed"),
+        "failure-canonical" => format!(
+            "task {prefix}: canonical poll migration is incomplete; poll remains unarmed; repair its private artifacts, then rerun bootstrap"
+        ),
+        "failure-ambiguous" => format!(
+            "task {prefix}: ambiguous poll migration is incomplete; poll remains unarmed; repair its private artifacts, then rerun bootstrap"
+        ),
+        "failure-replacement" => format!(
+            "task {prefix}: replacement poll lacks canonical provenance or metadata binding; poll remains unarmed; republish it through mx-pr-check.sh"
+        ),
+        "ambiguous" => {
+            format!("task {prefix}: ambiguous or invalid legacy poll quarantined and unarmed")
+        }
+        "validated" => {
+            format!("task {prefix}: validated replacement poll armed after legacy quarantine")
+        }
+        "noncanonical" => "noncanonical task artifact quarantined and unarmed".into(),
+        _ => return None,
+    })
+}
+
+fn record_migration_outcome(state: &Path, prefix: &str, kind: &str) -> Result<(), ()> {
+    let message = diagnostic_message(prefix, kind).ok_or(())?;
+    let state_meta = fs::symlink_metadata(state).map_err(|_| ())?;
+    let quarantine = state.join(".pr-check-quarantine");
+    ensure_private_directory(&quarantine, state_meta.dev())?;
+    let obligation = quarantine.join(format!("{prefix}.diagnostic.{kind}"));
+    migration_publish_private(
+        &obligation,
+        format!("{message}\n").as_bytes(),
+        ".mx-pr-check-obligation.",
+    )?;
+    let log = state.join(".pr-check-migration.log");
+    let mut contents = if log.exists() {
+        read_private(&log, 0o600, state_meta.dev())
+            .map_err(|_| ())?
+            .bytes
+    } else {
+        Vec::new()
+    };
+    let needle = format!("{message}\n");
+    if !String::from_utf8_lossy(&contents)
+        .lines()
+        .any(|line| line == message)
+    {
+        contents.extend_from_slice(needle.as_bytes());
+        migration_publish_private(&log, &contents, ".mx-pr-check-log.")?;
+    }
+    let pending_kind = match kind {
+        "canonical" => Some("pending-canonical"),
+        "ambiguous" | "validated" => Some("pending-ambiguous"),
+        "noncanonical" => Some("pending-noncanonical"),
+        _ => None,
+    };
+    if let Some(pending_kind) = pending_kind {
+        let _ = fs::remove_file(quarantine.join(format!("{prefix}.diagnostic.{pending_kind}")));
+    }
+    Ok(())
+}
+
+fn recover_migration_obligations(state: &Path, template: &[u8]) -> Result<(bool, bool), ()> {
+    let quarantine = state.join(".pr-check-quarantine");
+    if !quarantine.is_dir() {
+        return Ok((false, false));
+    }
+    let pending = fs::read_dir(&quarantine)
+        .map_err(|_| ())?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?;
+            let (prefix, kind) = name
+                .strip_suffix(".diagnostic.pending-canonical")
+                .map(|prefix| (prefix.to_owned(), "canonical"))
+                .or_else(|| {
+                    name.strip_suffix(".diagnostic.pending-ambiguous")
+                        .map(|prefix| (prefix.to_owned(), "ambiguous"))
+                })?;
+            Some((path, prefix, kind))
+        })
+        .collect::<Vec<_>>();
+    let mut rebuilt = false;
+    let mut ambiguous = false;
+    for (_path, raw, kind) in pending {
+        let task = OperationalTaskId::parse(&raw).map_err(|_| ())?;
+        if kind == "canonical" {
+            let data = state.join(format!("{task}.pr-poll"));
+            if fs::symlink_metadata(&data).is_ok_and(|metadata| !metadata.is_file()) {
+                record_migration_outcome(state, &raw, "failure-canonical")?;
+                return Err(());
+            }
+            if state.join(format!("{task}.check.sh")).is_file()
+                && !quarantine
+                    .join(format!("{raw}.diagnostic.failure-canonical"))
+                    .exists()
+            {
+                continue;
+            }
+            let metadata = fs::read(state.join(format!("{task}.meta"))).map_err(|_| ())?;
+            let identity =
+                multplx_domain::review_delivery::metadata_pr(&metadata).map_err(|_| ())?;
+            publish_poll(state, &task, &identity, template).map_err(|_| ())?;
+            record_migration_outcome(state, &raw, "canonical")?;
+            let _ = fs::remove_file(quarantine.join(format!("{raw}.diagnostic.failure-canonical")));
+            rebuilt = true;
+        } else if poll_valid(state, &task, template) {
+            let metadata = fs::read(state.join(format!("{task}.meta"))).map_err(|_| ())?;
+            let metadata_identity = multplx_domain::review_delivery::metadata_pr(&metadata).ok();
+            let data_identity = fs::read(state.join(format!("{task}.pr-poll")))
+                .ok()
+                .and_then(|bytes| PrIdentity::parse_sidecar(&bytes).ok());
+            if metadata_identity != data_identity {
+                for path in [
+                    state.join(format!("{task}.check.sh")),
+                    state.join(format!("{task}.pr-poll")),
+                    state.join(format!("{task}.pr-poll-registration")),
+                ] {
+                    let _ = quarantine_one(state, &path, &raw, "replacement");
+                }
+                record_migration_outcome(state, &raw, "failure-replacement")?;
+                return Err(());
+            }
+            record_migration_outcome(state, &raw, "validated")?;
+            for kind in ["failure-ambiguous", "failure-replacement"] {
+                let _ = fs::remove_file(quarantine.join(format!("{raw}.diagnostic.{kind}")));
+            }
+            ambiguous = true;
+        } else {
+            let live = [
+                state.join(format!("{task}.check.sh")),
+                state.join(format!("{task}.pr-poll")),
+                state.join(format!("{task}.pr-poll-registration")),
+            ];
+            if live.iter().any(|path| fs::symlink_metadata(path).is_ok()) {
+                let unsafe_live = live.iter().any(|path| {
+                    fs::symlink_metadata(path).is_ok_and(|metadata| {
+                        !metadata.is_file() || metadata.file_type().is_symlink()
+                    })
+                });
+                if live[0].is_file()
+                    && live[1..].iter().all(|path| !path.exists())
+                    && fs::read_dir(&quarantine).is_ok_and(|entries| {
+                        entries.flatten().any(|entry| {
+                            let path = entry.path();
+                            entry
+                                .file_name()
+                                .to_string_lossy()
+                                .starts_with(&format!("{raw}.check."))
+                                && fs::read(path).ok() == fs::read(&live[0]).ok()
+                        })
+                    })
+                {
+                    continue;
+                }
+                if !unsafe_live {
+                    if !quarantine
+                        .join(format!("{raw}.diagnostic.failure-ambiguous"))
+                        .exists()
+                        || quarantine
+                            .join(format!("{raw}.diagnostic.ambiguous"))
+                            .exists()
+                    {
+                        continue;
+                    }
+                    for path in &live {
+                        let _ = quarantine_one(state, path, &raw, "replacement");
+                    }
+                }
+                record_migration_outcome(state, &raw, "failure-replacement")?;
+                return Err(());
+            }
+            record_migration_outcome(state, &raw, "ambiguous")?;
+            let _ = fs::remove_file(quarantine.join(format!("{raw}.diagnostic.failure-ambiguous")));
+            ambiguous = true;
+        }
+    }
+    Ok((rebuilt, ambiguous))
+}
+
+fn publish_poll(
+    state: &Path,
+    task: &OperationalTaskId,
+    identity: &PrIdentity,
+    template: &[u8],
+) -> Result<(), ()> {
+    let state_meta = fs::symlink_metadata(state).map_err(|_| ())?;
+    let data_path = state.join(format!("{task}.pr-poll"));
+    let check_path = state.join(format!("{task}.check.sh"));
+    let registration_path = state.join(format!("{task}.pr-poll-registration"));
+    publish_private(&data_path, identity.render_sidecar().as_bytes()).map_err(|_| ())?;
+    publish_private(&check_path, template).map_err(|_| ())?;
+    let data = read_private(&data_path, 0o600, state_meta.dev()).map_err(|_| ())?;
+    let check = read_private(&check_path, 0o600, state_meta.dev()).map_err(|_| ())?;
+    let registration = PollRegistration {
+        task: task.clone(),
+        identity: identity.clone(),
+        data_hash: data.digest.clone(),
+        template_hash: check.digest.clone(),
+        data_identity: data.identity,
+        check_identity: check.identity,
+    };
+    publish_private(&registration_path, registration.render().as_bytes()).map_err(|_| ())?;
+    poll_valid(state, task, template).then_some(()).ok_or(())
+}
+
+fn pr_check_migrate(args: &[OsString]) -> i32 {
+    let checks_safe = matches!(args, [value] if value == "--checks-safe");
+    if !args.is_empty() && !checks_safe {
+        eprintln!("error: invalid PR check migration request");
+        return 2;
+    }
+    let state = state_root();
+    let migration_failed = || {
+        eprintln!(
+            "PR_CHECK_MIGRATION: migration did not complete safely; inspect private state before rearming polls"
+        );
+        if checks_safe { 0 } else { 1 }
+    };
+    if !state.exists()
+        && (fs::create_dir_all(&state).is_err()
+            || fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).is_err())
+    {
+        eprintln!(
+            "PR_CHECK_MIGRATION: state directory could not be created; migration did not complete safely"
+        );
+        return 1;
+    }
+    let Ok(state_meta) = fs::symlink_metadata(&state) else {
+        return 1;
+    };
+    if !state_meta.is_dir() || state_meta.file_type().is_symlink() {
+        eprintln!(
+            "PR_CHECK_MIGRATION: state directory is not a private ordinary directory; migration did not complete safely"
+        );
+        return 1;
+    }
+    let marker = state.join(".pr-check-migration-v1");
+    let scan_marker = state.join(".pr-check-migration-scan-v1");
+    let marker_valid = |path: &Path, expected: &[u8]| {
+        read_private(path, 0o600, state_meta.dev()).is_ok_and(|file| file.bytes == expected)
+    };
+    let marker_paths_safe = fs::read_dir(&state).is_ok_and(|entries| {
+        entries.flatten().all(|entry| {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                return false;
+            };
+            if !name.ends_with(".check.sh") {
+                return true;
+            }
+            let raw = name.trim_end_matches(".check.sh");
+            let Ok(task) = OperationalTaskId::parse(raw) else {
+                return true;
+            };
+            let core_task = multplx_core::identifiers::TaskId::parse(raw).ok();
+            core_task
+                .as_ref()
+                .is_some_and(|task| checks::registered(&state, task).unwrap_or(false))
+                || poll_valid(
+                    &state,
+                    &task,
+                    &fs::read(source_root().join("bin/mx-pr-poll.sh")).unwrap_or_default(),
+                )
+                || live_poll_paths_safe(&state, &task)
+        })
+    });
+    let private_boundaries_safe = [
+        state.join(".pr-check-migration.log"),
+        state.join(".pr-check-migration-v1"),
+        state.join(".pr-check-migration-scan-v1"),
+    ]
+    .iter()
+    .all(|path| {
+        fs::symlink_metadata(path).map_or(true, |metadata| {
+            metadata.is_file() && !metadata.file_type().is_symlink() && metadata.nlink() == 1
+        })
+    });
+    let quarantine_content_safe = validate_quarantine_tree(&state).is_ok();
+    let quarantine = state.join(".pr-check-quarantine");
+    let pending_or_failure = fs::read_dir(&quarantine).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            entry.file_name().to_str().is_some_and(|name| {
+                name.contains(".diagnostic.pending-") || name.contains(".diagnostic.failure-")
+            })
+        })
+    });
+    if marker_valid(&marker, MIGRATION_MARKER.as_bytes())
+        && marker_valid(&scan_marker, MIGRATION_SCAN_MARKER.as_bytes())
+        && !pending_or_failure
+        && marker_paths_safe
+        && private_boundaries_safe
+        && quarantine_content_safe
+    {
+        let legacy_namespace = state.join(".pr-check-quarantine").is_dir()
+            && fs::read_dir(state.join(".pr-check-quarantine")).is_ok_and(|entries| {
+                entries.flatten().any(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("_noncanonical.")
+                })
+            });
+        if !legacy_namespace {
+            return 0;
+        }
+    }
+    if !marker_paths_safe || !private_boundaries_safe || !quarantine_content_safe {
+        for path in [&marker, &scan_marker] {
+            if fs::symlink_metadata(path).is_ok_and(|metadata| {
+                metadata.is_file() && !metadata.file_type().is_symlink() && metadata.nlink() == 1
+            }) {
+                let _ = fs::remove_file(path);
+            }
+        }
+        return migration_failed();
+    }
+    let legacy_namespace = quarantine.is_dir()
+        && fs::read_dir(&quarantine).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("_noncanonical.")
+            })
+        });
+    if checks_safe
+        && marker_valid(&scan_marker, MIGRATION_SCAN_MARKER.as_bytes())
+        && !legacy_namespace
+    {
+        return 0;
+    }
+    if pending_or_failure {
+        let _ = fs::remove_file(&marker);
+        let _ = fs::remove_file(&scan_marker);
+    }
+    let template_path = source_root().join("bin/mx-pr-poll.sh");
+    let Ok(template) = fs::read(&template_path) else {
+        return 1;
+    };
+    let (_exclusion, stopped_watcher) = match acquire_migration_exclusion(&state) {
+        Ok(exclusion) => exclusion,
+        Err(reason) => {
+            eprintln!(
+                "PR_CHECK_MIGRATION: {reason}; review state/.watch.lock before rearming polls"
+            );
+            return 1;
+        }
+    };
+    if validate_quarantine_tree(&state).is_err() {
+        return migration_failed();
+    }
+    if migrate_legacy_noncanonical_namespace(&state).is_err() {
+        return migration_failed();
+    }
+    let (mut rebuilt, mut ambiguous) = match recover_migration_obligations(&state, &template) {
+        Ok(result) => result,
+        Err(()) => return migration_failed(),
+    };
+    let validated_rearmed = quarantine.is_dir()
+        && fs::read_dir(&quarantine).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.ends_with(".diagnostic.validated"))
+            })
+        });
+    let checks = fs::read_dir(&state)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".check.sh"))
+        })
+        .collect::<Vec<_>>();
+    for check in checks {
+        let Some(raw) = check_task_basename(&check) else {
+            return 1;
+        };
+        let Ok(task) = OperationalTaskId::parse(&raw) else {
+            if record_migration_outcome(&state, "!noncanonical", "pending-noncanonical").is_err()
+                || quarantine_one(&state, &check, "!noncanonical", "check").is_err()
+                || record_migration_outcome(&state, "!noncanonical", "noncanonical").is_err()
+            {
+                return migration_failed();
+            }
+            ambiguous = true;
+            continue;
+        };
+        let core_task = multplx_core::identifiers::TaskId::parse(&raw).ok();
+        if core_task
+            .as_ref()
+            .is_some_and(|task| checks::registered(&state, task).unwrap_or(false))
+            || poll_valid(&state, &task, &template)
+        {
+            continue;
+        }
+        if !live_poll_paths_safe(&state, &task) {
+            return migration_failed();
+        }
+        let metadata = fs::read(state.join(format!("{task}.meta"))).ok();
+        let identity = metadata
+            .as_deref()
+            .and_then(|bytes| multplx_domain::review_delivery::metadata_pr(bytes).ok());
+        let pending_kind = if identity.is_some() {
+            "pending-canonical"
+        } else {
+            "pending-ambiguous"
+        };
+        if record_migration_outcome(&state, &raw, pending_kind).is_err() {
+            return migration_failed();
+        }
+        let quarantine_failed = quarantine_one(&state, &check, &raw, "check").is_err()
+            || quarantine_one(&state, &state.join(format!("{task}.pr-poll")), &raw, "data")
+                .is_err()
+            || quarantine_one(
+                &state,
+                &state.join(format!("{task}.pr-poll-registration")),
+                &raw,
+                "registration",
+            )
+            .is_err();
+        if let Some(identity) = identity {
+            if quarantine_failed || publish_poll(&state, &task, &identity, &template).is_err() {
+                let _ = record_migration_outcome(&state, &raw, "failure-canonical");
+                if !check.exists() {
+                    let _ = migration_publish_private(
+                        &scan_marker,
+                        MIGRATION_SCAN_MARKER.as_bytes(),
+                        ".mx-pr-check-scan.",
+                    );
+                }
+                eprintln!(
+                    "PR_CHECK_MIGRATION: migration did not complete safely; inspect private state before rearming polls"
+                );
+                return if checks_safe { 0 } else { 1 };
+            }
+            if record_migration_outcome(&state, &raw, "canonical").is_err() {
+                return migration_failed();
+            }
+            rebuilt = true;
+        } else {
+            if quarantine_failed {
+                let _ = record_migration_outcome(&state, &raw, "failure-ambiguous");
+                if !check.exists() {
+                    let _ = migration_publish_private(
+                        &scan_marker,
+                        MIGRATION_SCAN_MARKER.as_bytes(),
+                        ".mx-pr-check-scan.",
+                    );
+                }
+                return migration_failed();
+            }
+            if record_migration_outcome(&state, &raw, "ambiguous").is_err() {
+                return migration_failed();
+            }
+            ambiguous = true;
+        }
+    }
+    if migration_publish_private(
+        &scan_marker,
+        MIGRATION_SCAN_MARKER.as_bytes(),
+        ".mx-pr-check-scan.",
+    )
+    .is_err()
+        || migration_publish_private(
+            &marker,
+            MIGRATION_MARKER.as_bytes(),
+            ".mx-pr-check-migration.",
+        )
+        .is_err()
+    {
+        let _ = fs::remove_file(&marker);
+        eprintln!(
+            "PR_CHECK_MIGRATION: migration did not complete safely; inspect private state before rearming polls"
+        );
+        return 1;
+    }
+    if rebuilt {
+        println!(
+            "PR_CHECK_MIGRATION: canonical polls rebuilt and armed; resume supervision for this home"
+        );
+    } else if validated_rearmed {
+        println!(
+            "PR_CHECK_MIGRATION: validated replacement polls armed; resume supervision for this home"
+        );
+    } else if ambiguous {
+        println!(
+            "PR_CHECK_MIGRATION: quarantined polls remain unarmed; review state/.pr-check-migration.log before rearming"
+        );
+    } else if stopped_watcher {
+        println!(
+            "PR_CHECK_MIGRATION: migration completed safely; resume supervision for this home"
+        );
+    }
     0
 }
 
@@ -1520,26 +2359,6 @@ fn pr_merge(args: &[OsString]) -> i32 {
         .ok()
         .and_then(|status| status.code())
         .unwrap_or(1)
-}
-
-fn run_compat(entry: &str, args: &[OsString]) -> i32 {
-    let root = source_root();
-    let path = root.join("bin").join(entry);
-    if !path.is_file() {
-        eprintln!(
-            "error: review compatibility body is unavailable at {}",
-            path.display()
-        );
-        return 1;
-    }
-    let error = Command::new("bash")
-        .arg(path)
-        .args(args)
-        .env("MX_REVIEW_DELIVERY_IMPLEMENTATION", "legacy")
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .exec();
-    eprintln!("error: could not start {entry}: {error}");
-    1
 }
 
 fn check_register(args: &[OsString]) -> i32 {

@@ -9,13 +9,12 @@ fn root() -> PathBuf {
         .expect("repo root")
 }
 
-fn run(script: &str, implementation: &str, home: &Path, args: &[&str], stdin: &[u8]) -> Output {
+fn run(script: &str, home: &Path, args: &[&str], stdin: &[u8]) -> Output {
     let mut child = Command::new(root().join("bin").join(script))
         .args(args)
         .env("MX_HOME", home)
         .env("MX_ROOT_OVERRIDE", root())
         .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
-        .env("MX_LOCAL_STATE_IMPLEMENTATION", implementation)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -42,12 +41,10 @@ fn scaffold(home: &Path) {
 }
 
 #[test]
-fn backlog_adapters_match_bytes_streams_and_status() {
+fn backlog_adapter_preserves_bytes_and_expected_status() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let legacy = temp.path().join("legacy");
-    let rust = temp.path().join("rust");
-    scaffold(&legacy);
-    scaffold(&rust);
+    let home = temp.path().join("home");
+    scaffold(&home);
     let commands: &[&[&str]] = &[
         &[
             "add",
@@ -72,45 +69,31 @@ fn backlog_adapters_match_bytes_streams_and_status() {
         &["validate"],
     ];
     for args in commands {
-        let old = run("mx-backlog.sh", "legacy", &legacy, args, b"");
-        let new = run("mx-backlog.sh", "rust", &rust, args, b"");
-        assert_eq!(new.status.code(), old.status.code(), "status for {args:?}");
-        assert_eq!(new.stdout, old.stdout, "stdout for {args:?}");
-        assert_eq!(new.stderr, old.stderr, "stderr for {args:?}");
-        assert_eq!(
-            fs::read(rust.join("data/backlog.md")).expect("Rust backlog"),
-            fs::read(legacy.join("data/backlog.md")).expect("legacy backlog"),
-            "filesystem bytes for {args:?}"
-        );
+        let output = run("mx-backlog.sh", &home, args, b"");
+        assert!(output.status.success(), "status for {args:?}");
+        assert!(output.stderr.is_empty(), "stderr for {args:?}");
     }
 }
 
 #[test]
-fn read_only_invalid_utf8_behavior_matches_without_rewrite() {
+fn read_only_invalid_utf8_is_lossy_without_rewrite() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let legacy = temp.path().join("legacy");
-    let rust = temp.path().join("rust");
-    scaffold(&legacy);
-    scaffold(&rust);
+    let home = temp.path().join("home");
+    scaffold(&home);
     let bytes = b"## In flight\n\n## Queued\n- [ ] odd - invalid \xff byte\n\n## Done\n";
-    fs::write(legacy.join("data/backlog.md"), bytes).expect("legacy bytes");
-    fs::write(rust.join("data/backlog.md"), bytes).expect("Rust bytes");
+    fs::write(home.join("data/backlog.md"), bytes).expect("backlog bytes");
     for args in [&["validate"][..], &["list"][..]] {
-        let old = run("mx-backlog.sh", "legacy", &legacy, args, b"");
-        let new = run("mx-backlog.sh", "rust", &rust, args, b"");
-        assert_eq!(new.status.code(), old.status.code());
-        assert_eq!(new.stdout, old.stdout);
-        assert_eq!(new.stderr, old.stderr);
+        let output = run("mx-backlog.sh", &home, args, b"");
+        assert!(output.status.success());
     }
     assert_eq!(
-        fs::read(legacy.join("data/backlog.md")).expect("legacy"),
+        fs::read(home.join("data/backlog.md")).expect("backlog"),
         bytes
     );
-    assert_eq!(fs::read(rust.join("data/backlog.md")).expect("Rust"), bytes);
 }
 
 #[test]
-fn project_mode_and_operational_codec_match_legacy() {
+fn project_mode_and_operational_codec_are_native() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path();
     fs::create_dir_all(home.join("data")).expect("data");
@@ -120,47 +103,24 @@ fn project_mode_and_operational_codec_match_legacy() {
     )
     .expect("registry");
     for name in ["app", "bad", "missing"] {
-        let old = run("mx-project-mode.sh", "legacy", home, &[name], b"");
-        let new = run("mx-project-mode.sh", "rust", home, &[name], b"");
-        assert_eq!(new.status.code(), old.status.code());
-        assert_eq!(new.stdout, old.stdout);
-        assert_eq!(new.stderr, old.stderr);
+        let output = run("mx-project-mode.sh", home, &[name], b"");
+        if name == "app" {
+            assert!(output.status.success());
+            assert_eq!(output.stdout, b"local-only on\n");
+        } else {
+            assert!(output.status.success());
+            assert_eq!(output.stdout, b"deep-review off\n");
+            assert!(String::from_utf8_lossy(&output.stderr).contains("defaulting"));
+        }
     }
     let body = b"quoted ' body\nsecond line";
-    let old = run(
+    let encoded = run(
         "mx-operational-input.sh",
-        "legacy",
         home,
         &["encode", "watcher"],
         body,
     );
-    let new = run(
-        "mx-operational-input.sh",
-        "rust",
-        home,
-        &["encode", "watcher"],
-        body,
-    );
-    assert_eq!(new.status.code(), old.status.code());
-    assert_eq!(new.stdout, old.stdout);
-    assert_eq!(new.stderr, old.stderr);
-}
-
-#[test]
-fn invalid_selector_refuses_before_mutation() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    scaffold(temp.path());
-    let before = fs::read(temp.path().join("data/backlog.md")).expect("before");
-    let output = run(
-        "mx-backlog.sh",
-        "not-an-engine",
-        temp.path(),
-        &["add", "unsafe", "Must not land"],
-        b"",
-    );
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(
-        fs::read(temp.path().join("data/backlog.md")).expect("after"),
-        before
-    );
+    assert!(encoded.status.success());
+    assert!(encoded.stderr.is_empty());
+    assert!(encoded.stdout.ends_with(body));
 }

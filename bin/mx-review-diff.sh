@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -eu
-case "${MX_REVIEW_DELIVERY_IMPLEMENTATION:-rust}" in rust|legacy) ;; *) printf 'error: MX_REVIEW_DELIVERY_IMPLEMENTATION must be rust or legacy\n' >&2; exit 2 ;; esac
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 BINARY=${MX_RUST_BIN:-$ROOT/target/release/mx}

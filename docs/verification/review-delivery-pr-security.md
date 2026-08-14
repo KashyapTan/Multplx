@@ -2,7 +2,8 @@
 
 This record covers Rust-port Portion 11 on 2026-08-12.
 
-The production selector is `MX_REVIEW_DELIVERY_IMPLEMENTATION`, defaults to `rust`, and accepts `legacy` only before a review, delivery, branch, poll, or remote operation begins.
+Production review and delivery have one implementation: the Rust multicall boundary.
+No environment variable can redirect an operation to shell.
 
 The Rust release binary was built with `cargo build --workspace --release` on macOS arm64 with Rust 1.97.1 and Cargo 1.97.1.
 
@@ -36,13 +37,9 @@ Ambient agent and GitHub credentials are removed from the delivery subprocess en
 
 Local merge remains clean fast-forward-only, remote merge remains explicit and canonical-repository-bound, promotion preserves the task identity, review diff prefers the fetched current PR head, and a validation waiver remains labeled `waived` for one consumed exact-SHA override.
 
-The stable shell filenames and sourced helper ABIs remain for existing-home compatibility and the explicit rollback window.
-
-Rust owns the command selection boundary, typed identifiers, closed record models, no-follow private reads, custom-check registration, static poll validation, and promotion publication.
-
-The larger deep-review, delivery, merge, review-diff, PR publication, migration, and waiver compositions are process-pinned to the byte-compatible rollback bodies after Rust selects the invocation, matching the incremental compatibility pattern used by prior portions.
-
-Portion 13 owns removal of those retained bodies after the full Rust-default rollback window and legacy deletion gate pass.
+The stable executable filenames are minimal adapters for existing homes.
+Rust owns deep review, delivery, merge, review diff, PR publication and polling, migration, waivers, typed identifiers, closed record models, no-follow private reads, custom-check registration, and promotion publication.
+`bin/mx-deliver-lib.sh`, `bin/mx-pr-lib.sh`, and `bin/mx-check-lib.sh` remain documented sourced-function ABIs for callers and focused contract tests; no public review command executes them as a fallback.
 
 ## Commands and results
 
@@ -50,7 +47,7 @@ Portion 13 owns removal of those retained bodies after the full Rust-default rol
 
 `cargo test -p multplx-domain review_delivery --no-fail-fast` passed 8 focused identifier, parser, link, schema, publication, finding, metadata, and sanitization tests.
 
-`cargo test -p multplx-cli --test review_runtime --no-fail-fast` passed 8 command-boundary tests covering unknown-entry refusal, process-wide legacy pinning, missing-body refusal, every public selector adapter, private custom-check registration, long operational ids, no-follow static sidecar reads, and promotion.
+`cargo test -p multplx-cli --test review_runtime --no-fail-fast` covers unknown-entry refusal, native dispatch despite a retired selector variable, private custom-check registration, long operational ids, no-follow static sidecar reads, and promotion.
 
 `cargo clippy --workspace --all-targets --all-features -- -D warnings` completed successfully.
 
@@ -70,7 +67,7 @@ The review-diff suite passed 5 cases covering fresh pull-head preference, record
 
 The four PR-security suites passed their complete parser, publication, migration, fault-quarantine, retirement, and teardown groups.
 
-The same ten focused shell suites passed again with `MX_REVIEW_DELIVERY_IMPLEMENTATION=legacy`, proving the explicit rollback selection before mutation.
+The former legacy differential run remains shadow-period evidence only and is not a supported production mode after Plan 13.
 
 Observed adversarial results included complete raw-byte URL rejection before side effects, static poll silence except for one exact merged line, no partial artifacts after interrupted preparation, no incomplete publication visible to concurrent watchers, symlink and directory refusal at every private destination, and single-link enforcement across live, marker, diagnostic, custom-check, receipt, and quarantine files.
 

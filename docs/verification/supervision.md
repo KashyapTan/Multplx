@@ -9,8 +9,8 @@ Task-specific chronology, temporary paths, run identifiers, and delivery transcr
 ## Rust Portion 08 supervision cutover
 
 The Portion 08 Rust-default verification ran on 2026-08-11 on macOS 26.5.2 arm64 with Rust 1.97.1, Cargo 1.97.1, tmux 3.7b, Herdr 0.7.4, Codex CLI 0.146.1, and Cursor CLI 2026.08.04-aaa8809.
-The production selector is `MX_SUPERVISION_IMPLEMENTATION`, defaults to `rust`, rejects every value other than `rust` or explicit `legacy`, and is resolved before a mutable entry starts.
-The public adapters preserve stdin, stdout, stderr, exit status, and signal identity through the Rust multicall boundary.
+Production supervision has one implementation: the Rust multicall boundary.
+The public adapters preserve stdin, stdout, stderr, exit status, and signal identity, and no environment variable can redirect an entry to shell.
 
 The Rust workspace passed these gates:
 
@@ -33,8 +33,9 @@ The full local inventory run selected all 125 behavior scripts and reported the 
 After making that assertion order-independent, its complete daemon harness-model matrix passed and the portable full-suite rerun passed all 115 selected scripts with zero failures and nine intentional opt-in skips in 328,047 ms.
 The coverage manifest assigned all 125 scripts: 104 accelerated, 11 serial, and 10 real-Herdr gated.
 
-Direct entry into the retained JavaScript and shell bodies is available only through explicit `MX_SUPERVISION_IMPLEMENTATION=legacy` differential selection during the bounded rollback window.
-The Rust dispatcher pins source-ABI and long-running compatibility handlers before mutation where adjacent shell callers still require those exact bodies; there is no post-mutation engine fallback, and public selection plus process ownership remain Rust-default at those boundaries.
+The executable watcher, arm, guard, hook, AFK, and wake paths are Rust-owned and have no runtime fallback.
+`bin/mx-watch.sh` retains only the sourced event-wait helper ABI used by `tests/mx-supervision-events.test.sh`, and `bin/mx-afk-start.sh` retains only sourced daemon-lock helpers used by focused tests.
+Every other completed supervision filename is a minimal exec adapter.
 
 ### Release performance
 

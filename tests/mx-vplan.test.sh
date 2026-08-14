@@ -16,7 +16,6 @@ PIDS=()
 
 assert_selected_runtime() {
   local pid=$1 command
-  [ "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" = rust ] || return 0
   command=$(ps -p "$pid" -o command= 2>/dev/null || true)
   printf '%s\n' "$command" | grep -F 'services vplan-server' >/dev/null \
     || fail "Rust-selected review PID is not the Rust service: $command"
@@ -163,6 +162,8 @@ test_round_trip_injection_shutdown_and_loopback() {
   payload="$dir/payload.json"
   response="$dir/response.json"
   make_payload "$payload"
+
+  port_available 4870 || fail "default review port 4870 was occupied before the test"
 
   url=$(start_review "$file") || fail "review did not start"
   [ "$url" = "http://127.0.0.1:4870/" ] || fail "default review URL mismatch: $url"

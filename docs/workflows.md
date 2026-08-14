@@ -1,7 +1,7 @@
 # Workflow definitions and runs
 
 This document is the single authoritative owner of the Multplx workflow-definition format.
-`bin/mx-workflow.sh` is the operator entrypoint, and its header owns exact command syntax.
+`bin/mx-workflow.sh` is the transport-only operator entrypoint, and `mx authority mx-workflow.sh --help` exposes the exact Rust-owned command syntax.
 `multplx-domain::workflow` owns the constrained parser, immutable snapshot model, and typed stage-order transitions.
 The Rust `multplx-domain::workflow` parser and `multplx-cli` workflow runtime own validation, immutable launch snapshots, stage execution, and reconciliation.
 

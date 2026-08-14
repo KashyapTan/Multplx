@@ -51,38 +51,6 @@ if [ -x "$ROOT/target/release/mx" ]; then
   export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 fi
 
-# --- Rust-port implementation and differential capture ---------------------
-#
-# These helpers are test-only. Production local-state scripts use
-# MX_LOCAL_STATE_IMPLEMENTATION and default to Rust after Portion 03 parity.
-
-# mx_test_implementation: print the selected test engine.
-# Unset preserves the existing behavior suite's legacy default.
-mx_test_implementation() {
-  case "${MX_TEST_IMPLEMENTATION:-legacy}" in
-    legacy|rust) printf '%s\n' "${MX_TEST_IMPLEMENTATION:-legacy}" ;;
-    *)
-      printf 'error: MX_TEST_IMPLEMENTATION must be legacy or rust, got %s\n' \
-        "$MX_TEST_IMPLEMENTATION" >&2
-      return 2
-      ;;
-  esac
-}
-
-# mx_test_resolve_command <legacy-path> <rust-subcommand>: print an executable
-# and optional first argument for the explicitly selected test engine.
-# MX_TEST_RUST_BIN may override the release binary for focused fixtures.
-mx_test_resolve_command() {
-  local legacy_path=$1 rust_subcommand=$2 implementation
-  implementation=$(mx_test_implementation) || return $?
-  case "$implementation" in
-    legacy) printf '%s\n' "$legacy_path" ;;
-    rust)
-      printf '%s\n%s\n' "${MX_TEST_RUST_BIN:-$ROOT/target/release/mx}" "$rust_subcommand"
-      ;;
-  esac
-}
-
 mx_test_stat_mode() {
   if stat -f '%Lp' "$1" >/dev/null 2>&1; then
     stat -f '%Lp' "$1"
@@ -188,26 +156,6 @@ mx_test_capture_command() {
   mx_test_filesystem_manifest "$home" > "$output_dir/filesystem"
   mx_test_process_manifest "$home" > "$output_dir/processes"
   return 0
-}
-
-# mx_test_capture_implementation <implementation> <output-dir> <home>
-#   <legacy-path> <rust-subcommand> [args...]
-mx_test_capture_implementation() {
-  local implementation=$1 output_dir=$2 home=$3 legacy_path=$4 rust_subcommand=$5
-  shift 5
-  case "$implementation" in
-    legacy)
-      mx_test_capture_command "$output_dir" "$home" -- "$legacy_path" "$@"
-      ;;
-    rust)
-      mx_test_capture_command "$output_dir" "$home" -- \
-        "${MX_TEST_RUST_BIN:-$ROOT/target/release/mx}" "$rust_subcommand" "$@"
-      ;;
-    *)
-      printf 'error: implementation must be legacy or rust, got %s\n' "$implementation" >&2
-      return 2
-      ;;
-  esac
 }
 
 # mx_test_compare_captures <legacy-capture> <rust-capture>: compare status,

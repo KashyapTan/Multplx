@@ -21,8 +21,7 @@
 # The script never closes a workspace. It removes only the matching journal,
 # and only after the exact pane is confirmed gone. Every error warns and returns
 # success so session startup continues conservatively.
-if [ "${BASH_SOURCE[0]}" = "$0" ] \
-  && [ "${MX_HERDR_TOOLS_IMPLEMENTATION:-${MX_BACKEND_IMPLEMENTATION:-legacy}}" = rust ]; then
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   _mx_herdr_tool_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   # shellcheck source=bin/mx-rust-runtime.sh
   . "$_mx_herdr_tool_dir/mx-rust-runtime.sh"

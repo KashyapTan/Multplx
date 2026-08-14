@@ -81,8 +81,9 @@ At session start the broker runs `bin/mx-session-start.sh` exactly once, detects
 Supported installs happen only after you approve them in that session; manual-only dependencies remain your responsibility.
 
 Use `multplx paths` to inspect the configured code root, operational home, bootstrap, and config directory.
-Use `multplx doctor` for the existing invariant sweep and `multplx update` for the existing guarded fast-forward update path.
-[`bin/mx-launcher.sh`](../bin/mx-launcher.sh)'s header and `multplx --help` own the exact command grammar and exit statuses.
+Use `multplx doctor` for the invariant sweep.
+Use `multplx update` to fast-forward the configured source, rebuild the release binary, and transactionally replace the installed binary and checksum receipt; a failed build or publication leaves the prior installed generation runnable and records a bounded retry.
+`multplx --help` and `multplx launcher-install --help` own the exact command grammar and exit statuses; the public shell filenames are transport-only adapters.
 [Launcher verification](verification/launcher.md) records current deterministic, shell, and available real-harness evidence.
 
 ## Choose a runtime backend

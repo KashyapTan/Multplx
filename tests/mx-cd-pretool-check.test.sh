@@ -18,9 +18,7 @@ set -u
 
 mx_git_identity fmtest fmtest@example.invalid
 TMP_ROOT=$(mx_test_tmproot mx-cd-pretool-check)
-if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
-  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
-fi
+export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 # A primary-shaped checkout: plain (non-worktree) git repo, AGENTS.md, bin/ with
 # the transport and the release binary. This is what the transport's

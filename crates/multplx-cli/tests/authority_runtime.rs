@@ -178,33 +178,6 @@ fn native_workflow_validation_and_dry_run_need_no_node_process() {
 }
 
 #[test]
-fn every_public_adapter_rejects_an_invalid_selector_before_mutation() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    let state = temp.path().join("state");
-    for entry in [
-        "mx-decision-hold.sh",
-        "mx-maintainer-override.sh",
-        "mx-override-bindings.sh",
-        "mx-override-run.sh",
-        "mx-workflow.sh",
-    ] {
-        let output = Command::new(source_root().join("bin").join(entry))
-            .env("MX_AUTHORITY_IMPLEMENTATION", "invalid")
-            .env("MX_STATE_OVERRIDE", &state)
-            .output()
-            .expect("run adapter");
-        assert_eq!(output.status.code(), Some(2), "{entry}");
-        assert!(
-            String::from_utf8_lossy(&output.stderr)
-                .contains("MX_AUTHORITY_IMPLEMENTATION must be rust or legacy"),
-            "{entry}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(!state.exists(), "{entry} mutated state before selection");
-    }
-}
-
-#[test]
 fn decision_identity_is_native_and_rejects_traversal() {
     let valid = run(mx().args([
         "authority",

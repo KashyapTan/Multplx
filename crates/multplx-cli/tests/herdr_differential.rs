@@ -179,7 +179,6 @@ esac
     let output = Command::new("/bin/bash")
         .args(["-c", &script])
         .env("PATH", format!("{}:/usr/bin:/bin", empty_path.display()))
-        .env("MX_BACKEND_IMPLEMENTATION", "rust")
         .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
         .env("MX_HERDR_BIN", &fake)
         .env("MX_HOME", &home)

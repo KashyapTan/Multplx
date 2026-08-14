@@ -15,7 +15,6 @@ PIDS=()
 
 assert_selected_runtime() {
   local pid=$1 command
-  [ "${MX_LOCAL_SERVICES_IMPLEMENTATION:-rust}" = rust ] || return 0
   command=$(ps -p "$pid" -o command= 2>/dev/null || true)
   printf '%s\n' "$command" | grep -F 'services viz-server' >/dev/null \
     || fail "Rust-selected dashboard PID is not the Rust service: $command"

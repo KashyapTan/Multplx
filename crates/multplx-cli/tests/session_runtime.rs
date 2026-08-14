@@ -90,18 +90,35 @@ fn snapshot_fixture(home: &Path) -> serde_json::Value {
 }
 
 #[test]
-fn compatibility_dispatch_pins_the_complete_composition_to_legacy() {
+fn session_start_dispatch_is_native_and_rejects_legacy_probe_arguments() {
     let temp = tempfile::tempdir().expect("tempdir");
     executable(
         &temp.path().join("bin/mx-session-start.sh"),
-        "#!/bin/sh\nprintf '%s|%s\\n' \"${MX_SESSION_IMPLEMENTATION:-unset}\" \"${1:-}\"\n",
+        "#!/bin/sh\nprintf 'retained session shell ran\\n'\n",
     );
     let output = run(mx()
         .env("MX_ROOT_OVERRIDE", temp.path())
         .env("MX_RUST_SOURCE_ROOT", temp.path())
         .args(["session", "mx-session-start.sh", "probe"]));
-    assert!(output.status.success());
-    assert_eq!(output.stdout, b"legacy|probe\n");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("does not accept arguments"));
+}
+
+#[test]
+fn bootstrap_dispatch_is_native_before_any_legacy_script_can_run() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    executable(
+        &temp.path().join("bin/mx-bootstrap.sh"),
+        "#!/bin/sh\nprintf 'legacy bootstrap ran\\n'\n",
+    );
+    let output = run(mx()
+        .env("MX_ROOT_OVERRIDE", temp.path())
+        .env("MX_RUST_SOURCE_ROOT", temp.path())
+        .args(["session", "mx-bootstrap.sh", "surprise"]));
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("legacy bootstrap ran"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("usage: mx-bootstrap.sh"));
 }
 
 #[test]
@@ -139,15 +156,6 @@ fn unknown_and_missing_session_entries_fail_before_execution() {
     let unknown = run(mx().args(["session", "not-an-entry"]));
     assert_eq!(unknown.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown session entry point"));
-
-    let temp = tempfile::tempdir().expect("tempdir");
-    fs::create_dir(temp.path().join("bin")).expect("bin");
-    let missing = run(mx()
-        .env("MX_ROOT_OVERRIDE", temp.path())
-        .env("MX_RUST_SOURCE_ROOT", temp.path())
-        .args(["session", "mx-doctor.sh"]));
-    assert_eq!(missing.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("compatibility body is unavailable"));
 }
 
 #[test]
@@ -244,31 +252,22 @@ fn native_nudge_and_supervision_cover_scope_lock_and_usage_edges() {
 }
 
 #[test]
-fn native_system_view_parses_one_snapshot_and_preserves_json_mode() {
+fn native_system_view_ignores_shell_bodies_and_preserves_rendering_contract() {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("root");
-    fs::create_dir_all(root.join("bin")).expect("bin");
-    let snapshot = root.join("snapshot.json");
-    let bytes = serde_json::to_vec(&snapshot_fixture(&root)).expect("snapshot JSON");
-    fs::write(&snapshot, &bytes).expect("snapshot");
+    for directory in ["bin", "config", "data", "projects", "state"] {
+        fs::create_dir_all(root.join(directory)).expect("runtime directory");
+    }
+    let marker = root.join("legacy-snapshot-ran");
     executable(
         &root.join("bin/mx-system-snapshot.sh"),
-        "#!/bin/sh\nexec /bin/cat \"$MX_SNAPSHOT_FIXTURE\"\n",
+        "#!/bin/sh\ntouch \"$MX_LEGACY_MARKER\"\nexit 91\n",
     );
     let tools = fake_tools(&root);
-
-    let view = run(mx()
-        .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))
-        .env("MX_ROOT_OVERRIDE", &root)
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .env("MX_SNAPSHOT_FIXTURE", &snapshot)
-        .args(["session", "mx-system-view.sh"]));
-    assert!(
-        view.status.success(),
-        "{}",
-        String::from_utf8_lossy(&view.stderr)
-    );
-    let text = String::from_utf8(view.stdout).expect("UTF-8");
+    let fixture = snapshot_fixture(&root);
+    let bytes = serde_json::to_vec(&fixture).expect("snapshot JSON");
+    let parsed = multplx_domain::snapshot::parse_system_snapshot(&bytes).expect("typed snapshot");
+    let text = multplx_domain::snapshot::render_system_view(&parsed);
     assert!(text.contains("| actor-1 | working / native | delivery | demo | tmux | present |"));
     assert!(
         text.contains("| daemon-1 | paused / report | daemon | demo | herdr | absent / dead |")
@@ -282,30 +281,48 @@ fn native_system_view_parses_one_snapshot_and_preserves_json_mode() {
     assert!(text.ends_with("## Daemons\nNo registered daemons.\n"));
 
     let json = run(mx()
+        .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))
         .env("MX_ROOT_OVERRIDE", &root)
+        .env("MX_HOME", &root)
         .env("MX_RUST_SOURCE_ROOT", &root)
-        .env("MX_SNAPSHOT_FIXTURE", &snapshot)
+        .env("MX_LEGACY_MARKER", &marker)
         .args(["session", "mx-system-view.sh", "--json"]));
-    assert!(json.status.success());
-    assert_eq!(json.stdout, bytes);
+    assert!(
+        json.status.success(),
+        "{}",
+        String::from_utf8_lossy(&json.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&json.stdout).expect("native snapshot JSON")["schema"],
+        "mx-system-snapshot.v1"
+    );
+    assert!(
+        !marker.exists(),
+        "system view executed a retained shell body"
+    );
+
+    let view = run(mx()
+        .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))
+        .env("MX_ROOT_OVERRIDE", &root)
+        .env("MX_HOME", &root)
+        .env("MX_RUST_SOURCE_ROOT", &root)
+        .env("MX_LEGACY_MARKER", &marker)
+        .args(["session", "mx-system-view.sh"]));
+    assert!(
+        view.status.success(),
+        "{}",
+        String::from_utf8_lossy(&view.stderr)
+    );
+    assert!(String::from_utf8_lossy(&view.stdout).contains("No live task metadata found."));
+    assert!(
+        !marker.exists(),
+        "system view executed a retained shell body"
+    );
 
     let help = run(mx().args(["session", "mx-system-view.sh", "--help"]));
     assert!(help.status.success());
     let usage = run(mx().args(["session", "mx-system-view.sh", "--bad"]));
     assert_eq!(usage.status.code(), Some(2));
-
-    fs::write(&snapshot, "{}\n").expect("invalid snapshot");
-    let invalid = run(mx()
-        .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))
-        .env("MX_ROOT_OVERRIDE", &root)
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .env("MX_SNAPSHOT_FIXTURE", &snapshot)
-        .args(["session", "mx-system-view.sh"]));
-    assert_eq!(invalid.status.code(), Some(1));
-    assert_eq!(
-        String::from_utf8_lossy(&invalid.stderr),
-        "mx-system-view: invalid canonical snapshot\n"
-    );
 
     let empty_tools = root.join("empty-tools");
     fs::create_dir(&empty_tools).expect("empty tools");
@@ -318,23 +335,21 @@ fn native_system_view_parses_one_snapshot_and_preserves_json_mode() {
         "mx-system-view: jq not found\n"
     );
 
-    let mut empty = snapshot_fixture(&root);
+    let invalid = multplx_domain::snapshot::parse_system_snapshot(b"{}\n");
+    assert!(invalid.is_err());
+
+    let mut empty = fixture.clone();
     empty["tasks"] = serde_json::json!([]);
     empty["backlog"]["records"] = serde_json::json!([]);
-    fs::write(&snapshot, serde_json::to_vec(&empty).expect("empty JSON")).expect("empty snapshot");
-    let empty_view = run(mx()
-        .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))
-        .env("MX_ROOT_OVERRIDE", &root)
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .env("MX_SNAPSHOT_FIXTURE", &snapshot)
-        .args(["session", "mx-system-view.sh"]));
-    assert!(empty_view.status.success());
-    let empty_text = String::from_utf8_lossy(&empty_view.stdout);
+    let empty_bytes = serde_json::to_vec(&empty).expect("empty JSON");
+    let empty_snapshot =
+        multplx_domain::snapshot::parse_system_snapshot(&empty_bytes).expect("empty snapshot");
+    let empty_text = multplx_domain::snapshot::render_system_view(&empty_snapshot);
     assert!(empty_text.contains("No live task metadata found."));
     assert!(empty_text.contains("No queued backlog records found."));
     assert!(empty_text.contains("No done backlog records found."));
 
-    let mut edges = snapshot_fixture(&root);
+    let mut edges = fixture;
     edges["tasks"][0]["endpoint"]["exists"] = serde_json::Value::Null;
     edges["tasks"][0]["paths"]["home"] =
         serde_json::json!({"path":"/homes/actor-1","present":true});
@@ -351,15 +366,10 @@ fn native_system_view_parses_one_snapshot_and_preserves_json_mode() {
         .expect("tasks")
         .extend([absent_worktree, no_path]);
     edges["backlog"]["records"][0]["blocked_reason"] = serde_json::Value::Null;
-    fs::write(&snapshot, serde_json::to_vec(&edges).expect("edge JSON")).expect("edge snapshot");
-    let edge_view = run(mx()
-        .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))
-        .env("MX_ROOT_OVERRIDE", &root)
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .env("MX_SNAPSHOT_FIXTURE", &snapshot)
-        .args(["session", "mx-system-view.sh"]));
-    assert!(edge_view.status.success());
-    let edge_text = String::from_utf8_lossy(&edge_view.stdout);
+    let edge_bytes = serde_json::to_vec(&edges).expect("edge JSON");
+    let edge_snapshot =
+        multplx_domain::snapshot::parse_system_snapshot(&edge_bytes).expect("edge snapshot");
+    let edge_text = multplx_domain::snapshot::render_system_view(&edge_snapshot);
     assert!(
         edge_text.contains("| actor-1 | working / native | delivery | demo | tmux | unknown |")
     );

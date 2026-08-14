@@ -115,12 +115,12 @@ test_vocabulary_and_writer_registration() {
     grep -F "$event" "$ROOT/docs/journal-events.md" >/dev/null \
       || fail "documentation omits $event"
   done
-  for file in \
-    bin/mx-spawn.sh \
-    bin/mx-push-transition-lib.sh; do
+  for file in bin/mx-push-transition-lib.sh; do
     grep -E 'mx_journal_try|wf_journal_stage_' "$ROOT/$file" >/dev/null \
       || fail "$file has no journal emission seam"
   done
+  grep -F 'JournalEvent::TaskSpawned' "$ROOT/crates/multplx-cli/src/lib.rs" >/dev/null \
+    || fail "Rust mx-spawn owner has no journal emission seam"
   grep -F 'JournalEvent::WorkflowStageEntered' "$ROOT/crates/multplx-cli/src/workflow_runtime.rs" >/dev/null \
     || fail "Rust workflow owner has no stage-entered journal seam"
   grep -F 'JournalEvent::GateStepStarted' "$ROOT/crates/multplx-cli/src/deep_review.rs" >/dev/null \

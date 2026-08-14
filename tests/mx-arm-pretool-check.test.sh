@@ -374,13 +374,8 @@ test_policy_runtime_without_node() {
   done
   PATH="$fakebin" "$CHECK" --command 'bin/mx-watch-arm.sh &' >/dev/null 2>&1
   rc=$?
-  if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = legacy ]; then
-    [ "$rc" -eq 0 ] || fail "legacy missing-Node transport must fail open, got exit $rc"
-    pass "legacy command policy retains missing-Node fail-open rollback behavior"
-  else
-    [ "$rc" -eq 2 ] || fail "Rust policy must deny independently of Node availability, got exit $rc"
-    pass "Rust command policy no longer depends on Node"
-  fi
+  [ "$rc" -eq 2 ] || fail "Rust policy must deny independently of Node availability, got exit $rc"
+  pass "Rust command policy does not depend on Node"
 }
 
 # --- --claude output shaping ---------------------------------------------------

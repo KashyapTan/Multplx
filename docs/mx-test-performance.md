@@ -79,6 +79,20 @@ Capture the accelerated run:
 target/release/mx test-run --all --jobs auto --json /tmp/mx-test-accelerated.json
 ```
 
+For final-tree closeout, preserve three independent accelerated artifacts rather than overwriting one path:
+
+```sh
+mkdir -p /private/tmp/mx-plan13-closeout
+target/release/mx test-run --all --jobs auto --json /private/tmp/mx-plan13-closeout/accelerated-1.json
+target/release/mx test-run --all --jobs auto --json /private/tmp/mx-plan13-closeout/accelerated-2.json
+target/release/mx test-run --all --jobs auto --json /private/tmp/mx-plan13-closeout/accelerated-3.json
+target/release/mx test-run --all --jobs 1 --json /private/tmp/mx-plan13-closeout/serial.json
+target/release/mx test-run --compare-json /private/tmp/mx-plan13-closeout/serial.json /private/tmp/mx-plan13-closeout/accelerated-3.json
+target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-plan13-closeout/isolation-proof.json
+```
+
+Do not replace the accepted proof table with these rows until all three accelerated runs are clean, serial comparison reports exact parity, and the isolation artifact reports no failed rounds or leaks.
+
 Compare contract parity:
 
 ```sh
@@ -103,20 +117,24 @@ The accepted proof table is updated only from complete runner JSON artifacts.
 | Plan-06 serial boundary | 2026-07-29 UTC | 96 scripts, 3,127,519 ms, 1 known branch-topology failure, 9 expected skips |
 | Plan-6.5 split assertion map | 2026-07-29 UTC | 140 cases mapped exactly once |
 | Resource isolation proof | 2026-08-03 UTC | 100 portable candidates x 2 rounds, 518,489 ms, 0 failed rounds, 0 leaks, 503 conflict pairs |
-| Plan-13 resource isolation proof | 2026-08-13 EDT | 103 portable candidates x 2 rounds, 1,270,859 ms, 0 failed rounds, 0 leaks |
+| Plan-13 resource isolation proof | 2026-08-13 EDT | 105 portable candidates x 2 rounds, 665,226 ms, 0 failed rounds, 0 leaks |
+| Plan-13 accelerated local run 1 | 2026-08-13 EDT | 127 scripts, 312,296 ms, 0 failed, 8 declared skips, 1,474 assertions |
+| Plan-13 accelerated local run 2 | 2026-08-13 EDT | 127 scripts, 313,461 ms, 0 failed, 8 declared skips, 1,474 assertions |
+| Plan-13 accelerated local run 3 | 2026-08-13 EDT | 127 scripts, 312,525 ms, 0 failed, 8 declared skips, 1,474 assertions |
+| Plan-13 serial parity reference | 2026-08-13 EDT | 127 scripts, 1,006,685 ms, 0 failed, 8 declared skips, 1,474 assertions |
 | Accelerated local run 1 | 2026-07-29 UTC | 106 scripts, 365,595 ms, 0 failed, 9 expected skips, 1,501 assertions |
 | Accelerated local run 2 | 2026-07-29 UTC | 106 scripts, 370,606 ms, 0 failed, 9 expected skips, 1,501 assertions |
 | Accelerated local run 3 | 2026-07-29 UTC | 106 scripts, 367,851 ms, 0 failed, 9 expected skips, 1,501 assertions |
-| Current serial parity reference | 2026-07-29 UTC | 106 scripts, 1,258,821 ms, 0 failed, 9 expected skips, 1,501 assertions |
-| Current accelerated parity run | 2026-07-29 UTC | 106 scripts, 370,653 ms, 0 failed, 9 expected skips, 1,501 assertions |
+| Historical serial parity reference | 2026-07-29 UTC | 106 scripts, 1,258,821 ms, 0 failed, 9 expected skips, 1,501 assertions |
+| Historical accelerated parity run | 2026-07-29 UTC | 106 scripts, 370,653 ms, 0 failed, 9 expected skips, 1,501 assertions |
 
-The three-run accelerated median is 367,851 ms, or 6 minutes 7.9 seconds.
-The maximum is 370,606 ms, or 6 minutes 10.6 seconds.
-The current serial-to-accelerated speedup is 3.40x.
-The exact parity command reported `MX_TEST_PARITY ok scripts=106 assertions=1501`.
-The current accepted resource proof was produced with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json docs/mx-test-isolation-proof.json`.
-It reported `MX_ISOLATION_SUMMARY total=103 failed_rounds=0 concurrency=4 repeats=2 duration_ms=1270859 leaks=0`.
-The archived resource proof is `docs/mx-test-isolation-proof.json`, whose manifest hash matches the current 125-script runner manifest.
+The current Plan-13 three-run accelerated median is 312,525 ms, or 5 minutes 12.5 seconds.
+The maximum is 313,461 ms, or 5 minutes 13.5 seconds.
+The current serial-to-accelerated speedup is 3.22x.
+The exact parity command reported `MX_TEST_PARITY ok scripts=127 assertions=1474`.
+The current 127-script resource proof was produced at a temporary path with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json <temporary-proof-path>` and atomically promoted to `docs/mx-test-isolation-proof.json` after validation.
+It reported `MX_ISOLATION_SUMMARY total=105 failed_rounds=0 concurrency=4 repeats=2 duration_ms=665226 leaks=0`.
+The proof records manifest SHA-256 `7ad4468ac085aaecc98277c3a2f5dd00498c5314fa744215df82a5c9f1098df8`, 644 declared conflict pairs, and no known-failure observations.
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.

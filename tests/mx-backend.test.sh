@@ -541,16 +541,6 @@ test_resolve_selector_three_forms() {
     || fail "bare non-fm task id should use its recorded backend"
   [ "$(mx_backend_expected_label_of_selector 'dotfiles-d6' "$state")" = "mx-dotfiles-d6" ] \
     || fail "bare non-fm task id should report the spawned mx-<id> label"
-  [ "$(mx_backend_compatibility_backend_of_selector 'dotfiles-d6' "$state")" = herdr ] \
-    || fail "Rust preflight should retain an exact recorded Herdr task on its compatibility adapter"
-  [ "$(mx_backend_compatibility_backend_of_selector 'default:wA:p2' "$state")" = herdr ] \
-    || fail "Rust preflight should retain an explicit recorded Herdr target on its compatibility adapter"
-  [ "$(mx_backend_compatibility_backend_of_selector 'task1' "$state")" = tmux ] \
-    || fail "Rust preflight should select Rust for an exact tmux task"
-  mx_write_meta "$TMP_ROOT/escape.meta" "window=outside" "backend=herdr"
-  [ "$(mx_backend_compatibility_backend_of_selector '../escape' "$state")" = tmux ] \
-    || fail "Rust preflight must not traverse metadata for a malformed selector"
-
   [ "$(mx_backend_resolve_selector 'mx-turnend-all-harnesses-v9' "$state")" = "default:wB:p3" ] \
     || fail "exact mx-* task id should resolve through its exact metadata"
   [ "$(mx_backend_of_selector 'mx-turnend-all-harnesses-v9' 'default:wB:p3' "$state")" = herdr ] \
@@ -653,56 +643,36 @@ strip_send_preflight() {  # <log>
   awk -v preflight="$preflight" '$0 != preflight { print }' "$1"
 }
 
-test_send_conformance_old_vs_new() {
-  local old_bin fb log_old log_new home rc_old rc_new filtered_old filtered_new
-  old_bin=$(build_old_bin send-old)
+test_send_native_facade() {
+  local fb log home rc
   fb=$(make_send_fakebin "$TMP_ROOT/send-fake")
   home="$TMP_ROOT/send-home"; mkdir -p "$home/state"
-  log_old="$TMP_ROOT/send-old.log"; log_new="$TMP_ROOT/send-new.log"
-  filtered_old="$TMP_ROOT/send-old.filtered.log"; filtered_new="$TMP_ROOT/send-new.filtered.log"
+  log="$TMP_ROOT/send.log"
 
   # Case 1: --key path.
-  run_send_case "$old_bin" "$fb" "$log_old" "$home" -- "sess:win" --key Escape
-  rc_old=$?
-  run_send_case "$ROOT" "$fb" "$log_new" "$home" -- "sess:win" --key Escape
-  rc_new=$?
-  expect_code "$rc_old" "$rc_new" "mx-send --key: old vs new exit code"
-  assert_contains "$(cat "$log_new")" $'\x1f''display-message'$'\x1f''-p'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''#{pane_id}' \
+  run_send_case "$ROOT" "$fb" "$log" "$home" -- "sess:win" --key Escape
+  rc=$?
+  expect_code 0 "$rc" "mx-send --key native exit code"
+  assert_contains "$(cat "$log")" $'\x1f''display-message'$'\x1f''-p'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''#{pane_id}' \
     "mx-send --key did not verify the explicit tmux target before sending"
-  strip_send_preflight "$log_old" > "$filtered_old"
-  strip_send_preflight "$log_new" > "$filtered_new"
-  diff -u "$filtered_old" "$filtered_new" > "$TMP_ROOT/send-diff-key.txt" 2>&1 \
-    || fail "mx-send --key: tmux command log differs old vs new"$'\n'"$(cat "$TMP_ROOT/send-diff-key.txt")"
-  assert_contains "$(cat "$log_new")" $'\x1f''Escape' "mx-send --key did not send the named key"
+  assert_contains "$(cat "$log")" $'\x1f''Escape' "mx-send --key did not send the named key"
 
   # Case 2: plain text (0.3s settle, no popup).
-  run_send_case "$old_bin" "$fb" "$log_old" "$home" -- "sess:win" hello maintainer
-  rc_old=$?
-  run_send_case "$ROOT" "$fb" "$log_new" "$home" -- "sess:win" hello maintainer
-  rc_new=$?
-  expect_code "$rc_old" "$rc_new" "mx-send plain text: old vs new exit code"
-  strip_send_preflight "$log_old" > "$filtered_old"
-  strip_send_preflight "$log_new" > "$filtered_new"
-  diff -u "$filtered_old" "$filtered_new" > "$TMP_ROOT/send-diff-plain.txt" 2>&1 \
-    || fail "mx-send plain text: tmux command log differs old vs new"$'\n'"$(cat "$TMP_ROOT/send-diff-plain.txt")"
-  assert_contains "$(cat "$log_new")" $'\x1f''send-keys'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''-l'$'\x1f''hello maintainer' \
+  run_send_case "$ROOT" "$fb" "$log" "$home" -- "sess:win" hello maintainer
+  rc=$?
+  expect_code 0 "$rc" "mx-send plain text native exit code"
+  assert_contains "$(cat "$log")" $'\x1f''send-keys'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''-l'$'\x1f''hello maintainer' \
     "mx-send did not send the literal text with send-keys -l"
-  assert_contains "$(cat "$log_new")" $'\x1f''Enter' "mx-send did not submit with Enter"
+  assert_contains "$(cat "$log")" $'\x1f''Enter' "mx-send did not submit with Enter"
 
   # Case 3: a slash command still opens the popup-settle path (verified
   # elsewhere in tests/mx-send-popup-settle.test.sh) and still ends in the
   # same tmux command shape: send-keys -l, then a retried Enter.
-  run_send_case "$old_bin" "$fb" "$log_old" "$home" -- "sess:win" /some-skill
-  rc_old=$?
-  run_send_case "$ROOT" "$fb" "$log_new" "$home" -- "sess:win" /some-skill
-  rc_new=$?
-  expect_code "$rc_old" "$rc_new" "mx-send /skill: old vs new exit code"
-  strip_send_preflight "$log_old" > "$filtered_old"
-  strip_send_preflight "$log_new" > "$filtered_new"
-  diff -u "$filtered_old" "$filtered_new" > "$TMP_ROOT/send-diff-slash.txt" 2>&1 \
-    || fail "mx-send /skill: tmux command log differs old vs new"$'\n'"$(cat "$TMP_ROOT/send-diff-slash.txt")"
+  run_send_case "$ROOT" "$fb" "$log" "$home" -- "sess:win" /some-skill
+  rc=$?
+  expect_code 0 "$rc" "mx-send /skill native exit code"
 
-  pass "mx-send.sh: explicit tmux targets are verified, while --key/plain/slash send command shape stays old-compatible"
+  pass "mx-send.sh: native facade verifies explicit targets and preserves --key/plain/slash command shape"
 }
 
 # --- old vs new: mx-peek.sh --------------------------------------------------
@@ -724,33 +694,26 @@ SH
   printf '%s\n' "$fb"
 }
 
-test_peek_conformance_old_vs_new() {
-  local old_bin fb log_old log_new home out_old out_new payload neutral_root
+test_peek_native_facade() {
+  local fb log home output payload neutral_root
   payload=$'line one\nline two\nmaintainer on deck'
-  old_bin=$(build_old_bin peek-old)
   fb=$(make_peek_fakebin "$TMP_ROOT/peek-fake" "$payload")
   home="$TMP_ROOT/peek-home"; mkdir -p "$home/state"
-  log_old="$TMP_ROOT/peek-old.log"; log_new="$TMP_ROOT/peek-new.log"
+  log="$TMP_ROOT/peek.log"
   # A fresh non-git dir keeps mx-guard.sh's worktree-tangle check inert (it warns
   # to stderr, discarded below) - neither run needs MX_ROOT for anything beyond
   # that guard, since STATE/HOME are already overridden directly.
   neutral_root="$TMP_ROOT/peek-neutral-root"; mkdir -p "$neutral_root"
 
-  : > "$log_old"
-  out_old=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$neutral_root" MX_HOME="$home" MX_TMUX_LOG="$log_old" \
-    "$old_bin/bin/mx-peek.sh" "sess:win" 25 2>/dev/null)
-  : > "$log_new"
-  out_new=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$neutral_root" MX_HOME="$home" MX_TMUX_LOG="$log_new" \
+  : > "$log"
+  output=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$neutral_root" MX_HOME="$home" MX_TMUX_LOG="$log" \
     "$ROOT/bin/mx-peek.sh" "sess:win" 25 2>/dev/null)
 
-  [ "$out_old" = "$out_new" ] || fail "mx-peek output differs old vs new"$'\n'"--- old ---"$'\n'"$out_old"$'\n'"--- new ---"$'\n'"$out_new"
-  [ "$out_new" = "$payload" ] || fail "mx-peek did not pass through the fake capture-pane output exactly"
-  diff -u "$log_old" "$log_new" > "$TMP_ROOT/peek-diff.txt" 2>&1 \
-    || fail "mx-peek: tmux command log differs old vs new"$'\n'"$(cat "$TMP_ROOT/peek-diff.txt")"
-  assert_contains "$(cat "$log_new")" $'\x1f''capture-pane'$'\x1f''-p'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''-S'$'\x1f''-25' \
+  [ "$output" = "$payload" ] || fail "mx-peek did not pass through the fake capture-pane output exactly"
+  assert_contains "$(cat "$log")" $'\x1f''capture-pane'$'\x1f''-p'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''-S'$'\x1f''-25' \
     "mx-peek did not call capture-pane -p -t <target> -S -<lines> exactly"
 
-  pass "mx-peek.sh: capture-pane invocation and output are byte-identical old vs new"
+  pass "mx-peek.sh: native capture invocation and output preserve the stable facade"
 }
 
 # --- old vs new: mx-spawn.sh --------------------------------------------------
@@ -1094,16 +1057,9 @@ test_backend_validate_spawn_accepts_known
 test_meta_get_and_backend_of_meta
 test_resolve_selector_three_forms
 test_backend_of_selector_matches_explicit_target_meta
-if git -C "$ROOT" cat-file -e "$BASE_REF:bin/mx-send.sh" 2>/dev/null; then
-  test_send_conformance_old_vs_new
-  test_peek_conformance_old_vs_new
-else
-  pass "pre-Multplx baseline byte conformance is not applicable across the atomic naming epoch"
-fi
+test_send_native_facade
+test_peek_native_facade
 test_spawn_symlinked_project_prefix_avoids_false_refusal
-if git -C "$ROOT" cat-file -e "$BASE_REF:bin/mx-teardown.sh" 2>/dev/null; then
-  test_teardown_conformance_old_vs_new
-fi
 test_spawn_refuses_unknown_backend_flag
 test_spawn_refuses_codex_app_backend_flag
 test_spawn_refuses_unknown_mx_backend_env

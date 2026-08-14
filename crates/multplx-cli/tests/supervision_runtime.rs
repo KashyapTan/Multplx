@@ -1,8 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::symlink;
-use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 fn run(command: &mut Command) -> Output {
@@ -11,14 +9,6 @@ fn run(command: &mut Command) -> Output {
 
 fn mx() -> Command {
     Command::new(env!("CARGO_BIN_EXE_mx"))
-}
-
-fn executable(path: &Path, body: &str) {
-    fs::create_dir_all(path.parent().expect("parent")).expect("parent");
-    fs::write(path, body).expect("write script");
-    let mut permissions = fs::metadata(path).expect("metadata").permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).expect("mode");
 }
 
 #[test]
@@ -289,33 +279,6 @@ fn wake_drain_covers_empty_records_annotations_recovery_and_parse_failure() {
         .env("MX_STATE_OVERRIDE", &state_file)
         .args(["supervision", "mx-wake-drain.sh"]));
     assert_eq!(create_error.status.code(), Some(1));
-}
-
-#[test]
-fn compatibility_dispatch_pins_the_child_to_legacy_before_execution() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    executable(
-        &temp.path().join("bin/mx-watch.sh"),
-        "#!/bin/sh\nprintf '%s|%s\\n' \"${MX_SUPERVISION_IMPLEMENTATION:-unset}\" \"${1:-}\"\n",
-    );
-    let output = run(mx()
-        .env("MX_ROOT_OVERRIDE", temp.path())
-        .env("MX_RUST_SOURCE_ROOT", temp.path())
-        .args(["supervision", "mx-watch.sh", "probe"]));
-    assert!(output.status.success());
-    assert_eq!(output.stdout, b"legacy|probe\n");
-}
-
-#[test]
-fn missing_compatibility_body_is_a_typed_failure() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    fs::create_dir(temp.path().join("bin")).expect("bin");
-    let output = run(mx()
-        .env("MX_ROOT_OVERRIDE", temp.path())
-        .env("MX_RUST_SOURCE_ROOT", temp.path())
-        .args(["supervision", "mx-watch.sh"]));
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("compatibility body is unavailable"));
 }
 
 #[test]

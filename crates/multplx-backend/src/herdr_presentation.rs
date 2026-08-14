@@ -6,13 +6,16 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use multplx_core::filesystem::{atomic_replace, read_bounded_regular};
+use multplx_core::locks::DirectoryLock;
+use multplx_core::process::SystemProcessProbe;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::command::{CommandRequest, CommandRunner, SystemCommandRunner};
-use crate::facade::{BackendError, BackendName, RuntimeBackend};
+use crate::facade::{BackendError, BackendName, BackendTarget, RuntimeBackend};
 use crate::herdr::{HerdrBackend, PaneAgentState};
 use crate::herdr_wire;
 
@@ -163,6 +166,233 @@ pub enum ReclaimOutcome {
     Flat,
     /// Mutation safety became uncertain or a live/unknown agent was observed.
     Refuse,
+}
+
+/// Inputs for one native presentation-aware spawn attempt.
+pub struct ProjectionSpawnRequest<'a> {
+    /// Home-local state directory.
+    pub state: &'a Path,
+    /// Stable task id.
+    pub task_id: &'a str,
+    /// Exact logical Multplx home.
+    pub home: &'a Path,
+    /// Initial task working directory.
+    pub cwd: &'a Path,
+    /// Backend task-tab label.
+    pub task_label: &'a str,
+    /// Whether a prior journal is being recovered.
+    pub recovering: bool,
+}
+
+/// Result of the presentation layer before ordinary flat creation.
+pub enum ProjectionSpawnOutcome {
+    /// A projected endpoint was created or safely reclaimed under the held lock.
+    Projected {
+        /// Exact backend target.
+        target: BackendTarget,
+        /// Response-derived endpoint identities.
+        endpoint: Box<ProjectionEndpoint>,
+        /// Session lock retained until launch or rollback completes.
+        lock: DirectoryLock,
+        /// Best-effort diagnostics that do not invalidate the endpoint.
+        warnings: Vec<String>,
+    },
+    /// A proven-safe ordinary flat spawn should continue.
+    Flat {
+        /// Reason the optional projection was not used.
+        warning: String,
+    },
+}
+
+/// Create or reclaim one optional presentation projection without weakening duplicate safety.
+pub fn spawn_projection(
+    backend: &mut HerdrBackend<SystemCommandRunner>,
+    request: &ProjectionSpawnRequest<'_>,
+) -> Result<ProjectionSpawnOutcome, BackendError> {
+    let session = backend.session().to_owned();
+    let parent_label = backend.workspace_label();
+    if let Err(error) = backend.server_ensure(&session) {
+        if request.recovering {
+            return Err(BackendError::Command(format!(
+                "herdr presentation recovery could not ensure its exact named session: {error}"
+            )));
+        }
+        return Ok(ProjectionSpawnOutcome::Flat {
+            warning: "herdr presentation could not ensure its session server; using the ordinary flat layout without projection".to_owned(),
+        });
+    }
+    let lock_path = backend.presentation_session_lock_path(&session)?;
+    let lock = match DirectoryLock::acquire_wait(
+        lock_path,
+        &SystemProcessProbe::default(),
+        Duration::from_secs(15),
+    ) {
+        Ok(lock) => lock,
+        Err(error) if request.recovering => {
+            return Err(BackendError::Metadata(format!(
+                "herdr presentation recovery could not acquire its session lock; refusing a concurrent resume: {error}"
+            )));
+        }
+        Err(_) => {
+            return Ok(ProjectionSpawnOutcome::Flat {
+                warning: "herdr presentation focus lock unavailable; using the ordinary flat layout without projection".to_owned(),
+            });
+        }
+    };
+    let journal = journal_path(request.state, request.task_id);
+    if request.recovering {
+        let meta_path = request.state.join(format!("{}.meta", request.task_id));
+        let mut prior_endpoint = None;
+        if meta_path.exists() || fs::symlink_metadata(&meta_path).is_ok() {
+            let metadata = fs::symlink_metadata(&meta_path)
+                .map_err(|error| BackendError::Metadata(error.to_string()))?;
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err(BackendError::Metadata(
+                    "existing presentation metadata is not a regular file".to_owned(),
+                ));
+            }
+            let prior = fs::read_to_string(&meta_path)
+                .map_err(|error| BackendError::Metadata(error.to_string()))?;
+            let exact = |key: &str| -> Result<String, BackendError> {
+                let prefix = format!("{key}=");
+                let values = prior
+                    .lines()
+                    .filter_map(|line| line.strip_prefix(&prefix))
+                    .collect::<Vec<_>>();
+                if values.len() == 1 && !values[0].is_empty() {
+                    Ok(values[0].to_owned())
+                } else {
+                    Err(BackendError::Metadata(format!(
+                        "existing herdr metadata for {} has an ambiguous {key}",
+                        request.task_id
+                    )))
+                }
+            };
+            if exact("backend")? != "herdr" {
+                return Err(BackendError::Metadata(format!(
+                    "existing endpoint for {} is not herdr; refusing duplicate launch",
+                    request.task_id
+                )));
+            }
+            let old_session = exact("herdr_session")?;
+            let old_workspace = exact("herdr_workspace_id")?;
+            let old_tab = exact("herdr_tab_id")?;
+            let old_pane = exact("herdr_pane_id")?;
+            if old_session != session || exact("window")? != format!("{old_session}:{old_pane}") {
+                return Err(BackendError::Metadata(format!(
+                    "existing herdr metadata for {} has inconsistent endpoint identities",
+                    request.task_id
+                )));
+            }
+            match backend.pane_agent_state(&old_session, &old_pane) {
+                PaneAgentState::Dead | PaneAgentState::NoAgent => {}
+                state => {
+                    return Err(BackendError::Command(format!(
+                        "existing herdr endpoint for {} is {state:?}; refusing duplicate launch",
+                        request.task_id
+                    )));
+                }
+            }
+            prior_endpoint = Some((old_workspace, old_tab, old_pane));
+        }
+        if !backend.projection_recovery_allows_flat(&session, &journal, request.task_id) {
+            return Err(BackendError::Metadata(
+                "herdr presentation recovery could not prove a safe flat fallback".to_owned(),
+            ));
+        }
+        if let Some((workspace, tab, pane)) = prior_endpoint {
+            match backend.projection_reclaim_task(
+                &session,
+                &journal,
+                request.task_id,
+                request.home,
+                &workspace,
+                &tab,
+                &pane,
+                &parent_label,
+                request.task_label,
+                request.cwd,
+            ) {
+                ReclaimOutcome::Reclaimed { tab_id, pane_id } => {
+                    let target = BackendTarget::new(
+                        BackendName::Herdr,
+                        format!("{session}:{pane_id}"),
+                        Some(request.task_label.to_owned()),
+                    )?;
+                    return Ok(ProjectionSpawnOutcome::Projected {
+                        target,
+                        endpoint: Box::new(ProjectionEndpoint {
+                            session,
+                            workspace_id: workspace,
+                            seeded_tab_id: String::new(),
+                            seeded_pane_id: String::new(),
+                            tab_id,
+                            pane_id,
+                        }),
+                        lock,
+                        warnings: Vec::new(),
+                    });
+                }
+                ReclaimOutcome::Refuse => {
+                    return Err(BackendError::Command(
+                        "herdr presentation recovery reached an unsafe mutation boundary"
+                            .to_owned(),
+                    ));
+                }
+                ReclaimOutcome::Flat => {}
+            }
+        }
+        return Ok(ProjectionSpawnOutcome::Flat {
+            warning: "herdr presentation recovery proved the prior endpoint inactive; using the ordinary flat layout".to_owned(),
+        });
+    }
+    let Ok(parent_workspace_id) = backend.parent_workspace_exact(&session, &parent_label) else {
+        return Ok(ProjectionSpawnOutcome::Flat {
+            warning: "herdr presentation parent is absent or ambiguous; using the ordinary flat layout without projection".to_owned(),
+        });
+    };
+    let token = projection_id()?;
+    let journal = create_journal(request.state, request.task_id, &token)?;
+    let workspace_label = projection_workspace_label(request.task_id, &token);
+    let endpoint =
+        backend.projection_create_task(request.cwd, &workspace_label, request.task_label)?;
+    let mut warnings = Vec::new();
+    if let Err(error) =
+        backend.order_projection_best_effort(&session, &endpoint.workspace_id, &parent_label)
+    {
+        warnings.push(format!(
+            "herdr presentation workspace move failed or had an ambiguous response; leaving worker running without cleanup: {error}"
+        ));
+    }
+    let binding = ProjectionBinding {
+        task_id: request.task_id.to_owned(),
+        projection_id: token,
+        home: home_identity(request.home)?,
+        session: session.clone(),
+        workspace_id: endpoint.workspace_id.clone(),
+        tab_id: endpoint.tab_id.clone(),
+        pane_id: endpoint.pane_id.clone(),
+        parent_workspace_id,
+        parent_label,
+        workspace_label,
+        task_label: request.task_label.to_owned(),
+    };
+    if !backend.projection_live_binding_matches(&session, &binding)
+        || bind_journal(&journal, binding).is_err()
+    {
+        warnings.push("herdr presentation could not publish an exact restart binding; this task will use flat fallback after a restart".to_owned());
+    }
+    let target = BackendTarget::new(
+        BackendName::Herdr,
+        format!("{}:{}", session, endpoint.pane_id),
+        Some(request.task_label.to_owned()),
+    )?;
+    Ok(ProjectionSpawnOutcome::Projected {
+        target,
+        endpoint: Box::new(endpoint),
+        lock,
+        warnings,
+    })
 }
 
 /// Return one journal's path.
@@ -1403,8 +1633,8 @@ mod tests {
 
     use super::{
         FocusSnapshot, ProjectionBinding, ProjectionJournal, analyze_order, bind_journal,
-        concise_task_label, create_journal, home_identity, journal_path, projection_id,
-        projection_workspace_label, read_journal, replace_journal_endpoint,
+        concise_task_label, create_journal, ensure_private_namespace, home_identity, journal_path,
+        projection_id, projection_workspace_label, read_journal, replace_journal_endpoint,
     };
     use crate::command::{CommandError, CommandOutput, CommandRequest, CommandRunner};
     use crate::herdr::HerdrBackend;
@@ -1478,6 +1708,25 @@ mod tests {
                 .into_bytes(),
                 Some("api") => br#"{"methods":{"workspace.move":{"params":["workspace_id","insert_index"]}}}"#.to_vec(),
                 _ => Vec::new(),
+            };
+            Ok(output(body))
+        }
+    }
+
+    #[derive(Debug)]
+    struct MalformedSessionRunner;
+
+    impl CommandRunner for MalformedSessionRunner {
+        fn run(&mut self, request: &CommandRequest) -> Result<CommandOutput, CommandError> {
+            let args = request
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>();
+            let body = if args.first().is_some_and(|arg| arg == "session") {
+                br#"{"sessions":[{"name":"named","running":true,"socket_path":null}]}"#.to_vec()
+            } else {
+                Vec::new()
             };
             Ok(output(body))
         }
@@ -1587,6 +1836,25 @@ mod tests {
         assert_eq!(analysis.desired, 2);
         assert_eq!(analysis.existing, ["parent", "old", "other"]);
         assert!(analyze_order(&value, "missing", "broker").is_err());
+    }
+
+    #[test]
+    fn presentation_lock_refuses_malformed_socket_and_insecure_namespace() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut backend = HerdrBackend::new(
+            MalformedSessionRunner,
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert!(backend.presentation_session_socket_path("named").is_err());
+        assert!(backend.presentation_session_lock_path("named").is_err());
+
+        let insecure = temp.path().join("insecure-lock-namespace");
+        std::fs::create_dir(&insecure).expect("namespace");
+        std::fs::set_permissions(&insecure, std::fs::Permissions::from_mode(0o755))
+            .expect("insecure mode");
+        assert!(ensure_private_namespace(&insecure).is_err());
     }
 
     #[test]

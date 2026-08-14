@@ -14,9 +14,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
-  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
-fi
+export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 TMP_ROOT=$(mx_test_tmproot mx-claude-stop-autoarm)
 mx_git_identity fmtest fmtest@example.invalid
@@ -169,10 +167,6 @@ test_settings_registers_autoarm_with_multi_hour_timeout() {
     [.hooks.Stop[].hooks[] | select(.command | contains("mx-claude-stop-autoarm.sh"))][0].command
       | contains("&") | not
   ' "$settings" >/dev/null || fail "auto-arm registration must not use shell fire-and-forget"
-  grep -q '"$SCRIPT_DIR/mx-watch-arm.sh" >"$OUT" 2>&1' "$ROOT/bin/mx-claude-stop-autoarm.sh" \
-    || fail "auto-arm must foreground the arm wrapper inside the hook-owned process tree"
-  grep -q 'asyncRewake' "$ROOT/bin/mx-claude-stop-autoarm.sh" \
-    || fail "auto-arm header must document its asyncRewake registration contract"
   pass "settings.json registers the asyncRewake auto-arm with timeout >= 28800 and a foreground arm"
 }
 

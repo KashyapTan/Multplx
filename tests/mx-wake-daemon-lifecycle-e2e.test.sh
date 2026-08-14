@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ "${MX_NATIVE_SUPERVISE_TEST_REENTRY:-0}" != 1 ]; then
+  MX_NATIVE_SUPERVISE_TEST_REENTRY=1 exec "$(dirname "$0")/mx-supervise-daemon-native.test.sh"
+fi
 # tests/mx-wake-daemon-lifecycle-e2e.test.sh - the watcher + supervise-daemon
 # lifecycle, end to end, over one shared state root and a shimmed tmux:
 #

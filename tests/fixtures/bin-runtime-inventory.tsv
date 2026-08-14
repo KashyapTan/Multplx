@@ -1,0 +1,92 @@
+# path	class	reason
+bin/backends/cmux-rust.sh	sourced-shell-abi	Sourced transport ABI for shell callers; operational functions dispatch to typed native owners.
+bin/backends/herdr-eventwait	minimal-adapter	Exec-only Herdr event-reader transport.
+bin/backends/herdr-workspace-move	minimal-adapter	Exec-only Herdr workspace-move transport.
+bin/backends/tmux-rust.sh	sourced-shell-abi	Sourced transport ABI for shell callers; operational functions dispatch to typed native owners.
+bin/mx-actor-state.sh	minimal-adapter	Stable actor-state command name.
+bin/mx-afk-launch.sh	minimal-adapter	Stable away-mode launch command name.
+bin/mx-afk-return.sh	minimal-adapter	Stable away-return command name.
+bin/mx-afk-start.sh	sourced-shell-abi	Tests source the stale-artifact and daemon-lock helper ABI without executing main.
+bin/mx-arm-pretool-check.sh	minimal-adapter	Stable watcher-arm hook command name.
+bin/mx-backlog-handoff.sh	minimal-adapter	Stable backlog handoff command name.
+bin/mx-backlog.sh	minimal-adapter	Stable backlog command name.
+bin/mx-bootstrap.sh	minimal-adapter	Stable bootstrap command name.
+bin/mx-brief.sh	minimal-adapter	Stable brief command name.
+bin/mx-cd-pretool-check.sh	minimal-adapter	Stable persistent-cd hook command name.
+bin/mx-check-lib.sh	sourced-shell-abi	Watcher and PR-security tests source the check helper ABI.
+bin/mx-check-register.sh	minimal-adapter	Stable custom-check registration command name.
+bin/mx-classify-lib.sh	sourced-shell-abi	Daemon, watcher, transition, and focused tests source the shared classifier ABI.
+bin/mx-claude-stop-autoarm.sh	minimal-adapter	Stable Claude Stop hook command name.
+bin/mx-config-push.sh	minimal-adapter	Stable configuration push command name.
+bin/mx-cursor-hook.sh	minimal-adapter	Stable Cursor hook command name.
+bin/mx-daemon-report.sh	minimal-adapter	Stable daemon report command name.
+bin/mx-decision-hold.sh	minimal-adapter	Stable decision-hold command name.
+bin/mx-deep-review.sh	minimal-adapter	Stable deep-review command name.
+bin/mx-deliver-lib.sh	sourced-shell-abi	Retained delivery record and eligibility function ABI for external sourced callers.
+bin/mx-deliver.sh	minimal-adapter	Stable delivery command name.
+bin/mx-doc-audience-check.sh	minimal-adapter	Stable documentation verification command name.
+bin/mx-doctor.sh	minimal-adapter	Stable doctor command name.
+bin/mx-ensure-agents-md.sh	minimal-adapter	Stable root-contract repair command name.
+bin/mx-gate-refuse-lib.sh	sourced-shell-abi	Focused compatibility fixtures source the catch-up refusal helper ABI; production spawn is Rust-owned.
+bin/mx-guard.sh	minimal-adapter	Stable supervision guard command name.
+bin/mx-harness.sh	minimal-adapter	Stable harness detection command name.
+bin/mx-headroom.sh	minimal-adapter	Stable headroom command name.
+bin/mx-herdr-ci-cleanup.sh	minimal-adapter	Stable Herdr CI cleanup command name.
+bin/mx-herdr-lab.sh	sourced-shell-abi	Herdr safety tests source the guarded lab-session ABI.
+bin/mx-herdr-session-cleanup.sh	sourced-shell-abi	Cleanup tests source the guarded Herdr cleanup ABI.
+bin/mx-home-seed.sh	minimal-adapter	Stable daemon-home seed command name.
+bin/mx-install-herdr.sh	minimal-adapter	Stable Herdr installer command name.
+bin/mx-install-treehouse.sh	minimal-adapter	Stable treehouse installer command name.
+bin/mx-journal-lib.sh	sourced-shell-abi	Spawn, transitions, and focused tests source the journal ABI.
+bin/mx-launch-harness.sh	minimal-adapter	Stable harness launch command name.
+bin/mx-launcher-install.sh	minimal-adapter	Stable launcher installer command name.
+bin/mx-launcher.sh	minimal-adapter	Stable launcher command name.
+bin/mx-lock.sh	sourced-shell-abi	Session-start and hook fixtures execute the shell-native lock fixture ABI; production session locking is Rust-owned.
+bin/mx-maintainer-override-lib.sh	sourced-shell-abi	Lifecycle, workflow, and review fault tests source the override ABI.
+bin/mx-maintainer-override.sh	minimal-adapter	Stable maintainer-override command name.
+bin/mx-merge-local.sh	minimal-adapter	Stable local-merge command name.
+bin/mx-operational-input.sh	sourced-shell-abi	Daemon, marker, and focused tests source the operational-input ABI.
+bin/mx-override-bindings.sh	minimal-adapter	Stable override-bindings command name.
+bin/mx-override-run.sh	minimal-adapter	Stable exceptional-operation command name.
+bin/mx-peek.sh	minimal-adapter	Stable cross-backend pane-capture command name.
+bin/mx-pending-reply-lib.sh	sourced-shell-abi	Watcher, send, and focused tests source the pending-reply ABI.
+bin/mx-pr-check-migrate.sh	minimal-adapter	Stable PR-check migration command name.
+bin/mx-pr-check.sh	minimal-adapter	Stable PR-check command name.
+bin/mx-pr-lib.sh	sourced-shell-abi	Watcher, lifecycle, cleanup, and security tests source the PR artifact ABI.
+bin/mx-pr-merge.sh	minimal-adapter	Stable PR merge command name.
+bin/mx-pr-poll.sh	minimal-adapter	Stable PR poll command name.
+bin/mx-primary-scope-lib.sh	sourced-shell-abi	Hook fixtures and instruction-owner tests source the primary-scope ABI.
+bin/mx-project-mode.sh	minimal-adapter	Stable project-mode command name.
+bin/mx-promote.sh	minimal-adapter	Stable promotion command name.
+bin/mx-report	minimal-adapter	Stable task reporter command name.
+bin/mx-report-mcp	minimal-adapter	Stable report MCP service command name.
+bin/mx-review-diff.sh	minimal-adapter	Stable review-diff command name.
+bin/mx-send.sh	minimal-adapter	Stable actor-send command name.
+bin/mx-session-start.sh	minimal-adapter	Stable session-start command name.
+bin/mx-sessionstart-nudge.sh	minimal-adapter	Stable fail-open session-start hook command name.
+bin/mx-spawn.sh	minimal-adapter	Stable task-spawn command name.
+bin/mx-status-snapshot.sh	minimal-adapter	Stable status-snapshot command name.
+bin/mx-subagent-pretool-check.sh	minimal-adapter	Stable delegation guard hook command name.
+bin/mx-supervise-daemon.sh	minimal-adapter	Stable away-mode supervisor command name.
+bin/mx-supervision-instructions.sh	minimal-adapter	Stable supervision instruction command name.
+bin/mx-supervisor-target-lib.sh	sourced-shell-abi	Daemon and supervision callers source the target-discovery ABI.
+bin/mx-system-snapshot.sh	minimal-adapter	Stable system-snapshot command name.
+bin/mx-system-sync.sh	minimal-adapter	Stable system-sync command name.
+bin/mx-system-view.sh	minimal-adapter	Stable human system-view command name.
+bin/mx-teardown.sh	minimal-adapter	Stable teardown command name.
+bin/mx-test-isolation-proof.sh	minimal-adapter	Stable isolation-proof command name.
+bin/mx-test-run.sh	minimal-adapter	Stable behavior-test runner command name.
+bin/mx-timeline.sh	minimal-adapter	Stable timeline command name.
+bin/mx-tmux-lib.sh	sourced-shell-abi	Daemon, backend, pending-reply, and focused tests source the tmux ABI.
+bin/mx-turnend-guard.sh	minimal-adapter	Stable turn-end hook command name.
+bin/mx-update.sh	minimal-adapter	Stable update command name.
+bin/mx-upstream-diff.sh	minimal-adapter	Stable upstream-diff command name.
+bin/mx-validation-waive.sh	minimal-adapter	Stable validation-waiver command name.
+bin/mx-viz.sh	minimal-adapter	Stable visualization service command name.
+bin/mx-vplan.sh	minimal-adapter	Stable visual-plan service command name.
+bin/mx-wake-drain.sh	minimal-adapter	Stable wake-drain command name.
+bin/mx-wake-lib.sh	sourced-shell-abi	Daemon, AFK, workflow, and focused tests source the process and wake ABI.
+bin/mx-watch-arm.sh	minimal-adapter	Stable watcher-arm command name.
+bin/mx-watch-checkpoint.sh	minimal-adapter	Stable foreground checkpoint command name.
+bin/mx-watch.sh	sourced-shell-abi	Executable behavior is Rust; supervision event tests source the event-wait helper ABI.
+bin/mx-workflow.sh	minimal-adapter	Stable workflow command name.

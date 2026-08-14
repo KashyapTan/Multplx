@@ -1052,15 +1052,14 @@ test_index_lock_mtime_read_failure_refuses() {
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
-  add_stat_error "$case_dir"
-
   lock=$(git_index_lock_path "$case_dir/wt")
   mkdir -p "$(dirname "$lock")"
   : > "$lock"
   touch -t 200001010000 "$lock"
 
   set +e
-  MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 MX_STALE_WORKTREE_LOCK_AGE_SECS=1 \
+  MX_TEARDOWN_TEST_LOCK_MTIME_ERROR=1 \
+    MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 MX_STALE_WORKTREE_LOCK_AGE_SECS=1 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e

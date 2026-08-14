@@ -10,17 +10,17 @@ The shared orchestrator behavior contract lives in [`AGENTS.md`](../AGENTS.md).
 
 ## Operational home layout and state
 
-This section is the single owner of the top-level operational-home layout; producer script headers and their help own exact child-file fields and mutation contracts.
+This section is the single owner of the top-level operational-home layout; Rust command help and the owning crate modules define exact child-file fields and mutation contracts.
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `MX_HOME` contains private operational directories.
 `data/` holds durable private system records such as the project and daemon registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and scout reports.
-`state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private daemon config-reread generations with their retry and quarantine state, and parent-owned daemon pending-reply records under `state/pending-replies/` (`bin/mx-pending-reply-lib.sh`).
+`state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private daemon config-reread generations with their retry and quarantine state, and parent-owned daemon pending-reply records under `state/pending-replies/` (`multplx-domain::lifecycle::pending_reply`).
 `config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions maintained in `AGENTS.md`.
 
-`bin/mx-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
-The producing PR helpers own the fields they append, `bin/mx-classify-lib.sh` owns status-event vocabulary, and `bin/mx-actor-state.sh` owns current-state reconciliation.
-Wake, watcher, and away-mode state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
+`multplx-domain::lifecycle::spawn` owns base task metadata, while the runtime-backend section below owns backend-specific fields and selector interpretation.
+The producing Rust review helpers own the fields they append, `multplx-core::classification` owns status-event vocabulary, and the Rust actor-state backend owns current-state reconciliation.
+Wake, watcher, and away-mode state mechanics remain with the Rust supervision runtime and their reference sections rather than being duplicated into one exhaustive state tree here.
 
-`bin/mx-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
+`multplx-cli::session_start` is the single implementation owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.
 `AGENTS.md` owns the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
 Ordinary dead-direct-report recovery is owned by `stuck-actor-recovery`, while persistent-daemon recovery is owned by `daemon-provisioning`.
@@ -47,7 +47,7 @@ The prompt marker is presentation only: it runs no command, reads no file or sta
 
 Typing `claude`, `codex`, `agent`, `cursor-agent`, or `pi` in the activated shell executes the captured real binary from the code root in a child process.
 The activated shell and its caller stay in their original directory.
-The harness shim performs only the existing read-only lock-status preflight; `bin/mx-lock.sh` and `bin/mx-session-start.sh` remain the sole lock and startup authorities.
+The harness shim performs only the existing read-only lock-status preflight; `bin/mx-lock.sh` remains the lock authority, while `multplx-cli::session_start` owns startup and the stable `bin/mx-session-start.sh` name is only its transport adapter.
 A known different live harness holder refuses before the real binary starts, while stale or uncertain state remains for session start to adjudicate conservatively.
 
 The launcher does not infer a project from the caller's directory and never imports or registers it automatically.
@@ -210,7 +210,7 @@ claude, codex, cursor, and pi are empirically verified; new harnesses get verifi
 The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and actor launch require host operations that the default command sandbox denies.
 The project setting does not change `approval_policy`; Codex approval prompts remain under the maintainer's user-level or command-line policy.
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
-Launch mechanics are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) retains the compatibility contract and verified command templates while later port portions still source adjacent shell ABIs.
+Launch mechanics and verified command templates are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) is its transport-only compatibility entrypoint.
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Primary-session watcher wake protocols are rendered at session start by [`bin/mx-supervision-instructions.sh`](../bin/mx-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
 Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex and Cursor use bounded foreground checkpoints, and Pi uses its two tracked primary extensions.

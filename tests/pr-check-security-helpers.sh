@@ -469,7 +469,7 @@ test_invalid_entrypoints_have_zero_side_effects() {
     before=$(state_snapshot "$dir/home/state")
     set +e
     MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$dir/root" MX_TEST_GUARD_LOG="$dir/guard.log" \
-      "$TEARDOWN" "$value" --force > "$dir/stdout" 2> "$dir/stderr"
+      "$TEARDOWN" "$value" > "$dir/stdout" 2> "$dir/stderr"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "teardown accepted invalid task ID"
@@ -613,7 +613,7 @@ SH
       || fail "path-safe legacy task ID did not publish an authenticated poll"
     MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
       override_teardown "$id" > "$dir/teardown.out" 2> "$dir/teardown.err" \
-      || fail "legacy path-safe task ID could not be torn down"
+      || fail "legacy path-safe task ID could not be torn down: $(cat "$dir/teardown.err")"
     [ ! -e "$dir/home/state/$id.meta" ] || fail "legacy task teardown retained metadata"
     [ "$(cat "$dir/home/state/.pr-check-quarantine/!noncanonical.check.evidence")" = 'reserved migration evidence' ] \
       || fail "legacy task teardown changed the reserved migration namespace"

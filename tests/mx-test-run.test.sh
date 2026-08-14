@@ -140,6 +140,7 @@ init_changed_fixture_repo() {
   : >"$repo/.pi/extensions/mx-primary-turnend-guard.ts"
   : >"$repo/skills/stow/SKILL.md"
   : >"$repo/src/unmapped.ts"
+  : >"$repo/Cargo.lock"
   : >"$repo/RETIRED_PORT_DOC.md"
   git -C "$repo" init -q
   git -C "$repo" add .
@@ -151,6 +152,13 @@ test_changed_dependency_selection_and_unmapped_failure() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-changed.XXXXXX")
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
+
+  printf '\n' >>"$repo/Cargo.lock"
+  listed=$(cd "$repo" && bin/mx-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/mx-brief.test.sh" "Cargo changes select Rust contract coverage"
+  assert_contains "$listed" "tests/mx-backend-herdr-smoke.test.sh" "Cargo changes select backend integration coverage"
+  git -C "$repo" add Cargo.lock
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm cargo-change
 
   printf '\n' >>"$repo/tests/lib.sh"
   listed=$(cd "$repo" && bin/mx-test-run.sh --list --changed --base HEAD)
@@ -776,7 +784,7 @@ test_aggregate_json() {
   "started_at": "2026-07-22T00:00:00Z",
   "finished_at": "2026-07-22T00:01:00Z",
   "summary": {"total": 1, "failed": 0, "skipped_gate": 0, "duration_ms": 1000},
-  "scripts": [{"path": "tests/a.test.sh", "family": "pure-contract-unit", "duration_ms": 1000, "exit": 0, "gate_skip": false}]
+  "scripts": [{"path": "tests/a.test.sh", "family": "pure-contract-unit", "duration_ms": 1000, "exit": 0, "gate_skip": false, "assertions": []}]
 }
 JSON
   cat >"$tmp/b.json" <<'JSON'
@@ -787,8 +795,8 @@ JSON
   "finished_at": "2026-07-22T00:02:00Z",
   "summary": {"total": 2, "failed": 1, "skipped_gate": 0, "duration_ms": 2000},
   "scripts": [
-    {"path": "tests/b.test.sh", "family": "afk", "duration_ms": 1500, "exit": 1, "gate_skip": false},
-    {"path": "tests/c.test.sh", "family": "afk", "duration_ms": 500, "exit": 0, "gate_skip": false}
+    {"path": "tests/b.test.sh", "family": "afk", "duration_ms": 1500, "exit": 1, "gate_skip": false, "assertions": []},
+    {"path": "tests/c.test.sh", "family": "afk", "duration_ms": 500, "exit": 0, "gate_skip": false, "assertions": []}
   ]
 }
 JSON
@@ -813,9 +821,13 @@ test_serial_accelerated_parity_comparator() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-parity.XXXXXX")
   cat >"$tmp/serial.json" <<'JSON'
 {
-  "summary": {"total": 1, "failed": 0, "skipped_gate": 0},
+  "run_id": "serial",
+  "selection": "all",
+  "started_at": "2026-07-22T00:00:00Z",
+  "finished_at": "2026-07-22T00:00:01Z",
+  "summary": {"total": 1, "failed": 0, "skipped_gate": 0, "duration_ms": 1},
   "scripts": [
-    {"path": "tests/a.test.sh", "exit": 0, "gate_skip": false, "assertions": ["ok - alpha", "ok - beta"]}
+    {"path": "tests/a.test.sh", "family": "pure-contract-unit", "duration_ms": 1, "exit": 0, "gate_skip": false, "assertions": ["ok - alpha", "ok - beta"]}
   ]
 }
 JSON
@@ -840,6 +852,107 @@ PY
   pass "serial/accelerated parity compares exits, skips, and assertion multisets"
 }
 
+test_json_schema_and_caller_relative_artifacts() {
+  local tmp fixture rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-schema.XXXXXX")
+  fixture="$tmp/ok.test.sh"
+  printf '#!/usr/bin/env bash\necho "ok - cwd artifact"\n' >"$fixture"
+  chmod +x "$fixture"
+  (cd "$tmp" && "$RUNNER" --json artifacts/timing.json "$fixture") >/dev/null \
+    || { rm -rf "$tmp"; fail "caller-relative timing artifact run failed"; }
+  [ -f "$tmp/artifacts/timing.json" ] \
+    || { rm -rf "$tmp"; fail "relative --json path was not resolved from caller cwd"; }
+  printf '{"summary":' >"$tmp/malformed.json"
+  set +e
+  "$RUNNER" --compare-json "$tmp/malformed.json" "$tmp/artifacts/timing.json" >"$tmp/out" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "malformed comparison JSON passed"; }
+  grep -Fq 'malformed JSON' "$tmp/out" \
+    || { rm -rf "$tmp"; fail "malformed comparison JSON diagnostic missing"; }
+  python3 - "$tmp/artifacts/timing.json" "$tmp/bad-count.json" <<'PY'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+doc["summary"]["total"] = 2
+json.dump(doc, open(sys.argv[2], "w"))
+PY
+  set +e
+  (cd "$tmp" && "$RUNNER" --aggregate-json artifacts/aggregate.json bad-count.json) >"$tmp/out" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "inconsistent timing schema passed aggregation"; }
+  grep -Fq '/summary/total does not match /scripts length' "$tmp/out" \
+    || { rm -rf "$tmp"; fail "schema mismatch diagnostic missing"; }
+  rm -rf "$tmp"
+  pass "JSON consumers reject malformed schemas and artifacts stay caller-relative"
+}
+
+test_timeout_kills_descendant_process_group() {
+  local tmp fixture rc child_pid
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-timeout.XXXXXX")
+  fixture="$tmp/hang.test.sh"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+sleep 300 &
+echo "$!" >"$DESCENDANT_PID_FILE"
+wait
+SH
+  chmod +x "$fixture"
+  set +e
+  DESCENDANT_PID_FILE="$tmp/pid" "$RUNNER" --timeout-secs 1 "$fixture" >"$tmp/out" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "timed out script passed"; }
+  grep -Fq 'timed out after 1 seconds' "$tmp/out" \
+    || { rm -rf "$tmp"; fail "timeout diagnostic missing"; }
+  child_pid=$(cat "$tmp/pid")
+  if kill -0 "$child_pid" 2>/dev/null; then
+    rm -rf "$tmp"
+    fail "timeout left descendant process $child_pid alive"
+  fi
+  rm -rf "$tmp"
+  pass "script timeout terminates and reaps its descendant process group"
+}
+
+test_interrupt_kills_descendants_and_cleans_worker_root() {
+  local tmp fixture runner_pid child_pid rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/mx-test-run-interrupt.XXXXXX")
+  mkdir "$tmp/workers"
+  fixture="$tmp/hang.test.sh"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+sleep 300 &
+echo "$!" >"$DESCENDANT_PID_FILE"
+wait
+SH
+  chmod +x "$fixture"
+  TMPDIR="$tmp/workers" DESCENDANT_PID_FILE="$tmp/pid" \
+    "$RUNNER" --jobs 2 "$fixture" >"$tmp/out" 2>&1 &
+  runner_pid=$!
+  for _ in {1..100}; do
+    [ -s "$tmp/pid" ] && break
+    sleep 0.02
+  done
+  [ -s "$tmp/pid" ] || { kill -KILL "$runner_pid" 2>/dev/null || true; rm -rf "$tmp"; fail "interrupt fixture did not start"; }
+  kill -TERM "$runner_pid"
+  set +e
+  wait "$runner_pid"
+  rc=$?
+  set -e
+  [ "$rc" -eq 130 ] || { rm -rf "$tmp"; fail "interrupted runner exit was $rc, expected 130"; }
+  child_pid=$(cat "$tmp/pid")
+  if kill -0 "$child_pid" 2>/dev/null; then
+    rm -rf "$tmp"
+    fail "interrupt left descendant process $child_pid alive"
+  fi
+  if find "$tmp/workers" -maxdepth 1 -name 'mx-test-worker.*' | grep -q .; then
+    rm -rf "$tmp"
+    fail "interrupt left a recursive worker root behind"
+  fi
+  rm -rf "$tmp"
+  pass "interrupt terminates descendants and recursively cleans worker roots"
+}
+
 test_list_all_exact_suite_coverage
 test_family_selection
 test_single_script_selection
@@ -860,3 +973,6 @@ test_jobs_parallel_scheduler_and_failure_propagation
 test_scheduler_resource_conflicts
 test_aggregate_json
 test_serial_accelerated_parity_comparator
+test_json_schema_and_caller_relative_artifacts
+test_timeout_kills_descendant_process_group
+test_interrupt_kills_descendants_and_cleans_worker_root

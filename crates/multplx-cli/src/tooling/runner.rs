@@ -2,18 +2,25 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 const MANIFEST: &str = include_str!("test_manifest.tsv");
-const HELP: &str = "Run Multplx behavior tests with the audited resource scheduler.\n\nSelection (choose one):\n  mx test-run --all\n  mx test-run --family NAME\n  mx test-run --changed [--base REF]\n  mx test-run --lane NAME\n  mx test-run --proven-isolated\n  mx test-run tests/name.test.sh [more scripts]\n\nInspection:\n  mx test-run --list --all\n  mx test-run --list-families\n  mx test-run --list-lanes\n  mx test-run --list-resources --all\n  mx test-run --check-coverage\n\nAggregation:\n  mx test-run --aggregate-json OUT INPUT...\n  mx test-run --compare-json SERIAL ACCELERATED\n";
+const DEFAULT_TIMEOUT_SECS: u64 = 1_800;
+const TERMINATION_GRACE: Duration = Duration::from_secs(2);
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(30);
+const HELP: &str = "Run Multplx behavior tests with the audited resource scheduler.\n\nSelection (choose one):\n  mx test-run --all\n  mx test-run --family NAME\n  mx test-run --changed [--base REF]\n  mx test-run --lane NAME\n  mx test-run --proven-isolated\n  mx test-run tests/name.test.sh [more scripts]\n\nInspection:\n  mx test-run --list --all\n  mx test-run --list-families\n  mx test-run --list-lanes\n  mx test-run --list-resources --all\n  mx test-run --check-coverage\n\nExecution:\n  mx test-run --timeout-secs N tests/name.test.sh\n\nAggregation:\n  mx test-run --aggregate-json OUT INPUT...\n  mx test-run --compare-json SERIAL ACCELERATED\n";
 const FAMILIES: &[&str] = &[
     "pure-contract-unit",
     "watcher-wake-lock",
@@ -33,6 +40,23 @@ const LANES: &[&str] = &[
     "portable-parallel-2",
     "portable-serial",
     "real-herdr-gated",
+];
+const RESOURCE_NAMES: &[&str] = &[
+    "afk-watcher-process",
+    "bootstrap-process-signal",
+    "cmux-app",
+    "daemon-process-signal",
+    "daemon-reread-process-signal",
+    "global",
+    "herdr-session",
+    "live-harness",
+    "none",
+    "pr-security-process",
+    "session-process-liveness",
+    "tmux-server",
+    "viz-port",
+    "vplan-port",
+    "watcher-process",
 ];
 
 #[derive(Clone, Debug)]
@@ -59,6 +83,36 @@ fn canonical_manifest() -> String {
         .into_iter()
         .map(|row| format!("{}\t{}\n", row.path, row.resources))
         .collect()
+}
+
+fn validate_manifest(rows: &[ManifestRow], raw: &str) -> Result<(), String> {
+    let nonempty_lines = raw.lines().filter(|line| !line.is_empty()).count();
+    if rows.len() != nonempty_lines {
+        return Err("coverage guard: every resource manifest line needs one tab".to_owned());
+    }
+    for row in rows {
+        let tokens = row.resources.split(',').collect::<Vec<_>>();
+        if tokens.is_empty()
+            || tokens.iter().any(|token| {
+                token.is_empty()
+                    || !token.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+                    || !RESOURCE_NAMES.contains(token)
+            })
+            || tokens.iter().collect::<BTreeSet<_>>().len() != tokens.len()
+            || (tokens.len() > 1
+                && tokens
+                    .iter()
+                    .any(|token| matches!(*token, "none" | "global")))
+        {
+            return Err(format!(
+                "coverage guard: invalid resource manifest row: {}\t{}",
+                row.path, row.resources
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn root() -> Result<PathBuf, String> {
@@ -95,6 +149,7 @@ fn family(path: &str) -> &'static str {
         | "mx-brief.test.sh"
         | "mx-cursor-adapter.test.sh"
         | "mx-backlog-lib.test.sh"
+        | "mx-bin-runtime-inventory.test.sh"
         | "mx-calm-pi-extension.test.sh"
         | "mx-lock-override.test.sh"
         | "mx-maintainer-override.test.sh"
@@ -342,6 +397,7 @@ fn lane(root: &Path, name: &str) -> Result<Vec<String>, String> {
 fn coverage(root: &Path) -> Result<String, String> {
     let all = inventory(root)?.into_iter().collect::<BTreeSet<_>>();
     let rows = manifest();
+    validate_manifest(&rows, MANIFEST)?;
     let declared = rows
         .iter()
         .map(|row| row.path.clone())
@@ -353,13 +409,6 @@ fn coverage(root: &Path) -> Result<String, String> {
         return Err(
             "coverage guard: resource manifest must equal tests/*.test.sh exactly".to_owned(),
         );
-    }
-    for row in &rows {
-        if row.resources.is_empty()
-            || (row.resources.contains("none,") || row.resources.contains("global,"))
-        {
-            return Err("coverage guard: invalid resource manifest row".to_owned());
-        }
     }
     let shards = portable_shards(root)?;
     let serial = lane(root, "portable-serial")?;
@@ -404,6 +453,7 @@ struct Options {
     fail_skip: Option<String>,
     scripts: Vec<String>,
     aggregate: Option<PathBuf>,
+    timeout_secs: u64,
 }
 
 fn die(message: impl AsRef<str>) -> i32 {
@@ -414,6 +464,7 @@ fn die(message: impl AsRef<str>) -> i32 {
 fn parse(args: &[OsString]) -> Result<Option<Options>, String> {
     let mut options = Options {
         base: "origin/main".to_owned(),
+        timeout_secs: DEFAULT_TIMEOUT_SECS,
         ..Options::default()
     };
     let mut index = 0;
@@ -449,6 +500,14 @@ fn parse(args: &[OsString]) -> Result<Option<Options>, String> {
             "--base" => options.base = take(&mut index, "--base")?,
             "--json" => options.json = Some(PathBuf::from(take(&mut index, "--json")?)),
             "--jobs" => options.jobs = Some(take(&mut index, "--jobs")?),
+            "--timeout-secs" => {
+                options.timeout_secs = take(&mut index, "--timeout-secs")?
+                    .parse()
+                    .map_err(|_| "--timeout-secs must be a positive integer".to_owned())?;
+                if options.timeout_secs == 0 {
+                    return Err("--timeout-secs must be a positive integer".to_owned());
+                }
+            }
             "--exclude-family" => options.exclude.push(take(&mut index, "--exclude-family")?),
             "--fail-on-gate-skip" => {
                 options.fail_skip = Some(take(&mut index, "--fail-on-gate-skip")?)
@@ -474,6 +533,14 @@ fn parse(args: &[OsString]) -> Result<Option<Options>, String> {
             _ if value.starts_with("--base=") => options.base = value[7..].to_owned(),
             _ if value.starts_with("--json=") => options.json = Some(PathBuf::from(&value[7..])),
             _ if value.starts_with("--jobs=") => options.jobs = Some(value[7..].to_owned()),
+            _ if value.starts_with("--timeout-secs=") => {
+                options.timeout_secs = value[15..]
+                    .parse()
+                    .map_err(|_| "--timeout-secs must be a positive integer".to_owned())?;
+                if options.timeout_secs == 0 {
+                    return Err("--timeout-secs must be a positive integer".to_owned());
+                }
+            }
             _ if value.starts_with("--exclude-family=") => {
                 options.exclude.push(value[17..].to_owned())
             }
@@ -562,7 +629,12 @@ fn changed_families(
                 .map(str::to_owned),
         ));
     }
-    let values = if path == "tests/mx-backend-herdr-eventwait.test.py" {
+    let values = if matches!(path, "Cargo.toml" | "Cargo.lock")
+        || path.starts_with("crates/")
+        || path.starts_with(".github/")
+    {
+        FAMILIES.to_vec()
+    } else if path == "tests/mx-backend-herdr-eventwait.test.py" {
         vec!["real-herdr-gated", "backend-dispatch"]
     } else if path.contains("mx-supervisor-target-lib") {
         vec![
@@ -571,6 +643,8 @@ fn changed_families(
             "live-harness-optin",
             "afk",
         ]
+    } else if path.contains("mx-probe-lib") {
+        vec!["pure-contract-unit", "session-bootstrap"]
     } else if path.starts_with(".agents/skills/")
         || matches!(path, "AGENTS.md" | "CLAUDE.md" | "CONTRIBUTING.md")
     {
@@ -589,14 +663,20 @@ fn changed_families(
         )
     } else if path.starts_with("bin/mx-test-")
         || path.contains("mx-doc-audience")
-        || path.starts_with("crates/")
-        || path.starts_with(".github/")
         || path == ".deep-review.yaml"
     {
         vec!["pure-contract-unit"]
     } else if path.starts_with("bin/backends/herdr") || path.contains("mx-herdr") {
         vec!["real-herdr-gated", "backend-dispatch", "pure-contract-unit"]
-    } else if path.starts_with("bin/") || path.contains('/') && path.ends_with(".md") {
+    } else if path.starts_with("bin/")
+        || (path.contains('/')
+            && path.ends_with(".md")
+            && !path.starts_with("docs/")
+            && !path.starts_with("plans/"))
+    {
+        if path.starts_with("bin/") && !root.join(path).exists() {
+            return Ok((FAMILIES.to_vec(), None));
+        }
         let found = tests_referencing(
             root,
             Path::new(path)
@@ -604,10 +684,14 @@ fn changed_families(
                 .and_then(|value| value.to_str())
                 .unwrap_or(path),
         );
-        if found.is_empty() {
-            return Err(format!("no changed-test mapping for source path: {path}"));
+        if found.is_empty() && path.starts_with("bin/") {
+            FAMILIES.to_vec()
+        } else {
+            if found.is_empty() {
+                return Err(format!("no changed-test mapping for source path: {path}"));
+            }
+            found
         }
-        found
     } else if matches!(path, "README.md" | "LICENSE" | ".gitignore")
         || path.starts_with("docs/")
         || path.starts_with("assets/")
@@ -759,7 +843,145 @@ struct ResultRow {
     finished: String,
 }
 
-fn run_child(root: &Path, path: &str, temp: Option<&Path>) -> ResultRow {
+#[derive(Clone)]
+struct Cancellation {
+    interrupted: Arc<AtomicBool>,
+}
+
+impl Cancellation {
+    fn install() -> Result<Self, String> {
+        let interrupted = Arc::new(AtomicBool::new(false));
+        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&interrupted))
+            .and_then(|_| {
+                signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&interrupted))
+            })
+            .map_err(|error| format!("cannot install interrupt handlers: {error}"))?;
+        Ok(Self { interrupted })
+    }
+
+    fn requested(&self) -> bool {
+        self.interrupted.load(Ordering::SeqCst)
+    }
+}
+
+enum WaitOutcome {
+    Exited(ExitStatus),
+    Interrupted,
+    TimedOut,
+}
+
+enum PollOutcome<T> {
+    Exited(T),
+    Pending,
+    Interrupted,
+    TimedOut,
+    Error(String),
+}
+
+fn classify_poll<T>(
+    result: std::io::Result<Option<T>>,
+    interrupted: bool,
+    timed_out: bool,
+) -> PollOutcome<T> {
+    match result {
+        Ok(Some(value)) => PollOutcome::Exited(value),
+        Ok(None) if interrupted => PollOutcome::Interrupted,
+        Ok(None) if timed_out => PollOutcome::TimedOut,
+        Ok(None) => PollOutcome::Pending,
+        Err(error) => PollOutcome::Error(error.to_string()),
+    }
+}
+
+fn signal_child_group(child: &mut Child, signal: Signal) {
+    if let Some(pid) = Pid::from_raw(child.id() as i32) {
+        let _ = kill_process_group(pid, signal);
+    }
+    if signal == Signal::KILL {
+        let _ = child.kill();
+    }
+}
+
+fn terminate_and_reap(child: &mut Child) {
+    signal_child_group(child, Signal::TERM);
+    let deadline = Instant::now() + TERMINATION_GRACE;
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(_) => break,
+        }
+    }
+    signal_child_group(child, Signal::KILL);
+    let _ = child.wait();
+}
+
+fn wait_bounded(
+    child: &mut Child,
+    started: Instant,
+    timeout: Duration,
+    cancellation: &Cancellation,
+) -> Result<WaitOutcome, String> {
+    loop {
+        match classify_poll(
+            child.try_wait(),
+            cancellation.requested(),
+            started.elapsed() >= timeout,
+        ) {
+            PollOutcome::Exited(status) => return Ok(WaitOutcome::Exited(status)),
+            PollOutcome::Interrupted => {
+                terminate_and_reap(child);
+                return Ok(WaitOutcome::Interrupted);
+            }
+            PollOutcome::TimedOut => {
+                terminate_and_reap(child);
+                return Ok(WaitOutcome::TimedOut);
+            }
+            PollOutcome::Pending => thread::sleep(Duration::from_millis(10)),
+            PollOutcome::Error(error) => {
+                terminate_and_reap(child);
+                return Err(format!("cannot wait for child process: {error}"));
+            }
+        }
+    }
+}
+
+fn remove_tree_bounded(path: &Path) -> Result<(), String> {
+    let safe = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            name.starts_with("mx-test-worker.") || name.starts_with("mx-isolation-proof.")
+        });
+    if !safe {
+        return Err(format!(
+            "refusing to remove unexpected temporary root {}",
+            path.display()
+        ));
+    }
+    let mut child = Command::new("/bin/rm")
+        .arg("-rf")
+        .arg(path)
+        .process_group(0)
+        .spawn()
+        .map_err(|error| format!("cannot start recursive cleanup: {error}"))?;
+    let cancellation = Cancellation {
+        interrupted: Arc::new(AtomicBool::new(false)),
+    };
+    match wait_bounded(&mut child, Instant::now(), CLEANUP_TIMEOUT, &cancellation)? {
+        WaitOutcome::Exited(status) if status.success() && !path.exists() => Ok(()),
+        WaitOutcome::Exited(status) => Err(format!("recursive cleanup exited with {status}")),
+        WaitOutcome::TimedOut => Err("recursive cleanup timed out".to_owned()),
+        WaitOutcome::Interrupted => unreachable!("cleanup cancellation is private"),
+    }
+}
+
+fn run_child(
+    root: &Path,
+    path: &str,
+    temp: Option<&Path>,
+    timeout: Duration,
+    cancellation: &Cancellation,
+) -> ResultRow {
     let started = now_iso();
     let clock = Instant::now();
     let mut command = Command::new("bash");
@@ -767,7 +989,8 @@ fn run_child(root: &Path, path: &str, temp: Option<&Path>) -> ResultRow {
         .arg(path)
         .current_dir(root)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .process_group(0);
     if let Some(temp) = temp {
         command.env("TMPDIR", temp).env("TMP", temp);
     }
@@ -783,12 +1006,38 @@ fn run_child(root: &Path, path: &str, temp: Option<&Path>) -> ResultRow {
     ] {
         command.env_remove(variable);
     }
-    let output = command.output();
+    let output = command.spawn().and_then(|mut child| {
+        let stdout = child.stdout.take().expect("piped stdout");
+        let stderr = child.stderr.take().expect("piped stderr");
+        let stdout_reader = thread::spawn(move || std::io::read_to_string(stdout));
+        let stderr_reader = thread::spawn(move || std::io::read_to_string(stderr));
+        let outcome = wait_bounded(&mut child, clock, timeout, cancellation);
+        let stdout = stdout_reader.join().unwrap_or_else(|_| Ok(String::new()))?;
+        let stderr = stderr_reader.join().unwrap_or_else(|_| Ok(String::new()))?;
+        Ok((outcome, stdout, stderr))
+    });
     let (code, text) = match output {
-        Ok(output) => {
-            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
-            (output.status.code().unwrap_or(1), text)
+        Ok((Ok(WaitOutcome::Exited(status)), mut stdout, stderr)) => {
+            stdout.push_str(&stderr);
+            (status.code().unwrap_or(1), stdout)
+        }
+        Ok((Ok(WaitOutcome::TimedOut), mut stdout, stderr)) => {
+            stdout.push_str(&stderr);
+            stdout.push_str(&format!(
+                "mx-test-run: timed out after {} seconds\n",
+                timeout.as_secs()
+            ));
+            (124, stdout)
+        }
+        Ok((Ok(WaitOutcome::Interrupted), mut stdout, stderr)) => {
+            stdout.push_str(&stderr);
+            stdout.push_str("mx-test-run: interrupted\n");
+            (130, stdout)
+        }
+        Ok((Err(error), mut stdout, stderr)) => {
+            stdout.push_str(&stderr);
+            stdout.push_str(&format!("mx-test-run: {error}\n"));
+            (1, stdout)
         }
         Err(error) => (1, format!("{error}\n")),
     };
@@ -819,7 +1068,7 @@ struct Running {
     clock: Instant,
 }
 
-fn finish_running(running: Running, status: ExitStatus, paths: &[String]) -> ResultRow {
+fn finish_running(running: Running, status: Option<ExitStatus>, paths: &[String]) -> ResultRow {
     let Running {
         index,
         child: _,
@@ -832,7 +1081,7 @@ fn finish_running(running: Running, status: ExitStatus, paths: &[String]) -> Res
     let mode = fs::metadata(directory.path())
         .map(|metadata| metadata.permissions().mode() & 0o777)
         .unwrap_or(0);
-    let mut code = status.code().unwrap_or(1);
+    let mut code = status.and_then(|status| status.code()).unwrap_or(1);
     let mut text = fs::read(&output)
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .unwrap_or_else(|error| format!("mx-test-run: cannot read worker output: {error}\n"));
@@ -848,21 +1097,10 @@ fn finish_running(running: Running, status: ExitStatus, paths: &[String]) -> Res
     // of this exact tempfile-owned root to the platform utility, verify absence,
     // and include cleanup in the per-test and aggregate wall clocks.
     let worker_root = directory.keep();
-    let safe_worker = worker_root
-        .file_name()
-        .and_then(OsStr::to_str)
-        .is_some_and(|name| name.starts_with("mx-test-worker."));
-    let cleanup_ok = safe_worker
-        && Command::new("/bin/rm")
-            .arg("-rf")
-            .arg(&worker_root)
-            .status()
-            .is_ok_and(|cleanup| cleanup.success())
-        && !worker_root.exists();
-    if !cleanup_ok {
+    if let Err(error) = remove_tree_bounded(&worker_root) {
         text.push_str(&format!(
-            "mx-test-run: isolation failure: could not remove worker root {}\n",
-            worker_root.display()
+            "mx-test-run: isolation failure: could not remove worker root {}: {error}\n",
+            worker_root.display(),
         ));
         code = 1;
     }
@@ -884,13 +1122,19 @@ fn finish_running(running: Running, status: ExitStatus, paths: &[String]) -> Res
     }
 }
 
-fn parallel(root: &Path, paths: &[String], jobs: usize) -> Vec<ResultRow> {
+fn parallel(
+    root: &Path,
+    paths: &[String],
+    jobs: usize,
+    timeout: Duration,
+    cancellation: &Cancellation,
+) -> Vec<ResultRow> {
     let estimate = estimates(root);
     let mut pending = (0..paths.len()).collect::<BTreeSet<_>>();
     let mut running = Vec::<Running>::new();
     let mut results = BTreeMap::new();
     while results.len() < paths.len() {
-        while running.len() < jobs {
+        while running.len() < jobs && !cancellation.requested() {
             let candidate = pending
                 .iter()
                 .copied()
@@ -948,7 +1192,8 @@ fn parallel(root: &Path, paths: &[String], jobs: usize) -> Vec<ResultRow> {
                 .stdout(Stdio::from(stdout))
                 .stderr(Stdio::from(stderr))
                 .env("TMPDIR", &private)
-                .env("TMP", &private);
+                .env("TMP", &private)
+                .process_group(0);
             for variable in [
                 "MX_HOME",
                 "MX_STATE_OVERRIDE",
@@ -989,23 +1234,55 @@ fn parallel(root: &Path, paths: &[String], jobs: usize) -> Vec<ResultRow> {
                 }
             }
         }
-        let finished = running
-            .iter_mut()
-            .enumerate()
-            .find_map(|(position, running)| {
-                running
-                    .child
-                    .try_wait()
-                    .ok()
-                    .flatten()
-                    .map(|status| (position, status))
-            });
+        let mut finished = None;
+        for (position, active) in running.iter_mut().enumerate() {
+            let outcome = if cancellation.requested() {
+                terminate_and_reap(&mut active.child);
+                Some(Err("interrupted".to_owned()))
+            } else if active.clock.elapsed() >= timeout {
+                terminate_and_reap(&mut active.child);
+                Some(Err(format!(
+                    "timed out after {} seconds",
+                    timeout.as_secs()
+                )))
+            } else {
+                match active.child.try_wait() {
+                    Ok(Some(status)) => Some(Ok(status)),
+                    Ok(None) => None,
+                    Err(error) => {
+                        terminate_and_reap(&mut active.child);
+                        Some(Err(format!("cannot wait for child process: {error}")))
+                    }
+                }
+            };
+            if let Some(outcome) = outcome {
+                finished = Some((position, outcome));
+                break;
+            }
+        }
         if let Some((position, status)) = finished {
             let running = running.swap_remove(position);
-            results.insert(running.index, finish_running(running, status, paths));
+            let index = running.index;
+            let status = match status {
+                Ok(status) => status,
+                Err(error) => {
+                    let mut row = finish_running(running, None, paths);
+                    row.output.push_str(&format!("mx-test-run: {error}\n"));
+                    row.code = if error == "interrupted" {
+                        130
+                    } else if error.starts_with("timed out") {
+                        124
+                    } else {
+                        1
+                    };
+                    results.insert(index, row);
+                    continue;
+                }
+            };
+            results.insert(index, finish_running(running, Some(status), paths));
         } else if !running.is_empty() {
             thread::sleep(Duration::from_millis(10));
-        } else if !pending.is_empty() {
+        } else if !pending.is_empty() || cancellation.requested() {
             break;
         }
     }
@@ -1045,6 +1322,89 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     multplx_core::filesystem::atomic_replace(path, &bytes, 0o600).map_err(|error| error.to_string())
 }
 
+fn require_string<'a>(value: &'a Value, pointer: &str, source: &str) -> Result<&'a str, String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("{source}: {pointer} must be a non-empty string"))
+}
+
+fn require_u64(value: &Value, pointer: &str, source: &str) -> Result<u64, String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{source}: {pointer} must be a non-negative integer"))
+}
+
+fn validate_timing_document(document: &Value, source: &str) -> Result<(), String> {
+    if !document.is_object() {
+        return Err(format!("{source}: timing artifact root must be an object"));
+    }
+    require_string(document, "/run_id", source)?;
+    require_string(document, "/selection", source)?;
+    require_string(document, "/started_at", source)?;
+    require_string(document, "/finished_at", source)?;
+    let total = require_u64(document, "/summary/total", source)?;
+    let failed = require_u64(document, "/summary/failed", source)?;
+    let skipped = require_u64(document, "/summary/skipped_gate", source)?;
+    require_u64(document, "/summary/duration_ms", source)?;
+    let rows = document
+        .get("scripts")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{source}: /scripts must be an array"))?;
+    if total != rows.len() as u64 {
+        return Err(format!(
+            "{source}: /summary/total does not match /scripts length"
+        ));
+    }
+    let mut paths = BTreeSet::new();
+    let mut observed_failed = 0_u64;
+    let mut observed_skipped = 0_u64;
+    for (index, row) in rows.iter().enumerate() {
+        let prefix = format!("/scripts/{index}");
+        let path = require_string(row, "/path", &format!("{source}{prefix}"))?;
+        if !paths.insert(path) {
+            return Err(format!("{source}: duplicate script path: {path}"));
+        }
+        require_string(row, "/family", &format!("{source}{prefix}"))?;
+        require_u64(row, "/duration_ms", &format!("{source}{prefix}"))?;
+        let exit = row
+            .get("exit")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| format!("{source}{prefix}: /exit must be an integer"))?;
+        let gate_skip = row
+            .get("gate_skip")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| format!("{source}{prefix}: /gate_skip must be a boolean"))?;
+        let assertions = row
+            .get("assertions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{source}{prefix}: /assertions must be an array"))?;
+        if assertions.iter().any(|value| value.as_str().is_none()) {
+            return Err(format!(
+                "{source}{prefix}: /assertions entries must be strings"
+            ));
+        }
+        observed_failed += u64::from(exit != 0);
+        observed_skipped += u64::from(gate_skip);
+    }
+    if failed != observed_failed || skipped != observed_skipped {
+        return Err(format!(
+            "{source}: summary counts do not match script results"
+        ));
+    }
+    Ok(())
+}
+
+fn read_timing_document(path: &str, operation: &str) -> Result<Value, String> {
+    let bytes = fs::read(path).map_err(|error| format!("{operation} input {path}: {error}"))?;
+    let document = serde_json::from_slice::<Value>(&bytes)
+        .map_err(|error| format!("{operation} input {path}: malformed JSON: {error}"))?;
+    validate_timing_document(&document, &format!("{operation} input {path}"))?;
+    Ok(document)
+}
+
 fn aggregate(out: &Path, inputs: &[String]) -> Result<String, String> {
     if inputs.is_empty() {
         return Err("--aggregate-json requires at least one input timing JSON".to_owned());
@@ -1055,12 +1415,10 @@ fn aggregate(out: &Path, inputs: &[String]) -> Result<String, String> {
     let mut failed = 0_u64;
     let mut skipped = 0_u64;
     let mut wall = 0_u64;
+    let mut seen_scripts = BTreeSet::new();
     for path in inputs {
-        let document: Value = serde_json::from_slice(
-            &fs::read(path).map_err(|_| format!("aggregate input not found: {path}"))?,
-        )
-        .map_err(|error| error.to_string())?;
-        let summary = document.get("summary").cloned().unwrap_or(Value::Null);
+        let document = read_timing_document(path, "aggregate")?;
+        let summary = document.get("summary").cloned().expect("validated summary");
         total += summary.get("total").and_then(Value::as_u64).unwrap_or(0);
         failed += summary.get("failed").and_then(Value::as_u64).unwrap_or(0);
         skipped += summary
@@ -1076,6 +1434,15 @@ fn aggregate(out: &Path, inputs: &[String]) -> Result<String, String> {
         lanes.push(json!({"path": path, "run_id": document.get("run_id"), "selection": document.get("selection"), "started_at": document.get("started_at"), "finished_at": document.get("finished_at"), "summary": summary}));
         if let Some(rows) = document.get("scripts").and_then(Value::as_array) {
             for row in rows {
+                let script_path = row
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .expect("validated path");
+                if !seen_scripts.insert(script_path.to_owned()) {
+                    return Err(format!(
+                        "aggregate inputs contain duplicate script path: {script_path}"
+                    ));
+                }
                 let mut row = row.clone();
                 if let Some(object) = row.as_object_mut() {
                     object.insert(
@@ -1155,13 +1522,7 @@ fn compare(inputs: &[String]) -> Result<String, String> {
     }
     let documents = inputs
         .iter()
-        .map(|path| {
-            fs::read(path)
-                .map_err(|_| format!("compare input not found: {path}"))
-                .and_then(|bytes| {
-                    serde_json::from_slice::<Value>(&bytes).map_err(|error| error.to_string())
-                })
-        })
+        .map(|path| read_timing_document(path, "compare"))
         .collect::<Result<Vec<_>, _>>()?;
     let left = normalized(&documents[0]);
     let right = normalized(&documents[1]);
@@ -1308,13 +1669,19 @@ pub(super) fn run(args: &[OsString]) -> i32 {
     }
     let started = now_iso();
     let clock = Instant::now();
+    let cancellation = match Cancellation::install() {
+        Ok(cancellation) => cancellation,
+        Err(error) => return die(error),
+    };
+    let timeout = Duration::from_secs(options.timeout_secs);
     let mut rows = if jobs == 1 {
         scripts
             .iter()
-            .map(|path| run_child(&root, path, None))
+            .take_while(|_| !cancellation.requested())
+            .map(|path| run_child(&root, path, None, timeout, &cancellation))
             .collect::<Vec<_>>()
     } else {
-        parallel(&root, &scripts, jobs)
+        parallel(&root, &scripts, jobs, timeout, &cancellation)
     };
     for row in &mut rows {
         if let Some(token) = &options.fail_skip
@@ -1379,12 +1746,16 @@ pub(super) fn run(args: &[OsString]) -> i32 {
         }
         eprintln!("mx-test-run: wrote timing artifact: {}", path.display());
     }
-    i32::from(failed != 0)
+    if cancellation.requested() {
+        130
+    } else {
+        i32::from(failed != 0)
+    }
 }
 
 fn proof_help() {
     eprintln!(
-        "Usage: mx test-isolation-proof [--jobs N] [--repeats N] [--json path]\n       mx test-isolation-proof --list|--list-resources|--list-conflicts|--list-exclusions"
+        "Usage: mx test-isolation-proof [--jobs N] [--repeats N] [--timeout-secs N] [--json path]\n       mx test-isolation-proof --list|--list-resources|--list-conflicts|--list-exclusions"
     );
 }
 
@@ -1475,6 +1846,7 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
     let mut jobs = 4_usize;
     let mut repeats = 2_usize;
     let mut json_path = None;
+    let mut timeout_secs = DEFAULT_TIMEOUT_SECS;
     let mut mode = "run";
     let mut index = 0;
     while index < args.len() {
@@ -1484,7 +1856,7 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
                 proof_help();
                 return 0;
             }
-            "--jobs" | "--repeats" | "--json" => {
+            "--jobs" | "--repeats" | "--timeout-secs" | "--json" => {
                 index += 1;
                 let Some(next) = args.get(index) else {
                     eprintln!("mx-test-isolation-proof: {value} requires a value");
@@ -1493,6 +1865,7 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
                 match value.as_ref() {
                     "--jobs" => jobs = next.to_string_lossy().parse().unwrap_or(0),
                     "--repeats" => repeats = next.to_string_lossy().parse().unwrap_or(0),
+                    "--timeout-secs" => timeout_secs = next.to_string_lossy().parse().unwrap_or(0),
                     _ => json_path = Some(PathBuf::from(next)),
                 }
             }
@@ -1507,8 +1880,10 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         }
         index += 1;
     }
-    if !(1..=8).contains(&jobs) || repeats == 0 {
-        eprintln!("mx-test-isolation-proof: --jobs must be 1..=8 and --repeats must be positive");
+    if !(1..=8).contains(&jobs) || repeats == 0 || timeout_secs == 0 {
+        eprintln!(
+            "mx-test-isolation-proof: --jobs must be 1..=8, --repeats must be positive, and --timeout-secs must be positive"
+        );
         return 2;
     }
     match mode {
@@ -1556,6 +1931,14 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         _ => {}
     }
     let candidates = proof_candidates();
+    if let Err(error) = validate_manifest(&manifest(), MANIFEST) {
+        eprintln!("mx-test-isolation-proof: {error}");
+        return 1;
+    }
+    if candidates.is_empty() {
+        eprintln!("mx-test-isolation-proof: resource manifest has no portable candidates");
+        return 1;
+    }
     let proof_root = match tempfile::Builder::new()
         .prefix("mx-isolation-proof.")
         .tempdir()
@@ -1571,10 +1954,16 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         return 1;
     }
     let git_before = global_git_snapshot();
+    let cancellation = match Cancellation::install() {
+        Ok(cancellation) => cancellation,
+        Err(error) => {
+            eprintln!("mx-test-isolation-proof: {error}");
+            return 1;
+        }
+    };
     let started = now_iso();
     let clock = Instant::now();
     let mut failed = 0;
-    let mut known_failure_observations = 0;
     let mut rounds = Vec::new();
     let mut scripts = Vec::new();
     println!(
@@ -1582,10 +1971,14 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         candidates.len()
     );
     for repeat in 1..=repeats {
+        if cancellation.requested() {
+            break;
+        }
         let path = proof_root.path().join(format!("round-{repeat}.json"));
         let round_clock = Instant::now();
         let binary = std::env::current_exe().unwrap();
-        let output = Command::new(binary)
+        let mut command = Command::new(binary);
+        command
             .args(["test-run", "--jobs", &jobs.to_string(), "--json"])
             .arg(&path)
             .args(candidates.iter().map(|row| row.path.as_str()))
@@ -1593,43 +1986,34 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
             .env("MX_MULTICALL_EXPLICIT", "1")
             .env("TMPDIR", proof_root.path())
             .env("TMP", proof_root.path())
-            .output();
-        let runner_exit = output
-            .as_ref()
-            .ok()
-            .and_then(|output| output.status.code())
-            .unwrap_or(1);
-        let mut contract_exit = runner_exit;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0);
+        let output = command.spawn().and_then(|mut child| {
+            let stdout = child.stdout.take().expect("piped stdout");
+            let stderr = child.stderr.take().expect("piped stderr");
+            let stdout_reader = thread::spawn(move || std::io::read_to_string(stdout));
+            let stderr_reader = thread::spawn(move || std::io::read_to_string(stderr));
+            let outcome = wait_bounded(
+                &mut child,
+                round_clock,
+                Duration::from_secs(timeout_secs),
+                &cancellation,
+            );
+            let stdout = stdout_reader.join().unwrap_or_else(|_| Ok(String::new()))?;
+            let stderr = stderr_reader.join().unwrap_or_else(|_| Ok(String::new()))?;
+            Ok((outcome, stdout, stderr))
+        });
+        let runner_exit = match &output {
+            Ok((Ok(WaitOutcome::Exited(status)), _, _)) => status.code().unwrap_or(1),
+            Ok((Ok(WaitOutcome::Interrupted), _, _)) => 130,
+            Ok((Ok(WaitOutcome::TimedOut), _, _)) => 124,
+            _ => 1,
+        };
+        let contract_exit = runner_exit;
         if let Ok(bytes) = fs::read(&path)
             && let Ok(document) = serde_json::from_slice::<Value>(&bytes)
         {
-            let known = fs::read(root.join("docs/mx-test-performance-baseline.json"))
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-                .and_then(|value| {
-                    value
-                        .pointer("/known_failure/path")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
-            let failed_paths = document
-                .get("scripts")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|row| row.get("exit").and_then(Value::as_i64).unwrap_or(0) != 0)
-                .filter_map(|row| row.get("path").and_then(Value::as_str))
-                .collect::<Vec<_>>();
-            let unexpected = failed_paths
-                .iter()
-                .any(|path| Some(*path) != known.as_deref());
-            known_failure_observations += failed_paths
-                .iter()
-                .filter(|path| Some(**path) == known.as_deref())
-                .count();
-            if !unexpected {
-                contract_exit = 0;
-            }
             for row in document
                 .get("scripts")
                 .and_then(Value::as_array)
@@ -1646,15 +2030,18 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         }
         if contract_exit != 0 {
             failed += 1;
-            if let Ok(output) = output {
-                eprint!("{}", String::from_utf8_lossy(&output.stdout));
-                eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            if let Ok((_, stdout, stderr)) = output {
+                eprint!("{stdout}");
+                eprint!("{stderr}");
             }
         }
         println!(
             "MX_ISOLATION_ROUND_END repeat={repeat} exit={contract_exit} runner_exit={runner_exit} duration_ms={}",
             round_clock.elapsed().as_millis()
         );
+        if cancellation.requested() {
+            break;
+        }
     }
     let duration = clock.elapsed().as_millis();
     let mut leaks = 0;
@@ -1683,17 +2070,27 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
                 })
                 .count()
         };
-        let document = json!({"kind":"resource-isolation-proof","started_at":started,"finished_at":now_iso(),"concurrency":jobs,"repeats":repeats,"manifest_sha256":hash,"resource_manifest":resources_json,"conflict_pairs":conflict_pairs,"rounds":rounds,"scripts":scripts,"summary":{"candidates_per_round":candidates.len(),"failed_rounds":failed,"duration_ms":duration,"leaks":leaks,"known_failure_observations":known_failure_observations}});
+        let document = json!({"kind":"resource-isolation-proof","started_at":started,"finished_at":now_iso(),"concurrency":jobs,"repeats":repeats,"manifest_sha256":hash,"resource_manifest":resources_json,"conflict_pairs":conflict_pairs,"rounds":rounds,"scripts":scripts,"summary":{"candidates_per_round":candidates.len(),"failed_rounds":failed,"duration_ms":duration,"leaks":leaks,"known_failure_observations":0}});
         if let Err(error) = write_json(&path, &document) {
             eprintln!("mx-test-isolation-proof: {error}");
             return 1;
         }
     }
+    let interrupted = cancellation.requested();
+    let proof_path = proof_root.keep();
+    if let Err(error) = remove_tree_bounded(&proof_path) {
+        eprintln!("mx-test-isolation-proof: cannot remove proof root: {error}");
+        leaks += 1;
+    }
     println!(
         "MX_ISOLATION_SUMMARY total={} failed_rounds={failed} concurrency={jobs} repeats={repeats} duration_ms={duration} leaks={leaks}",
         candidates.len()
     );
-    i32::from(failed != 0 || leaks != 0)
+    if interrupted {
+        130
+    } else {
+        i32::from(failed != 0 || leaks != 0)
+    }
 }
 
 #[cfg(test)]
@@ -1720,5 +2117,83 @@ mod tests {
             family("tests/mx-backend-herdr-smoke.test.sh"),
             "real-herdr-gated"
         );
+    }
+
+    #[test]
+    fn unreferenced_bin_transport_selects_every_family() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let transport = root.path().join("bin/unreferenced-transport.sh");
+        fs::create_dir_all(transport.parent().expect("parent")).expect("bin");
+        fs::write(&transport, "#!/bin/sh\n").expect("transport");
+        let (families, script) =
+            changed_families(root.path(), "bin/unreferenced-transport.sh").expect("mapping");
+        assert_eq!(families, FAMILIES);
+        assert!(script.is_none());
+    }
+
+    #[test]
+    fn manifest_validation_rejects_unsafe_resource_rows() {
+        let row = |resources: &str| ManifestRow {
+            path: "tests/example.test.sh".to_owned(),
+            resources: resources.to_owned(),
+        };
+        for invalid in [
+            "watcher-process,global",
+            "none,watcher-process",
+            "watcher-process,,tmux-server",
+            "Watcher",
+            "watcher-process,watcher-process",
+            "unknown-resource",
+        ] {
+            assert!(validate_manifest(&[row(invalid)], "tests/example.test.sh\tvalue\n").is_err());
+        }
+        assert!(
+            validate_manifest(
+                &[row("watcher-process,tmux-server")],
+                "tests/example.test.sh\tvalue\n"
+            )
+            .is_ok()
+        );
+        assert!(validate_manifest(&[], "missing-tab\n").is_err());
+    }
+
+    #[test]
+    fn timing_schema_rejects_malformed_shapes_and_counts() {
+        let valid = json!({
+            "run_id": "run",
+            "selection": "scripts",
+            "started_at": "2026-08-13T00:00:00Z",
+            "finished_at": "2026-08-13T00:00:01Z",
+            "summary": {"total": 1, "failed": 0, "skipped_gate": 0, "duration_ms": 1},
+            "scripts": [{"path": "tests/a.test.sh", "family": "pure-contract-unit", "duration_ms": 1, "exit": 0, "gate_skip": false, "assertions": ["ok - a"]}]
+        });
+        assert!(validate_timing_document(&valid, "fixture").is_ok());
+        let mut wrong_total = valid.clone();
+        wrong_total["summary"]["total"] = json!(2);
+        assert!(validate_timing_document(&wrong_total, "fixture").is_err());
+        let mut duplicate = valid.clone();
+        duplicate["scripts"] = json!([valid["scripts"][0], valid["scripts"][0]]);
+        duplicate["summary"]["total"] = json!(2);
+        assert!(validate_timing_document(&duplicate, "fixture").is_err());
+        let mut wrong_assertion = valid;
+        wrong_assertion["scripts"][0]["assertions"] = json!([7]);
+        assert!(validate_timing_document(&wrong_assertion, "fixture").is_err());
+    }
+
+    #[test]
+    fn child_polling_distinguishes_wait_errors_timeouts_and_interrupts() {
+        let error = std::io::Error::other("injected wait failure");
+        assert!(matches!(
+            classify_poll::<()>(Err(error), false, false),
+            PollOutcome::Error(message) if message == "injected wait failure"
+        ));
+        assert!(matches!(
+            classify_poll::<()>(Ok(None), true, false),
+            PollOutcome::Interrupted
+        ));
+        assert!(matches!(
+            classify_poll::<()>(Ok(None), false, true),
+            PollOutcome::TimedOut
+        ));
     }
 }

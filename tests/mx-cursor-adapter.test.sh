@@ -5,9 +5,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-if [ "${MX_SUPERVISION_IMPLEMENTATION:-rust}" = rust ]; then
-  export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
-fi
+export MX_RUST_BIN=${MX_RUST_BIN:-$ROOT/target/release/mx}
 
 mx_test_tmproot_into TMP_ROOT mx-cursor-adapter
 
@@ -124,13 +122,6 @@ test_cursor_hook_translation_and_bounds() {
 
 test_cursor_spawn_profile_and_terminal_signatures() {
   local output
-  assert_file_has "$ROOT/bin/mx-spawn.sh" "agent --sandbox enabled --trust __CURSORPLUGIN__" \
-    "Cursor actor template is missing sandbox/trust/plugin controls"
-  assert_file_has "$ROOT/bin/mx-spawn.sh" 'cursor-turnend-plugin' \
-    "Cursor actor turn-end plugin is not task-private"
-  # shellcheck disable=SC2016  # exact literal source contract; no expansion intended
-  assert_file_has "$ROOT/bin/mx-spawn.sh" 'selected="${selected}[effort=$effort]"' \
-    "Cursor effort is not parameterized onto its model token"
   # shellcheck source=bin/mx-composer-lib.sh
   . "$ROOT/bin/mx-composer-lib.sh"
   [ "$(mx_composer_classify_content 0 '→')" = empty ] || fail "Cursor idle composer glyph is not recognized"

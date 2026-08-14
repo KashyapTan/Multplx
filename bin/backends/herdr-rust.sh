@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Shadow transport adapter for the Portion 05 Rust Herdr backend.
-# The legacy file is retained as the process-wide rollback implementation.
-# This selected adapter replaces runtime, presentation, cleanup, and wire
-# operations before any caller can enter one of them.
-# shellcheck disable=SC1091,SC2034
+# Rust transport adapter for the Herdr runtime, presentation, cleanup, and wire
+# operations used by remaining sourced shell callers.
+# shellcheck disable=SC2034
 
-# shellcheck source=bin/backends/herdr.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/herdr.sh"
+# Sourced cleanup callers use this stable journal filename ABI.
+MX_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=.herdr-presentation
+
+mx_backend_herdr_session() { printf '%s' "${HERDR_SESSION:-default}"; }
+
+# Narrow raw transport retained for sourced passive probes and cleanup tests.
+# Active backend operations below use typed Rust owners.
+mx_backend_herdr_cli() {
+  local session=$1
+  shift
+  HERDR_SESSION="$session" herdr "$@" --session "$session"
+}
 
 mx_backend_herdr_rust() {
   local rust_bin
@@ -111,6 +119,11 @@ mx_backend_herdr_projection_close_pane_focus_preserving() {
     [ "$MX_BACKEND_HERDR_PROJECTION_CLOSE_AGENT_STATE" = "$state" ] || return 1
   fi
   mx_backend_herdr_rust close-pane-focus "$1" "$2" "$state"
+}
+
+mx_backend_herdr_projection_cleanup_exact() {
+  [ -z "$2" ] || mx_backend_herdr_projection_close_pane_focus_preserving "$1" "$2" || true
+  [ -z "$3" ] || [ "$3" = "$2" ] || mx_backend_herdr_projection_close_pane_focus_preserving "$1" "$3" || true
 }
 
 mx_backend_herdr_projection_create_task() {

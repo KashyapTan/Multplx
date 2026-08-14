@@ -359,23 +359,188 @@ test_operator_delegation_and_nested_refusal() {
   local root="$TMP_ROOT/delegate-root" case_dir="$TMP_ROOT/delegate-case" output status
   make_runtime "$root"
   install_fixture "$case_dir" "$root"
-  cat >"$root/bin/mx-doctor.sh" <<'SH'
-#!/usr/bin/env bash
-printf 'doctor:%s:%s:%s\n' "$MX_ROOT_OVERRIDE" "$MX_HOME" "$*"
-SH
   cat >"$root/bin/mx-update.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'update:%s:%s\n' "$MX_ROOT_OVERRIDE" "$MX_HOME"
 SH
-  chmod +x "$root/bin/mx-doctor.sh" "$root/bin/mx-update.sh"
-  output=$("$case_dir/bin/multplx" doctor --json)
-  [ "$output" = "doctor:$root:$root:--json" ] || fail "doctor delegation changed arguments or home"
+  chmod +x "$root/bin/mx-update.sh"
+  {
+    printf '## In flight\n\n## Queued\n\n'
+    printf '%s\n' '- [ ] ghost-decision - Choose (repo: broker) (kind: maintainer) (hold: choose) (hold-kind: maintainer)'
+    printf '%s\n\n' '  Origin: ghost' '  Decision key: choice' '  State: awaiting maintainer decision.'
+    printf '## Done\n'
+  } >"$root/data/backlog.md"
+  if output=$("$case_dir/bin/multplx" doctor --json --check open-holds); then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 2 "$status" "native doctor finding from registered home"
+  printf '%s\n' "$output" | jq -e '
+    .schema == "mx-doctor.v1" and
+    .summary == {ok: 0, warn: 0, fail: 1} and
+    (.findings | length) == 1 and
+    .findings[0].name == "open-holds" and
+    (.findings[0].message | contains("ghost"))
+  ' >/dev/null || fail "doctor did not preserve native argv or registered home"
   output=$("$case_dir/bin/multplx" update)
   assert_not_contains "$output" "update:$root:$root" \
     "update unexpectedly delegated back into the retired shell body"
   if MULTPLX_ACTIVE=1 "$case_dir/bin/multplx" shell >/dev/null 2>&1; then status=0; else status=$?; fi
   expect_code 2 "$status" "nested activation"
   pass "operator commands delegate and nested activation refuses cleanly"
+}
+
+test_registration_conflict_mode_and_uninstall_preflight() {
+  local root_a="$TMP_ROOT/rebind-root-a" root_b="$TMP_ROOT/rebind-root-b"
+  local case_dir="$TMP_ROOT/rebind-case" concurrent="$TMP_ROOT/concurrent-case"
+  local original status pid_a pid_b status_a status_b configured
+  make_runtime "$root_a"
+  make_runtime "$root_b"
+  mkdir -p "$case_dir/bin"
+  chmod 700 "$case_dir/bin"
+  install_fixture "$case_dir" "$root_a"
+  [ "$(stat -f %Lp "$case_dir/bin" 2>/dev/null || stat -c %a "$case_dir/bin")" = 700 ] \
+    || fail "installer weakened an existing private bin directory"
+  if install_fixture "$case_dir" "$root_b" >/dev/null 2>&1; then status=0; else status=$?; fi
+  expect_code 2 "$status" "conflicting root registration"
+  [ "$(cat "$case_dir/config/root")" = "$root_a" ] \
+    || fail "conflicting reinstall rebound the configured root"
+
+  install_fixture "$concurrent" "$root_a" >/dev/null 2>&1 &
+  pid_a=$!
+  install_fixture "$concurrent" "$root_b" >/dev/null 2>&1 &
+  pid_b=$!
+  if wait "$pid_a"; then status_a=0; else status_a=$?; fi
+  if wait "$pid_b"; then status_b=0; else status_b=$?; fi
+  case "$status_a:$status_b" in
+    0:2|2:0) ;;
+    *) fail "concurrent installers did not produce one complete winner and one refusal" ;;
+  esac
+  configured=$(cat "$concurrent/config/root")
+  case "$configured:$status_a:$status_b" in
+    "$root_a:0:2"|"$root_b:2:0") ;;
+    *) fail "concurrent installer records do not match the successful owner" ;;
+  esac
+
+  original=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
+  mv "$case_dir/config/root" "$case_dir/config/root.real"
+  ln -s root.real "$case_dir/config/root"
+  if "$INSTALLER" --uninstall --bin-dir "$case_dir/bin" \
+      --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 2 "$status" "linked uninstall record"
+  [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$original" ] \
+    || fail "uninstall refusal removed or changed the installed binary"
+  [ -L "$case_dir/config/root" ] && [ -f "$case_dir/config/home" ] \
+    || fail "uninstall refusal partially removed configuration records"
+  pass "installer preserves private modes and refuses rebind or partial uninstall"
+}
+
+test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
+  local root="$TMP_ROOT/generation-root" case_dir="$TMP_ROOT/generation-case"
+  local artifact="$TMP_ROOT/generation-artifact" artifact_three="$TMP_ROOT/generation-artifact-three"
+  local checksum checksum_three final_hash old_hash pid_a pid_b status status_a status_b
+  make_runtime "$root"
+  install_fixture "$case_dir" "$root"
+  old_hash=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
+  cp "$ROOT/target/release/mx" "$artifact"
+  printf '\0generation-two\0' >>"$artifact"
+  chmod +x "$artifact"
+  checksum=$(shasum -a 256 "$artifact" | awk '{print $1}')
+  [ "$checksum" != "$old_hash" ] || fail "distinct artifact fixture is not distinct"
+  chmod 700 "$case_dir/bin/multplx"
+  chmod 640 "$case_dir/config/root"
+
+  if MX_LAUNCHER_INSTALL_FAIL_AFTER=root "$INSTALLER" --upgrade --root "$root" \
+      --binary "$artifact" --checksum "$checksum" --bin-dir "$case_dir/bin" \
+      --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 1 "$status" "failure after partial generation publication"
+  [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$old_hash" ] \
+    || fail "synchronous publication fault did not restore the old binary"
+  [ "$(cat "$case_dir/config/binary.sha256")" = "$old_hash" ] \
+    || fail "synchronous publication fault did not restore the old digest"
+  [ "$(stat -f %Lp "$case_dir/bin/multplx" 2>/dev/null || stat -c %a "$case_dir/bin/multplx")" = 700 ] \
+    && [ "$(stat -f %Lp "$case_dir/config/root" 2>/dev/null || stat -c %a "$case_dir/config/root")" = 640 ] \
+    || fail "synchronous publication fault did not restore the old generation modes"
+  [ ! -e "$case_dir/config/.launcher-install.transaction" ] \
+    || fail "synchronous rollback left a transaction journal"
+
+  if MX_LAUNCHER_INSTALL_CRASH_AFTER=multplx "$INSTALLER" --upgrade --root "$root" \
+      --binary "$artifact" --checksum "$checksum" --bin-dir "$case_dir/bin" \
+      --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 97 "$status" "crash after binary publication"
+  [ -d "$case_dir/config/.launcher-install.transaction" ] \
+    || fail "crash did not preserve the recovery journal"
+  if MX_LAUNCHER_INSTALL_FAIL_BEFORE=root "$INSTALLER" --upgrade --root "$root" \
+      --binary "$artifact" --checksum "$checksum" --bin-dir "$case_dir/bin" \
+      --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 1 "$status" "recovery followed by pre-publication fault"
+  [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$old_hash" ] \
+    || fail "crash recovery did not restore the old binary generation"
+  [ "$(cat "$case_dir/config/binary.sha256")" = "$old_hash" ] \
+    || fail "crash recovery did not restore the old digest generation"
+
+  "$INSTALLER" --upgrade --root "$root" --binary "$artifact" --checksum "$checksum" \
+    --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+    --data-dir "$case_dir/data" >/dev/null
+  [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$checksum" ] \
+    || fail "distinct verified upgrade did not publish its exact bytes"
+  [ "$(cat "$case_dir/config/binary.sha256")" = "$checksum" ] \
+    || fail "distinct verified upgrade did not publish its exact digest"
+
+  cp "$artifact" "$artifact_three"
+  printf '\0generation-three\0' >>"$artifact_three"
+  chmod +x "$artifact_three"
+  checksum_three=$(shasum -a 256 "$artifact_three" | awk '{print $1}')
+  "$INSTALLER" --upgrade --root "$root" --binary "$artifact" --checksum "$checksum" \
+    --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+    --data-dir "$case_dir/data" >/dev/null 2>&1 &
+  pid_a=$!
+  "$INSTALLER" --upgrade --root "$root" --binary "$artifact_three" \
+    --checksum "$checksum_three" --bin-dir "$case_dir/bin" \
+    --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1 &
+  pid_b=$!
+  if wait "$pid_a"; then status_a=0; else status_a=$?; fi
+  if wait "$pid_b"; then status_b=0; else status_b=$?; fi
+  [ "$status_a:$status_b" = 0:0 ] \
+    || fail "serialized distinct-artifact upgrades did not both complete"
+  final_hash=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
+  [ "$(cat "$case_dir/config/binary.sha256")" = "$final_hash" ] \
+    || fail "concurrent distinct-artifact upgrades published a torn generation"
+  case "$final_hash" in
+    "$checksum"|"$checksum_three") ;;
+    *) fail "concurrent distinct-artifact upgrades published unknown bytes" ;;
+  esac
+
+  if MX_LAUNCHER_INSTALL_FAIL_AFTER=root "$INSTALLER" --uninstall \
+      --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+      --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 1 "$status" "uninstall publication fault"
+  [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$final_hash" ] \
+    || fail "failed uninstall did not restore the installed binary"
+  [ "$(cat "$case_dir/config/binary.sha256")" = "$final_hash" ] \
+    || fail "failed uninstall did not restore the installed digest"
+  pass "distinct upgrade and uninstall generations roll back and recover after crashes"
 }
 
 test_existing_install_paths_and_literal_safety
@@ -387,3 +552,5 @@ test_managed_clone_and_linked_worktree_refusal
 test_harness_cwd_arguments_environment_and_backend
 test_live_lock_refusal_and_stale_permission
 test_operator_delegation_and_nested_refusal
+test_registration_conflict_mode_and_uninstall_preflight
+test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback

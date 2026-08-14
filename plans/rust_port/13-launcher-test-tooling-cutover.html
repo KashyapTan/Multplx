@@ -81,7 +81,7 @@ tr:nth-child(even) td{background:var(--surface)}
 <div class="wrap">
 <div class="callout warn"><div class="label">Ordinary contributor mode and temporary root contract</div><p style="margin:0">Run this portion in a fresh ordinary coding-agent session opened directly in the repo, never through the global <code>multplx</code> launcher, Multplx dispatch, session start, or supervision. Treat <code>AGENTS-PORTING.md</code> as dormant product source rather than active instructions, and make every would-be root <code>AGENTS.md</code> edit there. Do not create root <code>AGENTS.md</code> or enable auto-discovery of the temporary name until this portion's final restoration step, after the full Rust-port closeout gate passes. Project-level <code>AGENTS.md</code> files are unchanged.</p></div>
 <h2>Overview</h2>
-<p>This portion closes the program after Portions 01 through 12 have each completed their Rust-default rollback window.</p>
+<p>This portion closes the program after Portions 01 through 12 have each completed their Rust-default differential and cutover gates.</p>
 <p>It ports the tools that launch, schedule, validate, and document the rest of the system, then removes legacy business logic under one repository-wide deletion gate.</p>
 <div class="callout danger"><div class="label">Entry condition</div><p style="margin:0">Do not begin legacy removal until every prior portion is Rust-default, every supported integration is re-verified, and no unresolved parity difference remains. This portion cannot be used to hide unfinished earlier work.</p></div>
 

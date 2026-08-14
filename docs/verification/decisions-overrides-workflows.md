@@ -2,7 +2,7 @@
 
 This record covers Rust-port Portion 10 on 2026-08-12.
 
-The production selector is `MX_AUTHORITY_IMPLEMENTATION`, defaults to `rust`, and accepts `legacy` only for bounded differential verification before an authority or workflow operation begins.
+The production entry points route directly to Rust authority and workflow owners.
 
 The Rust release binary was built with `cargo build --workspace --release` on macOS arm64 with Rust 1.97.1 and Cargo 1.97.1.
 
@@ -10,7 +10,7 @@ The Rust release binary was built with `cargo build --workspace --release` on ma
 
 The five owned public entry points select the Rust command boundary by default for decision holds, maintainer overrides, canonical bindings, exact override execution, and workflows.
 
-The two owned sourced libraries remain source-compatible adapters reached only by the explicitly pinned legacy process for later-Portion callers and rollback.
+The two owned sourced libraries remain source-compatible adapters for later-Portion callers, with active operations routed to Rust.
 
 The Rust `decision_hold` model owns privacy-safe identities, sorted unresolved inventories, exact routed-resolution identity, bounded direct-answer records, and idempotent resolution retry.
 
@@ -52,15 +52,15 @@ The exact CI coverage command passed its enforced floor with 93.01 percent line 
 
 `cargo audit --deny warnings` scanned all 68 locked dependencies against 1,216 RustSec advisories without a finding.
 
-`MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-decision-hold-lifecycle.test.sh` and its `legacy` equivalent each passed 9 cases.
+`tests/mx-decision-hold-lifecycle.test.sh` passed 9 cases.
 
-`MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-maintainer-override.test.sh` and its `legacy` equivalent each passed 9 cases.
+`tests/mx-maintainer-override.test.sh` passed 9 cases.
 
 `tests/mx-workflow-lib.test.sh` passes six schema and path-contract cases directly against the Rust owner.
 
-`MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-workflow.test.sh` and its `legacy` equivalent each passed 11 cases, including restart resume, per-run locking, actor reconciliation, command truth, skip, and reorder.
+`tests/mx-workflow.test.sh` passed 11 cases, including restart resume, per-run locking, actor reconciliation, command truth, skip, and reorder.
 
-`MX_AUTHORITY_IMPLEMENTATION=rust tests/mx-lock-override.test.sh` and its `legacy` equivalent each passed the exact lock-owner decision case.
+`tests/mx-lock-override.test.sh` passed the exact lock-owner decision case.
 
 `bin/mx-test-run.sh --check-coverage` confirmed all 125 behavior scripts are classified.
 
@@ -89,7 +89,7 @@ Both release medians and p95 values are no worse than the Portion 01 shell basel
 
 The stable shell filenames remain because skills, hooks, workflow definitions, existing operating homes, and Portion 11 review and delivery code call them directly.
 
-Stock macOS Bash remains covered by an explicit `MX_AUTHORITY_IMPLEMENTATION=legacy` CI lane until Portion 13 removes the rollback bodies.
+Stock macOS Bash remains covered through the stable transport adapters after Portion 13 removed the rollback bodies.
 
 The command names, arguments, environment overrides, JSON and text schemas, permissions, state locations, lock behavior, stage ordering, and exit meanings are unchanged.
 

@@ -2,14 +2,18 @@
 
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::Read;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use multplx_core::filesystem::atomic_replace;
+use multplx_core::locks::DirectoryLock;
+use multplx_core::process::SystemProcessProbe;
+use rustix::fs::OFlags;
 use sha2::{Digest, Sha256};
 
 const LAUNCHER_HELP: &str = "Activate or operate one globally configured Multplx control plane.\n\nUsage:\n  multplx [shell]\n  multplx [--backend auto|tmux|herdr|cmux] [shell]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx doctor [args...]\n  multplx update\n  multplx paths\n  multplx --help\n  multplx --version\n";
@@ -334,8 +338,22 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             .parent()
             .unwrap_or(Path::new("."))
             .join(".multplx-config");
-        if companion.is_file() {
-            config = read_path_file(&companion).ok();
+        match fs::symlink_metadata(&companion) {
+            Ok(_) => match read_path_file(&companion) {
+                Ok(path) => config = Some(path),
+                Err(message) => {
+                    error(message);
+                    return 2;
+                }
+            },
+            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error_value) => {
+                error(format!(
+                    "cannot inspect launcher config pointer {}: {error_value}",
+                    companion.display()
+                ));
+                return 2;
+            }
         }
     }
     if values.first().is_some_and(|value| value == "--config-dir") {
@@ -432,6 +450,12 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         launch_environment.push((
             OsString::from("MX_LAUNCH_BIN_PATH"),
             binary.into_os_string(),
+        ));
+    }
+    if let Some(config) = &config {
+        launch_environment.push((
+            OsString::from("MX_LAUNCH_CONFIG_DIR"),
+            config.as_os_str().to_owned(),
         ));
     }
     let remove_backend = backend.as_deref() == Some("auto");
@@ -661,19 +685,27 @@ fn parse_installer(args: &[OsString]) -> Result<Option<InstallOptions>, String> 
     Ok(Some(options))
 }
 
-fn ensure_dir(path: &Path, mode: u32) -> Result<PathBuf, String> {
-    if let Ok(metadata) = fs::symlink_metadata(path)
-        && (metadata.file_type().is_symlink() || !metadata.is_dir())
-    {
-        return Err(format!(
-            "refusing linked or non-directory installation path: {}",
-            path.display()
-        ));
-    }
+fn ensure_dir(path: &Path, mode: u32, secure_existing: bool) -> Result<PathBuf, String> {
+    let existed = match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(format!(
+                    "refusing linked or non-directory installation path: {}",
+                    path.display()
+                ));
+            }
+            true
+        }
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error_value) => {
+            return Err(format!(
+                "cannot inspect installation path {}: {error_value}",
+                path.display()
+            ));
+        }
+    };
     fs::create_dir_all(path)
         .map_err(|_| format!("could not create directory: {}", path.display()))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
-        .map_err(|_| format!("could not secure directory: {}", path.display()))?;
     let canonical = canonical_dir(path, "installation")?;
     if fs::metadata(&canonical)
         .map_err(|error_value| error_value.to_string())?
@@ -685,7 +717,271 @@ fn ensure_dir(path: &Path, mode: u32) -> Result<PathBuf, String> {
             canonical.display()
         ));
     }
+    if !existed || secure_existing {
+        fs::set_permissions(&canonical, fs::Permissions::from_mode(mode))
+            .map_err(|_| format!("could not secure directory: {}", canonical.display()))?;
+    }
     Ok(canonical)
+}
+
+fn require_owned_dir(path: &Path, label: &str) -> Result<(), String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error_value| format!("cannot inspect ownership of {label}: {error_value}"))?;
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(format!(
+            "{label} must be owned by the current user: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn require_existing_owned_dir(path: &Path, label: &str) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => Err(format!(
+            "{label} is linked or not a directory: {}",
+            path.display()
+        )),
+        Ok(_) => require_owned_dir(path, label),
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error_value) => Err(format!("cannot inspect {label}: {error_value}")),
+    }
+}
+
+fn require_recordable_path(path: &Path, label: &str) -> Result<(), String> {
+    let Some(value) = path.to_str() else {
+        return Err(format!("{label} path is not valid UTF-8"));
+    };
+    if value.contains(['\n', '\r']) {
+        return Err(format!("{label} path contains a line break"));
+    }
+    Ok(())
+}
+
+struct VerifiedArtifact {
+    bytes: Vec<u8>,
+    hash: String,
+}
+
+fn verify_artifact(path: &Path, expected: Option<&str>) -> Result<VerifiedArtifact, String> {
+    require_recordable_path(path, "binary artifact")?;
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(OFlags::NOFOLLOW.bits() as i32);
+    let mut source = options.open(path).map_err(|error_value| {
+        format!("cannot open binary artifact without following links: {error_value}")
+    })?;
+    let metadata = source
+        .metadata()
+        .map_err(|error_value| format!("cannot inspect binary artifact: {error_value}"))?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+        return Err(format!(
+            "binary artifact is not an executable regular file: {}",
+            path.display()
+        ));
+    }
+    let mut bytes = Vec::new();
+    source
+        .read_to_end(&mut bytes)
+        .map_err(|error_value| format!("cannot stage binary artifact: {error_value}"))?;
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    if expected.is_some_and(|expected| expected != hash) {
+        return Err("--binary requires its exact lowercase SHA-256 through --checksum".to_owned());
+    }
+    Ok(VerifiedArtifact { bytes, hash })
+}
+
+#[derive(Clone)]
+struct GenerationFile {
+    key: &'static str,
+    path: PathBuf,
+    mode: u32,
+    desired: Option<Vec<u8>>,
+}
+
+fn transaction_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(".launcher-install.transaction")
+}
+
+fn transaction_manifest(files: &[GenerationFile]) -> Vec<u8> {
+    let rows = files
+        .iter()
+        .map(|file| {
+            serde_json::json!({
+                "key": file.key,
+                "path": file.path.to_str().expect("recordable generation path"),
+                "mode": file.mode,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut bytes = serde_json::to_vec(&rows).expect("serialize transaction manifest");
+    bytes.push(b'\n');
+    bytes
+}
+
+fn remove_transaction(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error_value| format!("cannot inspect launcher transaction: {error_value}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!(
+            "launcher transaction is linked or not a directory: {}",
+            path.display()
+        ));
+    }
+    fs::remove_dir_all(path)
+        .map_err(|error_value| format!("cannot remove launcher transaction: {error_value}"))
+}
+
+fn restore_generation(transaction: &Path, files: &[GenerationFile]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for file in files {
+        let backup = transaction.join(format!("old-{}", file.key));
+        if backup.exists() {
+            let restored_mode =
+                fs::read_to_string(transaction.join(format!("old-mode-{}", file.key)))
+                    .ok()
+                    .and_then(|value| u32::from_str_radix(value.trim(), 8).ok())
+                    .unwrap_or(file.mode);
+            match fs::read(&backup).and_then(|bytes| {
+                atomic_replace(&file.path, &bytes, restored_mode).map_err(std::io::Error::other)
+            }) {
+                Ok(()) => {}
+                Err(error_value) => failures.push(format!("{}: {error_value}", file.key)),
+            }
+        } else if let Err(error_value) = fs::remove_file(&file.path)
+            && error_value.kind() != std::io::ErrorKind::NotFound
+        {
+            failures.push(format!("{}: {error_value}", file.key));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "could not roll back launcher generation: {}",
+            failures.join(", ")
+        ))
+    }
+}
+
+fn recover_generation(config_dir: &Path, files: &[GenerationFile]) -> Result<(), String> {
+    let transaction = transaction_path(config_dir);
+    match fs::symlink_metadata(&transaction) {
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error_value) => {
+            return Err(format!(
+                "cannot inspect launcher transaction: {error_value}"
+            ));
+        }
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(format!(
+                "launcher transaction is linked or not a directory: {}",
+                transaction.display()
+            ));
+        }
+        Ok(_) => {}
+    }
+    let state = match fs::read(transaction.join("state")) {
+        Ok(bytes) => bytes,
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {
+            return remove_transaction(&transaction);
+        }
+        Err(error_value) => return Err(format!("cannot read launcher transaction: {error_value}")),
+    };
+    let expected = transaction_manifest(files);
+    if !fs::read(transaction.join("manifest")).is_ok_and(|bytes| bytes == expected) {
+        return Err("launcher transaction targets do not match this invocation".to_owned());
+    }
+    match state.as_slice() {
+        b"prepared\n" => {
+            restore_generation(&transaction, files)?;
+            remove_transaction(&transaction)
+        }
+        b"committed\n" => remove_transaction(&transaction),
+        _ => Err("launcher transaction state is malformed".to_owned()),
+    }
+}
+
+fn apply_generation(config_dir: &Path, files: &[GenerationFile]) -> Result<(), String> {
+    let transaction = transaction_path(config_dir);
+    fs::create_dir(&transaction)
+        .map_err(|error_value| format!("cannot create launcher transaction: {error_value}"))?;
+    fs::set_permissions(&transaction, fs::Permissions::from_mode(0o700))
+        .map_err(|error_value| format!("cannot secure launcher transaction: {error_value}"))?;
+    atomic_replace(
+        transaction.join("manifest"),
+        &transaction_manifest(files),
+        0o600,
+    )
+    .map_err(|error_value| error_value.to_string())?;
+    for file in files {
+        match fs::symlink_metadata(&file.path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                return Err(format!(
+                    "refusing linked or non-regular generation target: {}",
+                    file.path.display()
+                ));
+            }
+            Ok(metadata) => {
+                let old_mode = metadata.permissions().mode() & 0o777;
+                let bytes = fs::read(&file.path).map_err(|error_value| error_value.to_string())?;
+                atomic_replace(
+                    transaction.join(format!("old-{}", file.key)),
+                    &bytes,
+                    file.mode,
+                )
+                .map_err(|error_value| error_value.to_string())?;
+                atomic_replace(
+                    transaction.join(format!("old-mode-{}", file.key)),
+                    format!("{old_mode:o}\n").as_bytes(),
+                    0o600,
+                )
+                .map_err(|error_value| error_value.to_string())?;
+            }
+            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error_value) => return Err(error_value.to_string()),
+        }
+    }
+    atomic_replace(transaction.join("state"), b"prepared\n", 0o600)
+        .map_err(|error_value| error_value.to_string())?;
+    let commit = (|| {
+        for file in files {
+            match &file.desired {
+                Some(bytes) => atomic_replace(&file.path, bytes, file.mode)
+                    .map_err(|error_value| error_value.to_string())?,
+                None => {
+                    if let Err(error_value) = fs::remove_file(&file.path)
+                        && error_value.kind() != std::io::ErrorKind::NotFound
+                    {
+                        return Err(error_value.to_string());
+                    }
+                }
+            }
+            if env::var("MX_LAUNCHER_INSTALL_CRASH_AFTER").as_deref() == Ok(file.key) {
+                std::process::exit(97);
+            }
+            if env::var("MX_LAUNCHER_INSTALL_FAIL_AFTER").as_deref() == Ok(file.key) {
+                return Err(format!(
+                    "injected interruption after publishing {}",
+                    file.key
+                ));
+            }
+        }
+        atomic_replace(transaction.join("state"), b"committed\n", 0o600)
+            .map_err(|error_value| error_value.to_string())?;
+        Ok::<(), String>(())
+    })();
+    if let Err(error_value) = commit {
+        let rollback = restore_generation(&transaction, files);
+        let cleanup = remove_transaction(&transaction);
+        if let Err(rollback_error) = rollback {
+            return Err(format!("{error_value}; {rollback_error}"));
+        }
+        cleanup?;
+        return Err(error_value);
+    }
+    remove_transaction(&transaction)
 }
 
 fn hash_file(path: &Path) -> Result<String, String> {
@@ -703,56 +999,6 @@ fn hash_file(path: &Path) -> Result<String, String> {
         digest.update(&buffer[..count]);
     }
     Ok(format!("{:x}", digest.finalize()))
-}
-
-fn publish_binary(
-    source: &Path,
-    target: &Path,
-    upgrade: bool,
-    expected_old: Option<&str>,
-) -> Result<(), String> {
-    if let Ok(metadata) = fs::symlink_metadata(target) {
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err(format!(
-                "refusing linked or non-regular installation target: {}",
-                target.display()
-            ));
-        }
-        if hash_file(source)? == hash_file(target)? {
-            return Ok(());
-        }
-        if !upgrade
-            || expected_old.is_none_or(|expected| hash_file(target).as_deref() != Ok(expected))
-        {
-            return Err(format!(
-                "refusing to overwrite incompatible installation target: {}",
-                target.display()
-            ));
-        }
-    }
-    let parent = target.parent().ok_or("installation target has no parent")?;
-    let mut temporary = tempfile::Builder::new()
-        .prefix(".multplx.tmp.")
-        .tempfile_in(parent)
-        .map_err(|error_value| format!("could not create atomic binary buffer: {error_value}"))?;
-    let mut input = File::open(source).map_err(|error_value| error_value.to_string())?;
-    std::io::copy(&mut input, temporary.as_file_mut())
-        .map_err(|error_value| error_value.to_string())?;
-    temporary
-        .as_file_mut()
-        .sync_all()
-        .map_err(|error_value| error_value.to_string())?;
-    temporary
-        .as_file_mut()
-        .set_permissions(fs::Permissions::from_mode(0o755))
-        .map_err(|error_value| error_value.to_string())?;
-    if env::var("MX_LAUNCHER_INSTALL_FAIL_BEFORE").as_deref() == Ok("multplx") {
-        return Err("injected interruption before publishing multplx".to_owned());
-    }
-    temporary
-        .persist(target)
-        .map_err(|error_value| error_value.error.to_string())?;
-    Ok(())
 }
 
 fn absolute_from_cwd(path: PathBuf) -> PathBuf {
@@ -825,6 +1071,36 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         error("bin, config, and data directories must be absolute paths");
         return 2;
     }
+    for (path, label) in [
+        (&bin_dir, "binary installation"),
+        (&config_dir, "launcher config"),
+        (&data_dir, "launcher data"),
+    ] {
+        if let Err(message) = require_recordable_path(path, label) {
+            error(message);
+            return 2;
+        }
+    }
+    for (path, label) in [
+        (options.root.as_deref(), "code root"),
+        (options.home.as_deref(), "operational home"),
+        (options.binary.as_deref(), "binary artifact"),
+    ] {
+        if let Some(path) = path
+            && let Err(message) = require_recordable_path(path, label)
+        {
+            error(message);
+            return 2;
+        }
+    }
+    if options
+        .source
+        .as_ref()
+        .is_some_and(|source| source.to_str().is_none())
+    {
+        error("managed source is not valid UTF-8");
+        return 2;
+    }
     if options.uninstall
         && (options.managed
             || options.upgrade
@@ -843,21 +1119,15 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         let source_binary = options.binary.clone().unwrap_or_else(|| {
             current_binary().unwrap_or_else(|_| PathBuf::from("multplx-unavailable"))
         });
-        if !is_executable(&source_binary) {
-            error(format!(
-                "binary artifact is not executable: {}",
-                source_binary.display()
-            ));
-            return 2;
-        }
-        let source_hash = match hash_file(&source_binary) {
-            Ok(hash) => hash,
+        let expected = options.binary.as_ref().and(options.checksum.as_deref());
+        let artifact = match verify_artifact(&source_binary, expected) {
+            Ok(artifact) => artifact,
             Err(message) => {
                 error(message);
-                return 1;
+                return 2;
             }
         };
-        if options.binary.is_some() && options.checksum.as_deref() != Some(source_hash.as_str()) {
+        if options.binary.is_some() && options.checksum.is_none() {
             error("--binary requires its exact lowercase SHA-256 through --checksum");
             return 2;
         }
@@ -865,14 +1135,145 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             error("--checksum requires --binary");
             return 2;
         }
-        Some((source_binary, source_hash))
+        Some(artifact)
     };
     let result = (|| -> Result<(), (i32, String)> {
         let target = bin_dir.join("multplx");
         let config_pointer = bin_dir.join(".multplx-config");
         let digest_record = config_dir.join("binary.sha256");
         if options.uninstall {
-            if target.exists() {
+            let _uninstall_bin_lock = match fs::symlink_metadata(&bin_dir) {
+                Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                    return Err((
+                        2,
+                        format!(
+                            "binary installation directory is linked or not a directory: {}",
+                            bin_dir.display()
+                        ),
+                    ));
+                }
+                Ok(_) => {
+                    require_owned_dir(&bin_dir, "binary installation directory")
+                        .map_err(|message| (2, message))?;
+                    Some(
+                        DirectoryLock::acquire_wait(
+                            bin_dir.join(".multplx-install.lock"),
+                            &SystemProcessProbe::default(),
+                            Duration::from_secs(5),
+                        )
+                        .map_err(|error_value| {
+                            (
+                                2,
+                                format!("cannot acquire launcher binary lock: {error_value}"),
+                            )
+                        })?,
+                    )
+                }
+                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error_value) => return Err((1, error_value.to_string())),
+            };
+            let _uninstall_lock = match fs::symlink_metadata(&config_dir) {
+                Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                    return Err((
+                        2,
+                        format!(
+                            "configuration directory is linked or not a directory: {}",
+                            config_dir.display()
+                        ),
+                    ));
+                }
+                Ok(_) => {
+                    require_owned_dir(&config_dir, "launcher config")
+                        .map_err(|message| (2, message))?;
+                    Some(
+                        DirectoryLock::acquire_wait(
+                            config_dir.join(".launcher-install.lock"),
+                            &SystemProcessProbe::default(),
+                            Duration::from_secs(5),
+                        )
+                        .map_err(|error_value| {
+                            (
+                                2,
+                                format!("cannot acquire launcher install lock: {error_value}"),
+                            )
+                        })?,
+                    )
+                }
+                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error_value) => return Err((1, error_value.to_string())),
+            };
+            let generation = vec![
+                GenerationFile {
+                    key: "multplx",
+                    path: target.clone(),
+                    mode: 0o755,
+                    desired: None,
+                },
+                GenerationFile {
+                    key: "root",
+                    path: config_dir.join("root"),
+                    mode: 0o600,
+                    desired: None,
+                },
+                GenerationFile {
+                    key: "home",
+                    path: config_dir.join("home"),
+                    mode: 0o600,
+                    desired: None,
+                },
+                GenerationFile {
+                    key: "config",
+                    path: config_pointer.clone(),
+                    mode: 0o600,
+                    desired: None,
+                },
+                GenerationFile {
+                    key: "digest",
+                    path: digest_record.clone(),
+                    mode: 0o600,
+                    desired: None,
+                },
+            ];
+            if _uninstall_lock.is_some() {
+                recover_generation(&config_dir, &generation).map_err(|message| (2, message))?;
+            }
+            let records = [
+                config_dir.join("root"),
+                config_dir.join("home"),
+                digest_record.clone(),
+                config_pointer.clone(),
+            ];
+            for path in &records {
+                match fs::symlink_metadata(path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                        return Err((
+                            2,
+                            format!(
+                                "refusing to remove linked or non-regular path record: {}",
+                                path.display()
+                            ),
+                        ));
+                    }
+                    Ok(_) => {}
+                    Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error_value) => return Err((1, error_value.to_string())),
+                }
+            }
+            let target_exists = match fs::symlink_metadata(&target) {
+                Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                    return Err((
+                        2,
+                        format!(
+                            "refusing to remove a linked or non-regular binary: {}",
+                            target.display()
+                        ),
+                    ));
+                }
+                Ok(_) => true,
+                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error_value) => return Err((1, error_value.to_string())),
+            };
+            if target_exists {
                 let expected = fs::read_to_string(&digest_record)
                     .ok()
                     .map(|value| value.trim().to_owned());
@@ -888,34 +1289,66 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         ),
                     ));
                 }
-                fs::remove_file(&target).map_err(|error_value| (1, error_value.to_string()))?;
             }
-            for path in [
-                config_dir.join("root"),
-                config_dir.join("home"),
-                digest_record,
-                config_pointer,
-            ] {
-                if fs::symlink_metadata(&path)
-                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
-                {
-                    return Err((
-                        2,
-                        format!("refusing to remove linked path record: {}", path.display()),
-                    ));
-                }
-                if path.exists() {
-                    fs::remove_file(path).map_err(|error_value| (1, error_value.to_string()))?;
-                }
+            if _uninstall_lock.is_some() {
+                apply_generation(&config_dir, &generation).map_err(|message| (1, message))?;
+            } else if target_exists || records.iter().any(|path| path.exists()) {
+                return Err((
+                    2,
+                    "refusing uninstall without an owned configuration directory".to_owned(),
+                ));
             }
             println!("multplx: launcher removed; runtime and operational data preserved");
             return Ok(());
         }
-        let bin_dir = ensure_dir(&bin_dir, 0o755).map_err(|message| (2, message))?;
-        let config_dir = ensure_dir(&config_dir, 0o700).map_err(|message| (2, message))?;
-        let data_dir = ensure_dir(&data_dir, 0o700).map_err(|message| (2, message))?;
-        let (source_binary, source_hash) = artifact.as_ref().expect("install artifact validated");
         let default_root = default_source_root().map_err(|message| (2, message))?;
+        require_recordable_path(&default_root, "code root").map_err(|message| (2, message))?;
+        if options.managed {
+            require_existing_owned_dir(&data_dir.join("runtime"), "managed code root")
+                .map_err(|message| (2, message))?;
+            require_existing_owned_dir(&data_dir.join("home"), "managed operational home")
+                .map_err(|message| (2, message))?;
+        } else {
+            let requested_root = canonical_dir(
+                &absolute_from_cwd(options.root.clone().unwrap_or_else(|| default_root.clone())),
+                "code root",
+            )
+            .map_err(|message| (2, message))?;
+            require_recordable_path(&requested_root, "code root")
+                .map_err(|message| (2, message))?;
+            require_owned_dir(&requested_root, "code root").map_err(|message| (2, message))?;
+            if let Some(home) = options.home.as_ref() {
+                let home = absolute_from_cwd(home.clone());
+                require_existing_owned_dir(&home, "operational home")
+                    .map_err(|message| (2, message))?;
+            }
+        }
+        let bin_dir = ensure_dir(&bin_dir, 0o755, false).map_err(|message| (2, message))?;
+        let config_dir = ensure_dir(&config_dir, 0o700, true).map_err(|message| (2, message))?;
+        let data_dir = ensure_dir(&data_dir, 0o700, true).map_err(|message| (2, message))?;
+        let _bin_lock = DirectoryLock::acquire_wait(
+            bin_dir.join(".multplx-install.lock"),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        )
+        .map_err(|error_value| {
+            (
+                2,
+                format!("cannot acquire launcher binary lock: {error_value}"),
+            )
+        })?;
+        let _install_lock = DirectoryLock::acquire_wait(
+            config_dir.join(".launcher-install.lock"),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        )
+        .map_err(|error_value| {
+            (
+                2,
+                format!("cannot acquire launcher install lock: {error_value}"),
+            )
+        })?;
+        let artifact = artifact.as_ref().expect("install artifact validated");
         let (root, home) = if options.managed {
             if options.root.is_some() || options.home.is_some() {
                 return Err((
@@ -999,7 +1432,8 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     ),
                 ));
             }
-            let home = ensure_dir(&home, 0o700).map_err(|message| (2, message))?;
+            require_owned_dir(&root, "managed code root").map_err(|message| (2, message))?;
+            let home = ensure_dir(&home, 0o700, true).map_err(|message| (2, message))?;
             (root, home)
         } else {
             if options.source.is_some() {
@@ -1010,62 +1444,171 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 "code root",
             )
             .map_err(|message| (2, message))?;
+            require_recordable_path(&root, "code root").map_err(|message| (2, message))?;
+            require_owned_dir(&root, "code root").map_err(|message| (2, message))?;
             let home = match options.home {
                 Some(home) => {
-                    ensure_dir(&absolute_from_cwd(home), 0o700).map_err(|message| (2, message))?
+                    let home = absolute_from_cwd(home);
+                    require_recordable_path(&home, "operational home")
+                        .map_err(|message| (2, message))?;
+                    ensure_dir(&home, 0o700, true).map_err(|message| (2, message))?
                 }
                 None => root.clone(),
             };
             (root, home)
         };
+        require_recordable_path(&root, "code root").map_err(|message| (2, message))?;
+        require_recordable_path(&home, "operational home").map_err(|message| (2, message))?;
+        require_owned_dir(&root, "code root").map_err(|message| (2, message))?;
+        require_owned_dir(&home, "operational home").map_err(|message| (2, message))?;
         for part in ["config", "data", "projects", "state"] {
-            ensure_dir(&home.join(part), 0o700).map_err(|message| (2, message))?;
+            ensure_dir(&home.join(part), 0o700, true).map_err(|message| (2, message))?;
         }
         validate_root(&root).map_err(|message| (2, message))?;
         validate_home(&home).map_err(|message| (2, message))?;
         if options.managed {
             validate_managed_clean(&root, &home).map_err(|message| (2, message))?;
         }
-        let existing_hash = fs::read_to_string(&digest_record)
-            .ok()
-            .map(|value| value.trim().to_owned());
-        publish_binary(
-            source_binary,
-            &target,
-            options.upgrade,
-            existing_hash.as_deref(),
-        )
-        .map_err(|message| {
-            (
-                if message.starts_with("refusing") {
-                    2
-                } else {
-                    1
-                },
-                message,
-            )
-        })?;
-        let record = |name: &str, value: &Path| -> Result<(), (i32, String)> {
-            if env::var("MX_LAUNCHER_INSTALL_FAIL_BEFORE").as_deref() == Ok(name) {
-                return Err((1, format!("injected interruption before publishing {name}")));
+        let generation = vec![
+            GenerationFile {
+                key: "multplx",
+                path: target.clone(),
+                mode: 0o755,
+                desired: Some(artifact.bytes.clone()),
+            },
+            GenerationFile {
+                key: "root",
+                path: config_dir.join("root"),
+                mode: 0o600,
+                desired: Some(format!("{}\n", root.display()).into_bytes()),
+            },
+            GenerationFile {
+                key: "home",
+                path: config_dir.join("home"),
+                mode: 0o600,
+                desired: Some(format!("{}\n", home.display()).into_bytes()),
+            },
+            GenerationFile {
+                key: "config",
+                path: config_pointer.clone(),
+                mode: 0o600,
+                desired: Some(format!("{}\n", config_dir.display()).into_bytes()),
+            },
+            GenerationFile {
+                key: "digest",
+                path: digest_record.clone(),
+                mode: 0o600,
+                desired: Some(format!("{}\n", artifact.hash).into_bytes()),
+            },
+        ];
+        recover_generation(&config_dir, &generation).map_err(|message| (2, message))?;
+        if matches!(
+            env::var("MX_LAUNCHER_INSTALL_FAIL_BEFORE").as_deref(),
+            Ok("root" | "home" | "multplx")
+        ) {
+            return Err((
+                1,
+                format!(
+                    "injected interruption before publishing {}",
+                    env::var("MX_LAUNCHER_INSTALL_FAIL_BEFORE").unwrap_or_default()
+                ),
+            ));
+        }
+        match fs::symlink_metadata(&config_pointer) {
+            Ok(_) => {
+                let existing = read_path_file(&config_pointer).map_err(|message| (2, message))?;
+                if existing != config_dir {
+                    return Err((
+                        2,
+                        format!(
+                            "refusing to replace conflicting config record: {}",
+                            config_pointer.display()
+                        ),
+                    ));
+                }
             }
-            atomic_replace(
-                config_dir.join(name),
-                format!("{}\n", value.display()).as_bytes(),
-                0o600,
-            )
-            .map_err(|error_value| (1, error_value.to_string()))
+            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error_value) => return Err((1, error_value.to_string())),
+        }
+        let existing_hash = match fs::symlink_metadata(&digest_record) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                return Err((
+                    2,
+                    format!(
+                        "binary digest record is linked or not regular: {}",
+                        digest_record.display()
+                    ),
+                ));
+            }
+            Ok(_) => {
+                let bytes =
+                    fs::read(&digest_record).map_err(|error_value| (1, error_value.to_string()))?;
+                if bytes.len() != 65
+                    || bytes[64] != b'\n'
+                    || !bytes[..64]
+                        .iter()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+                {
+                    return Err((
+                        2,
+                        format!(
+                            "binary digest record is malformed: {}",
+                            digest_record.display()
+                        ),
+                    ));
+                }
+                Some(String::from_utf8(bytes[..64].to_vec()).expect("ASCII digest"))
+            }
+            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error_value) => return Err((1, error_value.to_string())),
         };
-        record("root", &root)?;
-        record("home", &home)?;
-        atomic_replace(
-            &config_pointer,
-            format!("{}\n", config_dir.display()).as_bytes(),
-            0o600,
-        )
-        .map_err(|error_value| (1, error_value.to_string()))?;
-        atomic_replace(&digest_record, format!("{source_hash}\n").as_bytes(), 0o600)
-            .map_err(|error_value| (1, error_value.to_string()))?;
+        for (name, expected) in [("root", &root), ("home", &home)] {
+            let path = config_dir.join(name);
+            match fs::symlink_metadata(&path) {
+                Ok(_) => {
+                    let existing = read_path_file(&path).map_err(|message| (2, message))?;
+                    if existing != *expected {
+                        return Err((
+                            2,
+                            format!(
+                                "refusing to replace conflicting {name} record: {}",
+                                path.display()
+                            ),
+                        ));
+                    }
+                }
+                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error_value) => return Err((1, error_value.to_string())),
+            }
+        }
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                return Err((
+                    2,
+                    format!(
+                        "refusing linked or non-regular installation target: {}",
+                        target.display()
+                    ),
+                ));
+            }
+            Ok(_) => {
+                let installed_hash = hash_file(&target).map_err(|message| (1, message))?;
+                if installed_hash != artifact.hash
+                    && (!options.upgrade || existing_hash.as_deref() != Some(&installed_hash))
+                {
+                    return Err((
+                        2,
+                        format!(
+                            "refusing to overwrite incompatible installation target: {}",
+                            target.display()
+                        ),
+                    ));
+                }
+            }
+            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error_value) => return Err((1, error_value.to_string())),
+        }
+        apply_generation(&config_dir, &generation).map_err(|message| (1, message))?;
         println!("multplx: installed {}", target.display());
         println!("multplx: root {}", root.display());
         println!("multplx: home {}", home.display());
@@ -1083,9 +1626,143 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
     }
 }
 
+/// Report whether an interrupted post-update launcher rebuild needs retrying.
+pub(crate) fn registered_update_pending() -> Result<bool, String> {
+    let (Some(config), Some(_installed)) = (
+        env::var_os("MX_LAUNCH_CONFIG_DIR").map(PathBuf::from),
+        env::var_os("MX_LAUNCH_BIN_PATH").map(PathBuf::from),
+    ) else {
+        return Ok(false);
+    };
+    require_recordable_path(&config, "launcher config")?;
+    let config = canonical_dir(&config, "launcher config")?;
+    require_owned_dir(&config, "launcher config")?;
+    let marker = config.join(".launcher-update-pending");
+    match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => Err(format!(
+            "launcher update marker is linked or not a regular file: {}",
+            marker.display()
+        )),
+        Ok(_) => Ok(true),
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error_value) => Err(format!(
+            "cannot inspect launcher update marker {}: {error_value}",
+            marker.display()
+        )),
+    }
+}
+
+/// Rebuild and replace the registered launcher after its source checkout advances.
+pub(crate) fn upgrade_registered_after_update(
+    root: &Path,
+    home: &Path,
+) -> Result<Option<String>, String> {
+    let (Some(config), Some(installed)) = (
+        env::var_os("MX_LAUNCH_CONFIG_DIR").map(PathBuf::from),
+        env::var_os("MX_LAUNCH_BIN_PATH").map(PathBuf::from),
+    ) else {
+        return Ok(None);
+    };
+    let root = canonical_dir(root, "code root")?;
+    let home = canonical_dir(home, "operational home")?;
+    require_recordable_path(&config, "launcher config")?;
+    require_recordable_path(&installed, "installed binary")?;
+    let config = canonical_dir(&config, "launcher config")?;
+    require_owned_dir(&config, "launcher config")?;
+    let _update_lock = DirectoryLock::acquire_wait(
+        config.join(".launcher-update.lock"),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error_value| format!("cannot acquire launcher update lock: {error_value}"))?;
+    let registered_root = read_path_file(&config.join("root"))?;
+    let registered_home = read_path_file(&config.join("home"))?;
+    if registered_root != root || registered_home != home {
+        return Err(format!(
+            "registered launcher paths changed during update (root {} != {}; home {} != {})",
+            registered_root.display(),
+            root.display(),
+            registered_home.display(),
+            home.display()
+        ));
+    }
+    let bin_dir = installed
+        .parent()
+        .ok_or("installed binary has no parent directory")?;
+    if installed.file_name() != Some(OsStr::new("multplx")) {
+        return Err(format!(
+            "registered launcher binary has an unexpected name: {}",
+            installed.display()
+        ));
+    }
+    require_owned_dir(bin_dir, "launcher binary directory")?;
+    let pending = config.join(".launcher-update-pending");
+    match fs::symlink_metadata(&pending) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(format!(
+                "launcher update marker is linked or not a regular file: {}",
+                pending.display()
+            ));
+        }
+        Ok(_) => {}
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error_value) => {
+            return Err(format!(
+                "cannot inspect launcher update marker {}: {error_value}",
+                pending.display()
+            ));
+        }
+    }
+    atomic_replace(&pending, b"pending\n", 0o600)
+        .map_err(|error_value| format!("cannot record pending launcher update: {error_value}"))?;
+    let build = Command::new("cargo")
+        .args(["build", "--release", "--locked", "-p", "multplx-cli"])
+        .current_dir(&root)
+        .status()
+        .map_err(|error_value| format!("could not start release build: {error_value}"))?;
+    if !build.success() {
+        return Err("release build failed after source fast-forward".to_owned());
+    }
+    let built = root.join("target/release/mx");
+    if !is_executable(&built) {
+        return Err(format!(
+            "release build did not produce an executable: {}",
+            built.display()
+        ));
+    }
+    let output = Command::new(&built)
+        .env("MX_MULTICALL_EXPLICIT", "1")
+        .env("MX_LAUNCHER_DEFAULT_ROOT", &root)
+        .env("MX_RUST_SOURCE_ROOT", &root)
+        .args(["launcher-install", "--upgrade", "--root"])
+        .arg(&root)
+        .arg("--home")
+        .arg(&home)
+        .arg("--bin-dir")
+        .arg(bin_dir)
+        .arg("--config-dir")
+        .arg(&config)
+        .arg("--data-dir")
+        .arg(home.join("data"))
+        .output()
+        .map_err(|error_value| format!("could not start launcher upgrade: {error_value}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(if detail.is_empty() {
+            "launcher binary upgrade failed".to_owned()
+        } else {
+            format!("launcher binary upgrade failed: {detail}")
+        });
+    }
+    fs::remove_file(&pending)
+        .map_err(|error_value| format!("cannot clear pending launcher update: {error_value}"))?;
+    Ok(Some("launcher-binary: updated".to_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::ffi::OsStringExt;
 
     #[test]
     fn path_files_are_literal_and_exact() {
@@ -1111,5 +1788,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn non_utf8_and_multiline_paths_refuse_before_publication() {
+        let non_utf8 = PathBuf::from(OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]));
+        assert!(require_recordable_path(&non_utf8, "fixture").is_err());
+        assert!(require_recordable_path(Path::new("/tmp/one\ntwo"), "fixture").is_err());
     }
 }

@@ -17,6 +17,7 @@ CONFIG="$ROOT/docs/configuration.md"
 AGENTS="$ROOT/AGENTS.md"
 BRIEF="$ROOT/bin/mx-brief.sh"
 BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
+BOOTSTRAP_DIAGNOSTICS="$ROOT/.agents/skills/bootstrap-diagnostics/SKILL.md"
 CREATE_WORKFLOW="$ROOT/.agents/skills/create-workflow/SKILL.md"
 PRIMARY_SCOPE="$ROOT/bin/mx-primary-scope-lib.sh"
 CODEX_HOOKS="$ROOT/.codex/hooks.json"
@@ -157,7 +158,7 @@ test_agent_owned_capacity_array_dispatch_contract() {
     "model discovery guidance permits a fixed provider table"
   assert_grep '`AGENTS.md` section 4 owns the dispatch and array-selection procedure.' "$CONFIG" \
     "configuration docs do not point to the agent-owned array procedure"
-  assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP" \
+  assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP_DIAGNOSTICS" \
     "bootstrap docs lost the owned-headroom failure procedure"
   pass "broker directly compares every capacity candidate with authoritative model discovery"
 }
@@ -215,8 +216,8 @@ test_daemon_registry_contract_stays_concise() {
 test_state_startup_and_ordinary_recovery_placement() {
   assert_grep "single owner of the top-level operational-home layout" "$CONFIG" \
     "configuration docs do not own the operational state layout"
-  assert_grep "header is the single owner of session-start ordering" "$CONFIG" \
-    "session-start mechanism is not assigned to the script header"
+  assert_grep "single implementation owner of session-start ordering" "$CONFIG" \
+    "session-start mechanism is not assigned to the Rust implementation owner"
   assert_grep "Ordinary dead-direct-report recovery is owned by \`stuck-actor-recovery\`" "$CONFIG" \
     "D05 ordinary recovery placement is missing"
   assert_grep "## Session-start reconciliation for a dead actor" "$RECOVERY" \

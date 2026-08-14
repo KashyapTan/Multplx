@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Rust transport adapter for the cmux backend.
-# The legacy body remains in cmux.sh as the explicit rollback implementation.
 # shellcheck disable=SC1091
 
 mx_backend_cmux_rust() {

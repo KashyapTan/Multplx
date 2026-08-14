@@ -290,6 +290,9 @@ killed="${state}.killed"
 spawned="${state}.spawned"
 printf '%s\n' "$*" >> "$log"
 case "${1:-} ${2:-}" in
+  "--version ")
+    printf '%s\n' 'herdr test'
+    ;;
   "status --json")
     printf '%s\n' '{"client":{"protocol":14,"version":"test"},"server":{"running":true}}'
     ;;
@@ -343,6 +346,7 @@ case "${1:-} ${2:-}" in
   "pane run"|"pane send-text"|"pane send-keys"|"tab close")
     ;;
   *)
+    printf 'unexpected fake Herdr command: %s\n' "$*" >&2
     exit 1
     ;;
 esac
@@ -464,7 +468,7 @@ EOF
 
 run_session_start_herdr_daemon() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
-  MX_BACKEND=herdr MX_BACKEND_IMPLEMENTATION=legacy \
+  MX_BACKEND=herdr \
     MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" \
     MX_FAKE_DAEMON_ID="$SESSION_START_HERDR_DAEMON_ID" \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"

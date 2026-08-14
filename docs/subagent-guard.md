@@ -203,7 +203,7 @@ Current dated Claude proof lives in [`verification/guards.md`](verification/guar
 
 ## Automated validation
 
-`tests/mx-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/mx-test-run.sh`.
+`tests/mx-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the Rust runner's `pure-contract-unit` family.
 It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop and MCP exclusions; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-Multplx repo; in-scope enforcement for a marked daemon home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
 
 Run:

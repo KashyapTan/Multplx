@@ -126,14 +126,11 @@ MX_LEGACY_TURNEND_PREFIX=$'TURN WOULD END BLIND - supervision is off. The watche
 MX_LEGACY_AWAY_PREFIX="${MX_OPERATIONAL_MARK}Supervisor escalate ("
 
 # The constants above remain available to sourced callers while Rust owns the
-# behavior. The legacy definitions below remain selectable before any mutation.
+# behavior. The source-compatible definitions below are unconditionally
+# replaced by Rust-backed transports before callers can use them.
 MX_OPERATIONAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/mx-rust-runtime.sh
 . "$MX_OPERATIONAL_SCRIPT_DIR/mx-rust-runtime.sh"
-mx_operational_implementation=$(mx_local_state_implementation) || {
-  return 2 2>/dev/null || exit 2
-}
-if [ "$mx_operational_implementation" = rust ]; then
   mx_operational_rust() {
     local rust_bin
     rust_bin=$(mx_rust_runtime_bin) || return $?
@@ -191,7 +188,6 @@ if [ "$mx_operational_implementation" = rust ]; then
     exit $?
   fi
   return 0
-fi
 
 mx_legacy_operational_input_kind() {  # <message> <result-var>
   local message=${1-} result_var=${2-}

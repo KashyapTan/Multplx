@@ -1,9 +1,15 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
 mod authority;
+mod bootstrap;
 mod deep_review;
+mod doctor;
 mod launcher;
 mod review;
+mod session_start;
+mod status_snapshot;
+mod supervision;
+mod system_snapshot;
 mod tooling;
 mod workflow_runtime;
 
@@ -553,12 +559,33 @@ impl Cli {
                     home,
                     marker: ".mx-daemon-home".to_owned(),
                 };
-                for line in multplx_domain::lifecycle::fast_forward::update(
+                let report = multplx_domain::lifecycle::fast_forward::update(
                     &context,
                     &state,
                     &data.join("daemons.md"),
-                ) {
+                );
+                let broker_status = report.broker_status;
+                for line in report.lines {
                     println!("{line}");
+                }
+                let pending_launcher_update = match launcher::registered_update_pending() {
+                    Ok(pending) => pending,
+                    Err(error) => {
+                        eprintln!("mx-update: {error}");
+                        return 1;
+                    }
+                };
+                if broker_status == multplx_domain::lifecycle::fast_forward::Status::Updated
+                    || pending_launcher_update
+                {
+                    match launcher::upgrade_registered_after_update(&context.root, &context.home) {
+                        Ok(Some(line)) => println!("{line}"),
+                        Ok(None) => {}
+                        Err(error) => {
+                            eprintln!("mx-update: {error}");
+                            return 1;
+                        }
+                    }
                 }
                 0
             }
@@ -587,11 +614,12 @@ impl Cli {
             Command::Send { args } => run_send(&args),
             Command::DaemonReport { args } => run_daemon_report(&args),
             Command::HomeSeed { args } => run_home_seed(&args),
-            Command::Spawn { args } => run_lifecycle_compat("mx-spawn.sh", &args),
+            Command::Spawn { args } => run_spawn(&args),
             Command::SuperviseDaemon { args } => {
-                run_lifecycle_compat("mx-supervise-daemon.sh", &args)
+                let (root, home, _) = active_paths();
+                supervision::supervise_daemon(&args, &home, &runtime_root(&root))
             }
-            Command::Teardown { args } => run_lifecycle_compat("mx-teardown.sh", &args),
+            Command::Teardown { args } => run_teardown(&args),
             Command::UpstreamDiff { args } => run_upstream_diff(&args),
             Command::FastForward { args } => run_fast_forward(&args),
             Command::PendingReply { args } => run_pending_reply(&args),
@@ -653,6 +681,119 @@ fn run_session(entry: &str, args: &[OsString]) -> i32 {
         eprint!("{}", result.stderr);
         return result.status;
     }
+    if entry == "mx-session-start.sh" {
+        if !args.is_empty() {
+            eprintln!("error: mx-session-start.sh does not accept arguments");
+            return 2;
+        }
+        let (root, home, data) = active_paths();
+        let source_root = runtime_root(&root);
+        let state = std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("state"));
+        let config = std::env::var_os("MX_CONFIG_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("config"));
+        let harness = detect_primary_harness(&source_root);
+        print!(
+            "{}",
+            session_start::run(
+                &session_start::Paths {
+                    root,
+                    home,
+                    data,
+                    state,
+                    config,
+                    source_root,
+                },
+                &harness
+            )
+        );
+        return 0;
+    }
+    if entry == "mx-bootstrap.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let (root, home, data) = active_paths();
+        let source_root = runtime_root(&root);
+        let paths = bootstrap::Paths {
+            projects: std::env::var_os("MX_PROJECTS_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("projects")),
+            config: std::env::var_os("MX_CONFIG_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("config")),
+            state: std::env::var_os("MX_STATE_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("state")),
+            root,
+            home,
+            data,
+            source_root,
+        };
+        let (status, stdout, stderr) = bootstrap::run(&values, &paths);
+        print!("{stdout}");
+        eprint!("{stderr}");
+        return status;
+    }
+    if entry == "mx-doctor.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let (root, home, data) = active_paths();
+        let paths = doctor::Paths {
+            root,
+            state: std::env::var_os("MX_STATE_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("state")),
+            data,
+        };
+        let (status, stdout, stderr) = doctor::run(&values, &paths);
+        print!("{stdout}");
+        eprint!("{stderr}");
+        return status;
+    }
+    if entry == "mx-status-snapshot.sh" {
+        let values = args
+            .iter()
+            .map(|v| v.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let (root, home, _) = active_paths();
+        let (status, stdout, stderr) = status_snapshot::run(&values, &runtime_root(&root), &home);
+        print!("{stdout}");
+        eprint!("{stderr}");
+        return status;
+    }
+    if entry == "mx-system-snapshot.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let (root, home, data) = active_paths();
+        let source_root = runtime_root(&root);
+        let paths = system_snapshot::Paths {
+            projects: std::env::var_os("MX_PROJECTS_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("projects")),
+            config: std::env::var_os("MX_CONFIG_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("config")),
+            state: std::env::var_os("MX_STATE_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("state")),
+            root,
+            home,
+            data,
+            source_root,
+        };
+        let (status, stdout, stderr) = system_snapshot::run(&values, &paths);
+        print!("{stdout}");
+        eprint!("{stderr}");
+        return status;
+    }
     if entry == "mx-supervision-instructions.sh" {
         let values = args
             .iter()
@@ -688,7 +829,8 @@ fn run_session(entry: &str, args: &[OsString]) -> i32 {
     if entry == "mx-system-view.sh" {
         return run_system_view(args);
     }
-    run_session_compat(entry, args)
+    eprintln!("error: unhandled session entry point: {entry}");
+    2
 }
 
 fn run_system_view(args: &[OsString]) -> i32 {
@@ -697,7 +839,7 @@ fn run_system_view(args: &[OsString]) -> i32 {
         return 0;
     }
     if args.len() == 1 && args[0] == OsStr::new("--json") {
-        return run_session_compat("mx-system-snapshot.sh", &[OsString::from("--json")]);
+        return run_session("mx-system-snapshot.sh", &[OsString::from("--json")]);
     }
     if !args.is_empty() {
         eprint!("{}", multplx_domain::snapshot::SYSTEM_VIEW_USAGE);
@@ -709,22 +851,30 @@ fn run_system_view(args: &[OsString]) -> i32 {
     }
     let (root, _, _) = active_paths();
     let source_root = runtime_root(&root);
-    let output = std::process::Command::new("bash")
-        .arg(source_root.join("bin/mx-system-snapshot.sh"))
-        .arg("--json")
-        .env("MX_SESSION_IMPLEMENTATION", "legacy")
-        .env("MX_RUST_SOURCE_ROOT", &source_root)
-        .output();
-    let Ok(output) = output else {
-        eprintln!("error: could not start mx-system-snapshot.sh");
-        return 1;
+    let (_, home, data) = active_paths();
+    let paths = system_snapshot::Paths {
+        projects: std::env::var_os("MX_PROJECTS_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("projects")),
+        config: std::env::var_os("MX_CONFIG_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("config")),
+        state: std::env::var_os("MX_STATE_OVERRIDE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("state")),
+        root,
+        home,
+        data,
+        source_root,
     };
-    if !output.status.success() {
-        let _ = io::stdout().write_all(&output.stdout);
-        let _ = io::stderr().write_all(&output.stderr);
-        return output.status.code().unwrap_or(1);
+    let (status, stdout, stderr) = system_snapshot::run(&["--json".into()], &paths);
+    if status != 0 {
+        print!("{stdout}");
+        eprint!("{stderr}");
+        return status;
     }
-    match multplx_domain::snapshot::parse_system_snapshot(&output.stdout) {
+    match multplx_domain::snapshot::parse_system_snapshot(stdout.as_bytes()) {
         Ok(snapshot) => {
             print!(
                 "{}",
@@ -756,31 +906,6 @@ fn detect_primary_harness(root: &Path) -> String {
     }
 }
 
-/// Transitional Portion 09 process boundary for the large composed readers.
-/// The selector is pinned before the shell body can acquire a lock, repair
-/// state, recurse into a daemon home, or invoke another Portion 09 entry.
-fn run_session_compat(script: &str, args: &[OsString]) -> i32 {
-    use std::os::unix::process::CommandExt;
-
-    let root = runtime_root(&active_paths().0);
-    let path = root.join("bin").join(script);
-    if !path.is_file() {
-        eprintln!(
-            "error: session compatibility body is unavailable at {}",
-            path.display()
-        );
-        return 1;
-    }
-    let error = std::process::Command::new("bash")
-        .arg(path)
-        .args(args)
-        .env("MX_SESSION_IMPLEMENTATION", "legacy")
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .exec();
-    eprintln!("error: could not start {script}: {error}");
-    1
-}
-
 fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
     const ENTRIES: &[&str] = &[
         "mx-afk-launch.sh",
@@ -802,6 +927,38 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
     if !ENTRIES.contains(&entry) {
         eprintln!("error: unknown supervision entry point: {entry}");
         return 2;
+    }
+    if entry == "mx-cursor-hook.sh" {
+        let mut payload = String::new();
+        let _ = io::stdin().read_to_string(&mut payload);
+        let (root, _, _) = active_paths();
+        let source_root = runtime_root(&root);
+        return supervision::cursor_hook(args, &payload, &source_root);
+    }
+    if entry == "mx-claude-stop-autoarm.sh" {
+        let mut payload = String::new();
+        let _ = io::stdin().read_to_string(&mut payload);
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        let logical_root = std::env::var_os("MX_ROOT_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.clone());
+        return supervision::claude_stop_autoarm(&logical_root, &home, &source_root);
+    }
+    if entry == "mx-afk-start.sh" {
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        return supervision::afk_start(args, &home, &source_root);
+    }
+    if entry == "mx-afk-launch.sh" {
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        return supervision::afk_launch(args, &home, &source_root);
+    }
+    if entry == "mx-afk-return.sh" {
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        return supervision::afk_return(args, &home, &source_root);
     }
     if entry == "mx-report" {
         let values = args
@@ -848,7 +1005,37 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
         eprint!("{}", result.stderr);
         return result.status;
     }
-    run_supervision_compat(entry, args)
+    if entry == "mx-guard.sh" {
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        let detected = detect_primary_harness(&source_root);
+        return supervision::guard(&root, &home, &source_root, &detected);
+    }
+    if entry == "mx-turnend-guard.sh" {
+        let mut payload = String::new();
+        let _ = io::stdin().read_to_string(&mut payload);
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        let detected = detect_primary_harness(&source_root);
+        return supervision::turnend_guard(args, &payload, &root, &home, &source_root, &detected);
+    }
+    if entry == "mx-watch-checkpoint.sh" {
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        return supervision::watch_checkpoint(args, &root, &home, &source_root);
+    }
+    if matches!(entry, "mx-watch.sh" | "mx-watch-arm.sh") {
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        if entry == "mx-watch.sh" {
+            return supervision::watch(&root, &home, &source_root);
+        }
+        if entry == "mx-watch-arm.sh" {
+            return supervision::watch_arm(args, &root, &home, &source_root);
+        }
+    }
+    eprintln!("error: unhandled supervision entry point: {entry}");
+    2
 }
 
 fn run_wake_drain() -> i32 {
@@ -931,38 +1118,11 @@ fn run_wake_drain() -> i32 {
         "{}",
         render_annotations(&state, &records, AnnotationLimits::default())
     );
-    let root = runtime_root(&active_paths().0);
-    let _ = std::process::Command::new("bash")
-        .arg(root.join("bin/mx-guard.sh"))
-        .env("MX_SUPERVISION_IMPLEMENTATION", "legacy")
-        .status();
+    let (root, home, _) = active_paths();
+    let source_root = runtime_root(&root);
+    let detected = detect_primary_harness(&source_root);
+    let _ = supervision::guard(&root, &home, &source_root, &detected);
     0
-}
-
-/// Transitional process boundary for Portion 08 while individual state-machine
-/// handlers move behind this dispatch surface. The child is pinned to the
-/// compatibility body before it can mutate state, preventing mixed-engine
-/// execution and accidental recursive dispatch.
-fn run_supervision_compat(script: &str, args: &[OsString]) -> i32 {
-    use std::os::unix::process::CommandExt;
-
-    let root = runtime_root(&active_paths().0);
-    let path = root.join("bin").join(script);
-    if !path.is_file() {
-        eprintln!(
-            "error: supervision compatibility body is unavailable at {}",
-            path.display()
-        );
-        return 1;
-    }
-    let error = std::process::Command::new("bash")
-        .arg(path)
-        .args(args)
-        .env("MX_SUPERVISION_IMPLEMENTATION", "legacy")
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .exec();
-    eprintln!("error: could not start {script}: {error}");
-    1
 }
 
 fn tmux_target(value: &str) -> Result<multplx_backend::facade::BackendTarget, String> {
@@ -1418,33 +1578,6 @@ fn run_daemon_report(args: &[OsString]) -> i32 {
     }
 }
 
-/// Transitional process boundary for lifecycle commands whose transaction body
-/// is still retained below the thin shell adapter.  Rust owns selection and
-/// recursion prevention; the child is explicitly pinned to the compatibility
-/// body, so a process can never mix Rust spawn with legacy teardown (or the
-/// reverse) through ambient defaults.
-fn run_lifecycle_compat(script: &str, args: &[OsString]) -> i32 {
-    use std::os::unix::process::CommandExt;
-
-    let root = runtime_root(&active_paths().0);
-    let path = root.join("bin").join(script);
-    if !path.is_file() {
-        eprintln!(
-            "error: lifecycle compatibility body is unavailable at {}",
-            path.display()
-        );
-        return 1;
-    }
-    let error = std::process::Command::new("bash")
-        .arg(path)
-        .args(args)
-        .env("MX_LIFECYCLE_IMPLEMENTATION", "legacy")
-        .env("MX_RUST_SOURCE_ROOT", &root)
-        .exec();
-    eprintln!("error: could not start {script}: {error}");
-    1
-}
-
 fn run_upstream_diff(args: &[OsString]) -> i32 {
     let values = args
         .iter()
@@ -1461,19 +1594,1401 @@ fn run_upstream_diff(args: &[OsString]) -> i32 {
 }
 
 fn run_home_seed(args: &[OsString]) -> i32 {
-    if args.len() == 1 && args[0] == OsStr::new("validate") {
-        let (_, _, data) = active_paths();
-        return match multplx_domain::lifecycle::home_seed::validate_registry(
-            &data.join("daemons.md"),
-        ) {
-            Ok(()) => 0,
-            Err(error) => {
-                eprint!("{error}");
-                1
+    let (root, home, data) = active_paths();
+    let context = multplx_domain::lifecycle::home_seed::Context {
+        root,
+        projects: std::env::var_os("MX_PROJECTS_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("projects")),
+        state: std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("state")),
+        home,
+        data,
+    };
+    let output = multplx_domain::lifecycle::home_seed::run(args, &context);
+    print!("{}", output.stdout);
+    eprint!("{}", output.stderr);
+    output.status
+}
+
+fn park_spawn_if_at_limit(
+    args: &[OsString],
+    single_checkout_request: Option<&str>,
+) -> Result<Option<String>, String> {
+    use multplx_backend::headroom::{HeadroomPaths, QueueRecord};
+
+    if args.iter().any(|value| value == "--daemon")
+        || std::env::var("MX_HEADROOM_SKIP_QUEUE").as_deref() == Ok("1")
+    {
+        return Ok(None);
+    }
+    let mut positional = Vec::new();
+    let mut harness = String::new();
+    let mut model = String::new();
+    let mut effort = String::new();
+    let mut backend = "tmux".to_owned();
+    let mut kind = "delivery".to_owned();
+    let mut index = 0_usize;
+    while index < args.len() {
+        let value = args[index]
+            .to_str()
+            .ok_or("spawn argument is not valid UTF-8")?;
+        match value {
+            "--scout" => kind = "scout".to_owned(),
+            "--harness" | "--model" | "--effort" | "--backend" => {
+                let next = args
+                    .get(index + 1)
+                    .and_then(|next| next.to_str())
+                    .ok_or_else(|| format!("{value} requires a value"))?
+                    .to_owned();
+                match value {
+                    "--harness" => harness = next,
+                    "--model" => model = next,
+                    "--effort" => effort = next,
+                    _ => backend = next,
+                }
+                index += 1;
+            }
+            value if value.starts_with("--") => {
+                return Err(format!("unsupported native daemon spawn option: {value}"));
+            }
+            _ => positional.push(value.to_owned()),
+        }
+        index += 1;
+    }
+    let id = positional.first().ok_or("invalid spawn request")?;
+    multplx_core::identifiers::TaskId::parse(id).map_err(|_| "invalid spawn request")?;
+    let project = positional.get(1).ok_or("invalid spawn request")?;
+    if harness.is_empty()
+        && let Some(positional_harness) = positional.get(2)
+    {
+        harness.clone_from(positional_harness);
+    }
+    if positional.len() > 3 {
+        return Err("invalid spawn request".to_owned());
+    }
+    let paths = HeadroomPaths::from_environment();
+    let headroom = multplx_backend::headroom::evaluate(&paths).map_err(|error| {
+        format!("dispatch capacity could not be established; refusing to spawn {id}: {error}")
+    })?;
+    if !headroom.at_limit() {
+        return Ok(None);
+    }
+    if single_checkout_request.is_some() {
+        return Err(
+            "an exact single-checkout grant cannot be queued; retry it after capacity is available"
+                .to_owned(),
+        );
+    }
+    multplx_backend::headroom::queue_add(
+        &paths,
+        &QueueRecord {
+            task_id: id.clone(),
+            project: project.clone(),
+            harness,
+            model,
+            effort,
+            backend,
+            kind,
+            enqueued_at: multplx_backend::headroom::now_epoch(),
+        },
+    )
+    .map(Some)
+    .map_err(|error| error.to_string())
+}
+
+fn resolve_spawn_backend(config: &Path) -> (String, Option<String>) {
+    if let Some(backend) = std::env::var_os("MX_BACKEND").filter(|value| !value.is_empty()) {
+        return (backend.to_string_lossy().into_owned(), None);
+    }
+    if let Ok(contents) = fs::read_to_string(config.join("backend"))
+        && let Some(backend) = contents
+            .lines()
+            .map(|line| {
+                line.chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>()
+            })
+            .find(|line| !line.is_empty())
+    {
+        return (backend, None);
+    }
+    if std::env::var_os("TMUX").is_some_and(|value| !value.is_empty()) {
+        return ("tmux".to_owned(), None);
+    }
+    if std::env::var("HERDR_ENV").as_deref() == Ok("1") {
+        return (
+            "herdr".to_owned(),
+            Some("NOTICE: auto-detected herdr runtime (HERDR_ENV=1) - spawning into the EXPERIMENTAL herdr backend. Set config/backend or pass --backend tmux to opt out.".to_owned()),
+        );
+    }
+    if std::env::var_os("CMUX_WORKSPACE_ID").is_some_and(|value| !value.is_empty()) {
+        return (
+            "cmux".to_owned(),
+            Some("NOTICE: auto-detected cmux runtime (CMUX_WORKSPACE_ID) - spawning into the EXPERIMENTAL cmux backend. Set config/backend or pass --backend tmux to opt out.".to_owned()),
+        );
+    }
+    if cfg!(target_os = "macos")
+        && std::env::var("__CFBundleIdentifier").as_deref() == Ok("com.cmuxterm.app")
+    {
+        return (
+            "cmux".to_owned(),
+            Some("NOTICE: auto-detected cmux runtime (FALLBACK signal __CFBundleIdentifier=com.cmuxterm.app; CMUX_WORKSPACE_ID absent, stripped by cmux's bundled claude wrapper) - spawning into the EXPERIMENTAL cmux backend. Set config/backend or pass --backend tmux to opt out.".to_owned()),
+        );
+    }
+    if cfg!(target_os = "macos") && cmux_app_is_ancestor() {
+        return (
+            "cmux".to_owned(),
+            Some("NOTICE: auto-detected cmux runtime (FALLBACK signal process-ancestry reaching the running cmux app; CMUX_WORKSPACE_ID absent, stripped by cmux's bundled claude wrapper) - spawning into the EXPERIMENTAL cmux backend. Set config/backend or pass --backend tmux to opt out.".to_owned()),
+        );
+    }
+    ("tmux".to_owned(), None)
+}
+
+fn cmux_app_is_ancestor() -> bool {
+    let app_pid = std::process::Command::new("lsappinfo")
+        .args(["info", "-only", "pid", "-app", "com.cmuxterm.app"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|output| output.rsplit_once('=').map(|(_, value)| value.to_owned()))
+        .and_then(|value| {
+            value
+                .trim_matches(|character: char| character.is_whitespace() || character == '"')
+                .parse::<u32>()
+                .ok()
+        });
+    let mut pid = std::process::id();
+    for _ in 0..32 {
+        if app_pid == Some(pid) {
+            return true;
+        }
+        let command = std::process::Command::new("ps")
+            .args(["-o", "comm=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .unwrap_or_default();
+        if command
+            .trim_end()
+            .ends_with("/cmux.app/Contents/MacOS/cmux")
+        {
+            return true;
+        }
+        let Some(parent) = std::process::Command::new("ps")
+            .args(["-o", "ppid=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|output| output.trim().parse::<u32>().ok())
+            .filter(|parent| *parent > 1)
+        else {
+            return false;
+        };
+        pid = parent;
+    }
+    false
+}
+
+fn run_spawn(args: &[OsString]) -> i32 {
+    use multplx_backend::facade::{BackendName, RuntimeBackend, TaskSpec};
+    if multplx_core::gate_refuse::is_gate_agent(
+        std::env::var_os("DEEP_REVIEW_GATE").is_some(),
+        std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
+    ) {
+        eprintln!("{}", multplx_core::gate_refuse::REFUSAL_MESSAGE);
+        return i32::from(multplx_core::gate_refuse::REFUSAL_EXIT);
+    }
+    if args
+        .first()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| {
+            value
+                .split_once('=')
+                .is_some_and(|(id, _)| !id.contains('/'))
+        })
+    {
+        let mut pairs = Vec::new();
+        let mut shared = Vec::new();
+        let mut index = 0_usize;
+        while index < args.len() {
+            let Some(value) = args[index].to_str() else {
+                eprintln!("error: spawn argument is not valid UTF-8");
+                return 1;
+            };
+            if value.starts_with("--") {
+                shared.push(args[index].clone());
+                if matches!(value, "--harness" | "--model" | "--effort" | "--backend") {
+                    let Some(next) = args.get(index + 1) else {
+                        eprintln!("error: {value} requires a value");
+                        return 1;
+                    };
+                    shared.push(next.clone());
+                    index += 1;
+                }
+            } else if let Some((id, project)) = value.split_once('=') {
+                if id.is_empty() || project.is_empty() {
+                    eprintln!("error: invalid batch pair '{value}'");
+                    return 1;
+                }
+                pairs.push((OsString::from(id), OsString::from(project)));
+            } else {
+                eprintln!("batch: batch dispatch expects every argument as id=repo; got '{value}'");
+                return 1;
+            }
+            index += 1;
+        }
+        if pairs.is_empty() {
+            eprintln!("error: invalid spawn request");
+            return 1;
+        }
+        let mut failed = false;
+        for (id, project) in pairs {
+            let id_text = id.to_string_lossy().into_owned();
+            let project_text = project.to_string_lossy().into_owned();
+            let mut request = vec![id, project];
+            request.extend(shared.iter().cloned());
+            let status = run_spawn(&request);
+            if status != 0 {
+                eprintln!("batch: FAILED to spawn {id_text} ({project_text})");
+                failed = true;
+            }
+        }
+        return i32::from(failed);
+    }
+    let mut parse_args = Vec::new();
+    let mut single_checkout_request = None;
+    let mut index = 0_usize;
+    while index < args.len() {
+        let Some(value) = args[index].to_str() else {
+            eprintln!("error: spawn argument is not valid UTF-8");
+            return 1;
+        };
+        if value == "--single-checkout" {
+            let Some(request) = args.get(index + 1).and_then(|value| value.to_str()) else {
+                eprintln!("error: --single-checkout requires a valid request id");
+                return 1;
+            };
+            single_checkout_request = Some(request.to_owned());
+            index += 2;
+            continue;
+        }
+        if let Some(request) = value.strip_prefix("--single-checkout=") {
+            single_checkout_request = Some(request.to_owned());
+        } else {
+            parse_args.push(args[index].clone());
+        }
+        index += 1;
+    }
+    let (root, home, data) = active_paths();
+    let logical_home = home.clone();
+    let source_root = runtime_root(&root);
+    let context = multplx_domain::lifecycle::spawn::Context {
+        root: fs::canonicalize(&root).unwrap_or(root),
+        state: std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .and_then(|path| fs::canonicalize(&path).ok().or(Some(path)))
+            .unwrap_or_else(|| home.join("state")),
+        home: fs::canonicalize(&home).unwrap_or(home),
+        data: if data.as_os_str().is_empty() {
+            logical_home.join("data")
+        } else {
+            fs::canonicalize(&data).unwrap_or(data)
+        },
+        projects: std::env::var_os("MX_PROJECTS_OVERRIDE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| logical_home.join("projects")),
+    };
+    if let Err(error_value) = fs::create_dir_all(&context.state) {
+        eprintln!("error: cannot create state directory: {error_value}");
+        return 1;
+    }
+    let config = std::env::var_os("MX_CONFIG_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| context.home.join("config"));
+    let settings = multplx_backend::harness::HarnessConfig::new(config.clone());
+    if !parse_args.iter().any(|value| value == "--backend") {
+        let (backend, notice) = resolve_spawn_backend(&config);
+        parse_args.push(OsString::from("--backend"));
+        parse_args.push(OsString::from(backend));
+        if let Some(notice) = notice {
+            eprintln!("{notice}");
+        }
+    }
+    match park_spawn_if_at_limit(&parse_args, single_checkout_request.as_deref()) {
+        Ok(Some(output)) => {
+            print!("{output}");
+            return 0;
+        }
+        Ok(None) => {}
+        Err(error_value) => {
+            eprintln!("error: {error_value}");
+            return 1;
+        }
+    }
+    let default_harness = if args.iter().any(|value| value == "--daemon") {
+        settings.daemon(multplx_backend::harness::detect())
+    } else {
+        settings.actor(multplx_backend::harness::detect())
+    };
+    let request = match multplx_domain::lifecycle::spawn::parse(
+        &parse_args,
+        &context,
+        default_harness.as_str(),
+    ) {
+        Ok(request) => request,
+        Err(error_value) => {
+            eprintln!("error: {error_value}");
+            return 1;
+        }
+    };
+    let mut request = request;
+    if single_checkout_request.is_some() && request.kind != "delivery" {
+        eprintln!("error: --single-checkout is supported only for one delivery task");
+        return 1;
+    }
+    let mut spawn_positionals = 0_usize;
+    let mut explicit_harness = false;
+    let mut explicit_model = false;
+    let mut explicit_effort = false;
+    let mut skip_value = false;
+    for argument in &parse_args {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        let Some(argument) = argument.to_str() else {
+            eprintln!("error: spawn argument is not valid UTF-8");
+            return 1;
+        };
+        match argument {
+            "--harness" => {
+                explicit_harness = true;
+                skip_value = true;
+            }
+            "--model" => {
+                explicit_model = true;
+                skip_value = true;
+            }
+            "--effort" => {
+                explicit_effort = true;
+                skip_value = true;
+            }
+            "--backend" => skip_value = true,
+            value if value.starts_with("--") => {}
+            _ => spawn_positionals += 1,
+        }
+    }
+    explicit_harness |= spawn_positionals >= 3;
+    if request.kind == "daemon" && !explicit_harness {
+        if !explicit_model && let Some(model) = settings.daemon_model() {
+            request.model = model;
+        }
+        if !explicit_effort && let Some(effort) = settings.daemon_effort() {
+            request.effort = effort;
+        }
+    }
+    if !matches!(
+        request.harness.as_str(),
+        "codex" | "claude" | "pi" | "cursor"
+    ) && !request.harness.contains(' ')
+    {
+        eprintln!(
+            "error: no launch template for harness '{}'{}",
+            request.harness,
+            if request.kind == "daemon" {
+                " (check config/daemon-harness or the explicit selection)"
+            } else {
+                ""
+            }
+        );
+        return 1;
+    }
+    if request.kind != "daemon" && config.join("actor-dispatch.json").is_file() && !explicit_harness
+    {
+        eprintln!(
+            "error: config/actor-dispatch.json is active - pass an explicit harness resolved from the dispatch rules"
+        );
+        return 1;
+    }
+    let mut single_checkout_store = None;
+    if let Some(request_id) = single_checkout_request.as_deref() {
+        let git_value = |arguments: &[&str]| -> Result<String, String> {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&request.project)
+                .args(arguments)
+                .output()
+                .map_err(|error_value| error_value.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+            }
+            String::from_utf8(output.stdout)
+                .map(|value| value.trim().to_owned())
+                .map_err(|_| "git output is not valid UTF-8".to_owned())
+        };
+        if !git_value(&["status", "--porcelain=v1", "--untracked-files=all"])
+            .is_ok_and(|value| value.is_empty())
+        {
+            eprintln!(
+                "error: single-checkout mode requires a clean checkout so task material remains attributable"
+            );
+            return 1;
+        }
+        let base_head = match git_value(&["rev-parse", "HEAD"]) {
+            Ok(value) => value,
+            Err(error_value) => {
+                eprintln!("error: {error_value}");
+                return 1;
             }
         };
+        let base_branch = match git_value(&["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+            Ok(value) => value,
+            Err(_) => {
+                eprintln!("error: single-checkout mode requires an attached base branch");
+                return 1;
+            }
+        };
+        let claim = match multplx_core::locks::DirectoryLock::acquire_wait(
+            context.state.join(".single-checkout.acquire"),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        ) {
+            Ok(claim) => claim,
+            Err(error_value) => {
+                eprintln!("error: could not serialize single-checkout reservation: {error_value}");
+                return 1;
+            }
+        };
+        let Some(project_text) = request.project.to_str() else {
+            eprintln!("error: project path is not valid UTF-8");
+            return 1;
+        };
+        let record = context.state.join(format!(
+            ".single-checkout-{}.json",
+            multplx_domain::maintainer_override::sha256_text(project_text)
+        ));
+        if record.exists() || fs::symlink_metadata(&record).is_ok() {
+            eprintln!("error: checkout already has a single-checkout reservation");
+            return 1;
+        }
+        let binding_value = match authority::single_checkout_binding(&request.id, &request.project)
+        {
+            Ok(value) => value,
+            Err(error_value) => {
+                eprintln!("error: {error_value}");
+                return 1;
+            }
+        };
+        let field = |name: &str| {
+            binding_value
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+        };
+        let binding = multplx_domain::maintainer_override::Binding {
+            boundary: field("boundary"),
+            task: field("task"),
+            project: field("project"),
+            operation: field("operation"),
+            target: field("target"),
+            expected_state_digest: field("expected_state_digest"),
+        };
+        let store = multplx_domain::maintainer_override::OverrideStore::new(&context.state);
+        if let Err(error_value) = store.consume(request_id, &binding) {
+            eprintln!("error: {error_value}");
+            return 1;
+        }
+        let record_value = serde_json::json!({
+            "version": 1,
+            "task_id": request.id,
+            "target_identity": request.project,
+            "request_id": request_id,
+            "base_head": base_head,
+            "base_branch": base_branch,
+        });
+        if let Err(error_value) = multplx_core::filesystem::atomic_replace(
+            &record,
+            serde_json::to_string(&record_value)
+                .unwrap_or_default()
+                .as_bytes(),
+            0o600,
+        ) {
+            let _ = store.result(
+                request_id,
+                false,
+                &format!("single-checkout reservation failed: {error_value}"),
+            );
+            eprintln!("error: {error_value}");
+            return 1;
+        }
+        drop(claim);
+        request.single_checkout_override = Some(request_id.to_owned());
+        request.single_checkout_record = Some(record);
+        request.single_checkout_base_head = Some(base_head);
+        request.single_checkout_base_branch = Some(base_branch);
+        single_checkout_store = Some(store);
     }
-    run_lifecycle_compat("mx-home-seed.sh", args)
+    let lock_path = context.state.join(format!(".spawn-{}.lock", request.id));
+    let lock = match multplx_core::locks::DirectoryLock::acquire_wait(
+        lock_path,
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    ) {
+        Ok(lock) => lock,
+        Err(error_value) => {
+            eprintln!("error: cannot acquire spawn lock: {error_value}");
+            return 1;
+        }
+    };
+    let recovering_daemon = request.kind == "daemon"
+        && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1")
+        && context.state.join(format!("{}.meta", request.id)).is_file();
+    let presentation_enabled = request.backend == "herdr"
+        && request.kind != "daemon"
+        && config.join("herdr-presentation-spaces").is_file();
+    let presentation_journal =
+        multplx_backend::herdr_presentation::journal_path(&context.state, &request.id);
+    let recovering_projection = presentation_enabled
+        && (presentation_journal.exists() || fs::symlink_metadata(&presentation_journal).is_ok());
+    if context.state.join(format!("{}.meta", request.id)).exists()
+        && !recovering_daemon
+        && !recovering_projection
+    {
+        eprintln!("error: metadata for {} already exists", request.id);
+        return 1;
+    }
+    if request.kind == "daemon" && !recovering_daemon {
+        if let Some(commit) =
+            multplx_domain::lifecycle::fast_forward::primary_head_commit(&context.root)
+        {
+            let outcome = multplx_domain::lifecycle::fast_forward::fast_forward(
+                &request.home,
+                &format!("daemon {}", request.id),
+                &multplx_domain::lifecycle::fast_forward::Base::Commit(commit),
+                true,
+                true,
+            );
+            if outcome.status == multplx_domain::lifecycle::fast_forward::Status::Skipped {
+                let reason = outcome
+                    .line
+                    .split_once(": skipped: ")
+                    .map_or(outcome.line.as_str(), |(_, reason)| reason);
+                eprintln!(
+                    "warning: daemon {} sync skipped before launch: {reason}",
+                    request.id
+                );
+            }
+        } else {
+            eprintln!(
+                "warning: daemon {} sync skipped before launch: primary default-branch commit cannot be resolved",
+                request.id
+            );
+        }
+    }
+    let _inherit_lock = if request.kind == "daemon" && !recovering_daemon {
+        let inherit_lock = match multplx_domain::inheritance::acquire_inherit_lock(&request.home) {
+            Ok(lock) => lock,
+            Err(error_value) => {
+                eprintln!(
+                    "error: could not acquire daemon inheritance lock for {}: {error_value}",
+                    request.home.display()
+                );
+                return 1;
+            }
+        };
+        match multplx_domain::inheritance::propagate_daemon(
+            &context.home,
+            &request.home,
+            Some(&config),
+            Some(&context.data),
+        ) {
+            Ok(outcome) => {
+                print!("{}", outcome.stdout);
+                eprint!("{}", outcome.stderr);
+                if outcome.failed {
+                    eprintln!(
+                        "warning: daemon {} inheritance failed for {}",
+                        request.id,
+                        request.home.display()
+                    );
+                }
+            }
+            Err(error_value) => eprintln!(
+                "warning: daemon {} inheritance failed for {}: {error_value}",
+                request.id,
+                request.home.display()
+            ),
+        }
+        Some(inherit_lock)
+    } else {
+        None
+    };
+    let mut created_target = None;
+    let mut herdr_endpoint = None;
+    let mut projected_endpoint = None;
+    let mut presentation_lock = None;
+    let herdr_backend = || {
+        multplx_backend::herdr::HerdrBackend::new(
+            multplx_backend::command::SystemCommandRunner,
+            std::env::var_os("MX_HERDR_BIN").unwrap_or_else(|| OsString::from("herdr")),
+            std::env::var("HERDR_SESSION").unwrap_or_else(|_| "default".to_owned()),
+            request.home.clone(),
+        )
+    };
+    let result: Result<_, String> = (|| {
+        let spec = TaskSpec {
+            label: format!("mx-{}", request.id),
+            working_directory: request.project.clone(),
+        };
+        let (target, named_endpoint) = match request.backend.as_str() {
+            "tmux" => {
+                let mut backend = multplx_backend::tmux::TmuxBackend::system();
+                let container = backend
+                    .container_ensure()
+                    .map_err(|error_value| error_value.to_string())?;
+                let target = backend
+                    .task_create(&container, &spec)
+                    .map_err(|error_value| error_value.to_string())?;
+                (target, format!("{}:mx-{}", container.as_str(), request.id))
+            }
+            "herdr" => 'herdr: {
+                let mut backend = herdr_backend();
+                if presentation_enabled {
+                    use multplx_backend::herdr_presentation::{
+                        ProjectionSpawnOutcome, ProjectionSpawnRequest, spawn_projection,
+                    };
+                    let projection = spawn_projection(
+                        &mut backend,
+                        &ProjectionSpawnRequest {
+                            state: &context.state,
+                            task_id: &request.id,
+                            home: &request.home,
+                            cwd: &request.project,
+                            task_label: &spec.label,
+                            recovering: recovering_projection,
+                        },
+                    )
+                    .map_err(|error_value| error_value.to_string())?;
+                    match projection {
+                        ProjectionSpawnOutcome::Projected {
+                            target,
+                            endpoint,
+                            lock,
+                            warnings,
+                        } => {
+                            for warning in warnings {
+                                eprintln!("warning: {warning}");
+                            }
+                            presentation_lock = Some(lock);
+                            let named_endpoint = target.endpoint().to_owned();
+                            herdr_endpoint = Some((
+                                endpoint.session,
+                                endpoint.workspace_id,
+                                endpoint.tab_id,
+                                endpoint.pane_id,
+                            ));
+                            projected_endpoint = herdr_endpoint
+                                .as_ref()
+                                .map(|(session, _, _, pane)| (session.clone(), pane.clone()));
+                            break 'herdr (target, named_endpoint);
+                        }
+                        ProjectionSpawnOutcome::Flat { warning } => eprintln!("warning: {warning}"),
+                    }
+                }
+                let container = if recovering_daemon {
+                    let prior =
+                        fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+                            .unwrap_or_default();
+                    let session = prior
+                        .lines()
+                        .rev()
+                        .find_map(|line| line.strip_prefix("herdr_session="))
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("default");
+                    let workspace = prior
+                        .lines()
+                        .rev()
+                        .find_map(|line| line.strip_prefix("herdr_workspace_id="))
+                        .ok_or("recovering Herdr daemon has no recorded workspace")?;
+                    multplx_backend::facade::ContainerId::for_backend(
+                        BackendName::Herdr,
+                        format!("{session}:{workspace}"),
+                    )
+                    .map_err(|error_value| error_value.to_string())?
+                } else {
+                    backend
+                        .container_ensure()
+                        .map_err(|error_value| error_value.to_string())?
+                };
+                let seeded_tab = backend.seeded_tab_id().map(str::to_owned);
+                let endpoint = backend
+                    .create_task_full(&container, &spec, seeded_tab.as_deref())
+                    .map_err(|error_value| error_value.to_string())?;
+                let named_endpoint = endpoint.target.endpoint().to_owned();
+                let (session, workspace) = container
+                    .as_str()
+                    .split_once(':')
+                    .ok_or("Herdr container is missing its session scope")?;
+                herdr_endpoint = Some((
+                    session.to_owned(),
+                    workspace.to_owned(),
+                    endpoint.tab_id,
+                    endpoint.pane_id,
+                ));
+                (endpoint.target, named_endpoint)
+            }
+            "cmux" => {
+                let mut backend = multplx_backend::cmux::CmuxBackend::system();
+                let container = backend
+                    .container_ensure()
+                    .map_err(|error_value| error_value.to_string())?;
+                let target = backend
+                    .task_create(&container, &spec)
+                    .map_err(|error_value| error_value.to_string())?;
+                let endpoint = target.endpoint().to_owned();
+                (target, endpoint)
+            }
+            _ => unreachable!(),
+        };
+        created_target = Some(target.clone());
+        let actor_worktree = if request.kind == "daemon" {
+            request.home.clone()
+        } else if request.single_checkout_override.is_some() {
+            request.project.clone()
+        } else {
+            match target.backend() {
+                BackendName::Tmux => {
+                    let mut backend = multplx_backend::tmux::TmuxBackend::system();
+                    backend
+                        .send_literal(&target, "treehouse get")
+                        .and_then(|()| backend.send_key(&target, "Enter"))
+                        .map_err(|error_value| error_value.to_string())?;
+                }
+                BackendName::Herdr => {
+                    let mut backend = herdr_backend();
+                    backend
+                        .send_literal(&target, "treehouse get")
+                        .and_then(|()| backend.send_key(&target, "Enter"))
+                        .map_err(|error_value| error_value.to_string())?;
+                }
+                BackendName::Cmux => {
+                    let mut backend = multplx_backend::cmux::CmuxBackend::system();
+                    backend
+                        .send_literal(&target, "treehouse get")
+                        .and_then(|()| backend.send_key(&target, "Enter"))
+                        .map_err(|error_value| error_value.to_string())?;
+                }
+            }
+            let project = fs::canonicalize(&request.project)
+                .map_err(|error_value| format!("cannot resolve project: {error_value}"))?;
+            let mut candidate = None;
+            let mut settled = None;
+            for _ in 0..60 {
+                let current = match target.backend() {
+                    BackendName::Tmux => {
+                        multplx_backend::tmux::TmuxBackend::system().current_path(&target)
+                    }
+                    BackendName::Herdr => herdr_backend().current_path(&target),
+                    BackendName::Cmux => {
+                        multplx_backend::cmux::CmuxBackend::system().current_path(&target)
+                    }
+                };
+                if let Ok(path) = current {
+                    let observed = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                    if observed != project {
+                        if candidate.as_ref() == Some(&observed) {
+                            settled = Some(path);
+                            break;
+                        }
+                        candidate = Some(observed);
+                    } else {
+                        candidate = None;
+                    }
+                } else {
+                    candidate = None;
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            let worktree = settled.ok_or_else(|| {
+                format!(
+                    "treehouse get did not enter a worktree within 60s; inspect window {named_endpoint}"
+                )
+            })?;
+            if !worktree.is_dir() {
+                return Err(format!(
+                    "treehouse get did not yield an isolated worktree: {}",
+                    worktree.display()
+                ));
+            }
+            let output = std::process::Command::new("git")
+                .args([
+                    "-C",
+                    worktree
+                        .to_str()
+                        .ok_or("worktree path is not valid UTF-8")?,
+                    "rev-parse",
+                    "--show-toplevel",
+                ])
+                .output()
+                .map_err(|error_value| error_value.to_string())?;
+            if !output.status.success() {
+                return Err("treehouse get did not yield an isolated worktree".to_owned());
+            }
+            let top = PathBuf::from(
+                String::from_utf8(output.stdout)
+                    .map_err(|_| "git worktree path is not UTF-8")?
+                    .trim(),
+            );
+            if fs::canonicalize(top).ok() != fs::canonicalize(&worktree).ok() {
+                return Err("treehouse get did not yield an isolated worktree".to_owned());
+            }
+            worktree
+        };
+        multplx_domain::lifecycle::spawn::publish_meta_for_worktree(
+            &context,
+            &request,
+            &named_endpoint,
+            &actor_worktree,
+        )?;
+        if let Some((session, workspace, tab, pane)) = herdr_endpoint.as_ref() {
+            let meta_path = context.state.join(format!("{}.meta", request.id));
+            let mut meta = fs::read_to_string(&meta_path)
+                .map_err(|error_value| format!("cannot read published metadata: {error_value}"))?;
+            meta.push_str(&format!(
+                "herdr_session={session}\nherdr_workspace_id={workspace}\nherdr_tab_id={tab}\nherdr_pane_id={pane}\n"
+            ));
+            multplx_core::filesystem::atomic_replace(&meta_path, meta.as_bytes(), 0o600)
+                .map_err(|error_value| error_value.to_string())?;
+        }
+        let brief = if request.kind == "daemon" {
+            request.home.join("data/charter.md")
+        } else {
+            context.data.join(&request.id).join("brief.md")
+        };
+        let report_server = source_root.join("bin/mx-report-mcp");
+        let task_tmp = PathBuf::from(format!("/tmp/mx-{}", request.id));
+        fs::create_dir_all(task_tmp.join("gotmp"))
+            .map_err(|error_value| error_value.to_string())?;
+        let cursor_plugin = task_tmp.join("cursor-turnend-plugin");
+        if request.harness == "cursor" && request.kind != "daemon" {
+            fs::create_dir_all(cursor_plugin.join(".cursor-plugin"))
+                .and_then(|()| fs::create_dir_all(cursor_plugin.join("hooks")))
+                .map_err(|error_value| error_value.to_string())?;
+            multplx_core::filesystem::atomic_replace(
+                cursor_plugin.join(".cursor-plugin/plugin.json"),
+                serde_json::to_string(&serde_json::json!({
+                    "name": format!("multplx-turnend-{}", request.id),
+                    "version": "1.0.0",
+                    "description": "Private Multplx actor turn-end signal.",
+                    "hooks": "./hooks/hooks.json"
+                }))
+                .map_err(|error_value| error_value.to_string())?
+                .as_bytes(),
+                0o600,
+            )
+            .map_err(|error_value| error_value.to_string())?;
+            multplx_core::filesystem::atomic_replace(
+                cursor_plugin.join("hooks/hooks.json"),
+                br#"{"version":1,"hooks":{"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
+                0o600,
+            )
+            .map_err(|error_value| error_value.to_string())?;
+            let stop = format!(
+                "#!/usr/bin/env bash\nset -eu\ncat >/dev/null\ntouch '{}'\nprintf '%s\\n' '{{}}'\n",
+                context
+                    .state
+                    .join(format!("{}.turn-ended", request.id))
+                    .display()
+            );
+            multplx_core::filesystem::atomic_replace(
+                cursor_plugin.join("hooks/stop.sh"),
+                stop.as_bytes(),
+                0o700,
+            )
+            .map_err(|error_value| error_value.to_string())?;
+        }
+        let mcp_config = task_tmp.join("report-mcp.json");
+        let report_home = if request.kind == "daemon" {
+            request.home.clone()
+        } else {
+            logical_home.clone()
+        };
+        let mcp_json = serde_json::json!({"mcpServers":{"multplx_status":{"type":"stdio","command":report_server,"args":[],"env":{"MX_TASK_ID":request.id,"MX_HOME":report_home,"MX_REPORT_STATE_OVERRIDE":context.state}}}});
+        multplx_core::filesystem::atomic_replace(
+            &mcp_config,
+            serde_json::to_string(&mcp_json)
+                .map_err(|error_value| error_value.to_string())?
+                .as_bytes(),
+            0o600,
+        )
+        .map_err(|error_value| error_value.to_string())?;
+        let model = if request.model == "default" {
+            String::new()
+        } else {
+            format!("--model '{}' ", request.model)
+        };
+        let effort = if request.effort == "default" {
+            String::new()
+        } else {
+            format!("--effort '{}' ", request.effort)
+        };
+        let codex_effort = if request.effort == "default" || request.effort == "max" {
+            String::new()
+        } else {
+            format!("-c 'model_reasoning_effort=\"{}\"' ", request.effort)
+        };
+        let codex_mcp = format!(
+            "-c 'mcp_servers.multplx_status={{command=\"{}\",args=[],env={{MX_TASK_ID=\"{}\",MX_HOME=\"{}\",MX_REPORT_STATE_OVERRIDE=\"{}\"}}}}' ",
+            report_server.display(),
+            request.id,
+            request.home.display(),
+            context.state.display()
+        );
+        let launch = match request.harness.as_str() {
+            "codex" => format!(
+                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' codex {codex_mcp}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox \"$('{}' encode launch-brief < '{}')\"",
+                request.home.display(),
+                request.id,
+                context.state.display(),
+                source_root.join("bin/mx-operational-input.sh").display(),
+                brief.display()
+            ),
+            "claude" => format!(
+                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --mcp-config '{}' {model}{effort}\"$('{}' encode launch-brief < '{}')\"",
+                request.home.display(),
+                request.id,
+                context.state.display(),
+                mcp_config.display(),
+                source_root.join("bin/mx-operational-input.sh").display(),
+                brief.display()
+            ),
+            "pi" => format!(
+                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' pi {model}{}{}\"$('{}' encode launch-brief < '{}')\"",
+                request.home.display(),
+                request.id,
+                context.state.display(),
+                if request.effort != "default" {
+                    format!("--thinking '{}' ", request.effort)
+                } else {
+                    String::new()
+                },
+                if request.kind == "daemon" {
+                    format!(
+                        "-e '{}' -e '{}' ",
+                        request
+                            .home
+                            .join(".pi/extensions/mx-primary-turnend-guard.ts")
+                            .display(),
+                        request
+                            .home
+                            .join(".pi/extensions/mx-primary-pi-watch.ts")
+                            .display()
+                    )
+                } else {
+                    format!(
+                        "-e '{}.pi-ext.ts' ",
+                        context.state.join(&request.id).display()
+                    )
+                },
+                source_root.join("bin/mx-operational-input.sh").display(),
+                brief.display()
+            ),
+            "cursor" => {
+                let cursor_model = if request.model == "default" {
+                    String::new()
+                } else if request.effort == "default" || request.model.contains('[') {
+                    format!("--model '{}' ", request.model)
+                } else {
+                    format!("--model '{}[effort={}]' ", request.model, request.effort)
+                };
+                format!(
+                    "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' agent --sandbox enabled --trust '{}' {cursor_model}\"$('{}' encode launch-brief < '{}')\"",
+                    request.home.display(),
+                    request.id,
+                    context.state.display(),
+                    cursor_plugin.display(),
+                    source_root.join("bin/mx-operational-input.sh").display(),
+                    brief.display()
+                )
+            }
+            other if other.contains(' ') => format!(
+                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' {other}",
+                request.home.display(),
+                request.id,
+                context.state.display()
+            ),
+            other => return Err(format!("unknown harness '{other}'")),
+        };
+        let launch = if request.kind == "daemon" {
+            format!(
+                "MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= {launch}"
+            )
+        } else {
+            launch
+        };
+        let launch = format!(
+            "env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN -u GH_CONFIG_DIR -u SSH_AUTH_SOCK -u MX_DELIVERY_GH_TOKEN -u MX_DELIVERY_GH_CONFIG_DIR GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=remote.origin.pushurl GIT_CONFIG_VALUE_1=/dev/null/multplx-agent-no-push GIT_SSH_COMMAND='ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null' {launch}"
+        );
+        match target.backend() {
+            BackendName::Tmux => {
+                let mut backend = multplx_backend::tmux::TmuxBackend::system();
+                backend
+                    .send_literal(&target, &launch)
+                    .and_then(|()| backend.send_key(&target, "Enter"))
+            }
+            BackendName::Herdr => {
+                let mut backend = herdr_backend();
+                backend
+                    .send_literal(&target, &launch)
+                    .and_then(|()| backend.send_key(&target, "Enter"))
+            }
+            BackendName::Cmux => {
+                let mut backend = multplx_backend::cmux::CmuxBackend::system();
+                backend
+                    .send_literal(&target, &launch)
+                    .and_then(|()| backend.send_key(&target, "Enter"))
+            }
+        }
+        .map_err(|error_value| error_value.to_string())?;
+        let task = multplx_core::identifiers::TaskId::parse(&request.id)
+            .map_err(|error_value| error_value.to_string())?;
+        let timestamp = {
+            let now = time::OffsetDateTime::now_utc();
+            format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+                now.year(),
+                u8::from(now.month()),
+                now.day(),
+                now.hour(),
+                now.minute(),
+                now.second()
+            )
+        };
+        let detail = serde_json::json!({
+            "kind": request.kind,
+            "backend": request.backend,
+            "worktree": actor_worktree,
+            "branch": request.single_checkout_base_branch.as_deref().unwrap_or("")
+        });
+        if let Some(warning) = multplx_core::journal::JournalWriter::new(&context.state).try_emit(
+            &task,
+            multplx_core::journal::JournalEvent::TaskSpawned,
+            &detail,
+            "mx-spawn",
+            &timestamp,
+        ) {
+            eprintln!("{warning}");
+        }
+        if request.kind == "daemon"
+            && !multplx_domain::inheritance::discard_pending(
+                &request.home,
+                Some(&request.id),
+                Some(&context.home),
+            )
+        {
+            if multplx_domain::inheritance::quarantine_pending(
+                &request.home,
+                Some(&request.id),
+                Some(&context.home),
+            ) {
+                eprintln!(
+                    "CONFIG_REREAD: daemon {}: quarantined pre-relaunch generations after cleanup failure",
+                    request.id
+                );
+            } else {
+                eprintln!(
+                    "CONFIG_REREAD: daemon {}: cleanup failed; pre-relaunch generations were force-cleared where possible",
+                    request.id
+                );
+            }
+        }
+        Ok(named_endpoint)
+    })();
+    drop(lock);
+    match result {
+        Ok(endpoint) => {
+            drop(presentation_lock);
+            if let (Some(store), Some(request_id)) = (
+                single_checkout_store.as_ref(),
+                single_checkout_request.as_deref(),
+            ) && let Err(error_value) = store.result(
+                request_id,
+                true,
+                &format!(
+                    "single-checkout task {} launched in {}",
+                    request.id,
+                    request.project.display()
+                ),
+            ) {
+                eprintln!("error: could not record single-checkout result: {error_value}");
+                return 1;
+            }
+            let reported_worktree =
+                fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+                    .ok()
+                    .and_then(|text| {
+                        text.lines()
+                            .find_map(|line| line.strip_prefix("worktree="))
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or_else(|| request.project.display().to_string());
+            println!(
+                "spawned {} harness={} kind={} mode={} yolo=off window={endpoint} worktree={}",
+                request.id,
+                request.harness,
+                request.kind,
+                if request.kind == "daemon" {
+                    "daemon"
+                } else {
+                    "deep-review"
+                },
+                reported_worktree
+            );
+            0
+        }
+        Err(error_value) => {
+            if let Some((session, pane)) = projected_endpoint.as_ref() {
+                let _ = herdr_backend().close_pane_focus_preserving(session, pane, None);
+            }
+            drop(presentation_lock);
+            if projected_endpoint.is_none()
+                && let Some(target) = created_target.as_ref()
+            {
+                match target.backend() {
+                    BackendName::Tmux => {
+                        let _ = multplx_backend::tmux::TmuxBackend::system().kill_verified(target);
+                    }
+                    BackendName::Herdr => {
+                        let _ = herdr_backend().kill_verified(target);
+                    }
+                    BackendName::Cmux => {
+                        let _ = multplx_backend::cmux::CmuxBackend::system().kill_verified(target);
+                    }
+                }
+            }
+            let _ = fs::remove_file(context.state.join(format!("{}.meta", request.id)));
+            if let Some(record) = request.single_checkout_record.as_deref() {
+                let _ = fs::remove_file(record);
+            }
+            if let (Some(store), Some(request_id)) = (
+                single_checkout_store.as_ref(),
+                single_checkout_request.as_deref(),
+            ) {
+                let _ = store.result(
+                    request_id,
+                    false,
+                    &format!("single-checkout spawn failed: {error_value}"),
+                );
+            }
+            eprintln!("error: {error_value}");
+            1
+        }
+    }
+}
+
+fn run_teardown(args: &[OsString]) -> i32 {
+    if multplx_core::gate_refuse::is_gate_agent(
+        std::env::var_os("DEEP_REVIEW_GATE").is_some(),
+        std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
+    ) {
+        eprintln!("{}", multplx_core::gate_refuse::REFUSAL_MESSAGE);
+        return i32::from(multplx_core::gate_refuse::REFUSAL_EXIT);
+    }
+    let (root, home, data) = active_paths();
+    let context = multplx_domain::lifecycle::teardown::Context {
+        root,
+        state: std::env::var_os("MX_STATE_OVERRIDE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("state")),
+        home,
+        data,
+    };
+    let output = if let [raw_id, flag, raw_request] = args
+        && flag == "--override"
+    {
+        let Some(id) = raw_id.to_str() else {
+            eprintln!("error: task id is not valid UTF-8");
+            return 2;
+        };
+        let Some(request) = raw_request.to_str() else {
+            eprintln!("error: override request id is not valid UTF-8");
+            return 2;
+        };
+        let binding_value = match authority::cleanup_binding(id) {
+            Ok(value) => value,
+            Err(error_value) => {
+                eprintln!("error: {error_value}");
+                return 1;
+            }
+        };
+        let field = |name: &str| {
+            binding_value
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+        };
+        let binding = multplx_domain::maintainer_override::Binding {
+            boundary: field("boundary"),
+            task: field("task"),
+            project: field("project"),
+            operation: field("operation"),
+            target: field("target"),
+            expected_state_digest: field("expected_state_digest"),
+        };
+        let store = multplx_domain::maintainer_override::OverrideStore::new(&context.state);
+        if let Err(error_value) = store.consume(request, &binding) {
+            eprintln!("error: {error_value}");
+            return 1;
+        }
+        let output =
+            multplx_domain::lifecycle::teardown::run_override(id, &context, kill_teardown_endpoint);
+        let detail = format!(
+            "cleanup.discard-unlanded teardown exited with status {}",
+            output.status
+        );
+        if let Err(error_value) = store.result(request, output.status == 0, &detail) {
+            eprintln!("warning: could not record teardown override outcome: {error_value}");
+            if output.status == 0 {
+                return 1;
+            }
+        }
+        output
+    } else if args.iter().any(|value| value == "--force") {
+        multplx_domain::lifecycle::teardown::Output {
+            status: 2,
+            stdout: String::new(),
+            stderr: "REFUSED: --force is not an authority source; request and consume an exact cleanup.discard-unlanded grant.\n".to_owned(),
+        }
+    } else {
+        let scout_preflight = (|| -> Result<(), String> {
+            let [raw_id] = args else {
+                return Ok(());
+            };
+            let Some(id) = raw_id.to_str() else {
+                return Ok(());
+            };
+            let meta = context.state.join(format!("{id}.meta"));
+            let raw = match fs::read_to_string(&meta) {
+                Ok(raw) => raw,
+                Err(_) => return Ok(()),
+            };
+            let is_scout = raw.lines().rev().any(|line| line == "kind=scout");
+            if !is_scout {
+                return Ok(());
+            }
+            let report = context.data.join(id).join("report.md");
+            if !report.is_file() {
+                return Err(format!(
+                    "REFUSED: scout task {id} has no report at {}.",
+                    report.display()
+                ));
+            }
+            authority::verify_decision_completion(id).map_err(|_| {
+                format!(
+                    "REFUSED: scout task {id} has not passed the unresolved-decision completion gate."
+                )
+            })
+        })();
+        match scout_preflight {
+            Ok(()) => {
+                multplx_domain::lifecycle::teardown::run(args, &context, kill_teardown_endpoint)
+            }
+            Err(message) => multplx_domain::lifecycle::teardown::Output {
+                status: 1,
+                stdout: String::new(),
+                stderr: format!("{message}\n"),
+            },
+        }
+    };
+    print!("{}", output.stdout);
+    eprint!("{}", output.stderr);
+    output.status
+}
+
+fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
+    use multplx_backend::facade::{
+        BackendName, BackendTarget, KillOutcome, RuntimeBackend, backend_of_meta, target_of_meta,
+    };
+    if !meta.exists() {
+        return Ok(());
+    }
+    let backend = backend_of_meta(meta).map_err(|error_value| error_value.to_string())?;
+    let Some(endpoint) = target_of_meta(meta).map_err(|error_value| error_value.to_string())?
+    else {
+        return Ok(());
+    };
+    let id = meta
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| format!("task metadata path is not valid UTF-8: {}", meta.display()))?;
+    let state = meta
+        .parent()
+        .ok_or("task metadata has no state directory")?;
+    if backend == BackendName::Herdr {
+        let raw = fs::read_to_string(meta).unwrap_or_default();
+        let value = |key: &str| {
+            raw.lines()
+                .rev()
+                .find_map(|line| line.strip_prefix(&format!("{key}=")))
+                .unwrap_or_default()
+        };
+        let journal = state.join(format!("{id}.herdr-presentation"));
+        let session = value("herdr_session");
+        let workspace = value("herdr_workspace_id");
+        let pane = value("herdr_pane_id");
+        if journal.exists()
+            && !session.is_empty()
+            && !workspace.is_empty()
+            && !pane.is_empty()
+            && endpoint == format!("{session}:{pane}")
+        {
+            let mut herdr = multplx_backend::herdr::HerdrBackend::system();
+            if herdr.projection_endpoint_matches_journal(session, workspace, &journal, id) {
+                let _ = herdr.close_pane_focus_preserving(session, pane, None);
+                if herdr.pane_agent_state(session, pane)
+                    == multplx_backend::herdr::PaneAgentState::Dead
+                {
+                    let _ = fs::remove_file(&journal);
+                } else {
+                    eprintln!(
+                        "warning: exact herdr task-pane close could not be confirmed for {id}; retaining the presentation journal and attempting no workspace cleanup"
+                    );
+                }
+                let _ = multplx_backend::herdr::clear_transition(state, &endpoint);
+                return Ok(());
+            }
+        }
+    }
+    let target = BackendTarget::new(backend, endpoint, Some(format!("mx-{id}")))
+        .map_err(|error_value| error_value.to_string())?;
+    let outcome = match backend {
+        BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system().kill_verified(&target),
+        BackendName::Herdr => multplx_backend::herdr::HerdrBackend::system().kill_verified(&target),
+        BackendName::Cmux => multplx_backend::cmux::CmuxBackend::system().kill_verified(&target),
+    };
+    if backend == BackendName::Herdr {
+        let _ = multplx_backend::herdr::clear_transition(state, target.endpoint());
+    }
+    match outcome {
+        KillOutcome::Gone => Ok(()),
+        KillOutcome::StillPresent => Err(format!(
+            "runtime endpoint {} is still present after teardown kill",
+            target.endpoint()
+        )),
+        KillOutcome::Unknown => {
+            eprintln!(
+                "warning: runtime endpoint {} post-kill state could not be verified",
+                target.endpoint()
+            );
+            Ok(())
+        }
+    }
 }
 
 fn run_fast_forward(args: &[OsString]) -> i32 {
@@ -2943,22 +4458,26 @@ fn run_peek(target: &str, lines: u32) -> i32 {
     let state = std::env::var_os("MX_STATE_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("state"));
-    let mut backend = multplx_backend::tmux::TmuxBackend::system();
-    let resolved = match multplx_backend::facade::resolve_selector(target, &state, &mut backend) {
+    let mut resolver = multplx_backend::tmux::TmuxBackend::system();
+    let resolved = match multplx_backend::facade::resolve_selector(target, &state, &mut resolver) {
         Ok(resolved) => resolved,
         Err(error) => return backend_error(error),
     };
-    if resolved.backend() != multplx_backend::facade::BackendName::Tmux {
-        return backend_error(format!(
-            "backend {} remains on the legacy compatibility path",
-            resolved.backend()
-        ));
-    }
-    match backend.capture(&multplx_backend::facade::CaptureRequest {
+    let request = multplx_backend::facade::CaptureRequest {
         target: resolved,
         lines,
         byte_limit: 256 * 1024,
-    }) {
+    };
+    let result = match request.target.backend() {
+        multplx_backend::facade::BackendName::Tmux => resolver.capture(&request),
+        multplx_backend::facade::BackendName::Herdr => {
+            multplx_backend::herdr::HerdrBackend::system().capture(&request)
+        }
+        multplx_backend::facade::BackendName::Cmux => {
+            multplx_backend::cmux::CmuxBackend::system().capture(&request)
+        }
+    };
+    match result {
         Ok(bytes) => match io::stdout().write_all(&bytes) {
             Ok(()) => 0,
             Err(error) => backend_error(error),
@@ -3878,7 +5397,6 @@ mod tests {
             Some(OsString::from("shadow-diagnostic"))
         );
     }
-
     #[test]
     fn leaves_canonical_binary_without_an_alias() {
         assert_eq!(multicall_alias(OsStr::new("/tmp/mx")), None);
@@ -4018,6 +5536,242 @@ mod tests {
             ])),
             1
         );
+    }
+
+    #[test]
+    fn spawn_headroom_parser_rejects_malformed_requests_before_runtime_mutation() {
+        use std::os::unix::ffi::OsStringExt;
+
+        assert_eq!(
+            park_spawn_if_at_limit(&args(&["--daemon"]), None).expect("daemon"),
+            None
+        );
+        assert!(
+            park_spawn_if_at_limit(&[OsString::from_vec(vec![0xff])], None)
+                .expect_err("utf8")
+                .contains("not valid UTF-8")
+        );
+        assert!(
+            park_spawn_if_at_limit(&args(&["--harness"]), None)
+                .expect_err("value")
+                .contains("requires a value")
+        );
+        assert!(
+            park_spawn_if_at_limit(&args(&["--unknown"]), None)
+                .expect_err("unknown")
+                .contains("unsupported native daemon spawn option")
+        );
+        assert!(
+            park_spawn_if_at_limit(&args(&[]), None)
+                .expect_err("missing")
+                .contains("invalid spawn request")
+        );
+        assert!(
+            park_spawn_if_at_limit(&args(&["../bad", "/tmp/project"]), None)
+                .expect_err("id")
+                .contains("invalid spawn request")
+        );
+        assert!(
+            park_spawn_if_at_limit(&args(&["task"]), None)
+                .expect_err("project")
+                .contains("invalid spawn request")
+        );
+        assert!(
+            park_spawn_if_at_limit(&args(&["task", "/tmp/project", "pi", "extra"]), None)
+                .expect_err("positionals")
+                .contains("invalid spawn request")
+        );
+    }
+
+    #[test]
+    fn daemon_report_formats_empty_notes_and_rejects_unusable_parent() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let status = temp.path().join("state/task.status");
+        assert_eq!(
+            run_daemon_report(&args(&[
+                status.to_str().unwrap(),
+                "working",
+                "0123456789abcdef",
+                ""
+            ])),
+            0
+        );
+        assert_eq!(
+            run_daemon_report(&args(&[
+                "--doc",
+                status.to_str().unwrap(),
+                "done",
+                "0123456789abcdef",
+                "data/report.md"
+            ])),
+            0
+        );
+        let raw = fs::read_to_string(&status).expect("status");
+        assert!(raw.contains("working [corr=0123456789abcdef]: (via-helper)"));
+        assert!(raw.contains("done [corr=0123456789abcdef]: data/report.md (via-helper)"));
+        let blocker = temp.path().join("not-a-directory");
+        fs::write(&blocker, "x").expect("blocker");
+        assert_eq!(
+            run_daemon_report(&args(&[
+                blocker.join("status").to_str().unwrap(),
+                "done",
+                "0123456789abcdef",
+                "note"
+            ])),
+            1
+        );
+    }
+
+    #[test]
+    fn helper_parsers_cover_config_registry_and_runtime_path_fallbacks() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let registry = temp.path().join("daemons.md");
+        fs::write(
+            &registry,
+            "- first - live (home: /tmp/first; harness: pi)\n- first - live (home: /tmp/latest; harness: codex)\n- malformed\n",
+        )
+        .expect("registry");
+        assert_eq!(last_field("key=old\nother=x\nkey=new\n", "key"), "new");
+        assert_eq!(last_field("other=x\n", "key"), "");
+        assert_eq!(registry_home(&registry, "first"), "/tmp/latest");
+        assert_eq!(registry_home(&registry, "missing"), "");
+        assert_eq!(registry_home(&temp.path().join("missing"), "first"), "");
+
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        fs::write(state.join("actor.meta"), "kind=delivery\nhome=/tmp/no\n").expect("actor");
+        fs::write(
+            state.join("daemon.meta"),
+            "kind=daemon\nhome=/tmp/daemon\nhome=/tmp/latest\n",
+        )
+        .expect("daemon");
+        fs::write(state.join("fallback.meta"), "kind=daemon\n").expect("fallback");
+        fs::write(
+            &registry,
+            "- fallback - live (home: /tmp/fallback; harness: pi)\n",
+        )
+        .expect("registry");
+        let records = live_daemons(&state, &registry);
+        assert_eq!(records.len(), 2);
+        assert!(
+            records
+                .iter()
+                .any(|(id, home, _)| id == "daemon" && home == "/tmp/latest")
+        );
+        assert!(
+            records
+                .iter()
+                .any(|(id, home, _)| id == "fallback" && home == "/tmp/fallback")
+        );
+        assert_eq!(runtime_root(temp.path()), temp.path());
+    }
+
+    #[test]
+    fn run_helpers_reject_unknown_backend_shapes_without_external_execution() {
+        use std::os::unix::ffi::OsStringExt;
+
+        assert_eq!(run_launch_harness(&[]), 2);
+        assert_eq!(run_launch_harness(&[OsString::from_vec(vec![0xff])]), 2);
+        assert_eq!(run_cmux(&args(&["parse-target", "bad"])), 1);
+        assert_eq!(run_cmux(&args(&["normalize-key", "C-c"])), 0);
+        assert_eq!(run_cmux(&args(&["scoped-title"])), 1);
+        assert_eq!(run_cmux(&args(&["unknown"])), 1);
+        assert_eq!(run_herdr(&args(&["unknown"])), 1);
+        assert_eq!(run_headroom(&args(&["--json", "extra"])), 1);
+        assert_eq!(run_headroom(&args(&["--queue", "extra"])), 1);
+        assert_eq!(run_headroom(&args(&["--queue-cancel"])), 1);
+        assert_eq!(run_headroom(&args(&["--queue-drain", "extra"])), 1);
+        assert_eq!(run_headroom(&args(&["--queue-add", "task"])), 1);
+        assert_eq!(
+            run_headroom(&args(&["--queue-add", "task", "/tmp", "--bad"])),
+            1
+        );
+        assert_eq!(run_headroom(&args(&["unknown"])), 1);
+    }
+
+    #[test]
+    fn spawn_batch_parser_rejects_partial_pairs_and_missing_shared_values() {
+        assert_eq!(run_spawn(&args(&["task="])), 1);
+        assert_eq!(run_spawn(&args(&["=project"])), 1);
+        assert_eq!(run_spawn(&args(&["task=/tmp", "stray"])), 1);
+        assert_eq!(run_spawn(&args(&["task=/tmp", "--model"])), 1);
+        assert_eq!(run_spawn(&args(&["task=/tmp", "--backend"])), 1);
+    }
+
+    #[test]
+    fn spawn_single_request_preflight_rejects_before_backend_creation() {
+        assert_eq!(run_spawn(&[]), 1);
+        assert_eq!(run_spawn(&args(&["--single-checkout"])), 1);
+        assert_eq!(run_spawn(&args(&["task", "/missing", "--daemon"])), 1);
+        assert_eq!(
+            run_spawn(&args(&[
+                "task",
+                "/missing",
+                "--daemon",
+                "--backend",
+                "cmux"
+            ])),
+            1
+        );
+        assert_eq!(
+            run_spawn(&args(&["task", "/missing", "--backend", "bad"])),
+            1
+        );
+    }
+
+    #[test]
+    fn session_and_system_view_dispatch_refuse_unknown_or_extra_arguments() {
+        assert_eq!(run_session("not-an-entry", &[]), 2);
+        assert_eq!(run_session("mx-bootstrap.sh", &args(&["extra"])), 2);
+        assert_eq!(run_session("mx-doctor.sh", &args(&["extra"])), 2);
+        assert_eq!(run_session("mx-status-snapshot.sh", &args(&["extra"])), 2);
+        assert_eq!(run_session("mx-system-snapshot.sh", &args(&["extra"])), 2);
+        assert_eq!(run_system_view(&args(&["--help"])), 0);
+        assert_eq!(run_system_view(&args(&["extra"])), 2);
+    }
+
+    #[test]
+    fn teardown_endpoint_metadata_errors_are_typed_and_missing_is_idempotent() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let missing = temp.path().join("missing.meta");
+        assert!(kill_teardown_endpoint(&missing).is_ok());
+        let no_endpoint = temp.path().join("no-endpoint.meta");
+        fs::write(&no_endpoint, "kind=delivery\nbackend=tmux\n").expect("meta");
+        assert!(kill_teardown_endpoint(&no_endpoint).is_ok());
+        let invalid_backend = temp.path().join("invalid.meta");
+        fs::write(
+            &invalid_backend,
+            "kind=delivery\nbackend=spaceship\nwindow=target\n",
+        )
+        .expect("meta");
+        assert!(
+            kill_teardown_endpoint(&invalid_backend)
+                .expect_err("backend")
+                .contains("unknown backend")
+        );
+        assert_eq!(run_teardown(&args(&["task", "--force"])), 2);
+    }
+
+    #[test]
+    fn harness_detection_accepts_only_verified_bounded_output() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir(&bin).expect("bin");
+        let script = bin.join("mx-harness.sh");
+        let write = |body: &str| {
+            fs::write(&script, format!("#!/bin/sh\n{body}\n")).expect("script");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("mode");
+        };
+        write("printf 'codex\\n'");
+        assert_eq!(detect_primary_harness(temp.path()), "codex");
+        write("printf 'spaceship\\n'");
+        assert_eq!(detect_primary_harness(temp.path()), "unknown");
+        write("exit 1");
+        assert_eq!(detect_primary_harness(temp.path()), "unknown");
+        fs::remove_file(script).expect("remove");
+        assert_eq!(detect_primary_harness(temp.path()), "unknown");
     }
 
     #[test]

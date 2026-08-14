@@ -11,9 +11,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn legacy_bash() -> Command {
-    let mut command = Command::new("/bin/bash");
-    command.env("MX_LOCAL_STATE_IMPLEMENTATION", "legacy");
-    command
+    Command::new("/bin/bash")
 }
 
 fn shell(script: &str) -> Output {

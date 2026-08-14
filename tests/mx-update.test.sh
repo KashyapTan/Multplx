@@ -35,7 +35,7 @@ TMP_ROOT=$(mx_test_tmproot mx-update-tests)
 new_world() {
   local name=$1 w
   w="$TMP_ROOT/$name"
-  mkdir -p "$w/home/state" "$w/home/data"
+  mkdir -p "$w/home/state" "$w/home/data" "$w/home/config" "$w/home/projects"
   # Fresh watcher beacon keeps mx-guard quiet.
   touch "$w/home/state/.last-watcher-beat"
 
@@ -47,6 +47,8 @@ new_world() {
   printf 'r1\n' > "$w/seed/README.md"
   mkdir -p "$w/seed/bin" "$w/seed/.agents/skills"
   printf 'echo a\n' > "$w/seed/bin/tool.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$w/seed/bin/mx-launcher.sh"
+  chmod +x "$w/seed/bin/mx-launcher.sh"
   printf 's1\n' > "$w/seed/.agents/skills/note.md"
   git -C "$w/seed" add -A
   git -C "$w/seed" commit -qm c1
@@ -291,6 +293,113 @@ test_unsafe_daemon_home_skipped_before_git_update() {
   pass "T11 unsafe daemon home is not fast-forwarded"
 }
 
+test_registered_launcher_binary_updates_after_fast_forward() {
+  local w fakebin installed config old_hash new_hash out
+  w=$(new_world t12)
+  bump_origin "$w" readme
+  fakebin="$w/fakebin"
+  installed="$w/installed/multplx"
+  config="$w/launcher-config"
+  mkdir -p "$fakebin" "${installed%/*}" "$config"
+  cp "$ROOT/target/release/mx" "$installed"
+  printf '\0old-installed-generation\0' >>"$installed"
+  chmod +x "$installed"
+  old_hash=$(shasum -a 256 "$installed" | awk '{print $1}')
+  new_hash=$(shasum -a 256 "$ROOT/target/release/mx" | awk '{print $1}')
+  printf '%s\n' "$(cd "$w/main" && pwd -P)" >"$config/root"
+  printf '%s\n' "$(cd "$w/home" && pwd -P)" >"$config/home"
+  printf '%s\n' "$old_hash" >"$config/binary.sha256"
+  printf '%s\n' "$(cd "$config" && pwd -P)" >"${installed%/*}/.multplx-config"
+  chmod 600 "$config/root" "$config/home" "$config/binary.sha256" \
+    "${installed%/*}/.multplx-config"
+  cat >"$fakebin/cargo" <<'SH'
+#!/usr/bin/env bash
+set -eu
+[ "${MX_UPDATE_CARGO_FAIL:-0}" != 1 ] || exit 42
+mkdir -p "$MX_ROOT_OVERRIDE/target/release"
+cp "$MX_UPDATE_ARTIFACT" "$MX_ROOT_OVERRIDE/target/release/mx"
+chmod +x "$MX_ROOT_OVERRIDE/target/release/mx"
+SH
+  chmod +x "$fakebin/cargo"
+  out=$(PATH="$fakebin:$PATH" MX_UPDATE_ARTIFACT="$ROOT/target/release/mx" \
+    MX_ROOT_OVERRIDE="$w/main" MX_HOME="$w/home" \
+    MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
+    "$UPDATE" 2>"$w/update.err") \
+    || fail "registered launcher update failed: $(cat "$w/update.err")"
+  assert_contains "$out" "broker: updated " "source checkout fast-forwarded before binary update"
+  assert_contains "$out" "launcher-binary: updated" "installed launcher update was not reported"
+  [ "$(shasum -a 256 "$installed" | awk '{print $1}')" = "$new_hash" ] \
+    || fail "installed launcher did not receive the rebuilt artifact"
+  [ "$(cat "$config/binary.sha256")" = "$new_hash" ] \
+    || fail "installed launcher digest did not advance with its binary"
+  [ "$(cat "$config/root")" = "$(cd "$w/main" && pwd -P)" ] \
+    && [ "$(cat "$config/home")" = "$(cd "$w/home" && pwd -P)" ] \
+    || fail "binary update changed registered root or home"
+  pass "T12 source fast-forward rebuilds and transactionally upgrades the registered launcher"
+}
+
+test_failed_release_build_preserves_installed_generation() {
+  local w fakebin installed config old_hash new_hash out status
+  w=$(new_world t13)
+  bump_origin "$w" readme
+  fakebin="$w/fakebin"
+  installed="$w/installed/multplx"
+  config="$w/launcher-config"
+  mkdir -p "$fakebin" "${installed%/*}" "$config"
+  cp "$ROOT/target/release/mx" "$installed"
+  printf '\0preserved-installed-generation\0' >>"$installed"
+  chmod +x "$installed"
+  old_hash=$(shasum -a 256 "$installed" | awk '{print $1}')
+  printf '%s\n' "$(cd "$w/main" && pwd -P)" >"$config/root"
+  printf '%s\n' "$(cd "$w/home" && pwd -P)" >"$config/home"
+  printf '%s\n' "$old_hash" >"$config/binary.sha256"
+  printf '%s\n' "$(cd "$config" && pwd -P)" >"${installed%/*}/.multplx-config"
+  cat >"$fakebin/cargo" <<'SH'
+#!/usr/bin/env bash
+exit 42
+SH
+  chmod +x "$fakebin/cargo"
+  if PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$w/main" MX_HOME="$w/home" \
+      MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
+      "$UPDATE" >"$w/update.out" 2>"$w/update.err"; then
+    status=0
+  else
+    status=$?
+  fi
+  expect_code 1 "$status" "failed post-fast-forward release build"
+  [ "$(shasum -a 256 "$installed" | awk '{print $1}')" = "$old_hash" ] \
+    || fail "failed release build changed the installed launcher"
+  [ "$(cat "$config/binary.sha256")" = "$old_hash" ] \
+    || fail "failed release build changed the installed digest"
+  [ "$(git -C "$w/main" rev-parse HEAD)" = "$(git -C "$w/main" rev-parse origin/main)" ] \
+    || fail "source fast-forward did not complete before the release build failure"
+  [ -f "$config/.launcher-update-pending" ] \
+    || fail "failed release build did not leave a retry marker"
+
+  cat >"$fakebin/cargo" <<'SH'
+#!/usr/bin/env bash
+set -eu
+mkdir -p "$MX_ROOT_OVERRIDE/target/release"
+cp "$MX_UPDATE_ARTIFACT" "$MX_ROOT_OVERRIDE/target/release/mx"
+chmod +x "$MX_ROOT_OVERRIDE/target/release/mx"
+SH
+  chmod +x "$fakebin/cargo"
+  new_hash=$(shasum -a 256 "$ROOT/target/release/mx" | awk '{print $1}')
+  out=$(PATH="$fakebin:$PATH" MX_UPDATE_ARTIFACT="$ROOT/target/release/mx" \
+    MX_ROOT_OVERRIDE="$w/main" MX_HOME="$w/home" \
+    MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
+    "$UPDATE" 2>"$w/retry.err") \
+    || fail "pending launcher update did not retry: $(cat "$w/retry.err")"
+  assert_contains "$out" "broker: already current" "retry unexpectedly moved source again"
+  assert_contains "$out" "launcher-binary: updated" "pending launcher update was not retried"
+  [ "$(shasum -a 256 "$installed" | awk '{print $1}')" = "$new_hash" ] \
+    && [ "$(cat "$config/binary.sha256")" = "$new_hash" ] \
+    || fail "retry did not atomically advance the installed launcher generation"
+  [ ! -e "$config/.launcher-update-pending" ] \
+    || fail "successful launcher retry did not clear its pending marker"
+  pass "T13 failed rebuild preserves and later recovers the installed launcher generation"
+}
+
 test_updates_main_and_daemon
 test_reread_gate_is_instruction_only
 test_dirty_daemon_skipped
@@ -300,5 +409,7 @@ test_registry_backstop_dedup_and_self_exclusion
 test_broker_wrong_branch_skipped
 test_broker_detached_head_skipped
 test_unsafe_daemon_home_skipped_before_git_update
+test_registered_launcher_binary_updates_after_fast_forward
+test_failed_release_build_preserves_installed_generation
 
 echo "# all mx-update tests passed"

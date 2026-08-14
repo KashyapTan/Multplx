@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Shadow transport adapter for the Portion 04 Rust tmux backend.
-# Every function selects the already-resolved Rust implementation for the whole
-# operation and never falls back after the command begins.
+# Rust transport adapter for the tmux operations used by sourced shell callers.
 
 mx_backend_tmux_rust() {
   local rust_bin

@@ -63,14 +63,13 @@ jobs:
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
       - name: Enforce workspace line coverage
-        # Behavior lanes own process-driven CLI orchestration, home seeding,
-        # upstream review, and the three OS-lifecycle Herdr modules. This gate
-        # measures the reusable Rust library/runtime surface; deterministic
-        # Herdr runtime and wire coverage remains inside the 93% denominator.
+        # Behavior lanes own the named process-driven CLI modules, home seeding,
+        # upstream review, and the three OS-lifecycle Herdr modules.
+        # Pure CLI entrypoint and dispatch code remains in the coverage denominator.
         run: >-
           cargo llvm-cov --locked --workspace --all-targets
           --ignore-filename-regex
-          '(multplx-cli/src/|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)'
+          '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)'
           --fail-under-lines 93
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr

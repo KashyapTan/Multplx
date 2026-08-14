@@ -3,19 +3,18 @@
 This is the dated Rust-port Portion 09 shadow-period record from 2026-08-12.
 Plan 13 supersedes its selector and rollback notes with the final installed Rust command boundary.
 
-During Portion 09, `MX_SESSION_IMPLEMENTATION` selected the differential engine before an operation began.
+During Portion 09, a temporary environment selector selected a differential engine before an operation began.
+Plan 13 removed that selector and the retained executable bodies; production now has one Rust implementation.
 
 The Rust release binary was built with `cargo build --workspace --release` on macOS arm64 with Rust 1.97.1 and Cargo 1.97.1.
 
 ## Implementation and safety evidence
 
-All nine owned public entry points select the Rust command boundary by default: bootstrap, doctor, session start, session-start nudge, supervision instructions, status snapshot, system snapshot, system view, and timeline.
+All nine owned public entry points enter the Rust command boundary directly: bootstrap, doctor, session start, session-start nudge, supervision instructions, status snapshot, system snapshot, system view, and timeline.
 
 The nudge, supervision renderer, typed system-view projection, and timeline reader are native Rust implementations.
 
-The composed bootstrap, doctor, session-start, status-snapshot, and canonical-snapshot bodies remain available behind the explicitly pinned legacy selector for the differential rollback window.
-
-The Rust compatibility boundary sets that selector before lock acquisition, bootstrap mutation, proof-bound doctor repair, wake drain, recursive daemon-home summary, or status projection can begin.
+Bootstrap, doctor, session-start, status-snapshot, and canonical-snapshot composition are Rust-owned and cannot be redirected to retained shell through an environment variable.
 
 The typed snapshot read model covers roots, backlog records, tasks, endpoints, queues, watcher identity, daemon summaries, lifecycle feeds, and artifact feeds.
 
@@ -59,7 +58,7 @@ The supervision renderer produced byte-identical output under Rust and legacy fo
 
 The timeline text, JSONL, event-filter, and time-filter outputs were byte-identical under Rust and legacy for the committed fixture.
 
-An invalid-selector matrix covered all nine public adapters, verified exit `2` for ordinary commands and the nudge's fail-open exit `0`, and observed no fixture file creation before refusal.
+The former invalid-selector matrix was shadow-period evidence and is superseded by native-dispatch tests that prove same-named shell fixtures cannot run.
 
 `bin/mx-test-run.sh --check-coverage` confirmed all 125 behavior scripts are classified.
 
@@ -82,13 +81,14 @@ The Portion 09 release measurement used the same empty-home shapes, five warmups
 
 The first measured Rust invocations were 515.077 ms for session start and 157.759 ms for the empty system snapshot, compared with the Portion 01 shell run's first samples of 1,546 ms and 151 ms.
 
-The multi-sample release medians and p95 values are no worse for either target; the single snapshot cold observation adds 6.759 ms while entering the typed selector and rollback boundary before the retained canonical body.
+The multi-sample release medians and p95 values were no worse for either target during Portion 09; the single snapshot cold observation added 6.759 ms in that shadow-period measurement.
 
 ## Compatibility review
 
-The stable shell filenames remain because hooks, skills, workflows, operating homes, and later Rust portions call them directly.
+The stable shell filenames remain as minimal transport adapters because hooks, skills, workflows, and operating homes call them directly.
+They resolve and exec the Rust binary without parsing records, selecting an implementation, or mutating state.
 
-Stock macOS Bash was covered by an explicit legacy differential lane during the Portion 09 rollback window.
+Stock macOS Bash was covered by the Portion 09 differential lane before the retained bodies and selector were removed.
 
 The command names, arguments, environment overrides, output schemas, labels, ordering, and exit codes are unchanged.
 

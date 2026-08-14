@@ -27,8 +27,8 @@ The Rust adapter stops before creating a Herdr container or acquiring a task wor
 It parses Herdr JSON internally, so `jq` is not a backend runtime dependency.
 No separate first-run provisioning is required.
 
-The required CI lane uses the pinned installers in `bin/mx-install-herdr.sh` and `bin/mx-install-treehouse.sh`.
-Those script headers own release assets, checksums, download bounds, and post-install gates.
+The required CI lane uses the pinned installer transports in `bin/mx-install-herdr.sh` and `bin/mx-install-treehouse.sh`.
+The typed installer modules own release assets, checksums, download bounds, and post-install gates.
 Real harness credential tests remain opt-in rather than part of default CI.
 
 ## Rust adapter
@@ -202,7 +202,7 @@ This prevents a dead agent pane from receiving and possibly executing an escalat
 The current operational envelope starts with U+2063 and `MULTPLX_OP: `.
 The separate routed-request carrier uses `[mx-from-broker]` plus U+2063.
 U+2063 survives Herdr terminal input as text, unlike the legacy ASCII control separator that could erase the visible routing label.
-`bin/mx-operational-input.sh` owns current operational construction and parsing, and the AFK skill owns legacy away-input compatibility.
+`multplx-domain::operational_input` owns current operational construction and parsing, and the AFK skill owns legacy away-input compatibility.
 No Herdr-specific copy of that protocol exists.
 
 ## Restart and liveness behavior
@@ -222,14 +222,14 @@ Mid-session daemon liveness is not implemented because idle daemons are delibera
 ## Push events and polling fallback
 
 Protocol 16 can subscribe to `pane.agent_status_changed` over one bounded Unix-socket reader.
-`bin/mx-transition-lib.sh` owns the backend-neutral transition vocabulary and policy.
+The Rust supervision and backend modules own the backend-neutral transition vocabulary and policy.
 The Herdr adapter subscribes before reconciling current levels, buffers edges during reconciliation, and returns fresh blocked transitions for this home's panes.
 The watcher maps the pane back to the task and skips daemon endpoints.
-A native `blocked` edge follows the precedence contract owned by `bin/mx-classify-lib.sh` and surfaces even when the latest self-report declared `paused:`.
+A native `blocked` edge follows the precedence contract owned by `multplx-core::classification` and surfaces even when the latest self-report declared `paused:`.
 
 The push path only shortens latency.
 Polling runs every cycle and remains the permanent fallback when protocol 16, the event schema, connection, subscription, or repeated reader execution is unavailable.
-There is still one watcher process; the selected Rust event reader is a bounded cancellable thread with an owned socket, while the rollback adapter retains its bounded child process.
+There is still one watcher process; the Rust event reader is a bounded cancellable thread with an owned socket.
 
 `tests/mx-backend-herdr-eventwait-smoke.test.sh`, `tests/mx-transition-lib.test.sh`, and `tests/mx-supervision-events.test.sh` cover capability, subscribe-then-reconcile ordering, dedupe, exemptions, and polling fallback.
 
@@ -265,7 +265,7 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 ## Active limits
 
 - Herdr remains experimental.
-- Presentation ordering needs protocol 16 and Python and is best-effort only.
+- Presentation ordering needs protocol 16 and is best-effort only.
 - Mutable labels can collide; they are never destructive authority.
 - Ghost and placeholder recognition depends on ANSI de-emphasis and fails safely to pending when unavailable.
 - Mid-session daemon liveness is not implemented.

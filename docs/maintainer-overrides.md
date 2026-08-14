@@ -2,7 +2,7 @@
 
 This document is the human-facing owner for exact, single-use maintainer exceptions.
 The semantic procedure lives in [the maintainer-override skill](../.agents/skills/maintainer-override/SKILL.md), while `multplx-domain::maintainer_override` owns the executable schema, registry, validation, locking, and transitions.
-`bin/mx-maintainer-override-lib.sh` remains the source-compatible adapter for later review and delivery callers during the Rust rollback window.
+`bin/mx-maintainer-override-lib.sh` remains the sourced-function adapter for callers that require the shell ABI.
 
 ## Invariant
 
@@ -59,7 +59,7 @@ Their concrete next actions are an exact verified install, interactive login, cr
 ## Subsystem commands
 
 `bin/mx-override-bindings.sh` prints fresh bindings for cleanup, validation, workflow changes, single-checkout launch, and owner termination.
-`bin/mx-pr-merge.sh --print-override-bindings` owns red-merge bindings.
+The Rust review command exposed through `bin/mx-pr-merge.sh --print-override-bindings` owns red-merge bindings.
 `bin/mx-validation-waive.sh`, `bin/mx-workflow.sh`, `bin/mx-teardown.sh`, `bin/mx-spawn.sh`, `bin/mx-lock.sh`, `bin/mx-pr-merge.sh`, and `bin/mx-override-run.sh` each consume immediately before their own exceptional action.
 
 The ordinary command remains the default when no exact grant exists.

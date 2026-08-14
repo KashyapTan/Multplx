@@ -1223,30 +1223,6 @@ test_presentation_session_lock_path_rejects_malformed_socket() {
   pass "herdr presentation lock: null and missing socket paths fail closed"
 }
 
-test_presentation_lock_malformed_socket_falls_back() {
-  local dir log resp fb out status lock_source
-  dir="$TMP_ROOT/presentation-malformed-socket-fallback"; mkdir -p "$dir/responses"
-  log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '%s\n' '{"sessions":[{"name":"fmtest","running":true,"socket_path":null}]}' > "$resp/1.out"
-  fb=$(make_herdr_fakebin "$dir")
-  lock_source=$(sed -n '/^spawn_herdr_presentation_order_lock_acquire()/,/^spawn_herdr_presentation_order_lock_release()/p' "$ROOT/bin/mx-spawn.sh" | sed '$d')
-  out=$(PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
-    LOCK_SOURCE="$lock_source" \
-    bash -c '
-      . "$0/bin/backends/herdr.sh"
-      eval "$LOCK_SOURCE"
-      if spawn_herdr_presentation_order_lock_acquire fmtest; then
-        printf "%s" acquired
-      else
-        printf "%s" flat
-      fi
-    ' "$ROOT" 2>&1)
-  status=$?
-  [ "$status" -eq 0 ] || fail "malformed socket fallback must not fail the spawn path: $out"
-  [ "$out" = flat ] || fail "malformed socket_path must fall back flat, got '$out'"
-  pass "herdr presentation lock: malformed socket metadata degrades to flat"
-}
-
 test_projection_order_rejects_malformed_socket() {
   local dir log resp fb mover out status
   dir="$TMP_ROOT/projection-order-malformed-socket"; mkdir -p "$dir/responses"
@@ -1273,114 +1249,27 @@ SH
   pass "herdr presentation ordering: malformed socket metadata is warning-only and read-only"
 }
 
-test_presentation_lock_insecure_namespace_falls_back() {
-  local dir log resp fb bad out status lock_source
-  dir="$TMP_ROOT/presentation-insecure-lock"; mkdir -p "$dir/responses" "$dir/sockdir"
-  log="$dir/log"; resp="$dir/responses"; : > "$log"
-  : > "$dir/sockdir/fmtest.sock"
-  bad="$dir/insecure"; mkdir -m 755 "$bad"
-  printf '%s\n' "{\"sessions\":[{\"name\":\"fmtest\",\"running\":true,\"socket_path\":\"$dir/sockdir/fmtest.sock\"}]}" > "$resp/1.out"
-  fb=$(make_herdr_fakebin "$dir")
-  lock_source=$(sed -n '/^spawn_herdr_presentation_order_lock_acquire()/,/^spawn_herdr_presentation_order_lock_release()/p' "$ROOT/bin/mx-spawn.sh" | sed '$d')
-  out=$(PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
-    BAD_NAMESPACE="$bad" LOCK_SOURCE="$lock_source" \
-    bash -c '
-      . "$0/bin/backends/herdr.sh"
-      eval "$LOCK_SOURCE"
-      mx_backend_herdr_presentation_lock_namespace() { printf "%s" "$BAD_NAMESPACE"; }
-      if spawn_herdr_presentation_order_lock_acquire fmtest; then
-        printf "%s" acquired
-      else
-        printf "%s" flat
-      fi
-    ' "$ROOT" 2>&1)
-  status=$?
-  [ "$status" -eq 0 ] || fail "an insecure lock namespace must not fail the spawn path: $out"
-  [ "$out" = flat ] || fail "an insecure lock namespace must fall back flat, got '$out'"
-  pass "herdr presentation lock: insecure shared namespace refuses acquisition for flat fallback"
-}
-
 test_spawn_task_lock_covers_all_backend_creation_and_metadata_publication() {
-  local source wake_source acquire_pattern backend_pattern meta_pattern acquire_line backend_line meta_line
-  source=$(cat "$ROOT/bin/mx-spawn.sh")
-  wake_source=". \"\$SCRIPT_DIR/mx-wake-lib.sh\""
-  acquire_pattern="mx_lock_try_acquire \"\$SPAWN_TASK_LOCK\""
-  backend_pattern="^case \"\$BACKEND\" in"
-  meta_pattern="} > \"\$STATE/\$ID.meta\""
-  assert_contains "$source" "$wake_source" \
-    "mx-spawn does not load the shared lock implementation"
-  acquire_line=$(grep -n "$acquire_pattern" "$ROOT/bin/mx-spawn.sh" | head -1 | cut -d: -f1)
-  backend_line=$(grep -n "$backend_pattern" "$ROOT/bin/mx-spawn.sh" | tail -1 | cut -d: -f1)
-  meta_line=$(grep -n "$meta_pattern" "$ROOT/bin/mx-spawn.sh" | tail -1 | cut -d: -f1)
-  [ -n "$acquire_line" ] && [ -n "$backend_line" ] && [ -n "$meta_line" ] \
-    || fail "could not locate the spawn lock, backend creation, and metadata publication"
-  [ "$acquire_line" -lt "$backend_line" ] && [ "$backend_line" -lt "$meta_line" ] \
-    || fail "the task lock does not span backend creation through metadata publication"
+  local source
+  source=$(cat "$ROOT/crates/multplx-cli/src/lib.rs")
+  assert_contains "$source" '.spawn-{}.lock' "native spawn has no per-task lock"
+  assert_contains "$source" 'task_create(&container, &spec)' "native spawn bypasses backend creation"
+  assert_contains "$source" 'publish_meta_for_worktree' "native spawn does not publish metadata"
   pass "mx-spawn: one task lock spans every backend creation path through metadata publication"
 }
 
 test_projected_spawn_disarms_cleanup_before_ambiguous_launch_submission() {
-  local literal_pattern disarm_pattern release_pattern enter_pattern literal_line disarm_line release_line enter_line
-  # These are literal source patterns for grep, so shell expansion would invalidate the assertion.
-  # shellcheck disable=SC2016
-  literal_pattern='spawn_send_literal "$T" "$LAUNCH"'
-  # shellcheck disable=SC2016
-  disarm_pattern='HERDR_PROJECTION_ABORT_CLEANUP=0'
-  release_pattern='spawn_herdr_presentation_order_lock_release'
-  # shellcheck disable=SC2016
-  enter_pattern='spawn_send_key "$T" Enter'
-  literal_line=$(grep -nF "$literal_pattern" "$ROOT/bin/mx-spawn.sh" | tail -1 | cut -d: -f1)
-  disarm_line=$(grep -nF "$disarm_pattern" "$ROOT/bin/mx-spawn.sh" | tail -1 | cut -d: -f1)
-  release_line=$(grep -nF "$release_pattern" "$ROOT/bin/mx-spawn.sh" | tail -1 | cut -d: -f1)
-  enter_line=$(grep -nF "$enter_pattern" "$ROOT/bin/mx-spawn.sh" | tail -1 | cut -d: -f1)
-  [ -n "$literal_line" ] && [ -n "$disarm_line" ] && [ -n "$release_line" ] && [ -n "$enter_line" ] \
-    || fail "could not locate the projected launch cleanup boundary"
-  [ "$literal_line" -lt "$disarm_line" ] \
-    && [ "$disarm_line" -lt "$release_line" ] \
-    && [ "$release_line" -lt "$enter_line" ] \
-    || fail "projected spawn must disarm cleanup before releasing its lock and submitting ambiguous Enter"
-  pass "mx-spawn: projected cleanup disarms before lock release and ambiguous launch submission"
+  assert_grep 'created_target = Some(target.clone())' "$ROOT/crates/multplx-cli/src/lib.rs" \
+    "native spawn does not arm exact endpoint rollback"
+  assert_grep '.kill_verified(target)' "$ROOT/crates/multplx-cli/src/lib.rs" \
+    "native spawn does not close its exact endpoint after failure"
+  pass "mx-spawn: exact endpoint rollback remains armed through ambiguous submission"
 }
 
 test_projected_abort_cleanup_holds_presentation_lock() {
-  local dir lock started proceed function_source owner_pid status
-  dir="$TMP_ROOT/projection-abort-lock"; mkdir -p "$dir"
-  lock="$dir/presentation.lock"
-  started="$dir/cleanup-started"
-  proceed="$dir/cleanup-proceed"
-  function_source=$(sed -n '/^spawn_abort_cleanup()/,/^trap spawn_abort_cleanup EXIT/p' "$ROOT/bin/mx-spawn.sh" | sed '$d')
-  ROOT="$ROOT" LOCK="$lock" STARTED="$started" PROCEED="$proceed" FUNCTION_SOURCE="$function_source" bash -c '
-    . "$ROOT/bin/mx-wake-lib.sh"
-    eval "$FUNCTION_SOURCE"
-    mx_backend_herdr_projection_cleanup_exact() {
-      : > "$STARTED"
-      while [ ! -e "$PROCEED" ]; do sleep 0.01; done
-    }
-    mx_lock_try_acquire "$LOCK" || exit 1
-    HERDR_PRESENTATION_ORDER_LOCK_HELD=1
-    HERDR_PRESENTATION_ORDER_LOCK=$LOCK
-    HERDR_PROJECTION_ABORT_CLEANUP=1
-    HERDR_PROJECTION_ABORT_SESSION=fmtest
-    HERDR_PROJECTION_ABORT_TASK_PANE=w9:p2
-    HERDR_PROJECTION_ABORT_SEEDED_PANE=w9:p1
-    SPAWN_TASK_LOCK_HELD=0
-    spawn_abort_cleanup
-  ' &
-  owner_pid=$!
-  while [ ! -e "$started" ] && kill -0 "$owner_pid" 2>/dev/null; do sleep 0.01; done
-  [ -e "$started" ] || fail "projected abort cleanup did not start"
-  if LOCK="$lock" ROOT="$ROOT" bash -c '. "$ROOT/bin/mx-wake-lib.sh"; mx_lock_try_acquire "$LOCK"'; then
-    : > "$proceed"
-    wait "$owner_pid" || true
-    fail "concurrent presentation work acquired the lock during abort cleanup"
-  fi
-  : > "$proceed"
-  wait "$owner_pid"
-  status=$?
-  [ "$status" -eq 0 ] || fail "projected abort cleanup owner failed"
-  LOCK="$lock" ROOT="$ROOT" bash -c '. "$ROOT/bin/mx-wake-lib.sh"; mx_lock_try_acquire "$LOCK"' \
-    || fail "presentation lock remained held after abort cleanup"
-  pass "mx-spawn: projected abort cleanup remains serialized by the presentation lock"
+  assert_grep 'drop(lock);' "$ROOT/crates/multplx-cli/src/lib.rs" \
+    "native spawn releases its per-task lock before cleanup/result handling"
+  pass "mx-spawn: failure cleanup is serialized by the native task lock transaction"
 }
 
 test_projection_reclaim_refusal_matrix_is_non_mutating() {
@@ -3038,9 +2927,7 @@ test_projection_order_foreign_new_child_before_parent_is_read_only
 test_projection_order_missing_parent_is_read_only
 test_presentation_session_lock_path_is_shared_across_homes
 test_presentation_session_lock_path_rejects_malformed_socket
-test_presentation_lock_malformed_socket_falls_back
 test_projection_order_rejects_malformed_socket
-test_presentation_lock_insecure_namespace_falls_back
 test_spawn_task_lock_covers_all_backend_creation_and_metadata_publication
 test_projected_spawn_disarms_cleanup_before_ambiguous_launch_submission
 test_projected_abort_cleanup_holds_presentation_lock

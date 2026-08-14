@@ -142,12 +142,14 @@ run_bootstrap_timeout_case() {
     export -f git
     if [ "$override" = __unset__ ]; then
       PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$fake_root" \
+        MX_BOOTSTRAP_TEST_TICK_MS=10 \
         MX_FAKE_SYSTEM_SYNC_STARTED_MARKER="$started_marker" \
         MX_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
         MX_FAKE_GIT_WAIT_FOR_SYSTEM_START="$wait_for_marker" \
         MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null
     else
       PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$fake_root" \
+        MX_BOOTSTRAP_TEST_TICK_MS=10 \
         MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT="$override" \
         MX_FAKE_SYSTEM_SYNC_STARTED_MARKER="$started_marker" \
         MX_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \

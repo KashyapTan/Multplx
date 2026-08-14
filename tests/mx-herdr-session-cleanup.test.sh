@@ -21,7 +21,6 @@ FAKEBIN=$(mx_fakebin "$TMP_ROOT")
 mx_fake_exit0 "$FAKEBIN" herdr
 export PATH="$FAKEBIN:$PATH"
 export MX_HERDR_SESSION_CLEANUP_SOURCE_ONLY=1
-export MX_BACKEND_IMPLEMENTATION=legacy
 # shellcheck source=/dev/null
 . "$ROOT/bin/mx-herdr-session-cleanup.sh"
 unset MX_HERDR_SESSION_CLEANUP_SOURCE_ONLY
@@ -50,6 +49,17 @@ mkdir -p "$FIXTURE_DIR"
 mx_backend_name() { printf herdr; }
 mx_backend_herdr_session() { printf test; }
 mx_backend_herdr_presentation_session_lock_path() { printf '%s/presentation.lock' "$TMP_ROOT"; }
+mx_backend_herdr_pane_agent_state() {
+  if [ -e "$FIXTURE_DIR/closed" ]; then
+    printf dead
+    return
+  fi
+  case "$(cat "$FIXTURE_DIR/agent")" in
+    absent) printf no-agent ;;
+    live) printf has-agent ;;
+    *) printf unknown ;;
+  esac
+}
 mx_lock_try_acquire() {
   printf '%s\n' "$1" >> "$LOCK_LOG"
   mkdir "$1" 2>/dev/null

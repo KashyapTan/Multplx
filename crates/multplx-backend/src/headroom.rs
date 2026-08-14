@@ -106,6 +106,14 @@ pub struct Headroom {
     candidates: BTreeMap<String, CandidateHeadroom>,
 }
 
+impl Headroom {
+    /// Report whether the composite local/API capacity boundary is exhausted.
+    #[must_use]
+    pub const fn at_limit(&self) -> bool {
+        self.at_limit
+    }
+}
+
 fn message(value: impl Into<String>) -> HeadroomError {
     HeadroomError::Message(value.into())
 }

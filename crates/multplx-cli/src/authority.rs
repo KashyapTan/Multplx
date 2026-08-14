@@ -24,14 +24,6 @@ pub fn run(entry: &str, args: &[OsString]) -> i32 {
         eprintln!("error: unknown authority entry point: {entry}");
         return 2;
     }
-    match std::env::var("MX_AUTHORITY_IMPLEMENTATION").as_deref() {
-        Ok("rust") | Err(std::env::VarError::NotPresent) => {}
-        Ok("legacy") => {}
-        Ok(_) | Err(std::env::VarError::NotUnicode(_)) => {
-            eprintln!("error: MX_AUTHORITY_IMPLEMENTATION must be rust or legacy");
-            return 2;
-        }
-    }
     if entry == "mx-maintainer-override.sh" {
         return run_override(args);
     }
@@ -509,6 +501,24 @@ pub(crate) fn override_bindings(values: &[String]) -> Result<serde_json::Value, 
         }
         _ => Err(format!("unknown binding mode: {mode}")),
     }
+}
+
+pub(crate) fn cleanup_binding(id: &str) -> Result<serde_json::Value, String> {
+    override_bindings(&["cleanup".to_owned(), id.to_owned()])
+}
+
+pub(crate) fn single_checkout_binding(
+    id: &str,
+    project: &Path,
+) -> Result<serde_json::Value, String> {
+    override_bindings(&[
+        "single-checkout".to_owned(),
+        id.to_owned(),
+        project
+            .to_str()
+            .ok_or("project path is not valid UTF-8")?
+            .to_owned(),
+    ])
 }
 
 fn executable_path(name: &str) -> Option<PathBuf> {
@@ -1269,6 +1279,10 @@ fn decision_verify(values: &[String]) -> Result<String, String> {
         durable_hold(&store, &decision_identity(origin, &item.key)?)?;
     }
     Ok(format!("verified: {origin} unresolved-decision inventory"))
+}
+
+pub(crate) fn verify_decision_completion(origin: &str) -> Result<(), String> {
+    decision_verify(&[origin.to_owned()]).map(|_| ())
 }
 
 fn resolution_identity(

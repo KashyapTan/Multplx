@@ -39,7 +39,7 @@ MX_SHARED_MAINTAINER_MODE="444"
 
 # The Rust `multplx-domain::inheritance` module owns validation and propagation.
 # This source-compatible adapter exposes the declared inheritable set to shell
-# callers and retains the historical implementation for explicit rollback.
+# callers while Rust owns all active behavior.
 # Items are space-separated config-dir-relative paths and must not contain
 # whitespace.
 MX_INHERITABLE_CONFIG="${MX_INHERITABLE_CONFIG:-actor-dispatch.json actor-harness backlog-backend herdr-presentation-spaces}"
@@ -1108,14 +1108,10 @@ EOF
 }
 
 # Rust owns the active implementation. These source-compatible functions are
-# transport adapters; the definitions above remain the explicit legacy path.
+# transport adapters and unconditionally replace the historical definitions.
 MX_CONFIG_INHERIT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/mx-rust-runtime.sh
 . "$MX_CONFIG_INHERIT_SCRIPT_DIR/mx-rust-runtime.sh"
-mx_config_inherit_implementation=$(mx_local_state_implementation) || {
-  return 2 2>/dev/null || exit 2
-}
-if [ "$mx_config_inherit_implementation" = rust ]; then
   mx_config_inherit_rust() {
     local rust_bin
     rust_bin=$(mx_rust_runtime_bin) || return $?
@@ -1159,4 +1155,3 @@ if [ "$mx_config_inherit_implementation" = rust ]; then
   mx_config_reread_discard_pending() { mx_config_inherit_rust discard-pending "$@"; }
   mx_config_reread_quarantine_pending() { mx_config_inherit_rust quarantine-pending "$@"; }
   mx_config_send_reread_nudge() { mx_config_inherit_rust send-reread "$1" "$2" "$3"; }
-fi

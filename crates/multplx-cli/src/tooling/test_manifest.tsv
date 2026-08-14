@@ -20,6 +20,7 @@ tests/mx-backend-tmux-smoke.test.sh	tmux-server
 tests/mx-backend.test.sh	none
 tests/mx-backlog-handoff.test.sh	none
 tests/mx-backlog-lib.test.sh	none
+tests/mx-bin-runtime-inventory.test.sh	none
 tests/mx-bootstrap.test.sh	bootstrap-process-signal
 tests/mx-brief.test.sh	none
 tests/mx-calm-pi-extension.test.sh	live-harness,tmux-server
@@ -94,6 +95,7 @@ tests/mx-signal-precedence.test.sh	none
 tests/mx-spawn-batch.test.sh	none
 tests/mx-spawn-dispatch-profile.test.sh	none
 tests/mx-spawn-worktree-settle.test.sh	none
+tests/mx-supervise-daemon-native.test.sh	daemon-process-signal,watcher-process
 tests/mx-status-snapshot-catchup-forge.test.sh	none
 tests/mx-status-snapshot-landed-bounds.test.sh	none
 tests/mx-status-snapshot-projection-reconciliation.test.sh	none

@@ -20,7 +20,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Workflow definitions and runs](workflows.md) owns the declarative workflow schema and lifecycle.
 - [Maintainer-scoped exceptions](maintainer-overrides.md) explains exact one-use authority, truthful exceptional outcomes, and the boundary registry.
 - [Pi Calm mode](calm.md) describes the optional Pi-only presentation toggle.
-- [The `bin/` toolbelt](scripts.md) is a concise script index; each script header and `--help` own exact mechanics.
+- [The `bin/` toolbelt](scripts.md) is a concise compatibility-path index; release-command `--help` and the named Rust modules own exact mechanics.
 - [Task journal events](journal-events.md) defines the best-effort event vocabulary used by `mx-timeline`.
 
 ## Runtime backends

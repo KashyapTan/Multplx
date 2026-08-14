@@ -34,6 +34,19 @@ pub struct Context {
     pub marker: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct UpdateReport {
+    pub broker_status: Status,
+    pub lines: Vec<String>,
+}
+
+impl UpdateReport {
+    /// Iterate over the stable human-readable update lines.
+    pub fn iter(&self) -> std::slice::Iter<'_, String> {
+        self.lines.iter()
+    }
+}
+
 fn git(dir: &Path, args: &[&str]) -> std::io::Result<Output> {
     Command::new("git").arg("-C").arg(dir).args(args).output()
 }
@@ -325,9 +338,10 @@ fn registry_fields(line: &str) -> Option<(String, String)> {
 }
 
 /// Update the primary checkout and all registered daemon homes from origin.
-pub fn update(context: &Context, state: &Path, registry: &Path) -> Vec<String> {
+pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport {
     let mut lines = Vec::new();
     let broker = fast_forward(&context.root, "broker", &Base::Origin, false, false);
+    let broker_status = broker.status;
     let reread = broker.status == Status::Updated && !broker.instructions.is_empty();
     lines.push(broker.line);
     let mut seen = HashSet::new();
@@ -409,7 +423,10 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> Vec<String> {
             nudges.join(" ")
         }
     ));
-    lines
+    UpdateReport {
+        broker_status,
+        lines,
+    }
 }
 
 #[cfg(test)]

@@ -275,6 +275,21 @@ fn validate(root: &Path, inventory_path: &Path) -> Result<(usize, usize), String
         ));
     }
     let audiences = inventory.allowed_audiences.iter().collect::<BTreeSet<_>>();
+    if audiences.is_empty()
+        || inventory.setup_audiences.is_empty()
+        || inventory.readme_setup_targets.is_empty()
+        || inventory
+            .allowed_audiences
+            .iter()
+            .chain(&inventory.setup_audiences)
+            .chain(&inventory.readme_setup_targets)
+            .any(|value| value.is_empty())
+    {
+        return Err(
+            "allowedAudiences, setupAudiences, and readmeSetupTargets must be non-empty string arrays"
+                .to_owned(),
+        );
+    }
     if inventory
         .setup_audiences
         .iter()
@@ -349,6 +364,11 @@ fn validate(root: &Path, inventory_path: &Path) -> Result<(usize, usize), String
         return Err("requiredOwnerPointers must be a non-empty array".to_owned());
     }
     for pointer in &inventory.required_owner_pointers {
+        if pointer.source.is_empty() || pointer.target.is_empty() {
+            return Err(
+                "requiredOwnerPointers entries need non-empty source and target".to_owned(),
+            );
+        }
         let source = root.join(&pointer.source);
         let target = root.join(&pointer.target);
         if !source.exists() {
@@ -398,6 +418,12 @@ fn validate(root: &Path, inventory_path: &Path) -> Result<(usize, usize), String
             checked += 1;
             if !target.exists() {
                 return Err(format!("unresolved local link in {path}: {raw}"));
+            }
+            let canonical = target.canonicalize().map_err(|error| {
+                format!("cannot resolve local link target in {path}: {raw}: {error}")
+            })?;
+            if !canonical.starts_with(root) {
+                return Err(format!("local link escapes repository in {path}: {raw}"));
             }
             if !fragment.is_empty()
                 && target.is_file()
