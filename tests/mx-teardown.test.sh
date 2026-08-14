@@ -1234,7 +1234,8 @@ test_local_only_force_overrides_unpushed() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "discard-override: exact grant should authorize the bound unpushed-work discard"
+  expect_code 0 "$rc" \
+    "discard-override: exact grant should authorize the bound unpushed-work discard"$'\n'"$(cat "$case_dir/stderr")"
   ! grep -q REFUSED "$case_dir/stderr" || fail "discard-override: REFUSED printed despite an exact grant"
   pass "local-only worktree with unpushed work is torn down under one exact discard grant"
 }
