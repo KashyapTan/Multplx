@@ -3,11 +3,14 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use rustix::process::{Pid, Signal, kill_process_group};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -33,7 +36,35 @@ fn command(root: &Path, home: &Path, args: &[&str]) -> Command {
 }
 
 fn run(root: &Path, home: &Path, args: &[&str]) -> Output {
-    command(root, home, args).output().expect("run mx")
+    let mut command = command(root, home, args);
+    command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0);
+    let mut child = command.spawn().expect("run mx");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        match child.try_wait().expect("poll mx") {
+            Some(_) => return child.wait_with_output().expect("collect mx output"),
+            None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            None => {
+                if let Some(group) = Pid::from_raw(child.id() as i32) {
+                    let _ = kill_process_group(group, Signal::TERM);
+                    thread::sleep(Duration::from_millis(100));
+                    if child.try_wait().expect("poll terminated mx").is_none() {
+                        let _ = kill_process_group(group, Signal::KILL);
+                    }
+                }
+                let output = child.wait_with_output().expect("reap timed out mx");
+                panic!(
+                    "mx command timed out after 15 seconds: {:?}\nstdout={}\nstderr={}",
+                    args,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+    }
 }
 
 fn assert_success(output: &Output) -> String {
@@ -499,7 +530,11 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
 #[test]
 fn local_service_usage_and_invalid_boundaries_fail_before_mutation() {
     let root = root();
-    let home = tempfile::tempdir().expect("home");
+    let home = tempfile::Builder::new()
+        .prefix("mx-services-home.")
+        .tempdir_in(root.parent().expect("workspace parent"))
+        .expect("home");
+    assert!(!home.path().starts_with(&root));
     fs::create_dir(home.path().join("state")).expect("state");
     for args in [
         vec!["services", "unknown"],
@@ -694,7 +729,11 @@ fn server_argument_validation_and_port_exhaustion_fail_before_publication() {
     let root = root();
     let home = tempfile::tempdir().expect("home");
     let state = home.path().join("state");
-    let outside = tempfile::tempdir().expect("outside");
+    let outside = tempfile::Builder::new()
+        .prefix("mx-services-outside.")
+        .tempdir_in(root.parent().expect("workspace parent"))
+        .expect("outside");
+    assert!(!outside.path().starts_with(&root));
     fs::create_dir(&state).expect("state");
     let token = "a".repeat(64);
     let root_s = root.to_str().unwrap();

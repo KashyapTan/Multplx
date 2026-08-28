@@ -73,6 +73,18 @@ cleanup_all() {
 trap cleanup_all EXIT
 mx_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
 
+# The spawn boundary accepts only verified harness executables. This inert
+# fixture preserves the output assertions that previously relied on raw shell
+# command strings and is inherited by the named Herdr server.
+FAKEBIN="$TMP_ROOT/fakebin"
+mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/codex" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' primary-actors-ok daemon-launch-ok sm-actors-ok
+SH
+chmod +x "$FAKEBIN/codex"
+export PATH="$FAKEBIN:$PATH"
+
 # shellcheck source=/dev/null
 . "$ROOT/bin/mx-backend.sh"
 mx_backend_source herdr || fail "mx_backend_source herdr failed"
@@ -106,7 +118,7 @@ PROJ2="$TMP_ROOT/scratch-project-2"; make_scratch_project "$PROJ2"
 
 CM1_OUT="$TMP_ROOT/cm1.out"; CM1_ERR="$TMP_ROOT/cm1.err"
 MX_SPAWN_NO_GUARD=1 MX_HOME="$PRIMARY_HOME" MX_ROOT_OVERRIDE="$ROOT" \
-  "$ROOT/bin/mx-spawn.sh" cm1 "$PROJ1" "sh -c 'echo primary-actors-ok'" --backend herdr \
+  "$ROOT/bin/mx-spawn.sh" cm1 "$PROJ1" codex --backend herdr \
   >"$CM1_OUT" 2>"$CM1_ERR"
 rc=$?
 [ "$rc" -eq 0 ] || fail "primary-shaped actor spawn failed"$'\n'"--- stdout ---"$'\n'"$(cat "$CM1_OUT")"$'\n'"--- stderr ---"$'\n'"$(cat "$CM1_ERR")"
@@ -121,7 +133,7 @@ pass "real herdr E2E: a primary-shaped home spawns an actor on the herdr backend
 
 sleep 1
 CM1_CAPTURE=$(mx_backend_herdr_capture "$SESSION:$CM1_PANE" 30) || fail "capture failed on cm1's pane"
-assert_contains_local "$CM1_CAPTURE" "primary-actors-ok" "cm1's raw launch command did not run in its herdr pane"
+assert_contains_local "$CM1_CAPTURE" "primary-actors-ok" "cm1's verified inert harness did not run in its herdr pane"
 
 CM1_WSID=$(herdr pane get "$CM1_PANE" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty')
 [ -n "$CM1_WSID" ] || fail "could not read cm1's pane workspace_id"
@@ -135,7 +147,7 @@ pass "real herdr E2E: the primary-shaped home's actor landed in the 'broker' wor
 
 SM_OUT="$TMP_ROOT/sm.out"; SM_ERR="$TMP_ROOT/sm.err"
 MX_SPAWN_NO_GUARD=1 MX_HOME="$PRIMARY_HOME" MX_ROOT_OVERRIDE="$ROOT" \
-  "$ROOT/bin/mx-spawn.sh" e2esm1 "$SM_HOME" "sh -c 'echo daemon-launch-ok'" --daemon --backend herdr \
+  "$ROOT/bin/mx-spawn.sh" e2esm1 "$SM_HOME" codex --daemon --backend herdr \
   >"$SM_OUT" 2>"$SM_ERR"
 rc=$?
 [ "$rc" -eq 0 ] || fail "the primary's --daemon spawn of e2esm1 failed"$'\n'"--- stdout ---"$'\n'"$(cat "$SM_OUT")"$'\n'"--- stderr ---"$'\n'"$(cat "$SM_ERR")"
@@ -161,7 +173,7 @@ pass "real herdr E2E: a --daemon spawn by the PRIMARY lands in the DAEMON's own 
 
 CM2_OUT="$TMP_ROOT/cm2.out"; CM2_ERR="$TMP_ROOT/cm2.err"
 MX_SPAWN_NO_GUARD=1 MX_HOME="$SM_HOME" MX_ROOT_OVERRIDE="$ROOT" \
-  "$ROOT/bin/mx-spawn.sh" cm2 "$PROJ2" "sh -c 'echo sm-actors-ok'" --backend herdr \
+  "$ROOT/bin/mx-spawn.sh" cm2 "$PROJ2" codex --backend herdr \
   >"$CM2_OUT" 2>"$CM2_ERR"
 rc=$?
 [ "$rc" -eq 0 ] || fail "an actor spawned FROM the daemon-shaped home failed"$'\n'"--- stdout ---"$'\n'"$(cat "$CM2_OUT")"$'\n'"--- stderr ---"$'\n'"$(cat "$CM2_ERR")"
@@ -176,7 +188,7 @@ pass "real herdr E2E: an actor spawns successfully FROM a daemon-shaped home's o
 
 sleep 1
 CM2_CAPTURE=$(mx_backend_herdr_capture "$SESSION:$CM2_PANE" 30) || fail "capture failed on cm2's pane"
-assert_contains_local "$CM2_CAPTURE" "sm-actors-ok" "cm2's raw launch command did not run in its herdr pane"
+assert_contains_local "$CM2_CAPTURE" "sm-actors-ok" "cm2's verified inert harness did not run in its herdr pane"
 
 CM2_WSID=$(herdr pane get "$CM2_PANE" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty')
 [ "$CM2_WSID" = "$SM_WSID" ] || fail "an actor spawned FROM the daemon home should land in the SAME workspace as the daemon's own task ($SM_WSID), got '$CM2_WSID'"

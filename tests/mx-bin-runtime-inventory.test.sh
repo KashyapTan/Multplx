@@ -54,3 +54,28 @@ done < "$MANIFEST"
 
 [ "$FAILED" -eq 0 ] || exit 1
 pass "every tracked executable bin path is a minimal adapter or documented shell ABI"
+
+ABI_FIXTURE="$TMP/abi-fixture"
+mkdir -p "$ABI_FIXTURE/bin"
+for file in mx-rust-runtime.sh mx-session-start.sh mx-spawn.sh mx-update.sh mx-bootstrap.sh mx-teardown.sh; do
+  cp "$ROOT/bin/$file" "$ABI_FIXTURE/bin/$file"
+done
+cat >"$ABI_FIXTURE/stale-mx" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${MX_ABI_CALL_LOG:?}"
+exit 2
+SH
+chmod +x "$ABI_FIXTURE/stale-mx"
+: >"$ABI_FIXTURE/calls"
+for adapter in mx-session-start.sh mx-spawn.sh mx-update.sh mx-bootstrap.sh mx-teardown.sh; do
+  output=$(MX_RUST_BIN="$ABI_FIXTURE/stale-mx" MX_ABI_CALL_LOG="$ABI_FIXTURE/calls" \
+    "$ABI_FIXTURE/bin/$adapter" 2>&1) && inventory_fail "$adapter accepted an incompatible runtime"
+  assert_contains "$output" "incompatible with the current wrappers" \
+    "$adapter did not diagnose its stale runtime"
+done
+[ "$(wc -l <"$ABI_FIXTURE/calls" | tr -d ' ')" -eq 5 ] \
+  || inventory_fail "ABI refusal recursively or repeatedly invoked the stale runtime"
+[ "$(sort -u "$ABI_FIXTURE/calls")" = runtime-abi ] \
+  || inventory_fail "ABI refusal dispatched a wrapper command before compatibility was proven"
+[ "$FAILED" -eq 0 ] || exit 1
+pass "cutover wrappers reject stale runtimes once without recursive dispatch"

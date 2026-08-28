@@ -975,15 +975,121 @@ fn remove_tree_bounded(path: &Path) -> Result<(), String> {
     }
 }
 
-fn run_child(
-    root: &Path,
-    path: &str,
-    temp: Option<&Path>,
-    timeout: Duration,
-    cancellation: &Cancellation,
-) -> ResultRow {
+fn configure_test_environment(
+    command: &mut Command,
+    fixture: &Path,
+    source_root: &Path,
+    host_home: Option<&OsStr>,
+) -> Result<(), String> {
+    let mut inherited = [
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "TZ",
+        "USER",
+        "LOGNAME",
+        "RUST_BACKTRACE",
+        "MX_CLAUDE_LIVE_E2E",
+        "MX_CODEX_LIVE_E2E",
+        "MX_CURSOR_LIVE_TESTS",
+        "MX_HERDR_SMOKE_REAL_CLAUDE",
+        "MX_LAUNCHER_LIVE_E2E",
+        "MX_PI_LIVE_E2E",
+        "MX_AFK_PI_HERDR_E2E",
+        "MX_SEND_MARKER_HERDR_E2E",
+    ]
+    .into_iter()
+    .filter_map(|key| std::env::var_os(key).map(|value| (OsString::from(key), value)))
+    .collect::<Vec<_>>();
+    inherited.extend(
+        std::env::vars_os()
+            .filter(|(key, _)| key.to_str().is_some_and(|key| key.starts_with("MX_TEST_"))),
+    );
+    let home = fixture.join("home");
+    let data = home.join("data");
+    let state = home.join("state");
+    let config = home.join("config");
+    let projects = home.join("projects");
+    let temporary = fixture.join("tmp");
+    for path in [&home, &data, &state, &config, &projects, &temporary] {
+        fs::create_dir_all(path).map_err(|error| {
+            format!(
+                "cannot create isolated test directory {}: {error}",
+                path.display()
+            )
+        })?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|error| {
+            format!(
+                "cannot secure isolated test directory {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    command.env_clear();
+    for (key, value) in inherited {
+        command.env(key, value);
+    }
+    command
+        .env("SHELL", "/bin/bash")
+        .env("HOME", host_home.unwrap_or(home.as_os_str()))
+        .env("TMPDIR", &temporary)
+        .env("TMP", &temporary)
+        .env("MX_TEST_RUN_HERMETIC", "1")
+        .env("MX_TEST_RUN_SOURCE_ROOT", source_root)
+        .env("MX_TEST_RUN_HOME", &home)
+        .env("MX_TEST_RUN_DATA", &data)
+        .env("MX_TEST_RUN_STATE", &state)
+        .env("MX_TEST_RUN_CONFIG", &config)
+        .env("MX_TEST_RUN_PROJECTS", &projects)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    Ok(())
+}
+
+fn worker_tempdir() -> Result<tempfile::TempDir, String> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("mx-test-worker.");
+    if let Some(root) = std::env::var_os("MX_TEST_RUN_TEMP_ROOT") {
+        let root = PathBuf::from(root);
+        let canonical = root
+            .canonicalize()
+            .map_err(|error| format!("cannot resolve test worker root: {error}"))?;
+        if !canonical.is_dir() {
+            return Err("test worker root is not a directory".to_owned());
+        }
+        builder
+            .tempdir_in(canonical)
+            .map_err(|error| format!("cannot create worker temp: {error}"))
+    } else {
+        builder
+            .tempdir()
+            .map_err(|error| format!("cannot create worker temp: {error}"))
+    }
+}
+
+fn run_child(root: &Path, path: &str, timeout: Duration, cancellation: &Cancellation) -> ResultRow {
     let started = now_iso();
     let clock = Instant::now();
+    let directory = match worker_tempdir() {
+        Ok(directory) => directory,
+        Err(error) => {
+            return ResultRow {
+                path: path.to_owned(),
+                family: family(path).to_owned(),
+                expected: expected_skip(family(path)).to_owned(),
+                resources: resources(path),
+                code: 1,
+                duration_ms: clock.elapsed().as_millis(),
+                gate_skip: false,
+                output: format!("mx-test-run: {error}\n"),
+                started,
+                finished: now_iso(),
+            };
+        }
+    };
     let mut command = Command::new("bash");
     command
         .arg(path)
@@ -991,31 +1097,29 @@ fn run_child(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
-    if let Some(temp) = temp {
-        command.env("TMPDIR", temp).env("TMP", temp);
-    }
-    for variable in [
-        "MX_HOME",
-        "MX_STATE_OVERRIDE",
-        "MX_DATA_OVERRIDE",
-        "MX_ROOT_OVERRIDE",
-        "MX_PROJECTS_OVERRIDE",
-        "MX_CONFIG_OVERRIDE",
-        "MX_BACKEND",
-        "MX_MULTICALL_EXPLICIT",
-    ] {
-        command.env_remove(variable);
-    }
-    let output = command.spawn().and_then(|mut child| {
-        let stdout = child.stdout.take().expect("piped stdout");
-        let stderr = child.stderr.take().expect("piped stderr");
-        let stdout_reader = thread::spawn(move || std::io::read_to_string(stdout));
-        let stderr_reader = thread::spawn(move || std::io::read_to_string(stderr));
-        let outcome = wait_bounded(&mut child, clock, timeout, cancellation);
-        let stdout = stdout_reader.join().unwrap_or_else(|_| Ok(String::new()))?;
-        let stderr = stderr_reader.join().unwrap_or_else(|_| Ok(String::new()))?;
-        Ok((outcome, stdout, stderr))
-    });
+    let host_home = (family(path) == "real-herdr-gated")
+        .then(|| std::env::var_os("HOME"))
+        .flatten();
+    let configured =
+        configure_test_environment(&mut command, directory.path(), root, host_home.as_deref());
+    let output = configured
+        .and_then(|()| command.spawn().map_err(|error| error.to_string()))
+        .and_then(|mut child| {
+            let stdout = child.stdout.take().expect("piped stdout");
+            let stderr = child.stderr.take().expect("piped stderr");
+            let stdout_reader = thread::spawn(move || std::io::read_to_string(stdout));
+            let stderr_reader = thread::spawn(move || std::io::read_to_string(stderr));
+            let outcome = wait_bounded(&mut child, clock, timeout, cancellation);
+            let stdout = stdout_reader
+                .join()
+                .unwrap_or_else(|_| Ok(String::new()))
+                .map_err(|error| error.to_string())?;
+            let stderr = stderr_reader
+                .join()
+                .unwrap_or_else(|_| Ok(String::new()))
+                .map_err(|error| error.to_string())?;
+            Ok((outcome, stdout, stderr))
+        });
     let (code, text) = match output {
         Ok((Ok(WaitOutcome::Exited(status)), mut stdout, stderr)) => {
             stdout.push_str(&stderr);
@@ -1040,6 +1144,17 @@ fn run_child(
             (1, stdout)
         }
         Err(error) => (1, format!("{error}\n")),
+    };
+    let worker_root = directory.keep();
+    let (code, text) = match remove_tree_bounded(&worker_root) {
+        Ok(()) => (code, text),
+        Err(error) => (
+            1,
+            format!(
+                "{text}mx-test-run: isolation failure: could not remove worker root {}: {error}\n",
+                worker_root.display()
+            ),
+        ),
     };
     ResultRow {
         path: path.to_owned(),
@@ -1156,10 +1271,27 @@ fn parallel(
                 break;
             };
             pending.remove(&index);
-            let directory = tempfile::Builder::new()
-                .prefix("mx-test-worker.")
-                .tempdir()
-                .expect("worker temp");
+            let directory = match worker_tempdir() {
+                Ok(directory) => directory,
+                Err(error) => {
+                    results.insert(
+                        index,
+                        ResultRow {
+                            path: paths[index].clone(),
+                            family: family(&paths[index]).to_owned(),
+                            expected: expected_skip(family(&paths[index])).to_owned(),
+                            resources: resources(&paths[index]),
+                            code: 1,
+                            duration_ms: 0,
+                            gate_skip: false,
+                            output: format!("mx-test-run: {error}\n"),
+                            started: now_iso(),
+                            finished: now_iso(),
+                        },
+                    );
+                    continue;
+                }
+            };
             fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).ok();
             let private = directory.path().join("tmp");
             fs::create_dir(&private).ok();
@@ -1191,22 +1323,17 @@ fn parallel(
                 .current_dir(root)
                 .stdout(Stdio::from(stdout))
                 .stderr(Stdio::from(stderr))
-                .env("TMPDIR", &private)
-                .env("TMP", &private)
                 .process_group(0);
-            for variable in [
-                "MX_HOME",
-                "MX_STATE_OVERRIDE",
-                "MX_DATA_OVERRIDE",
-                "MX_ROOT_OVERRIDE",
-                "MX_PROJECTS_OVERRIDE",
-                "MX_CONFIG_OVERRIDE",
-                "MX_BACKEND",
-                "MX_MULTICALL_EXPLICIT",
-            ] {
-                command.env_remove(variable);
-            }
-            match command.spawn() {
+            let host_home = (family(&paths[index]) == "real-herdr-gated")
+                .then(|| std::env::var_os("HOME"))
+                .flatten();
+            let configured = configure_test_environment(
+                &mut command,
+                directory.path(),
+                root,
+                host_home.as_deref(),
+            );
+            match configured.and_then(|()| command.spawn().map_err(|error| error.to_string())) {
                 Ok(child) => running.push(Running {
                     index,
                     child,
@@ -1678,7 +1805,7 @@ pub(super) fn run(args: &[OsString]) -> i32 {
         scripts
             .iter()
             .take_while(|_| !cancellation.requested())
-            .map(|path| run_child(&root, path, None, timeout, &cancellation))
+            .map(|path| run_child(&root, path, timeout, &cancellation))
             .collect::<Vec<_>>()
     } else {
         parallel(&root, &scripts, jobs, timeout, &cancellation)
@@ -1835,6 +1962,40 @@ fn proof_process_leaks(proof_root: &Path) -> Vec<String> {
         .collect()
 }
 
+fn snapshot_tree(root: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    fn visit(root: &Path, path: &Path, rows: &mut Vec<(PathBuf, Vec<u8>)>) -> Result<(), String> {
+        let mut entries = fs::read_dir(path)
+            .map_err(|error| format!("cannot inspect isolation sentinel: {error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("cannot inspect isolation sentinel: {error}"))?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let child = entry.path();
+            let relative = child
+                .strip_prefix(root)
+                .map_err(|error| error.to_string())?
+                .to_owned();
+            let metadata = fs::symlink_metadata(&child).map_err(|error| error.to_string())?;
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                rows.push((relative, b"directory".to_vec()));
+                visit(root, &child, rows)?;
+            } else if metadata.is_file() && !metadata.file_type().is_symlink() {
+                rows.push((
+                    relative,
+                    fs::read(&child).map_err(|error| error.to_string())?,
+                ));
+            } else {
+                rows.push((relative, b"non-regular".to_vec()));
+            }
+        }
+        Ok(())
+    }
+
+    let mut rows = Vec::new();
+    visit(root, root, &mut rows)?;
+    Ok(rows)
+}
+
 pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
     let root = match root() {
         Ok(root) => root,
@@ -1953,6 +2114,36 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         eprintln!("mx-test-isolation-proof: cannot secure proof root: {error}");
         return 1;
     }
+    let sentinel = match tempfile::Builder::new()
+        .prefix("mx-isolation-sentinel.")
+        .tempdir()
+    {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("mx-test-isolation-proof: cannot create external sentinel: {error}");
+            return 1;
+        }
+    };
+    for directory in ["home", "state", "config", "projects"] {
+        if let Err(error) = fs::create_dir(sentinel.path().join(directory)) {
+            eprintln!("mx-test-isolation-proof: cannot seed external sentinel: {error}");
+            return 1;
+        }
+    }
+    if let Err(error) = fs::write(
+        sentinel.path().join("state/sentinel.status"),
+        b"untouched\n",
+    ) {
+        eprintln!("mx-test-isolation-proof: cannot seed external sentinel: {error}");
+        return 1;
+    }
+    let sentinel_before = match snapshot_tree(sentinel.path()) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("mx-test-isolation-proof: {error}");
+            return 1;
+        }
+    };
     let git_before = global_git_snapshot();
     let cancellation = match Cancellation::install() {
         Ok(cancellation) => cancellation,
@@ -1986,6 +2177,18 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
             .env("MX_MULTICALL_EXPLICIT", "1")
             .env("TMPDIR", proof_root.path())
             .env("TMP", proof_root.path())
+            .env("HOME", sentinel.path().join("home"))
+            .env("MX_HOME", sentinel.path().join("home"))
+            .env("MX_REPORT_STATE_OVERRIDE", sentinel.path().join("state"))
+            .env("MX_STATE_OVERRIDE", sentinel.path().join("state"))
+            .env("MX_CONFIG_OVERRIDE", sentinel.path().join("config"))
+            .env("MX_PROJECTS_OVERRIDE", sentinel.path().join("projects"))
+            .env("MX_TASK_ID", "isolation-sentinel-task")
+            .env("HERDR_SESSION", "isolation-sentinel-session")
+            .env("GH_TOKEN", "isolation-sentinel-secret")
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "credential.helper")
+            .env("GIT_CONFIG_VALUE_0", "sentinel-helper")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
@@ -2049,6 +2252,17 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
         eprintln!("mx-test-isolation-proof: global git config changed during proof");
         leaks += 1;
     }
+    match snapshot_tree(sentinel.path()) {
+        Ok(snapshot) if snapshot == sentinel_before => {}
+        Ok(_) => {
+            eprintln!("mx-test-isolation-proof: external state sentinel changed during proof");
+            leaks += 1;
+        }
+        Err(error) => {
+            eprintln!("mx-test-isolation-proof: {error}");
+            leaks += 1;
+        }
+    }
     let process_leaks = proof_process_leaks(proof_root.path());
     if !process_leaks.is_empty() {
         eprintln!("mx-test-isolation-proof: leaked proof-owned processes:");
@@ -2096,6 +2310,66 @@ pub(super) fn run_isolation_proof(args: &[OsString]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn child_environment_is_allowlisted_and_fixture_bound() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let source = tempfile::tempdir().expect("source");
+        let mut command = Command::new("/usr/bin/env");
+        command
+            .env("MX_TASK_ID", "live-task")
+            .env("MX_REPORT_STATE_OVERRIDE", "/live/state")
+            .env("HERDR_SESSION", "live-session")
+            .env("GH_TOKEN", "secret")
+            .env("GIT_CONFIG_COUNT", "9");
+        configure_test_environment(&mut command, fixture.path(), source.path(), None)
+            .expect("configure");
+        let output = command.output().expect("environment");
+        assert!(output.status.success());
+        let text = String::from_utf8(output.stdout).expect("UTF-8 environment");
+        for forbidden in [
+            "MX_TASK_ID=",
+            "MX_REPORT_STATE_OVERRIDE=",
+            "HERDR_SESSION=",
+            "GH_TOKEN=",
+            "GIT_CONFIG_COUNT=",
+        ] {
+            assert!(!text.lines().any(|line| line.starts_with(forbidden)));
+        }
+        assert!(!text.lines().any(|line| line.starts_with("MX_HOME=")));
+        assert!(
+            !text
+                .lines()
+                .any(|line| line.starts_with("MX_STATE_OVERRIDE="))
+        );
+        assert!(text.lines().any(|line| {
+            line == format!(
+                "MX_TEST_RUN_STATE={}",
+                fixture.path().join("home/state").display()
+            )
+        }));
+        assert!(
+            text.lines()
+                .any(|line| line == "GIT_CONFIG_GLOBAL=/dev/null")
+        );
+
+        let host = tempfile::tempdir().expect("host home");
+        let mut command = Command::new("/usr/bin/env");
+        configure_test_environment(
+            &mut command,
+            fixture.path(),
+            source.path(),
+            Some(host.path().as_os_str()),
+        )
+        .expect("configure real backend");
+        let text = String::from_utf8(command.output().expect("environment").stdout)
+            .expect("UTF-8 environment");
+        assert!(
+            text.lines()
+                .any(|line| line == format!("HOME={}", host.path().display()))
+        );
+    }
+
     #[test]
     fn manifest_is_unique_and_conflicts_are_symmetric() {
         let rows = manifest();

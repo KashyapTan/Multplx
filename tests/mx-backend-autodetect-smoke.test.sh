@@ -74,6 +74,19 @@ on_exit() {
   exit "$status"
 }
 trap on_exit EXIT
+
+# Supply a verified, inert harness to the isolated Herdr server. The spawn
+# boundary intentionally rejects shell command strings, including the old
+# `sh -c` fixture used here.
+FAKEBIN="$TMP_ROOT/fakebin"
+mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/codex" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' autodetect-smoke-ok
+SH
+chmod +x "$FAKEBIN/codex"
+export PATH="$FAKEBIN:$PATH"
+
 "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail "could not provision isolated Herdr lab session"
 
 # --- scratch world: MX_HOME with NO backend config, one throwaway project ---
@@ -96,7 +109,7 @@ env -u TMUX -u MX_BACKEND PATH="$PATH" HERDR_ENV=1 \
   MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$STATE" MX_DATA_OVERRIDE="$DATA" \
   MX_CONFIG_OVERRIDE="$CONFIG" MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
   MX_SPAWN_NO_GUARD=1 \
-  "$ROOT/bin/mx-spawn.sh" "$ID" "$PROJ" "sh -c 'echo autodetect-smoke-ok'" \
+  "$ROOT/bin/mx-spawn.sh" "$ID" "$PROJ" codex \
   >"$OUT_FILE" 2>"$ERR_FILE"
 status=$?
 [ "$status" -eq 0 ] || fail "mx-spawn.sh did not succeed auto-detecting herdr"$'\n'"--- stdout ---"$'\n'"$(cat "$OUT_FILE")"$'\n'"--- stderr ---"$'\n'"$(cat "$ERR_FILE")"
@@ -137,9 +150,9 @@ CAPTURED=$("$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" pane read "$PANE" --sour
 CAPTURED=$(printf '%s\n' "$CAPTURED" | tail -n 30)
 case "$CAPTURED" in
   *autodetect-smoke-ok*) : ;;
-  *) fail "the raw launch command did not run in the auto-detected herdr pane"$'\n'"$CAPTURED" ;;
+  *) fail "the verified inert harness did not run in the auto-detected herdr pane"$'\n'"$CAPTURED" ;;
 esac
-pass "real herdr: the auto-detected spawn's launch command actually ran in the herdr pane"
+pass "real herdr: the auto-detected spawn's verified harness actually ran in the herdr pane"
 
 # --- teardown completes the trivial spawn/teardown cycle --------------------
 

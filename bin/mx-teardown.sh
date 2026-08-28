@@ -4,7 +4,8 @@
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
-BINARY=${MX_RUST_BIN:-$ROOT/target/release/mx}
-[ -x "$BINARY" ] || { printf 'mx-teardown: Rust release binary is unavailable at %s\n' "$BINARY" >&2; exit 1; }
+# shellcheck source=bin/mx-rust-runtime.sh
+. "$SCRIPT_DIR/mx-rust-runtime.sh"
 export MX_RUST_SOURCE_ROOT=$ROOT
-exec "$BINARY" teardown "$@"
+rust_bin=$(mx_rust_runtime_bin) || exit $?
+exec "$rust_bin" teardown "$@"

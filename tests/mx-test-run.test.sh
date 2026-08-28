@@ -589,7 +589,7 @@ SH
   cat >"$repo/$a" <<'SH'
 #!/usr/bin/env bash
 sleep 0.5
-touch "$SCHED_EVIDENCE/slow-done"
+touch "$MX_TEST_SCHED_EVIDENCE/slow-done"
 echo "ok - slow fixture"
 SH
   cat >"$repo/$b" <<'SH'
@@ -599,12 +599,12 @@ echo "ok - fast fixture"
 SH
   cat >"$repo/$c" <<'SH'
 #!/usr/bin/env bash
-[ ! -e "$SCHED_EVIDENCE/slow-done" ] || exit 9
+[ ! -e "$MX_TEST_SCHED_EVIDENCE/slow-done" ] || exit 9
 echo "ok - replacement fixture"
 SH
   chmod +x "$runner" "$repo/$a" "$repo/$b" "$repo/$c" "$fake_bin/stat"
   set +e
-  PATH="$fake_bin:$PATH" SCHED_EVIDENCE="$evidence" \
+  PATH="$fake_bin:$PATH" MX_TEST_SCHED_EVIDENCE="$evidence" \
     "$runner" --jobs 2 --json "$tmp/timing.json" \
     "$a" "$b" "$c" >"$tmp/out" 2>"$tmp/err"
   rc=$?
@@ -654,7 +654,7 @@ SH
   chmod +x "$repo/$b"
   rm -f "$evidence/slow-done"
   set +e
-  SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 "$a" "$b" >"$tmp/out4" 2>"$tmp/err4"
+  MX_TEST_SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 "$a" "$b" >"$tmp/out4" 2>"$tmp/err4"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "jobs aggregate must be non-zero when a proven worker fails"; }
@@ -701,26 +701,26 @@ test_scheduler_resource_conflicts() {
   for script in "$watcher_a" "$watcher_b"; do
     cat >"$repo/$script" <<'SH'
 #!/usr/bin/env bash
-mkdir "$SCHED_EVIDENCE/watcher-owner" || exit 8
-trap 'rmdir "$SCHED_EVIDENCE/watcher-owner" 2>/dev/null || true' EXIT
-: >"$SCHED_EVIDENCE/watcher-active"
+mkdir "$MX_TEST_SCHED_EVIDENCE/watcher-owner" || exit 8
+trap 'rmdir "$MX_TEST_SCHED_EVIDENCE/watcher-owner" 2>/dev/null || true' EXIT
+: >"$MX_TEST_SCHED_EVIDENCE/watcher-active"
 sleep 0.2
-rm -f "$SCHED_EVIDENCE/watcher-active"
+rm -f "$MX_TEST_SCHED_EVIDENCE/watcher-active"
 echo "ok - shared watcher fixture"
 SH
   done
   cat >"$repo/$disjoint" <<'SH'
 #!/usr/bin/env bash
 attempt=0
-while [ "$attempt" -lt 100 ] && [ ! -e "$SCHED_EVIDENCE/watcher-active" ]; do
+while [ "$attempt" -lt 100 ] && [ ! -e "$MX_TEST_SCHED_EVIDENCE/watcher-active" ]; do
   sleep 0.01
   attempt=$((attempt + 1))
 done
-[ -e "$SCHED_EVIDENCE/watcher-active" ] || exit 9
+[ -e "$MX_TEST_SCHED_EVIDENCE/watcher-active" ] || exit 9
 echo "ok - disjoint overlap fixture"
 SH
   chmod +x "$runner" "$repo/$watcher_a" "$repo/$watcher_b" "$repo/$disjoint"
-  SCHED_EVIDENCE="$evidence" "$runner" --jobs 3 \
+  MX_TEST_SCHED_EVIDENCE="$evidence" "$runner" --jobs 3 \
     "$watcher_a" "$watcher_b" "$disjoint" >"$tmp/out" 2>"$tmp/err" \
     || { cat "$tmp/out" "$tmp/err"; rm -rf "$tmp"; fail "resource conflict fixture failed"; }
   grep -q 'MX_TEST_SUMMARY total=3 failed=0' "$tmp/out" \
@@ -737,35 +737,35 @@ SH
 JSON
   cat >"$repo/$watcher_a" <<'SH'
 #!/usr/bin/env bash
-[ -e "$SCHED_EVIDENCE/high-estimate-done" ] || exit 6
+[ -e "$MX_TEST_SCHED_EVIDENCE/high-estimate-done" ] || exit 6
 echo "ok - low estimate fixture"
 SH
   cat >"$repo/$watcher_b" <<'SH'
 #!/usr/bin/env bash
-: >"$SCHED_EVIDENCE/high-estimate-done"
+: >"$MX_TEST_SCHED_EVIDENCE/high-estimate-done"
 echo "ok - high estimate fixture"
 SH
   chmod +x "$repo/$watcher_a" "$repo/$watcher_b"
-  SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 \
+  MX_TEST_SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 \
     "$watcher_a" "$watcher_b" >"$tmp/lpt-out" 2>"$tmp/lpt-err" \
     || { cat "$tmp/lpt-out" "$tmp/lpt-err"; rm -rf "$tmp"; fail "longest-estimated-first scheduling failed"; }
 
   cat >"$repo/$disjoint" <<'SH'
 #!/usr/bin/env bash
-: >"$SCHED_EVIDENCE/none-started"
-: >"$SCHED_EVIDENCE/none-active"
+: >"$MX_TEST_SCHED_EVIDENCE/none-started"
+: >"$MX_TEST_SCHED_EVIDENCE/none-active"
 sleep 0.2
-rm -f "$SCHED_EVIDENCE/none-active"
+rm -f "$MX_TEST_SCHED_EVIDENCE/none-active"
 echo "ok - none fixture"
 SH
   cat >"$repo/$global" <<'SH'
 #!/usr/bin/env bash
-[ -e "$SCHED_EVIDENCE/none-started" ] || exit 7
-[ ! -e "$SCHED_EVIDENCE/none-active" ] || exit 8
+[ -e "$MX_TEST_SCHED_EVIDENCE/none-started" ] || exit 7
+[ ! -e "$MX_TEST_SCHED_EVIDENCE/none-active" ] || exit 8
 echo "ok - global fixture"
 SH
   chmod +x "$repo/$disjoint" "$repo/$global"
-  SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 \
+  MX_TEST_SCHED_EVIDENCE="$evidence" "$runner" --jobs 2 \
     "$disjoint" "$global" >"$tmp/global-out" 2>"$tmp/global-err" \
     || { cat "$tmp/global-out" "$tmp/global-err"; rm -rf "$tmp"; fail "global overlapped a none resource"; }
   grep -q 'MX_TEST_SUMMARY total=2 failed=0' "$tmp/global-out" \
@@ -894,12 +894,12 @@ test_timeout_kills_descendant_process_group() {
   cat >"$fixture" <<'SH'
 #!/usr/bin/env bash
 sleep 300 &
-echo "$!" >"$DESCENDANT_PID_FILE"
+echo "$!" >"$MX_TEST_DESCENDANT_PID_FILE"
 wait
 SH
   chmod +x "$fixture"
   set +e
-  DESCENDANT_PID_FILE="$tmp/pid" "$RUNNER" --timeout-secs 1 "$fixture" >"$tmp/out" 2>&1
+  MX_TEST_DESCENDANT_PID_FILE="$tmp/pid" "$RUNNER" --timeout-secs 1 "$fixture" >"$tmp/out" 2>&1
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "timed out script passed"; }
@@ -922,11 +922,11 @@ test_interrupt_kills_descendants_and_cleans_worker_root() {
   cat >"$fixture" <<'SH'
 #!/usr/bin/env bash
 sleep 300 &
-echo "$!" >"$DESCENDANT_PID_FILE"
+echo "$!" >"$MX_TEST_DESCENDANT_PID_FILE"
 wait
 SH
   chmod +x "$fixture"
-  TMPDIR="$tmp/workers" DESCENDANT_PID_FILE="$tmp/pid" \
+  MX_TEST_RUN_TEMP_ROOT="$tmp/workers" MX_TEST_DESCENDANT_PID_FILE="$tmp/pid" \
     "$RUNNER" --jobs 2 "$fixture" >"$tmp/out" 2>&1 &
   runner_pid=$!
   for _ in {1..100}; do

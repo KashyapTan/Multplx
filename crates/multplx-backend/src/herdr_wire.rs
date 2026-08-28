@@ -289,6 +289,13 @@ mod tests {
 
     use super::{AgentStatusEvent, event_wait, event_wait_cancelled, workspace_move};
 
+    fn socket_tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("mxw.")
+            .tempdir_in("/tmp")
+            .expect("short socket tempdir")
+    }
+
     #[test]
     fn projections_scrub_record_delimiters() {
         let event = AgentStatusEvent {
@@ -302,7 +309,7 @@ mod tests {
 
     #[test]
     fn move_rejects_wrong_id_and_accepts_fragmented_response() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = socket_tempdir();
         let socket = temp.path().join("herdr.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
         let server = thread::spawn(move || {
@@ -325,7 +332,7 @@ mod tests {
 
     #[test]
     fn move_rejects_wrong_response_id() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = socket_tempdir();
         let socket = temp.path().join("wrong-move.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
         let server = thread::spawn(move || {
@@ -347,7 +354,7 @@ mod tests {
 
     #[test]
     fn event_transport_requires_matching_ack_and_streams_only_native_events() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = socket_tempdir();
         let socket = temp.path().join("events.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
         let server = thread::spawn(move || {
@@ -385,7 +392,7 @@ mod tests {
 
     #[test]
     fn event_transport_cancels_without_waiting_for_the_deadline() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = socket_tempdir();
         let socket = temp.path().join("cancel.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
         let (server_done, server_status) = std::sync::mpsc::channel();
@@ -439,7 +446,7 @@ mod tests {
                 false,
             ),
         ] {
-            let temp = tempfile::tempdir().expect("tempdir");
+            let temp = socket_tempdir();
             let socket = temp.path().join(format!("{name}.sock"));
             let listener = UnixListener::bind(&socket).expect("bind");
             let server = thread::spawn(move || {
@@ -465,7 +472,7 @@ mod tests {
 
     #[test]
     fn event_transport_times_out_cleanly_after_ack() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = socket_tempdir();
         let socket = temp.path().join("timeout.sock");
         let listener = UnixListener::bind(&socket).expect("bind");
         let server = thread::spawn(move || {

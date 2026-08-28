@@ -264,7 +264,7 @@ Daemon agents can run on a different verified harness than actors.
 A bare harness line remains harness-only, so existing `config/daemon-harness` files keep their previous behavior.
 When the harness token is unset or `default`, launch falls back to `config/actor-harness`, then to the primary's own harness, and the model and effort tokens are ignored.
 Those optional tokens are re-read on every daemon spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
-An explicit per-spawn harness or raw launch command does not inherit model or effort tokens from `config/daemon-harness`.
+An explicit per-spawn verified harness does not inherit model or effort tokens from `config/daemon-harness`.
 `config/actor-harness` remains the actor harness and is inherited into daemon homes.
 `config/actor-dispatch.json` is inherited too; daemons use the same natural-language dispatch profiles when spawning their own actors.
 The [`daemon-provisioning` skill](../.agents/skills/daemon-provisioning/SKILL.md) owns the complete inherited-local-material allowlist and propagation contract.
