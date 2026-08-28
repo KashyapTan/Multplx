@@ -368,6 +368,7 @@ mod tests {
     fn fake_path_writes_executable_fixtures() {
         let home = TempHome::new().expect("home");
         let fake_path = FakePath::new(home.path()).expect("fake PATH");
+        assert_eq!(fake_path.path(), home.join("fakebin"));
         for generation in 0..8 {
             let executable = fake_path
                 .write_shell("example", &format!("printf 'fixture-{generation}\\n'"))
@@ -406,12 +407,17 @@ mod tests {
 
     #[test]
     fn manifest_preserves_order_bytes_modes_and_symlinks() {
+        use std::os::unix::net::UnixListener;
+
         let home = TempHome::new().expect("home");
+        fs::create_dir(home.join("state/nested")).expect("nested fixture");
+        fs::write(home.join("state/nested/file"), b"nested\n").expect("nested file");
         fs::write(home.join("state/z"), b"last\n").expect("z fixture");
         fs::write(home.join("state/a"), b"first\0byte").expect("a fixture");
         fs::set_permissions(home.join("state/a"), fs::Permissions::from_mode(0o600))
             .expect("fixture mode");
         symlink("a", home.join("state/link")).expect("fixture symlink");
+        let _socket = UnixListener::bind(home.join("state/socket")).expect("fixture socket");
 
         let manifest = FilesystemManifest::capture(home.join("state")).expect("manifest");
         let paths: Vec<&str> = manifest
@@ -420,13 +426,14 @@ mod tests {
             .map(|entry| entry.path.as_str())
             .collect();
 
-        assert_eq!(paths, ["a", "link", "z"]);
+        assert_eq!(paths, ["a", "link", "nested", "nested/file", "socket", "z"]);
         assert_eq!(manifest.entries[0].mode, 0o600);
         assert_eq!(
             manifest.entries[0].content_hex.as_deref(),
             Some("66697273740062797465")
         );
         assert_eq!(manifest.entries[1].target_hex.as_deref(), Some("61"));
+        assert_eq!(manifest.entries[4].kind, EntryKind::Other);
         assert_eq!(
             serde_json::to_string(&manifest).expect("serialize manifest"),
             serde_json::to_string(&manifest).expect("serialize manifest again")
@@ -435,11 +442,24 @@ mod tests {
 
     #[test]
     fn process_fixture_bounds_cleanup_and_reaps_the_child() {
+        let home = TempHome::new().expect("home");
+        let ready = home.join("state/ready");
         let mut command = Command::new("/bin/sh");
-        command.args(["-c", "trap '' TERM; while :; do sleep 1; done"]);
+        command
+            .args([
+                "-c",
+                "trap '' TERM; : > \"$1\"; while :; do sleep 1; done",
+                "sh",
+            ])
+            .arg(&ready);
         let mut fixture =
             ProcessFixture::spawn(&mut command, Duration::from_millis(25)).expect("spawn fixture");
         let pid = fixture.id().expect("fixture pid");
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !ready.is_file() && std::time::Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(ready.is_file(), "process fixture did not become ready");
 
         let status = fixture.stop().expect("bounded cleanup");
 
@@ -450,6 +470,34 @@ mod tests {
             .status()
             .expect("probe child");
         assert!(!probe.success());
+    }
+
+    #[test]
+    fn signaling_an_absent_process_group_reports_no_delivery() {
+        assert!(!signal_group(i32::MAX as u32, Signal::TERM).expect("absent process group"));
+    }
+
+    #[test]
+    fn process_fixture_allows_cooperative_group_cleanup() {
+        let home = TempHome::new().expect("home");
+        let ready = home.join("state/ready");
+        let mut command = Command::new("/bin/sh");
+        command
+            .args([
+                "-c",
+                "trap 'exit 0' TERM; : > \"$1\"; while :; do sleep 1; done",
+                "sh",
+            ])
+            .arg(&ready);
+        let mut fixture =
+            ProcessFixture::spawn(&mut command, Duration::from_secs(1)).expect("spawn fixture");
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !ready.is_file() && std::time::Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(ready.is_file(), "process fixture did not become ready");
+
+        assert!(fixture.stop().expect("cooperative cleanup").success());
     }
 
     #[test]
