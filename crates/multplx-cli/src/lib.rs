@@ -22,6 +22,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use clap::{Parser, Subcommand};
 use multplx_core::process::SystemProcessProbe;
 
+const WRAPPER_RUNTIME_ABI: &str = "multplx-rust-runtime-1";
+
 /// The Multplx binary with retained shadow compatibility diagnostics.
 #[derive(Debug, Parser)]
 #[command(
@@ -38,6 +40,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Print the wrapper/runtime compatibility generation.
+    #[command(hide = true)]
+    RuntimeAbi,
     /// Activate or operate one globally configured Multplx control plane.
     #[command(disable_help_flag = true)]
     Launcher {
@@ -485,6 +490,10 @@ impl Cli {
     /// Runs the selected command.
     pub fn run(self) -> i32 {
         match self.command {
+            Command::RuntimeAbi => {
+                println!("{WRAPPER_RUNTIME_ABI}");
+                0
+            }
             Command::Launcher { args } => launcher::run(&args),
             Command::LauncherInstall { args } => launcher::run_installer(&args),
             Command::TestRun { args } => tooling::run_tests(&args),
@@ -1700,20 +1709,23 @@ fn park_spawn_if_at_limit(
     .map_err(|error| error.to_string())
 }
 
+fn configured_spawn_backend(config: &Path) -> Option<String> {
+    fs::read_to_string(config.join("backend"))
+        .ok()?
+        .lines()
+        .map(|line| {
+            line.chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>()
+        })
+        .find(|line| !line.is_empty())
+}
+
 fn resolve_spawn_backend(config: &Path) -> (String, Option<String>) {
     if let Some(backend) = std::env::var_os("MX_BACKEND").filter(|value| !value.is_empty()) {
         return (backend.to_string_lossy().into_owned(), None);
     }
-    if let Ok(contents) = fs::read_to_string(config.join("backend"))
-        && let Some(backend) = contents
-            .lines()
-            .map(|line| {
-                line.chars()
-                    .filter(|character| !character.is_whitespace())
-                    .collect::<String>()
-            })
-            .find(|line| !line.is_empty())
-    {
+    if let Some(backend) = configured_spawn_backend(config) {
         return (backend, None);
     }
     if std::env::var_os("TMUX").is_some_and(|value| !value.is_empty()) {
@@ -1794,6 +1806,40 @@ fn cmux_app_is_ancestor() -> bool {
         pid = parent;
     }
     false
+}
+
+fn launch_shell_word(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn launch_path_word(path: &Path) -> Result<String, String> {
+    path.to_str()
+        .map(launch_shell_word)
+        .ok_or_else(|| format!("launch path is not valid UTF-8: {}", path.display()))
+}
+
+fn launch_environment(name: &str, value: &str) -> String {
+    format!("{name}={}", launch_shell_word(value))
+}
+
+fn launch_environment_block(
+    home: &str,
+    task_id: &str,
+    state: &str,
+    path: Option<&OsStr>,
+) -> Result<String, String> {
+    let mut environment = vec![
+        launch_environment("MX_HOME", home),
+        launch_environment("MX_TASK_ID", task_id),
+        launch_environment("MX_REPORT_STATE_OVERRIDE", state),
+    ];
+    if let Some(path) = path {
+        let path = path
+            .to_str()
+            .ok_or_else(|| "launch PATH is not valid UTF-8".to_owned())?;
+        environment.push(launch_environment("PATH", path));
+    }
+    Ok(environment.join(" "))
 }
 
 fn run_spawn(args: &[OsString]) -> i32 {
@@ -1998,8 +2044,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     if !matches!(
         request.harness.as_str(),
         "codex" | "claude" | "pi" | "cursor"
-    ) && !request.harness.contains(' ')
-    {
+    ) {
         eprintln!(
             "error: no launch template for harness '{}'{}",
             request.harness,
@@ -2009,6 +2054,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 ""
             }
         );
+        return 1;
+    }
+    if let Err(error_value) = multplx_domain::lifecycle::spawn::validate_for_launch(&request) {
+        eprintln!("error: {error_value}");
         return 1;
     }
     if request.kind != "daemon" && config.join("actor-dispatch.json").is_file() && !explicit_harness
@@ -2502,11 +2551,8 @@ fn run_spawn(args: &[OsString]) -> i32 {
             )
             .map_err(|error_value| error_value.to_string())?;
             let stop = format!(
-                "#!/usr/bin/env bash\nset -eu\ncat >/dev/null\ntouch '{}'\nprintf '%s\\n' '{{}}'\n",
-                context
-                    .state
-                    .join(format!("{}.turn-ended", request.id))
-                    .display()
+                "#!/usr/bin/env bash\nset -eu\ncat >/dev/null\ntouch {}\nprintf '%s\\n' '{{}}'\n",
+                launch_path_word(&context.state.join(format!("{}.turn-ended", request.id)))?
             );
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/stop.sh"),
@@ -2530,101 +2576,101 @@ fn run_spawn(args: &[OsString]) -> i32 {
             0o600,
         )
         .map_err(|error_value| error_value.to_string())?;
+        let path_text = |path: &Path| {
+            path.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("launch path is not valid UTF-8: {}", path.display()))
+        };
+        let report_server_text = path_text(&report_server)?;
+        let report_home_text = path_text(&report_home)?;
+        let state_text = path_text(&context.state)?;
+        let home_text = path_text(&request.home)?;
+        let brief_command = format!(
+            "\"$({} encode launch-brief < {})\"",
+            launch_path_word(&source_root.join("bin/mx-operational-input.sh"))?,
+            launch_path_word(&brief)?
+        );
+        let launch_path = std::env::var_os("PATH");
+        let common_environment =
+            launch_environment_block(&home_text, &request.id, &state_text, launch_path.as_deref())?;
         let model = if request.model == "default" {
             String::new()
         } else {
-            format!("--model '{}' ", request.model)
+            format!("--model {} ", launch_shell_word(&request.model))
         };
         let effort = if request.effort == "default" {
             String::new()
         } else {
-            format!("--effort '{}' ", request.effort)
+            format!("--effort {} ", launch_shell_word(&request.effort))
         };
         let codex_effort = if request.effort == "default" || request.effort == "max" {
             String::new()
         } else {
-            format!("-c 'model_reasoning_effort=\"{}\"' ", request.effort)
+            let value = format!(
+                "model_reasoning_effort={}",
+                serde_json::to_string(&request.effort)
+                    .map_err(|error_value| error_value.to_string())?
+            );
+            format!("-c {} ", launch_shell_word(&value))
         };
-        let codex_mcp = format!(
-            "-c 'mcp_servers.multplx_status={{command=\"{}\",args=[],env={{MX_TASK_ID=\"{}\",MX_HOME=\"{}\",MX_REPORT_STATE_OVERRIDE=\"{}\"}}}}' ",
-            report_server.display(),
-            request.id,
-            request.home.display(),
-            context.state.display()
+        let codex_mcp_value = format!(
+            "mcp_servers.multplx_status={{command={},args=[],env={{MX_TASK_ID={},MX_HOME={},MX_REPORT_STATE_OVERRIDE={}}}}}",
+            serde_json::to_string(&report_server_text)
+                .map_err(|error_value| error_value.to_string())?,
+            serde_json::to_string(&request.id).map_err(|error_value| error_value.to_string())?,
+            serde_json::to_string(&report_home_text)
+                .map_err(|error_value| error_value.to_string())?,
+            serde_json::to_string(&state_text).map_err(|error_value| error_value.to_string())?
         );
+        let codex_mcp = format!("-c {} ", launch_shell_word(&codex_mcp_value));
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' codex {codex_mcp}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox \"$('{}' encode launch-brief < '{}')\"",
-                request.home.display(),
-                request.id,
-                context.state.display(),
-                source_root.join("bin/mx-operational-input.sh").display(),
-                brief.display()
+                "{common_environment} codex {codex_mcp}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
-                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --mcp-config '{}' {model}{effort}\"$('{}' encode launch-brief < '{}')\"",
-                request.home.display(),
-                request.id,
-                context.state.display(),
-                mcp_config.display(),
-                source_root.join("bin/mx-operational-input.sh").display(),
-                brief.display()
+                "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --mcp-config {} {model}{effort}{brief_command}",
+                launch_path_word(&mcp_config)?
             ),
             "pi" => format!(
-                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' pi {model}{}{}\"$('{}' encode launch-brief < '{}')\"",
-                request.home.display(),
-                request.id,
-                context.state.display(),
+                "{common_environment} pi {model}{}{}{brief_command}",
                 if request.effort != "default" {
-                    format!("--thinking '{}' ", request.effort)
+                    format!("--thinking {} ", launch_shell_word(&request.effort))
                 } else {
                     String::new()
                 },
                 if request.kind == "daemon" {
                     format!(
-                        "-e '{}' -e '{}' ",
-                        request
-                            .home
-                            .join(".pi/extensions/mx-primary-turnend-guard.ts")
-                            .display(),
-                        request
-                            .home
-                            .join(".pi/extensions/mx-primary-pi-watch.ts")
-                            .display()
+                        "-e {} -e {} ",
+                        launch_path_word(
+                            &request
+                                .home
+                                .join(".pi/extensions/mx-primary-turnend-guard.ts")
+                        )?,
+                        launch_path_word(
+                            &request.home.join(".pi/extensions/mx-primary-pi-watch.ts")
+                        )?
                     )
                 } else {
-                    format!(
-                        "-e '{}.pi-ext.ts' ",
-                        context.state.join(&request.id).display()
-                    )
-                },
-                source_root.join("bin/mx-operational-input.sh").display(),
-                brief.display()
+                    launch_path_word(&context.state.join(format!("{}.pi-ext.ts", request.id)))
+                        .map(|path| format!("-e {path} "))?
+                }
             ),
             "cursor" => {
                 let cursor_model = if request.model == "default" {
                     String::new()
                 } else if request.effort == "default" || request.model.contains('[') {
-                    format!("--model '{}' ", request.model)
+                    format!("--model {} ", launch_shell_word(&request.model))
                 } else {
-                    format!("--model '{}[effort={}]' ", request.model, request.effort)
+                    format!(
+                        "--model {} ",
+                        launch_shell_word(&format!("{}[effort={}]", request.model, request.effort))
+                    )
                 };
                 format!(
-                    "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' agent --sandbox enabled --trust '{}' {cursor_model}\"$('{}' encode launch-brief < '{}')\"",
-                    request.home.display(),
-                    request.id,
-                    context.state.display(),
-                    cursor_plugin.display(),
-                    source_root.join("bin/mx-operational-input.sh").display(),
-                    brief.display()
+                    "{common_environment} agent --sandbox enabled --trust {} {cursor_model}{brief_command}",
+                    launch_path_word(&cursor_plugin)?
                 )
             }
-            other if other.contains(' ') => format!(
-                "MX_HOME='{}' MX_TASK_ID='{}' MX_REPORT_STATE_OVERRIDE='{}' {other}",
-                request.home.display(),
-                request.id,
-                context.state.display()
-            ),
             other => return Err(format!("unknown harness '{other}'")),
         };
         let launch = if request.kind == "daemon" {
@@ -2635,7 +2681,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
             launch
         };
         let launch = format!(
-            "env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN -u GH_CONFIG_DIR -u SSH_AUTH_SOCK -u MX_DELIVERY_GH_TOKEN -u MX_DELIVERY_GH_CONFIG_DIR GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=remote.origin.pushurl GIT_CONFIG_VALUE_1=/dev/null/multplx-agent-no-push GIT_SSH_COMMAND='ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null' {launch}"
+            "env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN -u GH_CONFIG_DIR -u SSH_AUTH_SOCK -u MX_DELIVERY_GH_TOKEN -u MX_DELIVERY_GH_CONFIG_DIR GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0='' GIT_CONFIG_KEY_1=remote.origin.pushurl GIT_CONFIG_VALUE_1=/dev/null/multplx-agent-no-push GIT_SSH_COMMAND={} {launch}",
+            launch_shell_word(
+                "ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null"
+            )
         );
         match target.backend() {
             BackendName::Tmux => {
@@ -2658,6 +2707,24 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         }
         .map_err(|error_value| error_value.to_string())?;
+        for _ in 0..2 {
+            std::thread::sleep(Duration::from_millis(150));
+            match target.backend() {
+                BackendName::Tmux => {
+                    multplx_backend::tmux::TmuxBackend::system().target_ready(&target)
+                }
+                BackendName::Herdr => herdr_backend().target_ready(&target),
+                BackendName::Cmux => {
+                    multplx_backend::cmux::CmuxBackend::system().target_ready(&target)
+                }
+            }
+            .map_err(|error_value| {
+                format!(
+                    "launch endpoint {} did not survive command submission: {error_value}",
+                    target.endpoint()
+                )
+            })?;
+        }
         let task = multplx_core::identifiers::TaskId::parse(&request.id)
             .map_err(|error_value| error_value.to_string())?;
         let timestamp = {
@@ -5404,6 +5471,64 @@ mod tests {
         assert_eq!(multicall_alias(OsStr::new("/tmp/mx")), None);
         assert!(parse_seconds("-1").is_err());
         assert!(parse_seconds("NaN").is_err());
+    }
+
+    #[test]
+    fn launch_transport_quotes_every_data_word_and_rejects_non_utf8_paths() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        assert_eq!(launch_shell_word("plain"), "'plain'");
+        assert_eq!(
+            launch_shell_word("apostrophe'; printf injected; #"),
+            "'apostrophe'\\''; printf injected; #'"
+        );
+        assert_eq!(
+            launch_environment("MX_HOME", "/tmp/home with space"),
+            "MX_HOME='/tmp/home with space'"
+        );
+        assert_eq!(
+            launch_environment_block(
+                "/tmp/home with space",
+                "task",
+                "/tmp/state",
+                Some(OsStr::new("/tmp/fake bin:/usr/bin"))
+            )
+            .expect("environment"),
+            "MX_HOME='/tmp/home with space' MX_TASK_ID='task' MX_REPORT_STATE_OVERRIDE='/tmp/state' PATH='/tmp/fake bin:/usr/bin'"
+        );
+        assert_eq!(
+            launch_environment_block("/tmp/home", "task", "/tmp/state", None)
+                .expect("environment without PATH"),
+            "MX_HOME='/tmp/home' MX_TASK_ID='task' MX_REPORT_STATE_OVERRIDE='/tmp/state'"
+        );
+        assert!(
+            launch_environment_block(
+                "/tmp/home",
+                "task",
+                "/tmp/state",
+                Some(OsStr::from_bytes(&[0xff]))
+            )
+            .expect_err("non-UTF-8 PATH")
+            .contains("not valid UTF-8")
+        );
+        assert_eq!(
+            launch_path_word(Path::new("/tmp/λ's path")).expect("path"),
+            "'/tmp/λ'\\''s path'"
+        );
+        assert!(
+            launch_path_word(Path::new(&OsString::from_vec(vec![b'/', 0xff])))
+                .expect_err("non-UTF-8")
+                .contains("not valid UTF-8")
+        );
+
+        let config = tempfile::tempdir().expect("config");
+        assert_eq!(configured_spawn_backend(config.path()), None);
+        fs::write(config.path().join("backend"), " \n\t\n her dr \n tmux\n")
+            .expect("backend config");
+        assert_eq!(
+            configured_spawn_backend(config.path()).as_deref(),
+            Some("herdr")
+        );
     }
 
     #[test]

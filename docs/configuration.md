@@ -222,10 +222,10 @@ A bare `<harness>` preserves the previous behavior: harness only, with no model 
 When the harness token is absent or `default`, daemon launch falls back through `config/actor-harness` and then the primary's own harness, and no model or effort is read from that file.
 `mx-harness.sh daemon-model` and `mx-harness.sh daemon-effort` expose only the optional tokens from `config/daemon-harness`; `config/actor-harness` remains a bare adapter-name file.
 An explicit harness argument to `mx-spawn.sh` still overrides either config file for that spawn only.
-An explicit `--model` or `--effort` overrides the matching token from `config/daemon-harness`; an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
+An explicit `--model` or `--effort` overrides the matching token from `config/daemon-harness`; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
 When `config/actor-dispatch.json` exists, actor and scout spawns require an explicit resolved harness instead of automatically falling back to `config/actor-harness`.
 The inherited-local-material contract is owned by [`daemon-provisioning`](../.agents/skills/daemon-provisioning/SKILL.md); its harness-relevant consequence is that a daemon's own actors use the primary's dispatch profiles and static harness value.
-Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit runtime outside the config.
+Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit verified harness outside the config.
 `config/daemon-harness` is not inherited because daemons do not launch daemons.
 For Pi daemon launches, `mx-spawn.sh` starts Pi with `-e` pointed at the daemon home's own tracked `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, both already present from the daemon home's git worktree.
 For Cursor launches, `mx-spawn.sh` always passes `--sandbox enabled --trust`; actor turn-end signaling comes from a private per-run plugin and primary behavior comes from tracked `.cursor` rules and hooks.
@@ -237,7 +237,7 @@ Cursor deep-review is deliberately unsupported because schema enforcement and pr
 
 `config/actor-dispatch.json` is an optional local, gitignored file containing natural-language rules that broker reads before dispatching an actor or scout.
 The lifecycle runtime does not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
-When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
+When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit verified harness through `--harness` or the positional adapter form.
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Daemon spawns are exempt and still resolve through `config/daemon-harness` and its optional model and effort tokens.
 This section is the single owner of the canonical schema and its per-field semantics; `AGENTS.md` section 4 owns the dispatch and array-selection procedure.

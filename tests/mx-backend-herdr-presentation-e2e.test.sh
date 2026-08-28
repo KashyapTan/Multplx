@@ -25,13 +25,14 @@ REAL_TREEHOUSE=$(command -v treehouse)
 HERDR_ORIGINAL_PATH=$PATH
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/mx-herdr-presentation.XXXXXX")
 FAKEBIN="$TMP_ROOT/fakebin"
+HARNESS_BIN="$TMP_ROOT/harness-bin"
 HERDR_CALL_LOG="$TMP_ROOT/herdr-calls.log"
 TREEHOUSE_CALL_LOG="$TMP_ROOT/treehouse-calls.log"
 MOVE_CALL_LOG="$TMP_ROOT/workspace-move-calls.log"
 FOCUS_AUDIT_LOG="$TMP_ROOT/focus-audit.log"
 ACTIVE_SEEDED_CONTROL="$TMP_ROOT/active-seeded-control"
 POST_CREATE_ABORT_CONTROL="$TMP_ROOT/post-create-abort-control"
-mkdir -p "$FAKEBIN"
+mkdir -p "$FAKEBIN" "$HARNESS_BIN"
 : > "$HERDR_CALL_LOG"
 : > "$TREEHOUSE_CALL_LOG"
 : > "$MOVE_CALL_LOG"
@@ -39,6 +40,16 @@ mkdir -p "$FAKEBIN"
 REAL_MOVER="$ROOT/bin/backends/herdr-workspace-move"
 export REAL_HERDR REAL_TREEHOUSE REAL_MOVER HERDR_CALL_LOG TREEHOUSE_CALL_LOG MOVE_CALL_LOG FOCUS_AUDIT_LOG HERDR_ORIGINAL_PATH HERDR_LAB_HELPER
 export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL TMP_ROOT
+
+# Herdr panes need a verified executable harness. Keep it outside FAKEBIN so
+# the real lab helper still reaches the real Herdr binary while provisioning
+# the server that will inherit this PATH.
+cat > "$HARNESS_BIN/codex" <<'SH'
+#!/usr/bin/env bash
+sleep 120
+SH
+chmod +x "$HARNESS_BIN/codex"
+HERDR_SERVER_PATH="$HARNESS_BIN:$HERDR_ORIGINAL_PATH"
 
 # Log every production-adapter call, remove its already-validated trailing
 # session flag, and send the operation through the lab helper so that helper
@@ -285,7 +296,7 @@ EOF
 }
 trap cleanup_all EXIT
 
-PATH="$HERDR_ORIGINAL_PATH" \
+PATH="$HERDR_SERVER_PATH" \
   "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not provision the isolated Herdr lab"
 LAB_READY=1
@@ -388,13 +399,13 @@ make_project() {  # <dir>
 spawn_task() {  # <id> <home> <project>
   local id=$1 home=$2 project=$3
   MX_GATE_REFUSE_BYPASS=1 MX_SPAWN_NO_GUARD=1 MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/mx-spawn.sh" "$id" "$project" "sh -c 'sleep 120'" --backend herdr
+    "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr
 }
 
 spawn_daemon_task() {
   local id=$1 home=$2
   MX_GATE_REFUSE_BYPASS=1 MX_SPAWN_NO_GUARD=1 MX_HOME="$HOME_DIR" MX_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/mx-spawn.sh" "$id" "$home" "sh -c 'sleep 120'" --daemon --backend herdr
+    "$ROOT/bin/mx-spawn.sh" "$id" "$home" codex --daemon --backend herdr
 }
 
 teardown_task() (  # <id> <home>
@@ -1103,7 +1114,7 @@ for RESTART_ID in mx-hibit-resume-r1 wheelhouse-healing-r1; do
   PATH="$HERDR_ORIGINAL_PATH" \
     "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
     || fail "could not stop the isolated session for $RESTART_ID validation"
-  PATH="$HERDR_ORIGINAL_PATH" \
+  PATH="$HERDR_SERVER_PATH" \
     "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
     || fail "could not reprovision the isolated session for $RESTART_ID validation"
   lab pane get "$OLD_RESTART_PANE" >/dev/null 2>&1 \
@@ -1133,7 +1144,7 @@ for RESTART_ID in mx-hibit-resume-r1 wheelhouse-healing-r1; do
   if [ "$RESTART_ID" = mx-hibit-resume-r1 ]; then
     PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
       || fail "could not stop the isolated session for idempotent reclaim"
-    PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+    PATH="$HERDR_SERVER_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
       || fail "could not reprovision the isolated session for idempotent reclaim"
     PRIOR_RESTART_WT=$NEW_RESTART_WT
     PRIOR_RESTART_PANE=$NEW_RESTART_PANE
@@ -1176,7 +1187,7 @@ CROSS_BOUND_HOME=$(grep '^home=' "$SECOND_HOME_A/state/$CROSS_RESTART_ID.herdr-p
   || fail "cross-home restart published a journal in the primary home"
 PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
   || fail "could not stop the isolated session for cross-home restart"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+PATH="$HERDR_SERVER_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for cross-home restart"
 spawn_task "$CROSS_RESTART_ID" "$SECOND_HOME_A" "$PROJECT_DIR" > "$TMP_ROOT/cross-restart-resume.out" 2> "$TMP_ROOT/cross-restart-resume.err" \
   || fail "cross-home same-identity reclaim failed: $(cat "$TMP_ROOT/cross-restart-resume.err")"
@@ -1214,7 +1225,7 @@ PRIMARY_WAVE_OLD_PANE=$(grep '^herdr_pane_id=' "$PRIMARY_WAVE_META" | cut -d= -f
 BRAVO_WAVE_OLD_PANE=$(grep '^herdr_pane_id=' "$BRAVO_WAVE_META" | cut -d= -f2-)
 PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
   || fail "could not stop the isolated session for concurrent recovery"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+PATH="$HERDR_SERVER_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for concurrent recovery"
 CONCURRENT_RECOVERY_FOCUS=$(focus_snapshot)
 spawn_task "$PRIMARY_WAVE_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/primary-wave-resume.out" 2> "$TMP_ROOT/primary-wave-resume.err" &

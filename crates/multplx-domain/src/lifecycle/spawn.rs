@@ -39,6 +39,42 @@ fn descendant(parent: &Path, child: &Path) -> bool {
     parent != child && child.starts_with(parent)
 }
 
+fn validate_record_value(field: &str, value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Err(format!("spawn {field} cannot be empty"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!(
+            "spawn {field} contains a control character that cannot be recorded safely"
+        ));
+    }
+    Ok(())
+}
+
+fn path_record_value<'a>(field: &str, path: &'a Path) -> Result<&'a str, String> {
+    let value = path
+        .to_str()
+        .ok_or_else(|| format!("spawn {field} is not valid UTF-8"))?;
+    validate_record_value(field, value)?;
+    Ok(value)
+}
+
+/// Reject launch and metadata fields that cannot cross the line-oriented state boundary.
+pub fn validate_for_launch(request: &Request) -> Result<(), String> {
+    for (field, value) in [
+        ("harness", request.harness.as_str()),
+        ("kind", request.kind.as_str()),
+        ("model", request.model.as_str()),
+        ("effort", request.effort.as_str()),
+        ("backend", request.backend.as_str()),
+    ] {
+        validate_record_value(field, value)?;
+    }
+    path_record_value("home", &request.home)?;
+    path_record_value("project", &request.project)?;
+    Ok(())
+}
+
 fn registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, String> {
     let text = fs::read_to_string(path).map_err(|error_value| error_value.to_string())?;
     let line = text
@@ -69,6 +105,7 @@ pub fn parse(
     context: &Context,
     default_harness: &str,
 ) -> Result<Request, String> {
+    validate_record_value("harness", default_harness)?;
     let mut positional = Vec::new();
     let mut daemon = false;
     let mut scout = false;
@@ -90,6 +127,7 @@ pub fn parse(
                     .and_then(|value| value.to_str())
                     .ok_or_else(|| format!("{value} requires a value"))?
                     .to_owned();
+                validate_record_value(value.trim_start_matches("--"), &next)?;
                 match value {
                     "--harness" => harness = Some(next),
                     "--model" => model = next,
@@ -282,10 +320,28 @@ pub fn publish_meta_for_worktree(
     } else {
         "deep-review"
     };
+    for (field, value) in [
+        ("endpoint", endpoint),
+        ("harness", request.harness.as_str()),
+        ("kind", request.kind.as_str()),
+        ("model", request.model.as_str()),
+        ("effort", request.effort.as_str()),
+        ("backend", request.backend.as_str()),
+    ] {
+        validate_record_value(field, value)?;
+    }
+    if projects.chars().any(char::is_control) {
+        return Err(
+            "spawn projects contains a control character that cannot be recorded safely".to_owned(),
+        );
+    }
+    let worktree_value = path_record_value("worktree", worktree)?;
+    let project_value = path_record_value("project", &request.project)?;
+    let home_value = path_record_value("home", &request.home)?;
     let mut text = format!(
         "window={endpoint}\nworktree={}\nproject={}\nharness={}\nkind={}\nmode={mode}\nyolo=off\nmodel={}\neffort={}\ntasktmp=/tmp/mx-{}\n",
-        worktree.display(),
-        request.project.display(),
+        worktree_value,
+        project_value,
         request.harness,
         request.kind,
         request.model,
@@ -296,10 +352,7 @@ pub fn publish_meta_for_worktree(
         text.push_str(&format!("backend={}\n", request.backend));
     }
     if request.kind == "daemon" {
-        text.push_str(&format!(
-            "home={}\nprojects={projects}\n",
-            request.home.display()
-        ));
+        text.push_str(&format!("home={home_value}\nprojects={projects}\n"));
     }
     if let (Some(request_id), Some(record), Some(head), Some(branch)) = (
         request.single_checkout_override.as_deref(),
@@ -307,9 +360,13 @@ pub fn publish_meta_for_worktree(
         request.single_checkout_base_head.as_deref(),
         request.single_checkout_base_branch.as_deref(),
     ) {
+        validate_record_value("single-checkout override", request_id)?;
+        validate_record_value("single-checkout base head", head)?;
+        validate_record_value("single-checkout base branch", branch)?;
+        let record_value = path_record_value("single-checkout record", record)?;
         text.push_str(&format!(
             "single_checkout=yes\nsingle_checkout_override={request_id}\nsingle_checkout_record={}\nsingle_checkout_base_head={head}\nsingle_checkout_base_branch={branch}\n",
-            record.display()
+            record_value
         ));
     }
     atomic_replace(
@@ -570,6 +627,17 @@ mod tests {
         for option in ["--harness", "--model", "--effort", "--backend"] {
             assert!(parse(&args(&["task", option]), &context, "codex").is_err());
         }
+        for option in ["--harness", "--model", "--effort"] {
+            assert!(
+                parse(
+                    &args(&["task", "/tmp", option, "unsafe\nvalue"]),
+                    &context,
+                    "codex"
+                )
+                .expect_err("control character")
+                .contains("control character")
+            );
+        }
         assert!(parse(&args(&["task"]), &context, "codex").is_err());
 
         let registry = context.data.join("daemons.md");
@@ -642,5 +710,47 @@ mod tests {
         invalid_context.state = temp.path().join("state-file");
         fs::write(&invalid_context.state, "not a directory").expect("state file");
         assert!(publish_meta(&invalid_context, &request, "window").is_err());
+    }
+
+    #[test]
+    fn launch_boundary_rejects_empty_control_and_non_utf8_record_values() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut request = Request {
+            id: "task".into(),
+            home: temp.path().join("home"),
+            project: temp.path().join("project"),
+            kind: "delivery".into(),
+            backend: "tmux".into(),
+            harness: "codex".into(),
+            model: "default".into(),
+            effort: "default".into(),
+            single_checkout_override: None,
+            single_checkout_record: None,
+            single_checkout_base_head: None,
+            single_checkout_base_branch: None,
+        };
+        validate_for_launch(&request).expect("safe launch request");
+
+        request.harness.clear();
+        assert!(
+            validate_for_launch(&request)
+                .expect_err("empty harness")
+                .contains("cannot be empty")
+        );
+        request.harness = "codex\nunsafe".into();
+        assert!(
+            validate_for_launch(&request)
+                .expect_err("control character")
+                .contains("control character")
+        );
+        request.harness = "codex".into();
+        request.project = PathBuf::from(OsString::from_vec(vec![b'/', 0xff]));
+        assert!(
+            validate_for_launch(&request)
+                .expect_err("non-UTF-8 path")
+                .contains("not valid UTF-8")
+        );
     }
 }

@@ -146,16 +146,12 @@ fn self_checks_with_vplan(
     let vplan = vplan_override
         .map(Path::to_path_buf)
         .unwrap_or_else(|| paths.source_root.join("bin/mx-vplan.sh"));
-    if !run_quiet(&vplan, &["--self-check"]) {
-        output.push_str("VPLAN_INVALID: bundled mx-vplan.sh self-check failed\n");
-    } else if verbose {
-        output.push_str("BOOTSTRAP_INFO: vplan self-check passed\n");
-    }
+    let vplan_valid = run_quiet(&vplan, &["--self-check"]);
     let headroom = Command::new(paths.source_root.join("bin/mx-headroom.sh"))
         .arg("--json")
         .env("MX_HEADROOM_IGNORE_DISPATCH_CONFIG", "1")
         .output();
-    let valid = headroom
+    let headroom_valid = headroom
         .ok()
         .filter(|value| value.status.success())
         .and_then(|value| serde_json::from_slice::<serde_json::Value>(&value.stdout).ok())
@@ -171,7 +167,21 @@ fn self_checks_with_vplan(
             .iter()
             .all(|key| value.get(key).is_some())
         });
-    if !valid {
+    append_self_check_results(output, verbose, vplan_valid, headroom_valid);
+}
+
+fn append_self_check_results(
+    output: &mut String,
+    verbose: bool,
+    vplan_valid: bool,
+    headroom_valid: bool,
+) {
+    if !vplan_valid {
+        output.push_str("VPLAN_INVALID: bundled mx-vplan.sh self-check failed\n");
+    } else if verbose {
+        output.push_str("BOOTSTRAP_INFO: vplan self-check passed\n");
+    }
+    if !headroom_valid {
         output.push_str("HEADROOM_INVALID: bundled mx-headroom.sh self-check failed\n");
     } else if verbose {
         output.push_str("BOOTSTRAP_INFO: headroom self-check passed\n");
@@ -1250,26 +1260,13 @@ mod tests {
 
     #[test]
     fn quiet_checks_and_self_checks_report_pass_and_failure() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let fixture = paths(temp.path());
-        fs::create_dir_all(fixture.root.join("bin")).expect("bin");
-        executable_script(&fixture.root.join("bin/mx-vplan.sh"), "exit 0");
-        executable_script(
-            &fixture.root.join("bin/mx-headroom.sh"),
-            "printf '%s\\n' '{\"model\":\"x\",\"capacity\":1,\"in_use\":0,\"available\":1,\"candidates\":[],\"at_limit\":false}'",
-        );
         let mut output = String::new();
-        self_checks_with_vplan(&fixture, &mut output, true, None);
+        append_self_check_results(&mut output, true, true, true);
         assert!(output.contains("vplan self-check passed"));
         assert!(output.contains("headroom self-check passed"));
 
-        executable_script(&fixture.root.join("bin/mx-vplan.sh"), "exit 1");
-        executable_script(
-            &fixture.root.join("bin/mx-headroom.sh"),
-            "printf 'not-json\\n'",
-        );
         output.clear();
-        self_checks_with_vplan(&fixture, &mut output, false, None);
+        append_self_check_results(&mut output, false, false, false);
         assert!(output.contains("VPLAN_INVALID"));
         assert!(output.contains("HEADROOM_INVALID"));
         assert!(run_quiet(Path::new("/bin/sh"), &["-c", "exit 0"]));

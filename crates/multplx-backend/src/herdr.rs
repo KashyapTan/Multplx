@@ -799,8 +799,19 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
     }
 
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
-        let (session, _) = self.ensure_target(target)?;
-        self.server_ensure(session)
+        let (session, pane) = self.ensure_target(target)?;
+        self.server_ensure(session)?;
+        match self.pane_agent_state(session, pane) {
+            PaneAgentState::NoAgent | PaneAgentState::Live => Ok(()),
+            PaneAgentState::Dead => Err(BackendError::Command(format!(
+                "Herdr endpoint '{}' disappeared",
+                target.endpoint()
+            ))),
+            PaneAgentState::Unknown => Err(BackendError::Malformed(format!(
+                "Herdr endpoint '{}' is unreadable",
+                target.endpoint()
+            ))),
+        }
     }
 
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError> {

@@ -21,6 +21,11 @@ make_spawn_fakebin() {
 set -u
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${MX_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *"#{pane_id}"*)
+    [ -z "${MX_FAKE_DROP_AFTER_SEND:-}" ] || [ ! -e "$MX_FAKE_DROP_AFTER_SEND" ] || exit 1
+    printf '%%1\n'
+    exit 0
+    ;;
 esac
 case "${1:-}" in
   display-message) printf 'broker\n'; exit 0 ;;
@@ -28,11 +33,19 @@ case "${1:-}" in
   new-window) printf '@1\n'; exit 0 ;;
   has-session|new-session|kill-window) exit 0 ;;
   send-keys)
+    case "$*" in *Enter*)
+      if [ -n "${MX_FAKE_DROP_AFTER_SEND:-}" ] && [ -e "$MX_FAKE_DROP_AFTER_SEND.armed" ]; then
+        : >"$MX_FAKE_DROP_AFTER_SEND"
+      fi
+    esac
     if [ -n "${MX_FAKE_LAUNCH_LOG:-}" ]; then
       prev=
       for a in "$@"; do
         if [ "$prev" = "-l" ]; then
           printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG"
+          case "$a" in *GH_PROMPT_DISABLED*)
+            [ -z "${MX_FAKE_DROP_AFTER_SEND:-}" ] || : >"$MX_FAKE_DROP_AFTER_SEND.armed"
+          esac
         fi
         prev=$a
       done
@@ -89,7 +102,8 @@ run_spawn() {
     MX_STATE_OVERRIDE="$home/state" MX_DATA_OVERRIDE="$home/data" \
     MX_PROJECTS_OVERRIDE="$home/projects" MX_CONFIG_OVERRIDE="$home/config" \
     MX_SPAWN_NO_GUARD=1 MX_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
-    MX_FAKE_LAUNCH_LOG="$launchlog" PATH="$fakebin:$PATH" \
+    MX_FAKE_LAUNCH_LOG="$launchlog" MX_FAKE_DROP_AFTER_SEND="${MX_FAKE_DROP_AFTER_SEND:-}" \
+    PATH="$fakebin:$PATH" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -246,8 +260,8 @@ test_active_dispatch_profile_allows_positional_harness() {
   pass "active actor-dispatch profile allows the legacy positional harness form"
 }
 
-test_active_dispatch_profile_allows_raw_launch_command() {
-  local rec id out status launch
+test_active_dispatch_profile_refuses_raw_launch_command() {
+  local rec id out status
   id=profile-raw-z15
   rec=$(make_spawn_case profile-raw claude "$id")
   read_case_record "$rec"
@@ -256,14 +270,12 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" "custom-agent --flag")
   status=$?
-  expect_code 0 "$status" "raw launch command should satisfy active dispatch-profile requirement"
-  assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
-  launch=$(cat "$LAUNCH_LOG")
-  assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
-  assert_contains "$launch" "custom-agent --flag" \
-    "raw launch command body changed"$'\n'"actual: $launch"
-  pass "active actor-dispatch profile allows the raw launch-command escape hatch"
+  expect_code 1 "$status" "raw launch command should be refused before backend creation"
+  assert_contains "$out" "no launch template for harness 'custom-agent --flag'" \
+    "raw launch command refusal did not name the unverified harness"
+  assert_absent "$HOME_DIR/state/$id.meta" "raw launch command published metadata"
+  [ ! -s "$LAUNCH_LOG" ] || fail "raw launch command reached the backend"
+  pass "active actor-dispatch profile refuses raw launch commands"
 }
 
 test_claude_threads_model_and_effort() {
@@ -321,6 +333,52 @@ test_codex_omits_invalid_max_effort() {
     "codex launch did not preserve the model flag when max effort was omitted"
   assert_not_contains "$launch" "model_reasoning_effort" "codex launch must omit unsupported max reasoning effort"
   pass "codex omits unsupported max effort instead of passing a bad config value"
+}
+
+test_launch_fields_remain_literal_shell_data() {
+  local rec id out status launch sentinel argv_log model
+  id=profile-quoted-z18
+  rec=$(make_spawn_case "profile-quote's" codex "$id")
+  read_case_record "$rec"
+  sentinel="$CASE_DIR/injected"
+  argv_log="$CASE_DIR/codex.argv"
+  model="gpt'; touch '$sentinel'; \$(printf BAD); \`printf BAD\`; # λ"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --model "$model" --effort "x'high")
+  status=$?
+  expect_code 0 "$status" "apostrophe-bearing launch fields should remain representable"
+  launch=$(cat "$LAUNCH_LOG")
+  cat >"$FAKEBIN_DIR/codex" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"${MX_CAPTURE_ARGV:?}"
+SH
+  chmod +x "$FAKEBIN_DIR/codex"
+  MX_CAPTURE_ARGV="$argv_log" PATH="$FAKEBIN_DIR:$PATH" /bin/bash -c "$launch"
+  assert_absent "$sentinel" "shell syntax embedded in a model value executed during launch"
+  grep -Fqx -- "$model" "$argv_log" \
+    || fail "model bytes changed across the interactive shell boundary"
+  grep -Fq -- "x'high" "$argv_log" \
+    || fail "effort bytes changed across the interactive shell boundary"
+  pass "apostrophes and shell metacharacters remain literal launch data"
+}
+
+test_spawn_refuses_endpoint_loss_after_submission() {
+  local rec id out status drop
+  id=profile-endpoint-loss-z19
+  rec=$(make_spawn_case profile-endpoint-loss codex "$id")
+  read_case_record "$rec"
+  drop="$CASE_DIR/drop-endpoint"
+
+  export MX_FAKE_DROP_AFTER_SEND="$drop"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset MX_FAKE_DROP_AFTER_SEND
+  expect_code 1 "$status" "spawn should fail when its exact endpoint disappears after Enter"
+  assert_contains "$out" "did not survive command submission" \
+    "endpoint loss did not produce an actionable launch failure"
+  assert_absent "$HOME_DIR/state/$id.meta" "endpoint loss left trusted task metadata"
+  pass "spawn retires metadata and reports failure when the launch endpoint disappears"
 }
 
 test_pi_threads_model_and_max_effort() {
@@ -417,10 +475,12 @@ test_active_dispatch_profile_requires_explicit_harness_for_ship
 test_active_dispatch_profile_requires_explicit_harness_for_scout
 test_active_dispatch_profile_allows_explicit_harness
 test_active_dispatch_profile_allows_positional_harness
-test_active_dispatch_profile_allows_raw_launch_command
+test_active_dispatch_profile_refuses_raw_launch_command
 test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
+test_launch_fields_remain_literal_shell_data
+test_spawn_refuses_endpoint_loss_after_submission
 test_pi_threads_model_and_max_effort
 test_cursor_private_plugin_and_effort_model
 test_batch_forwards_shared_profile_flags
