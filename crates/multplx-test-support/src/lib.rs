@@ -477,8 +477,9 @@ mod tests {
         assert!(!signal_group(i32::MAX as u32, Signal::TERM).expect("absent process group"));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
-    fn process_fixture_allows_cooperative_group_cleanup() {
+    fn linux_process_fixture_allows_cooperative_group_cleanup() {
         let home = TempHome::new().expect("home");
         let ready = home.join("state/ready");
         let mut command = Command::new("/bin/sh");
