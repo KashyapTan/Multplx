@@ -424,6 +424,12 @@ test_ci_and_docs_call_the_owner() {
     || fail "Herdr CI job must use Rust-owned bounded lab cleanup"
   grep -Fq 'tests-timing-aggregate:' "$CI" \
     || fail "CI must aggregate per-lane timing artifacts"
+  awk '
+    $0 == "  rust-coverage:" { inside = 1; next }
+    inside && $0 ~ /^  [[:alnum:]_-]+:$/ { exit }
+    inside && $0 == "    timeout-minutes: 15" { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$CI" || fail "Rust line coverage must keep a fifteen-minute hang tripwire"
   grep -Fq 'timeout-minutes: 20' "$CI" \
     || fail "portable serial hang tripwire must be timeout-minutes: 20"
   for job in tests-portable-parallel-1 tests-portable-parallel-2; do

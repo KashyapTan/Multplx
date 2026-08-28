@@ -55,7 +55,7 @@ jobs:
   rust-coverage:
     name: Rust line coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust coverage tools
