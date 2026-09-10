@@ -96,6 +96,13 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     else {
         return fail("arguments must be UTF-8");
     };
+    if values
+        .first()
+        .is_some_and(|value| matches!(value.as_str(), "-h" | "--help"))
+    {
+        print!("{USAGE}");
+        return 0;
+    }
     if values.first().is_some_and(|value| value == "respond") {
         return match respond(&values[1..]) {
             Ok(()) => 0,

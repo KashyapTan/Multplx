@@ -53,6 +53,37 @@ fn deep_review_rejects_closed_usage_without_a_retained_body() {
 }
 
 #[test]
+fn deep_review_help_needs_no_task_repository_or_external_commands() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for flag in ["--help", "-h"] {
+        let output = mx()
+            .args(["review", "mx-deep-review.sh", flag])
+            .current_dir(temp.path())
+            .env_clear()
+            .env("PATH", "")
+            .env("MX_HOME", temp.path().join("absent-home"))
+            .env("MX_RUST_SOURCE_ROOT", temp.path().join("absent-source"))
+            .output()
+            .expect("run help");
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let help = String::from_utf8(output.stdout).expect("help UTF-8");
+        for text in [
+            "Usage:",
+            "commands default to 300 seconds",
+            "headless calls default to 1800 seconds",
+            "MX_DEEP_REVIEW_MAX_ROUNDS",
+            "MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS",
+            "262144 bytes",
+            "no automatic waiver",
+        ] {
+            assert!(help.contains(text), "help omitted {text}");
+        }
+    }
+    assert_eq!(fs::read_dir(temp.path()).expect("inspect temp").count(), 0);
+}
+
+#[test]
 fn ambient_legacy_named_variable_cannot_redirect_a_native_entry_to_shell() {
     let temp = tempfile::tempdir().expect("tempdir");
     let marker = temp.path().join("shell-ran");
