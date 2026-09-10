@@ -726,7 +726,7 @@ fn actor_state(paths: &Paths, id: &str) -> Value {
     let mut source = "none";
     let mut detail = "";
     if let Some(rest) = raw.strip_prefix("state: ") {
-        let mut parts = rest.split(" · ");
+        let mut parts = rest.splitn(3, " · ");
         state = parts.next().unwrap_or("unknown");
         source = parts
             .next()

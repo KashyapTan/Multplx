@@ -416,9 +416,10 @@ pub fn reconcile(
     let target = (!endpoint.is_empty())
         .then(|| BackendTarget::new(task_backend, endpoint.clone(), Some(format!("mx-{id}"))))
         .transpose()?;
-    let native_signal = target
+    let native_observation = target.as_ref().map(|target| backend.native_state(target));
+    let native_signal = native_observation
         .as_ref()
-        .and_then(|target| backend.native_state(target).ok())
+        .and_then(|observation| observation.as_ref().ok())
         .map(|state| match state {
             NativeState::Idle => "",
             NativeState::Working => "working",
@@ -577,11 +578,18 @@ pub fn reconcile(
             evidence,
         ))
     } else {
-        Ok(ActorStateOutput::plain(
-            "unknown",
-            "none",
-            "no current-state source available",
-        ))
+        // Failed reads are not signals and must not displace valid evidence.
+        // Keep their diagnostics when no current-state source can explain the task.
+        let detail = match native_observation {
+            Some(Err(BackendError::Unsupported { .. })) | None | Some(Ok(_)) => {
+                "no current-state source available".to_owned()
+            }
+            Some(Err(error)) => format!(
+                "no current-state source available{SEP}backend native state {}: {error}",
+                target.endpoint()
+            ),
+        };
+        Ok(ActorStateOutput::plain("unknown", "none", &detail))
     }
 }
 

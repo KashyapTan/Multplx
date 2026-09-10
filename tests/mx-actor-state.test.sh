@@ -165,10 +165,11 @@ case "$1 ${2:-}" in
       transport) echo 'fixture agent socket unavailable' >&2; exit 1 ;;
       api) echo '{"error":{"code":"agent_read_failed","message":"fixture agent socket unavailable"}}'; exit 1 ;;
       malformed) echo '{"result":{"agent":{"unexpected":"fixture unknown status"}}}'; exit 0 ;;
+      unknown) echo '{"result":{"agent":{"agent_status":"fixture unsupported status"}}}'; exit 0 ;;
     esac
     if [ "${MX_FAKE_NO_AGENT:-0}" = 1 ]; then echo '{"error":{"code":"agent_not_found"}}'; else echo '{"result":{"agent":{"agent_status":"working"}}}'; fi ;;
   'status --json') echo '{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}' ;;
-  'pane read') echo 'Working' ;;
+  'pane read') echo "${MX_FAKE_PANE_TEXT:-Working}" ;;
   *) exit 2 ;;
 esac
 SH
@@ -215,11 +216,25 @@ SH
       jq -e '.tasks[0].endpoint.exists == true and .tasks[0].endpoint.agent_alive == "dead"' "$case_dir/snapshot" >/dev/null || fail 'agent-less Herdr pane misclassified'
       "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
       jq -e '.tasks[0].endpoint.agent_alive == "alive"' "$case_dir/snapshot" >/dev/null || fail 'live Herdr daemon misclassified'
-      for failure in transport api malformed; do
+      for failure in transport api malformed unknown; do
+        MX_FAKE_AGENT_FAILURE=$failure "$STATE_BIN" "$id" > "$case_dir/out" || fail "Herdr $failure actor-state refused"
+        grep -q 'state: unknown.*native state.*fixture' "$case_dir/out" || fail "Herdr $failure current-state diagnostic lost"
         MX_FAKE_AGENT_FAILURE=$failure "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
         jq -e '.tasks[0].endpoint | .exists == true and .agent_alive == "unknown" and (.detail | contains("fixture"))' "$case_dir/snapshot" >/dev/null || fail "Herdr $failure agent failure lost endpoint presence or diagnostic"
+        jq -e '.tasks[0].current_state | .state == "unknown" and (.detail | contains("fixture"))' "$case_dir/snapshot" >/dev/null || fail "Herdr $failure snapshot current-state diagnostic lost"
+        printf 'paused: release window\n' > "$state/$id.status"
+        MX_FAKE_AGENT_FAILURE=$failure "$STATE_BIN" "$id" > "$case_dir/out"
+        assert_grep 'state: paused · source: status-log · release window' "$case_dir/out" 'native failure hid validated report'
+        rm "$state/$id.status"
       done
+      mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=delivery'
+      write_run "$state" "$id" "$repo" "$head" running review
+      MX_FAKE_AGENT_FAILURE=transport "$STATE_BIN" "$id" > "$case_dir/out"
+      assert_grep 'state: working · source: run-step · validating' "$case_dir/out" 'native failure hid attributed run'
+      rm "$state/$id.gate/run.json"
       mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
+      MX_FAKE_AGENT_FAILURE=transport MX_FAKE_PANE_TEXT='Working... esc to interrupt' "$STATE_BIN" "$id" > "$case_dir/out"
+      assert_grep 'state: working · source: pane · harness busy' "$case_dir/out" 'native failure hid pane fallback'
       if grep -q '^server\|^status' "$MX_FAKE_HERDR_LOG"; then fail 'passive read attempted server readiness'; fi
     else
       mkdir -p "$case_dir/elsewhere"

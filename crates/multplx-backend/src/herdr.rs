@@ -523,9 +523,18 @@ impl<R: CommandRunner> HerdrBackend<R> {
 
     /// Return the raw native status when readable.
     pub fn agent_status_raw(&mut self, session: &str, pane: &str) -> Option<String> {
-        self.json_scoped(session, ["agent", "get", pane])
-            .ok()
-            .and_then(|value| string_at(&value, "/result/agent/agent_status").map(str::to_owned))
+        self.read_agent_status(session, pane).ok()
+    }
+
+    fn read_agent_status(&mut self, session: &str, pane: &str) -> Result<String, BackendError> {
+        let value = self.json_scoped(session, ["agent", "get", pane])?;
+        string_at(&value, "/result/agent/agent_status")
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                BackendError::Malformed(format!(
+                    "Herdr agent for '{session}:{pane}' is unreadable: {value}"
+                ))
+            })
     }
 
     /// Return the event socket for one exact running session only.
@@ -945,14 +954,14 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
 
     fn native_state(&mut self, target: &BackendTarget) -> Result<NativeState, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
-        match self.agent_status_raw(session, pane).as_deref() {
-            Some("idle") => Ok(NativeState::Idle),
-            Some("working") => Ok(NativeState::Working),
-            Some("blocked") => Ok(NativeState::Blocked),
-            Some("done") => Ok(NativeState::Done),
-            _ => Err(BackendError::Malformed(
-                "unknown Herdr native state".to_owned(),
-            )),
+        match self.read_agent_status(session, pane)?.as_str() {
+            "idle" => Ok(NativeState::Idle),
+            "working" => Ok(NativeState::Working),
+            "blocked" => Ok(NativeState::Blocked),
+            "done" => Ok(NativeState::Done),
+            status => Err(BackendError::Malformed(format!(
+                "unknown Herdr native state for '{session}:{pane}': {status}"
+            ))),
         }
     }
 
@@ -1120,10 +1129,15 @@ pub fn parse_target(target: &str) -> Option<(&str, &str)> {
 }
 
 fn command_failure(program: &str, output: &CommandOutput) -> BackendError {
+    let detail = if output.stderr.is_empty() {
+        &output.stdout
+    } else {
+        &output.stderr
+    };
     BackendError::Command(format!(
         "{program} exited {:?}: {}",
         output.status.code(),
-        String::from_utf8_lossy(&output.stderr).trim()
+        String::from_utf8_lossy(detail).trim()
     ))
 }
 
