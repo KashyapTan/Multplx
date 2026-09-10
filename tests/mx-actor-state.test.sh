@@ -212,6 +212,13 @@ SH
       mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
       if grep -q '^server\|^status' "$MX_FAKE_HERDR_LOG"; then fail 'passive read attempted server readiness'; fi
     else
+      mkdir -p "$case_dir/elsewhere"
+      (
+        cd "$case_dir/elsewhere" || exit 1
+        env -u MX_ROOT_OVERRIDE "$ROOT/bin/mx-doctor.sh" --check stateless-sessions --json > "$case_dir/doctor" || fail 'cmux doctor depends on caller directory'
+        env -u MX_ROOT_OVERRIDE "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot" || fail 'cmux snapshot from another directory failed'
+        jq -e '.tasks[0].endpoint.exists == true and .tasks[0].current_state.state == "working"' "$case_dir/snapshot" >/dev/null || fail 'cmux snapshot observations disagree outside source directory'
+      ) || fail 'cmux wrapper root resolution failed'
       MX_FAKE_SURFACE=s2 "$STATE_BIN" "$id" > "$case_dir/out" || fail 'replacement surface state refused'
       assert_grep 'state: working' "$case_dir/out" 'replacement surface capture lost'
       MX_FAKE_SURFACE=s2 "$ROOT/bin/mx-doctor.sh" --check stateless-sessions --json > "$case_dir/doctor" || fail 'replacement surface diagnosed missing'

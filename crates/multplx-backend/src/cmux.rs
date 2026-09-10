@@ -63,6 +63,7 @@ impl CmuxBackend<SystemCommandRunner> {
     #[must_use]
     pub fn system() -> Self {
         let root = std::env::var_os("MX_ROOT_OVERRIDE")
+            .or_else(|| std::env::var_os("MX_RUST_SOURCE_ROOT"))
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));

@@ -393,3 +393,42 @@ SH
   pass 'Codex failure retains private event diagnostics and never creates a handoff'
 }
 test_codex_failure_preserves_events
+
+test_trusted_config_read_errors_stop_validation() {
+  local case_dir repo state id fault diagnostic
+  for fault in timeout error; do
+    IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case "config-$fault")
+EOF
+    mkdir "$case_dir/fakebin"
+    cat > "$case_dir/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "${3:-}" = show ] && [ "${4:-}" = main:.deep-review.yaml ]; then
+  if [ "$MX_CONFIG_FAULT" = timeout ]; then sleep 120; else echo 'fixture config read failed' >&2; exit 9; fi
+fi
+exec "$MX_REAL_GIT" "$@"
+SH
+    chmod +x "$case_dir/fakebin/git"
+    if run_gate "$case_dir" "$repo" "$state" "$id" env MX_REAL_GIT="$(command -v git)" MX_CONFIG_FAULT="$fault" PATH="$case_dir/fakebin:$PATH" MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS=1 >"$case_dir/out" 2>"$case_dir/err"; then fail "trusted config $fault passed validation"; fi
+    diagnostic='fixture config read failed'; [ "$fault" != timeout ] || diagnostic='timed out after 1 seconds'
+    assert_grep "$diagnostic" "$case_dir/err" 'trusted config failure detail lost'
+    [ ! -s "$case_dir/agent.log" ] || fail 'config failure continued to agents'
+    [ ! -e "$state/$id.ready-to-push" ] || fail 'config failure created handoff'
+  done
+  pass 'trusted config timeouts and execution failures stop before validation'
+}
+test_trusted_config_read_errors_stop_validation
+
+test_missing_trusted_config_uses_defaults() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case config-absent)
+EOF
+  git -C "$repo" branch -f main HEAD~2
+  git -C "$repo" rm -q .deep-review.yaml
+  git -C "$repo" commit -qm 'remove optional config'
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/out" 2>"$case_dir/err" || fail "missing optional config refused: $(cat "$case_dir/err")"
+  [ "$(jq -r .status "$state/$id.gate/run.json")" = passed ] || fail 'optional defaults did not validate'
+  pass 'proven missing trusted configuration retains optional defaults'
+}
+test_missing_trusted_config_uses_defaults

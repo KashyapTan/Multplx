@@ -346,24 +346,50 @@ fn boolean(value: &str) -> bool {
     )
 }
 
-fn load_config(repo: &Path, branch: &str) -> Config {
-    let trusted = Command::new("git")
+fn load_config(repo: &Path, branch: &str) -> Result<Config, String> {
+    // Only a successful tree lookup can establish that configuration is optional.
+    let listing = Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["show", &format!("{branch}:.deep-review.yaml")])
+        .args(["ls-tree", "--name-only", branch, "--", ".deep-review.yaml"])
         .bounded_output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-        .unwrap_or_default();
-    let current = fs::read_to_string(repo.join(".deep-review.yaml")).unwrap_or_default();
+        .map_err(|error| format!("cannot locate trusted review configuration: {error}"))?;
+    if !listing.status.success() {
+        return Err(format!(
+            "cannot locate trusted review configuration: {}",
+            String::from_utf8_lossy(&listing.stderr).trim()
+        ));
+    }
+    let trusted = if listing.stdout.is_empty() {
+        String::new()
+    } else {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["show", &format!("{branch}:.deep-review.yaml")])
+            .bounded_output()
+            .map_err(|error| format!("cannot read trusted review configuration: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "cannot read trusted review configuration: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        String::from_utf8(output.stdout)
+            .map_err(|error| format!("invalid trusted review configuration: {error}"))?
+    };
+    let current = match fs::read_to_string(repo.join(".deep-review.yaml")) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("cannot read current review configuration: {error}")),
+    };
     let allow = boolean(&parse_scalar(&trusted, None, "allow_repo_commands"));
     let commands = if allow && !current.is_empty() {
         &current
     } else {
         &trusted
     };
-    Config {
+    Ok(Config {
         disable_project_settings: !matches!(
             parse_scalar(&trusted, None, "disable_project_settings").as_str(),
             "false" | "False" | "FALSE" | "no" | "No" | "NO" | "0"
@@ -383,7 +409,7 @@ fn load_config(repo: &Path, branch: &str) -> Config {
         } else {
             parse_list(&current, "ignore_patterns")
         },
-    }
+    })
 }
 
 fn run_gate(values: &[String]) -> Result<i32, String> {
@@ -469,7 +495,7 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
         return Err("invalid default branch".to_owned());
     }
     trace("load config");
-    let config = load_config(&repo, &default);
+    let config = load_config(&repo, &default)?;
     let context = Context {
         id: id.clone(),
         root: root(),
