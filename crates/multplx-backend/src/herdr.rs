@@ -470,20 +470,41 @@ impl<R: CommandRunner> HerdrBackend<R> {
 
     /// Classify a pane from exact response bodies rather than command status.
     pub fn pane_agent_state(&mut self, session: &str, pane: &str) -> PaneAgentState {
+        self.observe_pane_agent(session, pane)
+            .unwrap_or(PaneAgentState::Unknown)
+    }
+
+    fn observe_pane_agent(
+        &mut self,
+        session: &str,
+        pane: &str,
+    ) -> Result<PaneAgentState, BackendError> {
         match self.observe_pane(session, pane) {
             Ok(()) => {}
-            Err(BackendError::Missing(_)) => return PaneAgentState::Dead,
-            Err(_) => return PaneAgentState::Unknown,
+            Err(BackendError::Missing(_)) => return Ok(PaneAgentState::Dead),
+            Err(error) => return Err(error),
         }
-        let Ok(agent) = self.json_any_status(session, ["agent", "get", pane]) else {
-            return PaneAgentState::Unknown;
+        let output = self.run_scoped(session, ["agent", "get", pane])?;
+        let bytes = if output.stdout.is_empty() {
+            &output.stderr
+        } else {
+            &output.stdout
         };
+        let agent: Value = serde_json::from_slice(bytes).map_err(|error| {
+            if output.status.success() {
+                BackendError::Malformed(format!("Herdr agent JSON for '{session}:{pane}': {error}"))
+            } else {
+                command_failure("herdr agent get", &output)
+            }
+        })?;
         if string_at(&agent, "/error/code") == Some("agent_not_found") {
-            return PaneAgentState::NoAgent;
+            return Ok(PaneAgentState::NoAgent);
         }
         match string_at(&agent, "/result/agent/agent_status") {
-            Some("working" | "idle" | "done" | "blocked") => PaneAgentState::Live,
-            _ => PaneAgentState::Unknown,
+            Some("working" | "idle" | "done" | "blocked") => Ok(PaneAgentState::Live),
+            _ => Err(BackendError::Malformed(format!(
+                "Herdr agent for '{session}:{pane}' is unreadable: {agent}"
+            ))),
         }
     }
 
@@ -936,15 +957,17 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
     }
 
     fn agent_state(&mut self, target: &BackendTarget) -> AgentState {
-        let Ok((session, pane)) = self.ensure_target(target) else {
-            return AgentState::Unreadable;
-        };
-        match self.pane_agent_state(session, pane) {
+        self.observe_agent(target).unwrap_or(AgentState::Unreadable)
+    }
+
+    fn observe_agent(&mut self, target: &BackendTarget) -> Result<AgentState, BackendError> {
+        let (session, pane) = self.ensure_target(target)?;
+        Ok(match self.observe_pane_agent(session, pane)? {
             PaneAgentState::Dead => AgentState::Missing,
             PaneAgentState::NoAgent => AgentState::Dead,
             PaneAgentState::Live => AgentState::Alive,
             PaneAgentState::Unknown => AgentState::Unreadable,
-        }
+        })
     }
 
     fn kill_verified(&mut self, target: &BackendTarget) -> KillOutcome {

@@ -657,17 +657,19 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
     });
     let exists = endpoint
         .as_ref()
-        .and_then(|result| result.as_ref().ok().map(|(exists, _)| *exists));
+        .and_then(|result| result.as_ref().ok().map(|observation| observation.exists));
     let endpoint_detail = endpoint
         .as_ref()
-        .and_then(|result| result.as_ref().err())
-        .map(ToString::to_string)
+        .map(|result| match result {
+            Ok(observation) => observation.detail.clone(),
+            Err(error) => error.to_string(),
+        })
         .unwrap_or_default();
     let alive = if kind == "daemon" {
         endpoint
             .as_ref()
             .and_then(|result| result.as_ref().ok())
-            .map(|(_, state)| state.alive_token())
+            .map(|observation| observation.agent_state.alive_token())
             .unwrap_or("unknown")
     } else {
         "not_checked"

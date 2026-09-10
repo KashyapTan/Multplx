@@ -279,8 +279,8 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                     Some(format!("mx-{id}")),
                     false,
                 ) {
-                    Ok((true, _)) => {}
-                    Ok((false, _)) => missing.push(format!("{id} ({backend})")),
+                    Ok(observation) if observation.exists => {}
+                    Ok(_) => missing.push(format!("{id} ({backend})")),
                     Err(error) => unknown.push(format!("{id} ({backend}): {error}")),
                 }
             }

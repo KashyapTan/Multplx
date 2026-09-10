@@ -263,6 +263,17 @@ impl AgentState {
     }
 }
 
+/// Independently observed endpoint presence and recovery liveness.
+#[derive(Debug)]
+pub struct EndpointObservation {
+    /// Whether the endpoint presence read succeeded.
+    pub exists: bool,
+    /// Recovery-grade agent classification.
+    pub agent_state: AgentState,
+    /// Diagnostic for an inconclusive liveness read.
+    pub detail: String,
+}
+
 /// Semantic native task state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeState {
@@ -376,6 +387,10 @@ pub trait RuntimeBackend {
     fn native_state(&mut self, target: &BackendTarget) -> Result<NativeState, BackendError>;
     /// Return recovery-grade liveness.
     fn agent_state(&mut self, target: &BackendTarget) -> AgentState;
+    /// Read recovery liveness while retaining adapter failure diagnostics.
+    fn observe_agent(&mut self, target: &BackendTarget) -> Result<AgentState, BackendError> {
+        Ok(self.agent_state(target))
+    }
     /// Kill the exact endpoint and report the postcondition.
     fn kill_verified(&mut self, target: &BackendTarget) -> KillOutcome;
     /// List live endpoints.
@@ -551,20 +566,42 @@ pub fn observe_endpoint(
     endpoint: &str,
     expected_label: Option<String>,
     agent: bool,
-) -> Result<(bool, AgentState), BackendError> {
+) -> Result<EndpointObservation, BackendError> {
     let name = BackendName::parse(name)?;
     let target = BackendTarget::new(name, endpoint, expected_label)?;
     let mut backend = system_backend(name);
     match backend.observe_target(&target) {
-        Ok(()) => Ok((
-            true,
-            if agent {
-                backend.agent_state(&target)
+        Ok(()) => {
+            let (agent_state, detail) = if agent {
+                match backend.observe_agent(&target) {
+                    Ok(state) => {
+                        let detail = match state {
+                            AgentState::Ambiguous
+                            | AgentState::Unreadable
+                            | AgentState::Unverified => format!(
+                                "{name} agent liveness for '{endpoint}' is {}",
+                                state.as_str()
+                            ),
+                            _ => String::new(),
+                        };
+                        (state, detail)
+                    }
+                    Err(error) => (AgentState::Unreadable, error.to_string()),
+                }
             } else {
-                AgentState::Unverified
-            },
-        )),
-        Err(BackendError::Missing(_)) => Ok((false, AgentState::Missing)),
+                (AgentState::Unverified, String::new())
+            };
+            Ok(EndpointObservation {
+                exists: true,
+                agent_state,
+                detail,
+            })
+        }
+        Err(BackendError::Missing(_)) => Ok(EndpointObservation {
+            exists: false,
+            agent_state: AgentState::Missing,
+            detail: String::new(),
+        }),
         Err(error) => Err(error),
     }
 }

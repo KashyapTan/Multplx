@@ -160,7 +160,13 @@ printf '%s\n' "$*" >> "$MX_FAKE_HERDR_LOG"
 [ "${MX_FAKE_STOPPED:-0}" != 1 ] || { echo '{"error":{"code":"server_unavailable"}}'; exit 1; }
 case "$1 ${2:-}" in
   'pane get') if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"error":{"code":"pane_not_found"}}'; else echo '{"result":{"pane":{"pane_id":"w1:p2"}}}'; fi ;;
-  'agent get') if [ "${MX_FAKE_NO_AGENT:-0}" = 1 ]; then echo '{"error":{"code":"agent_not_found"}}'; else echo '{"result":{"agent":{"agent_status":"working"}}}'; fi ;;
+  'agent get')
+    case "${MX_FAKE_AGENT_FAILURE:-}" in
+      transport) echo 'fixture agent socket unavailable' >&2; exit 1 ;;
+      api) echo '{"error":{"code":"agent_read_failed","message":"fixture agent socket unavailable"}}'; exit 1 ;;
+      malformed) echo '{"result":{"agent":{"unexpected":"fixture unknown status"}}}'; exit 0 ;;
+    esac
+    if [ "${MX_FAKE_NO_AGENT:-0}" = 1 ]; then echo '{"error":{"code":"agent_not_found"}}'; else echo '{"result":{"agent":{"agent_status":"working"}}}'; fi ;;
   'status --json') echo '{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}' ;;
   'pane read') echo 'Working' ;;
   *) exit 2 ;;
@@ -209,6 +215,10 @@ SH
       jq -e '.tasks[0].endpoint.exists == true and .tasks[0].endpoint.agent_alive == "dead"' "$case_dir/snapshot" >/dev/null || fail 'agent-less Herdr pane misclassified'
       "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
       jq -e '.tasks[0].endpoint.agent_alive == "alive"' "$case_dir/snapshot" >/dev/null || fail 'live Herdr daemon misclassified'
+      for failure in transport api malformed; do
+        MX_FAKE_AGENT_FAILURE=$failure "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+        jq -e '.tasks[0].endpoint | .exists == true and .agent_alive == "unknown" and (.detail | contains("fixture"))' "$case_dir/snapshot" >/dev/null || fail "Herdr $failure agent failure lost endpoint presence or diagnostic"
+      done
       mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
       if grep -q '^server\|^status' "$MX_FAKE_HERDR_LOG"; then fail 'passive read attempted server readiness'; fi
     else
