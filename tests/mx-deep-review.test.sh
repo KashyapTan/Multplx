@@ -372,3 +372,24 @@ SH
   pass "stalled headless agent times out, fails gate, and cleans its process group"
 }
 test_stalled_agent_is_bounded
+
+
+test_codex_failure_preserves_events() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case codex-failure)
+EOF
+  mkdir "$case_dir/fakebin"
+  cat > "$case_dir/fakebin/codex" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{"type":"error","message":"inert transport refused"}'
+exit 9
+SH
+  chmod +x "$case_dir/fakebin/codex"
+  if run_gate "$case_dir" "$repo" "$state" "$id" env -u MX_DEEP_REVIEW_AGENT MX_DEEP_REVIEW_HARNESS=codex DR_MAX_AGENT_ATTEMPTS=1 PATH="$case_dir/fakebin:$PATH" >"$case_dir/out" 2>"$case_dir/err"; then fail "failed Codex passed"; fi
+  assert_grep 'codex failed (exit status: 9); events:' "$case_dir/err" 'Codex failure has no evidence pointer'
+  assert_grep 'inert transport refused' "$state/$id.gate/findings/round-01-review-assess-raw.events.jsonl" 'Codex failure events lost'
+  [ ! -e "$state/$id.ready-to-push" ] || fail 'failed Codex created handoff'
+  pass 'Codex failure retains private event diagnostics and never creates a handoff'
+}
+test_codex_failure_preserves_events

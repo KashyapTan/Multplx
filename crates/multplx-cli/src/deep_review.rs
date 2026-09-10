@@ -1311,7 +1311,11 @@ fn agent_oneshot(
             let mut command = Command::new("codex"); command.current_dir(&context.repo).env("DEEP_REVIEW_GATE", "1").args(["exec", "--dangerously-bypass-approvals-and-sandbox"]);
             if context.config.disable_project_settings { command.args(["--skip-git-repo-check", "--ignore-rules", "-c", "project_doc_max_bytes=0", "-c", "project_doc_fallback_filenames=[]", "--add-dir"]).arg(&context.repo); }
             command.arg("--output-schema").arg(schema).arg("--output-last-message").arg(output).args(["--json", "-"]).stdin(fs::File::open(prompt).map_err(|error| error.to_string())?).stdout(events.reopen().map_err(|error| error.to_string())?);
-            if !command.bounded_agent_status().map_err(|error| error.to_string())?.success() { return Err("codex failed".to_owned()); }
+            let status = command.bounded_agent_status();
+            let event_path = output.with_extension("events.jsonl");
+            atomic_replace(&event_path, &fs::read(events.path()).map_err(|error| error.to_string())?, 0o600).map_err(|error| error.to_string())?;
+            let status = status.map_err(|error| format!("{error}; Codex events: {}", event_path.display()))?;
+            if !status.success() { return Err(format!("codex failed ({status}); events: {}", event_path.display())); }
             let id = fs::read_to_string(events.path()).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).find_map(|value| (value["type"] == "thread.started").then(|| value["thread_id"].as_str().map(ToOwned::to_owned)).flatten()).ok_or("codex did not report a session id")?; atomic_replace(session, format!("{id}\n").as_bytes(), 0o600).map_err(|error| error.to_string())
         }
         "claude" => {
