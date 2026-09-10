@@ -33,7 +33,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 | `watcher-beacon` | `OK` while the home is idle or the supervision beacon is fresh, and `WARN` when in-flight task metadata exists without a fresh beacon. |
 | `orphan-worktrees` | `FAIL` when a task metadata record names a missing worktree or an active Treehouse worktree has no owning task or daemon record, and `WARN` when Treehouse inventory cannot be read. |
 | `dangling-pids` | `FAIL` when a persisted task, watcher, away-mode, or sub-supervisor PID is dead, reused, or missing its required identity. |
-| `stateless-sessions` | `FAIL` when task metadata has no live target through its recorded runtime backend. |
+| `stateless-sessions` | Uses the recorded tmux, Herdr, or cmux backend without starting a session; `FAIL` distinguishes an absent recorded endpoint from an unreadable or unsupported observation and retains failure details. Records without a target are skipped. |
 | `wake-queue-orphans` | `FAIL` when a task-scoped queue row has no task metadata or a queue row is malformed, while global watcher rows remain valid without task metadata. |
 | `open-holds` | `FAIL` when the backlog is invalid or an open maintainer hold has no live task, completed decision attestation, archived report, or backlog origin. |
 | `dispatch-queue-age` | `WARN` when a valid parked request under `state/.dispatch-queue/` exceeds the configured age, and `FAIL` when a request is malformed. |

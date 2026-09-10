@@ -50,9 +50,7 @@ Release-path focused-suite timing used the same release binary and local APFS wo
 `tests/mx-vplan.test.sh` took 3.78 seconds through legacy and 2.65 seconds through Rust, a 29.9 percent reduction.
 No request, identity, path, token, timeout, publication, or cleanup bound was disabled.
 
-## tmux
-
-### Recorded-backend state regression
+## Recorded-backend state regression
 
 The native release entry points were verified on 2026-09-10 with Rust 1.97.1 on macOS arm64 using isolated homes and fake tmux, Herdr, and cmux transports.
 The source copy and fixture temporary directory were siblings, and validation children had actor routing removed.
@@ -84,6 +82,8 @@ MX_TEST_SUMMARY total=2 failed=0 skipped_gate=0 duration_ms=4195
 
 The Herdr fixture rejects server starts and covers stopped-server diagnostics, capture fallback, daemon liveness, and snapshot capacity reads.
 The cmux fixture replaces the recorded surface and requires actor-state, doctor, and snapshot to resolve the same task workspace.
+
+## tmux
 
 ### Rust Portion 04 shadow-period evidence
 

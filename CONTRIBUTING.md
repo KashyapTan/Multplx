@@ -44,7 +44,7 @@ Only the separately approved, credentialed delivery service may consume that han
 Tracked changes to Multplx itself - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/` - run through the selected development workflow.
 Before making any such change, load the agent-only `multplx-coding-guidelines` skill (`.agents/skills/multplx-coding-guidelines/SKILL.md`).
 It has the knowledge-placement rules that keep the root broker contract from regrowing after each diet pass.
-There is no reliable way for `bin/mx-brief.sh`'s scaffold to detect that a task's repo is Multplx itself, so the broker adds this skill's load line to Multplx-repo briefs by hand.
+The broker adds this skill's load line to Multplx-repo briefs as described in its [trigger guidance](.agents/skills/multplx-coding-guidelines/SKILL.md#trigger-hygiene).
 An actor picking up such a brief should load the skill even if the brief predates this instruction.
 When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
 Multplx actors follow their [selected delivery mode](docs/delivery.md#choose-and-complete-a-delivery-mode) and never push a branch or open a PR.

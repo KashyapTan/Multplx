@@ -133,7 +133,10 @@ Local landing also refuses a dirty primary checkout, a wrong default branch, a d
 Each configured command defaults to 300 seconds and each headless invocation to 1800 seconds; positive `MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS` and `MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS` override them independently.
 Round and structured-output attempt limits remain separate count bounds, not a global task deadline.
 Subsequent prompts include only owned structured findings and decision history, capped at 262144 bytes; excess fails closed with a pointer to the retained evidence.
-Raw headless transport logs remain on disk and are never copied into round history.
-A timeout kills the invocation's process group, preserves failure diagnostics, and never produces a successful handoff or automatic waiver.
+Codex transport events are retained in private `.events.jsonl` files even when the invocation fails; raw transport events are never copied into round history.
+Other headless adapters do not provide the same retained transport-log guarantee.
+A timeout fails the invocation, reports its deadline, and kills its process group.
+Headless invocations may retry within the configured attempt limit; exhausting that limit fails the gate, while a configured-command timeout stops the run.
+No timeout counts as successful validation or grants an automatic waiver.
 The process-group boundary covers ordinary descendants; subprocesses that deliberately detach into another session are outside this cleanup guarantee.
 The default configuration keeps broad regression in CI and uses focused local verification.
