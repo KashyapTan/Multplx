@@ -1634,6 +1634,8 @@ fn park_spawn_if_at_limit(
     }
     let mut positional = Vec::new();
     let mut harness = String::new();
+    let mut mode = String::new();
+    let mut yolo = String::new();
     let mut model = String::new();
     let mut effort = String::new();
     let mut backend = "tmux".to_owned();
@@ -1645,13 +1647,15 @@ fn park_spawn_if_at_limit(
             .ok_or("spawn argument is not valid UTF-8")?;
         match value {
             "--scout" => kind = "scout".to_owned(),
-            "--harness" | "--model" | "--effort" | "--backend" => {
+            "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" => {
                 let next = args
                     .get(index + 1)
                     .and_then(|next| next.to_str())
                     .ok_or_else(|| format!("{value} requires a value"))?
                     .to_owned();
                 match value {
+                    "--mode" => mode = next,
+                    "--yolo" => yolo = next,
                     "--harness" => harness = next,
                     "--model" => model = next,
                     "--effort" => effort = next,
@@ -1692,6 +1696,48 @@ fn park_spawn_if_at_limit(
                 .to_owned(),
         );
     }
+    let (root, home, data) = active_paths();
+    let projects = std::env::var_os("MX_PROJECTS_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("projects"));
+    let project_path = if let Some(relative) = project.strip_prefix("projects/") {
+        projects.join(relative)
+    } else {
+        PathBuf::from(project)
+    };
+    let project_path = fs::canonicalize(&project_path).unwrap_or(project_path);
+    let resolution = multplx_domain::project_registry::resolve_path(
+        &data.join("projects.md"),
+        &projects,
+        &root,
+        &project_path,
+    );
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    let selected_mode = if mode.is_empty() {
+        None
+    } else {
+        Some(
+            multplx_domain::project_registry::DeliveryMode::parse(&mode)
+                .ok_or("invalid delivery mode")?,
+        )
+    };
+    let selected_yolo = match yolo.as_str() {
+        "" => None,
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => return Err("invalid yolo".to_owned()),
+    };
+    let (resolved_mode, resolved_yolo) = multplx_domain::lifecycle::spawn::task_authority(
+        &state,
+        id,
+        &resolution,
+        selected_mode,
+        selected_yolo,
+    )?;
+    mode = resolved_mode;
+    yolo = if resolved_yolo { "on" } else { "off" }.to_owned();
     multplx_backend::headroom::queue_add(
         &paths,
         &QueueRecord {
@@ -1702,6 +1748,8 @@ fn park_spawn_if_at_limit(
             effort,
             backend,
             kind,
+            mode,
+            yolo,
             enqueued_at: multplx_backend::headroom::now_epoch(),
         },
     )
@@ -1844,6 +1892,13 @@ fn launch_environment_block(
 
 fn run_spawn(args: &[OsString]) -> i32 {
     use multplx_backend::facade::{BackendName, RuntimeBackend, TaskSpec};
+    if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
+        println!(
+            "Usage: mx-spawn.sh <id> <project-path> [--scout|--daemon] [--mode deep-review|direct-PR|local-only] [--yolo on|off] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E]\nTask mode/yolo defaults come from the project registry; explicit task overrides also support self-repo work without a registry row. Pass the same overrides to mx-brief.sh. Existing task authority is preserved; conflicting relaunch overrides are refused. Scouts retain mode/yolo for promotion but produce reports; daemons use daemon/off. Task files use the system temporary root (TMPDIR on Unix); metadata tasktmp binds their cleanup location."
+        );
+        return 0;
+    }
+
     if multplx_core::gate_refuse::is_gate_agent(
         std::env::var_os("DEEP_REVIEW_GATE").is_some(),
         std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
@@ -1870,7 +1925,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
             };
             if value.starts_with("--") {
                 shared.push(args[index].clone());
-                if matches!(value, "--harness" | "--model" | "--effort" | "--backend") {
+                if matches!(
+                    value,
+                    "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo"
+                ) {
                     let Some(next) = args.get(index + 1) else {
                         eprintln!("error: {value} requires a value");
                         return 1;
@@ -2027,7 +2085,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 explicit_effort = true;
                 skip_value = true;
             }
-            "--backend" => skip_value = true,
+            "--backend" | "--mode" | "--yolo" => skip_value = true,
             value if value.starts_with("--") => {}
             _ => spawn_positionals += 1,
         }
@@ -2523,7 +2581,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             context.data.join(&request.id).join("brief.md")
         };
         let report_server = source_root.join("bin/mx-report-mcp");
-        let task_tmp = PathBuf::from(format!("/tmp/mx-{}", request.id));
+        let task_tmp = std::env::temp_dir().join(format!("mx-{}", request.id));
         fs::create_dir_all(task_tmp.join("gotmp"))
             .map_err(|error_value| error_value.to_string())?;
         let cursor_plugin = task_tmp.join("cursor-turnend-plugin");
@@ -2808,15 +2866,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     })
                     .unwrap_or_else(|| request.project.display().to_string());
             println!(
-                "spawned {} harness={} kind={} mode={} yolo=off window={endpoint} worktree={}",
+                "spawned {} harness={} kind={} mode={} yolo={} window={endpoint} worktree={}",
                 request.id,
                 request.harness,
                 request.kind,
-                if request.kind == "daemon" {
-                    "daemon"
-                } else {
-                    "deep-review"
-                },
+                request.mode,
+                if request.yolo { "on" } else { "off" },
                 reported_worktree
             );
             0
@@ -3721,7 +3776,7 @@ fn run_headroom(args: &[OsString]) -> i32 {
                         _ => return Err(format!("unknown queue profile argument: {flag}")),
                     }
                 }
-                multplx_backend::headroom::queue_add(&paths, &QueueRecord { task_id: id, project, harness, model, effort, backend, kind, enqueued_at: multplx_backend::headroom::now_epoch() }).map_err(|error| error.to_string())
+                multplx_backend::headroom::queue_add(&paths, &QueueRecord { task_id: id, project, harness, model, effort, backend, kind, mode: String::new(), yolo: String::new(), enqueued_at: multplx_backend::headroom::now_epoch() }).map_err(|error| error.to_string())
             }
             "--json" => Err("--json takes no arguments".to_owned()),
             "--queue" => Err("--queue takes no arguments".to_owned()),
@@ -4568,9 +4623,14 @@ fn run_actor_state(id: &str) -> i32 {
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("state"));
     let request = multplx_backend::actor_state::ActorStateRequest::from_environment(state, task);
-    let mut backend = multplx_backend::tmux::TmuxBackend::system();
+    let name =
+        match multplx_backend::facade::backend_of_meta(&request.state.join(format!("{id}.meta"))) {
+            Ok(name) => name,
+            Err(error) => return backend_error(error),
+        };
+    let mut backend = multplx_backend::facade::system_backend(name);
     let mut runner = multplx_backend::command::SystemCommandRunner;
-    match multplx_backend::actor_state::reconcile(&request, &mut backend, &mut runner) {
+    match multplx_backend::actor_state::reconcile(&request, backend.as_mut(), &mut runner) {
         Ok(output) => {
             for warning in output.warnings {
                 eprintln!("{warning}");

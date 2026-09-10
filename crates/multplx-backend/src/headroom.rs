@@ -485,6 +485,8 @@ pub struct QueueRecord {
     pub effort: String,
     pub backend: String,
     pub kind: String,
+    pub mode: String,
+    pub yolo: String,
     pub enqueued_at: u64,
 }
 
@@ -508,8 +510,8 @@ fn one_line(label: &str, value: &str) -> Result<()> {
 impl QueueRecord {
     fn render(&self) -> Vec<u8> {
         format!(
-            "version=1\ntask_id={}\nproject={}\nharness={}\nmodel={}\neffort={}\nbackend={}\nkind={}\nenqueued_at={}\n",
-            self.task_id, self.project, self.harness, self.model, self.effort, self.backend, self.kind, self.enqueued_at
+            "version=1\ntask_id={}\nproject={}\nharness={}\nmodel={}\neffort={}\nbackend={}\nkind={}\nmode={}\nyolo={}\nenqueued_at={}\n",
+            self.task_id, self.project, self.harness, self.model, self.effort, self.backend, self.kind, self.mode, self.yolo, self.enqueued_at
         ).into_bytes()
     }
 
@@ -592,6 +594,15 @@ impl QueueRecord {
                 path.display()
             )));
         }
+        let mode = fields.get("mode").copied().unwrap_or_default().to_owned();
+        let yolo = fields.get("yolo").copied().unwrap_or_default().to_owned();
+        if !matches!(
+            mode.as_str(),
+            "" | "deep-review" | "direct-PR" | "local-only"
+        ) || !matches!(yolo.as_str(), "" | "on" | "off")
+        {
+            return Err(message("queue record has invalid delivery authority"));
+        }
         let enqueued_at = fields
             .get("enqueued_at")
             .and_then(|value| parse_nonnegative_integer(value))
@@ -609,6 +620,8 @@ impl QueueRecord {
             effort,
             backend,
             kind,
+            mode,
+            yolo,
             enqueued_at,
         })
     }
@@ -680,6 +693,13 @@ pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> 
         )));
     }
     one_line("project", &record.project)?;
+    if !matches!(
+        record.mode.as_str(),
+        "" | "deep-review" | "direct-PR" | "local-only"
+    ) || !matches!(record.yolo.as_str(), "" | "on" | "off")
+    {
+        return Err(message("queue record has invalid delivery authority"));
+    }
     for value in [
         &record.harness,
         &record.model,
@@ -709,6 +729,8 @@ pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> 
             && existing.effort == record.effort
             && existing.backend == record.backend
             && existing.kind == record.kind
+            && existing.mode == record.mode
+            && existing.yolo == record.yolo
         {
             return Ok(format!("queued: {} already parked\n", record.task_id));
         }
@@ -778,6 +800,12 @@ pub fn queue_drain(paths: &HeadroomPaths) -> Result<String> {
     }
     if !record.backend.is_empty() {
         command.args(["--backend", &record.backend]);
+    }
+    if !record.mode.is_empty() {
+        command.args(["--mode", &record.mode]);
+    }
+    if !record.yolo.is_empty() {
+        command.args(["--yolo", &record.yolo]);
     }
     if record.kind == "scout" {
         command.arg("--scout");
@@ -953,6 +981,8 @@ mod tests {
             effort: String::new(),
             backend: String::new(),
             kind: "delivery".to_owned(),
+            mode: String::new(),
+            yolo: String::new(),
             enqueued_at: 1,
         };
         for record in [
@@ -997,6 +1027,8 @@ mod tests {
             effort: String::new(),
             backend: String::new(),
             kind: "delivery".to_owned(),
+            mode: String::new(),
+            yolo: String::new(),
             enqueued_at: 1,
         };
         assert!(
@@ -1043,6 +1075,8 @@ mod tests {
                             effort: String::new(),
                             backend: "tmux".to_owned(),
                             kind: "delivery".to_owned(),
+                            mode: String::new(),
+                            yolo: String::new(),
                             enqueued_at: index,
                         },
                     )
@@ -1072,6 +1106,8 @@ mod tests {
             effort: String::new(),
             backend: String::new(),
             kind: "delivery".to_owned(),
+            mode: String::new(),
+            yolo: String::new(),
             enqueued_at: 1,
         };
         queue_add(&paths, &record).expect("published");

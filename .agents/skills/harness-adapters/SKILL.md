@@ -179,7 +179,7 @@ Both paths append the same validated event grammar, and neither replaces current
 
 - `claude`: verified on Claude Code 2.1.220.
   `claude mcp --help` identifies `.mcp.json` as project-scoped configuration and `claude --help` supports additional `--mcp-config` files.
-  `mx-spawn.sh` writes a mode-`0600` task fragment under `/tmp/mx-<id>/report-mcp.json` and passes it with `--mcp-config`.
+  `mx-spawn.sh` writes a mode-`0600` task fragment at `<recorded tasktmp>/report-mcp.json` and passes it with `--mcp-config`.
   Claude composes that fragment with existing user and project MCP configuration, so Multplx never edits or clobbers a project's committed `.mcp.json`.
 - `codex`: verified on codex-cli 0.146.0-alpha.3.1 and the current Codex configuration reference.
   Codex supports trusted project `.codex/config.toml` files and `mcp_servers.<name>` configuration.
@@ -263,7 +263,7 @@ The checkpoint is deliberately foreground and bounded so Codex regains control r
 The canonical executable is `agent`; `cursor-agent` is an installation alias and Multplx provides a collision-safe shim for either spelling.
 Every launch passes `--sandbox enabled`; `--force`, `--yolo`, `--sandbox disabled`, and Cursor-owned worktrees are rejected by the launcher adapter.
 Tracked `.cursor/hooks.json` owns primary session-start, command, delegation-shape, and bounded stop adaptation.
-Actors receive a private per-run plugin under `/tmp/mx-<id>/` for collision-free native stop signaling.
+Actors receive a private per-run plugin under the metadata-recorded `tasktmp` directory for collision-free native stop signaling.
 Cursor stop hooks do not fire in `--print` mode, so supervised lifecycle turns use interactive mode.
 Resume uses the exact id printed on Ctrl-D.
 The primary watcher protocol is the same bounded foreground checkpoint used for Codex.

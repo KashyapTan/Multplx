@@ -803,7 +803,7 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
         self.server_ensure(session)?;
         match self.pane_agent_state(session, pane) {
             PaneAgentState::NoAgent | PaneAgentState::Live => Ok(()),
-            PaneAgentState::Dead => Err(BackendError::Command(format!(
+            PaneAgentState::Dead => Err(BackendError::Missing(format!(
                 "Herdr endpoint '{}' disappeared",
                 target.endpoint()
             ))),

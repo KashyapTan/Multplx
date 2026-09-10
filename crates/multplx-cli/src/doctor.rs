@@ -158,14 +158,6 @@ fn metas(paths: &Paths) -> Vec<(String, String)> {
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     rows
 }
-fn endpoint(window: &str) -> bool {
-    Command::new("tmux")
-        .args(["display-message", "-p", "-t", window, "#{pane_id}"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
 
 fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) -> Finding {
     match name {
@@ -272,26 +264,29 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
             }
         }
         "stateless-sessions" => {
-            let bad = metas(paths)
-                .into_iter()
-                .filter(|(_, raw)| {
-                    let w = meta(raw, "window");
-                    !w.is_empty() && !endpoint(&w)
-                })
-                .map(|(id, _)| id)
-                .collect::<Vec<_>>();
-            if bad.is_empty() {
+            let mut missing = Vec::new();
+            let mut unknown = Vec::new();
+            for (id, raw) in metas(paths) {
+                let window = meta(&raw, "window");
+                if window.is_empty() {
+                    continue;
+                }
+                let backend = meta(&raw, "backend");
+                let backend = if backend.is_empty() { "tmux" } else { &backend };
+                match multplx_backend::facade::observe_endpoint(backend, &window, false) {
+                    Ok((true, _)) => {}
+                    Ok((false, _)) => missing.push(format!("{id} ({backend})")),
+                    Err(error) => unknown.push(format!("{id} ({backend}): {error}")),
+                }
+            }
+            if missing.is_empty() && unknown.is_empty() {
                 finding(name, "OK", "recorded task endpoints are live", None, false)
             } else {
-                finding(
-                    name,
-                    "FAIL",
-                    format!("task {} has no live tmux endpoint", bad.join(", ")),
-                    Some("use bin/mx-teardown.sh for owned cleanup".into()),
-                    false,
-                )
+                finding(name, "FAIL", format!("absent endpoints: {}; unreadable endpoints: {}", missing.join(", "), unknown.join(", ")),
+                    Some("reconcile recorded backend state before recovery; unreadable endpoints do not authorize cleanup".into()), false)
             }
         }
+
         "wake-queue-orphans" => {
             let queue = paths.state.join(".wake-queue");
             let raw = fs::read_to_string(&queue).unwrap_or_default();

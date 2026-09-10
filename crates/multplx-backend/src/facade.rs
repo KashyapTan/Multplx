@@ -316,6 +316,9 @@ pub enum BackendError {
         /// Capability name.
         capability: &'static str,
     },
+    /// Exact endpoint is authoritatively absent.
+    #[error("backend target absent: {0}")]
+    Missing(String),
     /// Backend command failed.
     #[error("backend command failed: {0}")]
     Command(String),
@@ -527,6 +530,38 @@ pub fn resolve_selector(
         .next()
         .map(|item| item.target)
         .ok_or_else(|| BackendError::Metadata(format!("no window named {raw}")))
+}
+
+/// Select a runtime reader from recorded metadata, never ambient backend configuration.
+pub fn system_backend(name: BackendName) -> Box<dyn RuntimeBackend> {
+    match name {
+        BackendName::Tmux => Box::new(crate::tmux::TmuxBackend::system()),
+        BackendName::Herdr => Box::new(crate::herdr::HerdrBackend::system()),
+        BackendName::Cmux => Box::new(crate::cmux::CmuxBackend::system()),
+    }
+}
+
+/// Read exact endpoint presence and optional recovery liveness through the owning adapter.
+pub fn observe_endpoint(
+    name: &str,
+    endpoint: &str,
+    agent: bool,
+) -> Result<(bool, AgentState), BackendError> {
+    let name = BackendName::parse(name)?;
+    let target = BackendTarget::new(name, endpoint, None)?;
+    let mut backend = system_backend(name);
+    match backend.target_ready(&target) {
+        Ok(()) => Ok((
+            true,
+            if agent {
+                backend.agent_state(&target)
+            } else {
+                AgentState::Unverified
+            },
+        )),
+        Err(BackendError::Missing(_)) => Ok((false, AgentState::Missing)),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]

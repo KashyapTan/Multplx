@@ -150,7 +150,8 @@ assert_remote_write_credentials_removed() {
 }
 
 assert_claude_report_mcp_config() {
-  local launch=$1 home=$2 state=$3 id=$4 config="/tmp/mx-$4/report-mcp.json" state_real
+  local launch=$1 home=$2 state=$3 id=$4 config state_real
+  config="$(sed -n 's/^tasktmp=//p' "$state/$id.meta")/report-mcp.json"
   state_real=$(cd "$state" && pwd -P)
   assert_contains "$launch" "--mcp-config '$config'" \
     "claude launch missing the per-task MCP config"
@@ -415,7 +416,7 @@ test_cursor_private_plugin_and_effort_model() {
   expect_code 0 "$status" "cursor spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" cursor composer-2 high
   launch=$(cat "$LAUNCH_LOG")
-  plugin="/tmp/mx-$id/cursor-turnend-plugin"
+  plugin="$(sed -n 's/^tasktmp=//p' "$HOME_DIR/state/$id.meta")/cursor-turnend-plugin"
   assert_contains "$launch" "agent --sandbox enabled --trust '$plugin' --model 'composer-2[effort=high]'" \
     "cursor launch did not preserve sandbox, scoped trust, and effort model token"
   assert_present "$plugin/.cursor-plugin/plugin.json" "cursor private plugin manifest missing"

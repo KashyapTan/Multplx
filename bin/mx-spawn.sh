@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Transport-only adapter for native task and daemon spawn.
+# Usage: mx-spawn.sh <id> <project-path> [--mode deep-review|direct-PR|local-only] [--yolo on|off] [profile flags]
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

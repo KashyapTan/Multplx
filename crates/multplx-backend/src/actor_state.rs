@@ -81,7 +81,7 @@ pub trait ActorStateBackend {
     fn capture(&mut self, request: &CaptureRequest) -> Result<Vec<u8>, BackendError>;
 }
 
-impl<T: RuntimeBackend> ActorStateBackend for T {
+impl<T: RuntimeBackend + ?Sized> ActorStateBackend for T {
     fn name(&self) -> crate::facade::BackendName {
         RuntimeBackend::name(self)
     }
@@ -369,7 +369,7 @@ fn classified(
 /// Reconcile one actor's current state with the legacy precedence and wording.
 pub fn reconcile(
     request: &ActorStateRequest,
-    backend: &mut impl ActorStateBackend,
+    backend: &mut (impl ActorStateBackend + ?Sized),
     command_runner: &mut impl CommandRunner,
 ) -> Result<ActorStateOutput, BackendError> {
     let id = request.task.as_str();
@@ -501,11 +501,11 @@ pub fn reconcile(
             "no backend target recorded",
         ));
     };
-    if backend.target_ready(&target).is_err() {
+    if let Err(error) = backend.target_ready(&target) {
         return Ok(ActorStateOutput::plain(
             "unknown",
             "none",
-            &format!("backend target gone: {}", target.endpoint()),
+            &format!("backend target {}: {error}", target.endpoint()),
         ));
     }
     let log_state = map_log_state(&log_verb, &request.pause_verb);
@@ -726,7 +726,7 @@ mod tests {
         let output = reconcile(&request(&state, "two"), &mut backend, &mut commands).expect("gone");
         assert_eq!(
             output.line,
-            "state: unknown · source: none · backend target gone: broker:mx-two\n"
+            "state: unknown · source: none · backend target broker:mx-two: backend command failed: gone\n"
         );
     }
 

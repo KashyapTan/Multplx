@@ -124,7 +124,7 @@ test_existing_install_paths_and_literal_safety() {
 test_collisions_uninstall_and_private_preservation() {
   local root="$TMP_ROOT/collision-root" case_dir="$TMP_ROOT/collision-case" status
   make_runtime "$root"
-  mkdir -p "$case_dir/bin" "$case_dir/config"
+  mkdir -p "$case_dir/bin" "$case_dir/config" "$root/config" "$root/data" "$root/state" "$root/projects"
   printf 'unrelated\n' >"$case_dir/bin/multplx"
   if install_fixture "$case_dir" "$root" >/dev/null 2>&1; then status=0; else status=$?; fi
   expect_code 2 "$status" "unrelated bootstrap collision"
@@ -554,3 +554,70 @@ test_live_lock_refusal_and_stale_permission
 test_operator_delegation_and_nested_refusal
 test_registration_conflict_mode_and_uninstall_preflight
 test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback
+
+test_legacy_shim_migration() {
+  local case_dir="$TMP_ROOT/legacy" root="$TMP_ROOT/legacy-runtime" output
+  make_runtime "$root"
+  mkdir -p "$case_dir/bin" "$case_dir/config" "$root/config" "$root/data" "$root/state" "$root/projects"
+  printf '%s\n' "$root" > "$case_dir/config/root"
+  printf '%s\n' "$root" > "$case_dir/config/home"
+  cat > "$case_dir/template" <<'LEGACY'
+#!/usr/bin/env bash
+set -u
+CONFIG_DIR=__CONFIG__
+fail() { printf 'multplx: %s\n' "$*" >&2; exit 2; }
+read_path() {
+  local LC_ALL=C file=$1 value bytes
+  [ ! -L "$file" ] && [ -f "$file" ] || fail "invalid path file: $file"
+  bytes=$(LC_ALL=C wc -c <"$file" 2>/dev/null) || fail "cannot read path file: $file"
+  bytes=${bytes//[[:space:]]/}
+  LC_ALL=C IFS= read -r value <"$file" || fail "invalid path file: $file"
+  [ "$bytes" -eq "$(( ${#value} + 1 ))" ] || fail "invalid path file: $file"
+  case "$value" in /*) ;; *) fail "path is not absolute in $file" ;; esac
+  printf '%s\n' "$value"
+}
+root=$(read_path "$CONFIG_DIR/root") || exit 2
+[ -x "$root/bin/mx-launcher.sh" ] || fail "configured launcher is missing: $root/bin/mx-launcher.sh"
+export MX_LAUNCH_CONFIG_DIR="$CONFIG_DIR"
+export MX_LAUNCH_BIN_PATH="$0"
+exec "$root/bin/mx-launcher.sh" "$@"
+LEGACY
+  sed "s|__CONFIG__|'$case_dir/config'|" "$case_dir/template" > "$case_dir/bin/multplx"
+  chmod +x "$case_dir/bin/multplx"
+  cp "$case_dir/bin/multplx" "$case_dir/original"
+  # A recursive shim accumulates arguments; the bounded runner also caps this fixture.
+  output=$("$case_dir/bin/multplx" paths) || fail "legacy shim did not reach Rust launcher"
+  assert_contains "$output" "root=$root" "legacy root changed"
+  if MX_LAUNCHER_INSTALL_FAIL_AFTER=multplx "$INSTALLER" --upgrade --root "$root" --home "$root" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    fail "legacy rollback fault unexpectedly succeeded"
+  fi
+  cmp "$case_dir/original" "$case_dir/bin/multplx" || fail "legacy rollback changed shim"
+  [ ! -e "$case_dir/config/binary.sha256" ] || fail "legacy rollback invented receipt"
+  printf '# foreign change\n' >> "$case_dir/bin/multplx"
+  if "$INSTALLER" --upgrade --root "$root" --home "$root" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then
+    fail "legacy migration accepted modified foreign shim"
+  fi
+  cp "$case_dir/original" "$case_dir/bin/multplx"
+  "$INSTALLER" --upgrade --root "$root" --home "$root" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null || fail "recognized legacy upgrade refused"
+  cmp "$root/target/release/mx" "$case_dir/bin/multplx" || fail "legacy upgrade did not install exact binary"
+  [ "$(cat "$case_dir/config/root")" = "$root" ] || fail "legacy root changed"
+  [ "$(cat "$case_dir/config/home")" = "$root" ] || fail "legacy home changed"
+  pass "legacy shim reaches runtime, migrates without receipt, and preserves foreign-file refusal and rollback"
+}
+
+test_legacy_shim_migration
+
+test_explicit_root_does_not_require_repository_cwd() {
+  local case_dir="$TMP_ROOT/native-outside" root="$TMP_ROOT/native-runtime"
+  make_runtime "$root"
+  mkdir -p "$case_dir/cwd"
+  (
+    cd "$case_dir/cwd" || exit 1
+    env -u MX_RUST_SOURCE_ROOT -u MX_LAUNCHER_DEFAULT_ROOT GIT_CEILING_DIRECTORIES="$case_dir" \
+      "$ROOT/target/release/mx" launcher-install --root "$root" --home "$root" \
+      --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data"
+  ) > "$case_dir/out" 2> "$case_dir/err" || fail "explicit root still requires repository cwd: $(cat "$case_dir/err")"
+  assert_grep "$root" "$case_dir/config/root" 'explicit root changed'
+  pass 'native installer honors explicit root and home from a non-repository directory'
+}
+test_explicit_root_does_not_require_repository_cwd

@@ -47,6 +47,20 @@ Both modes install `multplx` under `${XDG_BIN_HOME:-$HOME/.local/bin}` and recor
 The installer prints the directory to add to `PATH` when it is not already visible.
 The installer copies the release binary and records its SHA-256 receipt before publication.
 Pass `--binary <path> --checksum <sha256>` to install an externally supplied verified artifact, `--upgrade` to replace an owned installation, or `--uninstall` for data-preserving removal.
+A recognized legacy shell launcher can be upgraded without a binary receipt using the current source installer:
+
+```sh
+cargo build --release --workspace --locked
+bin/mx-launcher-install.sh --upgrade --root /absolute/Multplx --home /absolute/Multplx-home
+multplx paths
+```
+
+With explicit `--root`, the current installer works from a non-repository working directory.
+The installer accepts only the exact previously generated shim bound to the existing literal configuration directory and matching root/home records.
+Modified shims, foreign executables, linked files, and conflicting configuration remain refusals; publication failure restores the prior generation.
+The compatibility adapter always executes the source Rust binary, so a legacy shim naming itself in `MX_LAUNCH_BIN_PATH` cannot recurse.
+To install a separately verified upstream artifact with a newer migration-capable installer, add `--binary /absolute/upstream/mx --checksum <SHA-256>`; the artifact determines the installed version, not the installer build.
+Do not substitute an unmerged feature binary for an upstream release.
 Run `target/release/mx launcher-install --help` for custom XDG paths, adoption of another checkout or home, managed source selection, and the complete recovery contract.
 
 ## Activate and choose a broker harness
@@ -123,7 +137,7 @@ It asks for a decision when project identity, delivery posture, or another maint
 Project delivery modes are explicit:
 
 - `deep-review` runs the full local validation gate before creating an exact-SHA handoff.
-- `direct-PR` stops at a clean local commit without the full validation gate, but is currently incomplete because no approved exact-SHA transition owns its delivery handoff.
+- `direct-PR` prepares a pending exact-SHA handoff from a clean local commit without running the full validation gate.
 - `local-only` stays on the machine and waits for the configured fast-forward merge authority.
 
 The broker records project configuration under private gitignored `data/` rather than in the tracked template.
@@ -134,9 +148,9 @@ The broker records project configuration under private gitignored `data/` rather
 If a private repository requires authenticated reads, `MX_AGENT_GH_TOKEN` may supply a remotely enforced read-only token to spawned agents.
 It must not grant contents-write or pull-request-write permission.
 
-For `deep-review` projects, remote delivery uses a separate maintainer shell or credentialed scheduler after local validation and approval.
-That context runs `bin/mx-deliver.sh`; broker, actor, daemon, and validation sessions never run it and never receive its credential.
-`direct-PR` projects cannot use this path until an approved exact-SHA handoff has an owner.
+For `deep-review` and `direct-PR` projects, remote delivery uses a separate maintainer shell or credentialed scheduler after local validation and approval.
+That context runs the remote-delivery operation of `bin/mx-deliver.sh`; agent sessions never run that operation or receive its credential.
+The [mode instructions](delivery.md#choose-and-complete-a-delivery-mode) cover selection, verification, approval, delivery, and local landing.
 Read [Least-privilege delivery](delivery.md) before configuring private-repository access or automatic delivery.
 
 ## Verify the first run

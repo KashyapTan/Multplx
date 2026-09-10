@@ -12,7 +12,7 @@ The [documentation index](docs/README.md) is the entry point for current operato
 3. Run focused tests for the behavior you changed, then run the complete behavior suite before opening a PR.
 4. Commit your changes, push the branch to your fork, and open the PR against `main`.
 
-Multplx-managed delivery tasks use a stricter automated path.
+Multplx-managed `deep-review` delivery tasks use a stricter automated path.
 The actor runs `bin/mx-deep-review.sh <task-id> --intent-file <brief>` from its assigned `mx/<task-id>` worktree.
 That intent-targeted gate performs rebase, review, focused test, documentation, and lint locally, then writes a pending exact-SHA handoff without pushing.
 Only the separately approved, credentialed delivery service may consume that handoff, push its exact SHA, and open the PR.
@@ -47,7 +47,7 @@ It has the knowledge-placement rules that keep the root broker contract from reg
 There is no reliable way for `bin/mx-brief.sh`'s scaffold to detect that a task's repo is Multplx itself, so the broker adds this skill's load line to Multplx-repo briefs by hand.
 An actor picking up such a brief should load the skill even if the brief predates this instruction.
 When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
-Multplx actors stop at the local deep-review handoff and never push a branch or open a PR.
+Multplx actors follow their [selected delivery mode](docs/delivery.md#choose-and-complete-a-delivery-mode) and never push a branch or open a PR.
 The gate routes every `ask-user` finding through the validated status path under the authority contract maintained in `AGENTS.md`.
 Its private restart-safe evidence lives under `state/<task-id>.gate/`, outside project commits.
 The local gate's test step is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.

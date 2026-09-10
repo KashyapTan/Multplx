@@ -257,6 +257,7 @@ impl PollRegistration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Validation {
     Passed,
+    DirectPr { summary: String },
     Waived { override_request: String },
 }
 
@@ -333,11 +334,25 @@ impl DeliveryRecord {
             "validation",
             "override_request",
         ];
+        let allowed_v3 = [
+            "version",
+            "task",
+            "worktree",
+            "branch",
+            "approved_sha",
+            "base",
+            "approval",
+            "title",
+            "validation",
+            "summary",
+        ];
         let version = fields.get("version").copied().ok_or("missing version")?;
         let allowed = if version == "1" {
             &allowed_v1[..]
         } else if version == "2" {
             &allowed_v2[..]
+        } else if version == "3" {
+            &allowed_v3[..]
         } else {
             return Err("unknown delivery record version".to_owned());
         };
@@ -361,8 +376,11 @@ impl DeliveryRecord {
         {
             return Err("delivery identifier is invalid".to_owned());
         }
-        let gate_run = PathBuf::from(fields["gate_run"]);
-        if gate_run != state.join(format!("{task}.gate")) {
+        let gate_run = fields
+            .get("gate_run")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        if version != "3" && gate_run != state.join(format!("{task}.gate")) {
             return Err("delivery gate binding changed".to_owned());
         }
         if !matches!(fields["approval"], "pending" | "approved") {
@@ -370,6 +388,18 @@ impl DeliveryRecord {
         }
         let validation = if version == "1" {
             Validation::Passed
+        } else if version == "3" {
+            let summary = fields["summary"];
+            if fields["validation"] != "direct-PR"
+                || summary.is_empty()
+                || summary.len() > 20_000
+                || summary.chars().any(char::is_control)
+            {
+                return Err("direct-PR provenance is invalid".to_owned());
+            }
+            Validation::DirectPr {
+                summary: summary.to_owned(),
+            }
         } else {
             if fields.get("validation") != Some(&"waived") {
                 return Err("waived delivery label is invalid".to_owned());

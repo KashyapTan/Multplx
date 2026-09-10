@@ -351,3 +351,24 @@ test_deterministic_test_failure_drives_fix
 test_restart_and_head_change
 test_ask_user_response_and_session_isolation
 test_default_branch_command_cannot_be_replaced
+
+test_stalled_agent_is_bounded() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case stalled)
+EOF
+  cat > "$case_dir/fake-agent" <<'SH'
+#!/usr/bin/env bash
+sleep 120 &
+printf '%s\n' "$!" > "$MX_FAKE_AGENT_LOG.child"
+wait
+SH
+  if run_gate "$case_dir" "$repo" "$state" "$id" env MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS=1 DR_MAX_AGENT_ATTEMPTS=1 >"$case_dir/out" 2>"$case_dir/err"; then fail "stalled agent passed"; fi
+  assert_grep 'timed out after 1 seconds' "$case_dir/err" "timeout diagnostic absent"
+  [ "$(jq -r .status "$state/$id.gate/run.json")" = failed ] || fail "timeout did not fail gate"
+  [ ! -e "$state/$id.ready-to-push" ] || fail "timeout handed off delivery"
+  sleep 0.2
+  if ps -p "$(cat "$case_dir/agent.log.child")" -o stat= | grep -q '^[^Z]'; then fail "stalled descendant survived"; fi
+  pass "stalled headless agent times out, fails gate, and cleans its process group"
+}
+test_stalled_agent_is_bounded

@@ -25,6 +25,8 @@ pub struct Request {
     pub home: PathBuf,
     pub project: PathBuf,
     pub kind: String,
+    pub mode: String,
+    pub yolo: bool,
     pub backend: String,
     pub harness: String,
     pub model: String,
@@ -70,6 +72,12 @@ pub fn validate_for_launch(request: &Request) -> Result<(), String> {
     ] {
         validate_record_value(field, value)?;
     }
+    if (request.kind == "daemon" && (request.mode != "daemon" || request.yolo))
+        || (request.kind != "daemon"
+            && crate::project_registry::DeliveryMode::parse(&request.mode).is_none())
+    {
+        return Err("invalid spawn delivery authority".to_owned());
+    }
     path_record_value("home", &request.home)?;
     path_record_value("project", &request.project)?;
     Ok(())
@@ -100,6 +108,51 @@ fn registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, St
     Ok(fields)
 }
 
+pub fn task_authority(
+    state: &Path,
+    id: &str,
+    resolution: &crate::project_registry::Resolution,
+    selected_mode: Option<crate::project_registry::DeliveryMode>,
+    selected_yolo: Option<bool>,
+) -> Result<(String, bool), String> {
+    let mut mode = selected_mode.unwrap_or(resolution.mode).as_str().to_owned();
+    let mut yolo = selected_yolo.unwrap_or(resolution.yolo);
+    let meta_path = state.join(format!("{id}.meta"));
+    if meta_path.exists() {
+        let meta = fs::read_to_string(&meta_path).map_err(|error| error.to_string())?;
+        let field = |key: &str| -> Result<&str, String> {
+            let prefix = format!("{key}=");
+            let values = meta
+                .lines()
+                .filter_map(|line| line.strip_prefix(&prefix))
+                .collect::<Vec<_>>();
+            match values.as_slice() {
+                [value] => Ok(*value),
+                _ => Err(format!(
+                    "existing task has missing or duplicate {key}; reconcile authority before relaunch"
+                )),
+            }
+        };
+        let recorded_mode = field("mode")?;
+        let recorded_yolo = match field("yolo")? {
+            "on" => true,
+            "off" => false,
+            _ => return Err("existing task has invalid yolo".to_owned()),
+        };
+        if crate::project_registry::DeliveryMode::parse(recorded_mode).is_none()
+            || selected_mode.is_some_and(|value| value.as_str() != recorded_mode)
+            || selected_yolo.is_some_and(|value| value != recorded_yolo)
+        {
+            return Err(
+                "refusing to change existing task delivery authority during launch".to_owned(),
+            );
+        }
+        mode = recorded_mode.to_owned();
+        yolo = recorded_yolo;
+    }
+    Ok((mode, yolo))
+}
+
 pub fn parse(
     args: &[OsString],
     context: &Context,
@@ -107,6 +160,8 @@ pub fn parse(
 ) -> Result<Request, String> {
     validate_record_value("harness", default_harness)?;
     let mut positional = Vec::new();
+    let mut selected_mode = None;
+    let mut selected_yolo = None;
     let mut daemon = false;
     let mut scout = false;
     let mut backend = "tmux".to_owned();
@@ -121,7 +176,7 @@ pub fn parse(
         match value {
             "--daemon" => daemon = true,
             "--scout" => scout = true,
-            "--harness" | "--model" | "--effort" | "--backend" => {
+            "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" => {
                 let next = args
                     .get(index + 1)
                     .and_then(|value| value.to_str())
@@ -129,6 +184,19 @@ pub fn parse(
                     .to_owned();
                 validate_record_value(value.trim_start_matches("--"), &next)?;
                 match value {
+                    "--mode" => {
+                        selected_mode = Some(
+                            crate::project_registry::DeliveryMode::parse(&next)
+                                .ok_or("invalid delivery mode")?,
+                        )
+                    }
+                    "--yolo" => {
+                        selected_yolo = Some(match next.as_str() {
+                            "on" => true,
+                            "off" => false,
+                            _ => return Err("--yolo requires on or off".to_owned()),
+                        })
+                    }
                     "--harness" => harness = Some(next),
                     "--model" => model = next,
                     "--effort" => effort = next,
@@ -174,7 +242,25 @@ pub fn parse(
         if positional.len() > 2 {
             harness = positional.get(2).cloned();
         }
+        let resolution = crate::project_registry::resolve_path(
+            &context.data.join("projects.md"),
+            &context.projects,
+            &context.root,
+            &project,
+        );
+        if let Some(warning) = &resolution.warning {
+            eprintln!("{warning}");
+        }
+        let (mode, yolo) = task_authority(
+            &context.state,
+            &id,
+            &resolution,
+            selected_mode,
+            selected_yolo,
+        )?;
         return Ok(Request {
+            mode,
+            yolo,
             id,
             home: context.home.clone(),
             project,
@@ -188,6 +274,9 @@ pub fn parse(
             single_checkout_base_head: None,
             single_checkout_base_branch: None,
         });
+    }
+    if selected_mode.is_some() || selected_yolo.is_some() {
+        return Err("daemon spawns do not accept task delivery mode or yolo overrides".to_owned());
     }
     let candidate = positional.get(1).map(PathBuf::from);
     let explicit_home = candidate.as_ref().filter(|path| path.is_dir()).cloned();
@@ -287,6 +376,8 @@ pub fn parse(
         project: home.clone(),
         home,
         kind: "daemon".to_owned(),
+        mode: "daemon".to_owned(),
+        yolo: false,
         backend,
         harness: harness.unwrap_or_else(|| default_harness.to_owned()),
         model,
@@ -308,6 +399,7 @@ pub fn publish_meta_for_worktree(
     endpoint: &str,
     actor_worktree: &Path,
 ) -> Result<(), String> {
+    validate_for_launch(request)?;
     let fields = registry_fields(&context.data.join("daemons.md"), &request.id).unwrap_or_default();
     let projects = fields.get("projects").cloned().unwrap_or_default();
     let worktree = if request.kind == "daemon" {
@@ -315,11 +407,8 @@ pub fn publish_meta_for_worktree(
     } else {
         actor_worktree
     };
-    let mode = if request.kind == "daemon" {
-        "daemon"
-    } else {
-        "deep-review"
-    };
+    let mode = &request.mode;
+    let yolo = if request.yolo { "on" } else { "off" };
     for (field, value) in [
         ("endpoint", endpoint),
         ("harness", request.harness.as_str()),
@@ -339,14 +428,17 @@ pub fn publish_meta_for_worktree(
     let project_value = path_record_value("project", &request.project)?;
     let home_value = path_record_value("home", &request.home)?;
     let mut text = format!(
-        "window={endpoint}\nworktree={}\nproject={}\nharness={}\nkind={}\nmode={mode}\nyolo=off\nmodel={}\neffort={}\ntasktmp=/tmp/mx-{}\n",
+        "window={endpoint}\nworktree={}\nproject={}\nharness={}\nkind={}\nmode={mode}\nyolo={yolo}\nmodel={}\neffort={}\ntasktmp={}\n",
         worktree_value,
         project_value,
         request.harness,
         request.kind,
         request.model,
         request.effort,
-        request.id
+        path_record_value(
+            "tasktmp",
+            &std::env::temp_dir().join(format!("mx-{}", request.id))
+        )?
     );
     if request.backend != "tmux" {
         text.push_str(&format!("backend={}\n", request.backend));
@@ -398,6 +490,76 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn project_authority_is_resolved_once_and_self_repo_is_not_a_clone() {
+        let temp = tempfile::tempdir().expect("temp");
+        let context = context(temp.path());
+        let project = context.projects.join("demo");
+        fs::create_dir(&project).unwrap();
+        fs::create_dir_all(context.data.join("task")).unwrap();
+        fs::write(context.data.join("task/brief.md"), "brief").unwrap();
+        fs::write(
+            context.data.join("projects.md"),
+            "- demo [local-only +yolo] - demo\n",
+        )
+        .unwrap();
+        let request = parse(
+            &args(&["task", project.to_str().unwrap()]),
+            &context,
+            "codex",
+        )
+        .unwrap();
+        assert_eq!((&*request.mode, request.yolo), ("local-only", true));
+        publish_meta_for_worktree(&context, &request, "broker:mx-task", &project).unwrap();
+        fs::write(
+            context.data.join("projects.md"),
+            "- demo [direct-PR] - demo\n",
+        )
+        .unwrap();
+        let recovered = parse(
+            &args(&["task", project.to_str().unwrap()]),
+            &context,
+            "codex",
+        )
+        .unwrap();
+        assert_eq!((&*recovered.mode, recovered.yolo), ("local-only", true));
+        assert!(
+            parse(
+                &args(&["task", project.to_str().unwrap(), "--mode", "direct-PR"]),
+                &context,
+                "codex"
+            )
+            .is_err()
+        );
+        fs::remove_file(context.state.join("task.meta")).unwrap();
+        fs::write(
+            context.data.join("projects.md"),
+            "- root [local-only +yolo] - unrelated clone\n",
+        )
+        .unwrap();
+        let own = parse(
+            &args(&["task", context.root.to_str().unwrap()]),
+            &context,
+            "codex",
+        )
+        .unwrap();
+        assert_eq!((&*own.mode, own.yolo), ("deep-review", false));
+        let own = parse(
+            &args(&[
+                "task",
+                context.root.to_str().unwrap(),
+                "--mode",
+                "direct-PR",
+                "--yolo",
+                "on",
+            ]),
+            &context,
+            "codex",
+        )
+        .unwrap();
+        assert_eq!((&*own.mode, own.yolo), ("direct-PR", true));
     }
 
     #[test]
@@ -602,6 +764,7 @@ mod tests {
         request.single_checkout_base_head = Some("head".into());
         request.single_checkout_base_branch = Some("main".into());
         request.kind = "delivery".into();
+        request.mode = "deep-review".into();
         request.backend = "tmux".into();
         publish_meta_for_worktree(
             &context,
@@ -697,6 +860,8 @@ mod tests {
             home: context.home.clone(),
             project: context.root.clone(),
             kind: "delivery".into(),
+            mode: "deep-review".into(),
+            yolo: false,
             backend: "tmux".into(),
             harness: "codex".into(),
             model: "default".into(),
@@ -722,6 +887,8 @@ mod tests {
             home: temp.path().join("home"),
             project: temp.path().join("project"),
             kind: "delivery".into(),
+            mode: "deep-review".into(),
+            yolo: false,
             backend: "tmux".into(),
             harness: "codex".into(),
             model: "default".into(),

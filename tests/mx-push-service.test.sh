@@ -70,6 +70,11 @@ printf 'GH_TOKEN=%s GITHUB_TOKEN=%s MX_AGENT_GH_TOKEN=%s CODEX_THREAD_ID=%s\n' \
 case "${1:-} ${2:-}" in
   "pr create")
     printf '%s\n' "$*" >> "$MX_TEST_GH_LOG"
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --body-file ]; then cp "$2" "$MX_TEST_GH_LOG.body"; break; fi
+      if [ "$1" = --body ]; then printf '%s\n' "$2" > "$MX_TEST_GH_LOG.body"; break; fi
+      shift
+    done
     printf '%s\n' 'https://github.com/example/repo/pull/42'
     ;;
   "pr view")
@@ -314,3 +319,47 @@ test_agent_ambience_refuses_before_credentials_or_push
 test_record_is_data_not_shell
 test_spawn_shaped_agent_environment_cannot_push_or_authenticate_gh
 test_exact_sha_validation_waiver_stays_truthful
+
+test_direct_pr_owned_handoff() {
+  local case_dir head
+  case_dir=$(make_case direct-pr)
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  # The owned prepare command must refuse deep-review without altering its authority.
+  if run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Direct change' >"$case_dir/out" 2>"$case_dir/err"; then fail "deep-review bypass accepted"; fi
+  sed 's/mode=deep-review/mode=direct-PR/' "$case_dir/state/task-x1.meta" > "$case_dir/meta"
+  cat "$case_dir/meta" > "$case_dir/state/task-x1.meta"
+  rm -rf "$case_dir/state/task-x1.gate"
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Direct change' >"$case_dir/out" 2>"$case_dir/err" || fail "direct-PR prepare failed: $(cat "$case_dir/err")"
+  assert_grep 'version=3' "$case_dir/state/task-x1.ready-to-push" "direct schema absent"
+  assert_grep 'approval=pending' "$case_dir/state/task-x1.ready-to-push" "prepare approved itself"
+  [ ! -e "$case_dir/state/task-x1.gate" ] || fail "prepare synthesized gate"
+  if run_delivery "$case_dir" task-x1 >/dev/null 2>&1; then fail "pending direct handoff delivered"; fi
+  printf 'dirty\n' > "$case_dir/wt/dirty"
+  if run_delivery "$case_dir" approve task-x1 --sha "$head" >/dev/null 2>&1; then fail "dirty direct approval accepted"; fi
+  rm "$case_dir/wt/dirty"
+  if MX_TASK_ID=task-x1 run_delivery "$case_dir" approve task-x1 --sha "$head" >/dev/null 2>&1; then fail 'worker approved itself'; fi
+  run_delivery "$case_dir" approve task-x1 --sha "$head" >"$case_dir/out" 2>"$case_dir/err" || fail "direct approval failed"
+  run_delivery "$case_dir" task-x1 >"$case_dir/out" 2>"$case_dir/err" || fail "direct delivery failed: $(cat "$case_dir/err")"
+  [ -f "$case_dir/state/task-x1.delivered" ] || fail "direct handoff not archived"
+  assert_grep 'full validation gate not run' "$case_dir/gh.log.body" 'direct PR falsely claims validation'
+  [ ! -e "$case_dir/state/task-x1.gate" ] || fail "delivery synthesized gate"
+  pass "direct-PR prepares, approves and delivers exact local SHA without gate or waiver"
+}
+test_direct_pr_owned_handoff
+
+test_direct_pr_stale_binding_never_pushes() {
+  local case_dir head
+  case_dir=$(make_case direct-stale)
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  sed 's/mode=deep-review/mode=direct-PR/' "$case_dir/state/task-x1.meta" > "$case_dir/meta"
+  cat "$case_dir/meta" > "$case_dir/state/task-x1.meta"
+  rm -rf "$case_dir/state/task-x1.gate"
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Direct stale control' >/dev/null || fail 'prepare stale fixture failed'
+  run_delivery "$case_dir" approve task-x1 --sha "$head" >/dev/null || fail 'approve stale fixture failed'
+  printf 'new dirty material\n' > "$case_dir/wt/change.txt"
+  if run_delivery "$case_dir" task-x1 >/dev/null 2>&1; then fail 'dirty approved direct handoff delivered'; fi
+  [ -f "$case_dir/state/task-x1.ready-to-push.stale" ] || fail 'dirty direct record not marked stale'
+  [ ! -s "$case_dir/push.log" ] || fail 'dirty direct work pushed'
+  pass 'direct-PR rechecks an approved worktree and refuses stale material before transport'
+}
+test_direct_pr_stale_binding_never_pushes

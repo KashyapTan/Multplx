@@ -146,3 +146,56 @@ test_running_parked_passed_and_failed
 test_exact_head_and_binding_attribution
 test_native_precedence_and_stale_status
 test_no_run_falls_back_to_report_then_pane
+
+test_recorded_backend_projection() (
+  local case_dir repo state id head backend output endpoint
+  IFS=$'\t' read -r case_dir repo state id head <<EOF
+$(make_case recorded)
+EOF
+  cat > "$case_dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+[ "${MX_FAKE_UNREADABLE:-0}" != 1 ] || { echo 'fixture backend unavailable' >&2; exit 1; }
+case "$1 ${2:-}" in
+  'pane get') if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"error":{"code":"pane_not_found"}}'; else echo '{"result":{"pane":{"pane_id":"w1:p2"}}}'; fi ;;
+  'agent get') echo '{"result":{"agent":{"agent_status":"working"}}}' ;;
+  'status --json') echo '{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}' ;;
+  'pane read') echo 'Working' ;;
+  *) exit 2 ;;
+esac
+SH
+  cat > "$case_dir/fakebin/cmux" <<'SH'
+#!/usr/bin/env bash
+[ "${MX_FAKE_UNREADABLE:-0}" != 1 ] || { echo 'fixture backend unavailable' >&2; exit 1; }
+[ "${MX_FAKE_MALFORMED:-0}" != 1 ] || { echo '{"unreadable":true}'; exit 0; }
+case "$1" in
+  list-panes) if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"panes":[]}'; else echo '{"panes":[{"surface_ids":["s1"],"selected_surface_id":"s1"}]}'; fi ;;
+  workspace) echo '{"workspaces":[]}' ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$case_dir/fakebin/herdr" "$case_dir/fakebin/cmux"
+  export PATH="$case_dir/fakebin:$PATH" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state"
+  export MX_HERDR_BIN="$case_dir/fakebin/herdr" MX_BACKEND_CMUX_BIN="$case_dir/fakebin/cmux"
+  for backend in herdr cmux; do
+    endpoint='named:w1:p2'; [ "$backend" != cmux ] || endpoint='w1:s1'
+    mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
+    output=$("$STATE_BIN" "$id") || fail "$backend actor-state dispatch refused"
+    if [ "$backend" = herdr ]; then assert_contains "$output" 'state: working' 'Herdr native state lost'; fi
+    "$ROOT/bin/mx-doctor.sh" --check stateless-sessions --json > "$case_dir/doctor" || fail "healthy $backend doctor refused"
+    "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot" || fail "$backend snapshot failed"
+    jq -e '.tasks[0].endpoint.exists == true' "$case_dir/snapshot" >/dev/null || fail "healthy $backend marked absent"
+    MX_FAKE_UNREADABLE=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+    jq -e '.tasks[0].endpoint.exists == null and (.tasks[0].endpoint.detail | length > 0)' "$case_dir/snapshot" >/dev/null || fail "unreadable $backend marked absent"
+    if [ "$backend" = cmux ]; then
+      MX_FAKE_MALFORMED=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+      jq -e '.tasks[0].endpoint.exists == null and (.tasks[0].endpoint.detail | contains("missing panes"))' "$case_dir/snapshot" >/dev/null || fail 'malformed cmux inventory marked absent'
+    fi
+    MX_FAKE_MISSING=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+    jq -e '.tasks[0].endpoint.exists == false' "$case_dir/snapshot" >/dev/null || fail "absent $backend not distinguished"
+  done
+  mx_write_meta "$state/$id.meta" 'window=x' 'backend=unsupported' "worktree=$repo" 'kind=scout'
+  "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+  jq -e '.tasks[0].current_state.detail | contains("unknown backend")' "$case_dir/snapshot" >/dev/null || fail 'snapshot discarded actor-state failure'
+  pass 'recorded Herdr/cmux actor-state, doctor and snapshot paths preserve live, absent and unreadable observations'
+)
+test_recorded_backend_projection

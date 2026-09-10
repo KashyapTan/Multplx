@@ -26,7 +26,7 @@ case "${1:-}" in
   display-message)
     case " ${MX_DOCTOR_FAKE_LIVE_TARGETS:-} " in
       *" ${4:-} "*) printf '%s\n' '%1'; exit 0 ;;
-      *) exit 1 ;;
+      *) printf "can't find pane: %s\n" "${4:-}" >&2; exit 1 ;;
     esac
     ;;
 esac
@@ -77,6 +77,7 @@ EOF
 }
 
 run_doctor() {
+  GIT_CEILING_DIRECTORIES="$CASE_DIR" \
   MX_HOME="$HOME_DIR" \
   MX_ROOT_OVERRIDE="$ROOT_DIR" \
   MX_STATE_OVERRIDE="$HOME_DIR/state" \
@@ -204,7 +205,7 @@ test_each_check_classifies_its_fixture() {
   wt="$CASE_DIR/wt"
   mkdir -p "$wt"
   write_meta nostate "$wt"
-  assert_check stateless-sessions 2 'has no live tmux endpoint'
+  assert_check stateless-sessions 2 'absent endpoints: nostate (tmux)'
 
   read_case "$(make_case wake-queue-orphans)"
   printf '1\t1\tsignal\tghost.status\tworking: still here\n' \

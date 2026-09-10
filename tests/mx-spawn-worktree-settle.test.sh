@@ -199,3 +199,35 @@ test_already_settled_pane_costs_one_confirm_sleep
 test_exact_single_checkout_mode_serializes_and_releases
 
 echo "# all mx-spawn-worktree-settle tests passed"
+
+test_registry_mode_survives_native_launch() {
+  local mode yolo id record output
+  for mode in deep-review direct-PR local-only; do
+    for yolo in off on; do
+      id="mode-${mode//[^a-zA-Z]/}-${yolo}"
+      record=$(make_settle_case "$id" "$id" 0)
+      read_settle_record "$record"
+      ln -s "$PROJ_DIR" "$HOME_DIR/projects/project"
+      if [ "$yolo" = on ]; then printf '%s\n' "- project [$mode +yolo] - fixture" > "$HOME_DIR/data/projects.md"; else printf '%s\n' "- project [$mode] - fixture" > "$HOME_DIR/data/projects.md"; fi
+      output=$(run_settle_spawn "$id") || fail "mode launch failed: $output"
+      assert_contains "$output" "mode=$mode yolo=$yolo" 'spawn authority report changed'
+      assert_grep "mode=$mode" "$HOME_DIR/state/$id.meta" 'metadata mode changed'
+      assert_grep "yolo=$yolo" "$HOME_DIR/state/$id.meta" 'metadata yolo changed'
+      if [ "$mode" = local-only ]; then
+        # The local merge must pass the mode precondition and report the missing mx branch.
+        MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1
+        assert_grep "branch mx/$id does not exist" "$HOME_DIR/merge.out" 'local landing incorrectly refused selected mode'
+        git -C "$WT_DIR" branch -m "mx/$id"
+        printf 'pending\n' > "$WT_DIR/change"
+        if MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1; then fail 'local landing accepted a dirty actor'; fi
+        assert_grep 'recorded clean worktree' "$HOME_DIR/merge.out" 'dirty actor refusal missing'
+        git -C "$WT_DIR" add change
+        git -C "$WT_DIR" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'local change'
+        MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1 || fail "clean local landing refused: $(cat "$HOME_DIR/merge.out")"
+        [ "$(git -C "$PROJ_DIR" rev-parse HEAD)" = "$(git -C "$WT_DIR" rev-parse HEAD)" ] || fail 'local landing did not fast-forward'
+      fi
+    done
+  done
+  pass 'registry modes and independent yolo survive the native launch and local landing precondition'
+}
+test_registry_mode_survives_native_launch

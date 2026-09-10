@@ -39,7 +39,7 @@ test_spawn_boundary_parks_before_allocation() {
     MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
     MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
-    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex) \
+    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --mode direct-PR --yolo on) \
     || fail "at-limit spawn boundary should return a queued outcome"
   assert_contains "$out" 'queued: parked parked until dispatch capacity is available' \
     "spawn boundary did not report the queued outcome"
@@ -49,6 +49,10 @@ test_spawn_boundary_parks_before_allocation() {
     "spawn boundary did not preserve the resolved backend"
   assert_absent "$home/state/parked.meta" "at-limit spawn published task metadata"
   assert_absent "$project" "at-limit spawn allocated a worktree"
+  assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/parked.request" 'queue lost selected mode'
+  assert_grep 'yolo=on' "$home/state/.dispatch-queue/parked.request" 'queue lost selected yolo'
+  MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'mode queue drain failed'
+  assert_grep '--mode direct-PR --yolo on' "$home/spawn.log" 'drain lost selected authority'
 
   pass "at-limit spawn parks intent before worktree or endpoint allocation"
 }

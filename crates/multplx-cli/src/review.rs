@@ -183,6 +183,24 @@ fn merge_local(args: &[OsString]) -> i32 {
         );
         return 1;
     }
+    let worktree = PathBuf::from(meta_value(&text, "worktree", false).unwrap_or_default());
+    if command_line("git", &worktree, &["rev-parse", "--show-toplevel"]).as_deref()
+        != worktree.to_str()
+        || command_line(
+            "git",
+            &worktree,
+            &["symbolic-ref", "--quiet", "--short", "HEAD"],
+        )
+        .as_deref()
+            != Some(&branch)
+        || command_output("git", &worktree, &["status", "--porcelain"])
+            .is_none_or(|output| !output.status.success() || !output.stdout.is_empty())
+        || command_line("git", &worktree, &["rev-parse", "HEAD"])
+            != command_line("git", &project, &["rev-parse", &branch])
+    {
+        eprintln!("error: local landing requires the recorded clean worktree on {branch}");
+        return 1;
+    }
     let Some(default) = default_branch(&project) else {
         eprintln!(
             "error: cannot determine default branch for {}; expected origin/HEAD, main, or master",
@@ -1734,6 +1752,17 @@ fn delivery_gate(
     state: &Path,
     record: &DeliveryRecord,
 ) -> Result<(String, String, String, String), String> {
+    if let Validation::DirectPr { summary } = &record.validation {
+        return Ok((
+            summary.clone(),
+            "unassessed".to_owned(),
+            "Full validation gate not run".to_owned(),
+            format!(
+                "## Summary\n\n{summary}\n\n## Validation\n\ndirect-PR: full validation gate not run. Explicit approval binds exact SHA {}.\n",
+                record.approved_sha
+            ),
+        ));
+    }
     let gate_meta = fs::symlink_metadata(&record.gate_run).map_err(|_| "gate unavailable")?;
     if !gate_meta.is_dir() || gate_meta.file_type().is_symlink() {
         return Err("gate unavailable".to_owned());
@@ -1764,6 +1793,7 @@ fn delivery_gate(
         return Err("gate head changed".to_owned());
     }
     let body = match &record.validation {
+        Validation::DirectPr { .. } => unreachable!("handled before gate read"),
         Validation::Passed => {
             if value.get("status").and_then(serde_json::Value::as_str) != Some("passed") {
                 return Err("gate did not pass".to_owned());
@@ -1837,6 +1867,17 @@ fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String,
             .filter_map(|line| line.strip_prefix("worktree="))
             .collect::<Vec<_>>();
         values == [record.worktree.to_string_lossy().as_ref()]
+            && (!matches!(record.validation, Validation::DirectPr { .. })
+                || (text
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("mode="))
+                    .collect::<Vec<_>>()
+                    == ["direct-PR"]
+                    && text
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("kind="))
+                        .collect::<Vec<_>>()
+                        == ["delivery"]))
     });
     if !matches_meta {
         return Err((
@@ -2006,14 +2047,107 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
     0
 }
 
+fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
+    let prepare = values.first() == Some(&"prepare");
+    if (prepare && values.len() != 6)
+        || (!prepare && values.len() != 4)
+        || values.get(2) != Some(&"--sha")
+        || (prepare && values.get(4) != Some(&"--summary"))
+    {
+        return Err("use mx-deliver.sh --help for prepare/approve syntax".to_owned());
+    }
+    let task = OperationalTaskId::parse(values[1])?;
+    let sha = values[3];
+    if !head_valid(sha) {
+        return Err("a full exact commit SHA is required".to_owned());
+    }
+    if !prepare
+        && (std::env::var_os("MX_TASK_ID").is_some()
+            || std::env::var_os("DEEP_REVIEW_GATE").is_some())
+    {
+        return Err("task workers and gate sessions cannot approve their own delivery".to_owned());
+    }
+    if prepare && std::env::var("MX_TASK_ID").is_ok_and(|id| id != task.as_str()) {
+        return Err("prepare belongs to the initiating task".to_owned());
+    }
+    let state = state_root();
+    let state_meta = fs::symlink_metadata(&state).map_err(|error| error.to_string())?;
+    if !state_meta.is_dir() || state_meta.file_type().is_symlink() {
+        return Err("delivery state directory is unavailable".to_owned());
+    }
+    let path = state.join(format!("{task}.ready-to-push"));
+    let _lock = DirectoryLock::acquire_wait(
+        state.join(format!(".{task}.delivery-prepare.lock")),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    if prepare {
+        if fs::symlink_metadata(&path).is_ok() {
+            return Err(
+                "a handoff already exists; preserve its approval and reconcile it first".to_owned(),
+            );
+        }
+        let meta = private_metadata_text(&state, &state.join(format!("{task}.meta")))
+            .ok_or("private task metadata unavailable")?;
+        let worktree =
+            PathBuf::from(meta_value(&meta, "worktree", false).ok_or("missing worktree")?);
+        let base = default_branch(&worktree).ok_or("cannot resolve base branch")?;
+        let title = command_line("git", &worktree, &["log", "-1", "--format=%s"])
+            .ok_or("cannot read commit title")?;
+        let summary = values[5];
+        let text = format!(
+            "version=3\ntask={task}\nworktree={}\nbranch=mx/{task}\napproved_sha={sha}\nbase={base}\napproval=approved\ntitle={title}\nvalidation=direct-PR\nsummary={summary}\n",
+            worktree.display()
+        );
+        let record = DeliveryRecord::parse(text.as_bytes(), &task, &state)?;
+        delivery_eligibility(&state, &record).map_err(|(_, error)| error)?;
+        publish_private(
+            &path,
+            text.replace("\napproval=approved\n", "\napproval=pending\n")
+                .as_bytes(),
+        )?;
+        println!("delivery: {task} direct-PR handoff pending explicit approval at {sha}");
+    } else {
+        let metadata = fs::symlink_metadata(&state).map_err(|error| error.to_string())?;
+        let file = read_private(&path, 0o600, metadata.dev())?;
+        let mut record = DeliveryRecord::parse(&file.bytes, &task, &state)?;
+        if record.approved_sha != sha {
+            return Err("approval SHA does not match handoff".to_owned());
+        }
+        record.approval = "approved".to_owned();
+        delivery_eligibility(&state, &record).map_err(|(_, error)| error)?;
+        if !delivery_record_unchanged(&path, &file) {
+            return Err("handoff changed during approval".to_owned());
+        }
+        let text = String::from_utf8(file.bytes).map_err(|error| error.to_string())?;
+        publish_private(
+            &path,
+            text.replace("\napproval=pending\n", "\napproval=approved\n")
+                .as_bytes(),
+        )?;
+        println!("delivery: {task} approved at {sha}");
+    }
+    Ok(())
+}
+
 fn deliver(args: &[OsString]) -> i32 {
     let Some(values) = text_args(args) else {
         eprintln!("error: invalid delivery request");
         return 2;
     };
+    if values.first() == Some(&"prepare") || values.first() == Some(&"approve") {
+        return match prepare_or_approve(&values) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("delivery: {error}");
+                1
+            }
+        };
+    }
     if matches!(values.as_slice(), ["-h" | "--help"]) {
         print!(
-            "Deliver one or all approved local branches from outside every agent session.\n\nUsage: mx-deliver.sh [<task-id>]\n"
+            "Deliver one or all approved local branches from outside every agent session.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary>\n       mx-deliver.sh approve <task-id> --sha <full-SHA>\n\nprepare creates a pending gate-free handoff only for mode=direct-PR delivery tasks.\napprove is a local operation for the accepted approval authority; task workers and gates are refused. It rechecks the exact clean commit for every mode. Remote delivery remains non-agent only.\n"
         );
         return 0;
     }

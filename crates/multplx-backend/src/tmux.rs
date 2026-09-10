@@ -321,7 +321,26 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
     }
 
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
-        self.display(target, "#{pane_id}").map(|_| ())
+        self.ensure_tmux_target(target)?;
+        let output = self.run([
+            "display-message",
+            "-p",
+            "-t",
+            target.endpoint(),
+            "#{pane_id}",
+        ])?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        if Self::missing_inventory(&output.stderr)
+            || detail.contains("can't find pane:")
+            || detail.contains("can't find window:")
+        {
+            Err(BackendError::Missing(detail))
+        } else {
+            Err(BackendError::Command(detail))
+        }
     }
 
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError> {

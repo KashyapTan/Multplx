@@ -52,6 +52,26 @@ No request, identity, path, token, timeout, publication, or cleanup bound was di
 
 ## tmux
 
+### Recorded-backend state regression
+
+The native release entry points were verified on 2026-09-10 with Rust 1.97.1 on macOS arm64 using isolated homes and fake tmux, Herdr, and cmux transports.
+The source copy and fixture temporary directory were siblings, and validation children had actor routing removed.
+
+```sh
+target/release/mx test-run --jobs 2 tests/mx-actor-state.test.sh tests/mx-doctor.test.sh tests/mx-launcher.test.sh
+```
+
+```text
+ok - recorded Herdr/cmux actor-state, doctor and snapshot paths preserve live, absent and unreadable observations
+ok - clean fixture reports every check OK and exits zero
+ok - native installer honors explicit root and home from a non-repository directory
+MX_TEST_SUMMARY total=3 failed=0 skipped_gate=0 duration_ms=44679
+```
+
+The state fixtures cover backend selection from metadata, daemon liveness projection, unsupported metadata, missing endpoints, transport failures, and malformed cmux inventories.
+The doctor fixture prevents Git discovery from escaping its synthetic non-repository root into the surrounding development checkout.
+These deterministic checks do not constitute a new live Herdr or cmux verification; the version-scoped live evidence below remains separate.
+
 ### Rust Portion 04 shadow-period evidence
 
 The Rust shadow adapter was verified on 2026-08-11 with tmux 3.7b on macOS 26.5.2 arm64.
