@@ -132,6 +132,8 @@ Local landing also refuses a dirty primary checkout, a wrong default branch, a d
 `bin/mx-deep-review.sh --help` owns the supported round, attempt, and wall-clock overrides.
 Each configured command defaults to 300 seconds and each headless invocation to 1800 seconds; positive `MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS` and `MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS` override them independently.
 Round and structured-output attempt limits remain separate count bounds, not a global task deadline.
+Subsequent prompts include only owned structured findings and decision history, capped at 262144 bytes; excess fails closed with a pointer to the retained evidence.
+Raw headless transport logs remain on disk and are never copied into round history.
 A timeout kills the invocation's process group, preserves failure diagnostics, and never produces a successful handoff or automatic waiver.
 The process-group boundary covers ordinary descendants; subprocesses that deliberately detach into another session are outside this cleanup guarantee.
 The default configuration keeps broad regression in CI and uses focused local verification.

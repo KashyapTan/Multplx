@@ -432,3 +432,50 @@ EOF
   pass 'proven missing trusted configuration retains optional defaults'
 }
 test_missing_trusted_config_uses_defaults
+
+test_transport_events_do_not_expand_round_history() {
+  local case_dir repo state id gate
+  IFS=$'\t' read -r case_dir repo state id <<CASE
+$(make_case event-history)
+CASE
+  gate="$state/$id.gate"
+  mkdir -p "$gate/findings" "$gate/decisions"
+  python3 - "$gate" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+(root/'findings/round-00-review-assess-raw.events.jsonl').write_text(json.dumps({'type':'error','message':'RAW_EVENT_SENTINEL'+'x'*1100000})+'\n')
+(root/'findings/round-00-review-assess-raw.json').write_text(json.dumps({'unexpected':'RAW_OUTPUT_SENTINEL'}))
+(root/'findings/round-00-review.json').write_text(json.dumps({'findings':[],'summary':'FINDING_HISTORY_SENTINEL'}))
+(root/'decisions/deep-review-review-r0-accepted.json').write_text(json.dumps({'answer':'DECISION_HISTORY_SENTINEL'}))
+PY
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/out" 2>"$case_dir/err" || fail 'event-history gate failed'
+  assert_grep 'FINDING_HISTORY_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'findings history lost'
+  assert_grep 'DECISION_HISTORY_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'decision history lost'
+  assert_no_grep 'RAW_EVENT_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'raw transport event copied into prompt'
+  assert_no_grep 'RAW_OUTPUT_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'unvalidated raw result copied into prompt'
+  [ "$(wc -c < "$gate/prompts/review-round-01-assess.txt")" -lt 10000 ] || fail 'transport diagnostics expanded prompt'
+  assert_grep 'RAW_EVENT_SENTINEL' "$gate/findings/round-00-review-assess-raw.events.jsonl" 'raw diagnostic evidence discarded'
+  pass 'round prompts retain findings and decisions without ingesting raw transport events'
+}
+test_transport_events_do_not_expand_round_history
+
+
+test_structured_history_bound_fails_closed() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<CASE
+$(make_case history-bound)
+CASE
+  mkdir -p "$state/$id.gate/decisions"
+  python3 - "$state/$id.gate/decisions/deep-review-review-r0-accepted.json" <<'PYTHON'
+import json,sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({'key':'deep-review-review-r0-accepted','answer':'a'*262145,'recorded_at':'test'}))
+PYTHON
+  if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/out" 2>"$case_dir/err"; then fail 'oversized structured history passed'; fi
+  assert_grep 'round history exceeds 262144 bytes; full evidence retained at' "$case_dir/err" 'history bound lacks evidence diagnostic'
+  [ ! -s "$case_dir/agent.log" ] || fail 'oversized history invoked agent'
+  [ ! -e "$state/$id.ready-to-push" ] || fail 'oversized history created handoff'
+  pass 'oversized structured history fails closed without dropping accepted decisions'
+}
+test_structured_history_bound_fails_closed

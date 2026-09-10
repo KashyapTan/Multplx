@@ -11,7 +11,7 @@ use multplx_domain::review_delivery::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const USAGE: &str = "Bounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
+const USAGE: &str = "Bounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\nRound history includes only owned structured findings/decisions, capped at 262144 bytes; excess fails closed with retained evidence. Raw transport events remain on disk.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
 const STEPS: [&str; 6] = ["intent", "rebase", "review", "test", "document", "lint"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1168,7 +1168,7 @@ fn prompt(context: &Context, step: &str, mode: &str) -> Result<String, String> {
         }
         _ => return Err(format!("unsupported prompt step '{step}' mode '{mode}'")),
     };
-    let history = round_history(context);
+    let history = round_history(context)?;
     Ok(format!(
         "DEEP-REVIEW STEP: {step} ({mode})\nBranch: {}\nBase SHA: {}\nHead SHA: {}\nDefault branch: {}\nIgnore patterns:\n{}\n\n{instruction}\n{}\n\nEXECUTION CONTEXT\nYou are working on an isolated task worktree at {}.\nDo not push, open a pull request, merge, or invoke Multplx lifecycle commands.\n\nROUND HISTORY\n{history}\n\n{intent}\n",
         context.branch,
@@ -1192,36 +1192,83 @@ fn prompt(context: &Context, step: &str, mode: &str) -> Result<String, String> {
     ))
 }
 
-fn round_history(context: &Context) -> String {
-    let mut paths = fs::read_dir(context.gate.join("findings"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .chain(
-            fs::read_dir(context.gate.join("decisions"))
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|entry| entry.path()),
-        )
-        .collect::<Vec<_>>();
-    paths.sort();
-    if paths.is_empty() {
-        return "No prior rounds.".to_owned();
+// Keep raw transport evidence out of prompts and never silently omit accepted history.
+const MAX_ROUND_HISTORY_BYTES: usize = 256 * 1024;
+fn round_history(context: &Context) -> Result<String, String> {
+    let mut paths = Vec::new();
+    for directory in ["findings", "decisions"] {
+        for entry in
+            fs::read_dir(context.gate.join(directory)).map_err(|error| error.to_string())?
+        {
+            let path = entry.map_err(|error| error.to_string())?.path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            let owned = if directory == "findings" {
+                name.strip_prefix("round-")
+                    .and_then(|name| name.split_once('-'))
+                    .is_some_and(|(round, kind)| {
+                        !round.is_empty()
+                            && round.bytes().all(|byte| byte.is_ascii_digit())
+                            && matches!(
+                                kind,
+                                "rebase.json"
+                                    | "review.json"
+                                    | "test.json"
+                                    | "test-command.json"
+                                    | "lint-command.json"
+                                    | "format-command.json"
+                            )
+                    })
+            } else {
+                name.starts_with("deep-review-") && name.ends_with(".json")
+            };
+            if owned {
+                paths.push(path);
+            }
+        }
     }
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            fs::read_to_string(&path).ok().map(|text| {
-                format!(
-                    "\n--- {} ---\n{}",
-                    path.file_name().unwrap_or_default().to_string_lossy(),
-                    text.trim()
-                )
-            })
-        })
-        .collect()
+    paths.sort();
+    let mut history = String::new();
+    for path in paths {
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if !metadata.is_file() {
+            return Err(format!(
+                "round history is not a regular file: {}",
+                path.display()
+            ));
+        }
+        if metadata.len() > MAX_ROUND_HISTORY_BYTES as u64 {
+            return Err(format!(
+                "round history exceeds {MAX_ROUND_HISTORY_BYTES} bytes; full evidence retained at {}",
+                path.display()
+            ));
+        }
+        let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+        let value: Value = serde_json::from_str(&text)
+            .map_err(|error| format!("invalid structured history {}: {error}", path.display()))?;
+        if !value.is_object() {
+            return Err(format!("invalid structured history {}", path.display()));
+        }
+        let entry = format!(
+            "\n--- {} ---\n{}",
+            path.file_name().unwrap_or_default().to_string_lossy(),
+            text.trim()
+        );
+        if history.len().saturating_add(entry.len()) > MAX_ROUND_HISTORY_BYTES {
+            return Err(format!(
+                "round history exceeds {MAX_ROUND_HISTORY_BYTES} bytes; full findings and decisions retained at {}",
+                context.gate.display()
+            ));
+        }
+        history.push_str(&entry);
+    }
+    Ok(if history.is_empty() {
+        "No prior rounds.".to_owned()
+    } else {
+        history
+    })
 }
 
 fn call_agent(
