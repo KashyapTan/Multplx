@@ -99,6 +99,7 @@ For registered clones under `projects/demo`, valid registry rows are:
 Use only one row per project, choosing one mode; append `+yolo` independently to any mode when authorized.
 Omitted mode defaults to deep-review and omitted `+yolo` means off.
 Yolo does not skip validation, supply agent credentials, or relax destructive and security-sensitive boundaries.
+For self-repo tasks, pass the same absolute code-root path to `mx-brief.sh` and `mx-spawn.sh`; bare brief names identify registered clones.
 Self-repo tasks default to deep-review/off without a registry entry; explicit `--mode` and `--yolo on|off` apply per task.
 Pass identical overrides to `bin/mx-brief.sh task demo` and `bin/mx-spawn.sh task projects/demo`; consult their help/header for flags.
 Scouts retain the selected authority for later promotion but produce knowledge only; daemons record daemon/off and resolve their own child tasks separately.

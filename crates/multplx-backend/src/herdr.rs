@@ -441,16 +441,39 @@ impl<R: CommandRunner> HerdrBackend<R> {
         let _ = self.run_scoped(session, ["pane", "close", &pane]);
     }
 
+    fn observe_pane(&mut self, session: &str, pane: &str) -> Result<(), BackendError> {
+        let output = self.run_scoped(session, ["pane", "get", pane])?;
+        let bytes = if output.stdout.is_empty() {
+            &output.stderr
+        } else {
+            &output.stdout
+        };
+        let value: Value = serde_json::from_slice(bytes).map_err(|error| {
+            if output.status.success() {
+                BackendError::Malformed(format!("Herdr JSON: {error}"))
+            } else {
+                command_failure("herdr", &output)
+            }
+        })?;
+        if string_at(&value, "/error/code") == Some("pane_not_found") {
+            return Err(BackendError::Missing(format!(
+                "Herdr endpoint '{session}:{pane}' disappeared"
+            )));
+        }
+        if string_at(&value, "/result/pane/pane_id") == Some(pane) {
+            return Ok(());
+        }
+        Err(BackendError::Malformed(format!(
+            "Herdr endpoint '{session}:{pane}' is unreadable: {value}"
+        )))
+    }
+
     /// Classify a pane from exact response bodies rather than command status.
     pub fn pane_agent_state(&mut self, session: &str, pane: &str) -> PaneAgentState {
-        let Ok(pane_value) = self.json_any_status(session, ["pane", "get", pane]) else {
-            return PaneAgentState::Unknown;
-        };
-        if string_at(&pane_value, "/error/code") == Some("pane_not_found") {
-            return PaneAgentState::Dead;
-        }
-        if string_at(&pane_value, "/result/pane/pane_id") != Some(pane) {
-            return PaneAgentState::Unknown;
+        match self.observe_pane(session, pane) {
+            Ok(()) => {}
+            Err(BackendError::Missing(_)) => return PaneAgentState::Dead,
+            Err(_) => return PaneAgentState::Unknown,
         }
         let Ok(agent) = self.json_any_status(session, ["agent", "get", pane]) else {
             return PaneAgentState::Unknown;
@@ -626,7 +649,6 @@ impl<R: CommandRunner> HerdrBackend<R> {
         ansi: bool,
     ) -> Result<Vec<u8>, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
-        self.server_ensure(session)?;
         let requested = if lines == 0 { 200 } else { lines };
         let fetch = requested.max(200);
         let mut args = vec![
@@ -814,6 +836,11 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
         }
     }
 
+    fn observe_target(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
+        let (session, pane) = self.ensure_target(target)?;
+        self.observe_pane(session, pane)
+    }
+
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
         self.server_ensure(session)?;
@@ -897,7 +924,6 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
 
     fn native_state(&mut self, target: &BackendTarget) -> Result<NativeState, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
-        self.server_ensure(session)?;
         match self.agent_status_raw(session, pane).as_deref() {
             Some("idle") => Ok(NativeState::Idle),
             Some("working") => Ok(NativeState::Working),
@@ -1908,7 +1934,6 @@ mod tests {
                     success(br#"{"result":{"agent":{"agent_status":"mystery"}}}"#),
                     success(br#"{"server":{"running":true}}"#),
                     success(Vec::new()),
-                    success(br#"{"server":{"running":true}}"#),
                     success(capture),
                 ]),
                 "herdr",

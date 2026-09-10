@@ -72,6 +72,19 @@ The state fixtures cover backend selection from metadata, daemon liveness projec
 The doctor fixture prevents Git discovery from escaping its synthetic non-repository root into the surrounding development checkout.
 These deterministic checks do not constitute a new live Herdr or cmux verification; the version-scoped live evidence below remains separate.
 
+Passive observation and replacement cmux surface checks were verified on 2026-09-10 with the same isolated fake transports and Rust 1.97.1:
+
+```sh
+target/release/mx test-run --jobs 2 tests/mx-actor-state.test.sh tests/mx-headroom.test.sh
+```
+
+```text
+MX_TEST_SUMMARY total=2 failed=0 skipped_gate=0 duration_ms=4195
+```
+
+The Herdr fixture rejects server starts and covers stopped-server diagnostics, capture fallback, daemon liveness, and snapshot capacity reads.
+The cmux fixture replaces the recorded surface and requires actor-state, doctor, and snapshot to resolve the same task workspace.
+
 ### Rust Portion 04 shadow-period evidence
 
 The Rust shadow adapter was verified on 2026-08-11 with tmux 3.7b on macOS 26.5.2 arm64.

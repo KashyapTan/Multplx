@@ -273,7 +273,12 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                 }
                 let backend = meta(&raw, "backend");
                 let backend = if backend.is_empty() { "tmux" } else { &backend };
-                match multplx_backend::facade::observe_endpoint(backend, &window, false) {
+                match multplx_backend::facade::observe_endpoint(
+                    backend,
+                    &window,
+                    Some(format!("mx-{id}")),
+                    false,
+                ) {
                     Ok((true, _)) => {}
                     Ok((false, _)) => missing.push(format!("{id} ({backend})")),
                     Err(error) => unknown.push(format!("{id} ({backend}): {error}")),

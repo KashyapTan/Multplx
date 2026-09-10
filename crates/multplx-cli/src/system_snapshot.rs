@@ -647,9 +647,14 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
         decisions.clear()
     }
     let open = status_rows(decisions);
-    let endpoint = target
-        .as_deref()
-        .map(|target| multplx_backend::facade::observe_endpoint(backend, target, kind == "daemon"));
+    let endpoint = target.as_deref().map(|target| {
+        multplx_backend::facade::observe_endpoint(
+            backend,
+            target,
+            Some(format!("mx-{id}")),
+            kind == "daemon",
+        )
+    });
     let exists = endpoint
         .as_ref()
         .and_then(|result| result.as_ref().ok().map(|(exists, _)| *exists));

@@ -271,9 +271,9 @@ fn target_is_live(backend: &str, target: &str) -> bool {
         return false;
     };
     match name {
-        BackendName::Tmux => TmuxBackend::system().target_ready(&target).is_ok(),
-        BackendName::Herdr => HerdrBackend::system().target_ready(&target).is_ok(),
-        BackendName::Cmux => CmuxBackend::system().target_ready(&target).is_ok(),
+        BackendName::Tmux => TmuxBackend::system().observe_target(&target).is_ok(),
+        BackendName::Herdr => HerdrBackend::system().observe_target(&target).is_ok(),
+        BackendName::Cmux => CmuxBackend::system().observe_target(&target).is_ok(),
     }
 }
 

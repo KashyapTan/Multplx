@@ -17,7 +17,7 @@ filled in. Multplx then replaces the {TASK} placeholder with the task
 description, acceptance criteria, and context, and may adjust other sections
 when the task genuinely deviates (e.g. working an existing external PR instead
 of creating a new one).
-Usage: mx-brief.sh <task-id> <repo-name> [--scout] [--herdr-lab] [--mode MODE] [--yolo on|off]
+Usage: mx-brief.sh <task-id> <repo-name|project-path> [--scout] [--herdr-lab] [--mode MODE] [--yolo on|off]
        mx-brief.sh <task-id> --daemon {<project>...|--no-projects}
   --scout writes the scout contract instead: the deliverable is a report at
   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
@@ -45,7 +45,9 @@ and AGENTS.md task lifecycle):
   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
                maintainer approves, broker merges to local main
 --mode and --yolo are independent per-task choices; pass the same overrides to mx-spawn.sh.
-Use them for broker/self-repo work without adding a private project registry row.
+For self-repo work, pass the absolute code-root path as the project argument.
+Bare names identify registered clones; paths use the same identity resolution as spawn.
+Use overrides for task-specific authority without adding a private project registry row.
 Daemon briefs reject these task overrides; scouts still produce reports.
 Delivery briefs begin with a worktree-isolation assertion before the branch step.
 Scout tasks ignore mode - their deliverable is a report, not a merge.
@@ -188,7 +190,7 @@ fn delivery(
 pub fn run(
     args: &[OsString],
     root: &Path,
-    _home: &Path,
+    home: &Path,
     data: &Path,
     state: &Path,
 ) -> Result<String, BriefError> {
@@ -254,12 +256,31 @@ pub fn run(
     if kind == Kind::Daemon && (selected_mode.is_some() || selected_yolo.is_some()) {
         return Err(error("daemon briefs do not accept task mode or yolo"));
     }
-    let resolution = resolve_project_mode(
-        &data.join("projects.md"),
-        positional.get(1).map(String::as_str).unwrap_or(""),
-    );
-    let mode = selected_mode.unwrap_or(resolution.mode);
-    let yolo = selected_yolo.unwrap_or(resolution.yolo);
+    let repo = positional.get(1).map(String::as_str).unwrap_or("");
+    let resolution = if repo.contains('/') || repo == "." || repo == ".." {
+        let projects = env::var_os("MX_PROJECTS_OVERRIDE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| home.join("projects"));
+        let project = repo
+            .strip_prefix("projects/")
+            .map(|relative| projects.join(relative))
+            .unwrap_or_else(|| repo.into());
+        let project = fs::canonicalize(project).map_err(|io| error(io.to_string()))?;
+        crate::project_registry::resolve_path(&data.join("projects.md"), &projects, root, &project)
+    } else {
+        resolve_project_mode(&data.join("projects.md"), repo)
+    };
+    let (mode, yolo) = if kind == Kind::Daemon {
+        (DeliveryMode::DeepReview, false)
+    } else {
+        let (mode, yolo) =
+            super::spawn::task_authority(state, id, &resolution, selected_mode, selected_yolo)
+                .map_err(error)?;
+        (
+            DeliveryMode::parse(&mode).expect("validated task mode"),
+            yolo,
+        )
+    };
     let path = data.join(id).join("brief.md");
     fs::create_dir_all(path.parent().expect("brief parent"))
         .map_err(|error_value| error(error_value.to_string()))?;
@@ -379,6 +400,54 @@ mod tests {
                 .expect("project-less")
                 .contains("project-less domain")
         );
+    }
+
+    #[test]
+    fn explicit_project_identity_matches_spawn_with_same_named_clone() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Multplx");
+        let home = temp.path().join("home");
+        let data = home.join("data");
+        let state = home.join("state");
+        let projects = home.join("projects");
+        let clone = projects.join("Multplx");
+        for path in [&root, &data, &state, &clone] {
+            fs::create_dir_all(path).unwrap();
+        }
+        fs::write(
+            data.join("projects.md"),
+            "- Multplx [local-only +yolo] - clone\n",
+        )
+        .unwrap();
+        let context = super::super::spawn::Context {
+            root: root.clone(),
+            home: home.clone(),
+            data: data.clone(),
+            state: state.clone(),
+            projects,
+        };
+        for (id, reference, project, expected) in [
+            ("self", root.to_str().unwrap(), &root, "deep-review"),
+            ("clone-path", clone.to_str().unwrap(), &clone, "local-only"),
+            ("clone-name", "Multplx", &clone, "local-only"),
+        ] {
+            let output = run(&args(&[id, reference]), &root, &home, &data, &state).unwrap();
+            let launch = super::super::spawn::parse(
+                &args(&[id, project.to_str().unwrap()]),
+                &context,
+                "codex",
+            )
+            .unwrap();
+            assert_eq!(launch.mode, expected);
+            assert!(output.contains(&format!("mode={}", launch.mode)));
+            assert!(output.contains(if launch.yolo { "yolo=on" } else { "yolo=off" }));
+            let body = fs::read_to_string(data.join(id).join("brief.md")).unwrap();
+            assert!(body.contains(if expected == "deep-review" {
+                "mx-deep-review.sh"
+            } else {
+                "**local-only**"
+            }));
+        }
     }
 
     #[test]

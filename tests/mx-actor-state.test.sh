@@ -154,10 +154,13 @@ $(make_case recorded)
 EOF
   cat > "$case_dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MX_FAKE_HERDR_LOG"
+[ "$1" != server ] || { echo forbidden-server-start >> "$MX_FAKE_HERDR_LOG"; exit 9; }
 [ "${MX_FAKE_UNREADABLE:-0}" != 1 ] || { echo 'fixture backend unavailable' >&2; exit 1; }
+[ "${MX_FAKE_STOPPED:-0}" != 1 ] || { echo '{"error":{"code":"server_unavailable"}}'; exit 1; }
 case "$1 ${2:-}" in
   'pane get') if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"error":{"code":"pane_not_found"}}'; else echo '{"result":{"pane":{"pane_id":"w1:p2"}}}'; fi ;;
-  'agent get') echo '{"result":{"agent":{"agent_status":"working"}}}' ;;
+  'agent get') if [ "${MX_FAKE_NO_AGENT:-0}" = 1 ]; then echo '{"error":{"code":"agent_not_found"}}'; else echo '{"result":{"agent":{"agent_status":"working"}}}'; fi ;;
   'status --json') echo '{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}' ;;
   'pane read') echo 'Working' ;;
   *) exit 2 ;;
@@ -168,13 +171,16 @@ SH
 [ "${MX_FAKE_UNREADABLE:-0}" != 1 ] || { echo 'fixture backend unavailable' >&2; exit 1; }
 [ "${MX_FAKE_MALFORMED:-0}" != 1 ] || { echo '{"unreadable":true}'; exit 0; }
 case "$1" in
-  list-panes) if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"panes":[]}'; else echo '{"panes":[{"surface_ids":["s1"],"selected_surface_id":"s1"}]}'; fi ;;
-  workspace) echo '{"workspaces":[]}' ;;
+  list-panes) if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"panes":[]}'; else jq -nc --arg surface "${MX_FAKE_SURFACE:-s1}" '{panes:[{surface_ids:[$surface],selected_surface_id:$surface}]}'; fi ;;
+  workspace) jq -nc --arg title "$MX_FAKE_CMUX_TITLE" '{workspaces:[{id:"w1",title:$title}]}' ;;
+  read-screen) echo '{"text":"Working... esc to interrupt"}' ;;
   *) exit 2 ;;
 esac
 SH
   chmod +x "$case_dir/fakebin/herdr" "$case_dir/fakebin/cmux"
-  export PATH="$case_dir/fakebin:$PATH" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state"
+  export PATH="$case_dir/fakebin:$PATH" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state" MX_ROOT_OVERRIDE="$ROOT"
+  export MX_FAKE_HERDR_LOG="$case_dir/herdr.log"
+  export MX_FAKE_CMUX_TITLE="mx-broker-$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-8)-$id"
   export MX_HERDR_BIN="$case_dir/fakebin/herdr" MX_BACKEND_CMUX_BIN="$case_dir/fakebin/cmux"
   for backend in herdr cmux; do
     endpoint='named:w1:p2'; [ "$backend" != cmux ] || endpoint='w1:s1'
@@ -188,7 +194,29 @@ SH
     jq -e '.tasks[0].endpoint.exists == null and (.tasks[0].endpoint.detail | length > 0)' "$case_dir/snapshot" >/dev/null || fail "unreadable $backend marked absent"
     if [ "$backend" = cmux ]; then
       MX_FAKE_MALFORMED=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
-      jq -e '.tasks[0].endpoint.exists == null and (.tasks[0].endpoint.detail | contains("missing panes"))' "$case_dir/snapshot" >/dev/null || fail 'malformed cmux inventory marked absent'
+      jq -e '.tasks[0].endpoint.exists == null and (.tasks[0].endpoint.detail | contains("cmux inventory"))' "$case_dir/snapshot" >/dev/null || fail 'malformed cmux inventory marked absent'
+    fi
+    if [ "$backend" = herdr ]; then
+      MX_FAKE_NO_AGENT=1 "$STATE_BIN" "$id" > "$case_dir/out" || fail 'Herdr capture fallback refused'
+      MX_FAKE_STOPPED=1 "$STATE_BIN" "$id" > "$case_dir/out" || fail 'stopped Herdr state failed'
+      assert_grep 'server_unavailable' "$case_dir/out" 'stopped server detail lost'
+      MX_FAKE_STOPPED=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+      jq -e '.tasks[0].endpoint.exists == null and (.tasks[0].endpoint.detail | contains("server_unavailable"))' "$case_dir/snapshot" >/dev/null || fail 'stopped Herdr marked absent'
+      if MX_FAKE_STOPPED=1 "$ROOT/bin/mx-doctor.sh" --check stateless-sessions --json > "$case_dir/doctor"; then fail 'stopped server diagnosed healthy'; fi
+      assert_grep 'server_unavailable' "$case_dir/doctor" 'doctor lost stopped-server detail'
+      mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=daemon'
+      MX_FAKE_NO_AGENT=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+      jq -e '.tasks[0].endpoint.exists == true and .tasks[0].endpoint.agent_alive == "dead"' "$case_dir/snapshot" >/dev/null || fail 'agent-less Herdr pane misclassified'
+      "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+      jq -e '.tasks[0].endpoint.agent_alive == "alive"' "$case_dir/snapshot" >/dev/null || fail 'live Herdr daemon misclassified'
+      mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
+      if grep -q '^server\|^status' "$MX_FAKE_HERDR_LOG"; then fail 'passive read attempted server readiness'; fi
+    else
+      MX_FAKE_SURFACE=s2 "$STATE_BIN" "$id" > "$case_dir/out" || fail 'replacement surface state refused'
+      assert_grep 'state: working' "$case_dir/out" 'replacement surface capture lost'
+      MX_FAKE_SURFACE=s2 "$ROOT/bin/mx-doctor.sh" --check stateless-sessions --json > "$case_dir/doctor" || fail 'replacement surface diagnosed missing'
+      MX_FAKE_SURFACE=s2 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+      jq -e '.tasks[0].endpoint.exists == true' "$case_dir/snapshot" >/dev/null || fail 'replacement surface marked absent'
     fi
     MX_FAKE_MISSING=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
     jq -e '.tasks[0].endpoint.exists == false' "$case_dir/snapshot" >/dev/null || fail "absent $backend not distinguished"

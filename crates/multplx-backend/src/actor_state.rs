@@ -91,7 +91,7 @@ impl<T: RuntimeBackend + ?Sized> ActorStateBackend for T {
     }
 
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
-        RuntimeBackend::target_ready(self, target)
+        RuntimeBackend::observe_target(self, target)
     }
 
     fn capture(&mut self, request: &CaptureRequest) -> Result<Vec<u8>, BackendError> {

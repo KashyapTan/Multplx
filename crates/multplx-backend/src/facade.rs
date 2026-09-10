@@ -350,6 +350,10 @@ pub trait RuntimeBackend {
     ) -> Result<BackendTarget, BackendError>;
     /// Verify exact endpoint readiness.
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError>;
+    /// Observe endpoint presence without starting a server or session.
+    fn observe_target(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
+        self.target_ready(target)
+    }
     /// Read the current endpoint path.
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError>;
     /// Capture bounded plain endpoint text.
@@ -545,12 +549,13 @@ pub fn system_backend(name: BackendName) -> Box<dyn RuntimeBackend> {
 pub fn observe_endpoint(
     name: &str,
     endpoint: &str,
+    expected_label: Option<String>,
     agent: bool,
 ) -> Result<(bool, AgentState), BackendError> {
     let name = BackendName::parse(name)?;
-    let target = BackendTarget::new(name, endpoint, None)?;
+    let target = BackendTarget::new(name, endpoint, expected_label)?;
     let mut backend = system_backend(name);
-    match backend.target_ready(&target) {
+    match backend.observe_target(&target) {
         Ok(()) => Ok((
             true,
             if agent {
