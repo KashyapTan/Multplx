@@ -169,7 +169,9 @@ case "$1 ${2:-}" in
     esac
     if [ "${MX_FAKE_NO_AGENT:-0}" = 1 ]; then echo '{"error":{"code":"agent_not_found"}}'; else echo '{"result":{"agent":{"agent_status":"working"}}}'; fi ;;
   'status --json') echo '{"client":{"version":"0.7.4","protocol":16},"server":{"running":true}}' ;;
-  'pane read') echo "${MX_FAKE_PANE_TEXT:-Working}" ;;
+  'pane read')
+    [ "${MX_FAKE_CAPTURE_FAILURE:-0}" != 1 ] || { echo 'fixture pane read denied' >&2; exit 1; }
+    echo "${MX_FAKE_PANE_TEXT:-Working}" ;;
   *) exit 2 ;;
 esac
 SH
@@ -180,14 +182,17 @@ SH
 case "$1" in
   list-panes) if [ "${MX_FAKE_MISSING:-0}" = 1 ]; then echo '{"panes":[]}'; else jq -nc --arg surface "${MX_FAKE_SURFACE:-s1}" '{panes:[{surface_ids:[$surface],selected_surface_id:$surface}]}'; fi ;;
   workspace) jq -nc --arg title "$MX_FAKE_CMUX_TITLE" '{workspaces:[{id:"w1",title:$title}]}' ;;
-  read-screen) echo '{"text":"Working... esc to interrupt"}' ;;
+  read-screen)
+    [ "${MX_FAKE_CAPTURE_FAILURE:-0}" != 1 ] || { echo 'fixture screen permission denied' >&2; exit 1; }
+    echo '{"text":"Working... esc to interrupt"}' ;;
   *) exit 2 ;;
 esac
 SH
   chmod +x "$case_dir/fakebin/herdr" "$case_dir/fakebin/cmux"
   export PATH="$case_dir/fakebin:$PATH" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state" MX_ROOT_OVERRIDE="$ROOT"
   export MX_FAKE_HERDR_LOG="$case_dir/herdr.log"
-  export MX_FAKE_CMUX_TITLE="mx-broker-$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-8)-$id"
+  MX_FAKE_CMUX_TITLE="mx-broker-$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-8)-$id"
+  export MX_FAKE_CMUX_TITLE
   export MX_HERDR_BIN="$case_dir/fakebin/herdr" MX_BACKEND_CMUX_BIN="$case_dir/fakebin/cmux"
   for backend in herdr cmux; do
     endpoint='named:w1:p2'; [ "$backend" != cmux ] || endpoint='w1:s1'
@@ -235,8 +240,26 @@ SH
       mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
       MX_FAKE_AGENT_FAILURE=transport MX_FAKE_PANE_TEXT='Working... esc to interrupt' "$STATE_BIN" "$id" > "$case_dir/out"
       assert_grep 'state: working · source: pane · harness busy' "$case_dir/out" 'native failure hid pane fallback'
+      MX_FAKE_CAPTURE_FAILURE=1 "$STATE_BIN" "$id" > "$case_dir/out"
+      assert_grep 'state: working · source: native-event' "$case_dir/out" 'capture failure hid native state'
+      MX_FAKE_AGENT_FAILURE=transport MX_FAKE_CAPTURE_FAILURE=1 "$STATE_BIN" "$id" > "$case_dir/out"
+      grep -q 'state: unknown.*fixture agent socket unavailable.*fixture pane read denied' "$case_dir/out" || fail 'concurrent reader failures lost diagnostics'
       if grep -q '^server\|^status' "$MX_FAKE_HERDR_LOG"; then fail 'passive read attempted server readiness'; fi
     else
+      MX_FAKE_CAPTURE_FAILURE=1 "$STATE_BIN" "$id" > "$case_dir/out"
+      grep -q 'state: unknown.*capture.*fixture screen permission denied' "$case_dir/out" || fail 'cmux capture diagnostic lost'
+      MX_FAKE_CAPTURE_FAILURE=1 "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+      jq -e '.tasks[0] | .endpoint.exists == true and .current_state.state == "unknown" and (.current_state.detail | contains("fixture screen permission denied"))' "$case_dir/snapshot" >/dev/null || fail 'cmux capture failure lost presence or current-state diagnostic'
+      printf 'paused: release window\n' > "$state/$id.status"
+      MX_FAKE_CAPTURE_FAILURE=1 "$STATE_BIN" "$id" > "$case_dir/out"
+      assert_grep 'state: paused · source: status-log · release window' "$case_dir/out" 'capture failure hid validated report'
+      rm "$state/$id.status"
+      mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=delivery'
+      write_run "$state" "$id" "$repo" "$head" running review
+      MX_FAKE_CAPTURE_FAILURE=1 "$STATE_BIN" "$id" > "$case_dir/out"
+      assert_grep 'state: working · source: run-step · validating' "$case_dir/out" 'capture failure hid attributed run'
+      rm "$state/$id.gate/run.json"
+      mx_write_meta "$state/$id.meta" "window=$endpoint" "backend=$backend" "worktree=$repo" 'kind=scout'
       mkdir -p "$case_dir/elsewhere"
       (
         cd "$case_dir/elsewhere" || exit 1
@@ -258,4 +281,36 @@ SH
   jq -e '.tasks[0].current_state.detail | contains("unknown backend")' "$case_dir/snapshot" >/dev/null || fail 'snapshot discarded actor-state failure'
   pass 'recorded Herdr/cmux actor-state, doctor and snapshot paths preserve live, absent and unreadable observations'
 )
-test_recorded_backend_projection
+test_recorded_backend_projection || exit 1
+
+test_tmux_liveness_diagnostics() (
+  local case_dir repo state id head failure
+  IFS=$'\t' read -r case_dir repo state id head <<EOF
+$(make_case tmux-liveness)
+EOF
+  cat > "$case_dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  display-message)
+    if [ "${@: -1}" = '#{pane_current_command}' ]; then
+      [ "$MX_FAKE_LIVENESS_FAILURE" != command ] || { echo 'fixture foreground command denied' >&2; exit 1; }
+      echo codex
+    else
+      echo '%1'
+    fi ;;
+  list-windows)
+    [ "$MX_FAKE_LIVENESS_FAILURE" != inventory ] || { echo 'fixture window inventory denied' >&2; exit 1; }
+    echo "mx-$MX_FAKE_TASK" ;;
+  *) exit 2 ;;
+esac
+SH
+  mx_write_meta "$state/$id.meta" "window=broker:mx-$id" 'backend=tmux' "worktree=$repo" 'kind=daemon'
+  export PATH="$case_dir/fakebin:$PATH" MX_TMUX_BIN="$case_dir/fakebin/tmux" MX_FAKE_TASK="$id"
+  export MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state" MX_ROOT_OVERRIDE="$ROOT"
+  for failure in inventory command; do
+    MX_FAKE_LIVENESS_FAILURE=$failure "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
+    jq -e '.tasks[0].endpoint | .exists == true and .agent_alive == "unknown" and (.detail | contains("fixture")) and (.detail | contains("denied"))' "$case_dir/snapshot" >/dev/null || fail "tmux $failure failure lost presence or diagnostic"
+  done
+  pass 'tmux snapshot retains liveness command diagnostics and verified presence'
+)
+test_tmux_liveness_diagnostics
