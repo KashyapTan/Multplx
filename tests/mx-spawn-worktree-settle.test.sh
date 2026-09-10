@@ -207,6 +207,11 @@ test_registry_mode_survives_native_launch() {
       id="mode-${mode//[^a-zA-Z]/}-${yolo}"
       record=$(make_settle_case "$id" "$id" 0)
       read_settle_record "$record"
+      if [ "$mode" = local-only ]; then
+        # Exercise equivalent path spellings on every platform, including macOS /var aliases.
+        ln -s "$WT_DIR" "$WT_DIR-alias"
+        WT_DIR="$WT_DIR-alias"
+      fi
       ln -s "$PROJ_DIR" "$HOME_DIR/projects/project"
       if [ "$yolo" = on ]; then printf '%s\n' "- project [$mode +yolo] - fixture" > "$HOME_DIR/data/projects.md"; else printf '%s\n' "- project [$mode] - fixture" > "$HOME_DIR/data/projects.md"; fi
       output=$(run_settle_spawn "$id") || fail "mode launch failed: $output"
@@ -218,6 +223,12 @@ test_registry_mode_survives_native_launch() {
         MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1
         assert_grep "branch mx/$id does not exist" "$HOME_DIR/merge.out" 'local landing incorrectly refused selected mode'
         git -C "$WT_DIR" branch -m "mx/$id"
+        cp "$HOME_DIR/state/$id.meta" "$HOME_DIR/original.meta"
+        mkdir "$WT_DIR/subdir"
+        sed "s|^worktree=.*|worktree=$WT_DIR/subdir|" "$HOME_DIR/original.meta" > "$HOME_DIR/state/$id.meta"
+        if MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1; then fail 'local landing accepted a worktree subdirectory'; fi
+        assert_grep 'recorded clean worktree' "$HOME_DIR/merge.out" 'subdirectory refusal missing'
+        cp "$HOME_DIR/original.meta" "$HOME_DIR/state/$id.meta"
         printf 'pending\n' > "$WT_DIR/change"
         if MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1; then fail 'local landing accepted a dirty actor'; fi
         assert_grep 'recorded clean worktree' "$HOME_DIR/merge.out" 'dirty actor refusal missing'

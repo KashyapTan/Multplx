@@ -184,8 +184,11 @@ fn merge_local(args: &[OsString]) -> i32 {
         return 1;
     }
     let worktree = PathBuf::from(meta_value(&text, "worktree", false).unwrap_or_default());
-    if command_line("git", &worktree, &["rev-parse", "--show-toplevel"]).as_deref()
-        != worktree.to_str()
+    let recorded_root = fs::canonicalize(&worktree).ok();
+    let git_root = command_line("git", &worktree, &["rev-parse", "--show-toplevel"])
+        .and_then(|root| fs::canonicalize(root).ok());
+    if recorded_root.is_none()
+        || recorded_root != git_root
         || command_line(
             "git",
             &worktree,
