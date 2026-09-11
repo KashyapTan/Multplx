@@ -29,6 +29,15 @@ This guarantees that a newer local commit cannot be pushed through a check-to-pu
 After the push, the service opens the pull request with a deterministic summary and truthful validation provenance, records the canonical URL through `mx-pr-check.sh`, and moves the handoff to `state/<id>.delivered`.
 A stale worktree, branch, SHA, or gate binding moves the handoff to `state/<id>.ready-to-push.stale` and requires preparation or validation again under the recorded mode.
 A pending or malformed record stays in place and causes a nonzero exit.
+For an existing PR, a newly approved revision updates the recorded open PR after verifying its repository branch, base, and canonical URL; it does not create another PR.
+The service preserves each previous approved receipt before replacing the latest receipt, and refuses unsafe or conflicting history before pushing.
+`bin/mx-deliver.sh --help` owns the receipt-history paths.
+
+A changed commit after a passed deep-review run requires a new full validation with explicit intent and a clean worktree.
+The gate preserves the completed run, raw evidence, and matching handoff/receipt bytes in its revision history before starting all six stages with pending approval.
+Historical receipts retain their original `gate_run` text; the exact-SHA history contains the corresponding archived gate, and is evidence rather than a deliverable handoff.
+`bin/mx-deep-review.sh --help` owns that history layout; failed and parked runs retain their existing bounds and decision requirements.
+
 
 There is no runtime implementation selector.
 The stable shell filename is an exec-only adapter and cannot redirect review, record, branch, poll, or remote operations to a retained shell body.

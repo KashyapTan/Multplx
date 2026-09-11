@@ -68,7 +68,7 @@ printf 'GH_TOKEN=%s GITHUB_TOKEN=%s MX_AGENT_GH_TOKEN=%s CODEX_THREAD_ID=%s\n' \
   "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}" "${MX_AGENT_GH_TOKEN:-}" "${CODEX_THREAD_ID:-}" \
   >> "$MX_TEST_GH_ENV_LOG"
 case "${1:-} ${2:-}" in
-  "pr create")
+  "pr create"|"pr edit")
     printf '%s\n' "$*" >> "$MX_TEST_GH_LOG"
     while [ "$#" -gt 0 ]; do
       if [ "$1" = --body-file ]; then cp "$2" "$MX_TEST_GH_LOG.body"; break; fi
@@ -78,7 +78,12 @@ case "${1:-} ${2:-}" in
     printf '%s\n' 'https://github.com/example/repo/pull/42'
     ;;
   "pr view")
-    "$REAL_GIT" -C "$MX_TEST_WORKTREE" rev-parse HEAD
+    case "$*" in
+      *url,headRefName,baseRefName,state,isCrossRepository*)
+        printf '{"url":"%s","headRefName":"mx/task-x1","baseRefName":"main","state":"OPEN","isCrossRepository":false}\n' "${MX_TEST_EXISTING_PR_URL:-https://github.com/example/repo/pull/42}"
+        ;;
+      *) "$REAL_GIT" -C "$MX_TEST_WORKTREE" rev-parse HEAD ;;
+    esac
     ;;
   *) exit 0 ;;
 esac
@@ -363,3 +368,42 @@ test_direct_pr_stale_binding_never_pushes() {
   pass 'direct-PR rechecks an approved worktree and refuses stale material before transport'
 }
 test_direct_pr_stale_binding_never_pushes
+
+# A later approved revision updates the same PR and retains the old exact receipt.
+test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history() {
+  local case_dir old_sha new_sha archive kind
+  for kind in success symlink conflict wrong-pr; do
+    case_dir=$(make_case "revision-$kind")
+    write_record "$case_dir" approved
+    MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/first-out" 2>"$case_dir/first-err" || fail 'initial revision delivery failed'
+    old_sha=$("$REAL_GIT" -C "$case_dir/wt" rev-parse HEAD)
+    cp "$case_dir/state/task-x1.delivered" "$case_dir/prior-receipt"
+    "$REAL_GIT" -C "$case_dir/wt" commit -q --allow-empty -m 'approved CI correction'
+    new_sha=$("$REAL_GIT" -C "$case_dir/wt" rev-parse HEAD)
+    jq --arg sha "$new_sha" '.approved_head=$sha | .summary="CI correction validated"' "$case_dir/state/task-x1.gate/run.json" > "$case_dir/run-next"
+    cp "$case_dir/run-next" "$case_dir/state/task-x1.gate/run.json"
+    write_record "$case_dir" approved
+    archive="$case_dir/state/task-x1.delivered-$old_sha"
+    case "$kind" in
+      symlink) ln -s "$case_dir/prior-receipt" "$archive" ;;
+      conflict) printf 'conflicting evidence\n' > "$archive"; chmod 600 "$archive" ;;
+    esac
+    if [ "$kind" = success ]; then
+      MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/second-out" 2>"$case_dir/second-err" || fail 'second approved revision did not deliver'
+      cmp "$case_dir/prior-receipt" "$archive" || fail 'prior receipt bytes changed'
+      assert_grep "approved_sha=$new_sha" "$case_dir/state/task-x1.delivered" 'new receipt does not bind new SHA'
+      assert_grep "$new_sha:refs/heads/mx/task-x1" "$case_dir/push.log" 'update push did not pin exact SHA'
+      [ "$(grep -c '^pr create ' "$case_dir/gh.log")" -eq 1 ] || fail 'revision created another PR'
+      assert_grep 'pr edit https://github.com/example/repo/pull/42 ' "$case_dir/gh.log" 'recorded PR was not updated'
+      assert_grep 'CI correction validated' "$case_dir/gh.log.body" 'PR content retained stale validation summary'
+      assert_absent "$case_dir/state/task-x1.ready-to-push" 'successful update left ready record'
+    else
+      if MX_TEST_EXISTING_PR_URL="https://github.com/example/repo/pull/99" MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/refused-out" 2>"$case_dir/refused-err"; then fail "unsafe $kind update passed"; fi
+      [ "$(wc -l < "$case_dir/push.log" | tr -d '[:space:]')" -eq 1 ] || fail "unsafe $kind update pushed"
+      cmp "$case_dir/prior-receipt" "$case_dir/state/task-x1.delivered" || fail "unsafe $kind update changed receipt"
+      assert_present "$case_dir/state/task-x1.ready-to-push" 'refused update lost pending evidence'
+    fi
+  done
+  pass 'existing PR revisions preserve receipts and refuse unsafe history or changed PR identity before push'
+}
+test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history

@@ -63,6 +63,9 @@ fn deep_review_help_needs_no_task_repository_or_external_commands() {
             .env("PATH", "")
             .env("MX_HOME", temp.path().join("absent-home"))
             .env("MX_RUST_SOURCE_ROOT", temp.path().join("absent-source"))
+            // Keep instrumentation output in cargo-llvm-cov's designated directory,
+            // rather than mistaking its default cwd profiles for help side effects.
+            .envs(std::env::var_os("LLVM_PROFILE_FILE").map(|value| ("LLVM_PROFILE_FILE", value)))
             .output()
             .expect("run help");
         assert!(output.status.success());

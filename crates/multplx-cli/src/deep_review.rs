@@ -1,17 +1,19 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use multplx_core::filesystem::atomic_replace;
 use multplx_domain::review_delivery::{
-    Finding, OperationalTaskId, finding_valid, ref_valid, sanitize_intent, title_valid,
+    DeliveryRecord, Finding, OperationalTaskId, finding_valid, head_valid, publish_private,
+    read_private, ref_valid, sanitize_intent, title_valid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const USAGE: &str = "Bounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\nRound history includes only owned structured findings/decisions, capped at 262144 bytes; excess fails closed with retained evidence. Raw transport events remain on disk.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
+const USAGE: &str = "Bounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\nRound history includes only owned structured findings/decisions, capped at 262144 bytes; excess fails closed with retained evidence. Raw transport events remain on disk.\nA changed HEAD after a passed gate requires explicit intent and a clean worktree, preserves the completed gate under state/<id>.gate-passed-<SHA>/gate, and starts all stages anew. Failed or parked runs do not receive new round budgets. Matching prior handoff/receipt bytes are retained beside that historical gate.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
 const STEPS: [&str; 6] = ["intent", "rebase", "review", "test", "document", "lint"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -526,6 +528,27 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             .filter(|value| *value >= 1)
             .unwrap_or(2),
     };
+    if context.run_file.exists() {
+        let record = read_run(&context.run_file)?;
+        if record.task != context.id
+            || record.worktree != context.repo.to_string_lossy()
+            || record.branch != context.branch
+        {
+            return Err("run task/worktree/branch binding changed".to_owned());
+        }
+        if record.status == "passed" && record.approved_head != head(&context)? {
+            if intent
+                .as_deref()
+                .is_none_or(|text| sanitize_intent(text).is_empty())
+            {
+                return Err("explicit intent required for a new revision".to_owned());
+            }
+            if !git_status(&context.repo)?.is_empty() {
+                return Err("worktree must be clean before validation".to_owned());
+            }
+            archive_passed_revision(&context, &record)?;
+        }
+    }
     if !context.run_file.exists() {
         trace("initialize run");
         if !git_status(&context.repo)?.is_empty() {
@@ -586,6 +609,11 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             return Err("run worktree binding changed".to_owned());
         }
         let current = head(&context)?;
+        if record.status == "parked" {
+            return Err(
+                "run is parked; record a matching decision with the respond subcommand".to_owned(),
+            );
+        }
         if record.approved_head != current {
             let _ = fs::remove_file(context.state.join(format!("{}.ready-to-push", context.id)));
             record.approved_head = current.clone();
@@ -621,6 +649,98 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             Err(error)
         }
     }
+}
+
+// Only a completed run may roll over. Failed/parked runs keep their original bounds.
+fn archive_passed_revision(context: &Context, record: &RunRecord) -> Result<(), String> {
+    if !head_valid(&record.approved_head)
+        || STEPS
+            .iter()
+            .any(|step| record.steps.get(*step).map(String::as_str) != Some("passed"))
+    {
+        return Err("completed gate does not prove all validation steps".to_owned());
+    }
+    let state_meta = fs::symlink_metadata(&context.state).map_err(|e| e.to_string())?;
+    let gate_meta = fs::symlink_metadata(&context.gate).map_err(|e| e.to_string())?;
+    if !state_meta.is_dir()
+        || state_meta.file_type().is_symlink()
+        || !gate_meta.is_dir()
+        || gate_meta.file_type().is_symlink()
+        || gate_meta.dev() != state_meta.dev()
+    {
+        return Err("unsafe completed gate directory".to_owned());
+    }
+    read_private(&context.run_file, 0o600, state_meta.dev())?;
+    let pending = context.state.join(format!("{}.ready-to-push", context.id));
+    let handoff = match fs::symlink_metadata(&pending) {
+        Ok(_) => {
+            let file = read_private(&pending, 0o600, state_meta.dev())?;
+            let task = OperationalTaskId::parse(&context.id)?;
+            let handoff = DeliveryRecord::parse(&file.bytes, &task, &context.state)?;
+            if handoff.approved_sha != record.approved_head
+                || handoff.worktree != context.repo
+                || handoff.branch != context.branch
+            {
+                return Err("prior handoff does not bind the completed revision".to_owned());
+            }
+            Some(file)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let delivered_path = context.state.join(format!("{}.delivered", context.id));
+    let delivered = match fs::symlink_metadata(&delivered_path) {
+        Ok(_) => {
+            let file = read_private(&delivered_path, 0o600, state_meta.dev())?;
+            let task = OperationalTaskId::parse(&context.id)?;
+            let receipt = DeliveryRecord::parse(&file.bytes, &task, &context.state)?;
+            if receipt.approved_sha == record.approved_head {
+                if receipt.worktree != context.repo
+                    || receipt.branch != context.branch
+                    || receipt.approval != "approved"
+                {
+                    return Err("prior delivery receipt binding changed".to_owned());
+                }
+                Some(file)
+            } else {
+                None
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    // A newly reserved private directory prevents overwriting any prior history.
+    let archive = context.state.join(format!(
+        "{}.gate-passed-{}",
+        context.id, record.approved_head
+    ));
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&archive)
+        .map_err(|error| {
+            format!(
+                "cannot reserve completed gate history {}: {error}",
+                archive.display()
+            )
+        })?;
+    if let Some(file) = &handoff {
+        publish_private(&archive.join("ready-to-push"), &file.bytes)?;
+    }
+    if let Some(file) = delivered {
+        publish_private(&archive.join("delivered"), &file.bytes)?;
+    }
+    fs::rename(&context.gate, archive.join("gate")).map_err(|error| error.to_string())?;
+    if let Some(file) = handoff {
+        if read_private(&pending, 0o600, state_meta.dev())? != file {
+            return Err("prior handoff changed while archiving validation".to_owned());
+        }
+        fs::remove_file(pending).map_err(|error| error.to_string())?;
+    }
+    println!(
+        "deep-review: completed revision preserved at {}; starting full validation",
+        archive.display()
+    );
+    Ok(())
 }
 
 fn write_run(context: &Context, record: &RunRecord) -> Result<(), String> {

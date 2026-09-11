@@ -1933,10 +1933,112 @@ fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String,
         })
 }
 
+fn preserve_delivery_receipt(
+    state: &Path,
+    record: &DeliveryRecord,
+) -> Result<Option<multplx_domain::review_delivery::SecureFile>, String> {
+    let path = state.join(format!("{}.delivered", record.task));
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+        Ok(_) => (),
+    }
+    let device = fs::symlink_metadata(state)
+        .map_err(|error| error.to_string())?
+        .dev();
+    let prior = read_private(&path, 0o600, device)?;
+    let previous = DeliveryRecord::parse(&prior.bytes, &record.task, state)?;
+    if previous.approval != "approved"
+        || previous.worktree != record.worktree
+        || previous.branch != record.branch
+        || previous.base != record.base
+    {
+        return Err("prior delivery receipt binding changed".to_owned());
+    }
+    let archive = state.join(format!(
+        "{}.delivered-{}",
+        record.task, previous.approved_sha
+    ));
+    match fs::symlink_metadata(&archive) {
+        Ok(_) => {
+            if read_private(&archive, 0o600, device)?.bytes != prior.bytes {
+                return Err("prior delivery history conflicts".to_owned());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut temporary =
+                tempfile::NamedTempFile::new_in(state).map_err(|error| error.to_string())?;
+            temporary
+                .write_all(&prior.bytes)
+                .map_err(|error| error.to_string())?;
+            temporary
+                .as_file()
+                .sync_all()
+                .map_err(|error| error.to_string())?;
+            temporary
+                .persist_noclobber(&archive)
+                .map_err(|error| error.to_string())?;
+            if read_private(&archive, 0o600, device)?.bytes != prior.bytes {
+                return Err("prior delivery history changed".to_owned());
+            }
+        }
+        Err(error) => return Err(error.to_string()),
+    }
+    Ok(Some(prior))
+}
+
+fn existing_delivery_pr(
+    state: &Path,
+    record: &DeliveryRecord,
+    credentials: &DeliveryCredentials,
+    prior: bool,
+) -> Result<Option<PrIdentity>, String> {
+    let meta = private_metadata_text(state, &state.join(format!("{}.meta", record.task)))
+        .ok_or("private task metadata unavailable")?;
+    if !meta.lines().any(|line| line.starts_with("pr=")) && !prior {
+        return Ok(None);
+    }
+    let identity = multplx_domain::review_delivery::metadata_pr(meta.as_bytes())?;
+    // Resolve by branch in this repository, then compare the durable canonical URL.
+    let output = delivery_command("gh", credentials)
+        .current_dir(&record.worktree)
+        .args([
+            "pr",
+            "view",
+            &record.branch,
+            "--json",
+            "url,headRefName,baseRefName,state,isCrossRepository",
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err("existing PR could not be verified".to_owned());
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+    if value["url"].as_str() != Some(&identity.url)
+        || value["headRefName"].as_str() != Some(&record.branch)
+        || value["baseRefName"].as_str() != Some(&record.base)
+        || value["state"].as_str() != Some("OPEN")
+        || value["isCrossRepository"].as_bool() != Some(false)
+    {
+        return Err("existing PR identity, branch, base, or open state changed".to_owned());
+    }
+    Ok(Some(identity))
+}
+
 fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32 {
     let Ok(task) = OperationalTaskId::parse(id) else {
         eprintln!("error: invalid delivery request");
         return 2;
+    };
+    let Ok(_lock) = DirectoryLock::acquire_wait(
+        state.join(format!(".{task}.delivery-prepare.lock")),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    ) else {
+        eprintln!("delivery: task delivery is busy");
+        return 1;
     };
     let path = state.join(format!("{task}.ready-to-push"));
     if fs::symlink_metadata(&path).is_err() {
@@ -1972,8 +2074,28 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
             return 1;
         }
     };
-    if !delivery_record_unchanged(&path, &file) {
-        eprintln!("delivery: refused {task} because its ready record changed during verification");
+    let prior = match preserve_delivery_receipt(state, &record) {
+        Ok(prior) => prior,
+        Err(error) => {
+            eprintln!("delivery: refused prior receipt: {error}");
+            return 1;
+        }
+    };
+    let existing_pr = match existing_delivery_pr(state, &record, credentials, prior.is_some()) {
+        Ok(identity) => identity,
+        Err(error) => {
+            eprintln!("delivery: {error}");
+            return 1;
+        }
+    };
+    if !delivery_record_unchanged(&path, &file)
+        || prior.as_ref().is_some_and(|previous| {
+            !delivery_record_unchanged(&state.join(format!("{task}.delivered")), previous)
+        })
+    {
+        eprintln!(
+            "delivery: refused {task} because its delivery record changed during verification"
+        );
         return 1;
     }
     if !delivery_command("git", credentials)
@@ -1990,30 +2112,50 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         eprintln!("delivery: push failed for {task}");
         return 1;
     }
-    let create = delivery_command("gh", credentials)
-        .current_dir(&record.worktree)
-        .args([
-            "pr",
-            "create",
-            "--base",
-            &record.base,
-            "--head",
-            &record.branch,
-            "--title",
-            &record.title,
-            "--body",
-            &body,
-        ])
-        .output();
-    let output = match create {
-        Ok(output) if output.status.success() => Some(output.stdout),
-        _ => delivery_command("gh", credentials)
+    let output = if let Some(identity) = existing_pr {
+        let result = delivery_command("gh", credentials)
             .current_dir(&record.worktree)
-            .args(["pr", "view", &record.branch, "--json", "url", "-q", ".url"])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| output.stdout),
+            .args([
+                "pr",
+                "edit",
+                &identity.url,
+                "--title",
+                &record.title,
+                "--body",
+                &body,
+            ])
+            .status();
+        if !result.is_ok_and(|status| status.success()) {
+            eprintln!("delivery: existing PR content update failed for {task}");
+            return 1;
+        }
+        Some(identity.url.into_bytes())
+    } else {
+        let create = delivery_command("gh", credentials)
+            .current_dir(&record.worktree)
+            .args([
+                "pr",
+                "create",
+                "--base",
+                &record.base,
+                "--head",
+                &record.branch,
+                "--title",
+                &record.title,
+                "--body",
+                &body,
+            ])
+            .output();
+        match create {
+            Ok(output) if output.status.success() => Some(output.stdout),
+            _ => delivery_command("gh", credentials)
+                .current_dir(&record.worktree)
+                .args(["pr", "view", &record.branch, "--json", "url", "-q", ".url"])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| output.stdout),
+        }
     };
     let Some(url) = output
         .and_then(|bytes| String::from_utf8(bytes).ok())
@@ -2038,7 +2180,10 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
     }
     let destination = state.join(format!("{task}.delivered"));
     if !delivery_record_unchanged(&path, &file)
-        || fs::symlink_metadata(&destination).is_ok()
+        || match &prior {
+            Some(previous) => !delivery_record_unchanged(&destination, previous),
+            None => fs::symlink_metadata(&destination).is_ok(),
+        }
         || fs::rename(&path, &destination).is_err()
     {
         eprintln!(
@@ -2150,7 +2295,7 @@ fn deliver(args: &[OsString]) -> i32 {
     }
     if matches!(values.as_slice(), ["-h" | "--help"]) {
         print!(
-            "Deliver one or all approved local branches from outside every agent session.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary>\n       mx-deliver.sh approve <task-id> --sha <full-SHA>\n\nprepare creates a pending gate-free handoff only for mode=direct-PR delivery tasks.\napprove is a local operation for the accepted approval authority; task workers and gates are refused. It rechecks the exact clean commit for every mode. Remote delivery remains non-agent only.\n"
+            "Deliver one or all approved local branches from outside every agent session.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary>\n       mx-deliver.sh approve <task-id> --sha <full-SHA>\n\nprepare creates a pending gate-free handoff only for mode=direct-PR delivery tasks.\napprove is a local operation for the accepted approval authority; task workers and gates are refused. It rechecks the exact clean commit for every mode. Remote delivery remains non-agent only.\nExisting PR revisions verify the recorded open PR and branch/base before push and update its title/body. Prior approved receipts are preserved byte-for-byte at state/<id>.delivered-<SHA>; unsafe or conflicting history refuses delivery before push.\n"
         );
         return 0;
     }

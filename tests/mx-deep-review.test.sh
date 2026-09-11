@@ -265,6 +265,9 @@ EOF
   [ "$(jq -r '.status' "$state/$id.gate/run.json")" = parked ] \
     || fail "ask-user finding did not park run"
   key=$(jq -r '.pending_decision_key' "$state/$id.gate/run.json")
+  git -C "$repo" commit -q --allow-empty -m 'changed while decision remains pending'
+  if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/parked-out" 2>"$case_dir/parked-err"; then fail 'changed HEAD bypassed parked decision'; fi
+  [ "$(jq -r '.pending_decision_key' "$state/$id.gate/run.json")" = "$key" ] || fail 'changed HEAD dropped decision key'
   assert_grep "needs-decision [key=$key]:" "$state/$id.status" \
     "ask-user finding did not use validated reporter"
 
@@ -479,3 +482,41 @@ PYTHON
   pass 'oversized structured history fails closed without dropping accepted decisions'
 }
 test_structured_history_bound_fails_closed
+
+
+test_passed_revision_starts_full_gate_and_preserves_history() {
+  local case_dir repo state id old_sha archive history calls
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case revision)
+EOF
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/first-out" 2>"$case_dir/first-err" || fail 'first revision gate failed'
+  old_sha=$(git -C "$repo" rev-parse HEAD)
+  cp "$state/$id.gate/run.json" "$case_dir/prior-run"
+  cp "$state/$id.ready-to-push" "$case_dir/prior-ready"
+  sed 's/approval=pending/approval=approved/' "$case_dir/prior-ready" > "$state/$id.delivered"
+  chmod 600 "$state/$id.delivered"
+  cp "$state/$id.delivered" "$case_dir/prior-delivered"
+  printf 'raw retained transport evidence\n' > "$state/$id.gate/cmd-output/retained.log"
+  git -C "$repo" commit -q --allow-empty -m 'CI correction'
+  archive="$state/$id.gate-passed-$old_sha"
+  # A history collision must preserve both the completed run and pending handoff.
+  mkdir "$archive"
+  if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/collision-out" 2>"$case_dir/collision-err"; then fail 'history collision was overwritten'; fi
+  cmp "$case_dir/prior-run" "$state/$id.gate/run.json" || fail 'collision mutated completed run'
+  cmp "$case_dir/prior-ready" "$state/$id.ready-to-push" || fail 'collision mutated handoff'
+  rmdir "$archive"
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/next-out" 2>"$case_dir/next-err" || fail 'new revision full gate failed'
+  history=$(jq -r '.history | join(" ")' "$state/$id.gate/run.json")
+  [ "$history" = 'intent rebase review test document lint' ] || fail 'new revision skipped full stages'
+  calls=$(awk '{print $1}' "$case_dir/agent.log" | tr '\n' ' ')
+  [ "$calls" = 'review test document review test document ' ] || fail "revision reused prior agent evidence: $calls"
+  cmp "$case_dir/prior-run" "$archive/gate/run.json" || fail 'historical gate bytes changed'
+  cmp "$case_dir/prior-ready" "$archive/ready-to-push" || fail 'historical handoff bytes changed'
+  cmp "$case_dir/prior-delivered" "$archive/delivered" || fail 'historical receipt bytes changed'
+  cmp "$case_dir/prior-delivered" "$state/$id.delivered" || fail 'gate changed latest delivery receipt'
+  assert_grep 'raw retained transport evidence' "$archive/gate/cmd-output/retained.log" 'raw evidence was lost'
+  assert_grep "approved_sha=$(git -C "$repo" rev-parse HEAD)" "$state/$id.ready-to-push" 'new handoff SHA mismatch'
+  assert_grep 'approval=pending' "$state/$id.ready-to-push" 'new revision inherited approval'
+  pass 'new revision after passed gate revalidates every stage and preserves exact prior evidence'
+}
+test_passed_revision_starts_full_gate_and_preserves_history
