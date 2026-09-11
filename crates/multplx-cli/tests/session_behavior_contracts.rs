@@ -95,3 +95,11 @@ fn native_session_behavior_contracts_run_through_the_instrumented_binary() {
         run_behavior_contract(script);
     }
 }
+
+#[test]
+fn dispatch_queue_preserves_delivery_authority_through_instrumented_binary() {
+    if std::env::var_os("LLVM_PROFILE_FILE").is_none() {
+        return;
+    }
+    run_behavior_contract("tests/mx-dispatch-queue.test.sh");
+}
