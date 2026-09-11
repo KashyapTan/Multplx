@@ -63,6 +63,7 @@ impl CmuxBackend<SystemCommandRunner> {
     #[must_use]
     pub fn system() -> Self {
         let root = std::env::var_os("MX_ROOT_OVERRIDE")
+            .or_else(|| std::env::var_os("MX_RUST_SOURCE_ROOT"))
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
@@ -277,8 +278,10 @@ impl<R: CommandRunner> CmuxBackend<R> {
         Ok(value
             .get("workspaces")
             .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
+            .ok_or_else(|| {
+                BackendError::Malformed("cmux inventory is missing its array".to_owned())
+            })?
+            .iter()
             .find(|workspace| workspace.get("title").and_then(Value::as_str) == Some(label))
             .and_then(|workspace| workspace.get("id").and_then(Value::as_str))
             .map(str::to_owned))
@@ -299,7 +302,8 @@ impl<R: CommandRunner> CmuxBackend<R> {
         let pane = value
             .get("panes")
             .and_then(Value::as_array)
-            .and_then(|panes| panes.first());
+            .ok_or_else(|| BackendError::Malformed("cmux inventory is missing panes".to_owned()))?
+            .first();
         Ok(pane
             .and_then(|pane| pane.get("selected_surface_id").and_then(Value::as_str))
             .or_else(|| {
@@ -320,18 +324,26 @@ impl<R: CommandRunner> CmuxBackend<R> {
             "--id-format",
             "uuids",
         ])?;
-        Ok(value
+        let panes = value
             .get("panes")
             .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .any(|pane| {
-                pane.get("surface_ids")
-                    .and_then(Value::as_array)
-                    .is_some_and(|surfaces| {
-                        surfaces.iter().any(|value| value.as_str() == Some(surface))
-                    })
-            }))
+            .ok_or_else(|| BackendError::Malformed("cmux inventory is missing panes".to_owned()))?;
+        let mut found = false;
+        for pane in panes {
+            let surfaces = pane
+                .get("surface_ids")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    BackendError::Malformed("cmux pane is missing surface_ids".to_owned())
+                })?;
+            for value in surfaces {
+                let id = value.as_str().ok_or_else(|| {
+                    BackendError::Malformed("cmux surface id is not a string".to_owned())
+                })?;
+                found |= id == surface;
+            }
+        }
+        Ok(found)
     }
 
     fn workspace_title(&mut self, workspace: &str) -> Result<Option<String>, BackendError> {
@@ -339,8 +351,10 @@ impl<R: CommandRunner> CmuxBackend<R> {
         Ok(value
             .get("workspaces")
             .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
+            .ok_or_else(|| {
+                BackendError::Malformed("cmux inventory is missing its array".to_owned())
+            })?
+            .iter()
             .find(|item| item.get("id").and_then(Value::as_str) == Some(workspace))
             .and_then(|item| item.get("title").and_then(Value::as_str))
             .map(str::to_owned))
@@ -355,7 +369,7 @@ impl<R: CommandRunner> CmuxBackend<R> {
             return self
                 .surface_exists(&workspace, &surface)?
                 .then_some((workspace, surface))
-                .ok_or_else(|| BackendError::Command("cmux target is absent".to_owned()));
+                .ok_or_else(|| BackendError::Missing("cmux target is absent".to_owned()));
         };
         let expected = self.scoped_title(label)?;
         match self.workspace_title(&workspace)? {
@@ -365,7 +379,7 @@ impl<R: CommandRunner> CmuxBackend<R> {
                 }
                 let refreshed = self
                     .surface_id_for_workspace(&workspace)?
-                    .ok_or_else(|| BackendError::Command("cmux surface is absent".to_owned()))?;
+                    .ok_or_else(|| BackendError::Missing("cmux surface is absent".to_owned()))?;
                 Ok((workspace, refreshed))
             }
             Some(_) => Err(BackendError::Command(
@@ -374,10 +388,10 @@ impl<R: CommandRunner> CmuxBackend<R> {
             None => {
                 let workspace = self
                     .workspace_id_for_label(&expected)?
-                    .ok_or_else(|| BackendError::Command("cmux workspace is absent".to_owned()))?;
+                    .ok_or_else(|| BackendError::Missing("cmux workspace is absent".to_owned()))?;
                 let surface = self
                     .surface_id_for_workspace(&workspace)?
-                    .ok_or_else(|| BackendError::Command("cmux surface is absent".to_owned()))?;
+                    .ok_or_else(|| BackendError::Missing("cmux surface is absent".to_owned()))?;
                 Ok((workspace, surface))
             }
         }

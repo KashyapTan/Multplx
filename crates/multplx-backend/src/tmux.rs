@@ -321,7 +321,26 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
     }
 
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
-        self.display(target, "#{pane_id}").map(|_| ())
+        self.ensure_tmux_target(target)?;
+        let output = self.run([
+            "display-message",
+            "-p",
+            "-t",
+            target.endpoint(),
+            "#{pane_id}",
+        ])?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        if Self::missing_inventory(&output.stderr)
+            || detail.contains("can't find pane:")
+            || detail.contains("can't find window:")
+        {
+            Err(BackendError::Missing(detail))
+        } else {
+            Err(BackendError::Command(detail))
+        }
     }
 
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError> {
@@ -418,42 +437,46 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
     }
 
     fn agent_state(&mut self, target: &BackendTarget) -> AgentState {
-        let Some((session, window)) = Self::split_named_target(target.endpoint()) else {
-            return AgentState::Unreadable;
-        };
-        let inventory = match self.list_windows_raw(Some(session)) {
-            Ok(output) => output,
-            Err(_) => return AgentState::Unreadable,
-        };
+        self.observe_agent(target).unwrap_or(AgentState::Unreadable)
+    }
+
+    fn observe_agent(&mut self, target: &BackendTarget) -> Result<AgentState, BackendError> {
+        self.ensure_tmux_target(target)?;
+        let (session, window) = Self::split_named_target(target.endpoint())
+            .ok_or_else(|| BackendError::InvalidTarget(target.endpoint().to_owned()))?;
+        let inventory = self.list_windows_raw(Some(session))?;
         if !inventory.status.success() {
             return if Self::missing_inventory(&inventory.stderr) {
-                AgentState::Missing
+                Ok(AgentState::Missing)
             } else {
-                AgentState::Unreadable
+                Err(BackendError::Command(format!(
+                    "tmux list-windows exited {:?}: {}",
+                    inventory.status.code(),
+                    String::from_utf8_lossy(&inventory.stderr).trim()
+                )))
             };
         }
-        if !String::from_utf8_lossy(&inventory.stdout)
-            .lines()
-            .any(|line| line == window)
-        {
-            return AgentState::Missing;
+        let inventory = String::from_utf8(inventory.stdout)
+            .map_err(|_| BackendError::Malformed("tmux inventory is not UTF-8".to_owned()))?;
+        if !inventory.lines().any(|line| line == window) {
+            return Ok(AgentState::Missing);
         }
-        let command = match self.display(target, "#{pane_current_command}") {
-            Ok(command) => command,
-            Err(_) => return AgentState::Unreadable,
-        };
+        let command = self.current_command(target)?;
         let command = command.trim().trim_start_matches('-');
         if command.is_empty() {
-            AgentState::Unreadable
+            Err(BackendError::Malformed(format!(
+                "tmux returned an empty foreground command for '{}'",
+                target.endpoint()
+            )))
         } else if command.contains("claude") || command.contains("codex") {
-            AgentState::Alive
+            Ok(AgentState::Alive)
         } else if matches!(
             command,
             "zsh" | "bash" | "sh" | "dash" | "ash" | "ksh" | "mksh" | "tcsh" | "csh" | "fish"
         ) {
-            AgentState::Dead
+            Ok(AgentState::Dead)
         } else {
-            AgentState::Ambiguous
+            Ok(AgentState::Ambiguous)
         }
     }
 
@@ -820,6 +843,47 @@ mod tests {
             backend.agent_state(&target("malformed")),
             AgentState::Unreadable
         );
+    }
+
+    #[test]
+    fn liveness_observation_preserves_reader_failures() {
+        for (outputs, diagnostic) in [
+            (
+                VecDeque::from([output(1, b"", b"fixture inventory permission denied")]),
+                "fixture inventory permission denied",
+            ),
+            (
+                VecDeque::from([
+                    output(0, b"mx-one\n", b""),
+                    output(1, b"", b"fixture foreground command denied"),
+                ]),
+                "fixture foreground command denied",
+            ),
+            (
+                VecDeque::from([Err(CommandError::TimedOut {
+                    program: "fixture tmux".to_owned(),
+                    timeout: Duration::from_secs(10),
+                })]),
+                "fixture tmux timed out",
+            ),
+            (
+                VecDeque::from([output(0, b"mx-one\n", b""), output(0, b"\n", b"")]),
+                "empty foreground command",
+            ),
+        ] {
+            let mut backend = TmuxBackend::new(
+                FakeRunner {
+                    outputs,
+                    ..FakeRunner::default()
+                },
+                "tmux",
+                false,
+            );
+            let error = backend
+                .observe_agent(&target("broker:mx-one"))
+                .expect_err("reader failure must retain diagnostics");
+            assert!(error.to_string().contains(diagnostic), "{error}");
+        }
     }
 
     #[test]

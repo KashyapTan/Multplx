@@ -115,7 +115,8 @@ flowchart TB
     T -->|Delivery| L{Delivery mode}
     L -->|local-only| F[Approved local fast-forward]
     L -->|deep-review| G[Approved exact-SHA handoff]
-    L -->|direct-PR| I[Incomplete: no owned delivery handoff]
+    L -->|direct-PR| I[Approved gate-free exact-SHA handoff]
+    I --> X
     G --> X[Credentialed delivery context]
     X --> R[GitHub pull request]
 ```

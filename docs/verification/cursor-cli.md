@@ -57,7 +57,7 @@ The adapter therefore does not rely on that event alone: fail-closed `preToolUse
 Tracked `sessionStart`, `preToolUse`, `subagentStart`, and `stop` commands route through `bin/mx-cursor-hook.sh`.
 The primary stop adapter converts shared exit status 2 into one native follow-up only at `loop_count=0`.
 
-Actor stop signaling uses a task-private plugin below `/tmp/mx-<id>/cursor-turnend-plugin`, so project stop hooks do not collide with another actor's marker.
+Actor stop signaling uses a task-private plugin below `<recorded tasktmp>/cursor-turnend-plugin`, so project stop hooks do not collide with another actor's marker.
 Cursor sessions receive `MX_TASK_ID` and the absolute `mx-report` fallback from the normal generated brief.
 No per-run project-scoped MCP configuration contract was verified, so the adapter does not guess or mutate user MCP configuration.
 

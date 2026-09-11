@@ -35,11 +35,12 @@ queue_cmd() {
 test_spawn_boundary_parks_before_allocation() {
   local home="$TMP_ROOT/spawn-boundary" project="$TMP_ROOT/not-allocated" out
   mkdir -p "$home/state" "$home/config"
+  # Pin the asserted backend independently of the terminal running this test.
   out=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
     MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
     MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
-    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex) \
+    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --backend tmux --mode direct-PR --yolo on) \
     || fail "at-limit spawn boundary should return a queued outcome"
   assert_contains "$out" 'queued: parked parked until dispatch capacity is available' \
     "spawn boundary did not report the queued outcome"
@@ -49,6 +50,10 @@ test_spawn_boundary_parks_before_allocation() {
     "spawn boundary did not preserve the resolved backend"
   assert_absent "$home/state/parked.meta" "at-limit spawn published task metadata"
   assert_absent "$project" "at-limit spawn allocated a worktree"
+  assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/parked.request" 'queue lost selected mode'
+  assert_grep 'yolo=on' "$home/state/.dispatch-queue/parked.request" 'queue lost selected yolo'
+  MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'mode queue drain failed'
+  assert_grep '--mode direct-PR --yolo on' "$home/spawn.log" 'drain lost selected authority'
 
   pass "at-limit spawn parks intent before worktree or endpoint allocation"
 }
@@ -151,3 +156,49 @@ test_cancel_removes_only_named_entry
 test_failed_launch_retains_record_for_retry
 
 echo "ALL TESTS PASSED"
+
+# The capacity-parking path must retain the same delivery authority as a launch.
+test_queued_registry_and_existing_task_authority_fail_closed() {
+  local home="$TMP_ROOT/authority" project="$TMP_ROOT/authority/projects/app" out variant before
+  mkdir -p "$home/state" "$home/config" "$home/data" "$project"
+  printf '%s\n' '- app [direct-PR +yolo] - app' > "$home/data/projects.md"
+  parked_spawn() {
+    MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
+      MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
+      MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
+      MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
+      MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" "$@"
+  }
+  out=$(parked_spawn registry projects/app codex --scout --backend cmux --model pinned --effort high) || fail 'registered scout did not park'
+  assert_grep 'kind=scout' "$home/state/.dispatch-queue/registry.request" 'queue lost scout kind'
+  assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/registry.request" 'queue did not read registry mode'
+  assert_grep 'yolo=on' "$home/state/.dispatch-queue/registry.request" 'queue did not read independent registry yolo'
+  before=$(cat "$home/state/.dispatch-queue/registry.request")
+  printf '%s\n' '- app [local-only] - app' > "$home/data/projects.md"
+  MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'registry queue drain failed'
+  assert_grep '--mode direct-PR --yolo on' "$home/spawn.log" 'registry edit silently changed queued authority'
+  assert_grep '--backend cmux' "$home/spawn.log" 'registry queue lost backend'
+  assert_grep '--scout' "$home/spawn.log" 'registry queue lost scout kind'
+  [ -n "$before" ] || fail 'queued authority evidence was absent'
+
+  printf 'worktree=%s\nmode=direct-PR\nyolo=on\n' "$project" > "$home/state/existing.meta"
+  before=$(cat "$home/state/existing.meta")
+  parked_spawn existing projects/app --harness codex >/dev/null || fail 'recorded task could not retain authority'
+  assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/existing.request" 'existing task adopted changed registry mode'
+  assert_grep 'yolo=on' "$home/state/.dispatch-queue/existing.request" 'existing task adopted changed registry yolo'
+  for variant in mode yolo invalid-mode invalid-yolo missing-value; do
+    case "$variant" in
+      mode) set -- --mode local-only ;;
+      yolo) set -- --yolo off ;;
+      invalid-mode) set -- --mode unknown ;;
+      invalid-yolo) set -- --yolo maybe ;;
+      missing-value) set -- --mode ;;
+    esac
+    if parked_spawn existing projects/app --harness codex "$@" >"$home/$variant.out" 2>"$home/$variant.err"; then fail "queue accepted $variant authority change"; fi
+    [ "$(cat "$home/state/existing.meta")" = "$before" ] || fail 'refused queue request mutated existing authority'
+    assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/existing.request" 'refused queue request replaced pending authority'
+    assert_grep 'yolo=on' "$home/state/.dispatch-queue/existing.request" 'refused queue request replaced pending yolo'
+  done
+  pass 'queued launch pins registry/scout authority and rejects malformed or conflicting relaunch settings'
+}
+test_queued_registry_and_existing_task_authority_fail_closed

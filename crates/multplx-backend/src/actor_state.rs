@@ -81,7 +81,7 @@ pub trait ActorStateBackend {
     fn capture(&mut self, request: &CaptureRequest) -> Result<Vec<u8>, BackendError>;
 }
 
-impl<T: RuntimeBackend> ActorStateBackend for T {
+impl<T: RuntimeBackend + ?Sized> ActorStateBackend for T {
     fn name(&self) -> crate::facade::BackendName {
         RuntimeBackend::name(self)
     }
@@ -91,7 +91,7 @@ impl<T: RuntimeBackend> ActorStateBackend for T {
     }
 
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
-        RuntimeBackend::target_ready(self, target)
+        RuntimeBackend::observe_target(self, target)
     }
 
     fn capture(&mut self, request: &CaptureRequest) -> Result<Vec<u8>, BackendError> {
@@ -369,7 +369,7 @@ fn classified(
 /// Reconcile one actor's current state with the legacy precedence and wording.
 pub fn reconcile(
     request: &ActorStateRequest,
-    backend: &mut impl ActorStateBackend,
+    backend: &mut (impl ActorStateBackend + ?Sized),
     command_runner: &mut impl CommandRunner,
 ) -> Result<ActorStateOutput, BackendError> {
     let id = request.task.as_str();
@@ -416,9 +416,10 @@ pub fn reconcile(
     let target = (!endpoint.is_empty())
         .then(|| BackendTarget::new(task_backend, endpoint.clone(), Some(format!("mx-{id}"))))
         .transpose()?;
-    let native_signal = target
+    let native_observation = target.as_ref().map(|target| backend.native_state(target));
+    let native_signal = native_observation
         .as_ref()
-        .and_then(|target| backend.native_state(target).ok())
+        .and_then(|observation| observation.as_ref().ok())
         .map(|state| match state {
             NativeState::Idle => "",
             NativeState::Working => "working",
@@ -501,11 +502,11 @@ pub fn reconcile(
             "no backend target recorded",
         ));
     };
-    if backend.target_ready(&target).is_err() {
+    if let Err(error) = backend.target_ready(&target) {
         return Ok(ActorStateOutput::plain(
             "unknown",
             "none",
-            &format!("backend target gone: {}", target.endpoint()),
+            &format!("backend target {}: {error}", target.endpoint()),
         ));
     }
     let log_state = map_log_state(&log_verb, &request.pause_verb);
@@ -514,29 +515,31 @@ pub fn reconcile(
     } else {
         log_verb.as_str()
     };
-    let heuristic_signal = if kind == "daemon" {
-        ""
+    let capture_observation = if kind == "daemon" {
+        None
     } else {
-        let capture = backend.capture(&CaptureRequest {
+        Some(backend.capture(&CaptureRequest {
             target: target.clone(),
             lines: 40,
             byte_limit: 256 * 1024,
-        });
-        let busy = capture.ok().is_some_and(|bytes| {
-            let text = String::from_utf8_lossy(&bytes);
-            RegexBuilder::new(&request.busy_pattern)
-                .case_insensitive(true)
-                .build()
-                .ok()
-                .is_some_and(|regex| {
-                    text.lines()
-                        .filter(|line| !line.trim().is_empty())
-                        .rev()
-                        .take(6)
-                        .any(|line| regex.is_match(line))
-                })
-        });
+        }))
+    };
+    let heuristic_signal = if let Some(Ok(bytes)) = &capture_observation {
+        let text = String::from_utf8_lossy(bytes);
+        let busy = RegexBuilder::new(&request.busy_pattern)
+            .case_insensitive(true)
+            .build()
+            .ok()
+            .is_some_and(|regex| {
+                text.lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .rev()
+                    .take(6)
+                    .any(|line| regex.is_match(line))
+            });
         if busy { "busy" } else { "idle" }
+    } else {
+        ""
     };
     let winner = resolve_signal(
         SignalNativeState::parse(native_signal),
@@ -577,11 +580,30 @@ pub fn reconcile(
             evidence,
         ))
     } else {
-        Ok(ActorStateOutput::plain(
-            "unknown",
-            "none",
-            "no current-state source available",
-        ))
+        // Failed reads are not signals and must not displace valid evidence.
+        // Keep their diagnostics when no current-state source can explain the task.
+        let mut detail = "no current-state source available".to_owned();
+        for (reader, observation) in [
+            (
+                "native state",
+                native_observation.as_ref().and_then(|r| r.as_ref().err()),
+            ),
+            (
+                "capture",
+                capture_observation.as_ref().and_then(|r| r.as_ref().err()),
+            ),
+        ] {
+            if let Some(error) = observation {
+                if matches!(error, BackendError::Unsupported { .. }) {
+                    continue;
+                }
+                detail.push_str(&format!(
+                    "{SEP}backend {reader} {}: {error}",
+                    target.endpoint()
+                ));
+            }
+        }
+        Ok(ActorStateOutput::plain("unknown", "none", &detail))
     }
 }
 
@@ -726,7 +748,7 @@ mod tests {
         let output = reconcile(&request(&state, "two"), &mut backend, &mut commands).expect("gone");
         assert_eq!(
             output.line,
-            "state: unknown · source: none · backend target gone: broker:mx-two\n"
+            "state: unknown · source: none · backend target broker:mx-two: backend command failed: gone\n"
         );
     }
 

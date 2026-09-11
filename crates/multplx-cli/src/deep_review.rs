@@ -1,17 +1,19 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use multplx_core::filesystem::atomic_replace;
 use multplx_domain::review_delivery::{
-    Finding, OperationalTaskId, finding_valid, ref_valid, sanitize_intent, title_valid,
+    DeliveryRecord, Finding, OperationalTaskId, finding_valid, head_valid, publish_private,
+    read_private, ref_valid, sanitize_intent, title_valid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const USAGE: &str = "Usage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
+const USAGE: &str = "Bounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\nRound history includes only owned structured findings/decisions, capped at 262144 bytes; excess fails closed with retained evidence. Raw transport events remain on disk.\nA changed HEAD after a passed gate requires explicit intent and a clean worktree, preserves the completed gate under state/<id>.gate-passed-<SHA>/gate, and starts all stages anew. Failed or parked runs do not receive new round budgets. Matching prior handoff/receipt bytes are retained beside that historical gate.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
 const STEPS: [&str; 6] = ["intent", "rebase", "review", "test", "document", "lint"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -96,6 +98,13 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     else {
         return fail("arguments must be UTF-8");
     };
+    if values
+        .first()
+        .is_some_and(|value| matches!(value.as_str(), "-h" | "--help"))
+    {
+        print!("{USAGE}");
+        return 0;
+    }
     if values.first().is_some_and(|value| value == "respond") {
         return match respond(&values[1..]) {
             Ok(()) => 0,
@@ -189,7 +198,7 @@ fn git_line(repo: &Path, args: &[&str]) -> Option<String> {
         .arg("-C")
         .arg(repo)
         .args(args)
-        .output()
+        .bounded_output()
         .ok()?;
     output
         .status
@@ -239,7 +248,7 @@ fn default_branch(repo: &Path) -> Option<String> {
                 "--quiet",
                 &format!("refs/heads/{branch}"),
             ])
-            .status()
+            .bounded_status()
             .is_ok_and(|status| status.success())
         {
             return Some(branch.to_owned());
@@ -256,7 +265,7 @@ fn default_branch(repo: &Path) -> Option<String> {
                 "--quiet",
                 &format!("refs/heads/{branch}"),
             ])
-            .status()
+            .bounded_status()
             .is_ok_and(|status| status.success())
         {
             return Some(branch.to_owned());
@@ -346,24 +355,50 @@ fn boolean(value: &str) -> bool {
     )
 }
 
-fn load_config(repo: &Path, branch: &str) -> Config {
-    let trusted = Command::new("git")
+fn load_config(repo: &Path, branch: &str) -> Result<Config, String> {
+    // Only a successful tree lookup can establish that configuration is optional.
+    let listing = Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["show", &format!("{branch}:.deep-review.yaml")])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-        .unwrap_or_default();
-    let current = fs::read_to_string(repo.join(".deep-review.yaml")).unwrap_or_default();
+        .args(["ls-tree", "--name-only", branch, "--", ".deep-review.yaml"])
+        .bounded_output()
+        .map_err(|error| format!("cannot locate trusted review configuration: {error}"))?;
+    if !listing.status.success() {
+        return Err(format!(
+            "cannot locate trusted review configuration: {}",
+            String::from_utf8_lossy(&listing.stderr).trim()
+        ));
+    }
+    let trusted = if listing.stdout.is_empty() {
+        String::new()
+    } else {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["show", &format!("{branch}:.deep-review.yaml")])
+            .bounded_output()
+            .map_err(|error| format!("cannot read trusted review configuration: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "cannot read trusted review configuration: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        String::from_utf8(output.stdout)
+            .map_err(|error| format!("invalid trusted review configuration: {error}"))?
+    };
+    let current = match fs::read_to_string(repo.join(".deep-review.yaml")) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("cannot read current review configuration: {error}")),
+    };
     let allow = boolean(&parse_scalar(&trusted, None, "allow_repo_commands"));
     let commands = if allow && !current.is_empty() {
         &current
     } else {
         &trusted
     };
-    Config {
+    Ok(Config {
         disable_project_settings: !matches!(
             parse_scalar(&trusted, None, "disable_project_settings").as_str(),
             "false" | "False" | "FALSE" | "no" | "No" | "NO" | "0"
@@ -383,7 +418,7 @@ fn load_config(repo: &Path, branch: &str) -> Config {
         } else {
             parse_list(&current, "ignore_patterns")
         },
-    }
+    })
 }
 
 fn run_gate(values: &[String]) -> Result<i32, String> {
@@ -469,7 +504,7 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
         return Err("invalid default branch".to_owned());
     }
     trace("load config");
-    let config = load_config(&repo, &default);
+    let config = load_config(&repo, &default)?;
     let context = Context {
         id: id.clone(),
         root: root(),
@@ -493,6 +528,27 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             .filter(|value| *value >= 1)
             .unwrap_or(2),
     };
+    if context.run_file.exists() {
+        let record = read_run(&context.run_file)?;
+        if record.task != context.id
+            || record.worktree != context.repo.to_string_lossy()
+            || record.branch != context.branch
+        {
+            return Err("run task/worktree/branch binding changed".to_owned());
+        }
+        if record.status == "passed" && record.approved_head != head(&context)? {
+            if intent
+                .as_deref()
+                .is_none_or(|text| sanitize_intent(text).is_empty())
+            {
+                return Err("explicit intent required for a new revision".to_owned());
+            }
+            if !git_status(&context.repo)?.is_empty() {
+                return Err("worktree must be clean before validation".to_owned());
+            }
+            archive_passed_revision(&context, &record)?;
+        }
+    }
     if !context.run_file.exists() {
         trace("initialize run");
         if !git_status(&context.repo)?.is_empty() {
@@ -553,6 +609,11 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             return Err("run worktree binding changed".to_owned());
         }
         let current = head(&context)?;
+        if record.status == "parked" {
+            return Err(
+                "run is parked; record a matching decision with the respond subcommand".to_owned(),
+            );
+        }
         if record.approved_head != current {
             let _ = fs::remove_file(context.state.join(format!("{}.ready-to-push", context.id)));
             record.approved_head = current.clone();
@@ -588,6 +649,98 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             Err(error)
         }
     }
+}
+
+// Only a completed run may roll over. Failed/parked runs keep their original bounds.
+fn archive_passed_revision(context: &Context, record: &RunRecord) -> Result<(), String> {
+    if !head_valid(&record.approved_head)
+        || STEPS
+            .iter()
+            .any(|step| record.steps.get(*step).map(String::as_str) != Some("passed"))
+    {
+        return Err("completed gate does not prove all validation steps".to_owned());
+    }
+    let state_meta = fs::symlink_metadata(&context.state).map_err(|e| e.to_string())?;
+    let gate_meta = fs::symlink_metadata(&context.gate).map_err(|e| e.to_string())?;
+    if !state_meta.is_dir()
+        || state_meta.file_type().is_symlink()
+        || !gate_meta.is_dir()
+        || gate_meta.file_type().is_symlink()
+        || gate_meta.dev() != state_meta.dev()
+    {
+        return Err("unsafe completed gate directory".to_owned());
+    }
+    read_private(&context.run_file, 0o600, state_meta.dev())?;
+    let pending = context.state.join(format!("{}.ready-to-push", context.id));
+    let handoff = match fs::symlink_metadata(&pending) {
+        Ok(_) => {
+            let file = read_private(&pending, 0o600, state_meta.dev())?;
+            let task = OperationalTaskId::parse(&context.id)?;
+            let handoff = DeliveryRecord::parse(&file.bytes, &task, &context.state)?;
+            if handoff.approved_sha != record.approved_head
+                || handoff.worktree != context.repo
+                || handoff.branch != context.branch
+            {
+                return Err("prior handoff does not bind the completed revision".to_owned());
+            }
+            Some(file)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let delivered_path = context.state.join(format!("{}.delivered", context.id));
+    let delivered = match fs::symlink_metadata(&delivered_path) {
+        Ok(_) => {
+            let file = read_private(&delivered_path, 0o600, state_meta.dev())?;
+            let task = OperationalTaskId::parse(&context.id)?;
+            let receipt = DeliveryRecord::parse(&file.bytes, &task, &context.state)?;
+            if receipt.approved_sha == record.approved_head {
+                if receipt.worktree != context.repo
+                    || receipt.branch != context.branch
+                    || receipt.approval != "approved"
+                {
+                    return Err("prior delivery receipt binding changed".to_owned());
+                }
+                Some(file)
+            } else {
+                None
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    // A newly reserved private directory prevents overwriting any prior history.
+    let archive = context.state.join(format!(
+        "{}.gate-passed-{}",
+        context.id, record.approved_head
+    ));
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&archive)
+        .map_err(|error| {
+            format!(
+                "cannot reserve completed gate history {}: {error}",
+                archive.display()
+            )
+        })?;
+    if let Some(file) = &handoff {
+        publish_private(&archive.join("ready-to-push"), &file.bytes)?;
+    }
+    if let Some(file) = delivered {
+        publish_private(&archive.join("delivered"), &file.bytes)?;
+    }
+    fs::rename(&context.gate, archive.join("gate")).map_err(|error| error.to_string())?;
+    if let Some(file) = handoff {
+        if read_private(&pending, 0o600, state_meta.dev())? != file {
+            return Err("prior handoff changed while archiving validation".to_owned());
+        }
+        fs::remove_file(pending).map_err(|error| error.to_string())?;
+    }
+    println!(
+        "deep-review: completed revision preserved at {}; starting full validation",
+        archive.display()
+    );
+    Ok(())
 }
 
 fn write_run(context: &Context, record: &RunRecord) -> Result<(), String> {
@@ -734,14 +887,14 @@ fn run_rebase(context: &Context) -> Result<Option<i32>, String> {
         .arg("-C")
         .arg(&context.repo)
         .args(["rebase", &record.default_branch])
-        .status()
+        .bounded_status()
         .map_err(|error| error.to_string())?;
     if !status.success() {
         let _ = Command::new("git")
             .arg("-C")
             .arg(&context.repo)
             .args(["rebase", "--abort"])
-            .status();
+            .bounded_status();
         let finding = ReviewResult { findings: vec![Finding { id: "rebase-conflict".to_owned(), file: ".git".to_owned(), line: 1, severity: "error".to_owned(), action: "ask-user".to_owned(), review_scope: "source".to_owned(), message: format!("Rebase onto {} conflicted and requires an authority-guided resolution.", record.default_branch) }], risk_level: "high".to_owned(), risk_rationale: "The branch cannot be validated against the current base until the conflict is resolved.".to_owned(), risk_scope: "rebase".to_owned() };
         let path = findings_path(context, "rebase", record.round, None);
         write_json(&path, &finding)?;
@@ -1018,7 +1171,7 @@ fn configured(context: &Context, name: &str, round: u32, command: &str) -> Resul
         .current_dir(&context.repo)
         .stdout(file)
         .stderr(error_file)
-        .status()
+        .bounded_status()
         .map_err(|error| error.to_string())?;
     let exit = status.code().unwrap_or(1);
     write_json(
@@ -1045,7 +1198,7 @@ fn commit_if_dirty(context: &Context, subject: &str) -> Result<(), String> {
             .arg("-C")
             .arg(&context.repo)
             .args(["add", "-A"])
-            .status()
+            .bounded_status()
             .map_err(|error| error.to_string())?;
         if !add.success() {
             return Err("git add failed".to_owned());
@@ -1054,14 +1207,14 @@ fn commit_if_dirty(context: &Context, subject: &str) -> Result<(), String> {
             .arg("-C")
             .arg(&context.repo)
             .args(["diff", "--cached", "--quiet"])
-            .status()
+            .bounded_status()
             .map_err(|error| error.to_string())?;
         if !diff.success() {
             let commit = Command::new("git")
                 .arg("-C")
                 .arg(&context.repo)
                 .args(["commit", "-m", &format!("fix: deep-review {subject}")])
-                .status()
+                .bounded_status()
                 .map_err(|error| error.to_string())?;
             if !commit.success() {
                 return Err("git commit failed".to_owned());
@@ -1142,7 +1295,7 @@ fn prompt(context: &Context, step: &str, mode: &str) -> Result<String, String> {
         }
         _ => return Err(format!("unsupported prompt step '{step}' mode '{mode}'")),
     };
-    let history = round_history(context);
+    let history = round_history(context)?;
     Ok(format!(
         "DEEP-REVIEW STEP: {step} ({mode})\nBranch: {}\nBase SHA: {}\nHead SHA: {}\nDefault branch: {}\nIgnore patterns:\n{}\n\n{instruction}\n{}\n\nEXECUTION CONTEXT\nYou are working on an isolated task worktree at {}.\nDo not push, open a pull request, merge, or invoke Multplx lifecycle commands.\n\nROUND HISTORY\n{history}\n\n{intent}\n",
         context.branch,
@@ -1166,36 +1319,83 @@ fn prompt(context: &Context, step: &str, mode: &str) -> Result<String, String> {
     ))
 }
 
-fn round_history(context: &Context) -> String {
-    let mut paths = fs::read_dir(context.gate.join("findings"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .chain(
-            fs::read_dir(context.gate.join("decisions"))
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|entry| entry.path()),
-        )
-        .collect::<Vec<_>>();
-    paths.sort();
-    if paths.is_empty() {
-        return "No prior rounds.".to_owned();
+// Keep raw transport evidence out of prompts and never silently omit accepted history.
+const MAX_ROUND_HISTORY_BYTES: usize = 256 * 1024;
+fn round_history(context: &Context) -> Result<String, String> {
+    let mut paths = Vec::new();
+    for directory in ["findings", "decisions"] {
+        for entry in
+            fs::read_dir(context.gate.join(directory)).map_err(|error| error.to_string())?
+        {
+            let path = entry.map_err(|error| error.to_string())?.path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            let owned = if directory == "findings" {
+                name.strip_prefix("round-")
+                    .and_then(|name| name.split_once('-'))
+                    .is_some_and(|(round, kind)| {
+                        !round.is_empty()
+                            && round.bytes().all(|byte| byte.is_ascii_digit())
+                            && matches!(
+                                kind,
+                                "rebase.json"
+                                    | "review.json"
+                                    | "test.json"
+                                    | "test-command.json"
+                                    | "lint-command.json"
+                                    | "format-command.json"
+                            )
+                    })
+            } else {
+                name.starts_with("deep-review-") && name.ends_with(".json")
+            };
+            if owned {
+                paths.push(path);
+            }
+        }
     }
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            fs::read_to_string(&path).ok().map(|text| {
-                format!(
-                    "\n--- {} ---\n{}",
-                    path.file_name().unwrap_or_default().to_string_lossy(),
-                    text.trim()
-                )
-            })
-        })
-        .collect()
+    paths.sort();
+    let mut history = String::new();
+    for path in paths {
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if !metadata.is_file() {
+            return Err(format!(
+                "round history is not a regular file: {}",
+                path.display()
+            ));
+        }
+        if metadata.len() > MAX_ROUND_HISTORY_BYTES as u64 {
+            return Err(format!(
+                "round history exceeds {MAX_ROUND_HISTORY_BYTES} bytes; full evidence retained at {}",
+                path.display()
+            ));
+        }
+        let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+        let value: Value = serde_json::from_str(&text)
+            .map_err(|error| format!("invalid structured history {}: {error}", path.display()))?;
+        if !value.is_object() {
+            return Err(format!("invalid structured history {}", path.display()));
+        }
+        let entry = format!(
+            "\n--- {} ---\n{}",
+            path.file_name().unwrap_or_default().to_string_lossy(),
+            text.trim()
+        );
+        if history.len().saturating_add(entry.len()) > MAX_ROUND_HISTORY_BYTES {
+            return Err(format!(
+                "round history exceeds {MAX_ROUND_HISTORY_BYTES} bytes; full findings and decisions retained at {}",
+                context.gate.display()
+            ));
+        }
+        history.push_str(&entry);
+    }
+    Ok(if history.is_empty() {
+        "No prior rounds.".to_owned()
+    } else {
+        history
+    })
 }
 
 fn call_agent(
@@ -1225,7 +1425,11 @@ fn call_agent(
     for attempt in 1..=context.max_attempts {
         let _ = fs::remove_file(&output);
         let _ = fs::remove_file(&session);
-        if agent_oneshot(context, &schema_path, &prompt_path, &output, &session).is_ok()
+        let execution = agent_oneshot(context, &schema_path, &prompt_path, &output, &session);
+        if let Err(error) = &execution {
+            eprintln!("deep-review: {step} {mode}: {error}");
+        }
+        if execution.is_ok()
             && let Ok(value) = fs::read(&output)
                 .ok()
                 .and_then(|bytes| serde_json::from_slice(&bytes).ok())
@@ -1281,7 +1485,7 @@ fn agent_oneshot(
             .arg(output)
             .arg("--session-out")
             .arg(session)
-            .status()
+            .bounded_agent_status()
             .map_err(|error| error.to_string())?;
         return status
             .success()
@@ -1293,7 +1497,7 @@ fn agent_oneshot(
         .filter(|value| !value.is_empty())
         .or_else(|| {
             let output = Command::new(context.root.join("bin/mx-harness.sh"))
-                .output()
+                .bounded_agent_output()
                 .ok()?;
             output
                 .status
@@ -1307,17 +1511,21 @@ fn agent_oneshot(
             let mut command = Command::new("codex"); command.current_dir(&context.repo).env("DEEP_REVIEW_GATE", "1").args(["exec", "--dangerously-bypass-approvals-and-sandbox"]);
             if context.config.disable_project_settings { command.args(["--skip-git-repo-check", "--ignore-rules", "-c", "project_doc_max_bytes=0", "-c", "project_doc_fallback_filenames=[]", "--add-dir"]).arg(&context.repo); }
             command.arg("--output-schema").arg(schema).arg("--output-last-message").arg(output).args(["--json", "-"]).stdin(fs::File::open(prompt).map_err(|error| error.to_string())?).stdout(events.reopen().map_err(|error| error.to_string())?);
-            if !command.status().map_err(|error| error.to_string())?.success() { return Err("codex failed".to_owned()); }
+            let status = command.bounded_agent_status();
+            let event_path = output.with_extension("events.jsonl");
+            atomic_replace(&event_path, &fs::read(events.path()).map_err(|error| error.to_string())?, 0o600).map_err(|error| error.to_string())?;
+            let status = status.map_err(|error| format!("{error}; Codex events: {}", event_path.display()))?;
+            if !status.success() { return Err(format!("codex failed ({status}); events: {}", event_path.display())); }
             let id = fs::read_to_string(events.path()).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).find_map(|value| (value["type"] == "thread.started").then(|| value["thread_id"].as_str().map(ToOwned::to_owned)).flatten()).ok_or("codex did not report a session id")?; atomic_replace(session, format!("{id}\n").as_bytes(), 0o600).map_err(|error| error.to_string())
         }
         "claude" => {
             let id = format!("{}-{}", std::process::id(), time::OffsetDateTime::now_utc().unix_timestamp());
-            let result = Command::new("claude").current_dir(&context.repo).env("DEEP_REVIEW_GATE", "1").args(["--print", "--dangerously-skip-permissions"]).args(if context.config.disable_project_settings { vec!["--add-dir", context.repo.to_str().unwrap_or_default(), "--setting-sources", "user"] } else { Vec::new() }).args(["--output-format", "json", "--json-schema", &fs::read_to_string(schema).unwrap_or_default(), "--session-id", &id, &fs::read_to_string(prompt).unwrap_or_default()]).output().map_err(|error| error.to_string())?;
+            let result = Command::new("claude").current_dir(&context.repo).env("DEEP_REVIEW_GATE", "1").args(["--print", "--dangerously-skip-permissions"]).args(if context.config.disable_project_settings { vec!["--add-dir", context.repo.to_str().unwrap_or_default(), "--setting-sources", "user"] } else { Vec::new() }).args(["--output-format", "json", "--json-schema", &fs::read_to_string(schema).unwrap_or_default(), "--session-id", &id, &fs::read_to_string(prompt).unwrap_or_default()]).bounded_agent_output().map_err(|error| error.to_string())?;
             if !result.status.success() { return Err("claude failed".to_owned()); }
             let value: Value = serde_json::from_slice(&result.stdout).map_err(|error| error.to_string())?; let structured = value.get("structured_output").cloned().or_else(|| value.get("result").and_then(Value::as_str).and_then(|text| serde_json::from_str(text).ok())).unwrap_or(value); write_json(output, &structured)?; atomic_replace(session, format!("{id}\n").as_bytes(), 0o600).map_err(|error| error.to_string())
         }
         "pi" => {
-            let mut command = Command::new("pi"); command.current_dir(&context.repo).env("DEEP_REVIEW_GATE", "1").args(["--print", "--approve", "--no-session"]); if context.config.disable_project_settings { command.args(["--no-context-files", "--no-extensions"]); } command.arg(fs::read_to_string(prompt).unwrap_or_default()); let result = command.output().map_err(|error| error.to_string())?; if !result.status.success() { return Err("pi failed".to_owned()); } atomic_replace(output, &result.stdout, 0o600).map_err(|error| error.to_string())?; atomic_replace(session, format!("{}-{}\n", std::process::id(), time::OffsetDateTime::now_utc().unix_timestamp()).as_bytes(), 0o600).map_err(|error| error.to_string())
+            let mut command = Command::new("pi"); command.current_dir(&context.repo).env("DEEP_REVIEW_GATE", "1").args(["--print", "--approve", "--no-session"]); if context.config.disable_project_settings { command.args(["--no-context-files", "--no-extensions"]); } command.arg(fs::read_to_string(prompt).unwrap_or_default()); let result = command.bounded_agent_output().map_err(|error| error.to_string())?; if !result.status.success() { return Err("pi failed".to_owned()); } atomic_replace(output, &result.stdout, 0o600).map_err(|error| error.to_string())?; atomic_replace(session, format!("{}-{}\n", std::process::id(), time::OffsetDateTime::now_utc().unix_timestamp()).as_bytes(), 0o600).map_err(|error| error.to_string())
         }
         "cursor" => Err("Cursor deep-review is unsupported: native schema enforcement and project-rule suppression are not both verified".to_owned()),
         _ => Err(format!("no verified deep-review headless adapter for harness '{harness}'")),
@@ -1342,7 +1550,9 @@ fn report(context: &Context, state: &str, message: &str, key: Option<&str>) -> R
     if let Some(key) = key {
         command.args(["--key", key]);
     }
-    let status = command.status().map_err(|error| error.to_string())?;
+    let status = command
+        .bounded_status()
+        .map_err(|error| error.to_string())?;
     status
         .success()
         .then_some(())
@@ -1464,6 +1674,110 @@ fn respond(values: &[String]) -> Result<(), String> {
     )?;
     println!("deep-review: decision recorded; rerun the gate to continue");
     Ok(())
+}
+
+// Review commands use file-backed output so descendants cannot hold pipe readers open.
+trait ReviewCommand {
+    fn bounded_status(&mut self) -> std::io::Result<std::process::ExitStatus>;
+    fn bounded_output(&mut self) -> std::io::Result<std::process::Output>;
+    fn bounded_agent_status(&mut self) -> std::io::Result<std::process::ExitStatus>;
+    fn bounded_agent_output(&mut self) -> std::io::Result<std::process::Output>;
+}
+fn review_timeout(agent: bool) -> std::time::Duration {
+    let (name, default) = if agent {
+        ("MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS", 1800)
+    } else {
+        ("MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS", 300)
+    };
+    std::time::Duration::from_secs(
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(default),
+    )
+}
+fn review_status(
+    command: &mut Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::ExitStatus> {
+    use rustix::process::{Pid, Signal, kill_process_group};
+    use std::os::unix::process::CommandExt;
+    let mut child = command.process_group(0).spawn()?;
+    let pid = Pid::from_raw(child.id() as i32).expect("child pid");
+    let start = std::time::Instant::now();
+    let result = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Err(error) => break Err(error),
+            Ok(None) if start.elapsed() >= timeout => {
+                break Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "review command {:?} timed out after {} seconds",
+                        command.get_program(),
+                        timeout.as_secs()
+                    ),
+                ));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    };
+    // The process group belongs to this invocation, including any stalled descendants.
+    let _ = kill_process_group(pid, Signal::KILL);
+    let _ = child.wait();
+    result
+}
+fn review_output(
+    command: &mut Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    let stdout = tempfile::NamedTempFile::new()?;
+    let stderr = tempfile::NamedTempFile::new()?;
+    command.stdout(stdout.reopen()?).stderr(stderr.reopen()?);
+    let status = review_status(command, timeout)?;
+    Ok(std::process::Output {
+        status,
+        stdout: fs::read(stdout.path())?,
+        stderr: fs::read(stderr.path())?,
+    })
+}
+impl ReviewCommand for Command {
+    fn bounded_status(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        review_status(self, review_timeout(false))
+    }
+    fn bounded_output(&mut self) -> std::io::Result<std::process::Output> {
+        review_output(self, review_timeout(false))
+    }
+    fn bounded_agent_status(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        review_status(self, review_timeout(true))
+    }
+    fn bounded_agent_output(&mut self) -> std::io::Result<std::process::Output> {
+        review_output(self, review_timeout(true))
+    }
+}
+
+#[cfg(test)]
+mod bounded_review_tests {
+    use super::*;
+    #[test]
+    fn stalled_command_and_inherited_output_are_bounded() {
+        let start = std::time::Instant::now();
+        let error = review_status(
+            Command::new("sh").args(["-c", "sleep 120 & wait"]),
+            std::time::Duration::from_millis(50),
+        )
+        .expect_err("timeout");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
+        let output = review_output(
+            Command::new("sh").args(["-c", "sleep 120 & printf complete"]),
+            std::time::Duration::from_secs(1),
+        )
+        .expect("bounded output");
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"complete");
+    }
 }
 
 #[cfg(test)]

@@ -441,26 +441,70 @@ impl<R: CommandRunner> HerdrBackend<R> {
         let _ = self.run_scoped(session, ["pane", "close", &pane]);
     }
 
+    fn observe_pane(&mut self, session: &str, pane: &str) -> Result<(), BackendError> {
+        let output = self.run_scoped(session, ["pane", "get", pane])?;
+        let bytes = if output.stdout.is_empty() {
+            &output.stderr
+        } else {
+            &output.stdout
+        };
+        let value: Value = serde_json::from_slice(bytes).map_err(|error| {
+            if output.status.success() {
+                BackendError::Malformed(format!("Herdr JSON: {error}"))
+            } else {
+                command_failure("herdr", &output)
+            }
+        })?;
+        if string_at(&value, "/error/code") == Some("pane_not_found") {
+            return Err(BackendError::Missing(format!(
+                "Herdr endpoint '{session}:{pane}' disappeared"
+            )));
+        }
+        if string_at(&value, "/result/pane/pane_id") == Some(pane) {
+            return Ok(());
+        }
+        Err(BackendError::Malformed(format!(
+            "Herdr endpoint '{session}:{pane}' is unreadable: {value}"
+        )))
+    }
+
     /// Classify a pane from exact response bodies rather than command status.
     pub fn pane_agent_state(&mut self, session: &str, pane: &str) -> PaneAgentState {
-        let Ok(pane_value) = self.json_any_status(session, ["pane", "get", pane]) else {
-            return PaneAgentState::Unknown;
-        };
-        if string_at(&pane_value, "/error/code") == Some("pane_not_found") {
-            return PaneAgentState::Dead;
+        self.observe_pane_agent(session, pane)
+            .unwrap_or(PaneAgentState::Unknown)
+    }
+
+    fn observe_pane_agent(
+        &mut self,
+        session: &str,
+        pane: &str,
+    ) -> Result<PaneAgentState, BackendError> {
+        match self.observe_pane(session, pane) {
+            Ok(()) => {}
+            Err(BackendError::Missing(_)) => return Ok(PaneAgentState::Dead),
+            Err(error) => return Err(error),
         }
-        if string_at(&pane_value, "/result/pane/pane_id") != Some(pane) {
-            return PaneAgentState::Unknown;
-        }
-        let Ok(agent) = self.json_any_status(session, ["agent", "get", pane]) else {
-            return PaneAgentState::Unknown;
+        let output = self.run_scoped(session, ["agent", "get", pane])?;
+        let bytes = if output.stdout.is_empty() {
+            &output.stderr
+        } else {
+            &output.stdout
         };
+        let agent: Value = serde_json::from_slice(bytes).map_err(|error| {
+            if output.status.success() {
+                BackendError::Malformed(format!("Herdr agent JSON for '{session}:{pane}': {error}"))
+            } else {
+                command_failure("herdr agent get", &output)
+            }
+        })?;
         if string_at(&agent, "/error/code") == Some("agent_not_found") {
-            return PaneAgentState::NoAgent;
+            return Ok(PaneAgentState::NoAgent);
         }
         match string_at(&agent, "/result/agent/agent_status") {
-            Some("working" | "idle" | "done" | "blocked") => PaneAgentState::Live,
-            _ => PaneAgentState::Unknown,
+            Some("working" | "idle" | "done" | "blocked") => Ok(PaneAgentState::Live),
+            _ => Err(BackendError::Malformed(format!(
+                "Herdr agent for '{session}:{pane}' is unreadable: {agent}"
+            ))),
         }
     }
 
@@ -479,9 +523,18 @@ impl<R: CommandRunner> HerdrBackend<R> {
 
     /// Return the raw native status when readable.
     pub fn agent_status_raw(&mut self, session: &str, pane: &str) -> Option<String> {
-        self.json_scoped(session, ["agent", "get", pane])
-            .ok()
-            .and_then(|value| string_at(&value, "/result/agent/agent_status").map(str::to_owned))
+        self.read_agent_status(session, pane).ok()
+    }
+
+    fn read_agent_status(&mut self, session: &str, pane: &str) -> Result<String, BackendError> {
+        let value = self.json_scoped(session, ["agent", "get", pane])?;
+        string_at(&value, "/result/agent/agent_status")
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                BackendError::Malformed(format!(
+                    "Herdr agent for '{session}:{pane}' is unreadable: {value}"
+                ))
+            })
     }
 
     /// Return the event socket for one exact running session only.
@@ -626,7 +679,6 @@ impl<R: CommandRunner> HerdrBackend<R> {
         ansi: bool,
     ) -> Result<Vec<u8>, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
-        self.server_ensure(session)?;
         let requested = if lines == 0 { 200 } else { lines };
         let fetch = requested.max(200);
         let mut args = vec![
@@ -803,7 +855,7 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
         self.server_ensure(session)?;
         match self.pane_agent_state(session, pane) {
             PaneAgentState::NoAgent | PaneAgentState::Live => Ok(()),
-            PaneAgentState::Dead => Err(BackendError::Command(format!(
+            PaneAgentState::Dead => Err(BackendError::Missing(format!(
                 "Herdr endpoint '{}' disappeared",
                 target.endpoint()
             ))),
@@ -812,6 +864,11 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
                 target.endpoint()
             ))),
         }
+    }
+
+    fn observe_target(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
+        let (session, pane) = self.ensure_target(target)?;
+        self.observe_pane(session, pane)
     }
 
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError> {
@@ -897,28 +954,29 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
 
     fn native_state(&mut self, target: &BackendTarget) -> Result<NativeState, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
-        self.server_ensure(session)?;
-        match self.agent_status_raw(session, pane).as_deref() {
-            Some("idle") => Ok(NativeState::Idle),
-            Some("working") => Ok(NativeState::Working),
-            Some("blocked") => Ok(NativeState::Blocked),
-            Some("done") => Ok(NativeState::Done),
-            _ => Err(BackendError::Malformed(
-                "unknown Herdr native state".to_owned(),
-            )),
+        match self.read_agent_status(session, pane)?.as_str() {
+            "idle" => Ok(NativeState::Idle),
+            "working" => Ok(NativeState::Working),
+            "blocked" => Ok(NativeState::Blocked),
+            "done" => Ok(NativeState::Done),
+            status => Err(BackendError::Malformed(format!(
+                "unknown Herdr native state for '{session}:{pane}': {status}"
+            ))),
         }
     }
 
     fn agent_state(&mut self, target: &BackendTarget) -> AgentState {
-        let Ok((session, pane)) = self.ensure_target(target) else {
-            return AgentState::Unreadable;
-        };
-        match self.pane_agent_state(session, pane) {
+        self.observe_agent(target).unwrap_or(AgentState::Unreadable)
+    }
+
+    fn observe_agent(&mut self, target: &BackendTarget) -> Result<AgentState, BackendError> {
+        let (session, pane) = self.ensure_target(target)?;
+        Ok(match self.observe_pane_agent(session, pane)? {
             PaneAgentState::Dead => AgentState::Missing,
             PaneAgentState::NoAgent => AgentState::Dead,
             PaneAgentState::Live => AgentState::Alive,
             PaneAgentState::Unknown => AgentState::Unreadable,
-        }
+        })
     }
 
     fn kill_verified(&mut self, target: &BackendTarget) -> KillOutcome {
@@ -1071,10 +1129,15 @@ pub fn parse_target(target: &str) -> Option<(&str, &str)> {
 }
 
 fn command_failure(program: &str, output: &CommandOutput) -> BackendError {
+    let detail = if output.stderr.is_empty() {
+        &output.stdout
+    } else {
+        &output.stderr
+    };
     BackendError::Command(format!(
         "{program} exited {:?}: {}",
         output.status.code(),
-        String::from_utf8_lossy(&output.stderr).trim()
+        String::from_utf8_lossy(detail).trim()
     ))
 }
 
@@ -1908,7 +1971,6 @@ mod tests {
                     success(br#"{"result":{"agent":{"agent_status":"mystery"}}}"#),
                     success(br#"{"server":{"running":true}}"#),
                     success(Vec::new()),
-                    success(br#"{"server":{"running":true}}"#),
                     success(capture),
                 ]),
                 "herdr",

@@ -410,3 +410,19 @@ test_daemon_marked_request_reporting_contract
 test_validated_status_vocabulary_renders_all_brief_scaffolds
 test_scout_and_daemon_load_decision_hold_policy
 test_scout_and_daemon_scaffold
+
+# Explicit identity distinguishes the source repository from a same-named clone.
+test_same_named_self_repo() {
+  local home="$TMP_ROOT/identity-home" source="$TMP_ROOT/identity/Multplx" output
+  mkdir -p "$home/data" "$home/projects/Multplx" "$source"
+  printf '%s\n' '- Multplx [local-only +yolo] - unrelated clone' > "$home/data/projects.md"
+  output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" self "$source") || fail 'self brief refused'
+  assert_contains "$output" 'mode=deep-review, yolo=off' 'self brief inherited clone authority'
+  assert_grep 'mx-deep-review.sh' "$home/data/self/brief.md" 'self completion instructions use wrong mode'
+  output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" clone "$home/projects/Multplx") || fail 'clone brief refused'
+  assert_contains "$output" 'mode=local-only, yolo=on' 'clone authority lost'
+  output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" override "$source" --mode direct-PR --yolo on) || fail 'self override refused'
+  assert_contains "$output" 'mode=direct-PR, yolo=on' 'self override lost'
+  pass 'explicit self-repository and same-named clone briefs retain distinct authority'
+}
+test_same_named_self_repo

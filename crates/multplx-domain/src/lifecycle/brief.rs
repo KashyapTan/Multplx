@@ -17,7 +17,7 @@ filled in. Multplx then replaces the {TASK} placeholder with the task
 description, acceptance criteria, and context, and may adjust other sections
 when the task genuinely deviates (e.g. working an existing external PR instead
 of creating a new one).
-Usage: mx-brief.sh <task-id> <repo-name> [--scout] [--herdr-lab]
+Usage: mx-brief.sh <task-id> <repo-name|project-path> [--scout] [--herdr-lab] [--mode MODE] [--yolo on|off]
        mx-brief.sh <task-id> --daemon {<project>...|--no-projects}
   --scout writes the scout contract instead: the deliverable is a report at
   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
@@ -44,6 +44,11 @@ and AGENTS.md task lifecycle):
   direct-PR    implement -> approved delivery service -> PR (no full pipeline) -> maintainer merge
   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
                maintainer approves, broker merges to local main
+--mode and --yolo are independent per-task choices; pass the same overrides to mx-spawn.sh.
+For self-repo work, pass the absolute code-root path as the project argument.
+Bare names identify registered clones; paths use the same identity resolution as spawn.
+Use overrides for task-specific authority without adding a private project registry row.
+Daemon briefs reject these task overrides; scouts still produce reports.
 Delivery briefs begin with a worktree-isolation assertion before the branch step.
 Scout tasks ignore mode - their deliverable is a report, not a merge.
 Every scaffold's status protocol uses the closed actor-writable vocabulary
@@ -135,15 +140,23 @@ fn daemon(root: &Path, state: &Path, id: &str, projects: &[String], no_projects:
     )
 }
 
-fn delivery(root: &Path, data: &Path, state: &Path, id: &str, repo: &str, herdr: bool) -> String {
-    let mode = resolve_project_mode(&data.join("projects.md"), repo).mode;
-    let (rule, done) = match mode {
+fn delivery(
+    root: &Path,
+    data: &Path,
+    state: &Path,
+    id: &str,
+    repo: &str,
+    herdr: bool,
+    selected_mode: DeliveryMode,
+) -> String {
+    let (rule, done) = match selected_mode {
         DeliveryMode::DirectPr => (
             format!(
                 "1. Never push to any remote, open a PR, or merge a PR. Commit only on your local `mx/{id}` branch; the credentialed delivery service owns every remote write."
             ),
             format!(
-                "# Definition of done\nThis project delivers **direct-PR** without the full validation pipeline, but remote delivery is still separate from agent work.\nThe task is complete only when the worktree is clean and the implementation is committed on your local branch `mx/{id}`.\nReport `done` with `ready for delivery at {{full commit SHA}}` through the validated status path and stop.\nDo not push, open a PR, or merge.\nThe configured approval authority accepts the local commit, then the non-agent delivery service pushes exactly that approved SHA and opens the PR."
+                "# Definition of done\nThis project delivers **direct-PR** without the full validation pipeline, but remote delivery is still separate from agent work.\nThe task is complete only when the worktree is clean and the implementation is committed on your local branch `mx/{id}`.\nPrepare the pending handoff with `{} prepare {id} --sha {{full commit SHA}} --summary '{{one-line summary}}'`.\nReport `done` with `ready for delivery at {{full commit SHA}}` through the validated status path and stop.\nDo not push, open a PR, or merge.\nThe configured approval authority accepts the local commit, then the non-agent delivery service pushes exactly that approved SHA and opens the PR.",
+                root.join("bin/mx-deliver.sh").display()
             ),
         ),
         DeliveryMode::LocalOnly => (
@@ -177,16 +190,37 @@ fn delivery(root: &Path, data: &Path, state: &Path, id: &str, repo: &str, herdr:
 pub fn run(
     args: &[OsString],
     root: &Path,
-    _home: &Path,
+    home: &Path,
     data: &Path,
     state: &Path,
 ) -> Result<String, BriefError> {
+    let mut selected_mode = None;
+    let mut selected_yolo = None;
     let mut kind = Kind::Delivery;
     let mut herdr = false;
     let mut no_projects = false;
     let mut positional = Vec::new();
-    for arg in args {
+    let mut arguments = args.iter();
+    while let Some(arg) = arguments.next() {
         match arg.to_string_lossy().as_ref() {
+            "--mode" => {
+                selected_mode = Some(
+                    DeliveryMode::parse(
+                        arguments
+                            .next()
+                            .and_then(|value| value.to_str())
+                            .ok_or_else(|| error("--mode requires a value"))?,
+                    )
+                    .ok_or_else(|| error("invalid delivery mode"))?,
+                )
+            }
+            "--yolo" => {
+                selected_yolo = Some(match arguments.next().and_then(|value| value.to_str()) {
+                    Some("on") => true,
+                    Some("off") => false,
+                    _ => return Err(error("--yolo requires on or off")),
+                })
+            }
             "--scout" => kind = Kind::Scout,
             "--daemon" => kind = Kind::Daemon,
             "--herdr-lab" => herdr = true,
@@ -219,13 +253,41 @@ pub fn run(
     } else if positional.get(1).is_none() {
         return Err(error("missing repo name"));
     }
+    if kind == Kind::Daemon && (selected_mode.is_some() || selected_yolo.is_some()) {
+        return Err(error("daemon briefs do not accept task mode or yolo"));
+    }
+    let repo = positional.get(1).map(String::as_str).unwrap_or("");
+    let resolution = if repo.contains('/') || repo == "." || repo == ".." {
+        let projects = env::var_os("MX_PROJECTS_OVERRIDE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| home.join("projects"));
+        let project = repo
+            .strip_prefix("projects/")
+            .map(|relative| projects.join(relative))
+            .unwrap_or_else(|| repo.into());
+        let project = fs::canonicalize(project).map_err(|io| error(io.to_string()))?;
+        crate::project_registry::resolve_path(&data.join("projects.md"), &projects, root, &project)
+    } else {
+        resolve_project_mode(&data.join("projects.md"), repo)
+    };
+    let (mode, yolo) = if kind == Kind::Daemon {
+        (DeliveryMode::DeepReview, false)
+    } else {
+        let (mode, yolo) =
+            super::spawn::task_authority(state, id, &resolution, selected_mode, selected_yolo)
+                .map_err(error)?;
+        (
+            DeliveryMode::parse(&mode).expect("validated task mode"),
+            yolo,
+        )
+    };
     let path = data.join(id).join("brief.md");
     fs::create_dir_all(path.parent().expect("brief parent"))
         .map_err(|error_value| error(error_value.to_string()))?;
     let body = match kind {
         Kind::Daemon => daemon(root, state, id, projects, no_projects),
         Kind::Scout => scout(root, data, state, id, &positional[1], herdr),
-        Kind::Delivery => delivery(root, data, state, id, &positional[1], herdr),
+        Kind::Delivery => delivery(root, data, state, id, &positional[1], herdr, mode),
     };
     let mut file = OpenOptions::new()
         .write(true)
@@ -250,11 +312,10 @@ pub fn run(
         ),
         Kind::Scout => format!("scaffolded: {} (scout; replace {{TASK}})", path.display()),
         Kind::Delivery => format!(
-            "scaffolded: {} (delivery, mode={}; replace {{TASK}})",
+            "scaffolded: {} (delivery, mode={}, yolo={}; replace {{TASK}})",
             path.display(),
-            resolve_project_mode(&data.join("projects.md"), &positional[1])
-                .mode
-                .as_str()
+            mode.as_str(),
+            if yolo { "on" } else { "off" }
         ),
     })
 }
@@ -339,6 +400,54 @@ mod tests {
                 .expect("project-less")
                 .contains("project-less domain")
         );
+    }
+
+    #[test]
+    fn explicit_project_identity_matches_spawn_with_same_named_clone() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Multplx");
+        let home = temp.path().join("home");
+        let data = home.join("data");
+        let state = home.join("state");
+        let projects = home.join("projects");
+        let clone = projects.join("Multplx");
+        for path in [&root, &data, &state, &clone] {
+            fs::create_dir_all(path).unwrap();
+        }
+        fs::write(
+            data.join("projects.md"),
+            "- Multplx [local-only +yolo] - clone\n",
+        )
+        .unwrap();
+        let context = super::super::spawn::Context {
+            root: root.clone(),
+            home: home.clone(),
+            data: data.clone(),
+            state: state.clone(),
+            projects,
+        };
+        for (id, reference, project, expected) in [
+            ("self", root.to_str().unwrap(), &root, "deep-review"),
+            ("clone-path", clone.to_str().unwrap(), &clone, "local-only"),
+            ("clone-name", "Multplx", &clone, "local-only"),
+        ] {
+            let output = run(&args(&[id, reference]), &root, &home, &data, &state).unwrap();
+            let launch = super::super::spawn::parse(
+                &args(&[id, project.to_str().unwrap()]),
+                &context,
+                "codex",
+            )
+            .unwrap();
+            assert_eq!(launch.mode, expected);
+            assert!(output.contains(&format!("mode={}", launch.mode)));
+            assert!(output.contains(if launch.yolo { "yolo=on" } else { "yolo=off" }));
+            let body = fs::read_to_string(data.join(id).join("brief.md")).unwrap();
+            assert!(body.contains(if expected == "deep-review" {
+                "mx-deep-review.sh"
+            } else {
+                "**local-only**"
+            }));
+        }
     }
 
     #[test]

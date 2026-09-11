@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 const LAUNCHER_HELP: &str = "Activate or operate one globally configured Multplx control plane.\n\nUsage:\n  multplx [shell]\n  multplx [--backend auto|tmux|herdr|cmux] [shell]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx doctor [args...]\n  multplx update\n  multplx paths\n  multplx --help\n  multplx --version\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` binary and register one code root and home.\n\nUsage:\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [shared options]\n  mx launcher-install --uninstall [shared options]\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed runtime under DATA_DIR/runtime\n  --upgrade            atomically replace a recognized installed binary\n  --uninstall          remove only the owned binary and root/home records\n  -h, --help\n";
+const INSTALL_HELP: &str = "Install the global `multplx` binary and register one code root and home.\n\nUsage:\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [shared options]\n  mx launcher-install --uninstall [shared options]\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed runtime under DATA_DIR/runtime\n  --upgrade            atomically replace an owned binary or exact registered legacy shim\n  --uninstall          remove only the owned binary and root/home records\n  -h, --help\n\nAn explicit --root is independent of the current working directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -1301,7 +1301,11 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             println!("multplx: launcher removed; runtime and operational data preserved");
             return Ok(());
         }
-        let default_root = default_source_root().map_err(|message| (2, message))?;
+        let default_root = match options.root.as_ref() {
+            Some(root) => canonical_dir(&absolute_from_cwd(root.clone()), "code root"),
+            None => default_source_root(),
+        }
+        .map_err(|message| (2, message))?;
         require_recordable_path(&default_root, "code root").map_err(|message| (2, message))?;
         if options.managed {
             require_existing_owned_dir(&data_dir.join("runtime"), "managed code root")
@@ -1594,7 +1598,10 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             Ok(_) => {
                 let installed_hash = hash_file(&target).map_err(|message| (1, message))?;
                 if installed_hash != artifact.hash
-                    && (!options.upgrade || existing_hash.as_deref() != Some(&installed_hash))
+                    && (!options.upgrade
+                        || (existing_hash.as_deref() != Some(&installed_hash)
+                            && !(existing_hash.is_none()
+                                && recognized_legacy_launcher(&target, &config_dir))))
                 {
                     return Err((
                         2,
@@ -1758,6 +1765,39 @@ pub(crate) fn upgrade_registered_after_update(
         .map_err(|error_value| format!("cannot clear pending launcher update: {error_value}"))?;
     Ok(Some("launcher-binary: updated".to_owned()))
 }
+
+// Recognize only the byte-exact previously generated launcher, never execute it to probe ownership.
+fn recognized_legacy_launcher(target: &Path, config: &Path) -> bool {
+    let Some(config_text) = config.to_str() else {
+        return false;
+    };
+    let quoted = format!("'{}'", config_text.replace('\'', "'\\''"));
+    let expected = format!("{}CONFIG_DIR={}{}", LEGACY_PREFIX, quoted, LEGACY_SUFFIX);
+    fs::read(target).is_ok_and(|bytes| bytes == expected.as_bytes())
+        && read_path_file(&config.join("root")).is_ok()
+        && read_path_file(&config.join("home")).is_ok()
+}
+const LEGACY_PREFIX: &str = r###"#!/usr/bin/env bash
+set -u
+"###;
+const LEGACY_SUFFIX: &str = r###"
+fail() { printf 'multplx: %s\n' "$*" >&2; exit 2; }
+read_path() {
+  local LC_ALL=C file=$1 value bytes
+  [ ! -L "$file" ] && [ -f "$file" ] || fail "invalid path file: $file"
+  bytes=$(LC_ALL=C wc -c <"$file" 2>/dev/null) || fail "cannot read path file: $file"
+  bytes=${bytes//[[:space:]]/}
+  LC_ALL=C IFS= read -r value <"$file" || fail "invalid path file: $file"
+  [ "$bytes" -eq "$(( ${#value} + 1 ))" ] || fail "invalid path file: $file"
+  case "$value" in /*) ;; *) fail "path is not absolute in $file" ;; esac
+  printf '%s\n' "$value"
+}
+root=$(read_path "$CONFIG_DIR/root") || exit 2
+[ -x "$root/bin/mx-launcher.sh" ] || fail "configured launcher is missing: $root/bin/mx-launcher.sh"
+export MX_LAUNCH_CONFIG_DIR="$CONFIG_DIR"
+export MX_LAUNCH_BIN_PATH="$0"
+exec "$root/bin/mx-launcher.sh" "$@"
+"###;
 
 #[cfg(test)]
 mod tests {

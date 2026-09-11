@@ -265,6 +265,9 @@ EOF
   [ "$(jq -r '.status' "$state/$id.gate/run.json")" = parked ] \
     || fail "ask-user finding did not park run"
   key=$(jq -r '.pending_decision_key' "$state/$id.gate/run.json")
+  git -C "$repo" commit -q --allow-empty -m 'changed while decision remains pending'
+  if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/parked-out" 2>"$case_dir/parked-err"; then fail 'changed HEAD bypassed parked decision'; fi
+  [ "$(jq -r '.pending_decision_key' "$state/$id.gate/run.json")" = "$key" ] || fail 'changed HEAD dropped decision key'
   assert_grep "needs-decision [key=$key]:" "$state/$id.status" \
     "ask-user finding did not use validated reporter"
 
@@ -351,3 +354,169 @@ test_deterministic_test_failure_drives_fix
 test_restart_and_head_change
 test_ask_user_response_and_session_isolation
 test_default_branch_command_cannot_be_replaced
+
+test_stalled_agent_is_bounded() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case stalled)
+EOF
+  cat > "$case_dir/fake-agent" <<'SH'
+#!/usr/bin/env bash
+sleep 120 &
+printf '%s\n' "$!" > "$MX_FAKE_AGENT_LOG.child"
+wait
+SH
+  if run_gate "$case_dir" "$repo" "$state" "$id" env MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS=1 DR_MAX_AGENT_ATTEMPTS=1 >"$case_dir/out" 2>"$case_dir/err"; then fail "stalled agent passed"; fi
+  assert_grep 'timed out after 1 seconds' "$case_dir/err" "timeout diagnostic absent"
+  [ "$(jq -r .status "$state/$id.gate/run.json")" = failed ] || fail "timeout did not fail gate"
+  [ ! -e "$state/$id.ready-to-push" ] || fail "timeout handed off delivery"
+  sleep 0.2
+  if ps -p "$(cat "$case_dir/agent.log.child")" -o stat= | grep -q '^[^Z]'; then fail "stalled descendant survived"; fi
+  pass "stalled headless agent times out, fails gate, and cleans its process group"
+}
+test_stalled_agent_is_bounded
+
+
+test_codex_failure_preserves_events() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case codex-failure)
+EOF
+  mkdir "$case_dir/fakebin"
+  cat > "$case_dir/fakebin/codex" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{"type":"error","message":"inert transport refused"}'
+exit 9
+SH
+  chmod +x "$case_dir/fakebin/codex"
+  if run_gate "$case_dir" "$repo" "$state" "$id" env -u MX_DEEP_REVIEW_AGENT MX_DEEP_REVIEW_HARNESS=codex DR_MAX_AGENT_ATTEMPTS=1 PATH="$case_dir/fakebin:$PATH" >"$case_dir/out" 2>"$case_dir/err"; then fail "failed Codex passed"; fi
+  assert_grep 'codex failed (exit status: 9); events:' "$case_dir/err" 'Codex failure has no evidence pointer'
+  assert_grep 'inert transport refused' "$state/$id.gate/findings/round-01-review-assess-raw.events.jsonl" 'Codex failure events lost'
+  [ ! -e "$state/$id.ready-to-push" ] || fail 'failed Codex created handoff'
+  pass 'Codex failure retains private event diagnostics and never creates a handoff'
+}
+test_codex_failure_preserves_events
+
+test_trusted_config_read_errors_stop_validation() {
+  local case_dir repo state id fault diagnostic
+  for fault in timeout error; do
+    IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case "config-$fault")
+EOF
+    mkdir "$case_dir/fakebin"
+    cat > "$case_dir/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "${3:-}" = show ] && [ "${4:-}" = main:.deep-review.yaml ]; then
+  if [ "$MX_CONFIG_FAULT" = timeout ]; then sleep 120; else echo 'fixture config read failed' >&2; exit 9; fi
+fi
+exec "$MX_REAL_GIT" "$@"
+SH
+    chmod +x "$case_dir/fakebin/git"
+    if run_gate "$case_dir" "$repo" "$state" "$id" env MX_REAL_GIT="$(command -v git)" MX_CONFIG_FAULT="$fault" PATH="$case_dir/fakebin:$PATH" MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS=1 >"$case_dir/out" 2>"$case_dir/err"; then fail "trusted config $fault passed validation"; fi
+    diagnostic='fixture config read failed'; [ "$fault" != timeout ] || diagnostic='timed out after 1 seconds'
+    assert_grep "$diagnostic" "$case_dir/err" 'trusted config failure detail lost'
+    [ ! -s "$case_dir/agent.log" ] || fail 'config failure continued to agents'
+    [ ! -e "$state/$id.ready-to-push" ] || fail 'config failure created handoff'
+  done
+  pass 'trusted config timeouts and execution failures stop before validation'
+}
+test_trusted_config_read_errors_stop_validation
+
+test_missing_trusted_config_uses_defaults() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case config-absent)
+EOF
+  git -C "$repo" branch -f main HEAD~2
+  git -C "$repo" rm -q .deep-review.yaml
+  git -C "$repo" commit -qm 'remove optional config'
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/out" 2>"$case_dir/err" || fail "missing optional config refused: $(cat "$case_dir/err")"
+  [ "$(jq -r .status "$state/$id.gate/run.json")" = passed ] || fail 'optional defaults did not validate'
+  pass 'proven missing trusted configuration retains optional defaults'
+}
+test_missing_trusted_config_uses_defaults
+
+test_transport_events_do_not_expand_round_history() {
+  local case_dir repo state id gate
+  IFS=$'\t' read -r case_dir repo state id <<CASE
+$(make_case event-history)
+CASE
+  gate="$state/$id.gate"
+  mkdir -p "$gate/findings" "$gate/decisions"
+  python3 - "$gate" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+(root/'findings/round-00-review-assess-raw.events.jsonl').write_text(json.dumps({'type':'error','message':'RAW_EVENT_SENTINEL'+'x'*1100000})+'\n')
+(root/'findings/round-00-review-assess-raw.json').write_text(json.dumps({'unexpected':'RAW_OUTPUT_SENTINEL'}))
+(root/'findings/round-00-review.json').write_text(json.dumps({'findings':[],'summary':'FINDING_HISTORY_SENTINEL'}))
+(root/'decisions/deep-review-review-r0-accepted.json').write_text(json.dumps({'answer':'DECISION_HISTORY_SENTINEL'}))
+PY
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/out" 2>"$case_dir/err" || fail 'event-history gate failed'
+  assert_grep 'FINDING_HISTORY_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'findings history lost'
+  assert_grep 'DECISION_HISTORY_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'decision history lost'
+  assert_no_grep 'RAW_EVENT_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'raw transport event copied into prompt'
+  assert_no_grep 'RAW_OUTPUT_SENTINEL' "$gate/prompts/review-round-01-assess.txt" 'unvalidated raw result copied into prompt'
+  [ "$(wc -c < "$gate/prompts/review-round-01-assess.txt")" -lt 10000 ] || fail 'transport diagnostics expanded prompt'
+  assert_grep 'RAW_EVENT_SENTINEL' "$gate/findings/round-00-review-assess-raw.events.jsonl" 'raw diagnostic evidence discarded'
+  pass 'round prompts retain findings and decisions without ingesting raw transport events'
+}
+test_transport_events_do_not_expand_round_history
+
+
+test_structured_history_bound_fails_closed() {
+  local case_dir repo state id
+  IFS=$'\t' read -r case_dir repo state id <<CASE
+$(make_case history-bound)
+CASE
+  mkdir -p "$state/$id.gate/decisions"
+  python3 - "$state/$id.gate/decisions/deep-review-review-r0-accepted.json" <<'PYTHON'
+import json,sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({'key':'deep-review-review-r0-accepted','answer':'a'*262145,'recorded_at':'test'}))
+PYTHON
+  if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/out" 2>"$case_dir/err"; then fail 'oversized structured history passed'; fi
+  assert_grep 'round history exceeds 262144 bytes; full evidence retained at' "$case_dir/err" 'history bound lacks evidence diagnostic'
+  [ ! -s "$case_dir/agent.log" ] || fail 'oversized history invoked agent'
+  [ ! -e "$state/$id.ready-to-push" ] || fail 'oversized history created handoff'
+  pass 'oversized structured history fails closed without dropping accepted decisions'
+}
+test_structured_history_bound_fails_closed
+
+
+test_passed_revision_starts_full_gate_and_preserves_history() {
+  local case_dir repo state id old_sha archive history calls
+  IFS=$'\t' read -r case_dir repo state id <<EOF
+$(make_case revision)
+EOF
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/first-out" 2>"$case_dir/first-err" || fail 'first revision gate failed'
+  old_sha=$(git -C "$repo" rev-parse HEAD)
+  cp "$state/$id.gate/run.json" "$case_dir/prior-run"
+  cp "$state/$id.ready-to-push" "$case_dir/prior-ready"
+  sed 's/approval=pending/approval=approved/' "$case_dir/prior-ready" > "$state/$id.delivered"
+  chmod 600 "$state/$id.delivered"
+  cp "$state/$id.delivered" "$case_dir/prior-delivered"
+  printf 'raw retained transport evidence\n' > "$state/$id.gate/cmd-output/retained.log"
+  git -C "$repo" commit -q --allow-empty -m 'CI correction'
+  archive="$state/$id.gate-passed-$old_sha"
+  # A history collision must preserve both the completed run and pending handoff.
+  mkdir "$archive"
+  if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/collision-out" 2>"$case_dir/collision-err"; then fail 'history collision was overwritten'; fi
+  cmp "$case_dir/prior-run" "$state/$id.gate/run.json" || fail 'collision mutated completed run'
+  cmp "$case_dir/prior-ready" "$state/$id.ready-to-push" || fail 'collision mutated handoff'
+  rmdir "$archive"
+  run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/next-out" 2>"$case_dir/next-err" || fail 'new revision full gate failed'
+  history=$(jq -r '.history | join(" ")' "$state/$id.gate/run.json")
+  [ "$history" = 'intent rebase review test document lint' ] || fail 'new revision skipped full stages'
+  calls=$(awk '{print $1}' "$case_dir/agent.log" | tr '\n' ' ')
+  [ "$calls" = 'review test document review test document ' ] || fail "revision reused prior agent evidence: $calls"
+  cmp "$case_dir/prior-run" "$archive/gate/run.json" || fail 'historical gate bytes changed'
+  cmp "$case_dir/prior-ready" "$archive/ready-to-push" || fail 'historical handoff bytes changed'
+  cmp "$case_dir/prior-delivered" "$archive/delivered" || fail 'historical receipt bytes changed'
+  cmp "$case_dir/prior-delivered" "$state/$id.delivered" || fail 'gate changed latest delivery receipt'
+  assert_grep 'raw retained transport evidence' "$archive/gate/cmd-output/retained.log" 'raw evidence was lost'
+  assert_grep "approved_sha=$(git -C "$repo" rev-parse HEAD)" "$state/$id.ready-to-push" 'new handoff SHA mismatch'
+  assert_grep 'approval=pending' "$state/$id.ready-to-push" 'new revision inherited approval'
+  pass 'new revision after passed gate revalidates every stage and preserves exact prior evidence'
+}
+test_passed_revision_starts_full_gate_and_preserves_history

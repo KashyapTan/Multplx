@@ -68,12 +68,22 @@ printf 'GH_TOKEN=%s GITHUB_TOKEN=%s MX_AGENT_GH_TOKEN=%s CODEX_THREAD_ID=%s\n' \
   "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}" "${MX_AGENT_GH_TOKEN:-}" "${CODEX_THREAD_ID:-}" \
   >> "$MX_TEST_GH_ENV_LOG"
 case "${1:-} ${2:-}" in
-  "pr create")
+  "pr create"|"pr edit")
     printf '%s\n' "$*" >> "$MX_TEST_GH_LOG"
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --body-file ]; then cp "$2" "$MX_TEST_GH_LOG.body"; break; fi
+      if [ "$1" = --body ]; then printf '%s\n' "$2" > "$MX_TEST_GH_LOG.body"; break; fi
+      shift
+    done
     printf '%s\n' 'https://github.com/example/repo/pull/42'
     ;;
   "pr view")
-    "$REAL_GIT" -C "$MX_TEST_WORKTREE" rev-parse HEAD
+    case "$*" in
+      *url,headRefName,baseRefName,state,isCrossRepository*)
+        printf '{"url":"%s","headRefName":"mx/task-x1","baseRefName":"main","state":"OPEN","isCrossRepository":false}\n' "${MX_TEST_EXISTING_PR_URL:-https://github.com/example/repo/pull/42}"
+        ;;
+      *) "$REAL_GIT" -C "$MX_TEST_WORKTREE" rev-parse HEAD ;;
+    esac
     ;;
   *) exit 0 ;;
 esac
@@ -314,3 +324,86 @@ test_agent_ambience_refuses_before_credentials_or_push
 test_record_is_data_not_shell
 test_spawn_shaped_agent_environment_cannot_push_or_authenticate_gh
 test_exact_sha_validation_waiver_stays_truthful
+
+test_direct_pr_owned_handoff() {
+  local case_dir head
+  case_dir=$(make_case direct-pr)
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  # The owned prepare command must refuse deep-review without altering its authority.
+  if run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Direct change' >"$case_dir/out" 2>"$case_dir/err"; then fail "deep-review bypass accepted"; fi
+  sed 's/mode=deep-review/mode=direct-PR/' "$case_dir/state/task-x1.meta" > "$case_dir/meta"
+  cat "$case_dir/meta" > "$case_dir/state/task-x1.meta"
+  rm -rf "$case_dir/state/task-x1.gate"
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Direct change' >"$case_dir/out" 2>"$case_dir/err" || fail "direct-PR prepare failed: $(cat "$case_dir/err")"
+  assert_grep 'version=3' "$case_dir/state/task-x1.ready-to-push" "direct schema absent"
+  assert_grep 'approval=pending' "$case_dir/state/task-x1.ready-to-push" "prepare approved itself"
+  [ ! -e "$case_dir/state/task-x1.gate" ] || fail "prepare synthesized gate"
+  if run_delivery "$case_dir" task-x1 >/dev/null 2>&1; then fail "pending direct handoff delivered"; fi
+  printf 'dirty\n' > "$case_dir/wt/dirty"
+  if run_delivery "$case_dir" approve task-x1 --sha "$head" >/dev/null 2>&1; then fail "dirty direct approval accepted"; fi
+  rm "$case_dir/wt/dirty"
+  if MX_TASK_ID=task-x1 run_delivery "$case_dir" approve task-x1 --sha "$head" >/dev/null 2>&1; then fail 'worker approved itself'; fi
+  run_delivery "$case_dir" approve task-x1 --sha "$head" >"$case_dir/out" 2>"$case_dir/err" || fail "direct approval failed"
+  run_delivery "$case_dir" task-x1 >"$case_dir/out" 2>"$case_dir/err" || fail "direct delivery failed: $(cat "$case_dir/err")"
+  [ -f "$case_dir/state/task-x1.delivered" ] || fail "direct handoff not archived"
+  assert_grep 'full validation gate not run' "$case_dir/gh.log.body" 'direct PR falsely claims validation'
+  [ ! -e "$case_dir/state/task-x1.gate" ] || fail "delivery synthesized gate"
+  pass "direct-PR prepares, approves and delivers exact local SHA without gate or waiver"
+}
+test_direct_pr_owned_handoff
+
+test_direct_pr_stale_binding_never_pushes() {
+  local case_dir head
+  case_dir=$(make_case direct-stale)
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  sed 's/mode=deep-review/mode=direct-PR/' "$case_dir/state/task-x1.meta" > "$case_dir/meta"
+  cat "$case_dir/meta" > "$case_dir/state/task-x1.meta"
+  rm -rf "$case_dir/state/task-x1.gate"
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Direct stale control' >/dev/null || fail 'prepare stale fixture failed'
+  run_delivery "$case_dir" approve task-x1 --sha "$head" >/dev/null || fail 'approve stale fixture failed'
+  printf 'new dirty material\n' > "$case_dir/wt/change.txt"
+  if run_delivery "$case_dir" task-x1 >/dev/null 2>&1; then fail 'dirty approved direct handoff delivered'; fi
+  [ -f "$case_dir/state/task-x1.ready-to-push.stale" ] || fail 'dirty direct record not marked stale'
+  [ ! -s "$case_dir/push.log" ] || fail 'dirty direct work pushed'
+  pass 'direct-PR rechecks an approved worktree and refuses stale material before transport'
+}
+test_direct_pr_stale_binding_never_pushes
+
+# A later approved revision updates the same PR and retains the old exact receipt.
+test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history() {
+  local case_dir old_sha new_sha archive kind
+  for kind in success symlink conflict wrong-pr; do
+    case_dir=$(make_case "revision-$kind")
+    write_record "$case_dir" approved
+    MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/first-out" 2>"$case_dir/first-err" || fail 'initial revision delivery failed'
+    old_sha=$("$REAL_GIT" -C "$case_dir/wt" rev-parse HEAD)
+    cp "$case_dir/state/task-x1.delivered" "$case_dir/prior-receipt"
+    "$REAL_GIT" -C "$case_dir/wt" commit -q --allow-empty -m 'approved CI correction'
+    new_sha=$("$REAL_GIT" -C "$case_dir/wt" rev-parse HEAD)
+    jq --arg sha "$new_sha" '.approved_head=$sha | .summary="CI correction validated"' "$case_dir/state/task-x1.gate/run.json" > "$case_dir/run-next"
+    cp "$case_dir/run-next" "$case_dir/state/task-x1.gate/run.json"
+    write_record "$case_dir" approved
+    archive="$case_dir/state/task-x1.delivered-$old_sha"
+    case "$kind" in
+      symlink) ln -s "$case_dir/prior-receipt" "$archive" ;;
+      conflict) printf 'conflicting evidence\n' > "$archive"; chmod 600 "$archive" ;;
+    esac
+    if [ "$kind" = success ]; then
+      MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/second-out" 2>"$case_dir/second-err" || fail 'second approved revision did not deliver'
+      cmp "$case_dir/prior-receipt" "$archive" || fail 'prior receipt bytes changed'
+      assert_grep "approved_sha=$new_sha" "$case_dir/state/task-x1.delivered" 'new receipt does not bind new SHA'
+      assert_grep "$new_sha:refs/heads/mx/task-x1" "$case_dir/push.log" 'update push did not pin exact SHA'
+      [ "$(grep -c '^pr create ' "$case_dir/gh.log")" -eq 1 ] || fail 'revision created another PR'
+      assert_grep 'pr edit https://github.com/example/repo/pull/42 ' "$case_dir/gh.log" 'recorded PR was not updated'
+      assert_grep 'CI correction validated' "$case_dir/gh.log.body" 'PR content retained stale validation summary'
+      assert_absent "$case_dir/state/task-x1.ready-to-push" 'successful update left ready record'
+    else
+      if MX_TEST_EXISTING_PR_URL="https://github.com/example/repo/pull/99" MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/refused-out" 2>"$case_dir/refused-err"; then fail "unsafe $kind update passed"; fi
+      [ "$(wc -l < "$case_dir/push.log" | tr -d '[:space:]')" -eq 1 ] || fail "unsafe $kind update pushed"
+      cmp "$case_dir/prior-receipt" "$case_dir/state/task-x1.delivered" || fail "unsafe $kind update changed receipt"
+      assert_present "$case_dir/state/task-x1.ready-to-push" 'refused update lost pending evidence'
+    fi
+  done
+  pass 'existing PR revisions preserve receipts and refuse unsafe history or changed PR identity before push'
+}
+test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history

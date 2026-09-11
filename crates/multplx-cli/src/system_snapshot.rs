@@ -647,17 +647,34 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
         decisions.clear()
     }
     let open = status_rows(decisions);
-    let exists = target
+    let endpoint = target.as_deref().map(|target| {
+        multplx_backend::facade::observe_endpoint(
+            backend,
+            target,
+            Some(format!("mx-{id}")),
+            kind == "daemon",
+        )
+    });
+    let exists = endpoint
         .as_ref()
-        .map(|target| endpoint_exists(backend, target));
+        .and_then(|result| result.as_ref().ok().map(|observation| observation.exists));
+    let endpoint_detail = endpoint
+        .as_ref()
+        .map(|result| match result {
+            Ok(observation) => observation.detail.clone(),
+            Err(error) => error.to_string(),
+        })
+        .unwrap_or_default();
     let alive = if kind == "daemon" {
-        target
-            .as_deref()
-            .map(|target| agent_alive(backend, target))
-            .unwrap_or_else(|| "unknown".into())
+        endpoint
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .map(|observation| observation.agent_state.alive_token())
+            .unwrap_or("unknown")
     } else {
-        "not_checked".into()
-    };
+        "not_checked"
+    }
+    .to_owned();
     let report = paths.data.join(&id).join("report.md");
     let mut pr = fields.get("pr").filter(|v| !v.is_empty()).cloned();
     let mut pr_source = if pr.is_some() { "meta" } else { "absent" };
@@ -679,7 +696,7 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
         .cloned()
         .unwrap_or(Value::Null);
     Some(
-        json!({"id":id,"kind":kind,"harness":fields.get("harness").cloned().unwrap_or_default(),"mode":fields.get("mode").cloned().unwrap_or_default(),"yolo":fields.get("yolo").cloned().unwrap_or_default(),"project":fields.get("project").cloned().unwrap_or_default(),"backend":backend,"paths":{"meta":observed(Some(path)),"status_log":{"path":status_path,"present":status_path.is_file(),"kind":"event_history","last_event":{"state":multplx_core::classification::status_line_verb(last),"note":multplx_core::classification::status_line_note(last),"raw":last}},"worktree":observed(fields.get("worktree").map(Path::new)),"home":observed(fields.get("home").map(Path::new)),"report":observed(Some(&report))},"daemon_projects":fields.get("projects").map(|v|v.split(',').map(str::trim).filter(|v|!v.is_empty()).collect::<Vec<_>>()).unwrap_or_default(),"current_state":{"state":current_state,"source":current_source,"detail":current["detail"],"raw":current["raw"],"observed_at":generated,"freshness":"fresh"},"endpoint":{"target":target,"exists":exists,"agent_alive":alive,"status":if exists==Some(false){"absent"}else if matches!(alive.as_str(),"alive"|"dead"){alive.as_str()}else{"unknown"},"observed_at":generated,"freshness":"fresh"},"pr":{"url":pr,"source":pr_source},"hints":{"pending_decision":open.iter().any(|row|row["verb"]=="needs-decision"),"blocked_event":open.iter().any(|row|row["verb"]=="blocked"),"open_decisions":open,"scout_report_present":report.is_file(),"last_event_text":last},"actions":if kind=="daemon"{json!({"send":format!("bin/mx-send.sh mx-{id} '<request>'"),"watch":"read status/doc return channel; do not routinely mx-peek a daemon for answers","return_channel_note":"Daemon answers come back through status/doc paths after a marked mx-send request."})}else{json!({"watch":format!("bin/mx-peek.sh mx-{id}"),"steer":format!("bin/mx-send.sh mx-{id} '<instruction>'"),"return_channel_note":Value::Null})},"backlog":owned}),
+        json!({"id":id,"kind":kind,"harness":fields.get("harness").cloned().unwrap_or_default(),"mode":fields.get("mode").cloned().unwrap_or_default(),"yolo":fields.get("yolo").cloned().unwrap_or_default(),"project":fields.get("project").cloned().unwrap_or_default(),"backend":backend,"paths":{"meta":observed(Some(path)),"status_log":{"path":status_path,"present":status_path.is_file(),"kind":"event_history","last_event":{"state":multplx_core::classification::status_line_verb(last),"note":multplx_core::classification::status_line_note(last),"raw":last}},"worktree":observed(fields.get("worktree").map(Path::new)),"home":observed(fields.get("home").map(Path::new)),"report":observed(Some(&report))},"daemon_projects":fields.get("projects").map(|v|v.split(',').map(str::trim).filter(|v|!v.is_empty()).collect::<Vec<_>>()).unwrap_or_default(),"current_state":{"state":current_state,"source":current_source,"detail":current["detail"],"raw":current["raw"],"observed_at":generated,"freshness":"fresh"},"endpoint":{"detail":endpoint_detail,"target":target,"exists":exists,"agent_alive":alive,"status":if exists==Some(false){"absent"}else if matches!(alive.as_str(),"alive"|"dead"){alive.as_str()}else{"unknown"},"observed_at":generated,"freshness":"fresh"},"pr":{"url":pr,"source":pr_source},"hints":{"pending_decision":open.iter().any(|row|row["verb"]=="needs-decision"),"blocked_event":open.iter().any(|row|row["verb"]=="blocked"),"open_decisions":open,"scout_report_present":report.is_file(),"last_event_text":last},"actions":if kind=="daemon"{json!({"send":format!("bin/mx-send.sh mx-{id} '<request>'"),"watch":"read status/doc return channel; do not routinely mx-peek a daemon for answers","return_channel_note":"Daemon answers come back through status/doc paths after a marked mx-send request."})}else{json!({"watch":format!("bin/mx-peek.sh mx-{id}"),"steer":format!("bin/mx-send.sh mx-{id} '<instruction>'"),"return_channel_note":Value::Null})},"backlog":owned}),
     )
 }
 fn actor_state(paths: &Paths, id: &str) -> Value {
@@ -692,22 +709,24 @@ fn actor_state(paths: &Paths, id: &str) -> Value {
         .env("MX_CONFIG_OVERRIDE", &paths.config)
         .env("MX_PROJECTS_OVERRIDE", &paths.projects)
         .output();
-    let raw = output
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .to_owned()
-        })
-        .unwrap_or_default();
+    let raw = match output {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_owned(),
+        Ok(output) => {
+            return json!({"state":"unknown", "source":"error", "detail":String::from_utf8_lossy(&output.stderr).trim(), "raw":String::from_utf8_lossy(&output.stdout)});
+        }
+        Err(error) => {
+            return json!({"state":"unknown", "source":"error", "detail":error.to_string(), "raw":""});
+        }
+    };
     let mut state = "unknown";
     let mut source = "none";
     let mut detail = "";
     if let Some(rest) = raw.strip_prefix("state: ") {
-        let mut parts = rest.split(" · ");
+        let mut parts = rest.splitn(3, " · ");
         state = parts.next().unwrap_or("unknown");
         source = parts
             .next()
@@ -721,40 +740,6 @@ fn observed(path: Option<&Path>) -> Value {
     match path {
         Some(path) => json!({"path":path,"present":path.exists()}),
         None => json!({"path":Value::Null,"present":false}),
-    }
-}
-fn endpoint_exists(backend: &str, target: &str) -> bool {
-    backend == "tmux"
-        && Command::new("tmux")
-            .args(["display-message", "-p", "-t", target, "#{pane_id}"])
-            .output()
-            .is_ok_and(|o| o.status.success())
-}
-fn agent_alive(backend: &str, target: &str) -> String {
-    if !endpoint_exists(backend, target) {
-        return "unknown".into();
-    }
-    let output = Command::new("tmux")
-        .args([
-            "display-message",
-            "-p",
-            "-t",
-            target,
-            "#{pane_current_command}",
-        ])
-        .output()
-        .ok();
-    let command = output
-        .as_ref()
-        .map(|o| String::from_utf8_lossy(&o.stdout))
-        .unwrap_or_default();
-    if ["codex", "claude", "pi"]
-        .iter()
-        .any(|name| command.contains(name))
-    {
-        "alive".into()
-    } else {
-        "dead".into()
     }
 }
 fn daemon_home_summary(home: &Path, generated: &str, backlog: &Value, tasks: &Value) -> Value {

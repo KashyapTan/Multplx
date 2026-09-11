@@ -22,7 +22,7 @@ impl DeliveryMode {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
             "deep-review" => Some(Self::DeepReview),
             "direct-PR" => Some(Self::DirectPr),
@@ -132,6 +132,29 @@ pub fn resolve(path: &Path, name: &str) -> Resolution {
         mode,
         yolo,
         warning: None,
+    }
+}
+
+/// Resolve a launch path without confusing the broker checkout with a same-named clone.
+pub fn resolve_path(registry: &Path, projects: &Path, root: &Path, project: &Path) -> Resolution {
+    if fs::canonicalize(root).ok().as_ref() == Some(&project.to_path_buf()) {
+        return Resolution {
+            mode: DeliveryMode::DeepReview,
+            yolo: false,
+            warning: None,
+        };
+    }
+    let name = project
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if fs::canonicalize(projects.join(name)).ok().as_ref() == Some(&project.to_path_buf()) {
+        resolve(registry, name)
+    } else {
+        fallback(format!(
+            "warn: unregistered project path {}; defaulting to deep-review off",
+            project.display()
+        ))
     }
 }
 

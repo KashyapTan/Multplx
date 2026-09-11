@@ -263,6 +263,17 @@ impl AgentState {
     }
 }
 
+/// Independently observed endpoint presence and recovery liveness.
+#[derive(Debug)]
+pub struct EndpointObservation {
+    /// Whether the endpoint is present; an unreadable presence returns an error.
+    pub exists: bool,
+    /// Recovery-grade agent classification.
+    pub agent_state: AgentState,
+    /// Diagnostic for an inconclusive liveness read.
+    pub detail: String,
+}
+
 /// Semantic native task state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeState {
@@ -316,6 +327,9 @@ pub enum BackendError {
         /// Capability name.
         capability: &'static str,
     },
+    /// Exact endpoint is authoritatively absent.
+    #[error("backend target absent: {0}")]
+    Missing(String),
     /// Backend command failed.
     #[error("backend command failed: {0}")]
     Command(String),
@@ -347,6 +361,10 @@ pub trait RuntimeBackend {
     ) -> Result<BackendTarget, BackendError>;
     /// Verify exact endpoint readiness.
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError>;
+    /// Observe endpoint presence without starting a server or session.
+    fn observe_target(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
+        self.target_ready(target)
+    }
     /// Read the current endpoint path.
     fn current_path(&mut self, target: &BackendTarget) -> Result<PathBuf, BackendError>;
     /// Capture bounded plain endpoint text.
@@ -369,6 +387,10 @@ pub trait RuntimeBackend {
     fn native_state(&mut self, target: &BackendTarget) -> Result<NativeState, BackendError>;
     /// Return recovery-grade liveness.
     fn agent_state(&mut self, target: &BackendTarget) -> AgentState;
+    /// Read recovery liveness while retaining adapter failure diagnostics.
+    fn observe_agent(&mut self, target: &BackendTarget) -> Result<AgentState, BackendError> {
+        Ok(self.agent_state(target))
+    }
     /// Kill the exact endpoint and report the postcondition.
     fn kill_verified(&mut self, target: &BackendTarget) -> KillOutcome;
     /// List live endpoints.
@@ -527,6 +549,61 @@ pub fn resolve_selector(
         .next()
         .map(|item| item.target)
         .ok_or_else(|| BackendError::Metadata(format!("no window named {raw}")))
+}
+
+/// Select a runtime reader from recorded metadata, never ambient backend configuration.
+pub fn system_backend(name: BackendName) -> Box<dyn RuntimeBackend> {
+    match name {
+        BackendName::Tmux => Box::new(crate::tmux::TmuxBackend::system()),
+        BackendName::Herdr => Box::new(crate::herdr::HerdrBackend::system()),
+        BackendName::Cmux => Box::new(crate::cmux::CmuxBackend::system()),
+    }
+}
+
+/// Read exact endpoint presence and optional recovery liveness through the owning adapter.
+pub fn observe_endpoint(
+    name: &str,
+    endpoint: &str,
+    expected_label: Option<String>,
+    agent: bool,
+) -> Result<EndpointObservation, BackendError> {
+    let name = BackendName::parse(name)?;
+    let target = BackendTarget::new(name, endpoint, expected_label)?;
+    let mut backend = system_backend(name);
+    match backend.observe_target(&target) {
+        Ok(()) => {
+            let (agent_state, detail) = if agent {
+                match backend.observe_agent(&target) {
+                    Ok(state) => {
+                        let detail = match state {
+                            AgentState::Ambiguous
+                            | AgentState::Unreadable
+                            | AgentState::Unverified => format!(
+                                "{name} agent liveness for '{endpoint}' is {}",
+                                state.as_str()
+                            ),
+                            _ => String::new(),
+                        };
+                        (state, detail)
+                    }
+                    Err(error) => (AgentState::Unreadable, error.to_string()),
+                }
+            } else {
+                (AgentState::Unverified, String::new())
+            };
+            Ok(EndpointObservation {
+                exists: true,
+                agent_state,
+                detail,
+            })
+        }
+        Err(BackendError::Missing(_)) => Ok(EndpointObservation {
+            exists: false,
+            agent_state: AgentState::Missing,
+            detail: String::new(),
+        }),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]

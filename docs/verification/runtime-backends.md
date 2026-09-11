@@ -50,6 +50,39 @@ Release-path focused-suite timing used the same release binary and local APFS wo
 `tests/mx-vplan.test.sh` took 3.78 seconds through legacy and 2.65 seconds through Rust, a 29.9 percent reduction.
 No request, identity, path, token, timeout, publication, or cleanup bound was disabled.
 
+## Recorded-backend state regression
+
+The native release entry points were verified on 2026-09-10 with Rust 1.97.1 on macOS arm64 using isolated homes and fake tmux, Herdr, and cmux transports.
+The source copy and fixture temporary directory were siblings, and validation children had actor routing removed.
+
+```sh
+target/release/mx test-run --jobs 2 tests/mx-actor-state.test.sh tests/mx-doctor.test.sh tests/mx-launcher.test.sh
+```
+
+```text
+ok - recorded Herdr/cmux actor-state, doctor and snapshot paths preserve live, absent and unreadable observations
+ok - clean fixture reports every check OK and exits zero
+ok - native installer honors explicit root and home from a non-repository directory
+MX_TEST_SUMMARY total=3 failed=0 skipped_gate=0 duration_ms=44679
+```
+
+The state fixtures cover backend selection from metadata, daemon liveness projection, unsupported metadata, missing endpoints, transport failures, and malformed cmux inventories.
+The doctor fixture prevents Git discovery from escaping its synthetic non-repository root into the surrounding development checkout.
+These deterministic checks do not constitute a new live Herdr or cmux verification; the version-scoped live evidence below remains separate.
+
+Passive observation and replacement cmux surface checks were verified on 2026-09-10 with the same isolated fake transports and Rust 1.97.1:
+
+```sh
+target/release/mx test-run --jobs 2 tests/mx-actor-state.test.sh tests/mx-headroom.test.sh
+```
+
+```text
+MX_TEST_SUMMARY total=2 failed=0 skipped_gate=0 duration_ms=4195
+```
+
+The Herdr fixture rejects server starts and covers stopped-server diagnostics, capture fallback, daemon liveness, and snapshot capacity reads.
+The cmux fixture replaces the recorded surface and requires actor-state, doctor, and snapshot to resolve the same task workspace.
+
 ## tmux
 
 ### Rust Portion 04 shadow-period evidence

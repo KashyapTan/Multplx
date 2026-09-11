@@ -276,7 +276,7 @@ The `data/daemons.md` line contract is owned by the [`daemon-provisioning` skill
 `data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
 PR-based modes stop agent work at a clean local commit.
 The `deep-review` mode records an approved SHA through its gate for non-agent remote delivery.
-The `direct-PR` mode omits the full review pipeline but is currently incomplete because no approved exact-SHA transition owns its delivery handoff.
+The `direct-PR` mode uses the owned gate-free preparation and explicit approval path described in [delivery.md](delivery.md#choose-and-complete-a-delivery-mode).
 `local-only` projects stay local until broker performs an approved fast-forward merge.
 When a selected delivery path calls for a diff, the Rust-default `bin/mx-review-diff.sh` boundary refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 The gate persists private restart-safe state under `state/<id>.gate/`, including its sanitized intent, run record, findings, harness session ids, and command output.

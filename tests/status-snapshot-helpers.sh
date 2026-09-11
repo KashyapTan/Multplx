@@ -27,7 +27,12 @@ cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 [ "${FAKE_ACTOR_SLEEP:-0}" != 1 ] || case "$*" in *mx-slow*) sleep 30 ;; esac
 case "${1:-}" in
-  display-message) case "$*" in *dead-*) exit 1 ;; *) printf '%%1\n' ;; esac ;;
+  display-message)
+    case "$*" in
+      *dead-*) printf "can't find pane: fixture endpoint\n" >&2; exit 1 ;;
+      *) printf '%%1\n' ;;
+    esac
+    ;;
   capture-pane)
     case "$*" in
       *mx-domain-alpha*) printf 'stale terminal summary: Phase 7 started\n> \n' ;;
