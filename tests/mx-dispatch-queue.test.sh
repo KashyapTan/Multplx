@@ -35,11 +35,12 @@ queue_cmd() {
 test_spawn_boundary_parks_before_allocation() {
   local home="$TMP_ROOT/spawn-boundary" project="$TMP_ROOT/not-allocated" out
   mkdir -p "$home/state" "$home/config"
+  # Pin the asserted backend independently of the terminal running this test.
   out=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
     MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
     MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
-    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --mode direct-PR --yolo on) \
+    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --backend tmux --mode direct-PR --yolo on) \
     || fail "at-limit spawn boundary should return a queued outcome"
   assert_contains "$out" 'queued: parked parked until dispatch capacity is available' \
     "spawn boundary did not report the queued outcome"
