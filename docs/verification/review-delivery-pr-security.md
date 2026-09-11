@@ -29,7 +29,8 @@ Canonical legacy polls are rebuilt only from independently validated task metada
 
 Deep review preserves trusted default-branch command authority, fixed step order, actor binding, isolated fresh review and fix sessions, restart reconstruction, exact-head invalidation, structured findings, and pending approval handoff.
 
-Delivery revalidates the handoff, metadata, clean worktree, branch, exact SHA, gate or waiver, approval, and origin immediately before credentialed operations.
+For deep-review handoffs, delivery revalidates the handoff, metadata, clean worktree, branch, exact SHA, gate or waiver, approval, and origin immediately before credentialed operations.
+The current [delivery-mode instructions](../delivery.md#choose-and-complete-a-delivery-mode) also cover gate-free direct-PR handoffs.
 
 Agent ambience returns exit `3` before credentials, push, PR creation, or remote merge.
 

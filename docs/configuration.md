@@ -283,6 +283,7 @@ The optional global API budget is the nonnegative integer in `config/api-capacit
 This API signal is deliberately labeled `configured-budget`, not live provider quota.
 An unreadable local signal, malformed budget, or unaccounted configured candidate is an error rather than permission to guess.
 At limit, `bin/mx-spawn.sh` writes one private record per task under `state/.dispatch-queue/` and returns a queued outcome without allocating a worktree or endpoint.
+These spawn-created requests retain their resolved delivery mode and yolo choice when drained, even if project registry preferences change while they wait.
 The watcher checks fresh headroom on each poll and launches at most the oldest one, preserving FIFO and leaving every record untouched while capacity remains unavailable.
 Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom.sh --queue-cancel <id>` to cancel one exact task.
 

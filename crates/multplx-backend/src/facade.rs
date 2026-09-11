@@ -266,7 +266,7 @@ impl AgentState {
 /// Independently observed endpoint presence and recovery liveness.
 #[derive(Debug)]
 pub struct EndpointObservation {
-    /// Whether the endpoint presence read succeeded.
+    /// Whether the endpoint is present; an unreadable presence returns an error.
     pub exists: bool,
     /// Recovery-grade agent classification.
     pub agent_state: AgentState,
