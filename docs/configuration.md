@@ -6,7 +6,7 @@ The files and environment variables you set to operate broker.
 
 ## Orchestrator behavior
 
-The shared orchestrator behavior contract lives in [`AGENTS.md`](../AGENTS.md).
+The shared orchestrator behavior contract lives in the [dormant operating contract](../AGENTS_E.md).
 
 ## Operational home layout and state
 
@@ -14,7 +14,7 @@ This section is the single owner of the top-level operational-home layout; Rust 
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `MX_HOME` contains private operational directories.
 `data/` holds durable private system records such as the project and daemon registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and scout reports.
 `state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private daemon config-reread generations with their retry and quarantine state, and parent-owned daemon pending-reply records under `state/pending-replies/` (`multplx-domain::lifecycle::pending_reply`).
-`config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Multplx reads but changes only through the guarded exceptions maintained in `AGENTS.md`.
+`config/` holds local gitignored operating choices, and `projects/` holds the legacy managed project clones; the lean local-checkout model is owned by [A9](../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat).
 
 `multplx-domain::lifecycle::spawn` owns base task metadata, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 The producing Rust review helpers own the fields they append, `multplx-core::classification` owns status-event vocabulary, and the Rust actor-state backend owns current-state reconciliation.
@@ -22,8 +22,8 @@ Wake, watcher, and away-mode state mechanics remain with the Rust supervision ru
 
 `multplx-cli::session_start` is the single implementation owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.
-`AGENTS.md` owns the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
-Ordinary dead-direct-report recovery is owned by `stuck-actor-recovery`, while persistent-daemon recovery is owned by `daemon-provisioning`.
+The dormant contract retains ownership and reconciliation requirements without a mandatory startup interview.
+[Sub-agent recovery](../.agents/skills/subagent-recovery/SKILL.md) and [persistent operations](../.agents/skills/persistent-subagents/SKILL.md) point to the relevant CLI owners.
 
 ## Global launcher paths and activation
 
@@ -115,7 +115,7 @@ These five sentences are the single owner of the task-selector vocabulary; backe
 By default, Herdr workspaces are derived from `MX_HOME`: the primary home uses `broker`, and a daemon home marked by `.mx-daemon-home` uses `daemon-<daemon-id>`.
 The default-container spawn, list-live, and recovery paths read that label from the active home, so a daemon's own actors stay inside that daemon home's herdr space.
 The optional local `config/herdr-presentation-spaces` presence flag instead enables Herdr's default-off disposable single-task visual projection; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns its behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
-The flag is default-off and inherited into daemon homes under the primary-authoritative contract owned by [`daemon-provisioning`](../.agents/skills/daemon-provisioning/SKILL.md).
+The flag is default-off and inherited into daemon homes under the primary-authoritative contract owned by [inherited configuration](configuration.md#persistent-home-inheritance).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
 cmux has no session layer at all - one workspace per task, in whatever cmux window is open - and its socket password (when configured) is read from local, gitignored `config/cmux-socket-password` under the effective config directory, never committed.
@@ -160,7 +160,7 @@ Portable shard evidence and coverage rules are in [mx-test-portable-shards.md](m
 Domain-local preferences for one maintainer's system live locally in each home's `data/maintainer.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/daemons.md`.
 Before changing it, inspect the current file and rewrite or prune the matching bullet in place; add a new bullet only for a genuinely new durable preference.
 Shared maintainer preferences that apply across daemon domains live only in the primary home's optional `data/maintainer-shared.md`.
-`daemon-provisioning` owns its propagation contract, including the required header, read-only daemon copies, quarantine diagnostics, and the rollout rule that existing homes trim `data/maintainer.md` by hand after first propagation rather than deleting private content automatically.
+The persistent-home inheritance section below owns propagation; the parent-authoritative shared preference header and read-only child copies prevent accidental reverse synchronization.
 
 ## Operational learnings (data/learnings.md)
 
@@ -171,7 +171,13 @@ There is no shared learnings file by maintainer decision.
 ## Daemon routes (data/daemons.md)
 
 Persistent daemon routes live locally in `data/daemons.md`.
-The concise single-line route contract is owned by the [`daemon-provisioning` skill](../.agents/skills/daemon-provisioning/SKILL.md#routing-table), including the parser-compatible fields, one-sentence summary requirement, `home:` pointer to the seeded charter, and limit on extra registry prose.
+The existing parser accepts one route per line:
+
+```text
+- <id> - <charter summary> (home: <absolute-home-path>; scope: <responsibility>; projects: <project-a>, <project-b>; added <date>)
+```
+
+Keep the route concise; `home:` locates the seeded charter and `projects:` is non-exclusive provisioning data.
 `mx-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
 The main broker routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
 Use `mx-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh broker worktree for the daemon home.
@@ -224,7 +230,7 @@ When the harness token is absent or `default`, daemon launch falls back through 
 An explicit harness argument to `mx-spawn.sh` still overrides either config file for that spawn only.
 An explicit `--model` or `--effort` overrides the matching token from `config/daemon-harness`; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
 When `config/actor-dispatch.json` exists, actor and scout spawns require an explicit resolved harness instead of automatically falling back to `config/actor-harness`.
-The inherited-local-material contract is owned by [`daemon-provisioning`](../.agents/skills/daemon-provisioning/SKILL.md); its harness-relevant consequence is that a daemon's own actors use the primary's dispatch profiles and static harness value.
+The inherited-local-material contract is owned by [inherited configuration](configuration.md#persistent-home-inheritance); its harness-relevant consequence is that a daemon's own actors use the primary's dispatch profiles and static harness value.
 Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit verified harness outside the config.
 `config/daemon-harness` is not inherited because daemons do not launch daemons.
 For Pi daemon launches, `mx-spawn.sh` starts Pi with `-e` pointed at the daemon home's own tracked `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, both already present from the daemon home's git worktree.
@@ -236,11 +242,11 @@ Cursor deep-review is deliberately unsupported because schema enforcement and pr
 ## Actors dispatch profiles (config/actor-dispatch.json)
 
 `config/actor-dispatch.json` is an optional local, gitignored file containing natural-language rules that broker reads before dispatching an actor or scout.
-The lifecycle runtime does not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
+The lifecycle runtime does not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array using available capacity and task requirements, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
 When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit verified harness through `--harness` or the positional adapter form.
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Daemon spawns are exempt and still resolve through `config/daemon-harness` and its optional model and effort tokens.
-This section is the single owner of the canonical schema and its per-field semantics; `AGENTS.md` section 4 owns the dispatch and array-selection procedure.
+This section is the single owner of the canonical schema and its per-field semantics; the orchestrator selects concrete dispatch values without a fixed model-selection playbook.
 
 ```json
 {
@@ -328,7 +334,7 @@ If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_
 The same bootstrap run emits `DAEMON_LIVENESS:` only when a registered daemon is skipped or its relaunch fails; already-live and successfully relaunched daemons are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/mx-config-push.sh`.
 It uses the same live daemon discovery and propagation helper as bootstrap, prints each live home's `actor-dispatch.json`, `actor-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/maintainer-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
-When an allowlisted config item changes for an already-running home, it sends the literal-content reread pointer described in [`daemon-provisioning`](../.agents/skills/daemon-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
+When an allowlisted config item changes for an already-running home, it sends the literal-content reread pointer described in [inherited configuration](configuration.md#persistent-home-inheritance); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 The locked bootstrap inheritance pass uses the same per-home changed-set and reread path for already-running homes; see `daemon-provisioning` for the single contract owner.
 That live discovery starts from `state/*.meta` records with `kind=daemon`; `data/daemons.md` only backfills `home=` for older or incomplete meta records.
 Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
@@ -446,3 +452,19 @@ Only after those retries exhaust does it remove the lock, and only when it is pr
 A live lock, a missing `lsof`, any failed check, or any other fetch failure keeps today's behavior.
 Every wait, retry, and removal is printed to stderr, and a successful recovery also prints one `recovered:` summary line to stdout so a session-start refresh - which discards system-sync stderr and relays only stdout - still surfaces it.
 The shared staleness proof lives in `multplx-core`; the Rust teardown and system-sync lifecycle paths use that one fail-closed proof.
+
+## Persistent-home inheritance
+
+The [inheritance module](../crates/multplx-domain/src/inheritance.rs) owns the allowlist, byte validation, per-home lock and generation publication.
+The current allowlist contains `config/actor-dispatch.json`, `config/actor-harness`, `config/backlog-backend`, `config/herdr-presentation-spaces` and `data/maintainer-shared.md`.
+`config/daemon-harness` and `data/learnings.md` remain home-local.
+An inherited literal `default` harness resolves against the child's own harness, not the parent's effective choice.
+Shared preference copies are read-only in children; divergent bytes are quarantined before replacement and are never copied back to the parent.
+Missing source material converges to absence through the same owner; unsafe links and nonordinary files are rejected.
+Config changes publish bounded private generations containing the exact destination bytes or `ABSENT`, and send only a routed pointer.
+Pending generations survive failed publication or send; unchanged configuration causes no new message unless delivery is pending.
+Relaunch supersedes old pending rereads because the new execution reads configuration afresh; failed cleanup is quarantined.
+A delivered pointer is transport evidence, not proof of model acknowledgement.
+The guarded local tracked-file fast-forward is separate and does not fetch or modify private task state.
+Use `bin/mx-config-push.sh --help` for mid-session convergence and the existing update command for origin refresh.
+The optional [persistent operations reference](../.agents/skills/persistent-subagents/SKILL.md) provides command discovery.

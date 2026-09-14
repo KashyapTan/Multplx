@@ -4,6 +4,7 @@ Multplx is a Rust CLI and coordination runtime for an orchestrator and its sub-a
 The repository is being redesigned to reduce prescriptive agent policy while preserving durable coordination.
 Read [porting.md](porting.md) for the accepted direction and [plans/lean_redesign](plans/lean_redesign/index.html) for the implementation phases.
 Those documents describe the target; existing code still implements parts of the older operating model.
+Phase 01 supplies lean instruction scaffolds and optional operational references; validated identity, runtime freedoms and release activation remain with their later-phase owners.
 
 ## This checkout
 

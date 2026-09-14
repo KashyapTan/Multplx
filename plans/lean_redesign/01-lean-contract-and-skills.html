@@ -73,11 +73,12 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 01 · Multplx</div>
 <h1>Lean Contract and Operational Skills</h1>
 <p class="subtitle">Replace the mandatory engineering playbooks with a short operating contract, concise task instructions and practical CLI references.</p>
-<div class="badges"><span class="badge phase">Phase 01 of 12</span><span class="badge effort">Effort: Medium</span><span class="badge risk">Risk: Medium</span><span class="badge status">Revised · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 01 of 12</span><span class="badge effort">Effort: Medium</span><span class="badge risk">Risk: Medium</span><span class="badge status">Complete · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is implemented and verified under the scaffold boundary clarified below; the combined runtime is not yet a release.</p></div>
 <p><b>Dependencies:</b> Baseline repository review.</p>
+<div class="callout"><div class="label">Accepted implementation boundary · 2026-09-14</div><p>The user directed: “Validate scaffolding now; defer runtime checks to their owning phases.” Phase 01 verifies concise assignment prompts, existing task/report binding, verbatim supplied context and compatible charter consumption. Phase 02 validates canonical attempt/brief/project identity, Phase 03 implements worktrees, Phase 04 implements durable handling, Phase 05 implements coordinator spawn and parent relays, and Phase 11 implements discovery and entry. No placeholder or authored context is claimed as validated runtime state.</p><p>Skills and templates were assessed for usefulness and excessive narrowness, not removed merely to reduce size. <a href="phase01-implementation.md">The evidence record</a> includes every disposition and the retained operational value.</p></div>
 <h2>Overview</h2>
 <p>The old root contract prescribes who may code, how bugs must be investigated, when workers stop, how findings are answered and how every response is phrased. Removing skill files alone would leave those rules in generated briefs and other instruction surfaces. This phase removes the policy at its actual prompt sources.</p>
 <h2>Owned source slice</h2>
@@ -121,7 +122,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>tests/mx-ask-user-authority.test.sh, tests/mx-maintainer-translation-contract.test.sh and tests/mx-decision-hold-lifecycle.test.sh: separate intentionally removed policy assertions from retained durable-decision mechanics.</li>
 <li>tests/mx-stow-contract.test.sh and tests/mx-documentation-audiences.test.sh: remove forced delivery/routing ceremony and verify retained references.</li>
 <li>Inspect a generated ordinary brief, report assignment and persistent assignment. None should prescribe a coding/review method or call a removed skill.</li>
-<li>Generated research, implementation and review briefs preserve original artifact pointers and current task/attempt/brief binding without mandating research or review for every change.</li>
+<li>Generated research, implementation and review briefs preserve original artifact pointers and supplied task/attempt/brief context without mandating research or review for every change; canonical current-binding validation is the Phase 02 integration check under the clarified boundary.</li>
 <li>Inspect intake and brief examples for three repositories in one chat: explicit repo identities survive handoff without loading every repository contract into the orchestrator.</li>
 <li>Fresh prompts never require a dev-folder cwd or an external Treehouse installation.</li>
 <li>Fresh root and child coordinator briefs identify their scope, parent route and delegated coding boundary without requiring a new planning/review ceremony.</li>
@@ -134,14 +135,25 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>All 17 internal skills have the disposition specified in porting.md; retained skills teach operations.</li>
 <li>Briefs and retained instructions contain no hidden mandatory review or credentialed-delivery procedure.</li>
 <li>No root AGENTS.md is recreated in the development checkout.</li>
-<li>Fresh instructions discover A1-A11 through the guide, preserve the main no-coding boundary and describe the actual implemented CLI rather than optional recommendations.</li>
+<li>Fresh instructions discover A1-A11 through the guide, preserve the main no-coding boundary and distinguish actual implemented CLI grammar from later-phase interfaces.</li>
 <li>Fresh instructions describe one shared chat, nested dev-root discovery and local reuse without turning project selection into a new role or approval gate.</li>
 <li>Fresh prompts never require a dev-folder cwd or an external Treehouse installation.</li>
 <li>The assigned A11 foundation and focused interface checks pass; Phase 05 owns end-to-end coordinator integration, avoiding a circular dependency.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Prompt changes alone do not unlock the old runtime. Keep this phase on the development branch and do not advertise it as a working release before Phases 02-12 implement and verify the matching behavior, including MX Viz.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<p><b>Status: complete for Phase 01, 2026-09-14.</b> Implementation is based on planning revision <code>2d19cb2</code>; Git history and the Phase 01 pull request identify the delivery revision. No release activation is claimed. <a href="phase01-implementation.md">Detailed source inventory, skill assessment, exact commands, results, measurements and limitations</a>.</p>
+<ul>
+<li>Dormant root contract reduced from 498 lines / 52,979 bytes to 82 lines / 6,583 bytes; ordinary implementation scaffold from 4,727 to 2,359 bytes. Useful assignment, status, isolation, parent routing and optional-tool constraints remain.</li>
+<li>All 17 skill dispositions applied: 11 operational references remain after consolidation. Public stow and Claude skill discovery are preserved; current owner links, Cursor instructions and Document-step guidance resolve.</li>
+<li>Brief help adds <code>--review</code> and <code>--context-file</code>, retains legacy resolution and rejects ambiguous input or overwrite. Charter consumers accept new and legacy project headings without accepting conflicting sections. Workflow prompt changes preserve runtime stage enforcement.</li>
+<li><code>cargo build --release --workspace --locked</code>, <code>cargo fmt --all -- --check</code>, <code>cargo clippy --locked --workspace --all-targets --all-features -- -D warnings</code>, and <code>cargo test --locked --workspace</code> passed; 463 Rust tests passed.</li>
+<li><code>target/release/mx test-run --check-coverage</code> passed: 127 scripts classified. All seven assigned suites and thirteen adjacent/follow-up suites passed without gate skips, including full legacy decision and persistent-home retention checks. The final complete pre-PR run of <code>target/release/mx test-run --all --jobs auto</code> passed: <code>total=127 failed=0 skipped_gate=8 duration_ms=287024</code>; existing environment gates and the four corrected initial failures are recorded in the detailed evidence.</li>
+<li>Final eight-suite rerun: <code>target/release/mx test-run tests/mx-brief.test.sh tests/mx-instruction-owners.test.sh tests/mx-ask-user-authority.test.sh tests/mx-maintainer-translation-contract.test.sh tests/mx-decision-hold-lifecycle.test.sh tests/mx-stow-contract.test.sh tests/mx-documentation-audiences.test.sh tests/mx-workflow.test.sh --jobs auto</code> returned <code>total=8 failed=0 skipped_gate=0</code>.</li>
+<li><code>target/release/mx doc-audience-check</code> passed: <code>surfaces=74 local_links=368</code>; <code>git diff --check</code> passed. Root <code>AGENTS.md</code> remains absent.</li>
+</ul>
+<p>Focused integration evidence uses isolated filesystem/Git fixtures and mocked harness, forge and legacy worktree-provider operations. The full pre-PR regression additionally exercised real Herdr 0.7.4 and Treehouse in named-session labs with the default-session tripwire intact and stub model harnesses. No live model, forge publication, human merge, Linux trial or packaged activation is claimed. Phase 12 still owns full regression against the combined release tree and the remaining live matrix. The source inventory records later-phase runtime fences explicitly; no Phase 01 requirement remains unresolved under the user's clarification.</p>
+<p><b>Next phase:</b> Phase 02 is ready to begin with canonical identity/schema work; the redesigned product is not ready for operational deployment.</p>
 <nav class="footer-nav"><a href="index.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="02-unified-subagent-model.html">Next →</a></nav>
 </main>
 </body>

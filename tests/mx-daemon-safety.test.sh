@@ -73,21 +73,21 @@ test_mx_home_parameterization() {
   MX_HOME="$home_one" "$ROOT/bin/mx-brief.sh" task-a app >/dev/null || fail "brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-a/brief.md"
   [ -f "$brief" ] || fail "brief was not written under MX_HOME/data"
-  grep -F "$ROOT/bin/mx-report --id task-a" "$brief" >/dev/null || fail "brief did not name the validated task-bound reporter"
-  grep -F "Never write to \`'$home_one/state/task-a.status'\` by hand." "$brief" >/dev/null \
+  grep -F "$ROOT/bin/mx-report' --id task-a" "$brief" >/dev/null || fail "brief did not name the validated task-bound reporter"
+  grep -F "Never write to \`$home_one/state/task-a.status\` by hand." "$brief" >/dev/null \
     || fail "brief did not forbid direct writes to the shell-quoted MX_HOME status path"
 
   MX_HOME="$home_one" "$ROOT/bin/mx-brief.sh" task-b app --scout >/dev/null || fail "scout brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-b/brief.md"
-  grep -F "$ROOT/bin/mx-report --id task-b" "$brief" >/dev/null || fail "scout brief did not name the validated task-bound reporter"
-  grep -F "Never write to \`'$home_one/state/task-b.status'\` by hand." "$brief" >/dev/null \
+  grep -F "$ROOT/bin/mx-report' --id task-b" "$brief" >/dev/null || fail "scout brief did not name the validated task-bound reporter"
+  grep -F "Never write to \`$home_one/state/task-b.status\` by hand." "$brief" >/dev/null \
     || fail "scout brief did not forbid direct writes to the shell-quoted MX_HOME status path"
 
   MX_HOME="$home_one" MX_DAEMON_CHARTER='ops domain' "$ROOT/bin/mx-brief.sh" task-c --daemon app >/dev/null \
     || fail "daemon brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-c/brief.md"
-  grep -F "$ROOT/bin/mx-report --id task-c" "$brief" >/dev/null || fail "daemon brief did not name the validated task-bound reporter"
-  grep -F "Never write to \`'$home_one/state/task-c.status'\` by hand." "$brief" >/dev/null \
+  grep -F "$ROOT/bin/mx-report' --id task-c" "$brief" >/dev/null || fail "daemon brief did not name the validated task-bound reporter"
+  grep -F "Never write to \`$home_one/state/task-c.status\` by hand." "$brief" >/dev/null \
     || fail "daemon brief did not forbid direct writes to the shell-quoted MX_HOME status path"
 
   printf 'project=x\n' > "$home_one/state/task-a.meta"
@@ -2127,29 +2127,15 @@ EOF
 }
 
 test_daemon_charter_brief_is_idle_by_default() {
-  local home brief
-  home="$TMP_ROOT/idle-charter-home"
+  local home="$TMP_ROOT/idle-charter-home" brief
   mkdir -p "$home/data" "$home/state"
   scaffold_daemon_charter "$home" idle-sm 'feature work for alpha' alpha
   brief="$home/data/idle-sm/brief.md"
-  [ -f "$brief" ] || fail "daemon charter brief was not scaffolded"
-  # Idle contract: waits for routed work, never self-initiates.
-  grep -F 'go idle and wait silently for the main broker' "$brief" >/dev/null \
-    || fail "charter brief does not tell the daemon to go idle and wait for routed work"
-  grep -F 'Act only on tasks the main broker routes to you' "$brief" >/dev/null \
-    || fail "charter brief does not restrict work to routed tasks"
-  grep -F 'never spawn a survey, audit, or any self-directed' "$brief" >/dev/null \
-    || fail "charter brief does not forbid self-initiated survey/audit work"
-  # Reconcile-on-startup must remain: bootstrap and recovery still run, scoped to own work.
-  grep -F 'run normal broker bootstrap and recovery' "$brief" >/dev/null \
-    || fail "charter brief dropped the bootstrap/recovery reconciliation step"
-  grep -F 'only to RECONCILE work that is already yours' "$brief" >/dev/null \
-    || fail "charter brief does not scope startup work to reconciling existing work"
-  # Regression guard: the over-broad phrasing that got misread as "go find work" is gone.
-  if grep -F 'then supervise work that matches your scope' "$brief" >/dev/null; then
-    fail "charter brief still uses the over-broad 'supervise work that matches your scope' phrasing"
-  fi
-  pass "daemon charter brief is idle by default and does not self-initiate work"
+  assert_grep 'empty queue means idle, not invented work or retirement' "$brief" 'empty queue initiates work or retires the home'
+  assert_grep "Reconcile your home's recorded children and pending work on restart" "$brief" 'restart loses scoped reconciliation'
+  assert_grep 'one bounded assignment' "$brief" 'coordinator scope missing'
+  assert_grep 'Delegate project implementation, code fixes and test-code changes' "$brief" 'coordinator codes directly'
+  pass 'persistent coordinator remains scoped and idle by default while preserving restart work'
 }
 
 test_backlog_handoff_aborts_safely() {

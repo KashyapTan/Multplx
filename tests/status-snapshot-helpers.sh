@@ -1859,33 +1859,15 @@ EOF
   pass "main and daemon maintainer actionability use the same blocker readiness"
 }
 
-# The /catchup skill is the one owner of the four-section chat-response contract.
-# Assert it states exactly the four fixed sections in order, each with its explicit
-# empty-state sentence, documents the At Anchor exclusion, and mandates a chat that is
-# materially shorter than and links to the report file.
+# Presentation is flexible; retain truthful structured facts and read-only retrieval.
 test_chat_contract_four_sections() {
-  local skill body headings report_headings expected
-  skill="$ROOT/.agents/skills/catchup/SKILL.md"
-  [ -f "$skill" ] || fail "catchup SKILL.md missing at $skill"
-  body=$(awk '/^## Chat-response contract$/{capture=1; next} capture && /^## /{exit} capture' "$skill")
-  headings=$(printf '%s\n' "$body" | sed -nE "s/^[0-9]+\. \*\*([^*]+)\*\*.*/\1/p")
-  expected=$(printf '%s\n' "Maintainer's Call" "Recently Landed" "Underway" "Charted Next")
-  [ "$headings" = "$expected" ] || fail "chat contract must contain exactly four numbered sections in fixed order, got: $headings"
-  assert_contains "$body" "Nothing needs your action right now" "Maintainer's Call empty-state sentence"
-  assert_contains "$body" "No recent completions are in the current baseline" "Recently Landed empty-state sentence"
-  assert_contains "$body" "Nothing is underway" "Underway empty-state sentence"
-  assert_contains "$body" "Nothing is queued" "Charted Next empty-state sentence"
-  report_headings=$(sed -nE 's/^   - \*\*(Maintainer.s Call|Recently Landed|Underway|Charted Next)\*\*.*/\1/p' "$skill")
-  [ "$report_headings" = "$expected" ] || fail "detailed report contract must contain the same four complete sections, got: $report_headings"
-  grep -Eq 'since the (prior|last) report|Nothing has landed since|unchanged delta' "$skill" \
-    && fail "catchup contract still contains prior-report delta wording"
-  # shellcheck disable=SC2016 # Backticks are literal Markdown in the expected text.
-  assert_contains "$(cat "$skill")" 'Never read an earlier `data/status-report-*.md`' "prior reports must not influence current output"
-  assert_contains "$(cat "$skill")" "bounded current recent-completions baseline" "Recently Landed must be a current baseline"
-  assert_contains "$body" "no At Anchor section" "the At Anchor exclusion must be documented"
-  assert_contains "$body" "materially shorter" "the chat must be materially shorter than the report file"
-  assert_contains "$body" "links to" "the chat must link to the report file"
-  pass "the /catchup skill states the four-section chat contract in order, with empty-states and the At Anchor exclusion"
+  local skill="$ROOT/.agents/skills/catchup/SKILL.md"
+  assert_grep 'bounded current state' "$skill" 'catchup must retrieve current facts'
+  assert_grep 'observation age, omissions, partial homes and unknown states' "$skill" 'catchup hides uncertainty'
+  assert_grep 'does not mutate task state' "$skill" 'reporting gains mutation side effects'
+  assert_grep 'Optionally save the report' "$skill" 'mandatory report artifact retained'
+  assert_no_grep 'EXACTLY these four sections' "$skill" 'fixed response script retained'
+  pass "catchup preserves structured current-state truth without a fixed four-section script"
 }
 
 case "${MX_TEST_CASE_GROUP:-all}" in

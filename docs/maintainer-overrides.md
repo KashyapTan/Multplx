@@ -1,7 +1,7 @@
 # Maintainer-scoped exceptions
 
 This document is the human-facing owner for exact, single-use maintainer exceptions.
-The semantic procedure lives in [the maintainer-override skill](../.agents/skills/maintainer-override/SKILL.md), while `multplx-domain::maintainer_override` owns the executable schema, registry, validation, locking, and transitions.
+The universal agent procedure was retired in lean Phase 01; legacy records and commands remain until their owning delivery/migration phases, while `multplx-domain::maintainer_override` owns the executable schema, registry, validation, locking, and transitions.
 `bin/mx-maintainer-override-lib.sh` remains the sourced-function adapter for callers that require the shell ABI.
 
 ## Invariant

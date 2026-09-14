@@ -122,8 +122,10 @@ test_tracked_harness_registration() {
     "Cursor sessionStart hook does not invoke the native adapter"
   jq -e '.hooks.sessionStart[0].failClosed == true' "$ROOT/.cursor/hooks.json" >/dev/null \
     || fail "Cursor sessionStart hook is not configured fail-closed"
-  grep -F 'bin/mx-session-start.sh' "$ROOT/.cursor/rules/multplx.mdc" >/dev/null \
-    || fail "Cursor always-applied rule does not retain the idempotent startup owner"
+  grep -F 'Read `CLAUDE.md`' "$ROOT/.cursor/rules/multplx.mdc" >/dev/null \
+    || fail "Cursor always-applied rule does not route to checkout restrictions"
+  grep -F 'Do not run Multplx operational session start in this development checkout.' "$ROOT/.cursor/rules/multplx.mdc" >/dev/null \
+    || fail "Cursor always-applied rule does not preserve dormant checkout startup restrictions"
 
   pi_plugin=$(cat "$ROOT/.pi/extensions/mx-primary-turnend-guard.ts")
   assert_contains "$pi_plugin" '["startup", "new", "resume"]' "Pi SessionStart handler has the wrong reason allowlist"

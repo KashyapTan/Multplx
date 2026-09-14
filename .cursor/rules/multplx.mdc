@@ -1,9 +1,10 @@
 ---
-description: Multplx broker operating contract for Cursor CLI
+description: Multplx contributor context for Cursor CLI
 alwaysApply: true
 ---
 
-Read root `AGENTS.md` and `CLAUDE.md` before changing the broker contract or shared tracked material.
-The primary broker dispatches through Multplx and never through Cursor subagents, background agents, or Cursor-owned worktrees.
-Keep Cursor sandboxing enabled; never use `--force`, `--yolo`, or `--sandbox disabled` for routine work.
-Run `bin/mx-session-start.sh` exactly once at session start when the tracked session hook instructs it.
+Read `CLAUDE.md` for checkout restrictions and the accepted redesign direction.
+`AGENTS_E.md` is dormant product source; do not load it as an operating role or recreate root `AGENTS.md` during development.
+Keep Cursor sandboxing enabled and use the assigned isolated checkout.
+The lean target permits nested delegation; Phase 04 replaces the legacy runtime delegation guard.
+Do not run Multplx operational session start in this development checkout.

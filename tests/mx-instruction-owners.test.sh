@@ -1,339 +1,41 @@
 #!/usr/bin/env bash
-# Static contract tests for conditional instruction owners introduced before the
-# root broker-contract reduction pass.
+# Phase 01 instruction ownership and skill-discovery contract.
 # shellcheck disable=SC2016
 set -u
-
-# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-
-DIAG="$ROOT/.agents/skills/diagnostic-reasoning/SKILL.md"
-PROJECT="$ROOT/.agents/skills/project-management/SKILL.md"
-HARNESS="$ROOT/.agents/skills/harness-adapters/SKILL.md"
-CODING="$ROOT/.agents/skills/multplx-coding-guidelines/SKILL.md"
-RECOVERY="$ROOT/.agents/skills/stuck-actor-recovery/SKILL.md"
-DAEMON="$ROOT/.agents/skills/daemon-provisioning/SKILL.md"
-CONFIG="$ROOT/docs/configuration.md"
-AGENTS="$ROOT/AGENTS.md"
-BRIEF="$ROOT/bin/mx-brief.sh"
-BOOTSTRAP="$ROOT/bin/mx-bootstrap.sh"
-BOOTSTRAP_DIAGNOSTICS="$ROOT/.agents/skills/bootstrap-diagnostics/SKILL.md"
-CREATE_WORKFLOW="$ROOT/.agents/skills/create-workflow/SKILL.md"
-PRIMARY_SCOPE="$ROOT/bin/mx-primary-scope-lib.sh"
-CODEX_HOOKS="$ROOT/.codex/hooks.json"
-CLAUDE="$ROOT/CLAUDE.md"
-RUST_PORT="$ROOT/plans/rust_port/PORTING.md"
-CURSOR_RULE="$ROOT/.cursor/rules/multplx.mdc"
-
-test_active_agents_contract_path() {
-  assert_present "$AGENTS" "root AGENTS.md contract is missing"
-  [ ! -e "$ROOT/AGENTS-PORTING.md" ] \
-    || fail "temporary AGENTS-PORTING.md survived final restoration"
-  assert_grep 'Shared tracked material is `AGENTS.md`' "$AGENTS" \
-    "active contract does not own the standard root filename"
-  assert_grep 'The Cargo workspace builds one release `mx` multicall binary' "$CLAUDE" \
-    "contributor guidance does not describe the production runtime"
-  assert_grep 'Treat `AGENTS-PORTING.md` as dormant product source to inspect and edit, not as active instructions' "$RUST_PORT" \
-    "authoritative Rust plan does not distinguish product source from active instructions"
-  assert_grep 'Read root `AGENTS.md` and `CLAUDE.md`' "$CURSOR_RULE" \
-    "Cursor guidance does not load the restored contract"
-  for detector in "$PRIMARY_SCOPE" "$CODEX_HOOKS"; do
-    assert_grep 'AGENTS.md' "$detector" "production auto-discovery no longer requires the standard root filename"
-    assert_no_grep 'AGENTS-PORTING.md' "$detector" "production auto-discovery accepts the temporary port filename"
+AGENTS="$ROOT/AGENTS_E.md"
+assert_absent "$ROOT/AGENTS.md" 'development contract must remain dormant'
+assert_grep 'Delegate project implementation, code fixes and test-code changes' "$AGENTS" 'orchestrator boundary lost'
+assert_grep 'Any agent may delegate' "$AGENTS" 'nested delegation missing'
+assert_grep 'A1-A11' "$AGENTS" 'shared architecture discovery lost'
+assert_grep 'Discovery roots are optional' "$AGENTS" 'launch narrowed to dev root'
+assert_grep 'three repositories creates three scoped tasks in the same chat' "$AGENTS" 'multi-repo intake missing'
+assert_grep 'starting revision' "$AGENTS" 'checkout binding omitted'
+assert_grep 'built-in worktree manager' "$AGENTS" 'allocation owner omitted'
+assert_grep 'recorded parent route' "$AGENTS" 'coordinator parent omitted'
+assert_grep 'lock-refused session' "$AGENTS" 'single writer boundary lost'
+assert_grep 'A status line is a wake event, not current state' "$AGENTS" 'event/state distinction lost'
+assert_grep 'Retain uncommitted, unlanded or uncertain work' "$AGENTS" 'recovery loses work'
+assert_grep 'Operational message markers' "$AGENTS" 'message framing omitted'
+assert_grep 'Only humans merge PRs' "$AGENTS" 'human merge boundary lost'
+assert_grep 'Deep-review and vplan are opt-in' "$AGENTS" 'optional tools became default'
+[ "$(readlink "$ROOT/.claude/skills")" = ../.agents/skills ] || fail 'Claude skill discovery broken'
+for removed in multplx-coding-guidelines diagnostic-reasoning ask-user-authority maintainer-override decision-hold-lifecycle bootstrap-diagnostics stuck-actor-recovery daemon-provisioning; do
+  assert_absent "$ROOT/.agents/skills/$removed" 'retired skill still discoverable'
+done
+for kept in harness-adapters subagent-recovery persistent-subagents project-management create-workflow afk catchup recap stow updatemultplx multplx-codexapp; do
+  file="$ROOT/.agents/skills/$kept/SKILL.md"
+  assert_present "$file" 'retained operational skill missing'
+  assert_grep "name: $kept" "$file" 'skill name mismatched'
+  assert_grep 'internal: true' "$file" 'internal skill exposed to standalone installer'
+  assert_grep "\`$kept\`" "$AGENTS" 'skill not discoverable from contract'
+  for removed in diagnostic-reasoning ask-user-authority maintainer-override decision-hold-lifecycle multplx-coding-guidelines; do
+    assert_no_grep "$removed" "$file" 'removed procedure reintroduced through retained skill'
   done
-  pass "AGENTS.md is the sole active root broker-contract filename"
-}
-
-test_new_skill_metadata_and_triggers() {
-  local skill name count
-  for pair in "diagnostic-reasoning:$DIAG" "project-management:$PROJECT"; do
-    name=${pair%%:*}
-    skill=${pair#*:}
-    assert_present "$skill" "$name skill is missing"
-    assert_grep "name: $name" "$skill" "$name skill metadata has the wrong name"
-    assert_grep "user-invocable: false" "$skill" "$name skill must not be user-invocable"
-    assert_grep "  internal: true" "$skill" "$name skill must be internal"
-    count=$(grep -Fc -- "- \`$name\` -" "$AGENTS")
-    [ "$count" -eq 1 ] || fail "$name must have exactly one AGENTS.md trigger entry, found $count"
-  done
-  assert_grep 'Use before scoping a reported bug and before acting on a diagnostic report.' "$DIAG" \
-    "diagnostic skill metadata lost its precise load trigger"
-  assert_grep '`diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.' "$AGENTS" \
-    "AGENTS.md lost the diagnostic-reasoning trigger"
-  assert_grep 'Use before adding, creating, or removing a project.' "$PROJECT" \
-    "project-management skill metadata lost its precise load trigger"
-  assert_grep '`project-management` - load before adding, creating, or removing a project.' "$AGENTS" \
-    "AGENTS.md lost the project-management trigger"
-  pass "new internal skills have one precise AGENTS.md trigger each"
-}
-
-test_diagnostic_owner_covers_causal_procedure() {
-  assert_grep "single owner of Multplx's bug-diagnosis reasoning procedure" "$DIAG" \
-    "diagnostic skill does not declare ownership"
-  for phrase in \
-    "end-to-end reproduction aligned with the real user path" \
-    "initiating trigger" \
-    "masking condition" \
-    "visible symptom" \
-    "proven path" \
-    "relevant history" \
-    "smallest counterfactual" \
-    "disconfirming evidence"; do
-    assert_grep "$phrase" "$DIAG" "diagnostic owner is missing '$phrase'"
-  done
-  assert_grep "evidence, not authorization to change code" "$DIAG" \
-    "diagnostic owner lost the diagnosis-only authority boundary"
-  pass "diagnostic-reasoning owns the approved evidence procedure"
-}
-
-test_project_management_owner_covers_guarded_operations() {
-  assert_grep "single owner of Multplx's project-management procedure" "$PROJECT" \
-    "project-management skill does not declare ownership"
-  for phrase in \
-    'bin/mx-project-mode.sh' \
-    '`deep-review`' \
-    '`direct-PR`' \
-    '`local-only`' \
-    'Default it off' \
-    'Creating a GitHub repository is outward-facing.' \
-    "maintainer's explicit consent" \
-    'Never issue a raw removal command from Multplx.' \
-    'needs no per-project initialization'; do
-    assert_grep "$phrase" "$PROJECT" "project-management owner is missing '$phrase'"
-  done
-  pass "project-management owns registry, delivery posture, consent, validation readiness, and removal safety"
-}
-
-test_generic_effort_fallback_respects_precedence() {
-  local section
-  section=$(awk '
-    /^Effort precedence is / { found = 1 }
-    found && /^The supported launch-profile flags / { exit }
-    found { print }
-  ' "$HARNESS")
-  assert_contains "$section" "explicit per-task maintainer instruction first" \
-    "effort rubric lost per-task maintainer precedence"
-  assert_contains "$section" "standing dispatch profile or daemon pin" \
-    "effort rubric lost standing configuration precedence"
-  assert_contains "$section" 'Use `low` for well-understood work' \
-    "effort rubric lost its low fallback"
-  assert_contains "$section" '`xhigh` for ambiguous investigation or design' \
-    "effort rubric lost its xhigh fallback"
-  assert_contains "$section" "Choose intermediate levels proportionally" \
-    "effort rubric lost proportional intermediate levels"
-  assert_contains "$section" 'Never select `max` from this fallback' \
-    "effort rubric permits max without an explicit maintainer preference"
-  if printf '%s\n' "$section" | grep -qi sol; then
-    fail "generic effort fallback must not contain Sol-specific policy"
-  fi
-  pass "generic effort fallback applies only below maintainer and standing configuration"
-}
-
-test_agent_owned_capacity_array_dispatch_contract() {
-  local phrase
-  for phrase in \
-    'The broker alone resolves a matched profile array' \
-    'run `bin/mx-headroom.sh --json` at that intake' \
-    'evaluate every configured candidate against the composite local-resource and configured API-budget output' \
-    'choose the candidate with the most real headroom' \
-    'if any harness/model/provider relationship, configured capacity data, or interpretation cannot be established, stop and report that candidate' \
-    'instead of omitting it, guessing, falling back, or calling the result capacity-informed' \
-    'Preserve malformed profile configuration as an actionable error' \
-    "preserve the maintainer's strongest-reasoning class rather than silently downgrading it" \
-    'Break genuine headroom ties without array-order or harness bias' \
-    '`bin/mx-headroom.sh` owns the composite capacity contract' \
-    'parks one durable request under `state/.dispatch-queue/` instead of dropping intent'; do
-    assert_grep "$phrase" "$AGENTS" "array-dispatch contract lost '$phrase'"
-  done
-
-  for phrase in \
-    '| claude | Open the current interactive session' \
-    '| codex | Open the current interactive session' \
-    '| pi | Run `pi --list-models [search]`' \
-    "For an unfamiliar harness or model namespace, establish support and provider identity from that harness's authoritative CLI help, model listing, or current documentation rather than guessing" \
-    'If those sources do not establish the relationship needed for dispatch, fail loudly and report the unresolved candidate.'; do
-    assert_grep "$phrase" "$HARNESS" "model discovery guidance lost '$phrase'"
-  done
-  assert_grep 'not as a permanent namespace or provider mapping' "$HARNESS" \
-    "model discovery guidance permits a fixed provider table"
-  assert_grep '`AGENTS.md` section 4 owns the dispatch and array-selection procedure.' "$CONFIG" \
-    "configuration docs do not point to the agent-owned array procedure"
-  assert_grep 'HEADROOM_INVALID' "$BOOTSTRAP_DIAGNOSTICS" \
-    "bootstrap docs lost the owned-headroom failure procedure"
-  pass "broker directly compares every capacity candidate with authoritative model discovery"
-}
-
-test_shared_authoring_requirements_are_owned() {
-  assert_grep "review every affected supported primary harness and runtime backend" "$CODING" \
-    "coding guidance lost the supported compatibility matrix review"
-  assert_grep "prefer deterministic and idempotent enforcement over relying on agent memory alone" "$CODING" \
-    "coding guidance lost deterministic idempotent enforcement"
-  assert_grep "critical safety, routing, startup, and supervision infrastructure" "$CODING" \
-    "coding guidance lost the critical infrastructure scope"
-  pass "multplx-coding-guidelines owns compatibility review and deterministic enforcement"
-}
-
-test_daemon_registry_contract_stays_concise() {
-  local guidance routing_section schema_line
-  routing_section=$(awk '
-    /^## Routing table$/ { found = 1 }
-    found && /^## Charter and seed$/ { exit }
-    found { print }
-  ' "$DAEMON")
-  guidance=$(awk '
-    /^## Routing table$/ { found = 1 }
-    found && /^## Backlog handoff$/ { exit }
-    found { print }
-  ' "$DAEMON")
-  schema_line="- <id> - <one-sentence charter summary> (home: <absolute-home-path>; scope: <natural-language responsibility>; projects: <project-a>, <project-b>; added <date>)"
-  assert_contains "$routing_section" "$schema_line" \
-    "daemon routing table lost the parser-compatible single-line schema"
-  assert_contains "$routing_section" "Each registry entry stays concise and single-line" \
-    "daemon routing table no longer requires concise single-line entries"
-  assert_contains "$routing_section" "genuinely domain-specific hard rules" \
-    "daemon routing table no longer limits extra prose to domain-specific hard rules"
-  assert_contains "$routing_section" "The home-seeded \`data/charter.md\` is the sole owner of boilerplate idle-by-default behavior, the normal delegation lifecycle, and standard escalation contracts" \
-    "daemon routing table lost the explicit charter ownership pointer"
-  assert_contains "$routing_section" "no extra registry pointer field is needed" \
-    "daemon routing table no longer explains why the existing home field is the charter pointer"
-  for phrase in \
-    "go idle and wait silently" \
-    "Act only on tasks" \
-    "never spawn a survey" \
-    "run normal broker bootstrap" \
-    "escalation back to the main broker status file" \
-    "requests-from-main-broker contract" \
-    "waits for routed tasks, never self-initiating a survey or audit" \
-    "marked supervisor requests return through status" \
-    "unmarked maintainer messages stay conversational"; do
-    if printf '%s\n' "$guidance" | grep -F "$phrase" >/dev/null; then
-      fail "daemon provisioning guidance restated charter boilerplate: $phrase"
-    fi
-  done
-  pass "daemon registry guidance keeps concise routes and points to the charter"
-}
-
-test_state_startup_and_ordinary_recovery_placement() {
-  assert_grep "single owner of the top-level operational-home layout" "$CONFIG" \
-    "configuration docs do not own the operational state layout"
-  assert_grep "single implementation owner of session-start ordering" "$CONFIG" \
-    "session-start mechanism is not assigned to the Rust implementation owner"
-  assert_grep "Ordinary dead-direct-report recovery is owned by \`stuck-actor-recovery\`" "$CONFIG" \
-    "D05 ordinary recovery placement is missing"
-  assert_grep "## Session-start reconciliation for a dead actor" "$RECOVERY" \
-    "stuck-actor-recovery lacks the dead ordinary direct-report procedure"
-  assert_grep "treehouse status" "$RECOVERY" \
-    "ordinary recovery lost treehouse inventory inspection"
-  assert_grep "session-start digest reports an actor endpoint dead or its metadata has no window" "$AGENTS" \
-    "AGENTS.md does not trigger ordinary dead-report recovery"
-  pass "state, startup, and ordinary recovery have focused owners and triggers"
-}
-
-test_compressed_agents_owner_map() {
-  assert_grep '`docs/configuration.md` is the single owner of the top-level operational-home layout' "$AGENTS" \
-    "AGENTS.md lost the state-layout owner pointer"
-  assert_grep 'header is the single owner of composed commands, ordering, and digest contents' "$AGENTS" \
-    "AGENTS.md lost the session-start owner pointer"
-  assert_grep '`docs/configuration.md` owns dispatch-profile and runtime-backend schemas' "$AGENTS" \
-    "AGENTS.md lost the dispatch-schema owner pointer"
-  assert_grep 'That skill owns registry syntax, delivery-mode selection' "$AGENTS" \
-    "AGENTS.md lost the project-management owner pointer"
-  assert_grep 'The delivery lifecycle is an always-loaded operational contract' "$AGENTS" \
-    "AGENTS.md no longer owns the delivery lifecycle"
-  assert_grep 'System monitoring is an always-loaded operational contract' "$AGENTS" \
-    "AGENTS.md no longer owns system monitoring"
-  assert_grep 'header of `bin/mx-backlog-lib.sh` owns the backlog schema' "$AGENTS" \
-    "AGENTS.md lost the backlog-mechanics owner pointer"
-  assert_grep '`bin/mx-brief.sh` and its help own scaffold syntax' "$AGENTS" \
-    "AGENTS.md lost the brief-mechanics owner pointer"
-  assert_grep 'drive it only through `bin/mx-workflow.sh`' "$AGENTS" \
-    "AGENTS.md lost the workflow execution boundary"
-  assert_grep 'load `create-workflow`' "$AGENTS" \
-    "AGENTS.md lost the workflow-authoring trigger"
-  assert_grep '`docs/workflows.md` remains the one schema owner' "$AGENTS" \
-    "AGENTS.md lost the workflow schema owner pointer"
-  pass "compressed AGENTS.md records the approved one-owner map"
-}
-
-test_create_workflow_trigger_and_owner() {
-  assert_present "$CREATE_WORKFLOW" "create-workflow skill is missing"
-  assert_grep 'name: create-workflow' "$CREATE_WORKFLOW" \
-    "create-workflow skill metadata has the wrong name"
-  assert_grep 'user-invocable: true' "$CREATE_WORKFLOW" \
-    "create-workflow skill must be maintainer-invocable"
-  assert_grep '  internal: true' "$CREATE_WORKFLOW" \
-    "create-workflow skill must stay internal to Multplx"
-  assert_grep 'Read [`docs/workflows.md`]' "$CREATE_WORKFLOW" \
-    "create-workflow skill does not point to the schema owner"
-  assert_grep 'Never generate a per-workflow script' "$CREATE_WORKFLOW" \
-    "create-workflow skill can duplicate the engine"
-  pass "create-workflow has one precise trigger and points to the schema owner"
-}
-
-test_intake_reuses_evidence_and_parallelizes_safe_work() {
-  for phrase in \
-    'consult existing reports and established evidence' \
-    'remaining bounded research inside it' \
-    'unresolved uncertainty could materially change whether or what to build' \
-    'relay it without a design-only scout' \
-    'ask one concise implementation question when useful' \
-    'Never both present a likely-enough solution' \
-    'overlap as a risk signal rather than an automatic reason to wait' \
-    'independently implemented and validated' \
-    'selected delivery path can reconcile ordinary rebases or conflicts' \
-    'Serialize only for a true semantic dependency' \
-    'shared mutable external state' \
-    'incompatible concurrent migration' \
-    'same-file editing alone is insufficient' \
-    'genuine blockers remain durable'; do
-    assert_grep "$phrase" "$AGENTS" "intake contract lost '$phrase'"
-  done
-  assert_grep 'dispatch isolated work immediately when headroom permits' "$AGENTS" \
-    "intake contract lost capacity-bounded safe parallel dispatch"
-  assert_grep 'maintainer explicitly requests a separate knowledge or design deliverable' "$AGENTS" \
-    "intake contract lost maintainer-requested separate scouts"
-  assert_grep 'When implementation is separately authorized, promote the existing scout' "$AGENTS" \
-    "intake contract lost genuine scout promotion"
-  pass "intake reuses evidence, reserves scouts for uncertainty, and parallelizes safe work"
-}
-
-test_compressed_agents_retains_authority_and_supervision_safety() {
-  for phrase in \
-    'A lock-refused session must not spawn, steer, merge, drain the wake queue' \
-    'A diagnostic request, report, recommendation, or implementation-ready finding is evidence, not authorization to change code.' \
-    'The selected delivery path owns its own rigor, but no selected path grants an agent remote-write capability.' \
-    'Never hold work outside the selected gate for a manual clean verdict, stack serial manual reviews, or infer authority for one from security, architecture, or risk alone.' \
-    'A separate review or audit is allowed only when the maintainer explicitly requests that deliverable or the authorized task is a knowledge-only review; one named question remains scoped to that question.' \
-    'If fast-path risk needs more rigor, escalate whether to use the full local validation path instead of inventing a manual gate.' \
-    '**local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority' \
-    'A status line is a wake event, not current state' \
-    'keep exactly one live monitoring cycle' \
-    'Never broadly kill watchers' \
-    'While `state/.afk` exists, the daemon owns supervision'; do
-    assert_grep "$phrase" "$AGENTS" "compressed AGENTS.md lost safety phrase '$phrase'"
-  done
-  assert_no_grep 'Multplx does not personally review code or deliverables' "$AGENTS" \
-    "AGENTS.md retained the weaker duplicate review prohibition"
-  assert_no_grep 'broker reviews your branch' "$AGENTS" \
-    "AGENTS.md retained a personal branch-review requirement"
-  assert_no_grep 'broker reviews, maintainer approves' "$BRIEF" \
-    "generated brief retained a stacked personal-review requirement"
-  if grep -q "$(printf '\342\200\224')" "$AGENTS"; then
-    fail "AGENTS.md contains an em dash"
-  fi
-  pass "compressed AGENTS.md retains authority, supervision, AFK, and X safety"
-}
-
-test_active_agents_contract_path
-test_new_skill_metadata_and_triggers
-test_diagnostic_owner_covers_causal_procedure
-test_project_management_owner_covers_guarded_operations
-test_generic_effort_fallback_respects_precedence
-test_agent_owned_capacity_array_dispatch_contract
-test_shared_authoring_requirements_are_owned
-test_daemon_registry_contract_stays_concise
-test_state_startup_and_ordinary_recovery_placement
-test_compressed_agents_owner_map
-test_create_workflow_trigger_and_owner
-test_intake_reuses_evidence_and_parallelizes_safe_work
-test_compressed_agents_retains_authority_and_supervision_safety
+done
+assert_grep 'CONTRIBUTING.md' "$ROOT/.deep-review.yaml" 'Document step lost convention owner'
+assert_no_grep 'skills/multplx-coding-guidelines' "$ROOT/.deep-review.yaml" 'Document step loads retired skill'
+assert_grep 'dormant product source' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor activates dormant contract'
+assert_no_grep 'never through Cursor subagents' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor prompt bans native delegation'
+assert_grep 'Never generate a per-workflow script' "$ROOT/.agents/skills/create-workflow/SKILL.md" 'workflow schema owner lost'
+pass 'lean contract, skill dispositions and cross-harness instruction discovery'

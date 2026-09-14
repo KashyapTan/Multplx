@@ -5,7 +5,7 @@ How broker works, in depth.
 The [README](../README.md) carries the high-level diagram and a short synopsis.
 The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
-The broker contract and routing index for conditional procedures is maintained in [`AGENTS.md`](../AGENTS.md); this is the human-facing companion.
+The lean operating target is maintained in the [dormant operating contract](../AGENTS_E.md); this is the human-facing companion.
 
 ## Rust runtime workspace
 
@@ -223,12 +223,12 @@ The upstream-sync workflow composes that engine with a fetch-only private clone 
 ## Two task shapes
 
 DELIVERY TASK change projects and delivery by project mode (`deep-review`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
-The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
+The [lean intake contract](../porting.md#task-intake-roles-and-quality) makes research task-dependent.
 
 ## Dispatch profiles
 
 Actor and scout dispatch can stay on the static actor harness resolved by `config/actor-harness`, or it can use local dispatch profiles in `config/actor-dispatch.json`.
-The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays itself from current quota output under `AGENTS.md` section 4, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
+The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays from current capacity and task requirements, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
 The shell scripts validate the JSON shape and verified harness/effort combinations, but they do not parse task intent, match natural-language rules, or own array selection.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses actor and scout launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
@@ -257,7 +257,7 @@ After seeding a daemon, `mx-backlog-handoff.sh` validates the system-specific ha
 Idle daemon panes are healthy; teardown is explicit and refuses while the daemon home has in-flight work unless the maintainer has approved discard with `--force`.
 
 Daemon homes converge conservatively to the primary's version and declared inherited local material at launch and during locked session start.
-The [`daemon-provisioning` skill](../.agents/skills/daemon-provisioning/SKILL.md) owns the full guarded sync, propagation, nudge, and mid-session local-material push contract.
+[Configuration](configuration.md#persistent-home-inheritance) owns the full guarded sync, propagation, nudge, and mid-session local-material push contract.
 
 Daemon agents can run on a different verified harness than actors.
 `config/daemon-harness` controls the primary's daemon launch harness and may also carry optional model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
@@ -267,9 +267,9 @@ Those optional tokens are re-read on every daemon spawn or respawn and are overr
 An explicit per-spawn verified harness does not inherit model or effort tokens from `config/daemon-harness`.
 `config/actor-harness` remains the actor harness and is inherited into daemon homes.
 `config/actor-dispatch.json` is inherited too; daemons use the same natural-language dispatch profiles when spawning their own actors.
-The [`daemon-provisioning` skill](../.agents/skills/daemon-provisioning/SKILL.md) owns the complete inherited-local-material allowlist and propagation contract.
+[Configuration](configuration.md#persistent-home-inheritance) owns the complete inherited-local-material allowlist and propagation contract.
 
-The `data/daemons.md` line contract is owned by the [`daemon-provisioning` skill](../.agents/skills/daemon-provisioning/SKILL.md#routing-table), and the daemon environment variables are documented in [configuration.md](configuration.md).
+The `data/daemons.md` line contract is owned by the [route schema](configuration.md#daemon-routes-datadaemonsmd), and the daemon environment variables are documented in [configuration.md](configuration.md).
 
 ## Project modes are explicit
 
@@ -296,12 +296,12 @@ Durable project-intrinsic agent knowledge lives in each project's committed `AGE
 Delivery briefs prompt actors to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 Each project `AGENTS.md` carries a short `## Maintaining this file` self-governance section; `multplx-domain::lifecycle::ensure_agents` owns the canonical wording and injects it idempotently when creating the skeleton, promoting an existing `CLAUDE.md`, or reconciling an existing `AGENTS.md` that still lacks it.
 It refuses a case-variant real memory file such as a lowercase `agents.md`, whose `CLAUDE.md` symlink would carry an uppercase literal target that dangles on a case-sensitive filesystem, and surfaces the mismatch for manual reconciliation.
-The full ownership rule - what is project-intrinsic versus system-private, and how broker keeps the two apart without writing into project clones - is owned by [`AGENTS.md`](../AGENTS.md) (project and knowledge management).
+[Configuration](configuration.md) owns private storage locations; the optional [stow reference](../.agents/skills/stow/SKILL.md) describes inspect-before-update mechanics.
 
 ## Operational memory routing
 
 `/stow` sweeps the current session for durable knowledge that only exists in conversation and routes each finding to the most specific disk home.
-Home-domain maintainer preferences go to `data/maintainer.md`, cross-domain shared maintainer preferences go to the primary home's `data/maintainer-shared.md`, system-local operational facts and gotchas go to home-local `data/learnings.md`, project-intrinsic knowledge goes through normal actor delivery into that project's committed `AGENTS.md`, and task-scoped notes or undone next steps go to the backlog.
+Home-domain maintainer preferences go to `data/maintainer.md`, cross-domain shared maintainer preferences go to the primary home's `data/maintainer-shared.md`, system-local operational facts and gotchas go to home-local `data/learnings.md`, project-intrinsic knowledge can remain in task artifacts or appropriate scoped project documentation, and task-scoped notes or undone next steps go to the backlog.
 Memory writes use inspect-then-update: read the current destination first, then rewrite or prune matching bullets or notes in place instead of appending by default.
 Task-scoped notes use `bin/mx-backlog.sh show <id>` followed by `bin/mx-backlog.sh update <id> --body-file <path>`, adding `--archive-body` when the prior body should remain recoverable.
 Generalizable broker knowledge goes to shared tracked docs through the normal PR pipeline; the broker-internal `/stow` deliberately never stores findings in either skill directory.
@@ -321,7 +321,7 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 `/updatemultplx` fast-forwards the running Multplx repo and registered daemon homes from `origin`, then re-reads updated instructions and nudges updated daemons without touching project clones.
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 The origin-based updater and the local daemon sync share the same guarded fast-forward helper; only the origin mode fetches.
-The mechanics are owned by the `/updatemultplx` skill and broker's operating contract in [`AGENTS.md`](../AGENTS.md) (self-update).
+The update command owns mechanics; the optional [updatemultplx reference](../.agents/skills/updatemultplx/SKILL.md) provides discovery.
 
 ## Restart-proof
 
