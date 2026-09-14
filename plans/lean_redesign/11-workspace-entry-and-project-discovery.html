@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Workspace Entry and Project Discovery · Multplx</title><style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style></head><body>
+<header class="hero"><div class="wrap">
+<div class="plan-num">Lean Redesign 11 · Multplx</div>
+<h1>Workspace Entry and Project Discovery</h1>
+<p class="subtitle">Launch from anywhere, reuse local repositories and enter the same orchestrator conversation.</p>
+<div class="badges"><span class="badge phase">Phase 11 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-14</span></div>
+</div></header><main class="wrap">
+<div class="callout"><div class="label">Implementation guide</div><p><a href="../../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat">A9 in porting.md</a> owns the accepted workspace contract. This phase implements that contract; it does not create a per-repository orchestrator or replace the existing harness conversation.</p></div>
+<p><b>Dependencies:</b> 02, 04, 09, 10. Project identity is implemented in Phase 02. Discovery, packaging and TUI design can begin against those contracts earlier; final integration requires migration, durable request routing and the shared projection.</p>
+<h2>Overview</h2>
+<p>The global launcher currently activates a shell or a named harness, validates a repository-based runtime and deliberately ignores the caller's project. The registry resolves delivery settings for flat managed clones, and a live home owner causes launch refusal. Extend these boundaries into a global workspace entry: configurable nested discovery, reuse of existing paths, durable multi-repository task intake, reconnection and a small terminal home screen.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../crates/multplx-cli/src/launcher.rs"><code>crates/multplx-cli/src/launcher.rs</code></a></td><td>Global entry, caller context, installation, packaged runtime validation and update ownership.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/harness_launch.rs"><code>crates/multplx-backend/src/harness_launch.rs</code></a></td><td>Supported connection/resume/start paths and one-owner behavior instead of blanket live-owner refusal.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/project_registry.rs"><code>crates/multplx-domain/src/project_registry.rs</code></a></td><td>Use Phase 02 project/checkout identity for discovery, local registration, alias resolution and location repair.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/lib.rs"><code>crates/multplx-cli/src/lib.rs</code></a>, <a href="../../crates/multplx-domain/src/backlog.rs"><code>backlog.rs</code></a></td><td>Project and task CLI routes, correlated intake and canonical request receipts.</td></tr>
+<tr><td><a href="../../crates/multplx-core/src/session_lock.rs"><code>session_lock.rs</code></a>, <a href="../../crates/multplx-core/src/wake.rs"><code>wake.rs</code></a></td><td>Consume Phase 04 ownership/inbox APIs; startup races must not create competing orchestrators.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/system_sync.rs"><code>system_sync.rs</code></a>, <a href="../../crates/multplx-domain/src/lifecycle/teardown.rs"><code>teardown.rs</code></a></td><td>Integrate user-owned versus managed checkout behavior established in Phases 06/09.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/system_snapshot.rs"><code>system_snapshot.rs</code></a>, <a href="../../crates/multplx-domain/src/snapshot.rs"><code>snapshot.rs</code></a></td><td>Consume one project/task projection; add the thin TUI presentation module under the existing CLI crate.</td></tr>
+<tr><td><a href="../../share/shell/">Shell integration</a>, <a href="../../bin/mx-launcher.sh">launcher adapter</a>, <a href="../../bin/mx-launcher-install.sh">installer adapter</a></td><td>Keep explicit shell mode and existing named-harness forms with truthful help.</td></tr>
+<tr><td><a href="../../docs/getting-started.md">Getting started</a>, <a href="../../docs/configuration.md">configuration</a>, <a href="../../.github/workflows/ci.yml">CI</a></td><td>Document the installed launch-anywhere experience and add version-matched release packaging/verification beside current build workflows.</td></tr>
+</table>
+<h2>Accepted architecture scope</h2>
+<p>A9 is required scope, integrated with A1 filesystem records, A2 task identity, A3 durable intake, A4 shared views, A5 capacity and A6 human conversation. The porting guide owns semantics; this phase owns discovery, entry, packaging and terminal presentation. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
+<h2>Behavior boundaries</h2>
+<div class="flow"><div><b>ANY DIRECTORY</b><span>Configurable direct and nested project discovery.</span></div><div><b>ONE CHAT</b><span>Concurrent repository tasks share one main chat.</span></div><div><b>LOCAL REUSE</b><span>Remember existing checkout locations without cloning.</span></div><div><b>THIN TUI</b><span>Find projects, inspect tasks and enter the existing conversation.</span></div></div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Separate the three path identities.</b>Keep installed runtime, operational home and discovery roots independent. Capture the caller's directory before harness startup changes context. Any caller directory is valid without Git metadata, and selecting a project never selects a new operational home.</li>
+<li><b>Implement configurable discovery.</b>Persist roots, traversal/depth settings, exclusions and symlink policy through the configuration owner. Allow optional roots without blocking chat entry; never automatically scan an arbitrary launch directory. Discover configured roots incrementally, cache results and expose refresh/progress. Recognize linked worktrees and nested repository boundaries; bound traversal and avoid executing discovered project content.</li>
+<li><b>Reuse local projects.</b>Register selected checkouts idempotently through Phase 02 identity, resolve exact aliases/paths and present candidate paths for ambiguity. Handle overlapping roots, moved paths and separate clones without conflation. Unversioned folders retain their real capability limits and never silently become GitHub repositories.</li>
+<li><b>Expose durable intake commands.</b>Implement the A9 command experience and exact help with a noninteractive path. Route task requests through the existing orchestrator inbox, preserving project/checkout/start revision and retry identity. A command returns a durable receipt, not a false claim implementation already started.</li>
+<li><b>Connect to one conversation.</b>Resolve the recorded live owner and attach using supported backend capabilities. If attachment is unavailable, durably deliver the request and show the existing conversation route. Reconcile dead owners before starting/resuming, serialize launch races and never steal a live lock. Record actual persistence and transcript-resume limits for each provider.</li>
+<li><b>Build the terminal home screen.</b>Show searchable known/discovered projects, recent/active tasks across repositories, pending decisions, current context and connection status. Provide a direct chat entry and MX Viz shortcut, stable keyboard selection, resize handling and nonblocking discovery. Use the harness for chat and the canonical projection for facts; do not add a model, second state store or workflow engine.</li>
+<li><b>Preserve caller-owned repositories.</b>Integrate the managed/user-owned distinction through refresh, worktree provisioning, unregister and cleanup. Keep dirty files untouched, show the task's selected starting revision and use explicit handling for requested working changes. Audit persistent-home provisioning so it does not re-clone an adopted path simply because old policy expected home-local clones.</li>
+<li><b>Package the installed experience.</b>Distribute verified platform binaries with version-matched runtime assets and adapt runtime validation to packaged installations while retaining source mode. Detect and remember supported harness choice, preserve real trust/authentication requirements, and keep transactional updates and data-preserving uninstall. Ordinary installation must not require a source clone or Rust build.</li>
+<li><b>Integrate the complete multi-repo path.</b>Launch from unrelated directories as well as an example dev root, enter one chat, request work in three differently nested repositories and follow all three tasks through research/implementation and independent outcomes. Switch project filters and open a second terminal while they run; verify bindings and ownership remain unchanged.</li>
+<li><b>Package the internal manager and preserve arbitrary entry.</b>Remove Treehouse from release prerequisites, downloads and TUI guidance. Validate startup from any cwd, optional discovery roots and ordinary multi-repo delegation. Packaged persistent homes use the private-directory path when runtime assets are not a Git checkout.</li>
+<li><b>Connect domain delegation to the same main chat.</b>Expose Phase 05 command help, domain selection/details and routed task submission in the global CLI/TUI. Project selection does not spawn a coordinator; explicit delegation may create one without extra setup or a second main conversation.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>Extend tests/mx-launcher.test.sh, tests/mx-launcher-shell.test.sh and tests/mx-launcher-live-e2e.test.sh for bare workspace entry, explicit shell mode, caller context, remembered harnesses and connection behavior.</li>
+<li>Extend project-registry Rust tests and add focused discovery/TUI tests using the existing runner pattern; fixtures cover direct/nested roots, spaces, duplicate basenames, aliases, overlapping roots, symlink cycles, linked worktrees, nested submodules, missing paths and remote-free/unversioned folders.</li>
+<li>Use three fixture repos at different depths. Submit three tasks in one chat, repeat the intake request, change selected project, restart and verify one accepted task per item with correct project/worktree/evidence/delivery identity.</li>
+<li>Ambiguous repo 2 pauses only its task while repo 1 and repo 3 proceed. Independent capacity or workflow waits preserve the same separation.</li>
+<li>Race two terminal launches, close the TUI during work, retry an offline request, reconnect with supported attachment and exercise the no-attachment fallback without a second orchestrator or lost inbox record.</li>
+<li>Snapshot user-owned branch/index/files before discovery, registration, task completion and unregister; verify they remain intact. Test moved/replaced paths and explicit working-change handling.</li>
+<li>Terminal checks cover keyboard navigation, resize, narrow screens, empty/error/loading views, incremental scan progress and stable selection during updates. Discovery cannot block opening the cached workspace or existing chat.</li>
+<li>Install, upgrade, interrupted-update recovery and uninstall in isolated platform fixtures without Rust or a source checkout; verify matching assets, retained state, user repositories and documented real harness prerequisites.</li>
+<li>Run porting acceptance scenarios 19-25 and the relevant A8 cross-repository workload trials; distinguish mocks, real harness checks and unavailable provider capabilities.</li>
+<li>Package-only startup, persistent homes and multiple repository tasks work without Treehouse, a dev-folder cwd or a runtime Git clone.</li>
+<li>Launch anywhere, create a scoped coordinator from the same chat, submit direct work alongside it and inspect its children without changing existing task bindings.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Rewrite the user entry examples in README and getting started, and update configuration, project lifecycle, launcher help, shell completion and the retained project CLI reference. Document configured roots and local reuse before optional cloning. Keep terminal commands separate from the natural-language multi-task example, and state that one chat owns all repositories.</p>
+<h2>Definition of done</h2>
+<ul>
+<li>A launch from any directory can find configured nested projects and lets the user reuse existing checkouts without repeated URLs or a Multplx source checkout.</li>
+<li>One orchestrator conversation coordinates simultaneous work in multiple repositories, and project selection cannot retarget existing tasks.</li>
+<li>Discovery, registration, intake, reconnection and retry use the existing filesystem owners with truthful identity and no duplicated tasks or orchestrators.</li>
+<li>The thin TUI and MX Viz agree with canonical task state, remain usable while discovery/work runs, and do not become separate chat or workflow engines.</li>
+<li>Borrowed repositories remain intact, release packages include required assets, and the supported connection/installation paths have recorded passing evidence.</li>
+<li>Package-only startup, persistent homes and multiple repository tasks work without Treehouse, a dev-folder cwd or a runtime Git clone.</li>
+<li>The assigned A11 integration and its focused check above pass with Phase 05.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>A project selector alone does not fix flat-clone assumptions, root-bound harness startup or live-owner refusal. Use the shared Phase 02 identity and Phase 04 inbox before exposing commands that promise local reuse and one-chat continuity. Do not claim every provider supports terminal attachment.</p></div>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this phase has not changed the runtime. Record change/revision references, exact verification results, actual installation/connection coverage and remaining acceptance items here. Link supporting task or PR evidence and mark complete only after required checks pass.</p>
+<nav class="footer-nav"><a href="10-mx-viz-and-scale.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="12-documentation-validation-cutover.html">Next →</a></nav>
+</main></body></html>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Scoped Sub-orchestrators · Multplx</title><style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style></head><body>
+<header class="hero"><div class="wrap"><div class="plan-num">Lean Redesign 05 · Multplx</div><h1>Scoped Sub-orchestrators</h1><p class="subtitle">Delegate a bounded project, repository or idea to a coordinator that manages its workers and reports reliably to the main orchestrator.</p><div class="badges"><span class="badge phase">Phase 05 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-14</span></div></div></header>
+<main class="wrap"><div class="callout"><div class="label">Implementation guide</div><p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11 in porting.md</a> owns the shared contract. <a href="sub-orchestrator-assessment.md">The Secondmate assessment</a> records source evidence, tradeoffs and the local integration map. This phase is planned, not implemented.</p></div>
+<p><b>Dependencies:</b> 02, 03, 04. Compose their schema, home/allocation, message and admission primitives here; later delivery, workflow, migration and UI phases integrate the resulting coordinator lifecycle.</p>
+<h2>Overview</h2>
+<p>Multplx already has daemon homes, charters, handoffs and parent reply guards. Preserve those useful mechanisms as a scoped sub-orchestrator assignment in the common lifecycle. The root handles the human and cross-domain priorities while each coordinator decomposes its own work and delegates coding. Direct worker delegation remains available.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../crates/multplx-cli/src/lib.rs">CLI dispatch, send and report</a>, <a href="../../crates/multplx-domain/src/lifecycle/spawn.rs">spawn</a></td><td>Named spawn form, repeat-safe provisioning, explicit parent identity and common role dispatch.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/brief.rs">Brief/charter generation</a>, <a href="../../crates/multplx-domain/src/lifecycle/home_seed.rs">home seeding</a></td><td>Bounded responsibility, private home, validated parent route and inherited settings without copying projects.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/pending_reply.rs">Pending replies</a>, <a href="../../crates/multplx-cli/src/supervision.rs">supervision</a>, <a href="../../crates/multplx-core/src/wake.rs">wake primitives</a></td><td>Parent outbox/inbox composition, correlated responses, durable fact relay and stalled-handling observation.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/handoff.rs">Handoff</a>, <a href="../../crates/multplx-domain/src/inheritance.rs">inheritance</a>, <a href="../../crates/multplx-domain/src/lifecycle/teardown.rs">teardown</a></td><td>Task ownership transfer, coordinator recovery, settings and retirement without orphaned children.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/system_snapshot.rs">System snapshots</a>, <a href="../../crates/multplx-domain/src/snapshot.rs">domain projection</a></td><td>Canonical domain lineage and parent-channel health for later CLI/TUI/MX Viz views.</td></tr>
+<tr><td><a href="../../tests/mx-headroom.test.sh">Headroom tests</a>, <a href="../../tests/mx-backlog-handoff.test.sh">handoff tests</a>, <a href="../../tests/mx-pending-reply.test.sh">reply tests</a></td><td>Extend existing resource and routing guarantees across coordinator homes.</td></tr>
+</table>
+<h2>Accepted architecture scope</h2>
+<p>A11 owns this feature, composed from A1-A5 primitives with A6 human communication, A9 project identities and A10 home/worktree resources. This phase owns core hierarchy behavior; later phases own delivery/workflow event producers, legacy-home migration, visual integration and combined acceptance.</p>
+<h2>Behavior boundaries</h2>
+<div class="flow"><div><b>ROOT</b><span>Human conversation and cross-domain coordination.</span></div><div><b>DOMAIN</b><span>Versioned scope, charter and one current coordinator.</span></div><div><b>WORKERS</b><span>Research, code and checks within assigned scope.</span></div><div><b>RETURN</b><span>Durable facts plus concise coordinator judgment.</span></div></div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Add the public spawn path.</b>Implement the A11 <code>mx spawn &lt;id&gt; --sub-orchestrator</code> form and its domain, scope, persistence, request identity and common harness options. Register and provision through existing owners; machine output reports canonical coordinator/domain/home/endpoint identity and partial failure truthfully.</li>
+<li><b>Bind the domain before launch.</b>Resolve the parent/root and accepted scope revision, create a private home and concise charter, then launch at the recorded path. An idea may have no repository during research; implementation requires explicit project bindings. Duplicate requests recover the same operation.</li>
+<li><b>Keep common lifecycle semantics.</b>Use the shared role model and preserve direct/nested delegation. Both coordinators delegate code/test changes. Standing domains idle between assigned tasks, and project overlap alone does not create exclusivity or a role approval.</li>
+<li><b>Resolve routes from durable identity.</b>Generalize send/pending-reply dispatch beyond daemon tokens, bind generation and correlation, and replace caller-selected report paths with validated parent resolution. Keep lifecycle controls separate from conversational frames.</li>
+<li><b>Publish facts independently of model summaries.</b>Compose a durable outbox with A3 at canonical outcome transitions and forward original event identities through each ancestor using receipts. The existing supervision path relays facts while a coordinator model is idle. Phase 06/08 integrate delivery/workflow producers; do not fake reasoning-only outcomes.</li>
+<li><b>Keep unanswered work visible.</b>Separate transport acknowledgement from response and completion, retain missing replies and human questions, use bounded repair/escalation and route answers to the exact revision. Preserve original research and evidence pointers alongside summaries.</li>
+<li><b>Transfer assignments without competing owners.</b>Use A1 receipts and A2 generations for scope updates and handoff. Reconcile old execution before granting mutable work to a new owner; preserve task IDs, historical outcomes and pending events without duplicating authoritative backlog records.</li>
+<li><b>Reconcile coordinator and child lifetimes.</b>Restart from compact durable context and adopt still-running children. Parent outage queues returns while independent work continues. Make coordinator stop, subtree stop and home retirement distinct; retirement must transfer or settle child ownership and undelivered outcomes.</li>
+<li><b>Share resource admission.</b>Compose Phase 04 capacity primitives across all descendant homes, count coordinator overhead, retain worker headroom, reconcile crashed reservations and prevent domain starvation. Do not hold shared locks during model turns or invent telemetry for opaque native children.</li>
+<li><b>Expose domain health and lineage.</b>Publish scoped owner/child facts, pending outcomes, queue progress and observation age through the shared projection. The root does not drain foreign queues, and summary state cannot overwrite child task truth. Phase 10/11 implement the visual surfaces.</li>
+<li><b>Prepare compatibility and evidence.</b>Provide mappings based on old charter responsibility for Phase 09, leaving ambiguous parent/scope records explicit. Keep existing supported local backend combinations; no remote transport, database, extra service or upstream code import.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>Extend spawn/home/brief domain tests for project and idea scope, no-repository research, overlapping domains, persistence independence, parent cycles, duplicate requests and unsupported-provider preflight before mutation.</li>
+<li>Extend tests/mx-daemon-lifecycle-e2e.test.sh, tests/mx-daemon-safety.test.sh and tests/mx-daemon-harness-spawn-config.test.sh for the new role and transactional spawn/restart using isolated fixtures.</li>
+<li>Extend tests/mx-pending-reply.test.sh and tests/mx-send-daemon-marker.test.sh for wrong-home and same-basename reports, stale generations, lost reply, duplicate delivery, correlated human answers and control/data separation.</li>
+<li>Extend tests/mx-wake-queue.test.sh and domain event tests for model-silent outcomes, crash before/after outbox publication, per-hop retry, root outage, stalled handling and byte-preserved foreign queues.</li>
+<li>Extend tests/mx-backlog-handoff.test.sh for same task ID across transfer, partial acceptance, late old-owner result, active children and failed retirement with pending outcomes.</li>
+<li>Extend tests/mx-headroom.test.sh for several coordinators competing with direct workers, shared build/session limits, worker headroom, starvation prevention and admission recovery.</li>
+<li>Extend tests/mx-system-snapshot-view.test.sh for domain lineage, partial homes, deduplicated facts, separate task/session counts and bounded ancestor traversal.</li>
+<li>Use real supported local sessions for independent-child continuity and report routing; label native children with unavailable lifetime/telemetry honestly instead of claiming fixture coverage is live evidence.</li>
+<li>Feed scenarios 32-39 and flat/hierarchical trial fixtures to Phase 12; critical recorded outcomes must reach the root without a coordinator-generated summary.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Publish the tested spawn grammar, domain identity, result/report and lifecycle help through their command owners. Keep operational references short, update current architecture and home-routing documentation, and classify new maintained prose. A11 remains the port's shared requirement owner; do not copy Firstmate's generic skill policies.</p>
+<h2>Definition of done</h2>
+<ul>
+<li>The named spawn command creates or recovers a scoped sub-orchestrator through the common lifecycle without manual registry/home setup.</li>
+<li>Researchers/implementers/reviewers can be delegated within the domain, while the main chat remains responsive and direct delegation remains available.</li>
+<li>Recorded outcomes reach the root with correct identity even when an intermediate model omits its summary; missing responses and questions cannot silently disappear.</li>
+<li>Task transfer, restart and retirement preserve one owner, active child continuity, durable messages and unfinished work.</li>
+<li>Resource admission is shared across known descendants and leaves room for useful worker progress.</li>
+<li>Core checks pass and later-phase integration APIs/fixtures are available; migration, delivery/workflow producers, visual work and combined performance claims remain assigned to their later owners.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>An extra coordinator can reduce root context load but also add latency, hide facts behind summaries or exhaust capacity. Keep the hierarchy optional, publish facts mechanically and compare useful throughput under the same total resource budget.</p></div>
+<h2>Implementation evidence</h2><p>Status: planned. Record revisions, exact tests, live versus fixture evidence, hierarchy measurements and unresolved integration items here. No runtime role or command is implemented by this plan.</p>
+<nav class="footer-nav"><a href="04-free-delegation-and-coordination.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="06-agent-delivery-human-merges.html">Next →</a></nav>
+</main></body></html>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>MX Viz and Concurrent Task Visibility · Multplx</title><style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style></head><body>
+<header class="hero"><div class="wrap"><div class="plan-num">Lean Redesign 10 · Multplx</div><h1>MX Viz and Concurrent Task Visibility</h1><p class="subtitle">Make twenty tasks, their sub-agents, decisions and delivery evidence legible from one shared state model.</p><div class="badges"><span class="badge phase">Phase 10 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: Medium</span><span class="badge status">Planned · 2026-09-14</span></div></div></header><main class="wrap"><div class="callout"><div class="label">Implementation guide</div><p><a href="../../porting.md">porting.md</a> owns the revised product direction. The <a href="architecture-assessment.md">architecture assessment</a> explains the scale risks. This is a planned runtime and visualizer change, not an implementation claim.</p></div>
+<p><b>Dependencies:</b> 02, 04, 08, 09. Visual design and fixtures can begin earlier against the Phase 02 typed snapshot contract.</p>
+<h2>Overview</h2>
+<p>MX Viz must make 10-20 simultaneous tasks understandable through one orchestrator. A label substitution on the current flat worker tree is insufficient. The display needs to separate user tasks, execution attempts, sub-agent roles, workflow stages and questions awaiting the human.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><code>share/viz/index.html</code>, <code>app.js</code>, <code>app.css</code></td><td>Task overview, nested agents, role labels, filters, workflows, decisions and evidence drill-down.</td></tr>
+<tr><td><code>crates/multplx-domain/src/snapshot.rs</code></td><td>Typed canonical read schema for tasks, attempts, roles, dependencies, freshness and plan revisions.</td></tr>
+<tr><td><code>crates/multplx-cli/src/system_snapshot.rs</code>, <code>status_snapshot.rs</code></td><td>Bounded shared projections and partial-state handling; no independent UI truth.</td></tr>
+<tr><td><code>crates/multplx-services/src/local_services/viz.rs</code></td><td>Snapshot cache, single-flight refresh, latency isolation, lifecycle and artifact boundary.</td></tr>
+<tr><td><code>docs/viz.md</code>, <code>tests/mx-viz.test.sh</code></td><td>Updated behavior and UI/service regression coverage.</td></tr>
+</table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A4 shared observation; A7 visual experience; A8 dashboard measurements. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 shared project overview and TUI projection. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
+<h2>Behavior boundaries</h2>
+<div class="flow"><div><b>PORTFOLIO</b><span>Twenty tasks grouped by project, outcome and priority.</span></div><div><b>ASSIGNMENTS</b><span>Researcher, implementer, reviewer and their current attempts.</span></div><div><b>HUMAN ATTENTION</b><span>Concrete decisions and PRs ready for human review or merge.</span></div><div><b>FRESHNESS</b><span>Unknown, stale, interrupted and partially observable states stay explicit.</span></div></div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Define the shared projection first.</b>Expose task identity, project, accepted plan revision, task state, current workflow stage, dependencies, owner, child sessions, role, attempt generation, latest meaningful event and observed-at/freshness. These field semantics are required by A2/A4/A7; publish the implemented schema before connecting readers. Chat summaries and MX Viz consume the same read model.</li>
+<li><b>Make tasks the overview unit.</b>Show a compact project/task list with search and status/role/project filters; expand a task into its agent tree and stage detail. Count 20 tasks separately from 40 sessions or retries. Preserve stable task identity, focus, expanded rows and selection while polling.</li>
+<li><b>Show the human collaboration loop.</b>Link original research, accepted plan revision, implementation brief, relevant review/test evidence and PR. Show a decision's question, current target and waiting time. Keep task-specific human choices out of unrelated task summaries. Requested vplan reviews link to their existing tool surface; the dashboard does not start one automatically.</li>
+<li><b>Represent delivery and quality honestly.</b>Separate agent done, checks passing for the current revision, review requested/completed, PR open, human merge pending and merged. Absence of deep-review is not an error. Missing provider evidence is unknown, not idle or completed. Explain which tasks a failed dependency blocks.</li>
+<li><b>Bound observation cost.</b>Measure the current serial per-task subprocess collection and the service mutex held during refresh. Design a bounded canonical collection path with per-provider deadlines and cached observations. Serve the last good snapshot with explicit staleness while one refresh is in flight; the UI must not make watcher progress depend on an HTTP request.</li>
+<li><b>Coalesce updates.</b>Prevent overlapping client polls, back off hidden tabs and compare meaningful content revisions while exposing freshness separately. Preserve concurrent-request coalescing. Do not add SSE, WebSockets or another daemon unless measurements justify them.</li>
+<li><b>Preserve the read-only boundary.</b>Keep GET-only observation, loopback binding, path containment, scriptless artifact rendering and identity-bound shutdown. No new approve, merge, spawn or task-state-edit endpoint is part of this plan.</li>
+<li><b>Build a readable visual hierarchy.</b>Use a compact task overview and expandable detail with consistent spacing, typography, status labels and priority. Add useful empty, loading, partial-error and stale states; expose decisions and ready PRs prominently without hiding dependencies or evidence.</li>
+<li><b>Connect one canonical collection path.</b>Implement bounded snapshot collection and partial results from A4 using Phase 02 schema. Serve the last good cache without holding the runtime mutex over external calls; reuse Phase 04 watcher observations where valid. Age and freshness update even when content is unchanged.</li>
+<li><b>Verify interaction and performance together.</b>Exercise keyboard navigation, narrow/wide layouts, multiple tabs, hidden-tab backoff and stable focus/filters/expanded rows while task states change. Measure A8 targets with a documented machine and workload; retain failures as open acceptance.</li>
+<li><b>Expose project identity for workspace clients.</b>Use Phase 02 project/checkout records in the canonical snapshot and dashboard filters. Show all running repos together, disambiguate same-named paths and retain stable task deep links. Phase 11 TUI consumes this projection; selecting a dashboard project is a view filter, never task reassignment.</li>
+<li><b>Expose actual allocation state.</b>Read the internal manager projection for worktree path, allocation owner/generation, retained/leased state and recovery issues. Distinguish a stopped agent from disposable work and remove any dependency on parsing Treehouse status.</li>
+<li><b>Show domains and reliable parent communication.</b>Add A11 domain overview and expandable coordinator/task lineage to the shared projection. Show current owner, pending human decisions, stalled handling, undelivered outcomes and partial homes; distinguish task counts from coordinator sessions.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>Fixtures with 0, 1, 5, 10 and 20 tasks; nested researcher/implementer/reviewer assignments; persistent sessions; duplicate attempts; mixed projects; open decisions; optional tools; current and stale PR checks.</li>
+<li>Unknown child home, slow backend, one failing snapshot source, cancelled/replaced implementer, out-of-order completion and selected-plan revision change.</li>
+<li>Existing tests/mx-viz.test.sh, Rust services-runtime tests and snapshot reconciliation suites retain read-only, loopback, caching, identity and artifact security guarantees.</li>
+<li>Browser checks for narrow and wide viewports, keyboard use, expanded-row stability and distinction between tasks and sessions. Role labels are text, not only color.</li>
+<li>Meet the accepted A8 performance targets on a recorded reference machine, including cached API latency, healthy 20-task refresh and initial interactivity. Record measurement method and samples; a failed or unavailable result remains open acceptance, not a reason to lower the target.</li>
+<li>Open multiple dashboard tabs while workers report and one backend stalls. Record cache hits, refresh count, CPU, snapshot latency, oldest queued-event age and time to show fresh events. No extra worker or watcher load proportional to tab count should be required.</li>
+<li>Inspect screenshots or browser output for 0/1/5/10/20 tasks on narrow and wide layouts, including long task names, nested assignments, decisions, stale observations and failed dependencies.</li>
+<li>Compare backend probe counts for one and multiple tabs, stall one provider and verify usable cached views plus continued healthy reporting. Record accepted target results and measurement conditions.</li>
+<li>Render three differently nested repositories with concurrent tasks and duplicate display names; switch filters and verify correct paths, evidence and unchanged task bindings across TUI/CLI/Viz projections.</li>
+<li>The dashboard accurately shows retained open-PR work, persistent zero-process leases and uncertain legacy allocations with Treehouse absent.</li>
+<li>At 20 tasks across several domains, both root and expanded views retain focus and truthful counts while a coordinator is unavailable and multiple viewers share cached observations.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Update docs/viz.md, snapshot schema/help, the architecture owner and verified performance evidence together. The visualizer ships with the lean rollout, not as an optional later cleanup. Describe limitations in native-child visibility and stale observations accurately.</p>
+<h2>Definition of done</h2>
+<ul><li>One page gives an accurate overview of 20 tasks with researcher/implementer/reviewer roles and nested execution.</li><li>The human can find the current plan, next decision, blocked dependency, test evidence and PR without reading every agent transcript.</li><li>Chat and MX Viz agree on task state and freshness because they use one canonical projection.</li><li>The dashboard remains useful during a slow refresh and preserves its read-only artifact boundary.</li><li>Recorded scale tests distinguish accepted targets from measured outcomes; required targets and usability checks pass before this phase is complete.</li><li>A7 usability and A8 dashboard targets pass with accessible labels, stable interaction, honest partial state and no extra authoritative UI state.</li>
+<li>A9 workspace clients can consume stable project/task identity while MX Viz remains a read-only cross-repository overview.</li>
+<li>The dashboard accurately shows retained open-PR work, persistent zero-process leases and uncertain legacy allocations with Treehouse absent.</li>
+<li>The assigned A11 integration and its focused check above pass with Phase 05.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>The current display treats task-shaped worker records as its main tree. Do not relabel them as distinct agent sessions without the Phase 02 model, or flatten persistence and retries into misleading active-task counts.</p></div>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="09-state-migration-and-recovery.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="11-workspace-entry-and-project-discovery.html">Next →</a></nav></main></body></html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Built-in Git Worktree Lifecycle · Multplx</title><style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style></head><body>
+<header class="hero"><div class="wrap"><div class="plan-num">Lean Redesign 03 · Multplx</div><h1>Built-in Git Worktree Lifecycle</h1><p class="subtitle">Replace Treehouse with a small internal Git lifecycle that returns exact paths and preserves owned work.</p><div class="badges"><span class="badge phase">Phase 03 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-14</span></div></div></header>
+<main class="wrap"><div class="callout"><div class="label">Implementation guide</div><p><a href="../../porting.md#a10-built-in-git-worktree-lifecycle">A10 in porting.md</a> owns the worktree contract. <a href="treehouse-replacement-assessment.md">The research record</a> maps upstream behavior to actual Multplx callers. This phase is planned, not implemented.</p></div>
+<p><b>Dependencies:</b> 02. Implement allocation receipts using A1 primitives here; Phase 04 composes them with durable delegation/inbox actions, avoiding a circular dependency. Phase 09 performs legacy-home transfers.</p>
+<h2>Overview</h2>
+<p>Ordinary spawn currently types <code>treehouse get</code> into a backend terminal and polls its directory before publishing metadata. Home seeding separately requests a durable lease, and teardown invokes destructive return after its own safety checks. Replace those external operations with one typed resource owner inside Multplx, without duplicating the whole Treehouse application.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/">Domain lifecycle modules</a></td><td>Add the internal Git worktree/lease owner alongside spawn, home seed and teardown; keep operation receipts and records within existing architectural boundaries.</td></tr>
+<tr><td><a href="../../crates/multplx-core/src/filesystem.rs">Filesystem primitives</a>, <a href="../../crates/multplx-core/src/locks.rs">locks</a>, <a href="../../crates/multplx-core/src/process.rs">process identity</a></td><td>Reuse atomic records, scoped reservations and verified ownership instead of a new database or daemon.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/lib.rs"><code>crates/multplx-cli/src/lib.rs</code></a></td><td>CLI operation grammar, acquire-before-endpoint launch, exact cwd, allocation binding and installer dispatch retirement.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/home_seed.rs">Home seed</a>, <a href="../../crates/multplx-domain/src/lifecycle/spawn.rs">spawn</a>, <a href="../../crates/multplx-domain/src/lifecycle/teardown.rs">teardown</a></td><td>Durable home reservations, launch rollback, retained work, exact-generation release and Git-aware cleanup.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/tmux.rs">tmux</a>, <a href="../../bin/backends/">backend adapters</a></td><td>Remove Treehouse shell coupling; preserve actual session support and launch at the allocated path.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/treehouse_tools.rs">Treehouse installer</a>, <a href="../../bin/mx-install-treehouse.sh">installer adapter</a>, <a href="../../crates/multplx-core/src/probe.rs">probe</a>, <a href="../../bin/mx-probe-lib.sh">probe adapter</a></td><td>Retire the external installer, pin, command requirement and durable-lease self-check.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/bootstrap.rs">Bootstrap</a>, <a href="../../crates/multplx-cli/src/doctor.rs">doctor</a></td><td>Internal capability/inventory checks with real allocation evidence rather than Treehouse text or fixture-only orphan observations.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/brief.rs">Briefs</a>, <a href="../../bin/mx-tangle-lib.sh">tangle adapter</a>, <a href="../../docs/upstream.md">dependency record</a>, <a href="../../.github/workflows/ci.yml">CI</a></td><td>Remove current provider assumptions and installer jobs; preserve relevant branch/isolation guarantees and historical provenance.</td></tr>
+</table>
+<h2>Accepted architecture scope</h2>
+<p>A10 is required scope, using A1 filesystem transactions and A2 identity, supporting A3/A5 delegation and capacity, and respecting A9 borrowed checkouts. The guide owns lifecycle guarantees; this phase owns their implementation and immediate caller replacement.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
+<h2>Behavior boundaries</h2>
+<div class="flow"><div><b>ACQUIRE</b><span>Exact project/base, isolated path and durable allocation identity.</span></div><div><b>LAUNCH</b><span>Agent starts at the returned path; no terminal cwd guessing.</span></div><div><b>RETAIN</b><span>Unfinished or uncertain work survives endpoint loss.</span></div><div><b>RELEASE</b><span>Exact-generation cleanup of proven owned resources.</span></div></div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Implement the small resource owner.</b>Add acquire, inspect/list, release/retain and explicit scoped prune through the existing domain/CLI architecture. Use task/project/common-Git identity, exact base and per-acquisition tokens from Phase 02. Reuse only verified idle disposed worktrees; prefer a fresh path when cache/content safety is unknown.</li>
+<li><b>Make acquisition transactional.</b>Reserve the path/operation before Git mutation, create the isolated worktree at the recorded commit, validate top-level/common-directory identity and atomically publish allocation facts. Repeated requests reconcile rather than allocate twice. Test Git success before receipt publication and incomplete-directory recovery.</li>
+<li><b>Launch from the returned path.</b>Replace every literal Treehouse invocation and sixty-second cwd polling branch with typed acquisition before endpoint creation. Pass the exact path to tmux/Herdr/cmux within their supported matrix, bind endpoint and task metadata to that allocation and preserve useful isolation checks.</li>
+<li><b>Unify durable reservation semantics.</b>Ordinary task allocations and persistent Git-backed homes retain ownership without live processes. A packaged non-Git runtime uses a private persistent-home directory provisioned by home seed, while its project tasks still use Git worktrees. Do not invent a clone of the application merely to provision a home.</li>
+<li><b>Implement guarded disposition.</b>Keep existing truthful dirty/unlanded/PR checks and exact-generation release under A10. Stop only verified task-owned processes, retain unknown occupants and unfinished files, and use Git-supported removal of exact owned paths. Shell exit never performs automatic destructive return.</li>
+<li><b>Keep reuse and prune narrow.</b>Retain safe reusable caches without promising Treehouse's whole warm-pool/hook behavior. Unclassified ignored content stays retained. Prune only explicit owned safe candidates with preview and a recheck; do not sweep foreign worktrees or delete caller-owned checkouts.</li>
+<li><b>Expose canonical recovery and inventory.</b>Provide typed allocation observations to doctor, snapshots and later TUI/Viz phases. Corrupt records or unexplained on-disk worktrees remain unknown/retained until reconciled. Maintain bounded operation reservations and lock ordering without holding a home-wide lock through external Git work.</li>
+<li><b>Prepare migration readers.</b>Read versioned v2.0.1-style metadata and known later fields inertly without executing Treehouse. Specify the ownership checks and relocation receipts consumed by Phase 09. Old wrapper shells must be quiesced before any resource transfer; unknown versions or foreign entries cannot be silently adopted.</li>
+<li><b>Remove the dependency end to end.</b>Retire installer implementation/dispatch/adapters, version pins, probes, bootstrap messages, shell assumptions and CI installation. Update command inventory, generated briefs, operational skill mechanics and dependency documentation; do not add a global fake <code>treehouse</code> binary or silently install the old tool on failure.</li>
+<li><b>Provision coordinator homes without project copies.</b>Expose the A10 private-directory home and worker allocation results to Phase 05. Coordinate allocations by canonical project/common-Git identity across homes; no coordinator launch requires a Treehouse lease or cloned runtime.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>Add focused Rust domain tests for real temporary Git repositories/worktrees, allocation concurrency, exact-base selection, shared-Git identity, local-only repos, branch collision, retried requests and corrupt records.</li>
+<li>Exercise acquire-before-record, Git mutation interruption, endpoint failure, home-seed rollback, release-before-record and stale token after path reuse. No failure may double-assign a resource or delete unfinished work.</li>
+<li>Extend tests/mx-teardown.test.sh, tests/mx-daemon-safety.test.sh, tests/mx-daemon.test.sh and tests/mx-spawn-dispatch-profile.test.sh with internal allocation fixtures and real Git effects; remove reliance on a fake Treehouse that always succeeds.</li>
+<li>Retain and adapt stale Git lock, squash-merge, unpushed/open-PR, dirty/untracked/ignored-file, persistent zero-process lease and unsafe-path coverage; unknown liveness retains resources.</li>
+<li>Update tests/mx-bootstrap.test.sh, tests/mx-doctor.test.sh, tests/mx-bin-runtime-inventory.test.sh and Rust dispatch/probe tests so Treehouse absence succeeds and obsolete installer commands cannot download it.</li>
+<li>Supported tmux/Herdr/cmux launch checks verify the exact returned worktree and no shell-driven acquire/cwd polling. Do not widen unsupported persistent-home combinations.</li>
+<li>Test explicit scoped prune against unrelated worktrees, caller-owned checkouts, foreign pools, missing repositories and corrupt allocation records.</li>
+<li>Run with Treehouse absent and a sentinel executable that fails if invoked. Disable downloads in integration fixtures; normal lifecycle must use only Git and existing declared tools.</li>
+<li>Record acquisition, setup and release latency plus disk/cache behavior for fresh and safely reusable worktrees in A8 trials; distinguish measured cost from expected velocity benefits.</li>
+<li>Two domain homes allocate isolated worker worktrees from one borrowed project without duplicate ownership or changes to the user checkout.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Publish implemented worktree command help and record/schema ownership, update dependency/setup and lifecycle docs, remove Treehouse skill triggers/install guidance, and retain upstream research only as rationale and migration history. Exact public syntax is finalized with the CLI; runtime compatibility is defined by A10 outcomes, not every upstream flag.</p>
+<h2>Definition of done</h2>
+<ul>
+<li>No supported new runtime path installs or invokes Treehouse; the built-in manager serves task allocation, persistent reservations, inspection and safe cleanup.</li>
+<li>Exact path/base/allocation identity reaches every supported session launch, with restart-safe ownership and no cwd-guessing loop.</li>
+<li>All required interruption, race, retention, borrowed-checkout and no-dependency tests pass.</li>
+<li>Migration readers and handoff receipts are ready for Phase 09 without taking over unrelated pools or relying on an external executable.</li>
+<li>The implementation remains a small Git resource lifecycle without a separate database, daemon, general hook engine or complete Treehouse clone.</li>
+<li>The assigned A11 foundation and focused interface checks pass; Phase 05 owns end-to-end coordinator integration, avoiding a circular dependency.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>Removing the executable before replacing all allocation and teardown callers breaks ordinary workers and persistent homes. A path-only release or automatic shell-exit reset would also defeat the new attempt-generation and unfinished-work guarantees.</p></div>
+<h2>Implementation evidence</h2><p>Status: planned. Record implementation revisions, exact focused checks, real Git/session evidence, measured worktree costs and remaining migration limitations here. No runtime replacement has been performed by this plan.</p>
+<nav class="footer-nav"><a href="02-unified-subagent-model.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="04-free-delegation-and-coordination.html">Next →</a></nav>
+</main></body></html>

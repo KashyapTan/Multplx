@@ -70,14 +70,14 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </head>
 <body>
 <header class="hero"><div class="wrap">
-<div class="plan-num">Lean Redesign 05 · Multplx</div>
+<div class="plan-num">Lean Redesign 07 · Multplx</div>
 <h1>Review Tools Only When Requested</h1>
 <p class="subtitle">Retain deep-review and vplan as useful explicit tools and remove their hidden defaults, mandatory dependencies and approval coupling.</p>
-<div class="badges"><span class="badge phase">Phase 05 of 08</span><span class="badge effort">Effort: Medium</span><span class="badge risk">Risk: Medium</span><span class="badge status">Planned · 2026-09-11</span></div>
+<div class="badges"><span class="badge phase">Phase 07 of 12</span><span class="badge effort">Effort: Medium</span><span class="badge risk">Risk: Medium</span><span class="badge status">Revised · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
-<p><b>Dependencies:</b> 01, 02.</p>
+<p><b>Dependencies:</b> 01, 02, 03, 05.</p>
 <h2>Overview</h2>
 <p>Deep-review is currently the registry fallback, and vplan is checked during routine bootstrap. Generic briefs, memory procedures and tracked workflows also bring those tools back into ordinary work. Opt-in must be true across all these entry points.</p>
 <h2>Owned source slice</h2>
@@ -90,8 +90,11 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <tr><td><a href="../../crates/multplx-services/src/local_services/vplan.rs"><code>crates/multplx-services/src/local_services/vplan.rs</code></a></td><td>Preserve explicit review service lifecycle and evidence.</td></tr>
 <tr><td><a href="../../share/vplan/"><code>share/vplan/</code></a></td><td>Retain authored artifacts and vendored assets as optional-tool resources.</td></tr>
 <tr><td><a href="../../.deep-review.yaml"><code>.deep-review.yaml</code></a></td><td>Keep useful optional pipeline configuration without mandatory skill references.</td></tr>
-<tr><td><a href="../../workflows/"><code>workflows/</code></a></td><td>Remove hidden tool invocation from general-purpose examples in coordination with Phase 06.</td></tr>
+<tr><td><a href="../../workflows/"><code>workflows/</code></a></td><td>Remove hidden tool invocation from general-purpose examples in coordination with Phase 08.</td></tr>
 </table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A2/A6 integration of explicitly requested tools. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 project-scoped optional tool configuration. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>DEFAULT</b><span>Agent chooses suitable local checks; no tool pipeline is implied.</span></div>
@@ -107,6 +110,10 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li><b>Retain useful explicit behavior.</b>Keep vplan loopback scope, comment persistence, artifact locks and identity cleanup. Keep deep-review findings, deadlines and real verification evidence when requested, but remove automatic push-approval handoff as the reason it exists.</li>
 <li><b>Remove automatic escalation from tool results.</b>Allow routine corrections within the assignment. Persist a real user question when needed without requiring a special finding-decider role or a complete-none ceremony for every report.</li>
 <li><b>Specify legacy continuation.</b>An in-flight old gate is preserved as evidence and can be resumed when its invocation was explicitly requested. Unknown legacy intent is surfaced for that run, not turned into a new global prerequisite.</li>
+<li><b>Attach explicit tool evidence to its target.</b>Bind requested vplan/deep-review runs and results to task, brief and code/artifact revision as appropriate. Feed real questions into the Phase 08 decision owner; comments do not automatically amend accepted scope. Preserve delayed results as historical when their target is superseded.</li>
+<li><b>Resolve optional tools within the assigned project.</b>Use the task-bound project and revision for requested review configuration/artifacts. Discovery and switching projects do not load or run optional tools. One repository's missing review assets must not block other repositories in the same chat.</li>
+<li><b>Keep optional tools independent of worktree providers.</b>Requested review helpers consume their recorded task allocation or request a scoped internal allocation when isolation is needed. Remove Treehouse assumptions without adding review-specific worktree policy.</li>
+<li><b>Propagate explicit review requests through domains.</b>Bind an explicitly requested tool to the exact domain/task/revision and route outputs through A11. A coordinator role, persistent charter or another task's request never enables deep-review or vplan globally.</li>
 </ol>
 <h2>Test plan</h2>
 <ul>
@@ -115,6 +122,11 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>tests/mx-bootstrap.test.sh and tests/mx-doctor.test.sh: ordinary work succeeds with optional assets missing; an active broken review is still visible.</li>
 <li>Unregistered project, missing registry and Multplx self-repo task do not invoke a gate. An HTML plan request does not start a vplan server.</li>
 <li>No requested pipeline is falsely labeled passed after a timeout or failed command; ordinary testing remains available without requesting either named tool.</li>
+<li>Return a vplan comment or deep-review result after its plan/commit changes; retain the result without silently steering the replacement or marking it reviewed.</li>
+<li>A discretionary reviewer assignment neither launches deep-review nor makes missing tool assets block ordinary progress.</li>
+<li>Request vplan/deep-review for repo 1 while repo 2 has no tool assets; only the explicitly selected task uses the tool and results remain attached to that repo/revision.</li>
+<li>Explicit review and ordinary startup both work with Treehouse absent, and review cleanup preserves unfinished work.</li>
+<li>One domain runs a requested tool while another works without its dependencies; results and unresolved questions reach their owning task and root.</li>
 </ul>
 <h2>Documentation and instruction updates</h2>
 <p>Update docs/vplan.md, docs/vplan-authoring.md, docs/delivery.md, configuration, bootstrap reference and optional-tool examples. Explain how explicit workflow selection establishes intent without creating a new global approval registry.</p>
@@ -124,9 +136,15 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>Both tools remain usable when explicitly requested.</li>
 <li>Ordinary work has no dependency on optional assets or gate state.</li>
 <li>Requested runs retain truthful results and recoverable artifacts.</li>
+<li>Requested tool evidence identifies its actual target and cannot advance a superseded revision or become an implicit approval requirement.</li>
+<li>Optional review stays task/project scoped across a multi-repository session.</li>
+<li>Explicit review and ordinary startup both work with Treehouse absent, and review cleanup preserves unfinished work.</li>
+<li>The assigned A11 integration and its focused check above pass with Phase 05.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Deleting the tools would lose useful functionality the user explicitly wants available on request. Merely changing a default setting is also insufficient while generated workflow and brief text still invokes them.</p></div>
-<nav class="footer-nav"><a href="04-agent-delivery-human-merges.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="06-workflows-with-agent-freedom.html">Next →</a></nav>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="06-agent-delivery-human-merges.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="08-workflows-with-agent-freedom.html">Next →</a></nav>
 </main>
 </body>
 </html>

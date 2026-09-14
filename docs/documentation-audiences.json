@@ -427,6 +427,18 @@
     {
       "path": "porting.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "plans/lean_redesign/architecture-assessment.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "plans/lean_redesign/treehouse-replacement-assessment.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "plans/lean_redesign/sub-orchestrator-assessment.md",
+      "audience": "maintainer-architecture"
     }
   ]
 }

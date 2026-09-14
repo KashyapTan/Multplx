@@ -70,14 +70,14 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </head>
 <body>
 <header class="hero"><div class="wrap">
-<div class="plan-num">Lean Redesign 03 · Multplx</div>
+<div class="plan-num">Lean Redesign 04 · Multplx</div>
 <h1>Free Delegation, Durable Coordination</h1>
 <p class="subtitle">Allow CLI and native delegation while keeping task-bound communication, queue ownership and truthful recovery.</p>
-<div class="badges"><span class="badge phase">Phase 03 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+<div class="badges"><span class="badge phase">Phase 04 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
-<p><b>Dependencies:</b> 02.</p>
+<p><b>Dependencies:</b> 02, 03.</p>
 <h2>Overview</h2>
 <p>The current delegation guard denies tools by name shape, while in-flight supervision depends on metadata that only Multplx spawn creates. Freedom requires removing that guard and making native session limits visible without turning registration into another permission gate.</p>
 <h2>Owned source slice</h2>
@@ -92,7 +92,13 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <tr><td><a href="../../crates/multplx-domain/src/operational_input.rs"><code>crates/multplx-domain/src/operational_input.rs</code></a></td><td>Parent messages and legacy carrier compatibility.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/pending_reply.rs"><code>crates/multplx-domain/src/lifecycle/pending_reply.rs</code></a></td><td>Correlated replies, retries and missing-response recovery.</td></tr>
 <tr><td><a href="../../crates/multplx-backend/src/actor_state.rs"><code>crates/multplx-backend/src/actor_state.rs</code></a></td><td>Reconcile supported runtime observations and session-bound work.</td></tr>
+<tr><td><a href="../../crates/multplx-core/src/wake.rs"><code>crates/multplx-core/src/wake.rs</code></a></td><td>Durable claims, dispositions, acknowledgements and abandoned-owner recovery.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/lib.rs"><code>crates/multplx-cli/src/lib.rs</code></a></td><td>Wake CLI dispatch and durable handling instead of stdout-as-completion.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/headroom.rs"><code>crates/multplx-backend/src/headroom.rs</code></a></td><td>Durable capacity queues, priority, starvation prevention and repeat-safe admission.</td></tr>
 </table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A3; report validation from A2; watcher isolation in A4; resource admission in A5. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 one-owner connection and multi-task request routing. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>CLI CHILD</b><span>Independent endpoint with the existing durable lifecycle.</span></div>
@@ -108,7 +114,17 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li><b>Handle unsupported observation honestly.</b>Allow the native tool. Record session-bound delegation on the parent task with the available evidence and explain its recovery limitation. Do not invent a full backend, duplicate dashboard ledger, or native-resume guarantee.</li>
 <li><b>Preserve agent-to-agent communication.</b>Route peers through validated recipient/home identity and task-scoped records; preserve correlation on retry. Internal messages carry task context and do not grant merge authority. Keep long results in artifacts with status pointers.</li>
 <li><b>Reconcile continuity.</b>Retain singleton watcher locks, queue-before-notification ordering, canonical status reconciliation and AFK ownership transfer. Reconcile live independent children after parent restart; classify unavailable native work as interrupted, preserving artifacts for continuation.</li>
+<li><b>Implement durable inbox handling.</b>Replace print-and-delete completion with A3 claim, durable disposition and acknowledgement through the existing queue/CLI owner. Recover abandoned claims after owner reconciliation; a waiting disposition retains its continuation trigger. Keep critical transitions and coalesce only replaceable progress.</li>
+<li><b>Make action retries converge.</b>Use A1 operation receipts and stable request IDs to reconcile an existing child before replaying uncertain spawn requests. Reuse pending-reply correlation and validate A2 attempt/revision identity before accepting reports. Publication consumes the same mechanism in Phase 06.</li>
+<li><b>Isolate slow supervision checks.</b>Move serial due checks and forge probes into bounded work with individual deadlines and partial results while keeping wake ingestion responsive. Do not hold shared locks across external calls; preserve singleton ownership and evidence precedence.</li>
+<li><b>Extend capacity-aware deferred work.</b>Use the existing headroom owner for configured resource limits, durable queued intent, priority changes and starvation prevention under A5. Resume runnable entries after restart without duplicate launches. Declare opaque native-child limits and keep native delegation usable.</li>
+<li><b>Support additional terminal clients.</b>Expose the existing owner/endpoint and durable inbox APIs needed by Phase 11 without relaxing the home lock. Correlate one multi-repo request with stable per-task operations so partial acceptance and retried submission converge. Preserve selected repository context in deferred work.</li>
+<li><b>Use the internal allocation result.</b>Consume Phase 03 acquire/release receipts when launching scoped children. Keep A3 inbox idempotence and capacity scheduling aligned with resource reservations; do not recreate Treehouse shell injection or cwd polling.</li>
+<li><b>Expose parent-channel and shared admission primitives.</b>Provide A3 inbox/outbox receipts, validated destination resolution, critical event publication hooks and A5 root-scoped admission primitives for Phase 05. Keep message delivery, response and completion separate and avoid a second messaging service.</li>
 </ol>
+<h2>Required reliability improvements</h2>
+<p>Implement <a href="../../porting.md#accepted-architecture-contract">A2-A5</a> using the existing state owners: attempt-bound messaging, durable claim/disposition/acknowledgement, repeat-safe actions, bounded watcher checks and capacity-aware deferred work. The <a href="architecture-assessment.md">assessment</a> explains the observed gaps; these are accepted requirements, not implemented guarantees.</p>
+<ul><li>Test a crash after a wake is printed but before its dependent action is recorded; the task must remain recoverable without relying on chat history.</li><li>Test duplicate request delivery and an old implementer reporting done after replacement; neither should create duplicate work or advance the new attempt.</li><li>Preserve prompt/plan revision, recipient identity, correlation and artifact references across the researcher-to-orchestrator-to-implementer handoff.</li><li>Allow narrow peer questions, but route accepted scope, completion and user decisions through the owning task so the orchestrator remains informed.</li></ul>
 <h2>Test plan</h2>
 <ul>
 <li>tests/mx-subagent-pretool-check.test.sh and tests/mx-cursor-adapter.test.sh: replace denial expectations with allowed native delegation and unaffected supervision checks.</li>
@@ -116,6 +132,11 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>tests/mx-wake-queue.test.sh, tests/mx-watcher-lock.test.sh, tests/mx-watch-triage.test.sh and tests/mx-signal-precedence.test.sh: preserve durable ordering and classifier evidence precedence.</li>
 <li>Native child completes, parent restarts, child has no resumable identity, duplicate reply arrives, wrong-home report attempts append, and a persistent sub-agent creates a grandchild.</li>
 <li>Exercise actual supported Claude/Codex/Cursor/Pi native tool surfaces in isolated sessions. Missing provider hooks are a declared observation limit, not grounds for a delegation ban.</li>
+<li>Crash after display, after claim, after action creation and before acknowledgement; restart and recover one disposition without duplicate launches. Re-deliver identical requests and retain waiting continuations.</li>
+<li>Run a slow check beside healthy reports and verify bounded progress; saturate capacity, restart the queue, change priorities and demonstrate small-task progress without a delegation permission prompt.</li>
+<li>Race client submissions and repeat a partially accepted three-repo request; one owner handles it, accepted items do not duplicate and an unresolved item does not block independent tasks.</li>
+<li>Duplicate dispatch and failed endpoint startup preserve a single owned worktree or a recorded retained allocation.</li>
+<li>Delayed and duplicated events cross home boundaries with stable identity; a slow child cannot block unrelated ingestion and a parent never consumes a foreign queue.</li>
 </ul>
 <h2>Documentation and instruction updates</h2>
 <p>Replace docs/subagent-guard.md with current delegation/observation behavior or retire it in favor of the architecture owner. Update harness references and dated evidence; keep service-process terms distinct from removed agent roles.</p>
@@ -125,9 +146,16 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>Both orchestrator and sub-agents can create further scoped work.</li>
 <li>Canonical state accounts for supported native observations and declares unsupported recovery honestly.</li>
 <li>Locks, wakes, status binding, AFK and correlated replies retain their meaningful guarantees.</li>
+<li>Durable handling, attempt-bound reports, correlated replies and recoverable action receipts pass failure injection.</li>
+<li>A stalled check does not block healthy wake ingestion, and capacity queues retain accepted work without starvation or duplicate ownership.</li>
+<li>External terminal requests preserve project binding and converge through one orchestrator inbox without a second writer.</li>
+<li>Duplicate dispatch and failed endpoint startup preserve a single owned worktree or a recorded retained allocation.</li>
+<li>The assigned A11 foundation and focused interface checks pass; Phase 05 owns end-to-end coordinator integration, avoiding a circular dependency.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Do not recreate the old guard as a mandatory tracking wrapper. Also do not call unobserved native children durable: preserving user freedom and reporting actual provider limits are both part of acceptance.</p></div>
-<nav class="footer-nav"><a href="02-unified-subagent-model.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="04-agent-delivery-human-merges.html">Next →</a></nav>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="03-built-in-worktree-lifecycle.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="05-scoped-sub-orchestrators.html">Next →</a></nav>
 </main>
 </body>
 </html>

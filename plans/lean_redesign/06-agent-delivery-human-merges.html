@@ -70,14 +70,14 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </head>
 <body>
 <header class="hero"><div class="wrap">
-<div class="plan-num">Lean Redesign 04 · Multplx</div>
+<div class="plan-num">Lean Redesign 06 · Multplx</div>
 <h1>Agent Delivery, Human PR Merges</h1>
 <p class="subtitle">Let agents commit, push and open PRs directly, while retaining the single explicit product permission boundary at PR merging.</p>
-<div class="badges"><span class="badge phase">Phase 04 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+<div class="badges"><span class="badge phase">Phase 06 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
-<p><b>Dependencies:</b> 02.</p>
+<p><b>Dependencies:</b> 02, 04, 05. Credential cleanup can begin independently; publication integration requires Phase 04 action receipts.</p>
 <h2>Overview</h2>
 <p>Agent launch currently strips credentials and makes origin non-writable. The delivery implementation then refuses agent sessions and requires approved local handoffs. These are intentional removals; the useful identity, retry and PR-monitoring mechanisms should survive.</p>
 <h2>Owned source slice</h2>
@@ -88,9 +88,13 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <tr><td><a href="../../crates/multplx-domain/src/review_delivery.rs"><code>crates/multplx-domain/src/review_delivery.rs</code></a></td><td>Separate publication receipts from optional review and obsolete approval provenance.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/maintainer_override.rs"><code>crates/multplx-domain/src/maintainer_override.rs</code></a></td><td>Retire agent merge-red/standing authority routes.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/teardown.rs"><code>crates/multplx-domain/src/lifecycle/teardown.rs</code></a></td><td>Retain unlanded work and verify merged/retained artifacts before cleanup.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/system_sync.rs"><code>crates/multplx-domain/src/lifecycle/system_sync.rs</code></a></td><td>Respect borrowed checkout ownership during post-delivery refresh; do not apply managed-clone maintenance to user-owned branches and files.</td></tr>
 <tr><td><a href="../../bin/mx-deliver.sh"><code>bin/mx-deliver.sh</code></a></td><td>Keep transport help consistent with the Rust implementation.</td></tr>
 <tr><td><a href="../../bin/mx-pr-merge.sh"><code>bin/mx-pr-merge.sh</code></a></td><td>Retain a human-facing helper without an agent privilege bypass.</td></tr>
 </table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A1/A3 publication reconciliation; A2/A6 current delivery evidence. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 borrowed-checkout and repository delivery isolation. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>LOCAL WORK</b><span>Agent commits and reports its actual verification.</span></div>
@@ -106,6 +110,11 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li><b>Keep the PR record path.</b>Register directly opened PRs through the existing canonical PR owner so read-only polls and snapshots continue working. Preserve the private static poll trust, queue-before-retirement order and identity-bound cleanup.</li>
 <li><b>Enforce the product merge boundary.</b>Keep agent merge refusal in owned commands and add narrowly scoped supported harness checks for ordinary merge actions. Remove yolo, merge-red and workflow/automation bypass paths. Do not block general git merge/rebase operations inside task worktrees. See porting.md for the honest limitation of command-level enforcement.</li>
 <li><b>Update cleanup and operator usage.</b>Open PRs remain unlanded and their work remains recoverable. Human merges are observed normally. Existing service receipts stay readable for migration, and a pending legacy receipt never becomes a new authorized push merely because the software was upgraded.</li>
+<li><b>Bind readiness to actual revisions.</b>Record accepted scope, attempt, commit, checks, limitations and PR identity under A2/A6. Preserve old review/check evidence as history after a new commit. Expose a dependency-aware human review queue through the canonical task owner without making optional review a publication gate.</li>
+<li><b>Reconcile uncertain publication receipts.</b>Use Phase 04 operation identity with the existing forge/branch reconciliation path for PR-created-before-record and push-before-response failures. A transport retry is not proof a remote action failed. Preserve human-only merge behavior.</li>
+<li><b>Respect external checkout ownership.</b>Audit refresh, publication and cleanup consumers against Phase 02 managed/user-owned metadata. Use task-bound project, starting revision and forge identity, never a global selected repo. Preserve borrowed branches/index/files, remote-free behavior and unlanded work; unregister does not delete the checkout.</li>
+<li><b>Gate resource disposal on actual work disposition.</b>Pass current allocation identity to the Phase 03 cleanup owner after verifying delivery evidence. Open PRs, unpushed changes and unknown files remain retained; agent exit or branch publication alone cannot trigger destructive return.</li>
+<li><b>Publish delivery outcomes through the coordinator chain.</b>Integrate A11 runtime outcome publication with canonical PR registration, failed publication, evidence changes and human-merge observations. A coordinator summary is supplemental; no coordinator can merge or turn a stale PR result into current evidence.</li>
 </ol>
 <h2>Test plan</h2>
 <ul>
@@ -114,18 +123,29 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>All tests/mx-pr-check-security-*.test.sh scenarios remain for inert parsing, identity, quarantine and retirement; revise only obsolete publication-policy assumptions.</li>
 <li>tests/mx-teardown.test.sh: pushed/open-PR/dirty work is not silently recycled.</li>
 <li>Fake-forge scenarios cover partial failure and retries; a dedicated live test repository proves the supported authentication and human-merge boundary without merging a PR from an agent session.</li>
+<li>Re-deliver a publication request after forge success but before its local receipt, and verify reconciliation of one canonical PR.</li>
+<li>Publish a new commit after checks or review complete; the old evidence remains visible but does not establish current readiness. A dependent PR remains correctly ordered in the human queue.</li>
+<li>Complete concurrent repo 1/repo 2 tasks with different remotes plus a remote-free task; verify separate outcomes, correct PR identities and unchanged dirty user checkout state.</li>
+<li>Publishing an open PR retains its worktree, while verified safe cleanup cannot release another generation or mutate a borrowed checkout.</li>
+<li>A child PR becomes visible to the root while its sub-orchestrator model is idle, and retries preserve one task/event identity and human-only merges.</li>
 </ul>
 <h2>Documentation and instruction updates</h2>
 <p>Rewrite docs/delivery.md around ordinary branch publication and human merging. Update README examples, generated briefs, credentials documentation and verification records; remove instructions requiring users to run delivery from another shell.</p>
 <h2>Definition of done</h2>
 <ul>
-<li>An orchestrator and sub-agent can publish an authorized branch and open/update its PR without extra Multplx approval.</li>
+<li>An implementer can publish an authorized branch and open/update its PR without extra Multplx approval; the orchestrator tracks and presents the result.</li>
 <li>No supported agent path grants PR merge or auto-merge rights.</li>
 <li>PR identity, actual validation results, restart receipts and polling remain correct.</li>
 <li>The documentation does not claim a command hook is a security boundary against arbitrary code with broad credentials.</li>
+<li>Publication retries and revision-bound readiness satisfy A3/A6 while ordinary publication remains ungated and every agent merge path stays forbidden.</li>
+<li>Delivery and maintenance honor A9 ownership and cannot publish or clean up another task's repository after a context switch.</li>
+<li>Publishing an open PR retains its worktree, while verified safe cleanup cannot release another generation or mutate a borrowed checkout.</li>
+<li>The assigned A11 integration and its focused check above pass with Phase 05.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Credential access is being deliberately expanded for publication. The implementation must not imply that removing the agent-session check from deliver also authorizes removing it from pr-merge, or that a broadly privileged token intrinsically prevents remote merges.</p></div>
-<nav class="footer-nav"><a href="03-free-delegation-and-coordination.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="05-opt-in-review-tools.html">Next →</a></nav>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="05-scoped-sub-orchestrators.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="07-opt-in-review-tools.html">Next →</a></nav>
 </main>
 </body>
 </html>

@@ -70,31 +70,34 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </head>
 <body>
 <header class="hero"><div class="wrap">
-<div class="plan-num">Lean Redesign 08 · Multplx</div>
+<div class="plan-num">Lean Redesign 12 · Multplx</div>
 <h1>Documentation, Validation and Cutover</h1>
 <p class="subtitle">Ship a consistent lean product across help, prompts, UI, supported runtimes and existing-home upgrades.</p>
-<div class="badges"><span class="badge phase">Phase 08 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+<div class="badges"><span class="badge phase">Phase 12 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
-<p><b>Dependencies:</b> 01-07.</p>
+<p><b>Dependencies:</b> 01-11.</p>
 <h2>Overview</h2>
 <p>The redesign is complete only when fresh agents receive the short contract, actual launches allow the promised actions, selected workflows remain intact and older homes recover correctly. Historical policy tests must be intentionally replaced while retained coordination tests remain meaningful.</p>
 <h2>Owned source slice</h2>
 <table><tr><th>Current source</th><th>Responsibility</th></tr>
-<tr><td><a href="../../README.md"><code>README.md</code></a></td><td>Explain one orchestrator, sub-agents and ordinary agent publication.</td></tr>
+<tr><td><a href="../../README.md"><code>README.md</code></a></td><td>Explain one main orchestrator, optional domain sub-orchestrators, workers and ordinary agent publication.</td></tr>
 <tr><td><a href="../../CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a></td><td>Keep concise repository-specific development and validation instructions.</td></tr>
 <tr><td><a href="../../docs/"><code>docs/</code></a></td><td>Update current architecture, configuration, workflows, delivery, operations and verified integration limits.</td></tr>
 <tr><td><a href="../../docs/documentation-audiences.json"><code>docs/documentation-audiences.json</code></a></td><td>Classify renamed/deleted/added surfaces and validate owner links.</td></tr>
-<tr><td><a href="../../share/viz/app.js"><code>share/viz/app.js</code></a></td><td>Show orchestrator/sub-agent relationships, persistence and real delivery state.</td></tr>
-<tr><td><a href="../../share/viz/app.css"><code>share/viz/app.css</code></a></td><td>Adjust presentation only where labels/layout change.</td></tr>
-<tr><td><a href="../../crates/multplx-cli/src/launcher.rs"><code>crates/multplx-cli/src/launcher.rs</code></a></td><td>Fresh installation and upgrade discovery.</td></tr>
-<tr><td><a href="../../crates/multplx-backend/src/harness_launch.rs"><code>crates/multplx-backend/src/harness_launch.rs</code></a></td><td>Actual primary launch and root contract validation.</td></tr>
+<tr><td><a href="../../share/viz/app.js"><code>share/viz/app.js</code></a></td><td>Verify the Phase 10 task, assignment, freshness and delivery views in the release package.</td></tr>
+<tr><td><a href="../../share/viz/app.css"><code>share/viz/app.css</code></a></td><td>Verify the Phase 10 layout in the packaged visualizer.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/launcher.rs"><code>crates/multplx-cli/src/launcher.rs</code></a></td><td>Verify Phase 11 packaged installation, launch-anywhere entry, TUI and upgrade behavior.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/harness_launch.rs"><code>crates/multplx-backend/src/harness_launch.rs</code></a></td><td>Verify Phase 11 one-owner connection, actual primary launch and packaged contract discovery.</td></tr>
 <tr><td><a href="../../share/shell/"><code>share/shell/</code></a></td><td>Shell labels and shims without domain policy.</td></tr>
 <tr><td><a href="../../crates/multplx-cli/src/tooling/runner.rs"><code>crates/multplx-cli/src/tooling/runner.rs</code></a></td><td>Changed test inventory and resource-safe execution.</td></tr>
 <tr><td><a href="../../.github/workflows/ci.yml"><code>.github/workflows/ci.yml</code></a></td><td>Retain platform/integration lanes and update intentional policy checks.</td></tr>
 <tr><td><a href="../../AGENTS_E.md"><code>AGENTS_E.md</code></a></td><td>Final lean contract source, dormant until deliberate release cutover.</td></tr>
 </table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A1-A11 combined acceptance and evidence. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 end-to-end launch-anywhere entry and packaged TUI acceptance. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>FRESH INSTALL</b><span>One concise contract and normal authentication.</span></div>
@@ -111,14 +114,25 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li><b>Validate the release package before restoring discovery.</b>Create an isolated release fixture containing the lean contract under AGENTS.md and verify startup exactly once. Keep the development checkout on AGENTS_E.md throughout implementation and checks. Root-contract discovery must not learn the temporary filename.</li>
 <li><b>Perform deliberate final cutover.</b>Only at the release step, rename the completed lean AGENTS_E.md to AGENTS.md, update its current links and inventory, and rerun instruction/launcher/documentation checks against the restored tree. Use a fresh session for operational startup. If the user elects to keep the development checkout dormant, deliver the tested package and clearly mark repository cutover pending.</li>
 <li><b>Publish evidence and stop at the PR.</b>Provide concise changed behavior, relevant test results, migration guidance and a reviewable PR. The human performs the merge. Update this roadmap status only after actual acceptance; do not call planned features implemented.</li>
+<li><b>Run the agreed concurrency comparison.</b>Execute the A8 1/5/10/20-task workload matrix across independent projects and coupled changes. Record actual active sessions, correctness, throughput, resource use and human attention separately; native observation gaps and unavailable measurements stay explicit.</li>
+<li><b>Close reliability and visual acceptance together.</b>Run the A1-A3 interruption/retry/stale-attempt matrix with A4 slow-provider and A5 capacity/dependency scenarios. Verify A6 current evidence and human decisions in the packaged A7 dashboard. No required mechanism or failed performance target may be relabeled optional to close the release.</li>
+<li><b>Publish reproducible evidence.</b>Record code revision, machine, backend/harness versions, workload, sample counts, commands, results and unresolved limitations at the verification owner. Compare results to the small-concurrency baseline before claiming velocity gains. Keep human merges human-executed.</li>
+<li><b>Verify the complete installed multi-repo experience.</b>After a package-only installation, run scenarios 19-39 from arbitrary caller directories, including an example non-repository dev root. Use one chat for three repositories at different depths, exercise discovery config, concurrent launch/retry, context changes, restart and TUI navigation. Verify borrowed checkout preservation and actual provider connection limits.</li>
+<li><b>Verify complete Treehouse retirement.</b>Run A10 failure/retention/migration scenarios and the no-Treehouse installation matrix. Audit binary dispatch, hooks, adapters, probes, instructions, CI and tests; old names remain only in documented migration/history. Record cold and safe-reuse worktree setup costs without claiming parity before measurement.</li>
+<li><b>Verify hierarchical coordination end to end.</b>Run A11 scenarios 32-39 and compare direct versus domain-delegated 1/5/10/20-task trials under equal total budgets. Verify silent-model outcome relay, bounded missing-reply recovery, shared capacity, task transfer and packaged TUI/Viz views.</li>
 </ol>
 <h2>Test plan</h2>
 <ul>
 <li>Complete Rust formatting, Clippy, workspace tests, optimized build, behavior inventory coverage and the complete accelerated behavior suite.</li>
 <li>tests/mx-naming.test.sh, tests/mx-instruction-owners.test.sh, tests/mx-documentation-audiences.test.sh, tests/mx-launcher.test.sh, tests/mx-launcher-shell.test.sh and tests/mx-bin-runtime-inventory.test.sh.</li>
 <li>tests/mx-viz.test.sh and snapshot reconciliation tests: no fictional role/status state, no missing persistent children and no misleading landed label for an open PR.</li>
-<li>The ten end-to-end acceptance scenarios in porting.md, including direct work, nested native delegation, restart, partial publication, human merge boundary, optional tools, ordered workflow and migration.</li>
+<li>The expanded end-to-end acceptance scenarios in porting.md, including delegated implementation, underspecified research, agreed plans, nested delegation, restart, human merges, optional tools, ordered workflows, migration and 20-task MX Viz coverage.</li>
 <li>A fresh package starts each claimed harness correctly; no read, test or package step enters firstmate/.</li>
+<li>Complete all 39 porting-guide scenarios and the A8 measurements; fixtures prove deterministic behavior, and supported live integrations are labeled separately.</li>
+<li>Cross-check each phase evidence entry against assigned A1-A11 requirements, including filesystem-only storage, durable handling, stale-answer rejection and the actual packaged MX Viz experience.</li>
+<li>The release matrix includes installed CLI/TUI/harness entry, nested local discovery and simultaneous repo 1/repo 2/repo 3 outcomes in one orchestrator conversation, without source checkout or Rust build prerequisites.</li>
+<li>All 39 acceptance scenarios include arbitrary launch directories and the built-in worktree lifecycle; no supported runtime path installs or invokes Treehouse.</li>
+<li>All 39 guide scenarios and A1-A11 requirements have recorded evidence; unresolved hierarchy, migration or performance checks remain open release acceptance.</li>
 </ul>
 <h2>Documentation and instruction updates</h2>
 <p>Active documentation describes the lean implementation. Historical plans stay unchanged apart from roadmap navigation. Verification records distinguish empirical integration checks from fixtures and do not claim all combinations are supported.</p>
@@ -129,9 +143,15 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>New installs and migrated homes expose canonical orchestrator/sub-agent terminology.</li>
 <li>Only operational skill guidance remains, optional tools are actually optional, and the human merge boundary is consistent.</li>
 <li>The final operating filename is restored only in the deliberate cutover, or cutover is explicitly reported pending.</li>
+<li>All accepted architecture requirements have linked implementation and passing required evidence; missing trials or unmet targets remain open rather than being treated as completed work.</li>
+<li>A9 installed workspace entry, configurable nested discovery and one-chat multi-repo operation pass alongside all prior reliability, workflow and MX Viz requirements.</li>
+<li>All 39 acceptance scenarios include arbitrary launch directories and the built-in worktree lifecycle; no supported runtime path installs or invokes Treehouse.</li>
+<li>The assigned A11 integration and its focused check above pass with Phase 05.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>The current planning baseline already fails documentation inventory because AGENTS.md was deliberately renamed. Fix current links in the implementation phases and validate the final package; never undo that rename early just to make an intermediate check green.</p></div>
-<nav class="footer-nav"><a href="07-state-migration-and-recovery.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="../../porting.md">Porting guide →</a></nav>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="11-workspace-entry-and-project-discovery.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="../../porting.md">Porting guide →</a></nav>
 </main>
 </body>
 </html>

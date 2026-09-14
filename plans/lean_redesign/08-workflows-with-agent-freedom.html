@@ -70,14 +70,14 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </head>
 <body>
 <header class="hero"><div class="wrap">
-<div class="plan-num">Lean Redesign 06 · Multplx</div>
+<div class="plan-num">Lean Redesign 08 · Multplx</div>
 <h1>Ordered Workflows, Autonomous Stages</h1>
-<p class="subtitle">Keep every selected workflow step while removing role privileges and giving agents freedom inside each stage.</p>
-<div class="badges"><span class="badge phase">Phase 06 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+<p class="subtitle">Keep every selected workflow step, support human planning conversations and give sub-agents freedom inside their assigned stages.</p>
+<div class="badges"><span class="badge phase">Phase 08 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
-<p><b>Dependencies:</b> 03, 04, 05.</p>
+<p><b>Dependencies:</b> 04, 05, 06, 07.</p>
 <h2>Overview</h2>
 <p>The current engine already provides immutable snapshots, stage locks, output contracts and restart-safe state. Preserve that skeleton. Replace broker/actor executors and headless review coupling without allowing free delegation to skip the selected process.</p>
 <h2>Owned source slice</h2>
@@ -91,6 +91,9 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <tr><td><a href="../../workflows/upstream-sync.workflow.md"><code>workflows/upstream-sync.workflow.md</code></a></td><td>Remove implicit deep-review; retain explicitly chosen upstream-review stages and cursor evidence.</td></tr>
 <tr><td><a href="../../.agents/skills/create-workflow/SKILL.md"><code>.agents/skills/create-workflow/SKILL.md</code></a></td><td>Use the simplified schema without adding a compulsory interview.</td></tr>
 </table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A5 dependency execution; A6 human decisions, artifact handoffs and quality. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 one-chat multi-repository intake and workflows. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>ORDER</b><span>Only the next unmet stage executes.</span></div>
@@ -100,14 +103,24 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </div>
 <h2>Implementation steps</h2>
 <ol class="steps">
-<li><b>Define execution placement.</b>Replace broker/actor privilege terms with orchestrator-context and sub-agent-session choices. Do not invent another ranked agent type. Preserve a selected fresh-session requirement and map legacy executor tokens through the versioned reader.</li>
+<li><b>Define execution placement.</b>Replace broker/actor privilege terms with orchestrator-context and sub-agent-session choices. Discussion, research, synthesis and planning can use the orchestrator context; implementation stages must dispatch a sub-agent. Keep researcher/implementer/reviewer as descriptive roles. Preserve a selected fresh-session requirement and map legacy executor tokens through the versioned reader.</li>
 <li><b>Separate generic execution from review.</b>Move reusable headless invocation and structured result transport to an appropriate existing shared owner. A normal agent stage must not instantiate deep-review policy, credential restrictions or a gate-agent identity.</li>
 <li><b>Allow internal delegation.</b>A stage executor may start scoped children and reconcile their results. Its task remains active until the stage contract is met; work belonging to later stages cannot be silently pulled forward to bypass order.</li>
 <li><b>Preserve explicit interaction.</b>Keep declared interactive/approve stages and their durable answer routing. Do not add approval points for routine engineering choices or every push. A false done report cannot satisfy output, command or local-commit evidence.</li>
 <li><b>Handle optional tools explicitly.</b>New generic templates contain no implicit deep-review/vplan. A deliberately selected tool stage executes exactly as declared. Explain an old tool-bearing template before running it when user intent is unclear; never silently skip it.</li>
 <li><b>Simplify exceptional flow.</b>Routine fixes and retries stay within the current stage. Do not auto-consume skip/reorder grants to finish faster. If the user changes the process, record a deliberate versioned plan change or new run with truthful cancellation/supersession, not a forged passed stage.</li>
 <li><b>Preserve restart behavior.</b>Keep per-run serialization, command capture, immutable inputs, safe artifact paths and reconciliation. A child failure parks only dependent work and retains enough evidence to continue after correction. No workflow stage may merge a PR.</li>
+<li><b>Implement revision-bound human decisions.</b>Record the question, task, accepted brief/workflow target and answer under A6. Batch non-urgent decisions, surface blockers and let unrelated work continue. A delayed answer cannot silently amend a different revision; do not infer preference from research or peer messages.</li>
+<li><b>Schedule dependencies and integration.</b>Use the task dependency graph to identify runnable work, reject cycles and release dependents only on truthful current evidence. Preserve selected stage order. Assign shared-interface integration code to a sub-agent; avoid a blanket same-file concurrency ban.</li>
+<li><b>Preserve concise handoffs and current evidence.</b>Pass original research and source pointers with the accepted brief to implementers, and accepted scope plus exact revision to reviewers. Keep a durable compact summary for human conversation and restart; compare implementation, checks, review and merge as separate facts.</li>
+<li><b>Implement multi-repo requests in one conversation.</b>Decompose a human request into separately identified tasks using A9 project resolution and A3 correlation. Bind briefs, decisions, stages and evidence to each repo/checkout; ambiguous identity pauses only affected work. Preserve explicit cross-repo dependencies while independent workflows continue.</li>
+<li><b>Bind workflow stages to durable allocations.</b>Record each delegated stage allocation and use Phase 03 recovery on resume. Preserve selected fresh-session requirements without confusing a session restart with permission to reset its worktree.</li>
+<li><b>Delegate workflow stages to scoped coordinators.</b>Allow a stage to assign bounded domain orchestration using Phase 05 while retaining one stage owner, exact accepted revision, declared outputs and ordered advancement. Route human questions and cross-domain dependencies through A11.</li>
 </ol>
+<h2>Research, agreement and implementation</h2>
+<p>For an underspecified task, gather facts before implementation: dispatch research where useful, synthesize the original research artifact, discuss unresolved product choices with the human, and launch an implementer with an agreed brief revision. A known fix can go directly to implementation. This is task-dependent sequencing, not a compulsory research workflow for every request.</p>
+<p>A selected planning workflow can contain iterative human discussion and requested vplan use. Store the accepted plan revision and bind implementation to it. Research cannot decide an unstated product preference, and a vplan comment is not automatically an accepted instruction change. Later user corrections update the task revision and steer only affected work while other tasks continue.</p>
+<p>Require truthful outcome evidence from implementation, including relevant checks and known limits. The orchestrator can commission a reviewer or integration sub-agent when useful without invoking deep-review. Distinguish implementation completion, review readiness, passing current checks and human merge.</p>
 <h2>Test plan</h2>
 <ul>
 <li>tests/mx-workflow.test.sh, tests/mx-workflow-lib.test.sh and Rust authority/workflow tests: preserve immutable definitions, ordered stages, output checks and per-run locks.</li>
@@ -115,18 +128,30 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>A three-stage workflow delegates multiple children in stage two, restarts, resumes stage two, and reaches stage three only after its required artifact exists.</li>
 <li>Missing artifact, false done, failed command, unanswered explicit interaction, duplicate resume, abort and changed snapshot remain rejected or waiting as appropriate.</li>
 <li>Legacy explicit review workflow keeps its steps; generic new workflow performs direct agent delivery without gate approval; merge and auto-merge command stages remain outside agent authority.</li>
+<li>Change the brief while research, implementation or a human answer is in flight; only current authorized evidence advances the affected task.</li>
+<li>A dependency cycle is rejected; a blocked or unanswered task does not stall an independent one. An integration sub-agent handles coupled changes while the main orchestrator remains responsive.</li>
+<li>Exercise known-fix direct delegation, underspecified research/agreement and explicit vplan discussion without a compulsory research or reviewer stage.</li>
+<li>In one chat request feature A in repo 1, feature B in repo 2 and feature C in repo 3; steer one task and change TUI context while checking that the other workflows, questions and outcomes remain correctly bound.</li>
+<li>A workflow resumes an interrupted stage at the recorded allocation and cannot reuse a different task's path.</li>
+<li>Research-to-implementation with nested children completes only after required stage outputs; sub-orchestrator readiness or a summary alone cannot advance the stage.</li>
 </ul>
 <h2>Documentation and instruction updates</h2>
 <p>Update docs/workflows.md as the schema owner, both tracked examples and current workflow verification. Write concrete before/after examples of internal delegation while preserving stage order; do not add a second workflow engine.</p>
 <h2>Definition of done</h2>
 <ul>
 <li>Every selected stage remains binding, including deliberately chosen user-interaction stages.</li>
-<li>Agent stages freely delegate without role-specific permissions.</li>
+<li>Agent stages freely delegate; implementation stages never execute project coding in the main orchestrator context.</li>
 <li>Ordinary workflows do not depend on deep-review internals or credentialed delivery.</li>
 <li>Resumes, retries and legacy snapshots preserve truthful stage evidence.</li>
+<li>A5/A6 dependency, decision and artifact handoffs work across restart with current evidence and no main-agent coding.</li>
+<li>One main conversation handles concurrent multi-repo plans and implementation with optional scoped sub-orchestrators and no context leakage.</li>
+<li>A workflow resumes an interrupted stage at the recorded allocation and cannot reuse a different task's path.</li>
+<li>The assigned A11 integration and its focused check above pass with Phase 05.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>The existing command approve gate executes the command before requesting approval. Do not use an after-the-fact gate as a merge guard or as consent to run an undisclosed optional tool; establish tool selection before execution and keep agent PR merges forbidden.</p></div>
-<nav class="footer-nav"><a href="05-opt-in-review-tools.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="07-state-migration-and-recovery.html">Next →</a></nav>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="07-opt-in-review-tools.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="09-state-migration-and-recovery.html">Next →</a></nav>
 </main>
 </body>
 </html>

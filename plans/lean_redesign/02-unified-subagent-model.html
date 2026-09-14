@@ -72,8 +72,8 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <header class="hero"><div class="wrap">
 <div class="plan-num">Lean Redesign 02 · Multplx</div>
 <h1>One Sub-agent Model</h1>
-<p class="subtitle">Replace broker, actor, scout and daemon privilege classes with one orchestrator interface and a common sub-agent lifecycle.</p>
-<div class="badges"><span class="badge phase">Phase 02 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+<p class="subtitle">Keep a dedicated orchestrator and a common sub-agent lifecycle, with researcher, implementer, reviewer and scoped sub-orchestrator assignments.</p>
+<div class="badges"><span class="badge phase">Phase 02 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
@@ -83,14 +83,18 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <h2>Owned source slice</h2>
 <table><tr><th>Current source</th><th>Responsibility</th></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/spawn.rs"><code>crates/multplx-domain/src/lifecycle/spawn.rs</code></a></td><td>Request parsing, kind/mode/yolo resolution and metadata publication.</td></tr>
-<tr><td><a href="../../crates/multplx-domain/src/project_registry.rs"><code>crates/multplx-domain/src/project_registry.rs</code></a></td><td>Separate publication destination from optional review selection.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/project_registry.rs"><code>crates/multplx-domain/src/project_registry.rs</code></a></td><td>Stable project/checkout identity, aliases, optional remotes and managed/user-owned status; separate publication destination from optional review selection.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/brief.rs"><code>crates/multplx-domain/src/lifecycle/brief.rs</code></a></td><td>Common assignment scaffold with optional report or persistent context.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/home_seed.rs"><code>crates/multplx-domain/src/lifecycle/home_seed.rs</code></a></td><td>Persistent sub-agent homes, leases and configuration.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/inheritance.rs"><code>crates/multplx-domain/src/inheritance.rs</code></a></td><td>Preserve selected harness/model/effort and inherited settings.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/handoff.rs"><code>crates/multplx-domain/src/handoff.rs</code></a></td><td>Move work between home-owned backlogs without privilege-role assumptions.</td></tr>
 <tr><td><a href="../../crates/multplx-cli/src/lib.rs"><code>crates/multplx-cli/src/lib.rs</code></a></td><td>Spawn dispatch and launch-time state consumers.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/snapshot.rs"><code>crates/multplx-domain/src/snapshot.rs</code></a></td><td>Typed representation consumed by status and UI.</td></tr>
+<tr><td><a href="../../crates/multplx-core/src/filesystem.rs"><code>crates/multplx-core/src/filesystem.rs</code></a></td><td>Reuse atomic publication for recoverable multi-record transition primitives; keep filesystem authority.</td></tr>
 </table>
+<h2>Accepted architecture scope</h2>
+<p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A1, A2; typed inputs for A4-A6. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 project identity and checkout ownership. A10 worktree integration is also required as allocated below.</p>
+<p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>TASK</b><span>Requested outcome, artifact, dependency and publication state.</span></div>
@@ -100,12 +104,18 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </div>
 <h2>Implementation steps</h2>
 <ol class="steps">
-<li><b>Define the smallest normalized schema.</b>Extend the current task/session records rather than introducing a second database. Identify canonical parent identity, home, runtime/session reference and persistence facts. Keep report-vs-change as an output choice, not a worker role.</li>
+<li><b>Define the smallest normalized schema.</b>Extend the current task/session records rather than introducing a second database. Identify canonical parent identity, home, runtime/session reference and persistence facts. Record researcher/implementer/reviewer/sub-orchestrator as assignment metadata, separate from task output, persistence and execution placement. Implement the accepted task, execution-attempt and brief-revision semantics in A2, including message bindings and legacy unknowns.</li>
 <li><b>Map every old representation.</b>Specify a versioned read mapping for delivery, scout, daemon, mode, yolo, registry entries and config files. Treat old yolo as inert for merge authority. Reject ambiguous conflicting records instead of picking a random identity.</li>
-<li><b>Remove role gates.</b>Make direct work and delegation possible for any agent within its task. Remove blanket child-lifecycle refusal, no-project-write restrictions and mandatory scout promotion as a permission ceremony. Keep outcome changes explicit in the task record.</li>
+<li><b>Simplify legacy role gates.</b>Keep the main agent focused on conversation, research, synthesis, planning and coordination. Implementation and test-code changes belong to sub-agents. Remove blanket child-lifecycle refusal and mandatory scout promotion as a permission ceremony. Keep role reassignment, scope and outcome changes explicit in the task record.</li>
 <li><b>Retain persistent operation.</b>Use persistence and home ownership to select provisioning/restart behavior. Do not delete live homes, domain routes, idle sessions or leases because the daemon noun disappears. Sub-agents may delegate further without a special daemon class.</li>
 <li><b>Normalize launch and configuration.</b>Introduce canonical sub-agent-facing names with the bounded aliases specified by migration. Preserve explicit harness/model/effort choices; do not replace dispatch profiles with a new policy engine or require capacity-ranking reasoning at every intake.</li>
-<li><b>Separate the migration boundary.</b>Implement new readers and fixture conversions now; Phase 07 performs the home-level transaction. Keep incompatible writers from sharing a home. Bind every child to a resolvable parent and prevent cycles without limiting useful nesting depth by policy.</li>
+<li><b>Separate the migration boundary.</b>Implement new readers and fixture conversions now; Phase 09 performs the home-level transaction. Keep incompatible writers from sharing a home. Bind every child to a resolvable parent and prevent cycles without limiting useful nesting depth by policy.</li>
+<li><b>Implement filesystem transition primitives.</b>Reuse atomic replacement and scoped locking to record stable operation intent, progress and completion for multi-record task/session transitions under A1. Define recovery and the authoritative commit point before adding consumers; keep journals and projections derived.</li>
+<li><b>Implement attempt and revision validation.</b>Bind reports and evidence to current task, attempt and accepted brief identity under A2. Define nullable/non-applicable envelope fields and legacy unknowns. Replacement creates a new generation; a proven resume retains its existing identity. Preserve superseded evidence.</li>
+<li><b>Model schedulable work and shared views.</b>Add dependency, priority, runnable/waiting and human-decision facts to the existing model, separate from active sessions and assignment role. Publish the versioned typed projection consumed by Phases 04-12 without making a snapshot a second store.</li>
+<li><b>Implement stable project and checkout identity.</b>Extend the filesystem registry beyond flat mode lookup with validated local locations, aliases, optional remotes and managed/user-owned status. Bind each task/attempt/queued request to its selected project, checkout and starting revision. Publish discovery-facing schema for Phase 11; changing display context cannot retarget work.</li>
+<li><b>Bind allocation identity to the shared model.</b>Add A10 allocation/lease generation, project/common-Git identity, exact path/base, task attempt and persistence facts to the existing filesystem schema. New immutable acquisition identities distinguish a reused path from its earlier owner.</li>
+<li><b>Represent domain and coordinator identity.</b>Add A11 domain, root/parent/owner-home, scope revision and assignment generation to the common model. Keep persistence separate, validate acyclic lineage and define transfer identities for Phase 05.</li>
 </ol>
 <h2>Test plan</h2>
 <ul>
@@ -113,18 +123,29 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <li>tests/mx-daemon.test.sh, tests/mx-daemon-safety.test.sh, tests/mx-daemon-harness-model-resolution.test.sh and tests/mx-shared-maintainer-inheritance.test.sh: retain persistence/configuration facts under the new names.</li>
 <li>Legacy delivery/scout/daemon fixtures normalize to common sessions with the correct output and persistence; malformed, duplicate and conflicting identities refuse safely.</li>
 <li>A report task and implementation task differ in requested artifact, not whether the sub-agent can delegate. Existing local-only projects remain usable without inventing a remote.</li>
+<li>Interrupt each intent/write/commit boundary, repeat the operation and assert a single accepted transition with preserved unfinished work.</li>
+<li>Exercise replacement versus resume, old-attempt reports, changed briefs, wrong-recipient envelopes and native providers with no exportable child identity.</li>
+<li>Test duplicate names, separate clones sharing a remote, linked worktrees, overlapping paths and three concurrent repo tasks; mutable display selection never alters recorded task routing.</li>
+<li>A stale lease token cannot be accepted for a replacement allocation, and a same-named repository cannot be substituted.</li>
+<li>Fixtures distinguish coordinator sessions from useful tasks, allow non-exclusive project domains and reject conflicting current owners or cyclic parentage.</li>
 </ul>
 <h2>Documentation and instruction updates</h2>
-<p>Update configuration schema, CLI help, examples and task lifecycle docs with a precise legacy-to-canonical mapping. Mark proposed fields and command aliases as proposed until they are implemented.</p>
+<p>Update configuration schema, CLI help, examples and task lifecycle docs with a precise legacy-to-canonical mapping. Publish implemented fields and aliases with their schema version; distinguish accepted semantics from CLI syntax that is still unimplemented.</p>
 <h2>Definition of done</h2>
 <ul>
-<li>One common sub-agent representation replaces role-specific permissions.</li>
+<li>One common sub-agent representation supports lightweight roles; the main orchestrator remains dedicated to coordination.</li>
 <li>Persistent sub-agents preserve current isolated-home behavior and pinned configuration.</li>
 <li>Parent/task/session distinctions are explicit enough for nested routing and recovery.</li>
 <li>Legacy readers have tests and no yolo value grants agent merge rights.</li>
+<li>A1/A2 records and recovery primitives are implemented and versioned, with no database or competing state owner.</li>
+<li>A9 project identity is implemented before discovery consumers, with task-local bindings and explicit borrowed-checkout ownership.</li>
+<li>A stale lease token cannot be accepted for a replacement allocation, and a same-named repository cannot be substituted.</li>
+<li>The assigned A11 foundation and focused interface checks pass; Phase 05 owns end-to-end coordinator integration, avoiding a circular dependency.</li>
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>A global actor-to-subagent replacement cannot distinguish wire tokens, user labels, service daemons and agent roles. Change semantic owners first; leave historical bytes and compatibility aliases to the migration phase.</p></div>
-<nav class="footer-nav"><a href="01-lean-contract-and-skills.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="03-free-delegation-and-coordination.html">Next →</a></nav>
+<h2>Implementation evidence</h2>
+<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<nav class="footer-nav"><a href="01-lean-contract-and-skills.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="03-built-in-worktree-lifecycle.html">Next →</a></nav>
 </main>
 </body>
 </html>
