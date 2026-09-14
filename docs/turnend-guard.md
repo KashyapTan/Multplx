@@ -1,6 +1,6 @@
 # Primary turn-end supervision guard
 
-This is the authoritative current contract for the "no turn ends blind" primary backstop referenced from `AGENTS.md` section 8.
+This is the authoritative current contract for the "no turn ends blind" primary backstop referenced by the [dormant contract](../AGENTS_E.md).
 The production entry lives behind the Rust supervision dispatcher at `bin/mx-turnend-guard.sh`.
 Primary scope lives in `bin/mx-primary-scope-lib.sh`, shared with the native session-start nudge in [`sessionstart-nudge.md`](sessionstart-nudge.md).
 Harness hook files only adapt each verified harness's turn-end mechanism to that shared predicate and never choose the legacy implementation implicitly.

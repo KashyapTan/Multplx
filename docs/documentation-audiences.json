@@ -11,7 +11,7 @@
     "excludedPrefixes": [
       "firstmate/"
     ],
-    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. The tracked firstmate/ tree is a read-only upstream reference rather than a Multplx documentation owner. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
+    "description": "Maintained Markdown-like prose and copyable documentation examples. Exclude firstmate/ entirely from this port. Script headers, executable configuration, generated JSON evidence and legal text retain their code/config/legal owners."
   },
   "allowedAudiences": [
     "public-product",
@@ -30,10 +30,6 @@
     "docs/getting-started.md"
   ],
   "requiredOwnerPointers": [
-    {
-      "source": ".agents/skills/multplx-coding-guidelines/SKILL.md",
-      "target": "docs/documentation-audiences.md"
-    },
     {
       "source": ".deep-review.yaml",
       "target": "docs/documentation-audiences.md"
@@ -121,6 +117,14 @@
     {
       "source": "docs/decision-hold-lifecycle.md",
       "target": "docs/verification/guards.md"
+    },
+    {
+      "source": "AGENTS_E.md",
+      "target": "porting.md"
+    },
+    {
+      "source": ".agents/skills/persistent-subagents/SKILL.md",
+      "target": "docs/configuration.md"
     }
   ],
   "surfaces": [
@@ -133,19 +137,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/ask-user-authority/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/catchup/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/bootstrap-diagnostics/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -153,15 +145,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/diagnostic-reasoning/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/multplx-codexapp/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/multplx-coding-guidelines/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -169,15 +153,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/maintainer-override/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/project-management/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/daemon-provisioning/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -185,20 +161,16 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/stuck-actor-recovery/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/updatemultplx/SKILL.md",
       "audience": "agent-runtime"
     },
     {
-      "path": "AGENTS.md",
-      "audience": "agent-runtime"
+      "path": "AGENTS_E.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "CLAUDE.md",
-      "audience": "agent-runtime"
+      "audience": "maintainer-architecture"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -439,6 +411,18 @@
     {
       "path": "plans/lean_redesign/sub-orchestrator-assessment.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": ".agents/skills/subagent-recovery/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/persistent-subagents/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "plans/lean_redesign/phase01-implementation.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

@@ -4,7 +4,7 @@ Multplx separates a completed local change from the credentialed act that sends 
 Broker, actor, daemon, and validation-gate sessions do not hold remote-write credentials and never push, open a pull request, or merge one.
 `bin/mx-deliver.sh` is the only remote-delivery entrypoint and directly enters the Rust review-delivery boundary.
 Its remote-delivery operation runs from the maintainer's shell or a separately credentialed scheduler.
-Local `prepare` is available to actors, while local `approve` belongs only to the accepted authority under [AGENTS.md](../AGENTS.md#validate).
+Local `prepare` is available to actors, while local `approve` belongs only to the accepted authority under [legacy delivery implementation](../crates/multplx-domain/src/review_delivery.rs).
 
 [Back to the documentation index](README.md).
 

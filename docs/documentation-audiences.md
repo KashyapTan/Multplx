@@ -3,7 +3,7 @@
 [`documentation-audiences.json`](documentation-audiences.json) is the machine-consumed classification owner for every maintained prose surface.
 The Rust `doc-audience-check` command validates exact inventory coverage, README setup routing, required owner pointers, and local link targets.
 Audience metadata is centralized there rather than copied into front matter on every page.
-The tracked `firstmate/` tree is excluded because it is a read-only upstream reference, not a Multplx documentation surface.
+The `firstmate/` path is excluded entirely from this redesign; it is not a Multplx documentation owner.
 [The documentation index](README.md) is the human navigation owner.
 
 The audience classes have one placement purpose each:
@@ -15,7 +15,8 @@ The audience classes have one placement purpose each:
 - `maintainer-verification` records repeatable evidence for an active guarantee and may include dates, versions, exact commands, and exact output.
 - `agent-runtime` is loaded or rendered as an operating contract for Multplx agents rather than read as product documentation.
 
-The knowledge-placement policy is owned by [`multplx-coding-guidelines`](../.agents/skills/multplx-coding-guidelines/SKILL.md).
+[Contributor context](../CONTRIBUTING.md) owns repository writing conventions.
+The dormant [operating contract](../AGENTS_E.md) is classified as maintainer architecture until deliberate release cutover.
 Task-specific chronology, delivery transcripts, temporary paths, branches, failed hypotheses, and one-off process identifiers stay in private task reports or PR evidence by default.
 Before removing that evidence from a tracked page, distill every unique current fact into its classified owner and retain a focused regression pointer.
 

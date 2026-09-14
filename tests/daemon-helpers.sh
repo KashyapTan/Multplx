@@ -126,20 +126,12 @@ SH
 
 # Clone the Multplx tree and activate the disposable broker fixture.
 make_activated_broker_clone() {
-  local home=$1
-  [ -f "$ROOT/AGENTS.md" ] || {
-    printf 'error: source checkout is missing AGENTS.md\n' >&2
-    return 1
-  }
+  local home=$1 contract="$ROOT/AGENTS_E.md"
+  [ -f "$contract" ] || contract="$ROOT/AGENTS.md"
+  [ -f "$contract" ] || { printf 'error: source contract is missing\n' >&2; return 1; }
   git clone --quiet "$ROOT" "$home"
-  # During a pre-commit root-contract rename, git clone cannot see the pending
-  # destination. Overlay the source checkout's contract exactly as the other
-  # disposable-fixture helpers overlay working-tree state.
-  cp "$ROOT/AGENTS.md" "$home/AGENTS.md"
-  [ -f "$home/AGENTS.md" ] || {
-    printf 'error: disposable broker fixture is missing AGENTS.md\n' >&2
-    return 1
-  }
+  # Activation is confined to this disposable fixture; production discovery stays exact.
+  cp "$contract" "$home/AGENTS.md"
 }
 
 # Scaffold a filled daemon charter brief under <home>/data/<id>/brief.md.

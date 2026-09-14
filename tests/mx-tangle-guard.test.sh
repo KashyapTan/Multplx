@@ -121,8 +121,7 @@ test_bootstrap_line() {
 
 # --- GUARD 1a: brief isolation assertion ------------------------------------
 
-# The generated delivery brief must carry the isolation assertion AHEAD of the
-# `git checkout -b` step, so the actor verifies its worktree before branching.
+# The generated brief must establish isolation before its task branch guidance.
 test_brief_assertion_precedes_branch() {
   local home brief iso br
   home="$TMP_ROOT/brief-home"
@@ -130,16 +129,16 @@ test_brief_assertion_precedes_branch() {
   MX_HOME="$home" "$ROOT/bin/mx-brief.sh" tangle-brief-cc3 alpha >/dev/null 2>&1
   brief="$home/data/tangle-brief-cc3/brief.md"
   assert_present "$brief" "brief was not scaffolded"
-  assert_grep 'report `blocked` through the validated status path' "$brief" \
+  assert_grep 'If isolation or the recorded starting revision cannot be established, retain the work and report blocked.' "$brief" \
     "brief is missing the isolation blocked-status contract"
-  assert_grep "The path check is authoritative" "$brief" \
-    "brief must make the path check authoritative"
+  assert_grep 'Verify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.' "$brief" \
+    "brief must establish the assigned worktree path before mutation"
   assert_no_grep "A reliable test that you are in a linked worktree" "$brief" \
     "brief must not present git-dir/common-dir as decisive"
   assert_no_grep "they are identical in the primary checkout" "$brief" \
     "brief must not claim the primary checkout has identical git dirs"
-  iso=$(grep -n 'report `blocked` through the validated status path' "$brief" | head -1 | cut -d: -f1)
-  br=$(grep -n 'git checkout -b mx/' "$brief" | head -1 | cut -d: -f1)
+  iso=$(grep -n 'retain the work and report blocked' "$brief" | head -1 | cut -d: -f1)
+  br=$(grep -n 'Use task branch `mx/' "$brief" | head -1 | cut -d: -f1)
   if [ -z "$iso" ] || [ -z "$br" ]; then
     fail "brief missing assertion ($iso) or branch step ($br)"
   fi

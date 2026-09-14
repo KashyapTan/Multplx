@@ -28,7 +28,16 @@ for split in doc["splits"]:
     text = open(f'{root}/{split["helper"]}', encoding="utf-8").read()
     definitions = re.findall(r"^(test_[A-Za-z0-9_]+)\(\)", text, re.MULTILINE)
     current_assertions = re.findall(r'^\s*pass "([^"]+)"\s*$', text, re.MULTILINE)
-    baseline_assertions = baseline_by_path[split["before"]]["assertions"]
+    baseline_assertions = list(baseline_by_path[split["before"]]["assertions"])
+    # Preserve the historical baseline and account for explicit contract changes.
+    for replacement in split.get("assertion_replacements", []):
+        assert replacement["reason"].strip()
+        before, after = replacement["before"], replacement["after"]
+        assert baseline_assertions.count(before) == 1
+        assert after not in baseline_assertions
+        assert current_assertions.count(after) == 1
+        assert before not in current_assertions
+        baseline_assertions[baseline_assertions.index(before)] = after
     mapped = [
         case
         for cases in split["after_groups"].values()
@@ -43,7 +52,7 @@ for split in doc["splits"]:
 assert expected_total == 140
 PY
 
-pass "all 140 Plan-06 cases and named assertions map exactly once to the split inventory"
+pass "all 140 Plan-06 cases and named assertions map exactly once with explicit contract replacements"
 
 tmp=
 mx_test_tmproot_into tmp mx-test-helper-contract

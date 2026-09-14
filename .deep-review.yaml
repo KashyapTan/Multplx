@@ -19,8 +19,7 @@ document:
   instructions: |
     Read docs/documentation-audiences.md and its machine-consumed
     docs/documentation-audiences.json inventory before changing documentation.
-    Apply the knowledge-placement policy in
-    .agents/skills/multplx-coding-guidelines/SKILL.md.
+    Use CONTRIBUTING.md for repository conventions and documentation ownership.
     For changed prose, verify audience, authoritative owner, current relevance,
     evidence destination, and unique safety facts, then review the complete
     branch diff again after every documentation or lint fix.

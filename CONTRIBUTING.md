@@ -12,16 +12,14 @@ The [documentation index](docs/README.md) is the entry point for current operato
 3. Run focused tests for the behavior you changed, then run the complete behavior suite before opening a PR.
 4. Commit your changes, push the branch to your fork, and open the PR against `main`.
 
-Multplx-managed `deep-review` delivery tasks use a stricter automated path.
-The actor runs `bin/mx-deep-review.sh <task-id> --intent-file <brief>` from its assigned `mx/<task-id>` worktree.
-That intent-targeted gate performs rebase, review, focused test, documentation, and lint locally, then writes a pending exact-SHA handoff without pushing.
-Only the separately approved, credentialed delivery service may consume that handoff, push its exact SHA, and open the PR.
+The lean redesign is implemented in phases; [porting.md](porting.md) distinguishes target behavior from the existing runtime.
+Deep-review is an optional tool under that target, and PR merges belong to humans.
 
 ## Repo conventions
 
 - This repo is a template for running the Multplx multi-agent orchestrator.
-  `AGENTS.md` is the root broker contract, `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
-- Only shared material is tracked: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
+  `AGENTS_E.md` is the dormant operating contract, `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
+- Only shared material is tracked: `AGENTS_E.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency.
   Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
   The in-repo backlog library owns `data/backlog.md`, its parser, retention defaults, and routine mutations as documented in [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
@@ -41,16 +39,16 @@ Only the separately approved, credentialed delivery service may consume that han
 
 ## Development
 
-Tracked changes to Multplx itself - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/` - run through the selected development workflow.
-Before making any such change, load the agent-only `multplx-coding-guidelines` skill (`.agents/skills/multplx-coding-guidelines/SKILL.md`).
-It has the knowledge-placement rules that keep the root broker contract from regrowing after each diet pass.
-The broker adds this skill's load line to Multplx-repo briefs as described in its [trigger guidance](.agents/skills/multplx-coding-guidelines/SKILL.md#trigger-hygiene).
-An actor picking up such a brief should load the skill even if the brief predates this instruction.
-When monitoring live actors, keep the broker's own long validation or build commands in the background so watcher wakes can still be handled.
-Multplx actors follow their [selected delivery mode](docs/delivery.md#choose-and-complete-a-delivery-mode) and never push a branch or open a PR.
-The gate routes every `ask-user` finding through the validated status path under the authority contract maintained in `AGENTS.md`.
-Its private restart-safe evidence lives under `state/<task-id>.gate/`, outside project commits.
-The local gate's test step is intent-targeted and must not re-run every `tests/*.test.sh`; `.github/workflows/ci.yml` owns the broad behavior suite plus platform-specific compatibility lanes.
+Read [CLAUDE.md](CLAUDE.md) before editing this checkout.
+Keep the dormant [operating contract](AGENTS_E.md) short, command mechanics in help, and project-specific facts in their relevant documentation.
+Do not run operational session start or activate the partial redesign in real homes.
+Use one authoritative owner for each contract; other surfaces link to it.
+Review affected callers and supported harness/backend integrations when changing shared behavior.
+Preserve private state and unrelated changes; never add an agent co-author to commits.
+Put one sentence per Markdown line and use plain dashes.
+Build the release runtime before behavior tests so adapters exercise the changed implementation.
+Distinguish deterministic fixtures from live harness, forge and backend evidence.
+The optional deep-review test step remains intent-targeted; CI owns broad regression.
 
 Check and test the toolbelt before pushing:
 

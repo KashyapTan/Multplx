@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end tests for durable maintainer-held decisions discovered by investigations
-# and visual reviews.
+# Legacy runtime compatibility tests for durable decisions and completion attestations.
+# Phase 01 removes the injected procedure only; Phases 08/09 replace runtime checks.
+# Retain the complete routing, idempotency and work-retention fault matrix until then.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -544,3 +545,8 @@ test_none_inventory_and_resolved_prose_do_not_create_holds
 test_terminal_single_owner_status_decision_does_not_block_empty_inventory
 test_daemon_hold_stays_in_authoritative_home
 test_resolve_matches_quoted_blocked_by_edges
+
+# Fresh prompts no longer make compatibility attestation a universal completion step.
+assert_absent "$ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md" 'retired completion skill remains active'
+assert_no_grep 'complete --none' "$ROOT/AGENTS_E.md" 'mandatory empty attestation reintroduced'
+pass 'legacy decision mechanics remain tested separately from lean prompt policy'

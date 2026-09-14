@@ -689,6 +689,8 @@ It does not require serial coding or force a particular sub-agent count.
 Do not activate a partial release in real homes where new instructions promise freedoms that the old runtime still denies.
 Each implementation change should identify the old behavior being intentionally removed and the coordination guarantees being retained.
 Every phase has an implementation evidence section for its change/revision references, actual checks, results and remaining work.
+For Phase 01, the user clarified on 2026-09-14 that scaffold checks establish completion while canonical identity, worktree, coordinator and entry integration checks remain with their later-phase owners.
+Its prompt context must preserve supplied evidence without claiming those runtime interfaces already exist.
 Keep that evidence concise and keep supporting transcripts in task or PR evidence.
 No phase is complete while an assigned accepted requirement or required verification remains unresolved.
 
@@ -763,7 +765,7 @@ Do not widen previously unsupported combinations, including cmux persistent-home
 
 The planning change updates `CLAUDE.md`, creates this guide and twelve HTML phase plans, links the new roadmap from the existing plan index, classifies the new Markdown surface, and removes the excluded `firstmate/` folder from the checkout.
 It does not alter production role checks, launch permissions, workflows or delivery code.
-`AGENTS_E.md` remains the user's renamed file, with its original contents until implementation starts.
+`AGENTS_E.md` remains the user's renamed file; Phase 01 replaces its contents without activating it.
 The initial documentation audience check fails because it expects `AGENTS.md` and does not classify `AGENTS_E.md`.
 Other existing documentation also still links to the absent root filename.
-Repair those active owner links during Phase 01 and validate the final restored release in Phase 12; do not undo the user's rename just to make a planning check pass.
+Phase 01 repairs those active owner links and classification; Phase 12 validates the final restored release without undoing the user's rename during development.

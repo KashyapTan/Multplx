@@ -1,6 +1,7 @@
 # Decision hold lifecycle mechanism
 
-The normative policy is owned by `.agents/skills/decision-hold-lifecycle/SKILL.md` and is not restated here.
+The mandatory agent completion procedure was retired in lean Phase 01.
+The legacy `complete`/`verify` commands and teardown checks below remain implemented until the Phase 08/09 runtime transition; they are compatibility behavior, not fresh task instructions.
 This document records the deterministic mechanism, structured surfaces, and privacy-safe regression evidence.
 
 ## Mechanism

@@ -36,6 +36,13 @@ while IFS= read -r file; do
   [ -f "$ROOT/$file" ] || continue
   if LC_ALL=C grep -Iq . "$ROOT/$file"; then
     case "$file" in
+      CLAUDE.md|porting.md)
+        # Accepted upstream research is provenance, not current product naming.
+        sed -e 's/public upstream Firstmate research for Secondmate/upstream research/g' \
+          -e 's/public upstream Secondmate research/upstream research/g' \
+          -e 's/\[Secondmate research and assessment\]/[upstream research and assessment]/g' \
+          -e 's/upstream Firstmate code/upstream code/g' "$ROOT/$file"
+        ;;
       bin/mx-doc-audience-check.sh|docs/documentation-audiences.json|\
       crates/multplx-cli/src/tooling/documentation.rs)
         sed -e 's#firstmate/##g' "$ROOT/$file"

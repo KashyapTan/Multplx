@@ -326,6 +326,11 @@ EOF
     "$(jq -r '.session_id' "$HOME_FIXTURE/state/$run.workflow/stages/spec.json")" \
     "broker stage session identity was not recorded"
   [ "$task_id" != "broker-session" ] || fail "fresh actor reused the broker session"
+  assert_grep 'You are a sub-agent assigned to a selected Multplx workflow stage' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper lost assignment identity'
+  assert_grep 'You may delegate within that scope' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper prohibits delegation'
+  assert_grep 'Only humans merge PRs' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper lost human merge boundary'
+  assert_no_grep 'invoke credentialed delivery' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper retained delivery ceremony'
+  assert_grep "$HOME_FIXTURE/data/$run/spec.md" "$HOME_FIXTURE/data/$task_id/brief.md" 'original stage artifact pointer lost'
   worktree=$(jq -r '.worktree' "$HOME_FIXTURE/state/$run.workflow/stages/implement.json")
   printf 'change\n' >"$worktree/change.txt"
   git -C "$worktree" add change.txt

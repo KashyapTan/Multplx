@@ -578,17 +578,13 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
 }
 
 test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
-  local trigger
-  # shellcheck disable=SC2016 # The backtick-delimited skill names are literal Markdown.
-  trigger=$(sed -n '/- `bootstrap-diagnostics`/,/- `diagnostic-reasoning`/p' "$ROOT/AGENTS.md")
-  assert_contains "$trigger" "actionable diagnostic line" "bootstrap-diagnostics trigger should be action-scoped"
-  assert_contains "$trigger" "BOOTSTRAP_INFO:" "bootstrap-diagnostics trigger should classify BOOTSTRAP_INFO as no-load"
-  assert_contains "$trigger" "HEADROOM_INVALID" "invalid owned headroom must trigger diagnostics loading"
-  assert_contains "$trigger" "VPLAN_INVALID" "invalid bundled vplan must trigger diagnostics loading"
-  assert_not_contains "$trigger" "ACTOR_HARNESS_OVERRIDE:" "harness override confirmation must not trigger diagnostics loading"
-  assert_not_contains "$trigger" "ACTOR_DISPATCH: active" "active dispatch confirmation must not trigger diagnostics loading"
-  assert_not_contains "$trigger" "already-live" "already-live daemon liveness must not trigger diagnostics loading"
-  pass "bootstrap diagnostics trigger excludes benign lines and keeps actionable prefixes"
+  local reference="$ROOT/.agents/skills/subagent-recovery/SKILL.md"
+  assert_grep 'Diagnostic owners' "$reference" 'recovery must route actionable diagnostics'
+  assert_grep 'HEADROOM_INVALID' "$reference" 'capacity diagnostic owner missing'
+  assert_grep 'VPLAN_INVALID' "$reference" 'optional asset diagnostic owner missing'
+  assert_grep 'Repair only the affected dependency or configuration' "$reference" 'diagnostics stop unrelated work'
+  assert_absent "$ROOT/.agents/skills/bootstrap-diagnostics" 'obsolete bootstrap policy remains injected'
+  pass 'bootstrap diagnostics retain operational repair references without a mandatory playbook'
 }
 
 test_vplan_self_check_failure_is_actionable() {

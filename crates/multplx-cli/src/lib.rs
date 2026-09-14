@@ -207,7 +207,7 @@ enum Command {
     /// Fast-forward the broker and daemon homes from origin.
     #[command(hide = true)]
     Update,
-    /// Scaffold an actor brief or daemon charter.
+    /// Scaffold a sub-agent assignment or persistent coordinator charter.
     #[command(hide = true, disable_help_flag = true)]
     Brief {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]

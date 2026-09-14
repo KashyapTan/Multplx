@@ -418,6 +418,24 @@ fn section(text: &str, heading: &str) -> String {
     lines.join("\n")
 }
 
+// Read both charter headings during the lean prompt transition, without allowing
+// conflicting or duplicated sections to hide a project-bearing charter.
+fn projectless_charter(text: &str) -> bool {
+    let headings = ["# Project references", "# Project clones"];
+    let found: Vec<_> = text
+        .lines()
+        .filter(|line| headings.contains(line))
+        .collect();
+    if found.len() != 1 {
+        return false;
+    }
+    let projects = section(text, found[0].trim_start_matches("# "));
+    projects.contains("None. This is a project-less domain")
+        && !projects
+            .lines()
+            .any(|line| line.trim_start().starts_with("- "))
+}
+
 fn normalize_registry_text(value: &str) -> String {
     value
         .chars()
@@ -998,12 +1016,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
             if existing_brief.is_file() {
                 let text = fs::read_to_string(&existing_brief)
                     .map_err(|error_value| error_value.to_string())?;
-                let clones = section(&text, "Project clones");
-                if !clones.contains("None. This is a project-less domain")
-                    || clones
-                        .lines()
-                        .any(|line| line.trim_start().starts_with("- "))
-                {
+                if !projectless_charter(&text) {
                     return Err(format!(
                         "cannot seed project-less daemon home because existing charter brief at {} conflicts with --no-projects\nerror: re-scaffold it with mx-brief.sh {id} --daemon --no-projects or remove the stale brief before seeding",
                         existing_brief.display()
@@ -1062,12 +1075,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         if no_projects {
             let text =
                 fs::read_to_string(&parent_brief).map_err(|error_value| error_value.to_string())?;
-            let clones = section(&text, "Project clones");
-            if !clones.contains("None. This is a project-less domain")
-                || clones
-                    .lines()
-                    .any(|line| line.trim_start().starts_with("- "))
-            {
+            if !projectless_charter(&text) {
                 return Err(format!(
                     "cannot seed project-less daemon home because existing charter brief at {} conflicts with --no-projects\nerror: re-scaffold it with mx-brief.sh {id} --daemon --no-projects or remove the stale brief before seeding",
                     parent_brief.display()
@@ -1252,6 +1260,31 @@ pub fn run(args: &[OsString], context: &Context) -> Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projectless_charters_accept_both_versions_and_reject_ambiguity() {
+        for heading in ["Project clones", "Project references"] {
+            let text = format!(
+                "# Charter\nNone. This is a project-less domain\n# {heading}\nNone. This is a project-less domain; select later.\n# Coordination\nUse a scoped task.\n"
+            );
+            assert!(projectless_charter(&text));
+            assert!(!projectless_charter(
+                &text.replace("select later.", "select later.\n- project")
+            ));
+            assert!(!projectless_charter(&format!(
+                "{text}# {heading}\n- hidden\n"
+            )));
+        }
+        assert!(!projectless_charter(
+            "# Charter\nNone. This is a project-less domain\n# Project references\n- actual-project\n"
+        ));
+        assert!(!projectless_charter(
+            "# Project clones\n- old-project\n# Project references\nNone. This is a project-less domain\n"
+        ));
+        assert!(!projectless_charter(
+            "# Charter\nNone. This is a project-less domain\n"
+        ));
+    }
 
     fn test_context(temp: &Path) -> Context {
         Context {
