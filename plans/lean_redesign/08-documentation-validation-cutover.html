@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documentation, Validation and Cutover · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+<div class="plan-num">Lean Redesign 08 · Multplx</div>
+<h1>Documentation, Validation and Cutover</h1>
+<p class="subtitle">Ship a consistent lean product across help, prompts, UI, supported runtimes and existing-home upgrades.</p>
+<div class="badges"><span class="badge phase">Phase 08 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+</div></header>
+<main class="wrap">
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<p><b>Dependencies:</b> 01-07.</p>
+<h2>Overview</h2>
+<p>The redesign is complete only when fresh agents receive the short contract, actual launches allow the promised actions, selected workflows remain intact and older homes recover correctly. Historical policy tests must be intentionally replaced while retained coordination tests remain meaningful.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../README.md"><code>README.md</code></a></td><td>Explain one orchestrator, sub-agents and ordinary agent publication.</td></tr>
+<tr><td><a href="../../CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a></td><td>Keep concise repository-specific development and validation instructions.</td></tr>
+<tr><td><a href="../../docs/"><code>docs/</code></a></td><td>Update current architecture, configuration, workflows, delivery, operations and verified integration limits.</td></tr>
+<tr><td><a href="../../docs/documentation-audiences.json"><code>docs/documentation-audiences.json</code></a></td><td>Classify renamed/deleted/added surfaces and validate owner links.</td></tr>
+<tr><td><a href="../../share/viz/app.js"><code>share/viz/app.js</code></a></td><td>Show orchestrator/sub-agent relationships, persistence and real delivery state.</td></tr>
+<tr><td><a href="../../share/viz/app.css"><code>share/viz/app.css</code></a></td><td>Adjust presentation only where labels/layout change.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/launcher.rs"><code>crates/multplx-cli/src/launcher.rs</code></a></td><td>Fresh installation and upgrade discovery.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/harness_launch.rs"><code>crates/multplx-backend/src/harness_launch.rs</code></a></td><td>Actual primary launch and root contract validation.</td></tr>
+<tr><td><a href="../../share/shell/"><code>share/shell/</code></a></td><td>Shell labels and shims without domain policy.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/tooling/runner.rs"><code>crates/multplx-cli/src/tooling/runner.rs</code></a></td><td>Changed test inventory and resource-safe execution.</td></tr>
+<tr><td><a href="../../.github/workflows/ci.yml"><code>.github/workflows/ci.yml</code></a></td><td>Retain platform/integration lanes and update intentional policy checks.</td></tr>
+<tr><td><a href="../../AGENTS_E.md"><code>AGENTS_E.md</code></a></td><td>Final lean contract source, dormant until deliberate release cutover.</td></tr>
+</table>
+<h2>Behavior boundaries</h2>
+<div class="flow">
+<div><b>FRESH INSTALL</b><span>One concise contract and normal authentication.</span></div>
+<div><b>EXISTING HOME</b><span>Versioned upgrade with preserved work and messages.</span></div>
+<div><b>BEHAVIOR</b><span>Allowed publication; human merges; ordered workflows.</span></div>
+<div><b>EVIDENCE</b><span>Actual results with explicit unsupported combinations.</span></div>
+</div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Finish the vocabulary sweep.</b>Update public prose, CLI help, generated strings, UI labels, runtime symbols where practical and canonical filenames. Old role tokens may remain only as documented compatibility readers/fixtures or historical records. Distinguish service daemons from agent roles.</li>
+<li><b>Audit policy through the whole system.</b>Search for blocked push URLs, removed skill names, mandatory deep-review, vplan auto-use, role-specific delegation refusal and yolo merge authority. Map each remaining hit to history, compatibility or a defect to fix.</li>
+<li><b>Update tests by guarantee.</b>Replace tests whose purpose was the deleted restrictions. Preserve relevant lock, queue, schema, poll, cleanup and workflow assertions and update the runner inventory rather than silently dropping suites. Run the full Rust and behavior checks listed in porting.md.</li>
+<li><b>Verify real integration boundaries.</b>Use isolated homes and namespaces for supported tmux/Herdr/cmux paths and changed Claude/Codex/Cursor/Pi surfaces. Prove native tool availability, publication credentials, watcher recovery and explicit review invocation. Record an unavailable integration honestly and do not widen unsupported backend combinations by renaming them.</li>
+<li><b>Validate the release package before restoring discovery.</b>Create an isolated release fixture containing the lean contract under AGENTS.md and verify startup exactly once. Keep the development checkout on AGENTS_E.md throughout implementation and checks. Root-contract discovery must not learn the temporary filename.</li>
+<li><b>Perform deliberate final cutover.</b>Only at the release step, rename the completed lean AGENTS_E.md to AGENTS.md, update its current links and inventory, and rerun instruction/launcher/documentation checks against the restored tree. Use a fresh session for operational startup. If the user elects to keep the development checkout dormant, deliver the tested package and clearly mark repository cutover pending.</li>
+<li><b>Publish evidence and stop at the PR.</b>Provide concise changed behavior, relevant test results, migration guidance and a reviewable PR. The human performs the merge. Update this roadmap status only after actual acceptance; do not call planned features implemented.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>Complete Rust formatting, Clippy, workspace tests, optimized build, behavior inventory coverage and the complete accelerated behavior suite.</li>
+<li>tests/mx-naming.test.sh, tests/mx-instruction-owners.test.sh, tests/mx-documentation-audiences.test.sh, tests/mx-launcher.test.sh, tests/mx-launcher-shell.test.sh and tests/mx-bin-runtime-inventory.test.sh.</li>
+<li>tests/mx-viz.test.sh and snapshot reconciliation tests: no fictional role/status state, no missing persistent children and no misleading landed label for an open PR.</li>
+<li>The ten end-to-end acceptance scenarios in porting.md, including direct work, nested native delegation, restart, partial publication, human merge boundary, optional tools, ordered workflow and migration.</li>
+<li>A fresh package starts each claimed harness correctly; no read, test or package step enters firstmate/.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Active documentation describes the lean implementation. Historical plans stay unchanged apart from roadmap navigation. Verification records distinguish empirical integration checks from fixtures and do not claim all combinations are supported.</p>
+<h2>Definition of done</h2>
+<ul>
+<li>The documented freedoms work in the supported runtime, not just in prompts.</li>
+<li>Every retained coordination and workflow guarantee has passing meaningful coverage.</li>
+<li>New installs and migrated homes expose canonical orchestrator/sub-agent terminology.</li>
+<li>Only operational skill guidance remains, optional tools are actually optional, and the human merge boundary is consistent.</li>
+<li>The final operating filename is restored only in the deliberate cutover, or cutover is explicitly reported pending.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>The current planning baseline already fails documentation inventory because AGENTS.md was deliberately renamed. Fix current links in the implementation phases and validate the final package; never undo that rename early just to make an intermediate check green.</p></div>
+<nav class="footer-nav"><a href="07-state-migration-and-recovery.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="../../porting.md">Porting guide →</a></nav>
+</main>
+</body>
+</html>

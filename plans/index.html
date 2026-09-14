@@ -55,6 +55,13 @@ tr:nth-child(even) td{background:var(--surface)}
 <p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order; the inserted 6.5 artifact makes nineteen records across numbered Plans 01-18. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All tracked implementation scripts retain the <code>mx-</code> prefix; Plan 17 installs the user-facing <code>multplx</code> command as a bootstrap into that script surface.</p>
 </div>
 
+<div class="phase-label">Current program · Lean orchestration redesign</div>
+<a class="card" href="lean_redesign/index.html" style="--card-accent:#39c5cf">
+  <div class="top"><span class="num">LEAN REDESIGN</span><span class="title">One Orchestrator, Free Sub-agents</span></div>
+  <div class="desc">Eight planned phases remove prescriptive agent roles and engineering playbooks, allow direct work, free delegation and agent PR publication, retain human-only PR merges, make deep-review and vplan opt-in, and preserve durable coordination and ordered workflows.</div>
+  <div class="meta"><span class="tag">Planned · 2026-09-11</span><span class="tag effort-high">Program effort: High</span><span class="tag">Guide: porting.md</span></div>
+</a>
+
 <h2>Execution flow</h2>
 <div class="flow">
 <b>Phase 1</b> Shrink        → 01 deletions (social relay, glab, shellcheck installer, wedge alarm, zellij/orca/grok/opencode)<br>

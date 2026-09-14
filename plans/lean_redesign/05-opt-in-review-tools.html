@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review Tools Only When Requested · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+<div class="plan-num">Lean Redesign 05 · Multplx</div>
+<h1>Review Tools Only When Requested</h1>
+<p class="subtitle">Retain deep-review and vplan as useful explicit tools and remove their hidden defaults, mandatory dependencies and approval coupling.</p>
+<div class="badges"><span class="badge phase">Phase 05 of 08</span><span class="badge effort">Effort: Medium</span><span class="badge risk">Risk: Medium</span><span class="badge status">Planned · 2026-09-11</span></div>
+</div></header>
+<main class="wrap">
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<p><b>Dependencies:</b> 01, 02.</p>
+<h2>Overview</h2>
+<p>Deep-review is currently the registry fallback, and vplan is checked during routine bootstrap. Generic briefs, memory procedures and tracked workflows also bring those tools back into ordinary work. Opt-in must be true across all these entry points.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../crates/multplx-domain/src/project_registry.rs"><code>crates/multplx-domain/src/project_registry.rs</code></a></td><td>Remove deep-review fallback for omitted mode, unknown project and self-repo work.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/bootstrap.rs"><code>crates/multplx-cli/src/bootstrap.rs</code></a></td><td>Move optional-tool readiness checks off the normal startup critical path.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/doctor.rs"><code>crates/multplx-cli/src/doctor.rs</code></a></td><td>Distinguish unavailable optional tooling from a broken active run.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/deep_review.rs"><code>crates/multplx-cli/src/deep_review.rs</code></a></td><td>Preserve explicit pipeline behavior while removing mandatory delivery authority.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/actor_state.rs"><code>crates/multplx-backend/src/actor_state.rs</code></a></td><td>Attribute an actual requested gate run without requiring one for ordinary work.</td></tr>
+<tr><td><a href="../../crates/multplx-services/src/local_services/vplan.rs"><code>crates/multplx-services/src/local_services/vplan.rs</code></a></td><td>Preserve explicit review service lifecycle and evidence.</td></tr>
+<tr><td><a href="../../share/vplan/"><code>share/vplan/</code></a></td><td>Retain authored artifacts and vendored assets as optional-tool resources.</td></tr>
+<tr><td><a href="../../.deep-review.yaml"><code>.deep-review.yaml</code></a></td><td>Keep useful optional pipeline configuration without mandatory skill references.</td></tr>
+<tr><td><a href="../../workflows/"><code>workflows/</code></a></td><td>Remove hidden tool invocation from general-purpose examples in coordination with Phase 06.</td></tr>
+</table>
+<h2>Behavior boundaries</h2>
+<div class="flow">
+<div><b>DEFAULT</b><span>Agent chooses suitable local checks; no tool pipeline is implied.</span></div>
+<div><b>EXPLICIT REQUEST</b><span>User names a tool or knowingly selects its declared workflow stage.</span></div>
+<div><b>ACTIVE RUN</b><span>Recover requested runs and report their true results.</span></div>
+<div><b>MISSING TOOL</b><span>Only the requested operation is unavailable.</span></div>
+</div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Separate destination from review.</b>Make ordinary PR publication the default for remote-backed changes. Retain local-only work. Do not interpret an old deep-review registry fallback or yolo flag as an explicit tool request for new work.</li>
+<li><b>Audit every implicit call site.</b>Search root instructions, retained skills, generated templates, bootstrap, workflow examples, updater/memory prose and help strings. Remove the automatic use of deep-review or vplan, including when a plan or report happens to be HTML.</li>
+<li><b>Make readiness lazy.</b>Run the tool self-check when it is invoked or when recovery handles its active recorded run. Missing vplan assets and unsupported deep-review harnesses must not block unrelated startup, delegation or delivery.</li>
+<li><b>Retain useful explicit behavior.</b>Keep vplan loopback scope, comment persistence, artifact locks and identity cleanup. Keep deep-review findings, deadlines and real verification evidence when requested, but remove automatic push-approval handoff as the reason it exists.</li>
+<li><b>Remove automatic escalation from tool results.</b>Allow routine corrections within the assignment. Persist a real user question when needed without requiring a special finding-decider role or a complete-none ceremony for every report.</li>
+<li><b>Specify legacy continuation.</b>An in-flight old gate is preserved as evidence and can be resumed when its invocation was explicitly requested. Unknown legacy intent is surfaced for that run, not turned into a new global prerequisite.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>tests/mx-deep-review.test.sh, tests/mx-deep-review-lib.test.sh and tests/mx-deep-review-config-contract.test.sh: explicit invocation keeps meaningful validation behavior.</li>
+<li>tests/mx-vplan.test.sh and crates/multplx-cli/tests/services_runtime.rs: retain loopback service, token, comment and identity guarantees.</li>
+<li>tests/mx-bootstrap.test.sh and tests/mx-doctor.test.sh: ordinary work succeeds with optional assets missing; an active broken review is still visible.</li>
+<li>Unregistered project, missing registry and Multplx self-repo task do not invoke a gate. An HTML plan request does not start a vplan server.</li>
+<li>No requested pipeline is falsely labeled passed after a timeout or failed command; ordinary testing remains available without requesting either named tool.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Update docs/vplan.md, docs/vplan-authoring.md, docs/delivery.md, configuration, bootstrap reference and optional-tool examples. Explain how explicit workflow selection establishes intent without creating a new global approval registry.</p>
+<h2>Definition of done</h2>
+<ul>
+<li>Neither review tool runs merely because a task changes code or asks for a plan.</li>
+<li>Both tools remain usable when explicitly requested.</li>
+<li>Ordinary work has no dependency on optional assets or gate state.</li>
+<li>Requested runs retain truthful results and recoverable artifacts.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>Deleting the tools would lose useful functionality the user explicitly wants available on request. Merely changing a default setting is also insufficient while generated workflow and brief text still invokes them.</p></div>
+<nav class="footer-nav"><a href="04-agent-delivery-human-merges.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="06-workflows-with-agent-freedom.html">Next →</a></nav>
+</main>
+</body>
+</html>

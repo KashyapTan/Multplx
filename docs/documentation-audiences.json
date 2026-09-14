@@ -423,6 +423,10 @@
     {
       "path": "workflows/upstream-sync.workflow.md",
       "audience": "operator-example"
+    },
+    {
+      "path": "porting.md",
+      "audience": "maintainer-architecture"
     }
   ]
 }

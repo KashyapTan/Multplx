@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Delivery, Human PR Merges · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+<div class="plan-num">Lean Redesign 04 · Multplx</div>
+<h1>Agent Delivery, Human PR Merges</h1>
+<p class="subtitle">Let agents commit, push and open PRs directly, while retaining the single explicit product permission boundary at PR merging.</p>
+<div class="badges"><span class="badge phase">Phase 04 of 08</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+</div></header>
+<main class="wrap">
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<p><b>Dependencies:</b> 02.</p>
+<h2>Overview</h2>
+<p>Agent launch currently strips credentials and makes origin non-writable. The delivery implementation then refuses agent sessions and requires approved local handoffs. These are intentional removals; the useful identity, retry and PR-monitoring mechanisms should survive.</p>
+<h2>Owned source slice</h2>
+<table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../crates/multplx-cli/src/lib.rs"><code>crates/multplx-cli/src/lib.rs</code></a></td><td>Remove launch-time Git credential suppression and blocked push URL.</td></tr>
+<tr><td><a href="../../crates/multplx-backend/src/harness_launch.rs"><code>crates/multplx-backend/src/harness_launch.rs</code></a></td><td>Verify primary launch carries ordinary user authentication without exposing it.</td></tr>
+<tr><td><a href="../../crates/multplx-cli/src/review.rs"><code>crates/multplx-cli/src/review.rs</code></a></td><td>Split ordinary publication from human merge; simplify prepare/approve and preserve PR registration/polling.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/review_delivery.rs"><code>crates/multplx-domain/src/review_delivery.rs</code></a></td><td>Separate publication receipts from optional review and obsolete approval provenance.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/maintainer_override.rs"><code>crates/multplx-domain/src/maintainer_override.rs</code></a></td><td>Retire agent merge-red/standing authority routes.</td></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/teardown.rs"><code>crates/multplx-domain/src/lifecycle/teardown.rs</code></a></td><td>Retain unlanded work and verify merged/retained artifacts before cleanup.</td></tr>
+<tr><td><a href="../../bin/mx-deliver.sh"><code>bin/mx-deliver.sh</code></a></td><td>Keep transport help consistent with the Rust implementation.</td></tr>
+<tr><td><a href="../../bin/mx-pr-merge.sh"><code>bin/mx-pr-merge.sh</code></a></td><td>Retain a human-facing helper without an agent privilege bypass.</td></tr>
+</table>
+<h2>Behavior boundaries</h2>
+<div class="flow">
+<div><b>LOCAL WORK</b><span>Agent commits and reports its actual verification.</span></div>
+<div><b>PUBLISH</b><span>Push branch; create or update PR; register canonical URL.</span></div>
+<div><b>HUMAN MERGE</b><span>No agent merge, auto-merge, merge queue or target-branch bypass.</span></div>
+<div><b>RECONCILE</b><span>Read merge state; preserve unlanded work until cleanup is justified.</span></div>
+</div>
+<h2>Implementation steps</h2>
+<ol class="steps">
+<li><b>Decouple delivery from approval.</b>Make the normal agent path independent of ready-to-push approval, review gate state, waivers and separate scheduler credentials. Keep an optional idempotent convenience command; ordinary Git/forge commands remain usable.</li>
+<li><b>Restore normal authentication.</b>Remove the origin push overlay, empty credential helper and blanket GH/SSH suppression from ordinary worker launch. Preserve user-configured authentication precedence, bounded commands and secret-free state. Review headless workflow/review helpers separately.</li>
+<li><b>Make publication repeat-safe.</b>Record branch/base/commit and canonical PR identity as facts. Reconcile push success followed by PR-create failure, PR-created-before-record failure and subsequent branch revisions. Never create duplicate PRs on a retry or claim an unrun review passed.</li>
+<li><b>Keep the PR record path.</b>Register directly opened PRs through the existing canonical PR owner so read-only polls and snapshots continue working. Preserve the private static poll trust, queue-before-retirement order and identity-bound cleanup.</li>
+<li><b>Enforce the product merge boundary.</b>Keep agent merge refusal in owned commands and add narrowly scoped supported harness checks for ordinary merge actions. Remove yolo, merge-red and workflow/automation bypass paths. Do not block general git merge/rebase operations inside task worktrees. See porting.md for the honest limitation of command-level enforcement.</li>
+<li><b>Update cleanup and operator usage.</b>Open PRs remain unlanded and their work remains recoverable. Human merges are observed normally. Existing service receipts stay readable for migration, and a pending legacy receipt never becomes a new authorized push merely because the software was upgraded.</li>
+</ol>
+<h2>Test plan</h2>
+<ul>
+<li>tests/mx-push-service.test.sh and tests/mx-pr-merge.test.sh: agent publication succeeds without approval; agent PR merging stays refused; human helper records truthful state.</li>
+<li>crates/multplx-cli/tests/review_runtime.rs and tests/mx-deep-review.test.sh: review evidence is optional and cannot manufacture approval or merge authority.</li>
+<li>All tests/mx-pr-check-security-*.test.sh scenarios remain for inert parsing, identity, quarantine and retirement; revise only obsolete publication-policy assumptions.</li>
+<li>tests/mx-teardown.test.sh: pushed/open-PR/dirty work is not silently recycled.</li>
+<li>Fake-forge scenarios cover partial failure and retries; a dedicated live test repository proves the supported authentication and human-merge boundary without merging a PR from an agent session.</li>
+</ul>
+<h2>Documentation and instruction updates</h2>
+<p>Rewrite docs/delivery.md around ordinary branch publication and human merging. Update README examples, generated briefs, credentials documentation and verification records; remove instructions requiring users to run delivery from another shell.</p>
+<h2>Definition of done</h2>
+<ul>
+<li>An orchestrator and sub-agent can publish an authorized branch and open/update its PR without extra Multplx approval.</li>
+<li>No supported agent path grants PR merge or auto-merge rights.</li>
+<li>PR identity, actual validation results, restart receipts and polling remain correct.</li>
+<li>The documentation does not claim a command hook is a security boundary against arbitrary code with broad credentials.</li>
+</ul>
+<div class="callout warn"><div class="label">Integration risk</div><p>Credential access is being deliberately expanded for publication. The implementation must not imply that removing the agent-session check from deliver also authorizes removing it from pr-merge, or that a broadly privileged token intrinsically prevents remote merges.</p></div>
+<nav class="footer-nav"><a href="03-free-delegation-and-coordination.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="05-opt-in-review-tools.html">Next →</a></nav>
+</main>
+</body>
+</html>

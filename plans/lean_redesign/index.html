@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lean Orchestration · Multplx</title>
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#1c2128; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e; --accent:#39c5cf; --accent-dim:rgba(57,197,207,.15);
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:0 0 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:0 32px}
+header.hero{border-bottom:1px solid var(--border);background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);padding:48px 0 32px;margin-bottom:40px}
+.plan-num{font-family:var(--mono);color:var(--accent);font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+h1{font-size:34px;line-height:1.2;margin-bottom:12px}
+.subtitle{color:var(--muted);font-size:17px;max-width:880px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.badge{font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted)}
+.badge.effort{color:var(--yellow);border-color:var(--yellow)}
+.badge.risk{color:var(--red);border-color:var(--red)}
+.badge.phase{color:var(--accent);border-color:var(--accent)}
+h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:28px 0 10px;color:var(--accent)}
+p{margin:0 0 14px;color:var(--text)}
+ul,ol{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--blue)}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto;margin:0 0 18px;font-family:var(--mono);font-size:13px;line-height:1.5}
+pre code{background:none;border:none;padding:0;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+th{text-align:left;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-weight:600}
+td{padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+tr:nth-child(even) td{background:var(--surface)}
+.callout{border-left:3px solid var(--accent);background:var(--surface);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 18px}
+.callout.warn{border-left-color:var(--yellow)}
+.callout.danger{border-left-color:var(--red)}
+.callout.ok{border-left-color:var(--green)}
+.callout .label{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.steps{counter-reset:step;list-style:none;margin-left:0}
+.steps>li{counter-increment:step;position:relative;padding:16px 16px 16px 56px;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:12px}
+.steps>li::before{content:counter(step);position:absolute;left:16px;top:16px;width:26px;height:26px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.steps>li b:first-child{display:block;margin-bottom:4px}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;margin-left:6px}
+.pill.new{background:rgba(63,185,80,.15);color:var(--green)}
+.pill.mod{background:rgba(210,153,34,.15);color:var(--yellow)}
+.pill.keep{background:rgba(88,166,255,.15);color:var(--blue)}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.flow>div{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px}
+.flow b{display:block;color:var(--accent);font-family:var(--mono);font-size:12px;margin-bottom:5px}
+.flow span{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 24px}
+.card{display:block;border:1px solid var(--border);border-left:4px solid var(--card-accent,var(--accent));border-radius:8px;background:var(--surface);padding:16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:var(--card-accent,var(--accent));transform:translateY(-1px)}
+.card .num{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px}
+.card .title{display:block;font-size:17px;font-weight:650;margin:4px 0 6px}
+.card .desc{color:var(--muted);font-size:13px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+.footer-nav{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;font-family:var(--mono);font-size:13px}
+.footer-nav a{color:var(--accent);text-decoration:none}
+@media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
+
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+<div class="plan-num">Multplx · Redesign Roadmap</div>
+<h1>Lean Orchestration</h1>
+<p class="subtitle">Keep the coordination machinery. Give the agent freedom to do the work. Eight implementation phases for one orchestrator and its sub-agents.</p>
+<div class="badges"><span class="badge phase">8 phases</span><span class="badge effort">Program effort: High</span><span class="badge risk">Peak risk: High</span><span class="badge status">Planned · 2026-09-11</span></div>
+</div></header>
+<main class="wrap">
+<div class="callout"><div class="label">Accepted direction</div><p>The orchestrator can work directly, freely delegate, commit, push branches and open PRs. The human performs PR merges. Selected workflows keep every step; deep-review and vplan run only when explicitly requested.</p></div>
+<p><a href="../../porting.md">Read the porting guide</a> for the complete design, source map, skill-by-skill disposition and migration rules. The current Rust runtime still implements the older policy. These artifacts are implementation plans.</p>
+<div class="flow"><div><b>ORCHESTRATOR</b><span>One user-facing agent, free to work directly.</span></div><div><b>SUB-AGENTS</b><span>Native or CLI sessions, nested as the task needs.</span></div><div><b>COORDINATION</b><span>Locks, durable wakes, status and restart recovery.</span></div><div><b>HUMAN MERGES</b><span>Agents deliver branches and PRs; people merge them.</span></div></div>
+<h2>Dependency flow</h2>
+<pre><code>01 lean contract and operational skills
+ └─ 02 common sub-agent model
+     ├─ 03 free delegation and coordination
+     ├─ 04 agent delivery, human PR merges
+     └─ 05 opt-in review tools
+          03 + 04 + 05
+           └─ 06 ordered workflows with agent freedom
+                └─ 07 existing-home migration and recovery
+                     └─ 08 documentation, validation and cutover</code></pre>
+<p>Independent implementation slices may run in parallel with coordinated file ownership. Activate the redesigned product only when the combined runtime matches its instructions.</p>
+<h2>Implementation phases</h2><div class="cards">
+<a class="card" href="01-lean-contract-and-skills.html"><span class="num">PHASE 01</span><span class="title">Lean Contract and Operational Skills</span><span class="desc">Replace the mandatory engineering playbooks with a short operating contract, concise task instructions and practical CLI references.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: Baseline repository review</span></span></a>
+<a class="card" href="02-unified-subagent-model.html"><span class="num">PHASE 02</span><span class="title">One Sub-agent Model</span><span class="desc">Replace broker, actor, scout and daemon privilege classes with one orchestrator interface and a common sub-agent lifecycle.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 01</span></span></a>
+<a class="card" href="03-free-delegation-and-coordination.html"><span class="num">PHASE 03</span><span class="title">Free Delegation, Durable Coordination</span><span class="desc">Allow CLI and native delegation while keeping task-bound communication, queue ownership and truthful recovery.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 02</span></span></a>
+<a class="card" href="04-agent-delivery-human-merges.html"><span class="num">PHASE 04</span><span class="title">Agent Delivery, Human PR Merges</span><span class="desc">Let agents commit, push and open PRs directly, while retaining the single explicit product permission boundary at PR merging.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 02</span></span></a>
+<a class="card" href="05-opt-in-review-tools.html"><span class="num">PHASE 05</span><span class="title">Review Tools Only When Requested</span><span class="desc">Retain deep-review and vplan as useful explicit tools and remove their hidden defaults, mandatory dependencies and approval coupling.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 01, 02</span></span></a>
+<a class="card" href="06-workflows-with-agent-freedom.html"><span class="num">PHASE 06</span><span class="title">Ordered Workflows, Autonomous Stages</span><span class="desc">Keep every selected workflow step while removing role privileges and giving agents freedom inside each stage.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 03, 04, 05</span></span></a>
+<a class="card" href="07-state-migration-and-recovery.html"><span class="num">PHASE 07</span><span class="title">Migrate Homes Without Losing Work</span><span class="desc">Apply the new names and lifecycle model to existing homes while preserving locks, queued work, replies, worktree leases and recovery evidence.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 02-06</span></span></a>
+<a class="card" href="08-documentation-validation-cutover.html"><span class="num">PHASE 08</span><span class="title">Documentation, Validation and Cutover</span><span class="desc">Ship a consistent lean product across help, prompts, UI, supported runtimes and existing-home upgrades.</span><span class="meta"><span class="tag">Planned</span><span class="tag">Depends: 01-07</span></span></a>
+</div>
+<h2>What stays and what changes</h2>
+<table><tr><th>Keep</th><th>Change</th></tr>
+<tr><td>Validated status events and canonical current-state reads</td><td>Common sub-agent model with honest native-session visibility</td></tr>
+<tr><td>Session locks, wake queue, watcher continuity and correlated replies</td><td>Remove native-delegation fences and mandatory dispatch roles</td></tr>
+<tr><td>Isolated worktrees, persistent homes and unlanded-work recovery</td><td>Persistence is a lifecycle property, not a daemon privilege class</td></tr>
+<tr><td>Declared workflow order, outputs and explicit interaction points</td><td>Agents choose how to execute and delegate within a stage</td></tr>
+<tr><td>PR identity, actual check evidence and merge polling</td><td>Agents publish directly; human-only PR merges</td></tr>
+<tr><td>Useful CLI references and explicit review tools</td><td>Remove generic engineering playbooks and hidden review defaults</td></tr></table>
+<div class="callout warn"><div class="label">Development checkout</div><p>AGENTS_E.md is intentionally dormant. Do not recreate root AGENTS.md or run operational session start during development. Exclude firstmate/ completely. The porting guide and Phase 08 own the deliberate release cutover.</p></div>
+<nav class="footer-nav"><a href="../index.html">← Main plans index</a><a href="../../porting.md">Porting guide</a><a href="01-lean-contract-and-skills.html">Begin Phase 01 →</a></nav>
+</main></body></html>
