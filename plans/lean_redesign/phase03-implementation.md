@@ -33,9 +33,9 @@ Results below distinguish the final release/source from earlier development runs
 | Exact check | Result | Evidence and limits |
 | --- | --- | --- |
 | `cargo fmt --all -- --check` | Passed | Final Rust source after formatting |
-| `cargo build --release --workspace --locked` | Passed, 42.44s | `mx-phase03-final-stable-build.log`; fingerprint below |
-| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed, 7.49s | `mx-phase03-final-stable-clippy.log`; matches CI flags |
-| `cargo test --locked --workspace` | Passed, 544 tests, no failures or ignored tests | `mx-phase03-final-stable-rust.log`; instrumented-only shell contracts execute in coverage below |
+| `cargo build --release --workspace --locked` | Passed, 0.25s incremental rebuild | `mx-phase03-final-process-fixture-build.log`; production binary unchanged after the test-only correction; fingerprint below |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed, 0.67s | `mx-phase03-final-process-fixture-clippy.log`; matches CI flags |
+| `cargo test --locked --workspace` | Passed, 545 local tests, no failures or ignored tests | `mx-phase03-final-process-fixture-rust.log`; instrumented-only shell contracts execute in coverage below |
 | `cargo audit --deny warnings` | Passed | 70 dependencies; 1,246 RustSec advisories loaded; `mx-phase03-final-audit.log` |
 | `target/release/mx test-run tests/mx-spawn-worktree-settle.test.sh --json /private/tmp/mx-phase03-task-lock.json` | Passed, 44.930s, no skips | Real Git and live production lock owner; endpoints/harness mocked |
 | `target/release/mx test-run --check-coverage` | Passed, 128 fixtures | 107 accelerated, 11 serial and 10 Herdr; inventory/partition proof, not line coverage |
@@ -45,7 +45,7 @@ Results below distinguish the final release/source from earlier development runs
 | `[ "$(readlink .claude/skills)" = "../.agents/skills" ]` and `git diff --check` | Passed | Checkout invariants and whitespace |
 | `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-lock-isolation-proof.json` | Passed, 106 candidates x 2 rounds, 471.803s | 0 failed rounds, 0 leaks, 0 known-failure exceptions; exact JSON archived in `docs/mx-test-isolation-proof.json` |
 | `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-lock-clean-all.json` | Passed, 120 passed, 0 failed, 8 declared skips; 293.107s | `mx-phase03-lock-clean-all.log/json`; all 128 fixtures accounted for, all 10 real-Herdr fixtures passed. Includes the corrected owner-home and hermetic doctor fixtures and the deterministic projected teardown lock regression. |
-| Exact CI line-coverage command below | Passed, 93.08% (45,617 lines, 3,156 missed), all 544 tests passed | `mx-phase03-final-stable-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. Includes the final Herdr guard and deterministic shared-lock tests. |
+| Exact CI line-coverage command below | Passed, 93.08% (45,617 lines, 3,156 missed), all 544 tests passed | `mx-phase03-final-stable-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. Includes the final Herdr guard and deterministic shared-lock tests; recorded before the later test-only cooperative cleanup fixture correction below. |
 | Hosted Linux/macOS CI | All 11 jobs passed; Linux line coverage 93.06% (45,693 lines, 3,169 missed) | [Run 34974330195](https://github.com/KashyapTan/Multplx/actions/runs/34974330195), source commit `366cde9`; includes both Rust platforms, every behavior lane, real Herdr, inventory, advisories and invariants. |
 
 ```sh
@@ -74,7 +74,7 @@ Endpoint-before-metadata failure preserves the allocation and bound launch inten
 ## Session integration evidence
 
 The live Herdr projection checks verify concurrent homes, repeated restoration, stable worker paths, preserved unfinished files, advanced lease/generation identity, cleared holding receipts, focus and cleanup.
-Nine focused Herdr receipt tests are included in the 544-test Rust run; corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
+Nine focused Herdr receipt tests are included in the final Rust run; corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
 The final complete local suite ran all ten real-Herdr fixtures without skips in 293.107s; the presentation fixture passed in 163.635s with the deterministic lock-owner assertion and unchanged focus/recovery checks.
 
 Hosted CI exposed a concurrent native Herdr teardown focus race: projected pane close did not hold the shared session presentation lock.
@@ -123,6 +123,11 @@ The initial complete coverage run measured 92.35%; strengthened lifecycle and CL
 A subsequent Linux run missed four shared-lock lines because of timing variance; four deterministic lock tests now verify live-to-dead bounded waiting, ownership replacement during stale recovery, incomplete/aged owner proof and malformed path refusal.
 These tests preserve unknown material and verify ownership outcomes without changing production lock behavior.
 The native Herdr focus race and its deterministic red/green evidence are described above.
+A later documentation-only CI rerun exposed a pre-existing cooperative process-cleanup fixture race: it published readiness before forking its child.
+The fixture now writes an established child PID before a separate ready marker, waits with the shell builtin and reaps the child in its TERM handler.
+The one-second cleanup deadline and success assertion are unchanged; an additional child-gone assertion passes.
+The same POSIX contract now runs on macOS as well as Linux: all eight focused support tests and 545 local workspace tests pass, with the production binary unchanged.
+[Latest PR checks](https://github.com/KashyapTan/Multplx/pull/39/checks) cover this test-only correction.
 
 The final isolation proof is archived with manifest SHA-256 `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f` and 647 conflict pairs.
 [PR #39](https://github.com/KashyapTan/Multplx/pull/39) delivers the implementation, documentation, tests and verified evidence.
