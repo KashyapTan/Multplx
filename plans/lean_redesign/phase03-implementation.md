@@ -1,6 +1,7 @@
 # Phase 03 implementation evidence
 
-Status: planned - implementation, isolation and full regression checks pass; deterministic shared-lock tests are added and final fresh coverage validation is running.
+Status: complete for Phase 03, 2026-09-15.
+All assigned implementation requirements and required checks passed; the source was verified at `366cde94056cd1ca43d644797f9d2ad1a62e846d`.
 Branch: `lean-redesign-phase-03`, based on merged phases 01/02 at `8e0576ace6dddab031cd187d8f9c6d3997634f3a`.
 The [phase plan](03-built-in-worktree-lifecycle.html) and [A10](../../porting.md#a10-built-in-git-worktree-lifecycle) own acceptance.
 The implementation inspected and reused the actual Phase 02 task/project identities, filesystem transactions, locks and process-start identities.
@@ -32,20 +33,20 @@ Results below distinguish the final release/source from earlier development runs
 | Exact check | Result | Evidence and limits |
 | --- | --- | --- |
 | `cargo fmt --all -- --check` | Passed | Final Rust source after formatting |
-| `cargo build --release --workspace --locked` | Passed, 47.28s | `mx-phase03-herdr-lock-build.log`; fingerprint below |
-| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed, 4.59s | `mx-phase03-herdr-lock-clippy.log`; matches CI flags |
-| `cargo test --locked --workspace` | Passed, 540 tests, no failures or ignored tests | `mx-phase03-herdr-lock-rust.log`; instrumented-only shell contracts execute in coverage below |
+| `cargo build --release --workspace --locked` | Passed, 42.44s | `mx-phase03-final-stable-build.log`; fingerprint below |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed, 7.49s | `mx-phase03-final-stable-clippy.log`; matches CI flags |
+| `cargo test --locked --workspace` | Passed, 544 tests, no failures or ignored tests | `mx-phase03-final-stable-rust.log`; instrumented-only shell contracts execute in coverage below |
 | `cargo audit --deny warnings` | Passed | 70 dependencies; 1,246 RustSec advisories loaded; `mx-phase03-final-audit.log` |
 | `target/release/mx test-run tests/mx-spawn-worktree-settle.test.sh --json /private/tmp/mx-phase03-task-lock.json` | Passed, 44.930s, no skips | Real Git and live production lock owner; endpoints/harness mocked |
 | `target/release/mx test-run --check-coverage` | Passed, 128 fixtures | 107 accelerated, 11 serial and 10 Herdr; inventory/partition proof, not line coverage |
 | `target/release/mx shadow-diagnostic` | Passed | Runtime boundary ready |
-| `target/release/mx doc-audience-check` | Passed; final evidence/status edit will be rechecked | Documentation classifications and local links |
+| `target/release/mx doc-audience-check` | Passed | 78 maintained surfaces and 398 local links, including final evidence/status edits |
 | `for script in bin/*.sh bin/backends/*.sh; do bash -n "$script" || exit; done` | Passed | Toolbelt Bash syntax |
 | `[ "$(readlink .claude/skills)" = "../.agents/skills" ]` and `git diff --check` | Passed | Checkout invariants and whitespace |
 | `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-lock-isolation-proof.json` | Passed, 106 candidates x 2 rounds, 471.803s | 0 failed rounds, 0 leaks, 0 known-failure exceptions; exact JSON archived in `docs/mx-test-isolation-proof.json` |
 | `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-lock-clean-all.json` | Passed, 120 passed, 0 failed, 8 declared skips; 293.107s | `mx-phase03-lock-clean-all.log/json`; all 128 fixtures accounted for, all 10 real-Herdr fixtures passed. Includes the corrected owner-home and hermetic doctor fixtures and the deterministic projected teardown lock regression. |
-| Exact CI line-coverage command below | Passed, 93.01% (45,485 lines, 3,178 missed), all tests passed | `mx-phase03-final-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. The subsequent doctor fixture isolation correction passed separately under instrumentation (`mx-phase03-doctor-hermetic-instrumented.log`) and in the release runner (3.201s, `mx-phase03-doctor-hermetic.log/json`). |
-| Hosted Linux/macOS CI | All functional jobs passed; coverage stabilization pending | [Run 34972482426](https://github.com/KashyapTan/Multplx/actions/runs/34972482426) passed all 540 tests, Linux/macOS Rust and every behavior lane, but measured 92.99% (45,570 lines, 3,193 missed). The new lock code was fully covered; shared-lock timing paths caused four previously covered lines to be missed. |
+| Exact CI line-coverage command below | Passed, 93.08% (45,617 lines, 3,156 missed), all 544 tests passed | `mx-phase03-final-stable-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. Includes the final Herdr guard and deterministic shared-lock tests. |
+| Hosted Linux/macOS CI | All 11 jobs passed; Linux line coverage 93.06% (45,693 lines, 3,169 missed) | [Run 34974330195](https://github.com/KashyapTan/Multplx/actions/runs/34974330195), source commit `366cde9`; includes both Rust platforms, every behavior lane, real Herdr, inventory, advisories and invariants. |
 
 ```sh
 cargo llvm-cov --locked --workspace --all-targets \
@@ -53,8 +54,9 @@ cargo llvm-cov --locked --workspace --all-targets \
   --fail-under-lines 93
 ```
 
-The fresh coverage run passed 540 tests across 24 test binaries with no failures or ignored tests.
+The fresh coverage run passed 544 tests across 24 test binaries with no failures or ignored tests.
 The new worktree module measured 96.19% line coverage (1,787 lines, 68 missed), and teardown measured 94.35% (2,940 lines, 166 missed).
+Shared filesystem locks measured 95.19% (541 lines, 26 missed) with deterministic owner-change and bounded-wait tests.
 The real-Git worktree, private-home lifecycle and daemon safety fixtures run through the instrumented command boundary.
 Additional owner tests cover malformed and stale tokens, replaced directories, interrupted journals and conservative cleanup.
 A nine-case isolated Git/forge failure matrix verifies conservative refusal and the exact command trace; matching-origin independent clones still cannot authorize unknown-path deletion.
@@ -72,7 +74,7 @@ Endpoint-before-metadata failure preserves the allocation and bound launch inten
 ## Session integration evidence
 
 The live Herdr projection checks verify concurrent homes, repeated restoration, stable worker paths, preserved unfinished files, advanced lease/generation identity, cleared holding receipts, focus and cleanup.
-Nine focused Herdr receipt tests are included in the 540-test Rust run; corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
+Nine focused Herdr receipt tests are included in the 544-test Rust run; corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
 The final complete local suite ran all ten real-Herdr fixtures without skips in 293.107s; the presentation fixture passed in 163.635s with the deterministic lock-owner assertion and unchanged focus/recovery checks.
 
 Hosted CI exposed a concurrent native Herdr teardown focus race: projected pane close did not hold the shared session presentation lock.
@@ -123,7 +125,9 @@ These tests preserve unknown material and verify ownership outcomes without chan
 The native Herdr focus race and its deterministic red/green evidence are described above.
 
 The final isolation proof is archived with manifest SHA-256 `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f` and 647 conflict pairs.
-[PR #39](https://github.com/KashyapTan/Multplx/pull/39) is published as a draft while the hosted coverage gate is stabilized and rerun.
-Phase 03 remains planned until those checks pass; Phase 04 readiness is not yet declared.
+[PR #39](https://github.com/KashyapTan/Multplx/pull/39) delivers the implementation, documentation, tests and verified evidence.
+No assigned Phase 03 implementation or validation work remains.
+Phase 04 is ready to begin after this PR merges; the human owns that merge.
+The partial redesign is not activated in operational homes.
 Phase 04 owns broader durable delegation/inbox recovery, Phase 05 owns named coordinator composition, Phase 09 owns executable legacy transfer, and Phase 12 owns release activation.
 No requirement assigned to this phase is waived or silently deferred.
