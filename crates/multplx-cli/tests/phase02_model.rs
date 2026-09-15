@@ -173,6 +173,32 @@ fn reports_accept_current_identity_retry_once_and_retain_stale_evidence() {
         fs::read_to_string(fixture.home.join("state/task.status")).unwrap(),
         status
     );
+    success(fixture.report("current-two").output().unwrap());
+    let queue = fs::read_to_string(fixture.home.join("state/.wake-queue")).unwrap();
+    assert!(queue.contains("message-current"));
+    assert!(queue.contains("message-current-two"));
+    assert!(
+        fixture
+            .home
+            .join("state/message-outbox/current.json")
+            .is_file()
+    );
+    assert!(
+        fixture
+            .home
+            .join("state/message-outbox/current-two.json")
+            .is_file()
+    );
+
+    fs::remove_file(fixture.home.join("state/.wake-queue")).unwrap();
+    fs::remove_dir_all(fixture.home.join("state/message-outbox")).unwrap();
+    assert_eq!(
+        multplx_domain::supervision::reconcile_report_wakes(&fixture.home.join("state")).unwrap(),
+        2
+    );
+    let repaired = fs::read_to_string(fixture.home.join("state/.wake-queue")).unwrap();
+    assert!(repaired.contains("message-current"));
+    assert!(repaired.contains("message-current-two"));
 }
 
 #[test]
@@ -194,6 +220,17 @@ fn copied_metadata_cannot_accept_a_report_in_another_home() {
     assert_eq!(output.status.code(), Some(3));
     assert!(!other.join("state/task.status").exists());
     assert!(!fixture.home.join("state/task.status").exists());
+    let evidence: serde_json::Value = serde_json::from_slice(
+        &fs::read(other.join("state/evidence/task-wrong-home.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(evidence["accepted"], false);
+    assert!(
+        evidence["rejection"]
+            .as_str()
+            .unwrap()
+            .contains("does not own")
+    );
 }
 
 #[test]
@@ -239,6 +276,11 @@ fn explicit_recorded_state_override_accepts_only_its_exact_owner_path() {
             .code(),
         Some(3)
     );
+    let evidence: serde_json::Value = serde_json::from_slice(
+        &fs::read(copied.join("evidence/task-copied-custom-state.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(evidence["accepted"], false);
     assert!(!copied.join("task.status").exists());
 }
 
@@ -538,7 +580,7 @@ fn concurrent_three_repository_queue_writers_keep_task_routes_and_bases_immutabl
                 .join(format!("{id}.request")),
         )
         .unwrap();
-        assert!(bytes.starts_with("version=2\n"));
+        assert!(bytes.starts_with("version=3\n"));
         let model = bytes
             .lines()
             .find_map(|line| line.strip_prefix("canonical_model="))

@@ -49,7 +49,9 @@ All live behavior ran in disposable Git repositories below `/tmp/mx-cursor-plan1
 | Print-mode stop negative | Same stop fixture under `--print` | Stop did not fire, so supervised lifecycle turns remain interactive. |
 
 Cursor's documented `subagentStart` hook key was accepted in configuration but did not fire during the disposable live subagent attempt.
-The adapter therefore does not rely on that event alone: fail-closed `preToolUse` applies the shared delegation-shape guard before the subagent tool invocation, and deterministic tests cover both translations.
+That dated result remains an explicit observation limit.
+The current adapter allows native delegation through `preToolUse` and records `subagentStart` when Cursor supplies it. The observation remains session-bound even when Cursor exposes a child identifier, because this version has no verified matching result or resume event.
+It does not claim durable child recovery from an event that did not fire.
 
 ## Supervision and reporting
 

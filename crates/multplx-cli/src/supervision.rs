@@ -209,20 +209,19 @@ fn actor_state_line(source_root: &Path, state: &Path, task: &str) -> Option<Stri
     let executable = std::env::var_os("MX_ACTOR_STATE_BIN")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| source_root.join("bin/mx-actor-state.sh"));
-    let output = Command::new(executable)
+    let mut command = Command::new(executable);
+    command
         .arg(task)
         .env("MX_STATE_OVERRIDE", state)
         .env("MX_JOURNAL_CLASSIFY", "1")
-        .env("MX_JOURNAL_SOURCE", "mx-watch")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()
-        .map(str::to_owned)
+        .env("MX_JOURNAL_SOURCE", "mx-watch");
+    let output = run_bounded_command(
+        command,
+        Duration::from_secs(environment_u64("MX_OBSERVATION_TIMEOUT", 5)),
+        None,
+        None,
+    );
+    output.lines().next().map(str::to_owned)
 }
 
 fn parse_actor_absorb_class(line: &str) -> ActorAbsorbClass {
@@ -1103,6 +1102,19 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
             if payload.is_empty() {
                 return 1;
             }
+            let root = std::env::var_os("MX_ROOT_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| source_root.to_path_buf());
+            let _ = multplx_domain::supervision::native_observe(
+                &[
+                    "--provider".to_owned(),
+                    "cursor".to_owned(),
+                    "--event".to_owned(),
+                    "reconcile".to_owned(),
+                ],
+                payload,
+                &root,
+            );
             let context = command_payload(&bin.join("mx-sessionstart-nudge.sh"), &[], payload)
                 .ok()
                 .map(|(_, output)| output.trim_end().to_owned())
@@ -1129,11 +1141,7 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
             {
                 return 1;
             }
-            for guard in [
-                "mx-arm-pretool-check.sh",
-                "mx-cd-pretool-check.sh",
-                "mx-subagent-pretool-check.sh",
-            ] {
+            for guard in ["mx-arm-pretool-check.sh", "mx-cd-pretool-check.sh"] {
                 match command_payload(&bin.join(guard), &[], payload) {
                     Ok((2, output)) => {
                         cursor_deny(output.trim_end());
@@ -1150,15 +1158,23 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
             if payload.is_empty() {
                 return 1;
             }
-            match command_payload(
-                &bin.join("mx-subagent-pretool-check.sh"),
-                &["--tool", "subagentStart"],
-                "",
-            ) {
-                Ok((2, output)) => cursor_deny(output.trim_end()),
-                Ok((0, _)) => cursor_json(serde_json::json!({"permission": "allow"})),
-                _ => return 1,
+            let root = std::env::var_os("MX_ROOT_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| source_root.to_path_buf());
+            let result = multplx_domain::supervision::native_observe(
+                &[
+                    "--provider".to_owned(),
+                    "cursor".to_owned(),
+                    "--event".to_owned(),
+                    "start".to_owned(),
+                ],
+                payload,
+                &root,
+            );
+            if result.status != 0 && !result.stderr.is_empty() {
+                eprint!("{}", result.stderr);
             }
+            cursor_json(serde_json::json!({"permission": "allow"}));
             0
         }
         "stop" => {
@@ -2117,6 +2133,23 @@ pub(crate) fn afk_return(args: &[std::ffi::OsString], home: &Path, source_root: 
             evidence.insert("evidence\tlifecycle\tdurable wake drain failed; retry catch-up before ordinary work".to_owned());
         }
     }
+    match multplx_core::wake::WakeQueue::new(state.clone())
+        .unfinished_count(&SystemProcessProbe::default())
+    {
+        Ok(0) => {}
+        Ok(count) => {
+            ok = false;
+            evidence.insert(format!(
+                "evidence\twake\t{count} wake item(s) still require an explicit disposition and acknowledgement"
+            ));
+        }
+        Err(error) => {
+            ok = false;
+            evidence.insert(format!(
+                "evidence\tlifecycle\tcannot verify durable wake completion: {error}"
+            ));
+        }
+    }
     for (name, kind) in [
         (".subsuper-inject-wedged", "wedge"),
         (".subsuper-escalations", "escalation"),
@@ -2161,66 +2194,379 @@ fn file_age(path: &Path) -> Duration {
     path_age(path).unwrap_or(Duration::from_secs(999_999))
 }
 
-fn run_check_snapshot(
-    path: &Path,
-    timeout: Duration,
-    shutdown: &std::sync::atomic::AtomicBool,
-) -> String {
-    run_check_command(
-        "bash",
-        &[path.to_string_lossy().as_ref()],
-        timeout,
-        Some(shutdown),
-    )
-}
-
-fn run_check_command<P: AsRef<std::ffi::OsStr>>(
-    program: P,
-    args: &[&str],
+fn run_bounded_command(
+    mut command: Command,
     timeout: Duration,
     shutdown: Option<&std::sync::atomic::AtomicBool>,
+    interrupt: Option<&std::sync::atomic::AtomicBool>,
 ) -> String {
-    let mut command = Command::new(program);
+    run_bounded_command_result(&mut command, timeout, shutdown, interrupt, false)
+        .output()
+        .to_owned()
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum BoundedCommandResult {
+    Completed { success: bool, output: String },
+    SpawnFailed(String),
+    Interrupted,
+    TimedOut,
+}
+
+impl BoundedCommandResult {
+    fn output(&self) -> &str {
+        match self {
+            Self::Completed { output, .. } => output,
+            Self::SpawnFailed(_) | Self::Interrupted | Self::TimedOut => "",
+        }
+    }
+}
+
+fn run_bounded_command_result(
+    command: &mut Command,
+    timeout: Duration,
+    shutdown: Option<&std::sync::atomic::AtomicBool>,
+    interrupt: Option<&std::sync::atomic::AtomicBool>,
+    capture_stderr: bool,
+) -> BoundedCommandResult {
+    const OUTPUT_LIMIT: usize = 1024 * 1024;
+    const READ_BUDGET_PER_POLL: usize = 64 * 1024;
     command
-        .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(if capture_stderr {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .process_group(0);
-    let Ok(mut child) = command.spawn() else {
-        return String::new();
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return BoundedCommandResult::SpawnFailed(error.to_string()),
     };
     let mut stdout = child.stdout.take().expect("piped stdout");
-    let reader = std::thread::spawn(move || {
-        let mut value = String::new();
-        let _ = stdout.read_to_string(&mut value);
-        value
-    });
+    let mut stderr = child.stderr.take();
+    if let Ok(flags) = rustix::fs::fcntl_getfl(&stdout) {
+        let _ = rustix::fs::fcntl_setfl(&stdout, flags | rustix::fs::OFlags::NONBLOCK);
+    }
+    if let Some(stderr) = stderr.as_ref()
+        && let Ok(flags) = rustix::fs::fcntl_getfl(stderr)
+    {
+        let _ = rustix::fs::fcntl_setfl(stderr, flags | rustix::fs::OFlags::NONBLOCK);
+    }
+    let mut output = Vec::new();
+    let drain_pipe = |pipe: &mut dyn Read, output: &mut Vec<u8>| -> bool {
+        let mut buffer = [0_u8; 8192];
+        let mut drained = 0;
+        loop {
+            match pipe.read(&mut buffer) {
+                Ok(0) => return true,
+                Ok(count) => {
+                    let available = OUTPUT_LIMIT.saturating_sub(output.len());
+                    output.extend_from_slice(&buffer[..count.min(available)]);
+                    drained += count;
+                    if drained >= READ_BUDGET_PER_POLL {
+                        return false;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return false,
+                Err(_) => return true,
+            }
+        }
+    };
     let started = std::time::Instant::now();
-    loop {
+    let result = loop {
+        let _ = drain_pipe(&mut stdout, &mut output);
+        if let Some(stderr) = stderr.as_mut() {
+            let _ = drain_pipe(stderr, &mut output);
+        }
         match child.try_wait() {
-            Ok(Some(_)) => {
+            Ok(Some(status)) => {
                 terminate_finished_group(child.id());
-                break;
+                break Some(status.success());
             }
             Ok(None)
                 if shutdown
-                    .is_some_and(|shutdown| shutdown.load(std::sync::atomic::Ordering::SeqCst)) =>
+                    .is_some_and(|shutdown| shutdown.load(std::sync::atomic::Ordering::SeqCst))
+                    || interrupt.is_some_and(|interrupt| {
+                        interrupt.load(std::sync::atomic::Ordering::SeqCst)
+                    }) =>
             {
                 terminate_group(&mut child);
-                break;
+                break None;
             }
             Ok(None) if started.elapsed() >= timeout => {
                 terminate_group(&mut child);
-                break;
+                return BoundedCommandResult::TimedOut;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
             Err(_) => {
                 terminate_group(&mut child);
-                break;
+                break None;
             }
         }
+    };
+    let drain_deadline = std::time::Instant::now() + Duration::from_millis(50);
+    while std::time::Instant::now() < drain_deadline {
+        let stdout_done = drain_pipe(&mut stdout, &mut output);
+        let stderr_done = stderr
+            .as_mut()
+            .is_none_or(|stderr| drain_pipe(stderr, &mut output));
+        if stdout_done && stderr_done {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
     }
-    reader.join().unwrap_or_default()
+    let output = String::from_utf8_lossy(&output).into_owned();
+    match result {
+        Some(success) => BoundedCommandResult::Completed { success, output },
+        None => BoundedCommandResult::Interrupted,
+    }
+}
+
+#[derive(Debug)]
+enum CompletedCheck {
+    Custom {
+        task: multplx_core::identifiers::TaskId,
+        output: String,
+    },
+    PrPoll {
+        task: multplx_domain::review_delivery::OperationalTaskId,
+        snapshot: Box<PrPollSnapshot>,
+        output: String,
+    },
+}
+
+enum CheckBatchOutcome {
+    Complete,
+    Partial,
+    Nudged,
+    Shutdown,
+    Actionable {
+        completed: Vec<CompletedCheck>,
+        all_due_complete: bool,
+    },
+}
+
+enum CheckWorkerResult {
+    Completed(CompletedCheck),
+    Incomplete { pr_poll: bool },
+}
+
+fn check_completion_marker(state: &Path, task: &str) -> PathBuf {
+    state.join(format!(".{task}.last-check"))
+}
+
+fn mark_completed_check(state: &Path, completed: &CompletedCheck) {
+    let task = match completed {
+        CompletedCheck::Custom { task, .. } => task.as_str(),
+        CompletedCheck::PrPoll { task, .. } => task.as_str(),
+    };
+    let _ = fs::write(check_completion_marker(state, task), b"");
+}
+
+fn run_check_batch(
+    checks: Vec<AuthenticatedCheck>,
+    state: &Path,
+    source_root: &Path,
+    timeout: Duration,
+    concurrency: usize,
+    shutdown: &std::sync::atomic::AtomicBool,
+    nudge: &std::sync::atomic::AtomicBool,
+) -> CheckBatchOutcome {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+
+    let mut checks = checks.into_iter();
+    let mut all_completed = true;
+    loop {
+        let chunk = checks.by_ref().take(concurrency.max(1)).collect::<Vec<_>>();
+        if chunk.is_empty() {
+            return if all_completed {
+                CheckBatchOutcome::Complete
+            } else {
+                CheckBatchOutcome::Partial
+            };
+        }
+        let more_due_checks = checks.len() > 0;
+        let mut pending_pr = chunk
+            .iter()
+            .filter(|check| matches!(check, AuthenticatedCheck::PrPoll { .. }))
+            .count();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (sender, receiver) = mpsc::channel();
+        let mut handles = Vec::with_capacity(chunk.len());
+        for check in chunk {
+            let sender = sender.clone();
+            let cancel = Arc::clone(&cancel);
+            let source_root = source_root.to_path_buf();
+            handles.push(std::thread::spawn(move || {
+                let result = match check {
+                    AuthenticatedCheck::Custom { task, snapshot } => {
+                        let mut command = Command::new("bash");
+                        command.arg(snapshot.path());
+                        match run_bounded_command_result(
+                            &mut command,
+                            timeout,
+                            Some(&cancel),
+                            None,
+                            false,
+                        ) {
+                            BoundedCommandResult::Completed { output, .. } => {
+                                CheckWorkerResult::Completed(CompletedCheck::Custom {
+                                    task,
+                                    output,
+                                })
+                            }
+                            _ => CheckWorkerResult::Incomplete { pr_poll: false },
+                        }
+                    }
+                    AuthenticatedCheck::PrPoll { task, snapshot } => {
+                        let registration = &snapshot.registration;
+                        let mut command = Command::new(source_root.join("bin/mx-pr-poll.sh"));
+                        command.args([
+                            "--validated",
+                            registration.identity.provider,
+                            &registration.identity.url,
+                            registration.identity.host,
+                            &registration.identity.project_path(),
+                            &registration.identity.number,
+                        ]);
+                        match run_bounded_command_result(
+                            &mut command,
+                            timeout,
+                            Some(&cancel),
+                            None,
+                            false,
+                        ) {
+                            BoundedCommandResult::Completed { output, .. } => {
+                                CheckWorkerResult::Completed(CompletedCheck::PrPoll {
+                                    task,
+                                    snapshot,
+                                    output,
+                                })
+                            }
+                            _ => CheckWorkerResult::Incomplete { pr_poll: true },
+                        }
+                    }
+                    AuthenticatedCheck::Rejected(_) => return,
+                };
+                let _ = sender.send(result);
+            }));
+        }
+        drop(sender);
+        let mut remaining = handles.len();
+        let mut outcome = None;
+        let mut actionable = Vec::new();
+        while remaining > 0 {
+            if shutdown.load(Ordering::SeqCst) {
+                cancel.store(true, Ordering::SeqCst);
+                outcome = Some(if actionable.is_empty() {
+                    CheckBatchOutcome::Shutdown
+                } else {
+                    CheckBatchOutcome::Actionable {
+                        completed: std::mem::take(&mut actionable),
+                        all_due_complete: false,
+                    }
+                });
+                break;
+            }
+            if nudge.load(Ordering::SeqCst) {
+                cancel.store(true, Ordering::SeqCst);
+                outcome = Some(if actionable.is_empty() {
+                    CheckBatchOutcome::Nudged
+                } else {
+                    CheckBatchOutcome::Actionable {
+                        completed: std::mem::take(&mut actionable),
+                        all_due_complete: false,
+                    }
+                });
+                break;
+            }
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(CheckWorkerResult::Completed(completed)) => {
+                    remaining -= 1;
+                    if matches!(completed, CompletedCheck::PrPoll { .. }) {
+                        pending_pr = pending_pr.saturating_sub(1);
+                    }
+                    let has_output = match &completed {
+                        CompletedCheck::Custom { output, .. }
+                        | CompletedCheck::PrPoll { output, .. } => !output.is_empty(),
+                    };
+                    if has_output {
+                        actionable.push(completed);
+                    } else {
+                        mark_completed_check(state, &completed);
+                    }
+                    if !actionable.is_empty() && pending_pr == 0 {
+                        cancel.store(true, Ordering::SeqCst);
+                        outcome = Some(CheckBatchOutcome::Actionable {
+                            completed: std::mem::take(&mut actionable),
+                            all_due_complete: remaining == 0 && !more_due_checks && all_completed,
+                        });
+                        break;
+                    }
+                }
+                Ok(CheckWorkerResult::Incomplete { pr_poll }) => {
+                    remaining -= 1;
+                    all_completed = false;
+                    if pr_poll {
+                        pending_pr = pending_pr.saturating_sub(1);
+                    }
+                    if !actionable.is_empty() && pending_pr == 0 {
+                        cancel.store(true, Ordering::SeqCst);
+                        outcome = Some(CheckBatchOutcome::Actionable {
+                            completed: std::mem::take(&mut actionable),
+                            all_due_complete: false,
+                        });
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    all_completed &= remaining == 0;
+                    break;
+                }
+            }
+        }
+        cancel.store(true, Ordering::SeqCst);
+        for handle in handles {
+            let _ = handle.join();
+        }
+        let mut late_actionable = Vec::new();
+        for result in receiver.try_iter() {
+            match result {
+                CheckWorkerResult::Completed(completed) => {
+                    let has_output = match &completed {
+                        CompletedCheck::Custom { output, .. }
+                        | CompletedCheck::PrPoll { output, .. } => !output.is_empty(),
+                    };
+                    if has_output {
+                        late_actionable.push(completed);
+                    } else {
+                        mark_completed_check(state, &completed);
+                    }
+                }
+                CheckWorkerResult::Incomplete { .. } => all_completed = false,
+            }
+        }
+        if !late_actionable.is_empty() {
+            match outcome.as_mut() {
+                Some(CheckBatchOutcome::Actionable { completed, .. }) => {
+                    completed.extend(late_actionable);
+                }
+                Some(CheckBatchOutcome::Shutdown | CheckBatchOutcome::Nudged) | None => {
+                    outcome = Some(CheckBatchOutcome::Actionable {
+                        completed: late_actionable,
+                        all_due_complete: false,
+                    });
+                }
+                Some(CheckBatchOutcome::Complete | CheckBatchOutcome::Partial) => unreachable!(),
+            }
+        }
+        if let Some(outcome) = outcome {
+            return outcome;
+        }
+    }
 }
 
 fn remove_exact_private(
@@ -2765,11 +3111,18 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
     let signal_grace = Duration::from_secs(environment_u64("MX_SIGNAL_GRACE", 30));
     let check_interval = Duration::from_secs(environment_u64("MX_CHECK_INTERVAL", 300));
     let check_timeout = Duration::from_secs(environment_u64("MX_CHECK_TIMEOUT", 30));
+    let check_concurrency = usize::try_from(environment_u64("MX_CHECK_CONCURRENCY", 4))
+        .unwrap_or(4)
+        .clamp(1, 32);
     let event_failure_max = environment_u64("MX_EVENT_CAP_FAIL_MAX", 3);
     let mut event_failures = 0;
     let mut event_path_disabled = false;
     if !state.join(".last-heartbeat").exists() {
         let _ = fs::write(state.join(".last-heartbeat"), b"");
+    }
+    if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
+        eprintln!("watcher: cannot reconcile accepted report notifications: {error}");
+        return 1;
     }
     let rejected_retirements = recover_pr_poll_retirements(&state);
     if !rejected_retirements.is_empty() {
@@ -2798,12 +3151,49 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
             return 0;
         }
         let _ = fs::write(state.join(".last-watcher-beat"), b"");
-        let headroom_paths = multplx_backend::headroom::HeadroomPaths::from_environment();
-        match multplx_backend::headroom::queue_drain(&headroom_paths) {
-            Ok(output) if !output.is_empty() => triage_log(&state, output.trim_end()),
-            Ok(_) => {}
-            Err(error) => {
-                let reason = format!("check: dispatch queue: {error}");
+        let mut queue_command = Command::new(source_root.join("bin/mx-headroom.sh"));
+        queue_command.arg("--queue-drain");
+        let queue_result = run_bounded_command_result(
+            &mut queue_command,
+            Duration::from_secs(environment_u64("MX_DISPATCH_TIMEOUT", 30)),
+            Some(&shutdown),
+            Some(&nudge),
+            true,
+        );
+        if shutdown.load(Ordering::SeqCst) {
+            return 1;
+        }
+        match queue_result {
+            BoundedCommandResult::Completed {
+                success: true,
+                output,
+            } if !output.is_empty() => triage_log(&state, output.trim_end()),
+            BoundedCommandResult::Completed { success: true, .. }
+            | BoundedCommandResult::Interrupted => {}
+            BoundedCommandResult::Completed { output, .. }
+            | BoundedCommandResult::SpawnFailed(output) => {
+                let detail = output.trim();
+                let reason = if detail.is_empty() {
+                    "check: dispatch queue command failed".to_owned()
+                } else {
+                    format!("check: dispatch queue: {detail}")
+                };
+                if !append_wake(
+                    &state,
+                    multplx_core::wake::WakeKind::Check,
+                    "dispatch-queue",
+                    &reason,
+                ) {
+                    return 1;
+                }
+                println!("{reason}");
+                return 0;
+            }
+            BoundedCommandResult::TimedOut => {
+                let reason = format!(
+                    "check: dispatch queue exceeded its {}s observation deadline",
+                    environment_u64("MX_DISPATCH_TIMEOUT", 30)
+                );
                 if !append_wake(
                     &state,
                     multplx_core::wake::WakeKind::Check,
@@ -2851,48 +3241,56 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                 }
                 return 1;
             }
-            for check in checks {
-                if let AuthenticatedCheck::Custom { task, snapshot } = check {
-                    let output = run_check_snapshot(snapshot.path(), check_timeout, &shutdown);
-                    if shutdown.load(Ordering::SeqCst) {
-                        return 1;
+            let checks = checks
+                .into_iter()
+                .filter(|check| match check {
+                    AuthenticatedCheck::PrPoll { task, .. } => {
+                        file_age(&check_completion_marker(&state, task.as_str())) >= check_interval
                     }
-                    if !output.is_empty() {
-                        let check_path = state.join(format!("{}.check.sh", task.as_str()));
-                        let reason =
-                            format!("check: {}: {}", check_path.display(), output.trim_end());
-                        if append_wake(
-                            &state,
-                            multplx_core::wake::WakeKind::Check,
-                            &check_path.to_string_lossy(),
-                            &reason,
-                        ) {
-                            let _ = fs::write(state.join(".last-check"), b"");
-                            println!("{reason}");
-                            return 0;
-                        }
-                        return 1;
+                    AuthenticatedCheck::Custom { task, .. } => {
+                        file_age(&check_completion_marker(&state, task.as_str())) >= check_interval
                     }
-                } else if let AuthenticatedCheck::PrPoll { task, snapshot } = check {
-                    let registration = &snapshot.registration;
-                    let output = run_check_command(
-                        source_root.join("bin/mx-pr-poll.sh"),
-                        &[
-                            "--validated",
-                            registration.identity.provider,
-                            &registration.identity.url,
-                            registration.identity.host,
-                            &registration.identity.project_path(),
-                            &registration.identity.number,
-                        ],
-                        check_timeout,
-                        Some(&shutdown),
-                    );
-                    if shutdown.load(Ordering::SeqCst) {
-                        return 1;
-                    }
-                    if !output.is_empty() {
-                        let check_path = state.join(format!("{task}.check.sh"));
+                    AuthenticatedCheck::Rejected(_) => true,
+                })
+                .collect();
+            let checks_complete = match run_check_batch(
+                checks,
+                &state,
+                source_root,
+                check_timeout,
+                check_concurrency,
+                &shutdown,
+                &nudge,
+            ) {
+                CheckBatchOutcome::Shutdown => return 1,
+                CheckBatchOutcome::Nudged | CheckBatchOutcome::Partial => false,
+                CheckBatchOutcome::Complete => true,
+                CheckBatchOutcome::Actionable {
+                    completed,
+                    all_due_complete,
+                } => {
+                    let mut reasons = Vec::with_capacity(completed.len());
+                    for completed in completed {
+                        let completion_task = match &completed {
+                            CompletedCheck::Custom { task, .. } => task.as_str().to_owned(),
+                            CompletedCheck::PrPoll { task, .. } => task.as_str().to_owned(),
+                        };
+                        let (check_path, output, retirement) = match completed {
+                            CompletedCheck::Custom { task, output } => (
+                                state.join(format!("{}.check.sh", task.as_str())),
+                                output,
+                                None,
+                            ),
+                            CompletedCheck::PrPoll {
+                                task,
+                                snapshot,
+                                output,
+                            } => (
+                                state.join(format!("{task}.check.sh")),
+                                output,
+                                Some(snapshot),
+                            ),
+                        };
                         let reason =
                             format!("check: {}: {}", check_path.display(), output.trim_end());
                         if !append_wake(
@@ -2903,16 +3301,24 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                         ) {
                             return 1;
                         }
-                        if output.trim() == "merged" {
+                        let _ = fs::write(check_completion_marker(&state, &completion_task), b"");
+                        if output.trim() == "merged"
+                            && let Some(snapshot) = retirement
+                        {
                             let _ = retire_pr_poll(&state, &snapshot);
                         }
-                        let _ = fs::write(state.join(".last-check"), b"");
-                        println!("{reason}");
-                        return 0;
+                        reasons.push(reason);
                     }
+                    if all_due_complete {
+                        let _ = fs::write(state.join(".last-check"), b"");
+                    }
+                    println!("{}", reasons.join("\n"));
+                    return 0;
                 }
+            };
+            if checks_complete {
+                let _ = fs::write(state.join(".last-check"), b"");
             }
-            let _ = fs::write(state.join(".last-check"), b"");
         }
         let signals = coalesce_signals(&state, signal_grace);
         if !signals.is_empty() {
@@ -3631,6 +4037,10 @@ pub(crate) fn guard(root: &Path, home: &Path, source_root: &Path, detected_harne
     let read_only = bool_environment("MX_GUARD_READ_ONLY");
     let mut stderr = render_tangle(root, read_only);
     let status = multplx_core::supervision::inspect(&state, grace(), SystemTime::now());
+    let queue_pending = status.queue_pending
+        || multplx_core::wake::WakeQueue::new(state.clone())
+            .unfinished_count(&SystemProcessProbe::default())
+            .is_ok_and(|count| count > 0);
     let marker = state.join(".guard-watcher-stale-banner");
     if status.in_flight == 0 {
         if !read_only {
@@ -3654,7 +4064,7 @@ pub(crate) fn guard(root: &Path, home: &Path, source_root: &Path, detected_harne
                 detected_harness,
                 read_only,
                 afk,
-                status.queue_pending,
+                queue_pending,
             );
             let rule = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
             let ownership = if read_only {
@@ -3682,11 +4092,11 @@ pub(crate) fn guard(root: &Path, home: &Path, source_root: &Path, detected_harne
     } else if !read_only {
         let _ = fs::remove_file(marker);
     }
-    if status.queue_pending {
+    if queue_pending {
         if read_only {
-            stderr.push_str("WARNING: queued wakes pending - left untouched because this session lacks verified system-lock ownership.\n");
+            stderr.push_str("WARNING: unfinished wakes pending - left untouched because this session lacks verified system-lock ownership.\n");
         } else {
-            stderr.push_str("WARNING: queued wakes pending - drain them with bin/mx-wake-drain.sh before anything else.\n");
+            stderr.push_str("WARNING: unfinished wakes pending - claim them with bin/mx-wake-drain.sh, then durably record disposition and acknowledgement before anything else.\n");
         }
     }
     eprint!("{stderr}");
@@ -4090,10 +4500,171 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        ActorAbsorbClass, AuthenticatedCheck, CycleRecord, append_cycle_record,
-        authenticated_checks, coalesce_signals, event_failure_state, parse_actor_absorb_class,
-        publish_signal_markers, scan_signals,
+        ActorAbsorbClass, AuthenticatedCheck, BoundedCommandResult, CheckBatchOutcome, CycleRecord,
+        PrPollSnapshot, append_cycle_record, authenticated_checks, coalesce_signals,
+        event_failure_state, parse_actor_absorb_class, publish_signal_markers,
+        run_bounded_command_result, run_check_batch, scan_signals,
     };
+
+    #[test]
+    fn bounded_commands_report_completion_failure_timeout_and_interrupt() {
+        let mut completed = std::process::Command::new("sh");
+        completed.args(["-c", "printf out; printf err >&2"]);
+        let completed =
+            run_bounded_command_result(&mut completed, Duration::from_secs(1), None, None, true);
+        assert!(matches!(
+            &completed,
+            BoundedCommandResult::Completed { success: true, output }
+                if output.contains("out") && output.contains("err")
+        ));
+
+        let mut failed = std::process::Command::new("sh");
+        failed.args(["-c", "printf failure >&2; exit 7"]);
+        assert_eq!(
+            run_bounded_command_result(&mut failed, Duration::from_secs(1), None, None, true,),
+            BoundedCommandResult::Completed {
+                success: false,
+                output: "failure".to_owned(),
+            }
+        );
+
+        let mut missing = std::process::Command::new("/definitely/missing/mx-command");
+        assert!(matches!(
+            run_bounded_command_result(&mut missing, Duration::from_secs(1), None, None, false,),
+            BoundedCommandResult::SpawnFailed(_)
+        ));
+
+        let mut timed = std::process::Command::new("sh");
+        timed.args(["-c", "sleep 1"]);
+        assert_eq!(
+            run_bounded_command_result(&mut timed, Duration::from_millis(20), None, None, false,),
+            BoundedCommandResult::TimedOut
+        );
+
+        let interrupted = std::sync::atomic::AtomicBool::new(true);
+        let mut running = std::process::Command::new("sh");
+        running.args(["-c", "sleep 1"]);
+        assert_eq!(
+            run_bounded_command_result(
+                &mut running,
+                Duration::from_secs(1),
+                None,
+                Some(&interrupted),
+                false,
+            ),
+            BoundedCommandResult::Interrupted
+        );
+
+        let mut excessive = std::process::Command::new("sh");
+        excessive.args(["-c", "dd if=/dev/zero bs=1048576 count=2 2>/dev/null"]);
+        let excessive =
+            run_bounded_command_result(&mut excessive, Duration::from_secs(2), None, None, false);
+        assert!(matches!(
+            excessive,
+            BoundedCommandResult::Completed {
+                success: true,
+                output
+            } if output.len() == 1024 * 1024
+        ));
+
+        let mut endless_output = std::process::Command::new("sh");
+        endless_output.args(["-c", "while :; do printf 0123456789abcdef; done"]);
+        assert_eq!(
+            run_bounded_command_result(
+                &mut endless_output,
+                Duration::from_millis(40),
+                None,
+                None,
+                false,
+            ),
+            BoundedCommandResult::TimedOut
+        );
+    }
+
+    #[test]
+    fn nudge_retains_a_completed_actionable_result_beside_a_slow_pr_probe() {
+        use multplx_core::identifiers::{Sha256Digest, TaskId};
+        use multplx_domain::review_delivery::PollRegistration;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        let source = temp.path().join("source");
+        fs::create_dir(&state).expect("state");
+        fs::create_dir_all(source.join("bin")).expect("source bin");
+        let fast = state.join("fast.check.sh");
+        fs::write(&fast, b"#!/bin/sh\nprintf 'fast-critical\\n'\n").expect("fast check");
+        fs::set_permissions(&fast, fs::Permissions::from_mode(0o700)).expect("fast mode");
+        let digest = format!("{:x}", Sha256::digest(fs::read(&fast).expect("fast bytes")));
+        let trust = state.join("fast.check-trust");
+        fs::write(&trust, format!("mx-custom-check-v1\n{digest}\n")).expect("trust");
+        fs::set_permissions(&trust, fs::Permissions::from_mode(0o600)).expect("trust mode");
+        let task = TaskId::parse("fast").expect("task");
+        let custom =
+            multplx_core::checks::CheckSnapshot::prepare(&state, &task).expect("custom snapshot");
+
+        let poll = source.join("bin/mx-pr-poll.sh");
+        fs::write(&poll, b"#!/bin/sh\nsleep 2\n").expect("poll");
+        fs::set_permissions(&poll, fs::Permissions::from_mode(0o700)).expect("poll mode");
+        let hash = Sha256Digest::parse("0".repeat(64)).expect("hash");
+        let registration = PollRegistration::parse(
+            format!(
+                "mx-pr-poll-registration-v2\nslow\ngithub\nhttps://github.com/o/r/pull/1\ngithub.com\no/r\n1\n{}\n{}\n1:1\n1:2\n",
+                hash.as_str(),
+                hash.as_str()
+            )
+            .as_bytes(),
+        )
+        .expect("registration");
+        let checks = vec![
+            AuthenticatedCheck::Custom {
+                task,
+                snapshot: custom,
+            },
+            AuthenticatedCheck::PrPoll {
+                task: registration.task.clone(),
+                snapshot: Box::new(PrPollSnapshot {
+                    registration,
+                    registration_identity: multplx_domain::review_delivery::FileIdentity {
+                        device: 1,
+                        inode: 2,
+                    },
+                    registration_digest: hash,
+                }),
+            },
+        ];
+        let shutdown = std::sync::atomic::AtomicBool::new(false);
+        let nudge = std::sync::atomic::AtomicBool::new(false);
+        let outcome = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(100));
+                nudge.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+            run_check_batch(
+                checks,
+                &state,
+                &source,
+                Duration::from_secs(3),
+                2,
+                &shutdown,
+                &nudge,
+            )
+        });
+        assert!(matches!(
+            outcome,
+            CheckBatchOutcome::Actionable {
+                completed,
+                all_due_complete: false,
+            } if completed.iter().any(|completed| matches!(
+                completed,
+                super::CompletedCheck::Custom { output, .. } if output == "fast-critical\n"
+            ))
+        ));
+        assert!(
+            !state.join(".fast.last-check").exists(),
+            "actionable cadence cannot advance before durable wake publication"
+        );
+        assert!(!state.join(".slow.last-check").exists());
+    }
 
     #[test]
     fn actor_absorption_requires_a_verified_working_source() {

@@ -6,5 +6,6 @@ alwaysApply: true
 Read `CLAUDE.md` for checkout restrictions and the accepted redesign direction.
 `AGENTS_E.md` is dormant product source; do not load it as an operating role or recreate root `AGENTS.md` during development.
 Keep Cursor sandboxing enabled and use the assigned isolated checkout.
-The lean target permits nested delegation; Phase 04 replaces the legacy runtime delegation guard.
+Nested delegation is available through Cursor's native tools and Multplx sessions.
+The `subagentStart` hook records provider evidence when Cursor emits it and otherwise leaves the recovery limit explicit.
 Do not run Multplx operational session start in this development checkout.

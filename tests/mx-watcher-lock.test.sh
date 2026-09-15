@@ -149,12 +149,12 @@ test_guard_warnings() {
   grep -F 'guarded operation WILL still run' "$err" >/dev/null || fail "guard banner missing generic continuation wording"
   ! grep -F 'requested message WILL still be sent' "$err" >/dev/null || fail "shared guard used send-specific continuation wording"
   grep -F 'repair missing watcher supervision' "$err" >/dev/null || fail "guard banner missing the harness-aware fix command"
-  grep -F 'queued wakes pending - drain them' "$err" >/dev/null || fail "guard did not warn about pending queue"
-  grep -F 'After draining queued wakes, repair missing watcher supervision' "$err" >/dev/null || fail "guard did not order supervision repair after drain"
+  grep -F 'unfinished wakes pending - claim them with bin/mx-wake-drain.sh, then durably record disposition and acknowledgement' "$err" >/dev/null || fail "guard did not warn about unfinished durable wakes"
+  grep -F 'After claiming queued wakes and durably recording disposition plus acknowledgement, repair missing watcher supervision' "$err" >/dev/null || fail "guard did not order supervision repair after durable handling"
   ! grep -F 'Restart it NOW, before anything else' "$err" >/dev/null || fail "guard still gave conflicting restart-first instruction"
   ! grep -F 'as the harness-tracked background task' "$err" >/dev/null || fail "guard still printed the old universal background-task repair text"
   banner_line=$(grep -n 'WATCHER DOWN' "$err" | head -1 | cut -d: -f1)
-  queue_line=$(grep -n 'queued wakes pending - drain them' "$err" | head -1 | cut -d: -f1)
+  queue_line=$(grep -n 'unfinished wakes pending - claim them' "$err" | head -1 | cut -d: -f1)
   [ "$banner_line" -lt "$queue_line" ] || fail "queued-wakes warning printed before the no-watcher banner"
 
   # (2) fresh watcher, empty queue -> silence.
@@ -718,9 +718,106 @@ SH
   [ "$rc" -eq 0 ] || fail "arm returned non-zero for an immediate wake (status $rc): $(cat "$armout")"
   grep -F "check: $check_file: merged: https://example.test/pr/7" "$armout" >/dev/null || fail "arm did not propagate the immediate check wake"
   ! grep -qF 'watcher: FAILED' "$armout" || fail "arm printed FAILED after a valid immediate wake"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after immediate arm wake failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" || fail "drain after immediate arm wake failed"
   grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$check_file" | grep -F 'merged: https://example.test/pr/7' >/dev/null || fail "immediate check wake was not queued"
   pass "arm propagates an immediate watcher wake before confirmation"
+}
+
+test_slow_check_does_not_delay_healthy_check_result() {
+  local dir state slow fast marker output
+  dir=$(make_case concurrent-checks)
+  state="$dir/state"
+  slow="$state/a-slow.check.sh"
+  fast="$state/b-fast.check.sh"
+  marker="$dir/slow-finished"
+  mark_pr_check_migration_complete "$state"
+  cat > "$slow" <<SH
+#!/usr/bin/env bash
+sleep 3
+printf done > "$marker"
+SH
+  cat > "$fast" <<'SH'
+#!/usr/bin/env bash
+printf 'healthy-check-ready\n'
+SH
+  chmod 0700 "$slow" "$fast"
+  MX_STATE_OVERRIDE="$state" "$ROOT/bin/mx-check-register.sh" a-slow >/dev/null \
+    || fail "could not register slow custom check"
+  MX_STATE_OVERRIDE="$state" "$ROOT/bin/mx-check-register.sh" b-fast >/dev/null \
+    || fail "could not register healthy custom check"
+  output=$(MX_STATE_OVERRIDE="$state" MX_CHECK_INTERVAL=0 MX_CHECK_TIMEOUT=5 \
+    MX_CHECK_CONCURRENCY=2 MX_HEARTBEAT=999999 "$WATCH") \
+    || fail "watcher failed concurrent custom checks"
+  assert_contains "$output" "check: $fast: healthy-check-ready" \
+    "healthy check result was lost beside a slow check"
+  [ ! -e "$marker" ] || fail "watcher waited for the slow check before publishing healthy partial results"
+  pass "individual bounded checks publish healthy partial results without a serial timeout chain"
+}
+
+test_actionable_check_progress_reaches_later_due_checks() {
+  local dir state first second log output
+  dir=$(make_case check-progress)
+  state="$dir/state"
+  first="$state/a-first.check.sh"
+  second="$state/b-second.check.sh"
+  log="$dir/checks.log"
+  mark_pr_check_migration_complete "$state"
+  cat > "$first" <<SH
+#!/usr/bin/env bash
+printf 'a\n' >> "$log"
+printf 'first-actionable\n'
+SH
+  cat > "$second" <<SH
+#!/usr/bin/env bash
+printf 'b\n' >> "$log"
+printf 'second-actionable\n'
+SH
+  chmod 0700 "$first" "$second"
+  MX_STATE_OVERRIDE="$state" "$ROOT/bin/mx-check-register.sh" a-first >/dev/null \
+    || fail "could not register first progress check"
+  MX_STATE_OVERRIDE="$state" "$ROOT/bin/mx-check-register.sh" b-second >/dev/null \
+    || fail "could not register second progress check"
+  output=$(MX_STATE_OVERRIDE="$state" MX_CHECK_INTERVAL=300 MX_CHECK_TIMEOUT=2 \
+    MX_CHECK_CONCURRENCY=1 MX_HEARTBEAT=999999 "$WATCH") \
+    || fail "watcher failed first progress cycle"
+  assert_contains "$output" "check: $first: first-actionable" \
+    "first due check was not published"
+  [ ! -e "$state/.last-check" ] \
+    || fail "partial check batch advanced the global cadence marker"
+  output=$(MX_STATE_OVERRIDE="$state" MX_CHECK_INTERVAL=300 MX_CHECK_TIMEOUT=2 \
+    MX_CHECK_CONCURRENCY=1 MX_HEARTBEAT=999999 "$WATCH") \
+    || fail "watcher failed second progress cycle"
+  assert_contains "$output" "check: $second: second-actionable" \
+    "persistent first result starved a later due check"
+  [ "$(cat "$log")" = "$(printf 'a\nb')" ] \
+    || fail "check progress repeated or skipped work: $(tr '\n' ' ' < "$log")"
+  [ -e "$state/.last-check" ] \
+    || fail "completed due checks did not advance the global cadence marker"
+  pass "per-check progress prevents persistent actionable results from starving later due checks"
+}
+
+test_inherited_check_pipe_cannot_hold_watcher_open() {
+  local dir state check_file marker output
+  dir=$(make_case inherited-check-pipe)
+  state="$dir/state"
+  check_file="$state/inherited.check.sh"
+  marker="$dir/escaped-finished"
+  mark_pr_check_migration_complete "$state"
+  cat > "$check_file" <<SH
+#!/usr/bin/env bash
+python3 -c 'import subprocess, sys; subprocess.Popen(["sh", "-c", "sleep 3; : > \"\$1\"", "_", sys.argv[1]], start_new_session=True)' "$marker"
+printf 'inherited-pipe-ready\n'
+SH
+  chmod 0700 "$check_file"
+  MX_STATE_OVERRIDE="$state" "$ROOT/bin/mx-check-register.sh" inherited >/dev/null \
+    || fail "could not register inherited-pipe custom check"
+  output=$(MX_STATE_OVERRIDE="$state" MX_CHECK_INTERVAL=0 MX_CHECK_TIMEOUT=5 \
+    MX_CHECK_CONCURRENCY=1 MX_HEARTBEAT=999999 "$WATCH") \
+    || fail "watcher failed inherited-pipe custom check"
+  assert_contains "$output" "check: $check_file: inherited-pipe-ready" \
+    "watcher lost output from a check whose escaped descendant inherited stdout"
+  [ ! -e "$marker" ] || fail "escaped descendant holding stdout delayed watcher ingestion"
+  pass "escaped descendants cannot extend a completed check's observation deadline"
 }
 
 test_arm_waits_for_peer_beacon_after_child_stands_down() {
@@ -989,6 +1086,9 @@ test_attached_arm_signal_is_recorded_in_cycle_ledger
 test_arm_starts_and_self_heals
 test_arm_hup_cleans_child_and_temp_output
 test_arm_propagates_immediate_wake_before_confirmation
+test_slow_check_does_not_delay_healthy_check_result
+test_actionable_check_progress_reaches_later_due_checks
+test_inherited_check_pipe_cannot_hold_watcher_open
 test_arm_waits_for_peer_beacon_after_child_stands_down
 test_arm_fails_loud_when_no_fresh_watcher_confirmable
 test_cycle_exit_ledger_links_successor_and_stays_bounded

@@ -47,10 +47,21 @@ case "${1:-}" in
       prev=
       for a in "$@"; do
         if [ "$prev" = "-l" ]; then
-          printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG"
-          case "$a" in *GH_PROMPT_DISABLED*)
-            [ -z "${MX_FAKE_DROP_AFTER_SEND:-}" ] || : >"$MX_FAKE_DROP_AFTER_SEND.armed"
-          esac
+          printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG.submitted"
+          launch_script=${a#\'}
+          launch_script=${launch_script%\'}
+          if [ -f "$launch_script" ]; then
+            cat "$launch_script" >> "$MX_FAKE_LAUNCH_LOG"
+            if grep -F 'GH_PROMPT_DISABLED' "$launch_script" >/dev/null \
+              && [ -n "${MX_FAKE_DROP_AFTER_SEND:-}" ]; then
+              : >"$MX_FAKE_DROP_AFTER_SEND.armed"
+            fi
+          else
+            printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG"
+            case "$a" in *GH_PROMPT_DISABLED*)
+              [ -z "${MX_FAKE_DROP_AFTER_SEND:-}" ] || : >"$MX_FAKE_DROP_AFTER_SEND.armed"
+            esac
+          fi
         fi
         prev=$a
       done
@@ -435,7 +446,7 @@ test_cursor_private_plugin_and_effort_model() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" cursor composer-2 high
   launch=$(cat "$LAUNCH_LOG")
   plugin="$(sed -n 's/^tasktmp=//p' "$HOME_DIR/state/$id.meta")/cursor-turnend-plugin"
-  assert_contains "$launch" "agent --sandbox enabled --trust '$plugin' --model 'composer-2[effort=high]'" \
+  assert_contains "$launch" "agent --sandbox enabled --trust --plugin-dir '$plugin' --model 'composer-2[effort=high]'" \
     "cursor launch did not preserve sandbox, scoped trust, and effort model token"
   assert_present "$plugin/.cursor-plugin/plugin.json" "cursor private plugin manifest missing"
   assert_present "$plugin/hooks/hooks.json" "cursor private plugin hook map missing"

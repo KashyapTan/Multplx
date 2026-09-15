@@ -7,6 +7,8 @@ Those documents describe the target; existing code still implements parts of the
 Phase 01 supplies lean instruction scaffolds and optional operational references.
 Phase 02 supplies validated task/attempt/brief and project identity, recoverable filesystem primitives and allocation/domain foundations; remaining runtime freedoms and release activation stay with their later-phase owners.
 Phase 03 supplies built-in Git worktree ownership, exact-path launch integration, guarded cleanup and private persistent homes; the external Treehouse runtime dependency is retired.
+Phase 04 supplies free delegation, canonical native observations, durable inbox/outbox handling, repeat-safe dispatch, root-scoped admission and bounded supervision.
+Its repository checks and live Codex CLI trial pass; the user deferred other provider live trials until after all phases, as recorded in the [Phase 04 evidence](plans/lean_redesign/phase04-implementation.md).
 
 ## This checkout
 

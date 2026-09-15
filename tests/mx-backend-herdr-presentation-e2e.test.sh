@@ -407,15 +407,20 @@ make_project() {  # <dir>
   git -C "$dir" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' commit -qm initial
 }
 
-spawn_task() {  # <id> <home> <project>
-  local id=$1 home=$2 project=$3 fault=
+spawn_task() {  # <id> <home> <project> [stable-request-id]
+  local id=$1 home=$2 project=$3 admission_request=${4:-} fault=
   case "$id" in abort-*) fault=after-endpoint;; esac
   local replacement=()
   if [ -f "$home/state/$id.meta" ]; then
     replacement=(--replace-attempt "$(sed -n 's/^canonical_model=//p' "$home/state/$id.meta" | jq -r '.attempt.id')")
   fi
+  local request=()
+  if [ -n "$admission_request" ]; then
+    request=(--request-id "$admission_request")
+  fi
   MX_GATE_REFUSE_BYPASS=1 MX_SPAWN_NO_GUARD=1 MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" \
-    MX_SPAWN_FAULT="$fault" "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr ${replacement[@]+"${replacement[@]}"}
+    MX_SPAWN_FAULT="$fault" "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr \
+    ${request[@]+"${request[@]}"} ${replacement[@]+"${replacement[@]}"}
 }
 
 spawn_daemon_task() {
@@ -457,6 +462,8 @@ for line in open(sys.argv[1]):
         value = '<herdr-container-id>'
     elif key == 'worktree':
         value = '<allocation-path>'
+    elif key == 'tasktmp':
+        value = '<task-temp-path>'
     elif key == 'canonical_model':
         model = json.loads(value)
         assert model['attempt']['generation'] == 1
@@ -550,7 +557,7 @@ MULTPLX_WSID=$(grep '^herdr_workspace_id=' "$ANCHOR_META" | cut -d= -f2-)
 : > "$TREEHOUSE_CALL_LOG"
 OFF_HERDR_START=$(log_line_count)
 OFF_MOVE_START=$(wc -l < "$MOVE_CALL_LOG" | tr -d '[:space:]')
-spawn_task shape "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/off.out" 2> "$TMP_ROOT/off.err" \
+spawn_task shape "$HOME_DIR" "$PROJECT_DIR" shape-flat > "$TMP_ROOT/off.out" 2> "$TMP_ROOT/off.err" \
   || fail "flag-off spawn failed: $(cat "$TMP_ROOT/off.err")"
 OFF_HERDR_END=$(log_line_count)
 OFF_META="$TMP_ROOT/off.meta"
@@ -584,7 +591,7 @@ assert_focus_is "$MAINTAINER_FOCUS" "focused daemon fixture"
 : > "$TREEHOUSE_CALL_LOG"
 : > "$HOME_DIR/config/herdr-presentation-spaces"
 SHAPE_FOCUS_AUDIT_START=$(focus_audit_line_count)
-spawn_task shape "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/on.out" 2> "$TMP_ROOT/on.err" \
+spawn_task shape "$HOME_DIR" "$PROJECT_DIR" shape-projected > "$TMP_ROOT/on.out" 2> "$TMP_ROOT/on.err" \
   || fail "projected spawn failed: $(cat "$TMP_ROOT/on.err")"
 assert_focus_is "$MAINTAINER_FOCUS" "projected spawn"
 assert_raw_presentation_mutations_preserved_since "$SHAPE_FOCUS_AUDIT_START" "projected spawn"

@@ -218,7 +218,7 @@ fn native_nudge_and_supervision_cover_scope_lock_and_usage_edges() {
     assert!(repair.status.success());
     assert_eq!(
         String::from_utf8_lossy(&repair.stdout),
-        "After draining queued wakes, repair missing watcher supervision with a foreground checkpoint: bin/mx-watch-checkpoint.sh --seconds 45.\n"
+        "After claiming queued wakes and durably recording disposition plus acknowledgement, repair missing watcher supervision with a foreground checkpoint: bin/mx-watch-checkpoint.sh --seconds 45.\n"
     );
     for (harness, extra, expected) in [
         (
@@ -259,6 +259,49 @@ fn native_system_view_ignores_shell_bodies_and_preserves_rendering_contract() {
         fs::create_dir_all(root.join(directory)).expect("runtime directory");
     }
     let marker = root.join("legacy-snapshot-ran");
+    let native = root.join("state/native-delegations");
+    fs::create_dir(&native).expect("native evidence directory");
+    fs::write(
+        native.join("native-one.json"),
+        br#"{"schema":"mx-native-delegation-evidence.v1","task_id":null,"accepted":true,"rejection":null,"observation":{"observation_id":"native-one","provider":"codex","child_id":"child-one","parent_session_id":"session-one","turn_id":"turn-one","parent_attempt":null,"state":"started","observed_at":"2026-09-15T00:00:00Z","artifact":null,"recovery":"session-bound"}}"#,
+    )
+    .expect("native evidence");
+    fs::write(native.join("malformed.json"), b"{").expect("malformed evidence");
+    fs::write(native.join("ignored.txt"), b"ignored").expect("ignored evidence");
+    let inbox = root.join("state/wake-inbox");
+    fs::create_dir(&inbox).expect("wake inbox");
+    let waiting_path = inbox.join("wake-00000000000000000001.json");
+    let claimed_path = inbox.join("wake-00000000000000000002.json");
+    fs::write(
+        &waiting_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema":"mx-wake-inbox.v1",
+            "event_id":"wake-00000000000000000001",
+            "record":{"epoch":1,"sequence":1,"kind":"signal","key":"waiting","payload":"waiting payload"},
+            "claim":{"owner":{"pid":std::process::id(),"marker":"snapshot-test"},"claimed_at":2},
+            "disposition":{"kind":"waiting","recorded_at":3,"detail":"awaiting review","condition":"review","resume_trigger":"review-1","recheck_after_epoch":9999999999_u64,"follow_up_id":null},
+            "disposition_history":[],
+            "acknowledged_at":4
+        }))
+        .expect("waiting JSON"),
+    )
+    .expect("waiting inbox item");
+    fs::write(
+        &claimed_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema":"mx-wake-inbox.v1",
+            "event_id":"wake-00000000000000000002",
+            "record":{"epoch":2,"sequence":2,"kind":"check","key":"claimed","payload":"claimed payload"},
+            "claim":{"owner":{"pid":std::process::id(),"marker":"snapshot-test"},"claimed_at":3},
+            "disposition":null,
+            "disposition_history":[],
+            "acknowledged_at":null
+        }))
+        .expect("claimed JSON"),
+    )
+    .expect("claimed inbox item");
+    let waiting_before = fs::read(&waiting_path).expect("waiting before snapshot");
+    let claimed_before = fs::read(&claimed_path).expect("claimed before snapshot");
     executable(
         &root.join("bin/mx-system-snapshot.sh"),
         "#!/bin/sh\ntouch \"$MX_LEGACY_MARKER\"\nexit 91\n",
@@ -292,10 +335,32 @@ fn native_system_view_ignores_shell_bodies_and_preserves_rendering_contract() {
         "{}",
         String::from_utf8_lossy(&json.stderr)
     );
+    let snapshot =
+        serde_json::from_slice::<serde_json::Value>(&json.stdout).expect("native snapshot JSON");
+    assert_eq!(snapshot["schema"], "mx-system-snapshot.v1");
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&json.stdout).expect("native snapshot JSON")["schema"],
-        "mx-system-snapshot.v1"
+        snapshot["native_delegations"].as_array().map(Vec::len),
+        Some(1)
     );
+    assert_eq!(
+        snapshot["native_delegations"][0]["observation"]["observation_id"],
+        "native-one"
+    );
+    assert_eq!(snapshot["wake_queue"]["depth"], 2);
+    assert_eq!(snapshot["wake_queue"]["available"], true);
+    assert_eq!(
+        snapshot["wake_queue"]["records"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        fs::read(&waiting_path).expect("waiting after snapshot"),
+        waiting_before
+    );
+    assert_eq!(
+        fs::read(&claimed_path).expect("claimed after snapshot"),
+        claimed_before
+    );
+    assert!(!root.join("state/.wake-queue.lock").exists());
     assert!(
         !marker.exists(),
         "system view executed a retained shell body"

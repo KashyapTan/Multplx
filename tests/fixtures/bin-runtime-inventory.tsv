@@ -44,6 +44,7 @@ bin/mx-lock.sh	sourced-shell-abi	Session-start and hook fixtures execute the she
 bin/mx-maintainer-override-lib.sh	sourced-shell-abi	Lifecycle, workflow, and review fault tests source the override ABI.
 bin/mx-maintainer-override.sh	minimal-adapter	Stable maintainer-override command name.
 bin/mx-merge-local.sh	minimal-adapter	Stable local-merge command name.
+bin/mx-native-observe.sh	minimal-adapter	Stable provider-native delegation observation command name.
 bin/mx-operational-input.sh	sourced-shell-abi	Daemon, marker, and focused tests source the operational-input ABI.
 bin/mx-override-bindings.sh	minimal-adapter	Stable override-bindings command name.
 bin/mx-override-run.sh	minimal-adapter	Stable exceptional-operation command name.
@@ -65,7 +66,7 @@ bin/mx-session-start.sh	minimal-adapter	Stable session-start command name.
 bin/mx-sessionstart-nudge.sh	minimal-adapter	Stable fail-open session-start hook command name.
 bin/mx-spawn.sh	minimal-adapter	Stable task-spawn command name.
 bin/mx-status-snapshot.sh	minimal-adapter	Stable status-snapshot command name.
-bin/mx-subagent-pretool-check.sh	minimal-adapter	Stable delegation guard hook command name.
+bin/mx-subagent-pretool-check.sh	minimal-adapter	Stable fail-open delegation compatibility command name.
 bin/mx-supervise-daemon.sh	minimal-adapter	Stable away-mode supervisor command name.
 bin/mx-supervision-instructions.sh	minimal-adapter	Stable supervision instruction command name.
 bin/mx-supervisor-target-lib.sh	sourced-shell-abi	Daemon and supervision callers source the target-discovery ABI.

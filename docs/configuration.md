@@ -286,19 +286,56 @@ The existing `MISSING: jq` dependency diagnostic remains part of bootstrap's too
 While the file remains present, ordinary spawns require an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Persistent homes inherit profiles through the same configuration owner.
 
-## Dispatch capacity (config/api-capacity / state/.dispatch-queue)
+## Dispatch capacity (config/api-capacity / config/admission-capacity.json / state/.dispatch-queue)
 
-The typed implementation in `crates/multplx-backend/src/headroom.rs` is the single owner of dispatch-capacity calculation and parked-request record fields, with `bin/mx-headroom.sh` retained as the public adapter.
-Its JSON combines spare CPU and available memory with a conservative configured API concurrency budget, and the tighter component controls `available` and `at_limit`.
-The default local reservation is one-quarter logical CPU and 256 MiB per additional actor, while `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain explicit overrides.
-The optional global API budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses a capacity of twenty.
-This API signal is deliberately labeled `configured-budget`, not live provider quota.
-An unreadable local signal, malformed budget, or unaccounted configured candidate is an error rather than permission to guess.
-At limit, `bin/mx-spawn.sh` writes one private record per task under `state/.dispatch-queue/` and returns a queued outcome without allocating a worktree or endpoint.
-Spawn-created requests retain their accepted task/attempt/brief identity, assignment, project/checkout and starting revision when drained, even if project context or defaults change while they wait.
-Legacy yolo is inert and does not grant merge authority.
-The watcher checks fresh headroom on each poll and launches at most the oldest one, preserving FIFO and leaving every record untouched while capacity remains unavailable.
-Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom.sh --queue-cancel <id>` to cancel one exact task.
+The typed implementation in `crates/multplx-backend/src/headroom.rs` owns capacity calculation, durable admission receipts, and parked requests; `bin/mx-headroom.sh` is the public adapter.
+Every nested home resolves its root from validated task ancestry.
+The root home's `config/`, `state/.dispatch-queue/`, and `state/.admissions/` therefore provide one budget across competing homes.
+Active admission receipts charge sessions and harness resources across descendant homes, including persistent sessions.
+Root endpoint metadata contributes legacy live executions only when no exact task, attempt and endpoint receipt already accounts for them.
+Reserved and uncertain admissions remain charged, including reservations that become active while a capacity snapshot is being evaluated.
+Its JSON combines spare CPU and memory with a conservative configured API concurrency budget.
+The default local reservation is one-quarter logical CPU and 256 MiB per additional actor; `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain strict test and specialized-setup overrides.
+The optional global budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses twenty.
+This signal is labeled `configured-budget`, not live provider quota.
+A provider omitted from the configured snapshot has an opaque native limit: the shared session budget still applies, while Multplx does not invent a zero or claim knowledge of that provider's quota.
+
+`config/admission-capacity.json` optionally configures root-scoped custom resources and queue aging:
+
+```json
+{
+  "version": 1,
+  "aging_seconds": 300,
+  "resources": { "gpu": 2, "project:large-repo": 1 }
+}
+```
+
+`version` must be `1`, `aging_seconds` and every capacity must be positive, and names may contain ASCII letters, digits, `.`, `_`, `-`, or `:`.
+Native `session` and `harness:*` capacities cannot be overridden.
+Each spawn requests one session, selected-harness, and bound-project unit.
+Repeat `--resource NAME=UNITS` to request additional configured resources, such as `--resource gpu=1`.
+Names must be distinct and units must be positive integers; explicit requests cannot use `session`, `harness:*`, or `project:*` names.
+The accepted resource request is frozen with the durable queue entry and replayed unchanged after restart.
+
+At limit or behind an unfinished dependency, `mx spawn` writes one mode-`0600` record per stable request ID under the root queue and returns before worktree allocation or endpoint creation.
+`--request-id <stable-id>` lets a durable inbox repeat an uncertain submission.
+Reuse succeeds only for the same frozen task, parent route, accepted brief, project/checkout, starting revision, attempt, and allocation.
+A released request ID cannot launch again; replacement needs a new request and attempt identity.
+Use `--replace-attempt CURRENT_ID` to explicitly replace the current attempt; replacement increments its generation and uses an isolated endpoint.
+The record preserves owner and parent homes/states, profile choices, priority, dependencies, resources, and enqueue time.
+Filenames use request IDs, so equal task basenames in different homes do not collide.
+Queue and admission transitions use atomic replacement under a short root lock; provider liveness and endpoint launch run after that lock is released.
+Runnable work is ordered by `priority + floor(age_seconds / aging_seconds)`, then enqueue time and task ID.
+Aging prevents starvation.
+A blocked or oversized request does not prevent a smaller runnable request from fitting, and dependency cycles are rejected before publication.
+A drain durably marks `dispatching` and reserves capacity before launch.
+After restart it acknowledges only exact canonical metadata with a live endpoint.
+Missing, duplicate, wrong-home, stale-attempt, or mismatched metadata stays retained.
+Failed endpoints remain uncertain until the lifecycle owner verifies absence; a proven-absent retry reuses its exact allocation.
+Successful teardown releases capacity only when task ID, owner state, attempt ID, and endpoint all match.
+Use `bin/mx-headroom.sh --queue` to inspect requests, `--queue-cancel <request-id>` to cancel queued work, and `--queue-priority <request-id> <signed-priority>` to reprioritize it.
+Dispatching work cannot be cancelled or reprioritized.
+`--queue-add <id> <project> [profile flags]` parks explicitly, and `--queue-drain` performs one drain attempt.
 
 ## Toolchain
 

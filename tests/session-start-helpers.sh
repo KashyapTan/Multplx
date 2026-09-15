@@ -96,9 +96,8 @@ SH
 
 # make_fake_ps_claude <fakebin>: harness_pid()/holder_alive() (mx-lock.sh) walk
 # `ps` output looking for a harness command name; this fake reports EVERY
-# queried pid as a live `claude` harness, so the very first ancestry check
-# (this test process's own pid) matches and lock acquisition succeeds
-# deterministically, via a fake ps.
+# queried process as a child of one live harness owner. This lets separate
+# mx-lock and mx-wake subprocesses resolve the same session identity.
 make_fake_ps_claude() {
   local fakebin=$1
   make_fake_ps_harness "$fakebin" claude
@@ -110,10 +109,60 @@ make_fake_ps_harness() {
 #!/usr/bin/env bash
 set -u
 harness=${MX_FAKE_HARNESS:-claude}
+owner=${MX_FAKE_HARNESS_PID:-}
+foreign=${MX_FAKE_FOREIGN_HARNESS_PID:-}
+is_harness_pid() {
+  [ -z "$owner" ] || [ "$1" = "$owner" ] \
+    || { [ -n "$foreign" ] && [ "$1" = "$foreign" ]; }
+}
+pid=""
+previous=""
+for argument in "$@"; do
+  [ "$previous" = "-p" ] && pid=$argument
+  previous=$argument
+done
 case "$*" in
-  *"ppid="*"comm="*"args="*) printf '1 /usr/local/bin/%s %s\n' "$harness" "$harness"; exit 0 ;;
-  *"comm="*) printf '/usr/local/bin/%s\n' "$harness"; exit 0 ;;
-  *"args="*) printf '%s\n' "$harness"; exit 0 ;;
+  *"ppid="*"comm="*"args="*)
+    if is_harness_pid "$pid"; then
+      printf '1 /usr/local/bin/%s %s\n' "$harness" "$harness"
+    else
+      printf '%s /bin/sh sh\n' "$owner"
+    fi
+    exit 0
+    ;;
+  *"lstart="*"command="*)
+    if is_harness_pid "$pid"; then
+      printf 'Mon Sep 15 11:00:00 2026 /usr/local/bin/%s\n' "$harness"
+    else
+      printf 'Mon Sep 15 11:00:00 2026 /bin/sh\n'
+    fi
+    exit 0
+    ;;
+  *"ppid="*)
+    if is_harness_pid "$pid"; then
+      printf '1\n'
+    else
+      printf '%s\n' "$owner"
+    fi
+    exit 0
+    ;;
+  *"pid="*) printf '%s\n' "${pid:-1}"; exit 0 ;;
+  *"comm="*)
+    if is_harness_pid "$pid"; then
+      printf '/usr/local/bin/%s\n' "$harness"
+    else
+      printf '/bin/sh\n'
+    fi
+    exit 0
+    ;;
+  *"args="*)
+    if is_harness_pid "$pid"; then
+      printf '%s\n' "$harness"
+    else
+      printf 'sh\n'
+    fi
+    exit 0
+    ;;
 esac
 exit 1
 SH
@@ -390,6 +439,7 @@ run_session_start() {
   local home=$1 root=$2 path=$3
   env -u CLAUDECODE -u PI_CODING_AGENT \
     MX_HOME="$home" MX_ROOT_OVERRIDE="$root" PATH="$path" \
+    MX_FAKE_HARNESS_PID="${MX_FAKE_HARNESS_PID:-$$}" \
     "$SESSION_START"
 }
 
@@ -584,7 +634,7 @@ EOF
   printf '%s\n' "$holder_pid" > "$home/state/.lock"
 
   status=0
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH") || status=$?
+  out=$(MX_FAKE_FOREIGN_HARNESS_PID="$holder_pid" run_session_start "$home" "$root" "$fakebin:$BASE_PATH") || status=$?
   kill "$holder_pid" 2>/dev/null || true
   wait "$holder_pid" 2>/dev/null || true
 
@@ -594,7 +644,7 @@ EOF
   assert_contains "$out" "Skipping every mutating step" "read-only banner did not explain what was skipped"
   assert_contains "$out" "skipped (read-only session)" "wake-queue section did not report itself skipped"
   assert_contains "$out" "WATCHER DOWN - SUPERVISION IS OFF" "read-only guard did not surface watcher-liveness alarm"
-  assert_contains "$out" "queued wakes pending - left untouched because this session lacks verified system-lock ownership" "read-only guard did not leave queued wakes untouched without verified lock ownership"
+  assert_contains "$out" "unfinished wake item(s) and 0 accepted request(s) awaiting wake publication remain visible because this session lacks verified system-lock ownership" "read-only digest did not preserve durable wake visibility without verified lock ownership"
   assert_contains "$out" "TANGLE: primary checkout on feature branch 'mx/read-only-tangle'" "read-only bootstrap did not surface the tangle diagnostic"
   assert_contains "$out" "read-only session must leave restore work" "read-only tangle diagnostic did not explain restore ownership"
   assert_contains "$out" "Stay read-only: do not arm" "read-only next step did not block direct watcher repair"
@@ -1034,7 +1084,12 @@ EOF
   printf 'needs-decision: pick a library\n' > "$home/state/task-z.status"
   append_wake "$home/state" signal task-z.status "needs-decision: pick a library"
 
-  out=$(BASH_ENV="$mask" run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  # Exercise lock acquisition and wake claiming beneath one real, live
+  # Codex-named fixture owner; both subprocesses must resolve the same owner.
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT BASH_ENV="$mask" \
+    MX_HOME="$home" MX_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    python3 "$ROOT/tests/fixtures/codex-wake-owner.py" "$home/state" retain \
+    "$SESSION_START")
 
   # mx-lock.sh's own exact success text.
   assert_contains "$out" "lock acquired: harness pid" "mx-lock.sh's real output did not appear (composition, not reimplementation)"

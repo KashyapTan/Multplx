@@ -1307,7 +1307,13 @@ fn remove_task_tmp(values: &BTreeMap<String, String>, id: &str) -> Result<(), St
     {
         return Ok(());
     }
-    if path.file_name().and_then(|value| value.to_str()) != Some(&format!("mx-{id}")) {
+    let legacy = std::env::temp_dir().join(format!("mx-{id}"));
+    let qualified = values
+        .get("canonical_model")
+        .and_then(|model| serde_json::from_str::<super::subagent_model::TaskRecord>(model).ok())
+        .filter(|record| record.task_id == id)
+        .and_then(|record| super::spawn::task_temp_path_for_record(&record).ok());
+    if path != legacy && qualified.as_ref() != Some(&path) {
         return Err(format!(
             "REFUSED: unsafe task temporary directory {}",
             path.display()
@@ -2234,11 +2240,41 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut values = BTreeMap::new();
         assert!(remove_task_tmp(&values, "task").is_ok());
-        let safe = temp.path().join("mx-task");
+        let unique = format!(
+            "task-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        );
+        let safe = std::env::temp_dir().join(format!("mx-{unique}"));
         fs::create_dir(&safe).expect("safe");
         values.insert("tasktmp".into(), safe.display().to_string());
-        remove_task_tmp(&values, "task").expect("remove");
+        remove_task_tmp(&values, &unique).expect("remove");
         assert!(!safe.exists());
+
+        let owner = fs::canonicalize(temp.path()).expect("owner");
+        let record = super::super::subagent_model::TaskRecord::new(
+            "task".into(),
+            super::super::subagent_model::AssignmentRole::Implementer,
+            super::super::subagent_model::ArtifactKind::Implementation,
+            false,
+            "parent".into(),
+            format!("root-home:{}", owner.display()),
+            owner.to_string_lossy().into_owned(),
+        );
+        let qualified =
+            super::super::spawn::task_temp_path_for_record(&record).expect("qualified task temp");
+        fs::create_dir(&qualified).expect("qualified temp");
+        values.insert(
+            "canonical_model".into(),
+            serde_json::to_string(&record).unwrap(),
+        );
+        values.insert("tasktmp".into(), qualified.display().to_string());
+        remove_task_tmp(&values, "task").expect("remove qualified");
+        assert!(!qualified.exists());
+
         let unsafe_path = temp.path().join("wrong");
         fs::create_dir(&unsafe_path).expect("unsafe");
         values.insert("tasktmp".into(), unsafe_path.display().to_string());

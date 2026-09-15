@@ -143,16 +143,16 @@ fn parse_supervision(args: &[String]) -> Result<SupervisionOptions, CommandResul
 fn ordinary_wake_line(harness: &str) -> &'static str {
     match harness {
         "claude" => {
-            "- Ordinary wake: the Stop-owned auto-arm (bin/mx-claude-stop-autoarm.sh) already owns watcher continuity; drain and handle the wake, and do not arm another cycle yourself."
+            "- Ordinary wake: the Stop-owned auto-arm (bin/mx-claude-stop-autoarm.sh) already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle yourself. See `mx wake --help`."
         }
         "codex" | "cursor" => {
-            "- Ordinary wake: take the next foreground bin/mx-watch-checkpoint.sh checkpoint as directed below."
+            "- Ordinary wake: claim the wake, record its disposition, acknowledge it, then take the next foreground bin/mx-watch-checkpoint.sh checkpoint as directed below. See `mx wake --help`."
         }
         "pi" => {
-            "- Ordinary wake: the Pi extension already owns watcher continuity; do not arm another cycle."
+            "- Ordinary wake: the Pi extension already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle. See `mx wake --help`."
         }
         _ => {
-            "- Ordinary wake: follow the continuation in the harness protocol below; do not use shell &."
+            "- Ordinary wake: claim the wake, record its disposition, acknowledge it, then follow the continuation in the harness protocol below; do not use shell &. See `mx wake --help`."
         }
     }
 }
@@ -165,7 +165,7 @@ fn repair_line(options: &SupervisionOptions, harness: &str, root: &Path) -> Stri
         return "Away mode owns watcher supervision; load /afk and ensure the daemon is running instead of starting normal supervision directly.\n".to_owned();
     }
     let prefix = if options.queue_pending {
-        "After draining queued wakes, "
+        "After claiming queued wakes and durably recording disposition plus acknowledgement, "
     } else {
         ""
     };

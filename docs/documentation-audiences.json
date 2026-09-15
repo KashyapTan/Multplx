@@ -377,6 +377,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/durable-coordination.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
     },
@@ -438,6 +442,10 @@
     },
     {
       "path": "plans/lean_redesign/phase03-implementation.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase04-implementation.md",
       "audience": "maintainer-verification"
     }
   ]

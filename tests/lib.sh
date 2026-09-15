@@ -533,3 +533,17 @@ mx_fixture_remove_worktree() {
   common=$(git -C "$path" rev-parse --path-format=absolute --git-common-dir) || return 1
   git --git-dir="$common" worktree remove --force -- "$path"
 }
+# Run a command beneath a live Codex-named test owner and bind the isolated
+# state lock to that exact process lifetime. The production command still uses
+# its normal session ancestry and identity checks.
+owned_wake() { # <state> <command> [args...]
+  local state=$1
+  shift
+  python3 "$ROOT/tests/fixtures/codex-wake-owner.py" "$state" handle "$@"
+}
+
+owned_wake_retain() { # <state> <command> [args...]
+  local state=$1
+  shift
+  python3 "$ROOT/tests/fixtures/codex-wake-owner.py" "$state" retain "$@"
+}

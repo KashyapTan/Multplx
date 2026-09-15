@@ -46,7 +46,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-guard.sh`            | Warn on primary-checkout tangles, pending queued wakes, and stale watcher liveness   |
 | `mx-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |
 | `mx-session-lock-lib.sh` | Shared session-lock harness identity (ancestry walk and holder liveness) for mx-lock.sh and the Claude Stop auto-arm |
-| `mx-cursor-hook.sh` | Translate tracked Cursor session-start, command, delegation, and bounded stop hooks into shared Multplx guards |
+| `mx-cursor-hook.sh` | Translate tracked Cursor session-start, command, native-child observation, and bounded stop hooks into shared Multplx supervision |
 | `mx-maintainer-override.sh` | Request, decide, consume, inspect, audit, and hand off exact single-use maintainer exceptions |
 | `mx-maintainer-override-lib.sh` | Preserve the inventoried source-compatible exception ABI for existing callers and fixtures |
 | `mx-override-bindings.sh` | Print fresh subsystem-owned bindings for workflow, validation, cleanup, isolation, and lock exceptions |
@@ -55,7 +55,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `mx-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `mx-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
-| `mx-subagent-pretool-check.sh` | Primary-home delegation-shape PreToolUse guard (docs/subagent-guard.md) |
+| `mx-subagent-pretool-check.sh` | Allowing compatibility entry for retired delegation hooks (docs/subagent-guard.md) |
+| `mx-native-observe.sh` | Record attempt-bound provider child lifecycle evidence or an honest session-bound fallback |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `mx-home-seed.sh`        | Transactionally provision a daemon home and maintain `data/daemons.md`       |
 | `mx-spawn.sh`            | Spawn actors, scouts, `id=repo` batches, and daemons on the resolved harness and runtime backend |

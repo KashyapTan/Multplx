@@ -57,7 +57,7 @@ test_spawn_boundary_parks_before_allocation() {
     MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
     MX_SPAWN_NO_GUARD=1 MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 \
     MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 \
-    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --backend tmux --mode direct-PR --yolo on) \
+    MX_HEADROOM_API_CAPACITY=0 "$ROOT/bin/mx-spawn.sh" parked "$project" --harness codex --backend tmux --mode direct-PR --yolo on --resource gpu=2) \
     || fail "at-limit spawn boundary should return a queued outcome"
   assert_contains "$out" 'queued: parked parked until dispatch capacity is available' \
     "spawn boundary did not report the queued outcome"
@@ -69,6 +69,7 @@ test_spawn_boundary_parks_before_allocation() {
   [ "$(git -C "$project" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ] || fail "at-limit spawn allocated a worktree"
   assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/parked.request" 'queue lost selected mode'
   assert_grep 'yolo=off' "$home/state/.dispatch-queue/parked.request" 'legacy yolo became active in queue'
+  assert_grep '"gpu":2' "$home/state/.dispatch-queue/parked.request" 'queue lost requested custom resource units'
   MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'mode queue drain failed'
   assert_grep '--mode direct-PR --yolo off' "$home/spawn.log" 'drain lost selected authority'
 
@@ -153,17 +154,19 @@ test_cancel_removes_only_named_entry() {
   pass "queue cancellation removes exactly the named parked request"
 }
 
-test_failed_launch_retains_record_for_retry() {
+test_failed_launch_retains_record_until_reconciled() {
   local record="$HOME_DIR/state/.dispatch-queue/retry.request" out rc=0
   queue_cmd --queue-add retry projects/retry --harness pi >/dev/null
   out=$(MX_QUEUE_FAIL_TASK=retry queue_cmd --queue-drain 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "failed queued launch reported success"
   assert_contains "$out" 'record retained' "failed launch did not explain retry preservation"
   assert_grep 'task_id=retry' "$record" "failed launch dropped its durable record"
-  queue_cmd --queue-drain >/dev/null || fail "retained request did not retry successfully"
-  assert_absent "$record" "successful retry retained the queue record"
+  before=$(wc -l < "$SPAWN_LOG" | tr -d ' ')
+  queue_cmd --queue-drain >/dev/null || fail "uncertain request made drain fail"
+  [ "$(wc -l < "$SPAWN_LOG" | tr -d ' ')" -eq "$before" ] || fail "uncertain endpoint was retried without reconciliation"
+  assert_grep 'state=dispatching' "$record" "uncertain request lost its dispatching fence"
 
-  pass "failed queue launch retains an exact crash-recovery record"
+  pass "failed queue launch retains an exact crash-recovery record until endpoint reconciliation"
 }
 
 test_spawn_boundary_parks_before_allocation
@@ -171,7 +174,7 @@ test_queue_add_is_durable_and_visible
 test_at_limit_never_dispatches
 test_fifo_one_per_cycle_and_exactly_once
 test_cancel_removes_only_named_entry
-test_failed_launch_retains_record_for_retry
+test_failed_launch_retains_record_until_reconciled
 
 echo "ALL TESTS PASSED"
 

@@ -158,7 +158,7 @@ test_queued_wake_warning_stays_independent() {
   out2=$(run_guard_case "$dir")
   assert_contains "$out2" "full banner already printed this episode" \
     "same-episode stale call should still print its concise reminder"
-  assert_contains "$out2" "queued wakes pending" \
+  assert_contains "$out2" "unfinished wakes pending" \
     "queued wake warning must not be suppressed by stale-banner deduplication"
   pass "mx-guard stale banner: queued-wake warning remains independent"
 }

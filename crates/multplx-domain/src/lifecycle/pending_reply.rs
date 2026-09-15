@@ -6,14 +6,26 @@ use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
 use crate::operational_input::FROM_BROKER_MARK;
 
-pub const SCHEMA: &str = "mx-pending-reply.v1";
+pub const SCHEMA: &str = "mx-pending-reply.v2";
+
+/// Optional current identity binding for a reply expectation.
+#[derive(Clone, Debug, Default)]
+pub struct ReplyBinding<'a> {
+    pub message_id: Option<&'a str>,
+    pub parent_task_id: Option<&'a str>,
+    pub recipient_task_id: Option<&'a str>,
+    pub recipient_home: Option<&'a Path>,
+    pub attempt_id: Option<&'a str>,
+    pub attempt_generation: Option<u64>,
+    pub brief_revision: Option<u64>,
+}
 
 fn now() -> u64 {
     env::var("MX_PENDING_REPLY_NOW")
@@ -161,6 +173,45 @@ pub fn create(
     task_id: &str,
     request: &str,
 ) -> Result<String, String> {
+    create_bound(
+        parent_home,
+        state,
+        task_id,
+        request,
+        &ReplyBinding::default(),
+    )
+}
+
+pub fn create_bound(
+    parent_home: &Path,
+    state: &Path,
+    task_id: &str,
+    request: &str,
+    binding: &ReplyBinding<'_>,
+) -> Result<String, String> {
+    multplx_core::identifiers::TaskId::parse(task_id.to_owned())
+        .map_err(|error| error.to_string())?;
+    for id in [
+        binding.message_id,
+        binding.parent_task_id,
+        binding.recipient_task_id,
+        binding.attempt_id,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        multplx_core::identifiers::TaskId::parse(id.to_owned())
+            .map_err(|error| error.to_string())?;
+    }
+    if binding.attempt_id.is_some() != binding.attempt_generation.is_some()
+        || binding.attempt_generation == Some(0)
+        || binding.brief_revision == Some(0)
+        || binding
+            .recipient_home
+            .is_some_and(|home| !home.is_absolute())
+    {
+        return Err("invalid pending reply identity binding".into());
+    }
     let dir = directory(state);
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
@@ -174,6 +225,11 @@ pub fn create(
         return Err("correlation collision".to_owned());
     }
     let parent_home = fs::canonicalize(parent_home).unwrap_or_else(|_| parent_home.to_owned());
+    let recipient_home = binding
+        .recipient_home
+        .map(|home| fs::canonicalize(home).unwrap_or_else(|_| home.to_owned()))
+        .map(|home| home.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let status = if state.is_absolute() {
         state.join(format!("{task_id}.status"))
     } else {
@@ -182,8 +238,23 @@ pub fn create(
             .join(format!("{task_id}.status"))
     };
     let text = format!(
-        "schema={SCHEMA}\ncorr_id={correlation}\ntask_id={task_id}\nparent_home={}\nparent_status={}\nparent_status_scan_signature=\nrequest_summary={}\ncreated_epoch={}\ndelivered_epoch=\nphase=awaiting_report\nturn_seen_busy=0\nrequest_turn_completed_epoch=\nrecovery_attempted_epoch=\nrecovery_sender_pid=\nrecovery_sender_identity=\nrecovery_sent_epoch=\nrecovery_delivery_outcome=\nrecovery_turn_seen_busy=0\nrecovery_turn_completed_epoch=\nescalated_epoch=\nresolved_epoch=\nresolved_via=\nwrong_home_hits=0\nwrong_home_sightings=\nwrong_home_scan_signature=\ngrace_secs={}\n",
+        "schema={SCHEMA}\ncorr_id={correlation}\nmessage_id={}\nrequest_id={correlation}\ntask_id={task_id}\nparent_task_id={}\nrecipient_task_id={}\nparent_home={}\nrecipient_home={recipient_home}\nattempt_id={}\nattempt_generation={}\nbrief_revision={}\nparent_status={}\nparent_status_scan_signature=\nrequest_summary={}\ncreated_epoch={}\ndelivered_epoch=\nacknowledged_epoch=\nresponded_epoch=\ncompleted_epoch=\nphase=awaiting_report\nturn_seen_busy=0\nrequest_turn_completed_epoch=\nrecovery_attempted_epoch=\nrecovery_sender_pid=\nrecovery_sender_identity=\nrecovery_sent_epoch=\nrecovery_delivery_outcome=\nrecovery_turn_seen_busy=0\nrecovery_turn_completed_epoch=\nescalated_epoch=\nresolved_epoch=\nresolved_via=\nwrong_home_hits=0\nwrong_home_sightings=\nwrong_home_scan_signature=\ngrace_secs={}\n",
+        binding
+            .message_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("reply-{correlation}")),
+        binding.parent_task_id.unwrap_or_default(),
+        binding.recipient_task_id.unwrap_or(task_id),
         parent_home.display(),
+        binding.attempt_id.unwrap_or_default(),
+        binding
+            .attempt_generation
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        binding
+            .brief_revision
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
         status.display(),
         summarize(request),
         now(),
@@ -192,6 +263,36 @@ pub fn create(
     multplx_core::filesystem::atomic_replace(&record, text.as_bytes(), 0o600)
         .map_err(|error| error.to_string())?;
     Ok(correlation)
+}
+
+/// Record transport acknowledgement separately from delivery and response.
+pub fn acknowledge(state: &Path, correlation: &str) -> Result<(), String> {
+    let record = path(state, correlation);
+    if !record.is_file() {
+        return Err("missing pending reply".into());
+    }
+    if record_get(&record, "delivered_epoch").is_empty() {
+        return Err("pending reply is not delivered".into());
+    }
+    if record_get(&record, "acknowledged_epoch").is_empty() {
+        record_set(&record, "acknowledged_epoch", &now().to_string())?;
+    }
+    Ok(())
+}
+
+/// Record task completion only after a correlated response exists.
+pub fn complete(state: &Path, correlation: &str) -> Result<(), String> {
+    let record = path(state, correlation);
+    if !record.is_file() {
+        return Err("missing pending reply".into());
+    }
+    if record_get(&record, "responded_epoch").is_empty() {
+        return Err("pending reply has no correlated response".into());
+    }
+    if record_get(&record, "completed_epoch").is_empty() {
+        record_set(&record, "completed_epoch", &now().to_string())?;
+    }
+    Ok(())
 }
 
 fn confirmation(state: &Path, correlation: &str) -> PathBuf {
@@ -276,6 +377,15 @@ fn resolve_via(line: &str) -> &'static str {
     }
 }
 
+fn line_completes(line: &str) -> bool {
+    let line = line.trim_start();
+    ["done", "complete", "completed"].iter().any(|verb| {
+        line.strip_prefix(verb).is_some_and(|tail| {
+            tail.starts_with(':') || tail.starts_with(' ') || tail.starts_with(" [")
+        })
+    })
+}
+
 fn try_resolve(record: &Path, correlation: &str) -> Result<bool, String> {
     if record_get(record, "phase") == "resolved" {
         return Ok(true);
@@ -297,6 +407,15 @@ fn try_resolve(record: &Path, correlation: &str) -> Result<bool, String> {
     if delivered.is_empty() {
         record_set(record, "delivered_epoch", &epoch)?;
         let _ = fs::remove_file(marker);
+    }
+    if record_get(record, "acknowledged_epoch").is_empty() {
+        record_set(record, "acknowledged_epoch", &epoch)?;
+    }
+    if record_get(record, "responded_epoch").is_empty() {
+        record_set(record, "responded_epoch", &epoch)?;
+    }
+    if line_completes(&line) && record_get(record, "completed_epoch").is_empty() {
+        record_set(record, "completed_epoch", &epoch)?;
     }
     record_set(record, "phase", "resolved")?;
     record_set(record, "resolved_epoch", &epoch)?;
@@ -331,6 +450,54 @@ fn recovery_message(record: &Path, correlation: &str) -> String {
     )
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecoveryDelivery {
+    Confirmed,
+    Failed,
+    Unknown,
+}
+
+fn bounded_delivery(command: &mut Command) -> RecoveryDelivery {
+    let timeout = env::var("MX_PENDING_REPLY_SEND_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(5));
+    bounded_delivery_for(command, timeout)
+}
+
+fn bounded_delivery_for(command: &mut Command, timeout: Duration) -> RecoveryDelivery {
+    let Ok(mut child) = command.spawn() else {
+        return RecoveryDelivery::Failed;
+    };
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return if status.success() {
+                    RecoveryDelivery::Confirmed
+                } else {
+                    RecoveryDelivery::Failed
+                };
+            }
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return RecoveryDelivery::Unknown;
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return RecoveryDelivery::Unknown;
+            }
+        }
+    }
+}
+
 fn send_recovery(source_root: &Path, record: &Path, correlation: &str) -> Result<(), String> {
     if !record_get(record, "recovery_attempted_epoch").is_empty()
         || record_get(record, "request_turn_completed_epoch").is_empty()
@@ -352,31 +519,40 @@ fn send_recovery(source_root: &Path, record: &Path, correlation: &str) -> Result
     let epoch = now().to_string();
     record_set(record, "recovery_attempted_epoch", &epoch)?;
     record_set(record, "phase", "recovery_sending")?;
-    let status = if let Ok(hook) = env::var("MX_PENDING_REPLY_SEND_HOOK") {
-        Command::new("bash")
-            .arg("-c")
-            .arg(hook)
-            .arg("mx-pending-reply")
-            .arg(&task)
-            .arg(&message)
-            .status()
+    let delivery = if let Ok(hook) = env::var("MX_PENDING_REPLY_SEND_HOOK") {
+        bounded_delivery(
+            Command::new("bash")
+                .arg("-c")
+                .arg(hook)
+                .arg("mx-pending-reply")
+                .arg(&task)
+                .arg(&message),
+        )
     } else {
-        Command::new(source_root.join("bin/mx-send.sh"))
-            .arg(&task)
-            .arg(&message)
-            .env("MX_HOME", &parent_home)
-            .env("MX_PENDING_REPLY_EXISTING_CORR", correlation)
-            .status()
+        bounded_delivery(
+            Command::new(source_root.join("bin/mx-send.sh"))
+                .arg(&task)
+                .arg(&message)
+                .env("MX_HOME", &parent_home)
+                .env("MX_PENDING_REPLY_EXISTING_CORR", correlation),
+        )
     };
-    if status.is_ok_and(|status| status.success()) {
-        record_set(record, "recovery_delivery_outcome", "confirmed")?;
-        record_set(record, "recovery_sent_epoch", &epoch)?;
-        record_set(record, "recovery_turn_seen_busy", "0")?;
-        record_set(record, "recovery_turn_completed_epoch", "")?;
-        record_set(record, "phase", "recovery_sent")
-    } else {
-        record_set(record, "recovery_delivery_outcome", "failed")?;
-        record_set(record, "phase", "recovery_failed")
+    match delivery {
+        RecoveryDelivery::Confirmed => {
+            record_set(record, "recovery_delivery_outcome", "confirmed")?;
+            record_set(record, "recovery_sent_epoch", &epoch)?;
+            record_set(record, "recovery_turn_seen_busy", "0")?;
+            record_set(record, "recovery_turn_completed_epoch", "")?;
+            record_set(record, "phase", "recovery_sent")
+        }
+        RecoveryDelivery::Failed => {
+            record_set(record, "recovery_delivery_outcome", "failed")?;
+            record_set(record, "phase", "recovery_failed")
+        }
+        RecoveryDelivery::Unknown => {
+            record_set(record, "recovery_delivery_outcome", "unknown")?;
+            record_set(record, "phase", "recovery_unknown")
+        }
     }
 }
 
@@ -537,6 +713,9 @@ mod tests {
         let record = path(&state, &correlation);
         assert_eq!(record_get(&record, "phase"), "resolved");
         assert_eq!(record_get(&record, "resolved_via"), "document");
+        assert!(!record_get(&record, "acknowledged_epoch").is_empty());
+        assert!(!record_get(&record, "responded_epoch").is_empty());
+        assert!(!record_get(&record, "completed_epoch").is_empty());
 
         let missed = create(temp.path(), &state, "missed", "second").expect("missed");
         confirm_delivery(&state, &missed).expect("confirm missed");
@@ -597,6 +776,17 @@ mod tests {
     }
 
     #[test]
+    fn recovery_delivery_timeout_kills_and_reaps_the_sender() {
+        let started = Instant::now();
+        let outcome = bounded_delivery_for(
+            Command::new("sh").arg("-c").arg("sleep 10"),
+            Duration::from_millis(20),
+        );
+        assert_eq!(outcome, RecoveryDelivery::Unknown);
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
     fn reconciliation_covers_confirmation_grace_and_escalation_variants() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = temp.path().join("state");
@@ -646,5 +836,104 @@ mod tests {
                 .expect("status")
                 .contains("pending-reply-missed")
         );
+    }
+
+    #[test]
+    fn bound_reply_preserves_route_attempt_and_brief_and_separates_completion() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        let recipient = temp.path().join("recipient");
+        fs::create_dir_all(&state).expect("state");
+        fs::create_dir(&recipient).expect("recipient");
+        let correlation = create_bound(
+            &home,
+            &state,
+            "task",
+            "question",
+            &ReplyBinding {
+                message_id: Some("message-1"),
+                parent_task_id: Some("parent"),
+                recipient_task_id: Some("task"),
+                recipient_home: Some(&recipient),
+                attempt_id: Some("attempt-2"),
+                attempt_generation: Some(2),
+                brief_revision: Some(3),
+            },
+        )
+        .expect("bound reply");
+        let record = path(&state, &correlation);
+        assert_eq!(record_get(&record, "message_id"), "message-1");
+        assert_eq!(record_get(&record, "request_id"), correlation);
+        assert_eq!(record_get(&record, "parent_task_id"), "parent");
+        assert_eq!(record_get(&record, "attempt_id"), "attempt-2");
+        assert_eq!(record_get(&record, "attempt_generation"), "2");
+        assert_eq!(record_get(&record, "brief_revision"), "3");
+        confirm_delivery(&state, &correlation).expect("delivered");
+        acknowledge(&state, &correlation).expect("acknowledged");
+        assert!(complete(&state, &correlation).is_err());
+        fs::write(
+            state.join("task.status"),
+            format!("blocked: corr={correlation} needs input\n"),
+        )
+        .expect("response");
+        tick(&state, temp.path(), |_| "unknown");
+        assert!(!record_get(&record, "responded_epoch").is_empty());
+        assert!(record_get(&record, "completed_epoch").is_empty());
+        complete(&state, &correlation).expect("explicit completion");
+        assert!(!record_get(&record, "completed_epoch").is_empty());
+    }
+
+    #[test]
+    fn identity_binding_and_receipt_order_fail_closed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("state");
+        assert!(create(temp.path(), &state, "../task", "request").is_err());
+        for binding in [
+            ReplyBinding {
+                attempt_id: Some("attempt-1"),
+                ..ReplyBinding::default()
+            },
+            ReplyBinding {
+                attempt_id: Some("attempt-1"),
+                attempt_generation: Some(0),
+                ..ReplyBinding::default()
+            },
+            ReplyBinding {
+                brief_revision: Some(0),
+                ..ReplyBinding::default()
+            },
+            ReplyBinding {
+                recipient_home: Some(Path::new("relative-home")),
+                ..ReplyBinding::default()
+            },
+            ReplyBinding {
+                message_id: Some("../message"),
+                ..ReplyBinding::default()
+            },
+        ] {
+            assert!(create_bound(temp.path(), &state, "task", "request", &binding).is_err());
+        }
+
+        assert!(acknowledge(&state, "missing").is_err());
+        assert!(complete(&state, "missing").is_err());
+        let correlation = create(temp.path(), &state, "task", "request").expect("create");
+        assert!(acknowledge(&state, &correlation).is_err());
+        assert!(complete(&state, &correlation).is_err());
+        prepare_delivery(&state, &correlation).expect("prepare");
+        confirm_delivery(&state, &correlation).expect("confirm");
+        acknowledge(&state, &correlation).expect("acknowledge");
+        acknowledge(&state, &correlation).expect("idempotent acknowledge");
+        assert!(!record_get(&path(&state, &correlation), "acknowledged_epoch").is_empty());
+        fs::write(
+            state.join("task.status"),
+            format!("done: corr={correlation} result\n"),
+        )
+        .expect("response");
+        tick(&state, temp.path(), |_| "unknown");
+        complete(&state, &correlation).expect("complete");
+        complete(&state, &correlation).expect("idempotent complete");
+        assert!(!record_get(&path(&state, &correlation), "completed_epoch").is_empty());
     }
 }

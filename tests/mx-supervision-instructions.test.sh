@@ -47,7 +47,7 @@ test_repair_lines() {
   assert_contains "$out" "bin/mx-watch-checkpoint.sh --seconds 7" "codex repair line did not use checkpoint helper and env override"
 
   out=$(MX_HOME="$home" "$RENDER" --harness claude --queue-pending 1 --repair-line)
-  assert_contains "$out" "After draining queued wakes" "queue-pending prefix missing"
+  assert_contains "$out" "After claiming queued wakes and durably recording disposition plus acknowledgement" "queue-pending prefix missing"
   assert_contains "$out" "Claude Code background task" "claude repair line missing background-task mechanism"
 
   out=$(MX_HOME="$home" "$RENDER" --harness claude --read-only 1 --repair-line)
@@ -73,7 +73,7 @@ test_cross_harness_ordinary_continuation_and_repair_matrix() {
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
   assert_contains "$ordinary" "Stop-owned auto-arm" "claude ordinary-wake line does not leave continuity to the Stop hook"
   assert_contains "$ordinary" "bin/mx-claude-stop-autoarm.sh" "claude ordinary-wake line lost the auto-arm script name"
-  assert_contains "$ordinary" "do not arm another cycle" "claude ordinary-wake line does not forbid a model re-arm"
+  assert_contains "$ordinary" "Do not arm another cycle" "claude ordinary-wake line does not forbid a model re-arm"
   assert_not_contains "$ordinary" "bin/mx-watch-arm.sh" "claude ordinary-wake line incorrectly calls the manual arm"
   out=$("$RENDER" --harness claude --repair-line)
   assert_contains "$out" "Claude Code background task" "claude recovery line lost its tracked background repair"

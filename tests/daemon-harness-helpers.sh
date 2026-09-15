@@ -427,9 +427,10 @@ test_spawn_unverified_daemon_harness_refused() {
 meta_field() { grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
 
 # A tmux stub that behaves like make_noop_tmux but also captures the literal
-# `send-keys -l <cmd>` launch command into MX_FAKE_LAUNCH_LOG, mirroring the
-# capture technique in mx-spawn-dispatch-profile.test.sh so the constructed
-# launch command (not just meta) can be asserted on. Also answers the
+# `send-keys -l <cmd>` submission into MX_FAKE_LAUNCH_LOG.submitted and, when
+# that submission names a generated launch script, copies the script into
+# MX_FAKE_LAUNCH_LOG. This keeps existing launch-content assertions at the
+# exact command boundary while also exposing the short tmux transport. Also answers the
 # `#{pane_current_path}` probe from MX_FAKE_PANE_PATH so this same stub works
 # for an actor/scout (non-daemon) spawn's treehouse-worktree wait loop.
 make_launch_capturing_tmux() {
@@ -457,7 +458,14 @@ case "${1:-}" in
       prev=
       for a in "$@"; do
         if [ "$prev" = "-l" ]; then
-          printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG"
+          printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG.submitted"
+          launch_script=${a#\'}
+          launch_script=${launch_script%\'}
+          if [ -f "$launch_script" ]; then
+            cat "$launch_script" >> "$MX_FAKE_LAUNCH_LOG"
+          else
+            printf '%s\n' "$a" >> "$MX_FAKE_LAUNCH_LOG"
+          fi
         fi
         prev=$a
       done
@@ -658,6 +666,64 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
   assert_not_contains "$launch" "model_reasoning_effort=\"high\"" \
     "explicit-harness-explicit-axes: launch leaked the file's effort token"
   pass "C8 spawn: an explicit --harness still honors explicit model/effort flags"
+}
+
+test_spawn_injects_native_observer_configuration() {
+  local harness id w sm launchlog launch submitted task_tmp
+  for harness in codex claude cursor pi; do
+    id="obs-$harness-$$"
+    if [ -n "${MX_NATIVE_OBSERVER_FIXTURE_DIR:-}" ]; then
+      w="$MX_NATIVE_OBSERVER_FIXTURE_DIR/$harness-$id"
+    else
+      w="$TMP_ROOT/spawn-native-observer-$harness"
+    fi
+    sm="$w/sm"
+    launchlog="$w/launch.log"
+    mkdir -p "$w/home/config"
+    make_seeded_home "$sm" "$id"
+    if [ "${MX_NATIVE_OBSERVER_LIVE_PROMPT:-0}" = 1 ] && [ "$harness" = codex -o "$harness" = cursor ]; then
+      printf '%s\n' 'Use exactly one provider-native subagent for a tiny read-only task, wait for its result, then reply with LIVE_NATIVE_CHILD_DONE. Do not run Multplx session-start or modify repository files.' > "$sm/data/charter.md"
+    fi
+    if [ "$harness" = codex ]; then
+      spawn_daemon_capture "$w" "$id" "$sm" "$launchlog" --harness codex --model gpt-5.6-sol --effort high >/dev/null 2>&1
+    else
+      spawn_daemon_capture "$w" "$id" "$sm" "$launchlog" --harness "$harness" >/dev/null 2>&1
+    fi \
+      || fail "$harness spawn could not publish native observer configuration"
+    task_tmp=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name "mx-$id-*" -print | head -1)
+    [ -n "$task_tmp" ] || fail "$harness launch did not create its attempt-qualified task temp directory"
+    submitted=$(cat "$launchlog.submitted")
+    assert_contains "$submitted" "$task_tmp/launch.sh" \
+      "$harness tmux submission did not use its attempt-qualified launch artifact"
+    launch=$(cat "$task_tmp/launch.sh")
+    assert_contains "$launch" "MX_RUST_SOURCE_ROOT=" \
+      "$harness launch omitted the trusted observer source path"
+    case "$harness" in
+      codex)
+        assert_contains "$launch" "hooks.SubagentStart" "Codex launch omitted its native start hook"
+        assert_contains "$launch" "hooks.SubagentStop" "Codex launch omitted its native result hook"
+        assert_contains "$launch" "hooks.SessionStart" "Codex launch omitted restart reconciliation"
+        ;;
+      claude)
+        assert_contains "$launch" "--settings" "Claude launch omitted observer-only settings"
+        jq -e '.hooks.SubagentStart and .hooks.SubagentStop and .hooks.SessionStart' \
+          "$task_tmp/native-observer-claude.json" >/dev/null \
+          || fail "Claude generated observer settings lack lifecycle hooks"
+        ;;
+      cursor)
+        assert_contains "$launch" "--trust --plugin-dir" \
+          "Cursor launch did not load the task-local observer plugin"
+        jq -e '.hooks.subagentStart[0].failClosed == false and .hooks.sessionStart[0].failClosed == false' \
+          "$task_tmp/cursor-turnend-plugin/hooks/hooks.json" >/dev/null \
+          || fail "Cursor task-local plugin lacks fail-open native observation"
+        ;;
+      pi)
+        assert_contains "$launch" ".pi/extensions/mx-native-delegation-observe.ts" \
+          "Pi launch omitted its tool lifecycle observer extension"
+        ;;
+    esac
+  done
+  pass "spawned providers load task-bound native observation from the trusted runtime"
 }
 
 # The harness fallback chain (daemon-harness -> actor-harness -> own) still
@@ -2079,6 +2145,9 @@ SH
 }
 
 case "${MX_TEST_CASE_GROUP:-all}" in
+  native-observers)
+    test_spawn_injects_native_observer_configuration
+    ;;
   harness-model-resolution)
     test_harness_resolution
     test_daemon_model_effort_tokens
@@ -2095,6 +2164,7 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_spawn_explicit_effort_overrides_daemon_harness_token
     test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens
     test_spawn_explicit_harness_uses_explicit_profile_axes
+    test_spawn_injects_native_observer_configuration
     test_spawn_fallback_chain_and_actor_scout_unaffected
     ;;
   spawn-config-inheritance)
@@ -2141,6 +2211,7 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_spawn_explicit_effort_overrides_daemon_harness_token
     test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens
     test_spawn_explicit_harness_uses_explicit_profile_axes
+    test_spawn_injects_native_observer_configuration
     test_spawn_fallback_chain_and_actor_scout_unaffected
     test_bootstrap_sweep_propagates_and_reconverges
     test_bootstrap_sweep_propagates_when_tracked_current

@@ -2,5 +2,5 @@
 - Use `bin/mx-watch-checkpoint.sh --seconds 180` as a foreground checkpoint while work is in flight.
 - Handle every wake, then take another checkpoint while work remains.
 - Never use shell `&` for watcher supervision; use the owned checkpoint above.
-- Task delegation is separate from watcher ownership; Phase 04 replaces the legacy delegation guard.
+- Native task delegation is allowed; available lifecycle events record evidence without granting a native-resume guarantee.
 - The tracked Cursor stop hook permits at most one continuation and reminds this primary to restore a missing checkpoint.

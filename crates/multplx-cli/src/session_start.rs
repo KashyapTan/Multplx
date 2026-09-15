@@ -339,23 +339,33 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
     }
     subsection(&mut output, "WAKE QUEUE");
     if read_only {
-        let queued = fs::read_to_string(paths.state.join(".wake-queue"))
-            .unwrap_or_default()
-            .lines()
-            .filter(|line| !line.is_empty())
-            .count();
-        output.push_str(&format!("skipped (read-only session) - {queued} record(s) remain queued because this session lacks verified system-lock ownership.\n"));
+        let queued = multplx_core::wake::WakeQueue::new(&paths.state)
+            .observe_unfinished_count()
+            .unwrap_or(0);
+        let unnotified =
+            multplx_domain::operational_input::RequestStore::new(&paths.state, &paths.home)
+                .observe_unnotified_count()
+                .unwrap_or(0);
+        output.push_str(&format!("skipped (read-only session) - {queued} unfinished wake item(s) and {unnotified} accepted request(s) awaiting wake publication remain visible because this session lacks verified system-lock ownership.\n"));
         output
             .push_str(&command_output(&bin.join("mx-guard.sh"), &[("MX_GUARD_READ_ONLY", "1")]).1);
     } else {
         let drained = command_output(&bin.join("mx-wake-drain.sh"), &[]).1;
+        let pending = multplx_core::wake::WakeQueue::new(&paths.state)
+            .observe_unfinished_count()
+            .unwrap_or(0);
         if drained.is_empty() {
-            output.push_str("(no queued wakes)\n");
+            if pending == 0 {
+                output.push_str("(no unfinished wakes)\n");
+            } else {
+                output.push_str(&format!("{pending} claimed or waiting wake item(s) remain unfinished; inspect event IDs with `mx wake list --unfinished`.\n"));
+            }
         } else {
             output.push_str(&drained);
             if !drained.ends_with('\n') {
                 output.push('\n');
             }
+            output.push_str("Claimed wakes remain unfinished until `mx wake disposition` records an outcome and `mx wake ack` acknowledges it.\n");
         }
     }
     let afk = paths.state.join(".afk").exists();

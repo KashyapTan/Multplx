@@ -1006,7 +1006,31 @@ fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) ->
     let (headroom, headroom_reason) = headroom(paths);
     let daemon_current = daemon_current(paths, generated, &tasks);
     let daemon_landed = daemon_landed(&daemon_current);
-    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"vplan_reviews":vplans(paths),"later_feeds":later(paths),"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"vplan_reviews":vplans(paths),"later_feeds":later(paths),"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+}
+
+fn native_observations(state: &Path) -> Value {
+    let directory = state.join("native-delegations");
+    let mut rows = fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                return None;
+            }
+            let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024).ok()?;
+            let value: Value = serde_json::from_slice(&bytes).ok()?;
+            (value["schema"] == "mx-native-delegation-evidence.v1").then_some(value)
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        left["observation"]["observation_id"]
+            .as_str()
+            .cmp(&right["observation"]["observation_id"].as_str())
+    });
+    Value::Array(rows)
 }
 
 #[derive(Clone)]
@@ -1612,7 +1636,34 @@ fn wake_queue(paths: &Paths) -> Value {
         .lines()
         .filter_map(|line| line.split('\t').next()?.parse::<i64>().ok())
         .collect::<Vec<_>>();
-    json!({"depth":records.len(),"oldest_age_secs":records.iter().min().map(|oldest|(epoch()-*oldest).max(0))})
+    let queue = multplx_core::wake::WakeQueue::new(paths.state.clone());
+    match (
+        queue.observe_unfinished_count(),
+        queue.observe_inbox_items(),
+    ) {
+        (Ok(unfinished), Ok(inbox)) => {
+            let oldest = records
+                .iter()
+                .copied()
+                .chain(inbox.iter().filter_map(|item| {
+                    (item.acknowledged_at.is_none()
+                        || item.disposition.as_ref().is_some_and(|disposition| {
+                            disposition.kind == multplx_core::wake::WakeDispositionKind::Waiting
+                        }))
+                    .then_some(i64::try_from(item.record.epoch).unwrap_or(i64::MAX))
+                }))
+                .min();
+            json!({"depth":unfinished,"oldest_age_secs":oldest.map(|oldest|(epoch()-oldest).max(0)),"records":inbox,"available":true,"reason":Value::Null})
+        }
+        (unfinished, inbox) => {
+            let reason = unfinished
+                .err()
+                .or_else(|| inbox.err())
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "wake inbox unavailable".to_owned());
+            json!({"depth":records.len(),"oldest_age_secs":records.iter().min().map(|oldest|(epoch()-*oldest).max(0)),"records":[],"available":false,"reason":reason})
+        }
+    }
 }
 fn headroom_bin(paths: &Paths) -> PathBuf {
     std::env::var_os("MX_SNAPSHOT_HEADROOM_BIN")

@@ -178,7 +178,7 @@ fn single_checkout_refuses_dirty_detached_and_already_reserved_sources_before_al
 }
 
 #[test]
-fn durable_launch_intent_blocks_retry_and_remains_bound_to_the_original_base() {
+fn durable_launch_intent_retries_once_with_the_original_base_and_allocation() {
     let f = Fixture::new();
     let before = f.git(&["rev-parse", "HEAD"]);
     f.refused(
@@ -204,8 +204,36 @@ fn durable_launch_intent_blocks_retry_and_remains_bound_to_the_original_base() {
         "source moved",
     ]);
     let moved = f.git(&["rev-parse", "HEAD"]);
-    f.refused(f.spawn(&[]).output().unwrap(), "interrupted launch intent");
-    assert_eq!(fs::read(intent_path).unwrap(), intent);
+    let retry = f.spawn(&[]).output().unwrap();
+    assert_eq!(retry.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&retry.stderr).contains("backend command failed"));
+    let action_path = f.home.join("state/.spawn-actions/task.json");
+    let action: serde_json::Value =
+        serde_json::from_slice(&fs::read(&action_path).expect("action receipt")).unwrap();
+    assert_eq!(action["binding"]["project"]["starting_revision"], before);
+    assert_eq!(action["stage"], "failed");
+    let allocation = action["binding"]["allocation"]["allocation_id"]
+        .as_str()
+        .expect("allocation")
+        .to_owned();
+    let worktrees = f
+        .git(&["worktree", "list", "--porcelain"])
+        .matches("worktree ")
+        .count();
+    let repeated = f.spawn(&[]).output().unwrap();
+    assert_eq!(repeated.status.code(), Some(1));
+    let repeated_action: serde_json::Value =
+        serde_json::from_slice(&fs::read(action_path).expect("repeated action")).unwrap();
+    assert_eq!(
+        repeated_action["binding"]["allocation"]["allocation_id"],
+        allocation
+    );
+    assert_eq!(
+        f.git(&["worktree", "list", "--porcelain"])
+            .matches("worktree ")
+            .count(),
+        worktrees
+    );
     assert_eq!(f.git(&["rev-parse", "HEAD"]), moved);
 }
 
@@ -222,6 +250,18 @@ fn invalid_launch_configuration_refuses_without_an_allocation_or_intent() {
     f.refused(
         f.spawn(&["--single-checkout"]).output().unwrap(),
         "requires",
+    );
+    f.refused(
+        f.spawn(&["--resource", "session=2"]).output().unwrap(),
+        "invalid or reserved",
+    );
+    f.refused(
+        f.spawn(&["--resource", "gpu=0"]).output().unwrap(),
+        "invalid or reserved",
+    );
+    f.refused(
+        f.spawn(&["--resource"]).output().unwrap(),
+        "requires NAME=UNITS",
     );
     assert!(!f.home.join("state/.spawn-task.intent").exists());
 }

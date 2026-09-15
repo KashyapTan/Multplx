@@ -31,12 +31,12 @@ test_concurrent_append_and_drain() {
     pids="$pids $!"
     i=$((i + 1))
   done
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$out1" &
+  owned_wake "$state" "$DRAIN" > "$out1" &
   pids="$pids $!"
   for pid in $pids; do
     wait "$pid" || fail "concurrent append/drain subprocess failed"
   done
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$out2" || fail "final drain failed"
+  owned_wake "$state" "$DRAIN" > "$out2" || fail "final drain failed"
   cat "$out1" "$out2" > "$all"
   count=$(awk 'NF { count++ } END { print count + 0 }' "$all")
   [ "$count" -eq 40 ] || fail "expected 40 drained records, got $count"
@@ -63,7 +63,7 @@ test_signal_catchup_without_running_watcher() {
   PATH="$fakebin:$PATH" MX_STATE_OVERRIDE="$state" MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   wait_for_exit "$!" 40 || fail "watcher did not exit for first signal"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "watcher did not print first signal"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after first signal failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" || fail "drain after first signal failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null || fail "first signal was not queued"
 
   printf 'done: second\n' >> "$status_file"
@@ -99,7 +99,7 @@ test_stale_enqueue_before_suppressor() {
   PATH="$fakebin:$PATH" MX_FAKE_TMUX_WINDOW="$window" MX_FAKE_TMUX_CAPTURE="$capture_file" MX_STATE_OVERRIDE="$state" MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   wait_for_exit "$!" 40 || fail "watcher did not exit for stale pane"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print stale wake"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after stale wake failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" || fail "drain after stale wake failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "stale wake was not queued"
   [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "stale suppressor was not written"
   pass "stale wake is queued before suppressor state is advanced"
@@ -137,7 +137,7 @@ test_not_working_stale_enqueue_before_suppressor() {
     MX_STALE_ESCALATE_SECS=999 MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=999999 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   wait_for_exit "$!" 40 || fail "watcher did not surface a not-provably-working stale"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the immediate stale wake"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after the immediate stale wake failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" || fail "drain after the immediate stale wake failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "immediate stale wake was not queued"
   [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "stale suppressor was not advanced after the enqueue"
   unset MX_FAKE_ACTOR_STATE
@@ -165,7 +165,7 @@ SH
   PATH="$fakebin:$PATH" MX_STATE_OVERRIDE="$state" MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=0 MX_HEARTBEAT=999999 "$WATCH" > "$out" &
   wait_for_exit "$!" 40 || fail "watcher did not exit for check output"
   grep -F "check: $check_file: merged: https://example.test/pr/1" "$out" >/dev/null || fail "watcher did not print check wake"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after check wake failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" || fail "drain after check wake failed"
   grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$check_file" | grep -F 'merged: https://example.test/pr/1' >/dev/null || fail "check wake was not queued"
   [ -e "$state/.last-check" ] || fail "check cadence marker was not written after queue append"
   pass "registered custom check output is queued before cadence suppression"
@@ -181,21 +181,51 @@ test_atomic_double_drain() {
   append_wake "$state" heartbeat heartbeat heartbeat || fail "heartbeat append failed"
   append_wake "$state" signal task "signal: $state/task.status" || fail "signal append failed"
   append_wake "$state" stale 's:mx-task' 'stale: s:mx-task' || fail "stale append failed"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$out1" &
+  owned_wake "$state" "$DRAIN" > "$out1" &
   pid1=$!
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$out2" &
+  owned_wake "$state" "$DRAIN" > "$out2" &
   pid2=$!
   wait "$pid1" || fail "first drain failed"
   wait "$pid2" || fail "second drain failed"
   cat "$out1" "$out2" > "$all"
   count=$(awk 'NF { count++ } END { print count + 0 }' "$all")
   [ "$count" -eq 3 ] || fail "two drains consumed records more than once or lost records; got $count"
-  leftover=$(MX_STATE_OVERRIDE="$state" "$DRAIN" | awk 'NF { count++ } END { print count + 0 }')
+  leftover=$(owned_wake "$state" "$DRAIN" | awk 'NF { count++ } END { print count + 0 }')
   [ "$leftover" -eq 0 ] || fail "queue was not empty after double drain"
   pass "two atomic drains cannot consume the same records twice"
 }
 
-test_drain_dedupes_obvious_duplicates() {
+test_same_owner_concurrent_claim_and_explicit_ack() {
+  local dir state out1 out2 all count pending
+  dir=$(make_case same-owner-claim)
+  state="$dir/state"
+  out1="$dir/one.out"
+  out2="$dir/two.out"
+  all="$dir/all.out"
+  append_wake "$state" signal one "signal: one" || fail "first signal append failed"
+  append_wake "$state" check two "check: two" || fail "check append failed"
+  owned_wake_retain "$state" bash -c '
+    set -eu
+    drain=$1 mx=$2 state=$3 out1=$4 out2=$5
+    "$drain" >"$out1" & p1=$!
+    "$drain" >"$out2" & p2=$!
+    wait "$p1"; wait "$p2"
+    for receipt in "$state"/wake-inbox/wake-*.json; do
+      event=${receipt##*/}; event=${event%.json}
+      "$mx" wake disposition "$event" handled --detail "same owner concurrency verified" >/dev/null
+      "$mx" wake ack "$event" >/dev/null
+    done
+  ' _ "$DRAIN" "$MX_RUST_BIN" "$state" "$out1" "$out2" \
+    || fail "same-owner concurrent claim lifecycle failed"
+  cat "$out1" "$out2" > "$all"
+  count=$(awk 'NF { count++ } END { print count + 0 }' "$all")
+  [ "$count" -eq 2 ] || fail "same owner delivered a wake more than once; got $count rows"
+  pending=$(MX_STATE_OVERRIDE="$state" "$MX_RUST_BIN" wake pending) || fail "pending count failed"
+  [ "$pending" -eq 0 ] || fail "same owner did not explicitly disposition and acknowledge both wakes"
+  pass "same owner concurrent claims deliver once and require explicit disposition plus acknowledgement"
+}
+
+test_drain_coalesces_heartbeat_but_retains_transition_events() {
   local dir state out count
   dir=$(make_case dedupe)
   state="$dir/state"
@@ -204,12 +234,13 @@ test_drain_dedupes_obvious_duplicates() {
   append_wake "$state" signal task.status "signal: $state/task.status" || fail "first signal append failed"
   append_wake "$state" heartbeat heartbeat heartbeat || fail "second heartbeat append failed"
   append_wake "$state" signal task.status "signal: $state/task.status $state/task.turn-ended" || fail "second signal append failed"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "dedupe drain failed"
+  owned_wake "$state" "$DRAIN" > "$out" || fail "dedupe drain failed"
   count=$(awk 'NF { count++ } END { print count + 0 }' "$out")
-  [ "$count" -eq 2 ] || fail "expected 2 deduped records, got $count"
+  [ "$count" -eq 3 ] || fail "expected one heartbeat and both signal transitions, got $count"
   grep "$(printf '\theartbeat\theartbeat\theartbeat')" "$out" >/dev/null || fail "heartbeat was not preserved"
+  [ "$(grep -c "$(printf '\tsignal\ttask.status\t')" "$out")" -eq 2 ] || fail "both signal transitions were not preserved"
   grep "$(printf '\tsignal\ttask.status\t')" "$out" | grep -F "$state/task.turn-ended" >/dev/null || fail "latest signal payload was not preserved"
-  pass "drain collapses obvious duplicate heartbeat and signal records"
+  pass "drain coalesces heartbeat noise and retains each critical signal transition"
 }
 
 # The drain runs at the top of every wake-handling turn, so it also asserts
@@ -223,11 +254,11 @@ test_drain_asserts_watcher_liveness() {
   state="$dir/state"
   err="$dir/drain.err"
   printf 'window=test:mx-x\nkind=delivery\n' > "$state/x.meta"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || fail "drain failed while asserting liveness"
+  owned_wake "$state" "$DRAIN" >/dev/null 2> "$err" || fail "drain failed while asserting liveness"
   grep -F 'WATCHER DOWN' "$err" >/dev/null || fail "drain did not surface the watcher-down banner with work in flight and no live watcher"
   : > "$err"
   touch "$state/.last-watcher-beat"
-  MX_STATE_OVERRIDE="$state" MX_GUARD_GRACE=300 "$DRAIN" >/dev/null 2> "$err" || fail "drain failed with a fresh beacon"
+  MX_GUARD_GRACE=300 owned_wake "$state" "$DRAIN" >/dev/null 2> "$err" || fail "drain failed with a fresh beacon"
   if grep -F 'WATCHER DOWN' "$err" >/dev/null; then
     fail "drain false-alarmed right after a normal fire (fresh beacon within grace)"
   fi
@@ -273,7 +304,7 @@ SH
 
   MX_STATE_OVERRIDE="$state" bash -c '. "$1"; mx_wake_print_deduped "$2"' _ \
     "$ROOT/bin/mx-wake-lib.sh" "$state/.wake-queue" > "$expected"
-  PATH="$dir/fakebin:$PATH" MX_STATE_OVERRIDE="$state" MX_WAKE_ENRICH_SWAP_PATH="$state/task.status" \
+  owned_wake "$state" env PATH="$dir/fakebin:$PATH" MX_WAKE_ENRICH_SWAP_PATH="$state/task.status" \
     MX_WAKE_ENRICH_SWAP_TARGET="$outside" MX_WAKE_ENRICH_REAL_PERL="$perl_bin" "$DRAIN" > "$out" \
     || fail "structural enrichment drain failed"
   awk -F '\t' 'NF == 5 { print }' "$out" > "$actual"
@@ -324,7 +355,7 @@ SH
   chmod 000 "$state/unreadable.status"
   append_wake "$state" signal unreadable.status "signal: unreadable" || fail "unreadable status wake append failed"
 
-  PATH="$dir/fakebin:$PATH" MX_STATE_OVERRIDE="$state" MX_WAKE_ENRICH_PERL_LOG="$fake_perl_log" \
+  owned_wake "$state" env PATH="$dir/fakebin:$PATH" MX_WAKE_ENRICH_PERL_LOG="$fake_perl_log" \
     MX_WAKE_ENRICH_REAL_PERL="$perl_bin" "$DRAIN" > "$out" \
     || fail "capped enrichment drain failed"
   raw_count=$(awk -F '\t' 'NF == 5 { count++ } END { print count + 0 }' "$out")
@@ -367,7 +398,7 @@ test_slow_annotation_does_not_block_append_and_deleted_file_fails_open() {
   printf 'done: disappears before bounded read\n' > "$state/slow.status"
   append_wake "$state" signal slow.status "signal: slow" || fail "slow status wake append failed"
 
-  MX_STATE_OVERRIDE="$state" MX_WAKE_ENRICH_TEST_DELAY=3 "$DRAIN" > "$out1" &
+  owned_wake "$state" env MX_WAKE_ENRICH_TEST_DELAY=3 "$DRAIN" > "$out1" &
   pid=$!
   wait_for_file_text "$out1" "$(printf '\tsignal\tslow.status\t')" \
     || { kill "$pid" 2>/dev/null || true; fail "slow drain did not commit its raw row"; }
@@ -380,13 +411,13 @@ test_slow_annotation_does_not_block_append_and_deleted_file_fails_open() {
   if grep -F ': slow.status:' "$out1" >/dev/null; then
     fail "status deleted during annotation still produced an annotation"
   fi
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$out2" || fail "follow-up drain after concurrent append failed"
+  owned_wake "$state" "$DRAIN" > "$out2" || fail "follow-up drain after concurrent append failed"
   grep -F "$(printf '\tsignal\tnext.status\t')" "$out2" >/dev/null || fail "concurrent append was not left for the next drain"
   pass "slow annotation releases the append lock and a deleted status file fails open"
 }
 
 test_interruption_before_and_after_raw_commit() {
-  local dir state before_out after_out replay_out empty_out pid rc count i
+  local dir state before_out after_out replay_out empty_out script count
   dir=$(make_case interruption)
   state="$dir/state"
   before_out="$dir/before.out"
@@ -396,37 +427,43 @@ test_interruption_before_and_after_raw_commit() {
   printf 'done: interruption fixture\n' > "$state/task.status"
   append_wake "$state" signal task.status "signal: task" || fail "pre-commit interruption wake append failed"
 
-  MX_STATE_OVERRIDE="$state" MX_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT=5 "$DRAIN" > "$before_out" &
-  pid=$!
+  script="$dir/interrupt-drain.sh"
+  cat > "$script" <<'SH'
+#!/usr/bin/env bash
+set -u
+mode=$1 state=$2 drain=$3 output=$4
+if [ "$mode" = before ]; then
+  MX_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT=5 "$drain" > "$output" &
+  child=$!
+  sleep 0.1
+  kill -0 "$child" 2>/dev/null || exit 8
+else
+  MX_WAKE_ENRICH_TEST_DELAY=5 "$drain" > "$output" &
+  child=$!
   i=0
-  while [ "$i" -lt 100 ] && ! compgen -G "$state/.wake-queue.drain.*" >/dev/null; do
-    sleep 0.05
-    i=$((i + 1))
+  while [ "$i" -lt 100 ] && ! grep -F "$(printf '\tsignal\ttask.status\t')" "$output" >/dev/null 2>&1; do
+    sleep 0.05; i=$((i + 1))
   done
-  compgen -G "$state/.wake-queue.drain.*" >/dev/null || { kill "$pid" 2>/dev/null || true; fail "pre-commit drain never rotated the queue"; }
-  kill -TERM "$pid" 2>/dev/null || fail "could not interrupt drain before raw commitment"
-  set +e
-  wait "$pid"
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "pre-commit interruption unexpectedly succeeded"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$replay_out" || fail "restored pre-commit wake did not drain"
+  grep -F "$(printf '\tsignal\ttask.status\t')" "$output" >/dev/null 2>&1 || { kill "$child" 2>/dev/null || true; exit 9; }
+fi
+kill -TERM "$child" 2>/dev/null || exit 10
+wait "$child" 2>/dev/null
+[ "$?" -ne 0 ]
+SH
+  chmod +x "$script"
+  owned_wake_retain "$state" "$script" before "$state" "$DRAIN" "$before_out" \
+    || fail "pre-commit interruption fixture failed"
+  owned_wake "$state" "$DRAIN" > "$replay_out" || fail "restored pre-commit wake did not drain"
   count=$(awk -F '\t' 'NF == 5 { count++ } END { print count + 0 }' "$replay_out")
   [ "$count" -eq 1 ] || fail "pre-commit interruption lost or duplicated the restored row"
 
   append_wake "$state" signal task.status "signal: task after commit" || fail "post-commit interruption wake append failed"
-  MX_STATE_OVERRIDE="$state" MX_WAKE_ENRICH_TEST_DELAY=5 "$DRAIN" > "$after_out" &
-  pid=$!
-  wait_for_file_text "$after_out" "$(printf '\tsignal\ttask.status\t')" \
-    || { kill "$pid" 2>/dev/null || true; fail "post-commit drain did not print its raw row"; }
-  kill -TERM "$pid" 2>/dev/null || fail "could not interrupt drain after raw commitment"
-  set +e
-  wait "$pid"
-  set -e
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$empty_out" || fail "drain after post-commit interruption failed"
+  owned_wake_retain "$state" "$script" after "$state" "$DRAIN" "$after_out" \
+    || fail "post-commit interruption fixture failed"
+  owned_wake "$state" "$DRAIN" > "$empty_out" || fail "drain after post-commit interruption failed"
   count=$(awk -F '\t' 'NF == 5 { count++ } END { print count + 0 }' "$after_out" "$empty_out")
-  [ "$count" -eq 1 ] || fail "post-commit interruption restored or duplicated the consumed row"
-  pass "interruptions restore before commitment and never replay after raw commitment"
+  [ "$count" -eq 2 ] || fail "post-commit display crash did not produce exactly one abandoned-claim replay"
+  pass "interruptions restore before commitment and replay an unhandled committed claim once"
 }
 
 test_concurrent_append_and_drain
@@ -435,7 +472,8 @@ test_stale_enqueue_before_suppressor
 test_not_working_stale_enqueue_before_suppressor
 test_check_output_is_queued
 test_atomic_double_drain
-test_drain_dedupes_obvious_duplicates
+test_same_owner_concurrent_claim_and_explicit_ack
+test_drain_coalesces_heartbeat_but_retains_transition_events
 test_drain_asserts_watcher_liveness
 test_structural_signal_enrichment_preserves_raw_rows
 test_enrichment_caps_and_status_file_failures
