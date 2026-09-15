@@ -97,7 +97,10 @@ The macOS Phase 03 spawn fixture and shared legacy shell fixture boundary sample
 They now supply deterministic capacity inputs while retaining canonical immediate admission and receipt handling; the dedicated headroom suite continues to own real and unreadable signal behavior.
 The two macOS Phase 03 spawn failures pass in simultaneous focused runs, and the six portable shard failures pass together with six-way concurrency.
 The previously failing instrumented session-start process-liveness suite also passes against the instrumented binary after the shared fixture correction.
-The refreshed full workspace Rust suite, strict Clippy, formatting, ShellCheck, headroom and split-parity checks pass locally; hosted CI must confirm the pushed correction.
+The refreshed full workspace Rust suite, strict Clippy, formatting, ShellCheck, headroom and split-parity checks pass locally.
+Replacement hosted CI run `35013046165` passed ten of eleven jobs, including both platform Rust jobs and every behavior lane; its coverage job alone failed after the instrumented suite delayed the cooperative process-fixture cleanup beyond that test's one-second grace period.
+That test-only fixture now allows five seconds for readiness and cooperative cleanup without changing the production cleanup implementation, coverage exclusions or the 93 percent threshold.
+The exact normal and LLVM-instrumented cooperative cleanup checks, the complete `multplx-test-support` library suite, formatting and `git diff --check` pass after the correction; hosted CI must confirm the latest commit.
 
 The eight full-suite skips are the real cmux smoke, Claude stop/autoarm, Codex continuity, Cursor live, launcher live, Pi primary live, Pi strict types and Herdr daemon-marker fixtures.
 Their skips are preserved as skips rather than counted as live evidence.
