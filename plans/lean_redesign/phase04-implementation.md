@@ -5,6 +5,8 @@
 Status: complete under the user-approved acceptance scope; implementation, repository validation and live Codex CLI verification pass, with other provider trials deferred.
 Work started on 2026-09-15 on `lean-redesign-phase-04` from `bee67f6`, the merged Phase 03 prerequisite.
 The checkout was clean when the branch was created.
+Implementation commit: `fb307a3`.
+Review: [Phase 04 PR #40](https://github.com/KashyapTan/Multplx/pull/40).
 The [phase plan](04-free-delegation-and-coordination.html) allocates this work and [porting.md](../../porting.md#accepted-architecture-contract) owns the shared contracts.
 
 On 2026-09-15 the user explicitly accepted Codex and Codex CLI verification for this phase and deferred live testing of the other supported providers until after all phases are implemented.
