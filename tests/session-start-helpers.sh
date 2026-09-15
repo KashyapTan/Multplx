@@ -300,7 +300,9 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"workspaces":[{"workspace_id":"ws1","label":"daemon-%s"}]}}\n' "$mate_id"
     ;;
   "tab list")
-    if [ -e "$spawned" ]; then
+    if [ "${MX_FIXTURE_INITIAL:-0}" = 1 ] && [ ! -e "$spawned" ]; then
+      printf '%s\n' '{"result":{"tabs":[]}}'
+    elif [ -e "$spawned" ]; then
       printf '{"result":{"tabs":[{"tab_id":"t-new","workspace_id":"ws1","label":"mx-%s"}]}}\n' "$mate_id"
     elif [ -e "$killed" ]; then
       printf '%s\n' '{"result":{"tabs":[]}}'
@@ -310,6 +312,10 @@ case "${1:-} ${2:-}" in
     ;;
   "tab create")
     : > "$spawned"
+    if [ "${MX_FIXTURE_INITIAL:-0}" = 1 ]; then
+      printf '%s\n' '{"result":{"tab":{"tab_id":"t-old"},"root_pane":{"pane_id":"p-old"}}}'
+      exit 0
+    fi
     printf '%s\n' '{"result":{"tab":{"tab_id":"t-new"},"root_pane":{"pane_id":"p-new"}}}'
     ;;
   "pane list")
@@ -407,16 +413,18 @@ EOF
   printf '%s\n' pi > "$home/config/daemon-harness"
   printf '%s\n' manual > "$home/config/backlog-backend"
   touch "$home/state/.last-watcher-beat"
-  {
-    printf 'window=broker:mx-%s\n' "$id"
-    printf 'kind=daemon\n'
-    printf 'harness=pi\n'
-    printf 'home=%s\n' "$mate"
-  } > "$home/state/$id.meta"
   ln -s "$ROOT/bin" "$root/bin"
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   make_fake_tmux_daemon_recovery "$fakebin"
+  : > "$log"
+  MX_BACKEND=tmux MX_FAKE_TMUX_MODE=missing MX_FAKE_TMUX_LOG="$log" \
+    MX_FAKE_TMUX_SPAWNED="$spawned" MX_FAKE_DAEMON_HOME="$mate" \
+    MX_FAKE_DAEMON_ID="$id" MX_HOME="$home" MX_ROOT_OVERRIDE="$root" \
+    MX_SPAWN_NO_GUARD=1 PATH="$fakebin:$BASE_PATH" \
+    "$ROOT/bin/mx-spawn.sh" "$id" "$mate" pi --daemon > "$w/initial-spawn.out" 2>&1 \
+    || fail "canonical recovery fixture launch failed: $(cat "$w/initial-spawn.out")"
+  rm -f "$spawned" "${spawned}.killed"
   : > "$log"
   printf '%s|%s|%s|%s|%s|%s\n' "$root" "$home" "$fakebin" "$mate" "$log" "$spawned"
 }
@@ -447,21 +455,17 @@ EOF
   printf '%s\n' pi > "$home/config/daemon-harness"
   printf '%s\n' manual > "$home/config/backlog-backend"
   touch "$home/state/.last-watcher-beat"
-  {
-    printf 'window=default:p-old\n'
-    printf 'kind=daemon\n'
-    printf 'harness=pi\n'
-    printf 'home=%s\n' "$mate"
-    printf 'backend=herdr\n'
-    printf 'herdr_session=default\n'
-    printf 'herdr_workspace_id=ws1\n'
-    printf 'herdr_tab_id=t-old\n'
-    printf 'herdr_pane_id=p-old\n'
-  } > "$home/state/$id.meta"
   ln -s "$ROOT/bin" "$root/bin"
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   make_fake_herdr_daemon_recovery "$fakebin"
+  : > "$log"
+  MX_BACKEND=herdr MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" \
+    MX_FAKE_DAEMON_ID="$id" MX_FIXTURE_INITIAL=1 MX_HOME="$home" MX_ROOT_OVERRIDE="$root" \
+    MX_SPAWN_NO_GUARD=1 PATH="$fakebin:$BASE_PATH" \
+    "$ROOT/bin/mx-spawn.sh" "$id" "$mate" pi --daemon > "$w/initial-spawn.out" 2>&1 \
+    || fail "canonical Herdr recovery fixture launch failed: $(cat "$w/initial-spawn.out")"
+  rm -f "${state}.spawned" "${state}.killed"
   : > "$log"
   printf '%s|%s|%s|%s|%s|%s\n' "$root" "$home" "$fakebin" "$mate" "$log" "$state"
 }

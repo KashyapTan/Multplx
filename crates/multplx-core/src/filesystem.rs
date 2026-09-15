@@ -205,6 +205,266 @@ pub fn cleanup_regular(path: impl AsRef<Path>) -> Result<()> {
     }
 }
 
+/// One compare-and-replace step. The final step is the authoritative publication.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TransitionWrite {
+    pub path: std::path::PathBuf,
+    pub before: Option<Vec<u8>>,
+    pub after: Vec<u8>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransitionReceipt {
+    version: u32,
+    operation: String,
+    writes: Vec<TransitionWrite>,
+    progress: usize,
+    committed: bool,
+}
+
+/// Interruption points include the write/progress gap and the commit/receipt gap.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransitionFault {
+    BeforeIntent,
+    AfterIntent,
+    AfterWrite(usize),
+    AfterProgress(usize),
+    AfterCommit,
+}
+
+fn transition_error(reason: &'static str) -> CoreError {
+    CoreError::MalformedRecord {
+        kind: "filesystem transition",
+        reason,
+    }
+}
+
+fn receipt_bytes(receipt: &TransitionReceipt) -> Result<Vec<u8>> {
+    serde_json::to_vec(receipt).map_err(|_| transition_error("cannot encode receipt"))
+}
+
+/// Read exact durable intent for caller comparison before an explicit recovery.
+pub fn read_transition_writes(root: &Path, operation: &str) -> Result<Vec<TransitionWrite>> {
+    if operation.is_empty()
+        || !operation
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        || matches!(operation, "." | "..")
+    {
+        return Err(transition_error("invalid operation identity"));
+    }
+    if fs::symlink_metadata(root.join(".transitions"))
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    {
+        return Err(transition_error("transition directory is a symlink"));
+    }
+    let receipt: TransitionReceipt = serde_json::from_slice(&read_bounded_regular(
+        root.join(".transitions").join(format!("{operation}.json")),
+        16 * 1024 * 1024,
+    )?)
+    .map_err(|_| transition_error("malformed durable intent"))?;
+    if receipt.operation != operation
+        || receipt.version != 1
+        || receipt.writes.is_empty()
+        || receipt.progress > receipt.writes.len()
+        || (receipt.committed && receipt.progress != receipt.writes.len())
+    {
+        return Err(transition_error("incompatible or corrupt receipt"));
+    }
+    Ok(receipt.writes)
+}
+/// Explicit recovery reuses recorded compare-and-replace intent, never new bytes.
+pub fn recover_transition(root: &Path, operation: &str) -> Result<()> {
+    let writes = read_transition_writes(root, operation)?;
+    recoverable_transition(root, operation, &writes, None)
+}
+
+/// Apply or resume a durable operation under a short filesystem lock.
+///
+/// Intent precedes all writes. Earlier steps are preparatory; the last atomic
+/// replacement is the acceptance point. Readers consume the final record, never
+/// the receipt as independent state. A crash after any write is recovered by
+/// comparing its exact before/after bytes. Conflicts retain intent for explicit
+/// reconciliation. No external execution occurs while this lock is held.
+/// Reusing an operation ID with different intent is always an error.
+pub fn recoverable_transition(
+    root: &Path,
+    operation: &str,
+    writes: &[TransitionWrite],
+    fault: Option<TransitionFault>,
+) -> Result<()> {
+    if operation.is_empty()
+        || !operation
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        || matches!(operation, "." | "..")
+        || writes.is_empty()
+    {
+        return Err(transition_error(
+            "invalid operation identity or empty write set",
+        ));
+    }
+    let _lock = crate::locks::DirectoryLock::try_acquire(
+        root.join(".transition.lock"),
+        &crate::process::SystemProcessProbe::default(),
+    )?;
+    let directory = root.join(".transitions");
+    fs::create_dir_all(&directory)
+        .map_err(|e| CoreError::io("create transition directory", &directory, e))?;
+    if fs::symlink_metadata(&directory)
+        .map_err(|e| CoreError::io("inspect transition directory", &directory, e))?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(transition_error("transition directory is a symlink"));
+    }
+    File::open(root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| CoreError::io("flush transition parent", root, error))?;
+    let mut seen = std::collections::BTreeSet::new();
+    for write in writes {
+        if !seen.insert(write.path.clone())
+            || write.path.as_os_str().is_empty()
+            || write
+                .path
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+            || write.path.starts_with(".transitions")
+            || write.path == Path::new(".transition.lock")
+        {
+            return Err(transition_error(
+                "write targets must be unique confined record paths",
+            ));
+        }
+        let mut current = root.to_path_buf();
+        for component in write.path.components() {
+            current.push(component);
+            if fs::symlink_metadata(&current).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(transition_error("write target traverses a symlink"));
+            }
+        }
+    }
+    let receipt_path = directory.join(format!("{operation}.json"));
+    // An unfinished overlapping operation owns its records until reconciled.
+    for entry in fs::read_dir(&directory)
+        .map_err(|e| CoreError::io("read transition directory", &directory, e))?
+    {
+        let path = entry
+            .map_err(|e| CoreError::io("read transition entry", &directory, e))?
+            .path();
+        if path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        if path == receipt_path {
+            continue;
+        }
+        let other: TransitionReceipt =
+            serde_json::from_slice(&read_bounded_regular(&path, 16 * 1024 * 1024)?)
+                .map_err(|_| transition_error("unreadable pending receipt"))?;
+        if other.version != 1
+            || other.writes.is_empty()
+            || other.progress > other.writes.len()
+            || (other.committed && other.progress != other.writes.len())
+        {
+            return Err(transition_error("incompatible or corrupt receipt"));
+        }
+        if !other.committed && other.writes.iter().any(|w| seen.contains(&w.path)) {
+            return Err(transition_error(
+                "overlapping unfinished transition requires reconciliation",
+            ));
+        }
+    }
+    let mut receipt = if receipt_path.exists() {
+        let receipt: TransitionReceipt =
+            serde_json::from_slice(&read_bounded_regular(&receipt_path, 16 * 1024 * 1024)?)
+                .map_err(|_| transition_error("malformed intent"))?;
+        if receipt.version != 1
+            || receipt.progress > writes.len()
+            || (receipt.committed && receipt.progress != writes.len())
+            || receipt.operation != operation
+            || receipt.writes != writes
+        {
+            return Err(transition_error(
+                "operation identity conflicts with durable intent",
+            ));
+        }
+        receipt
+    } else {
+        for write in writes {
+            let actual = match read_bounded_regular(root.join(&write.path), 16 * 1024 * 1024) {
+                Ok(bytes) => Some(bytes),
+                Err(CoreError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    None
+                }
+                Err(error) => return Err(error),
+            };
+            if actual != write.before {
+                return Err(transition_error("revision changed before intent"));
+            }
+        }
+        if fault == Some(TransitionFault::BeforeIntent) {
+            return Err(transition_error("injected before intent"));
+        }
+        let receipt = TransitionReceipt {
+            version: 1,
+            operation: operation.into(),
+            writes: writes.to_vec(),
+            progress: 0,
+            committed: false,
+        };
+        atomic_replace(&receipt_path, &receipt_bytes(&receipt)?, 0o600)?;
+        receipt
+    };
+    if receipt.committed {
+        return Ok(());
+    }
+    for write in writes.iter().take(receipt.progress) {
+        if read_bounded_regular(root.join(&write.path), 16 * 1024 * 1024)? != write.after {
+            return Err(transition_error(
+                "completed preparatory record diverged; intent retained",
+            ));
+        }
+    }
+    if fault == Some(TransitionFault::AfterIntent) {
+        return Err(transition_error("injected after intent"));
+    }
+    for (index, write) in writes.iter().enumerate().skip(receipt.progress) {
+        let target = root.join(&write.path);
+        let actual = match read_bounded_regular(&target, 16 * 1024 * 1024) {
+            Ok(bytes) => Some(bytes),
+            Err(CoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                None
+            }
+            Err(error) => return Err(error),
+        };
+        if actual.as_deref() != Some(write.after.as_slice()) {
+            if actual != write.before {
+                return Err(transition_error(
+                    "record diverged; unfinished intent retained",
+                ));
+            }
+            atomic_replace(&target, &write.after, 0o600)?;
+        }
+        if fault == Some(TransitionFault::AfterWrite(index)) {
+            return Err(transition_error("injected after write"));
+        }
+        receipt.progress = index + 1;
+        atomic_replace(&receipt_path, &receipt_bytes(&receipt)?, 0o600)?;
+        if fault == Some(TransitionFault::AfterProgress(index)) {
+            return Err(transition_error("injected after progress"));
+        }
+    }
+    if fault == Some(TransitionFault::AfterCommit) {
+        return Err(transition_error("injected after authoritative commit"));
+    }
+    receipt.committed = true;
+    atomic_replace(receipt_path, &receipt_bytes(&receipt)?, 0o600)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -302,5 +562,110 @@ mod tests {
         let directory = real.join("directory");
         fs::create_dir(&directory).expect("directory destination");
         assert!(atomic_replace(&directory, b"bytes", 0o600).is_err());
+    }
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use super::*;
+    fn writes() -> Vec<TransitionWrite> {
+        vec![
+            TransitionWrite {
+                path: "artifact".into(),
+                before: None,
+                after: b"retained result".to_vec(),
+            },
+            TransitionWrite {
+                path: "task.meta".into(),
+                before: Some(b"old".to_vec()),
+                after: b"new".to_vec(),
+            },
+        ]
+    }
+    #[test]
+    fn every_transition_boundary_recovers_once() {
+        for fault in [
+            TransitionFault::BeforeIntent,
+            TransitionFault::AfterIntent,
+            TransitionFault::AfterWrite(0),
+            TransitionFault::AfterProgress(0),
+            TransitionFault::AfterWrite(1),
+            TransitionFault::AfterProgress(1),
+            TransitionFault::AfterCommit,
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            fs::write(temp.path().join("task.meta"), b"old").unwrap();
+            assert!(recoverable_transition(temp.path(), "op-1", &writes(), Some(fault)).is_err());
+            recoverable_transition(temp.path(), "op-1", &writes(), None).unwrap();
+            recoverable_transition(temp.path(), "op-1", &writes(), None).unwrap();
+            assert_eq!(fs::read(temp.path().join("task.meta")).unwrap(), b"new");
+            assert_eq!(
+                fs::read(temp.path().join("artifact")).unwrap(),
+                b"retained result"
+            );
+            let receipt: TransitionReceipt = serde_json::from_slice(
+                &fs::read(temp.path().join(".transitions/op-1.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(receipt.committed);
+            assert_eq!(receipt.progress, 2);
+        }
+    }
+    #[test]
+    fn unfinished_operations_retain_conflicts_and_block_overlapping_writers() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("task.meta"), b"old").unwrap();
+        assert!(
+            recoverable_transition(
+                temp.path(),
+                "op-1",
+                &writes(),
+                Some(TransitionFault::AfterProgress(0))
+            )
+            .is_err()
+        );
+        assert!(recoverable_transition(temp.path(), "op-2", &writes(), None).is_err());
+        fs::write(temp.path().join("artifact"), b"foreign").unwrap();
+        assert!(recoverable_transition(temp.path(), "op-1", &writes(), None).is_err());
+        assert_eq!(fs::read(temp.path().join("task.meta")).unwrap(), b"old");
+        assert!(temp.path().join(".transitions/op-1.json").exists());
+    }
+    #[test]
+    fn stable_intent_rejects_changed_operations_and_corrupt_receipts() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("task.meta"), b"old").unwrap();
+        assert!(
+            recoverable_transition(
+                temp.path(),
+                "op-1",
+                &writes(),
+                Some(TransitionFault::AfterIntent)
+            )
+            .is_err()
+        );
+        let mut changed = writes();
+        changed[1].after = b"different".to_vec();
+        assert!(recoverable_transition(temp.path(), "op-1", &changed, None).is_err());
+        let path = temp.path().join(".transitions/op-1.json");
+        let mut receipt: TransitionReceipt =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        receipt.progress = 3;
+        fs::write(path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        assert!(recoverable_transition(temp.path(), "op-1", &writes(), None).is_err());
+    }
+    #[test]
+    fn transition_paths_refuse_aliasing_and_symlinks() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("task.meta"), b"old").unwrap();
+        let mut invalid = writes();
+        invalid[0].path = "../outside".into();
+        assert!(recoverable_transition(temp.path(), "op", &invalid, None).is_err());
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), temp.path().join("linked")).unwrap();
+        invalid[0].path = "linked/artifact".into();
+        assert!(recoverable_transition(temp.path(), "op", &invalid, None).is_err());
+        assert!(!outside.path().join("artifact").exists());
+        invalid[0].path = "task.meta".into();
+        assert!(recoverable_transition(temp.path(), "op", &invalid, None).is_err());
     }
 }

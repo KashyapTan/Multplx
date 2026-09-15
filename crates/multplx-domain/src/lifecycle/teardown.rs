@@ -110,6 +110,13 @@ fn require_owned_directory(path: &Path, label: &str) -> Result<PathBuf, String> 
 }
 
 fn metadata(path: &Path) -> Result<BTreeMap<String, String>, String> {
+    metadata_for_retirement(path, false)
+}
+
+fn metadata_for_retirement(
+    path: &Path,
+    allow_retained_checkout: bool,
+) -> Result<BTreeMap<String, String>, String> {
     let bytes = read_regular(path, "task metadata")?;
     let text =
         String::from_utf8(bytes).map_err(|_| "task metadata is not valid UTF-8".to_owned())?;
@@ -118,7 +125,47 @@ fn metadata(path: &Path) -> Result<BTreeMap<String, String>, String> {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
-        values.insert(key.to_owned(), value.to_owned());
+        if values.insert(key.to_owned(), value.to_owned()).is_some() {
+            return Err(format!("REFUSED: duplicate task metadata field {key}"));
+        }
+    }
+    if values.contains_key("canonical_model")
+        || values.get("schema_version").is_some_and(|v| v != "1")
+    {
+        let id = path
+            .file_stem()
+            .and_then(|v| v.to_str())
+            .ok_or("invalid canonical task metadata filename")?;
+        let record = super::subagent_model::read_meta(id, &text)?;
+        let owner = record
+            .owner_home
+            .as_deref()
+            .ok_or("canonical cleanup owner home missing")?;
+        let expected_state = record
+            .owner_state
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| Path::new(owner).join("state"));
+        if fs::canonicalize(path.parent().ok_or("task metadata parent missing")?).ok()
+            != fs::canonicalize(expected_state).ok()
+        {
+            return Err("REFUSED: canonical task cleanup owner state does not match".into());
+        }
+        if let Some(project) = &record.project {
+            crate::project_registry::validate_binding(Path::new(owner), project)?;
+        }
+        // Only the explicit override path may inspect a retained primary
+        // checkout. Its reservation is verified below and no checkout deletion
+        // occurs there; ordinary and recursive cleanup retain the guard.
+        if let Some(worktree) = values.get("worktree")
+            && !(allow_retained_checkout
+                && values.get("single_checkout").map(String::as_str) == Some("yes"))
+        {
+            crate::project_registry::protect_borrowed_checkouts(
+                Path::new(owner),
+                Path::new(worktree),
+            )?;
+        }
     }
     Ok(values)
 }
@@ -133,6 +180,7 @@ fn validate_removal_target(
     label: &str,
 ) -> Result<PathBuf, String> {
     let target = resolved(target);
+    crate::project_registry::protect_borrowed_checkouts(&context.home, &target)?;
     let active = resolved(&context.home);
     let root = resolved(&context.root);
     let reason = if target == Path::new("/") {
@@ -530,6 +578,14 @@ fn content_in_default(worktree: &Path, project: &Path) -> bool {
     merged_tree.lines().next() == Some(default_tree.as_str())
 }
 
+fn persistent_metadata(id: &str, values: &BTreeMap<String, String>) -> Result<bool, String> {
+    let text = values
+        .iter()
+        .map(|(key, value)| format!("{key}={value}\n"))
+        .collect::<String>();
+    super::subagent_model::read_meta(id, &text).map(|record| record.persistent)
+}
+
 fn validate_worktree_safety(
     context: &Context,
     id: &str,
@@ -537,7 +593,11 @@ fn validate_worktree_safety(
     worktree: &Path,
     project: &Path,
 ) -> Result<(), String> {
-    if values.get("kind").map(String::as_str) == Some("scout") {
+    // Legacy scout scratch semantics are a bounded reader only. Canonical
+    // report assignments retain any code or publication work like every sub-agent.
+    if !values.contains_key("canonical_model")
+        && values.get("kind").map(String::as_str) == Some("scout")
+    {
         return Ok(());
     }
     let ready = context.state.join(format!("{id}.ready-to-push"));
@@ -796,8 +856,7 @@ fn validate_children(context: &Context, home: &Path) -> Result<Vec<PathBuf>, Str
         TaskId::parse(&child_id).map_err(|_| "child task metadata has an invalid id")?;
         validate_pr_artifacts(&state, &child_id)?;
         let values = metadata(&entry.path())?;
-        let kind = values.get("kind").map(String::as_str).unwrap_or("delivery");
-        if kind == "daemon" {
+        if persistent_metadata(&child_id, &values)? {
             let child_home = values
                 .get("home")
                 .filter(|value| !value.is_empty())
@@ -894,7 +953,7 @@ where
             .to_owned();
         let values = metadata(&meta_path)?;
         kill(&meta_path)?;
-        if values.get("kind").map(String::as_str) == Some("daemon") {
+        if persistent_metadata(&child_id, &values)? {
             let child_home = values
                 .get("home")
                 .filter(|value| !value.is_empty())
@@ -1040,6 +1099,8 @@ fn remove_home_with(context: &Context, home: &Path, treehouse: &OsStr) -> Result
     if !home.exists() {
         return Ok(());
     }
+    crate::project_registry::protect_borrowed_checkouts(&context.home, home)?;
+    crate::project_registry::protect_borrowed_checkouts(home, home)?;
     if treehouse_slot(&context.root, home)? {
         let output = Command::new(treehouse)
             .args(["return".as_ref(), "--force".as_ref(), home.as_os_str()])
@@ -1391,7 +1452,7 @@ where
         .map_err(|error_value| format!("cannot acquire teardown lock: {error_value}"))?;
         recover(context, &mut kill)?;
         let meta = context.state.join(format!("{id}.meta"));
-        let values = metadata(&meta)?;
+        let values = metadata_for_retirement(&meta, true)?;
         if values.get("kind").map(String::as_str).unwrap_or("delivery") != "daemon" {
             validate_pr_artifacts(&context.state, id)?;
             let raw_worktree = values
@@ -1402,8 +1463,12 @@ where
                 .get("project")
                 .filter(|value| !value.is_empty())
                 .ok_or("task metadata has no project")?;
-            kill(&meta)?;
-            if values.get("single_checkout").map(String::as_str) == Some("yes") {
+            let retained_checkout =
+                values.get("single_checkout").map(String::as_str) == Some("yes");
+            if !retained_checkout {
+                kill(&meta)?;
+            }
+            if retained_checkout {
                 let worktree = require_owned_directory(Path::new(raw_worktree), "task worktree")?;
                 let project = require_owned_directory(Path::new(raw_project), "task project")?;
                 if worktree != project {
@@ -1437,6 +1502,7 @@ where
                         "REFUSED: single-checkout reservation ownership mismatch".to_owned()
                     );
                 }
+                kill(&meta)?;
                 fs::remove_file(&record).map_err(|error_value| error_value.to_string())?;
             } else if Path::new(raw_worktree).exists() {
                 let worktree = require_owned_directory(Path::new(raw_worktree), "task worktree")?;

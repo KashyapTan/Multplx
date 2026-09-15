@@ -5,6 +5,7 @@ The release `mx` binary owns production command behavior.
 Executable command paths are host-required or compatibility transports and must not parse domain records, decide policy, lock state, or orchestrate lifecycle.
 Sourced library files preserve explicitly inventoried compatibility ABIs, but they are not production command owners.
 Each row is one purpose clause only; the release command's `--help` output and named Rust module are authoritative for behavior, flags, and contracts.
+The native `mx project` and `mx task-model` commands expose the [versioned sub-agent and project owners](subagent-model.md) without adding shell adapters.
 If you have changed away from the Multplx home in an interactive shell, invoke these scripts by absolute path through the repo's `bin/` directory; the scripts self-locate internally after they start.
 The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#deep-review-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; the Rust lifecycle command owns the exact refusal contract.
 
@@ -35,7 +36,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-workflow.sh`         | Validate, launch, inspect, reconcile, abort, and dry-run linear workflow definitions |
 | `mx-upstream-diff.sh`    | Fetch upstream into a private review artifact, classify touched paths, render the report, and advance the validated review cursor |
 | `mx-decision-hold.sh`    | Create, verify, complete, and resolve durable maintainer-held decisions                 |
-| `mx-brief.sh`            | Scaffold delivery, scout, daemon-charter, and Herdr-lab briefs                       |
+| `mx-brief.sh`            | Scaffold common role/output assignments, persistent charters and Herdr-lab briefs |
 | `mx-herdr-lab.sh`        | Provision and guardedly operate an isolated, never-default Herdr lab session         |
 | `mx-install-herdr.sh`    | Install CI's exact-version Herdr pin with official asset URL, SHA-256, and protocol checks |
 | `mx-install-treehouse.sh`| Install CI's exact-version Treehouse pin for real-Herdr E2E that needs spawn worktrees |

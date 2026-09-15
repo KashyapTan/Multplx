@@ -1,4 +1,4 @@
-//! Persistent daemon-home validation and transactional seeding.
+//! Persistent sub-agent home validation and transactional seeding.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -19,9 +19,7 @@ use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use crate::project_registry::{DeliveryMode, resolve as resolve_project_mode};
-
-pub const USAGE: &str = "usage: mx-home-seed.sh <id> <home|-> {<project>...|--no-projects}\n       mx-home-seed.sh validate\n";
+pub const USAGE: &str = "Seed a persistent sub-agent home; ownership, routes, pinned settings and leases survive idle sessions.\nusage: mx home-seed <id> <home|-> {<project>...|--no-projects}\n       mx-home-seed.sh validate\n";
 
 const MARKER: &str = ".mx-daemon-home";
 const TRANSACTION_PREFIX: &str = ".home-seed.transaction.";
@@ -518,12 +516,6 @@ fn project_origin(context: &Context, project: &str) -> Result<(PathBuf, String),
         None,
     )
     .map_err(|_| format!("project {project} is not a git repo"))?;
-    let mode = resolve_project_mode(&context.data.join("projects.md"), project).mode;
-    if mode == DeliveryMode::LocalOnly {
-        return Err(format!(
-            "project {project} is local-only; daemon routes support only deep-review and direct-PR projects"
-        ));
-    }
     let origin = command(
         "git",
         &[
@@ -535,17 +527,9 @@ fn project_origin(context: &Context, project: &str) -> Result<(PathBuf, String),
         ],
         None,
     )
-    .map_err(|_| {
-        format!(
-            "project {project} is {} but has no origin remote",
-            mode.as_str()
-        )
-    })?;
+    .unwrap_or_default();
     if origin.is_empty() {
-        return Err(format!(
-            "project {project} is {} but has no origin remote",
-            mode.as_str()
-        ));
+        return Ok((source, String::new()));
     }
     let origin = normalized_origin(&source, &origin)
         .to_string_lossy()
@@ -1120,8 +1104,15 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
                         "origin".as_ref(),
                     ],
                     None,
-                )?;
-                if normalized_origin(&destination, &actual) != normalized_origin(&source, &origin) {
+                )
+                .unwrap_or_default();
+                if origin.is_empty() && !actual.is_empty() {
+                    return Err(format!("seeded project {project} has a conflicting origin"));
+                }
+                if !origin.is_empty()
+                    && normalized_origin(&destination, &actual)
+                        != normalized_origin(&source, &origin)
+                {
                     return Err(format!(
                         "seeded project {project} at {} has origin {actual}; expected {origin}",
                         destination.display()
@@ -1137,11 +1128,28 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
                     &[
                         "clone".as_ref(),
                         "--quiet".as_ref(),
-                        origin.as_ref(),
+                        if origin.is_empty() {
+                            source.as_os_str()
+                        } else {
+                            origin.as_ref()
+                        },
                         destination.as_os_str(),
                     ],
                     None,
                 )?;
+                if origin.is_empty() {
+                    command(
+                        "git",
+                        &[
+                            "-C".as_ref(),
+                            destination.as_os_str(),
+                            "remote".as_ref(),
+                            "remove".as_ref(),
+                            "origin".as_ref(),
+                        ],
+                        None,
+                    )?;
+                }
             }
         }
         injected("projects")?;

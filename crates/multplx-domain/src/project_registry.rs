@@ -1,4 +1,5 @@
-//! Read-only project delivery-mode resolution from `data/projects.md`.
+//! Versioned filesystem project/checkout ownership and immutable task bindings.
+//! The flat `projects.md` delivery reader remains a bounded legacy adapter.
 
 use std::fs;
 use std::path::Path;
@@ -204,4 +205,965 @@ mod tests {
         assert_eq!(DeliveryMode::DirectPr.as_str(), "direct-PR");
         assert_eq!(DeliveryMode::LocalOnly.as_str(), "local-only");
     }
+}
+
+/// Current filesystem project registry version. Discovery is a consumer, not an owner.
+pub const PROJECT_SCHEMA_VERSION: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CheckoutOwnership {
+    Managed,
+    UserOwned,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublicationDestination {
+    Local,
+    PullRequest,
+}
+
+/// Immutable task/request/attempt routing, captured before dispatch.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectBinding {
+    pub project_id: String,
+    pub checkout_id: String,
+    pub canonical_path: std::path::PathBuf,
+    pub checkout_identity: String,
+    pub common_git_dir: std::path::PathBuf,
+    pub common_git_identity: String,
+    pub starting_revision: String,
+    pub ownership: CheckoutOwnership,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckoutRecord {
+    pub checkout_id: String,
+    pub canonical_path: std::path::PathBuf,
+    pub checkout_identity: String,
+    pub common_git_dir: std::path::PathBuf,
+    pub ownership: CheckoutOwnership,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectRecord {
+    pub project_id: String,
+    pub display_name: String,
+    pub aliases: Vec<String>,
+    pub common_git_identity: String,
+    pub remote: Option<String>,
+    pub publication: PublicationDestination,
+    /// Only an explicitly selected review is recorded here; old registry modes do not opt in.
+    pub review: Option<String>,
+    pub checkouts: Vec<CheckoutRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectCatalog {
+    pub schema_version: u32,
+    pub projects: Vec<ProjectRecord>,
+}
+
+impl Default for ProjectCatalog {
+    fn default() -> Self {
+        Self {
+            schema_version: PROJECT_SCHEMA_VERSION,
+            projects: Vec::new(),
+        }
+    }
+}
+
+fn identity(path: &Path) -> Result<String, String> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata =
+        fs::metadata(path).map_err(|e| format!("cannot inspect {}: {e}", path.display()))?;
+    let created = metadata
+        .created()
+        .ok()
+        .and_then(|v| v.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|v| v.as_nanos());
+    Ok(format!("{}:{}:{created:?}", metadata.dev(), metadata.ino()))
+}
+
+fn stable_id(prefix: &str, value: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{prefix}-{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn git_value(path: &Path, args: &[&str]) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "Git {} at {}: {}",
+            args.join(" "),
+            path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\r', '\n'])
+        .to_owned())
+}
+
+fn inspect_checkout(path: &Path) -> Result<ProjectBinding, String> {
+    let selected = fs::canonicalize(path).map_err(|e| {
+        format!(
+            "checkout unavailable at {}: {e}; repair its recorded location",
+            path.display()
+        )
+    })?;
+    let canonical_path = fs::canonicalize(git_value(&selected, &["rev-parse", "--show-toplevel"])?)
+        .map_err(|e| e.to_string())?;
+    let common_git_dir = fs::canonicalize(git_value(
+        &canonical_path,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?)
+    .map_err(|e| e.to_string())?;
+    let checkout_identity = identity(&canonical_path)?;
+    let common_git_identity = identity(&common_git_dir)?;
+    let starting_revision = git_value(&canonical_path, &["rev-parse", "--verify", "HEAD^{commit}"]).map_err(|e| format!("checkout requires a named starting commit (unborn repositories cannot dispatch): {e}"))?;
+    Ok(ProjectBinding {
+        project_id: stable_id("project", &common_git_identity),
+        checkout_id: stable_id(
+            "checkout",
+            &format!("{common_git_identity}:{checkout_identity}"),
+        ),
+        canonical_path,
+        checkout_identity,
+        common_git_dir,
+        common_git_identity,
+        starting_revision,
+        ownership: CheckoutOwnership::UserOwned,
+    })
+}
+
+/// Read and structurally validate canonical identities, without probing or mutating checkout files.
+pub fn read_catalog(home: &Path) -> Result<ProjectCatalog, String> {
+    let path = home.join("data/projects.json");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ProjectCatalog::default());
+        }
+        Err(error) => return Err(error.to_string()),
+        Ok(_) => {}
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
+        .map_err(|e| e.to_string())?;
+    let catalog: ProjectCatalog =
+        serde_json::from_slice(&bytes).map_err(|e| format!("invalid project registry: {e}"))?;
+    catalog.validate()?;
+    Ok(catalog)
+}
+
+impl ProjectCatalog {
+    pub fn validate(&self) -> Result<(), String> {
+        use std::collections::HashSet;
+        if self.schema_version != PROJECT_SCHEMA_VERSION {
+            return Err("unsupported project registry version".to_owned());
+        }
+        let mut projects = HashSet::new();
+        let mut repositories = HashSet::new();
+        let mut checkouts = HashSet::new();
+        let mut paths = HashSet::new();
+        for project in &self.projects {
+            if project.project_id.is_empty()
+                || project.common_git_identity.is_empty()
+                || project.display_name.is_empty()
+                || project.checkouts.is_empty()
+                || !projects.insert(&project.project_id)
+                || !repositories.insert(&project.common_git_identity)
+            {
+                return Err("duplicate, empty or conflicting project identity".to_owned());
+            }
+            let mut aliases = HashSet::new();
+            if project
+                .aliases
+                .iter()
+                .any(|alias| alias.is_empty() || !aliases.insert(alias))
+            {
+                return Err("empty or duplicate project alias".to_owned());
+            }
+            for checkout in &project.checkouts {
+                if checkout.checkout_id.is_empty()
+                    || checkout.checkout_identity.is_empty()
+                    || !checkout.canonical_path.is_absolute()
+                    || !checkout.common_git_dir.is_absolute()
+                    || !checkouts.insert(&checkout.checkout_id)
+                    || !paths.insert(&checkout.canonical_path)
+                {
+                    return Err("duplicate, empty or conflicting checkout identity".to_owned());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Remember a local source; registration never changes branches, files or Git configuration.
+/// Ownership is explicit and cannot be upgraded by rediscovery of a borrowed checkout.
+pub fn register_project(
+    home: &Path,
+    path: &Path,
+    alias: Option<&str>,
+    ownership: CheckoutOwnership,
+) -> Result<ProjectBinding, String> {
+    register_project_at(
+        home,
+        &home.join("data"),
+        &home.join("projects"),
+        path,
+        alias,
+        ownership,
+    )
+}
+
+/// Preserve explicitly configured legacy source roots while keeping one canonical catalog owner.
+pub fn register_project_at(
+    home: &Path,
+    legacy_data: &Path,
+    legacy_projects: &Path,
+    path: &Path,
+    alias: Option<&str>,
+    ownership: CheckoutOwnership,
+) -> Result<ProjectBinding, String> {
+    let observed = inspect_checkout(path)?;
+    let remote = git_value(&observed.canonical_path, &["remote", "get-url", "origin"]).ok();
+    let has_remote = remote.is_some();
+    let remote = remote.and_then(|value| public_remote(&value));
+    let data = home.join("data");
+    fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        data.join(".projects.lock"),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|e| e.to_string())?;
+    fs::create_dir_all(home.join("state")).map_err(|e| e.to_string())?;
+    crate::lifecycle::subagent_model::require_writer_version(&home.join("state"))?;
+    let mut catalog = read_catalog(home)?;
+    // Revalidate filesystem identity under the publication lock without holding it across Git commands.
+    if identity(&observed.canonical_path)? != observed.checkout_identity
+        || identity(&observed.common_git_dir)? != observed.common_git_identity
+    {
+        return Err("checkout changed during registration; retry after location repair".to_owned());
+    }
+    for project in &catalog.projects {
+        for checkout in &project.checkouts {
+            if checkout.canonical_path == observed.canonical_path
+                && (checkout.checkout_identity != observed.checkout_identity
+                    || project.common_git_identity != observed.common_git_identity)
+            {
+                return Err(
+                    "recorded checkout was replaced; explicit location repair required".to_owned(),
+                );
+            }
+        }
+    }
+    let index = catalog
+        .projects
+        .iter()
+        .position(|p| p.common_git_identity == observed.common_git_identity)
+        .unwrap_or_else(|| {
+            let display_name = observed
+                .canonical_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            catalog.projects.push(ProjectRecord {
+                project_id: observed.project_id.clone(),
+                display_name,
+                aliases: Vec::new(),
+                common_git_identity: observed.common_git_identity.clone(),
+                publication: if has_remote {
+                    PublicationDestination::PullRequest
+                } else {
+                    PublicationDestination::Local
+                },
+                remote,
+                review: None,
+                checkouts: Vec::new(),
+            });
+            catalog.projects.len() - 1
+        });
+    let project = &mut catalog.projects[index];
+    if ownership == CheckoutOwnership::Managed
+        && legacy_checkout_ownership_at(legacy_data, legacy_projects, path)?
+            == CheckoutOwnership::Managed
+    {
+        let name = binding_name(&observed.canonical_path);
+        let resolution = resolve(&legacy_data.join("projects.md"), &name);
+        project.publication = if resolution.mode == DeliveryMode::LocalOnly {
+            PublicationDestination::Local
+        } else {
+            PublicationDestination::PullRequest
+        };
+    }
+
+    if let Some(alias) = alias {
+        if alias.trim().is_empty() {
+            return Err("project alias must not be empty".to_owned());
+        }
+        if !project.aliases.iter().any(|v| v == alias) {
+            project.aliases.push(alias.to_owned());
+        }
+    }
+    let existing = project
+        .checkouts
+        .iter()
+        .find(|c| c.canonical_path == observed.canonical_path);
+    let mut binding = observed;
+    binding.project_id.clone_from(&project.project_id);
+    if let Some(checkout) = existing {
+        binding.checkout_id.clone_from(&checkout.checkout_id);
+        binding.ownership = checkout.ownership;
+    } else {
+        binding.ownership = ownership;
+        project.checkouts.push(CheckoutRecord {
+            checkout_id: binding.checkout_id.clone(),
+            canonical_path: binding.canonical_path.clone(),
+            checkout_identity: binding.checkout_identity.clone(),
+            common_git_dir: binding.common_git_dir.clone(),
+            ownership,
+        });
+    }
+    catalog.validate()?;
+    let bytes = serde_json::to_vec_pretty(&catalog).map_err(|e| e.to_string())?;
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err("project registry exceeds supported size".to_owned());
+    }
+    multplx_core::filesystem::atomic_replace(data.join("projects.json"), &bytes, 0o600)
+        .map_err(|e| e.to_string())?;
+    Ok(binding)
+}
+
+pub fn bind_project(home: &Path, path: &Path) -> Result<ProjectBinding, String> {
+    bind_project_at(home, &home.join("data"), &home.join("projects"), path)
+}
+
+pub fn bind_project_at(
+    home: &Path,
+    legacy_data: &Path,
+    legacy_projects: &Path,
+    path: &Path,
+) -> Result<ProjectBinding, String> {
+    let ownership = legacy_checkout_ownership_at(legacy_data, legacy_projects, path)?;
+    register_project_at(home, legacy_data, legacy_projects, path, None, ownership)
+}
+
+/// Check a previously accepted immutable binding. HEAD may advance; its recorded base must still exist.
+pub fn validate_binding(home: &Path, binding: &ProjectBinding) -> Result<(), String> {
+    let catalog = read_catalog(home)?;
+    let project = catalog
+        .projects
+        .iter()
+        .find(|p| p.project_id == binding.project_id)
+        .ok_or("unknown project identity")?;
+    let checkout = project
+        .checkouts
+        .iter()
+        .find(|c| c.checkout_id == binding.checkout_id)
+        .ok_or("unknown checkout identity")?;
+    if checkout.canonical_path != binding.canonical_path
+        || checkout.checkout_identity != binding.checkout_identity
+        || checkout.common_git_dir != binding.common_git_dir
+        || project.common_git_identity != binding.common_git_identity
+        || checkout.ownership != binding.ownership
+    {
+        return Err("binding conflicts with recorded project/checkout identity".to_owned());
+    }
+    let actual = inspect_checkout(&binding.canonical_path)?;
+    if actual.canonical_path != binding.canonical_path
+        || actual.checkout_identity != binding.checkout_identity
+        || actual.common_git_dir != binding.common_git_dir
+        || actual.common_git_identity != binding.common_git_identity
+    {
+        return Err("checkout moved or replaced; explicit location repair required".to_owned());
+    }
+    if binding.starting_revision.len() != 40 && binding.starting_revision.len() != 64
+        || !binding
+            .starting_revision
+            .bytes()
+            .all(|v| v.is_ascii_hexdigit())
+    {
+        return Err("starting revision must be a full commit identity".to_owned());
+    }
+    git_value(
+        &binding.canonical_path,
+        &[
+            "cat-file",
+            "-e",
+            &format!("{}^{{commit}}", binding.starting_revision),
+        ],
+    )?;
+    Ok(())
+}
+
+/// Exact IDs and aliases are accepted; ambiguous names/checkouts return candidate paths.
+pub fn resolve_checkout(home: &Path, selector: &str) -> Result<ProjectBinding, String> {
+    let catalog = read_catalog(home)?;
+    let canonical = fs::canonicalize(selector).ok();
+    let exact_checkout = catalog
+        .projects
+        .iter()
+        .flat_map(|p| p.checkouts.iter())
+        .any(|c| c.checkout_id == selector);
+    let exact_path = canonical.as_ref().is_some_and(|path| {
+        catalog
+            .projects
+            .iter()
+            .flat_map(|p| p.checkouts.iter())
+            .any(|c| &c.canonical_path == path)
+    });
+    let exact_project = catalog.projects.iter().any(|p| p.project_id == selector);
+    let mut matches = Vec::new();
+    for project in &catalog.projects {
+        for checkout in &project.checkouts {
+            let selected = if exact_checkout {
+                selector == checkout.checkout_id
+            } else if exact_path {
+                canonical.as_ref() == Some(&checkout.canonical_path)
+            } else if exact_project {
+                selector == project.project_id
+            } else {
+                selector == project.display_name || project.aliases.iter().any(|a| a == selector)
+            };
+            if selected {
+                matches.push((project, checkout));
+            }
+        }
+    }
+    if matches.len() != 1 {
+        return Err(format!(
+            "project selector {selector:?} has {} candidates: {}",
+            matches.len(),
+            matches
+                .iter()
+                .map(|(_, c)| c.canonical_path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    let (project, checkout) = matches[0];
+    let observed = inspect_checkout(&checkout.canonical_path)?;
+    let binding = ProjectBinding {
+        project_id: project.project_id.clone(),
+        checkout_id: checkout.checkout_id.clone(),
+        canonical_path: checkout.canonical_path.clone(),
+        checkout_identity: checkout.checkout_identity.clone(),
+        common_git_dir: checkout.common_git_dir.clone(),
+        common_git_identity: project.common_git_identity.clone(),
+        starting_revision: observed.starting_revision,
+        ownership: checkout.ownership,
+    };
+    validate_binding(home, &binding)?;
+    Ok(binding)
+}
+
+/// Unregister metadata only. File deletion is never a consequence of forgetting a checkout.
+pub fn unregister_checkout(home: &Path, checkout_id: &str) -> Result<(), String> {
+    let data = home.join("data");
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        data.join(".projects.lock"),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|e| e.to_string())?;
+    fs::create_dir_all(home.join("state")).map_err(|e| e.to_string())?;
+    crate::lifecycle::subagent_model::require_writer_version(&home.join("state"))?;
+    let mut catalog = read_catalog(home)?;
+    if !catalog
+        .projects
+        .iter()
+        .any(|p| p.checkouts.iter().any(|c| c.checkout_id == checkout_id))
+    {
+        return Err("unknown checkout identity".to_owned());
+    }
+    for project in &mut catalog.projects {
+        project.checkouts.retain(|c| c.checkout_id != checkout_id);
+    }
+    catalog.projects.retain(|p| !p.checkouts.is_empty());
+    multplx_core::filesystem::atomic_replace(
+        data.join("projects.json"),
+        &serde_json::to_vec_pretty(&catalog).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn binding_name(path: &Path) -> String {
+    path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Legacy managed ownership is known only for an exact registered flat checkout.
+/// This is a reader conversion, not a migration of the home or a claim on arbitrary paths.
+pub fn legacy_checkout_ownership(home: &Path, path: &Path) -> Result<CheckoutOwnership, String> {
+    legacy_checkout_ownership_at(&home.join("data"), &home.join("projects"), path)
+}
+
+pub fn legacy_checkout_ownership_at(
+    data: &Path,
+    projects: &Path,
+    path: &Path,
+) -> Result<CheckoutOwnership, String> {
+    let canonical = fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let name = binding_name(&canonical);
+    let slot = projects.join(&name);
+    if fs::symlink_metadata(projects).is_ok_and(|m| m.file_type().is_symlink())
+        || fs::symlink_metadata(&slot).is_ok_and(|m| m.file_type().is_symlink())
+        || fs::canonicalize(&slot).ok().as_ref() != Some(&canonical)
+    {
+        return Ok(CheckoutOwnership::UserOwned);
+    }
+    let text = fs::read_to_string(data.join("projects.md")).unwrap_or_default();
+    let matching: Vec<_> = text
+        .lines()
+        .filter(|line| {
+            let mut words = line.split_whitespace();
+            words.next() == Some("-") && words.next() == Some(name.as_str())
+        })
+        .collect();
+    if matching.len() > 1 {
+        return Err(format!("ambiguous legacy project identity {name:?}"));
+    }
+    if matching.len() == 1 && resolve(&data.join("projects.md"), &name).warning.is_none() {
+        Ok(CheckoutOwnership::Managed)
+    } else {
+        Ok(CheckoutOwnership::UserOwned)
+    }
+}
+
+// A remote is a display identity, never a credential container. Reject embedded
+// URL credentials/query/fragment; SSH's conventional git@host is not a secret.
+fn public_remote(remote: &str) -> Option<String> {
+    if remote.contains(['?', '#']) {
+        return None;
+    }
+    if let Some((scheme, rest)) = remote.split_once("://") {
+        let authority = rest.split('/').next().unwrap_or_default();
+        if authority.contains('@')
+            && !(scheme == "ssh" && authority.starts_with("git@") && !authority.contains("git:"))
+        {
+            return None;
+        }
+    } else if let Some((user, _)) = remote.split_once('@')
+        && user != "git"
+    {
+        return None;
+    }
+    Some(remote.to_owned())
+}
+
+/// Check maintenance authority before any fetch, branch update or cleanup.
+pub fn checkout_ownership(home: &Path, path: &Path) -> Result<CheckoutOwnership, String> {
+    checkout_ownership_at(home, &home.join("projects"), path)
+}
+
+pub fn checkout_ownership_at(
+    home: &Path,
+    projects: &Path,
+    path: &Path,
+) -> Result<CheckoutOwnership, String> {
+    let catalog = read_catalog(home)?;
+    let canonical = fs::canonicalize(path).map_err(|e| e.to_string())?;
+    for project in &catalog.projects {
+        if let Some(checkout) = project
+            .checkouts
+            .iter()
+            .find(|c| c.canonical_path == canonical)
+        {
+            let binding = resolve_checkout(home, &checkout.checkout_id)?;
+            validate_binding(home, &binding)?;
+            return Ok(checkout.ownership);
+        }
+    }
+    legacy_checkout_ownership_at(&home.join("data"), projects, path)
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    fn git(path: &Path, args: &[&str]) -> String {
+        git_value(path, args).expect("test git")
+    }
+    fn repo(path: &Path) {
+        fs::create_dir_all(path).expect("repo");
+        git(path, &["init", "--quiet", "-b", "main"]);
+        fs::write(path.join("file"), "base\n").expect("file");
+        git(path, &["add", "file"]);
+        git(
+            path,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--quiet",
+                "-m",
+                "base",
+            ],
+        );
+    }
+
+    #[test]
+    fn clones_names_remotes_symlinks_overlapping_paths_and_worktrees_keep_identity() {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        let a = temp.path().join("a/app");
+        let b = temp.path().join("b/app");
+        repo(&a);
+        fs::create_dir_all(b.parent().unwrap()).unwrap();
+        git(
+            temp.path(),
+            &["clone", "--quiet", a.to_str().unwrap(), b.to_str().unwrap()],
+        );
+        git(&b, &["remote", "remove", "origin"]);
+        for path in [&a, &b] {
+            git(
+                path,
+                &["remote", "add", "origin", "https://example.test/shared.git"],
+            );
+        }
+        let aa = register_project(&home, &a, Some("ambiguous"), CheckoutOwnership::UserOwned)
+            .expect("a");
+        let bb = register_project(&home, &b, Some("ambiguous"), CheckoutOwnership::UserOwned)
+            .expect("b");
+        assert_ne!(aa.project_id, bb.project_id);
+        assert!(
+            resolve_checkout(&home, "app")
+                .unwrap_err()
+                .contains("2 candidates")
+        );
+        assert!(resolve_checkout(&home, "ambiguous").is_err());
+        let link = temp.path().join("alias");
+        symlink(&a, &link).expect("link");
+        assert_eq!(bind_project(&home, &link).expect("symlink"), aa);
+        fs::create_dir(a.join("nested")).expect("nested");
+        assert_eq!(bind_project(&home, &a.join("nested")).expect("overlap"), aa);
+        let worktree = temp.path().join("worktree");
+        git(
+            &a,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                "--quiet",
+                worktree.to_str().unwrap(),
+                "HEAD",
+            ],
+        );
+        let ww = bind_project(&home, &worktree).expect("worktree");
+        assert_eq!(ww.project_id, aa.project_id);
+        assert_ne!(ww.checkout_id, aa.checkout_id);
+        assert_eq!(ww.common_git_identity, aa.common_git_identity);
+        assert!(resolve_checkout(&home, &aa.project_id).is_err());
+        assert_eq!(
+            resolve_checkout(&home, a.to_str().unwrap()).expect("exact path"),
+            aa
+        );
+        // An alias matching another checkout ID cannot shadow the exact ID.
+        register_project(
+            &home,
+            &b,
+            Some(&aa.checkout_id),
+            CheckoutOwnership::UserOwned,
+        )
+        .expect("shadow alias");
+        assert_eq!(
+            resolve_checkout(&home, &aa.checkout_id).expect("exact ID"),
+            aa
+        );
+        assert_eq!(read_catalog(&home).expect("catalog").projects.len(), 2);
+    }
+
+    #[test]
+    fn three_queued_task_bindings_remain_fixed_when_display_context_and_head_change() {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        let mut requests = Vec::new();
+        for i in 0..3 {
+            let path = temp.path().join(format!("repo-{i}"));
+            repo(&path);
+            requests.push((
+                format!("request-{i}"),
+                bind_project(&home, &path).expect("bind"),
+            ));
+        }
+        let encoded = serde_json::to_string(&requests).expect("requests");
+        let display_context = resolve_checkout(&home, "repo-2").expect("selected");
+        assert_eq!(display_context, requests[2].1);
+        for (_, binding) in &requests {
+            git(
+                &binding.canonical_path,
+                &[
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    "commit",
+                    "--quiet",
+                    "--allow-empty",
+                    "-m",
+                    "new HEAD",
+                ],
+            );
+            validate_binding(&home, binding).expect("old base is still valid");
+        }
+        assert_eq!(serde_json::to_string(&requests).unwrap(), encoded);
+        assert_eq!(
+            read_catalog(&home).unwrap().projects[0].publication,
+            PublicationDestination::Local
+        );
+    }
+
+    #[test]
+    fn moved_replaced_and_substituted_repositories_fail_without_mutation() {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        let path = temp.path().join("app");
+        repo(&path);
+        let binding = bind_project(&home, &path).expect("bind");
+        fs::rename(&path, temp.path().join("old-app")).expect("move");
+        assert!(validate_binding(&home, &binding).is_err());
+        repo(&path);
+        assert!(validate_binding(&home, &binding).is_err());
+        assert!(bind_project(&home, &path).is_err());
+        let catalog = read_catalog(&home).unwrap();
+        assert_eq!(
+            catalog.projects[0].checkouts[0].checkout_identity,
+            binding.checkout_identity
+        );
+        assert!(temp.path().join("old-app/file").is_file());
+    }
+
+    #[test]
+    fn borrowed_ownership_cannot_upgrade_and_forget_never_removes_files() {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        let path = temp.path().join("app");
+        repo(&path);
+        let binding = bind_project(&home, &path).unwrap();
+        assert_eq!(
+            register_project(&home, &path, None, CheckoutOwnership::Managed)
+                .unwrap()
+                .ownership,
+            CheckoutOwnership::UserOwned
+        );
+        fs::write(path.join("file"), "dirty\n").unwrap();
+        unregister_checkout(&home, &binding.checkout_id).unwrap();
+        assert_eq!(fs::read_to_string(path.join("file")).unwrap(), "dirty\n");
+        assert!(read_catalog(&home).unwrap().projects.is_empty());
+    }
+
+    #[test]
+    fn duplicate_identity_corrupt_registry_and_legacy_ambiguity_refuse() {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        let path = home.join("projects/app");
+        repo(&path);
+        bind_project(&home, &path).unwrap();
+        let mut catalog = read_catalog(&home).unwrap();
+        catalog.projects.push(catalog.projects[0].clone());
+        fs::write(
+            home.join("data/projects.json"),
+            serde_json::to_vec(&catalog).unwrap(),
+        )
+        .unwrap();
+        assert!(read_catalog(&home).is_err());
+        assert!(bind_project(&home, &path).is_err());
+        fs::remove_file(home.join("data/projects.json")).unwrap();
+        fs::write(
+            home.join("data/projects.md"),
+            "- app [direct-PR]\n- app [local-only]\n",
+        )
+        .unwrap();
+        assert!(legacy_checkout_ownership(&home, &path).is_err());
+    }
+
+    #[test]
+    fn legacy_mapping_preserves_destination_ownership_without_implicit_review() {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        let path = home.join("projects/app");
+        repo(&path);
+        fs::create_dir_all(home.join("data")).unwrap();
+        fs::write(
+            home.join("data/projects.md"),
+            "- app [local-only +yolo] - old\n",
+        )
+        .unwrap();
+        let binding = bind_project(&home, &path).unwrap();
+        assert_eq!(binding.ownership, CheckoutOwnership::Managed);
+        let catalog = read_catalog(&home).unwrap();
+        assert_eq!(
+            catalog.projects[0].publication,
+            PublicationDestination::Local
+        );
+        assert_eq!(catalog.projects[0].review, None);
+        assert_eq!(catalog.projects[0].remote, None);
+        let borrowed = temp.path().join("borrowed");
+        repo(&borrowed);
+        symlink(&borrowed, home.join("projects/borrowed")).unwrap();
+        fs::write(home.join("data/projects.md"), "- borrowed [direct-PR]\n").unwrap();
+        assert_eq!(
+            bind_project(&home, &borrowed).unwrap().ownership,
+            CheckoutOwnership::UserOwned
+        );
+    }
+
+    #[test]
+    fn explicit_legacy_roots_preserve_managed_local_destination_without_claiming_unregistered_paths()
+     {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let data = temp.path().join("configured-data");
+        let projects = temp.path().join("configured-projects");
+        let path = projects.join("app");
+        repo(&path);
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("projects.md"), "- app [local-only +yolo]\n").unwrap();
+        assert_eq!(
+            publication_for_path_at(&home, &data, &projects, &path).unwrap(),
+            PublicationDestination::Local
+        );
+        let binding = bind_project_at(&home, &data, &projects, &path).unwrap();
+        assert_eq!(binding.ownership, CheckoutOwnership::Managed);
+        assert_eq!(
+            read_catalog(&home).unwrap().projects[0].publication,
+            PublicationDestination::Local
+        );
+        let other = projects.join("unregistered");
+        repo(&other);
+        assert_eq!(
+            bind_project_at(&home, &data, &projects, &other)
+                .unwrap()
+                .ownership,
+            CheckoutOwnership::UserOwned
+        );
+    }
+
+    #[test]
+    fn credential_remotes_and_unborn_sources_never_create_unsafe_records() {
+        assert_eq!(public_remote("https://secret@example.test/app"), None);
+        assert_eq!(
+            public_remote("https://example.test/app?access_token=secret"),
+            None
+        );
+        assert_eq!(public_remote("ssh://git:secret@example.test/app"), None);
+        assert!(public_remote("git@example.test:app").is_some());
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("app");
+        repo(&path);
+        git(
+            &path,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://user:secret@example.test/app",
+            ],
+        );
+        let home = temp.path().join("home");
+        bind_project(&home, &path).unwrap();
+        assert!(
+            !fs::read_to_string(home.join("data/projects.json"))
+                .unwrap()
+                .contains("secret")
+        );
+        let empty = temp.path().join("empty");
+        fs::create_dir(&empty).unwrap();
+        git(&empty, &["init", "--quiet"]);
+        assert!(bind_project(&home, &empty).unwrap_err().contains("unborn"));
+    }
+}
+
+/// Resolve the canonical publication destination without registering or mutating a checkout.
+/// Legacy deep-review maps to PR publication; it never selects a review workflow.
+pub fn publication_for_path(home: &Path, path: &Path) -> Result<PublicationDestination, String> {
+    publication_for_path_at(home, &home.join("data"), &home.join("projects"), path)
+}
+
+pub fn publication_for_path_at(
+    home: &Path,
+    legacy_data: &Path,
+    legacy_projects: &Path,
+    path: &Path,
+) -> Result<PublicationDestination, String> {
+    let observed = inspect_checkout(path)?;
+    let catalog = read_catalog(home)?;
+    for project in &catalog.projects {
+        if project
+            .checkouts
+            .iter()
+            .any(|c| c.canonical_path == observed.canonical_path)
+        {
+            resolve_checkout(
+                home,
+                observed
+                    .canonical_path
+                    .to_str()
+                    .ok_or("checkout path must be UTF-8")?,
+            )?;
+            return Ok(project.publication);
+        }
+    }
+    if legacy_checkout_ownership_at(legacy_data, legacy_projects, &observed.canonical_path)?
+        == CheckoutOwnership::Managed
+    {
+        let mode = resolve(
+            &legacy_data.join("projects.md"),
+            &binding_name(&observed.canonical_path),
+        )
+        .mode;
+        return Ok(if mode == DeliveryMode::LocalOnly {
+            PublicationDestination::Local
+        } else {
+            PublicationDestination::PullRequest
+        });
+    }
+    Ok(
+        if git_value(&observed.canonical_path, &["remote", "get-url", "origin"]).is_ok() {
+            PublicationDestination::PullRequest
+        } else {
+            PublicationDestination::Local
+        },
+    )
+}
+
+/// Retirement cannot delete a borrowed source, its contents, or a containing directory.
+/// Phase 03's allocation owner may release its own isolated allocations; remembered
+/// user checkout locations are never disposal authority.
+pub fn protect_borrowed_checkouts(home: &Path, target: &Path) -> Result<(), String> {
+    let target = fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    for project in read_catalog(home)?.projects {
+        for checkout in project.checkouts {
+            if checkout.ownership == CheckoutOwnership::UserOwned
+                && (target.starts_with(&checkout.canonical_path)
+                    || checkout.canonical_path.starts_with(&target))
+            {
+                return Err(format!(
+                    "REFUSED: cleanup target {} overlaps user-owned checkout {}; unregistering a project never authorizes deleting its files",
+                    target.display(),
+                    checkout.canonical_path.display()
+                ));
+            }
+        }
+    }
+    Ok(())
 }

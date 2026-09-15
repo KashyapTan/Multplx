@@ -17,6 +17,44 @@ fn run(home: &Path, args: &[&str], environment: &[(&str, &Path)]) -> Output {
     command.output().expect("run mx")
 }
 
+fn queued_project(home: &Path, tasks: &[&str]) -> PathBuf {
+    let project = home.join("project");
+    fs::create_dir_all(&project).expect("project");
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&project)
+        .args(["init", "--quiet", "-b", "main"])
+        .status()
+        .expect("git init");
+    assert!(status.success());
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&project)
+        .args([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "base",
+        ])
+        .status()
+        .expect("git commit");
+    assert!(status.success());
+    for task in tasks {
+        fs::create_dir_all(home.join("data").join(task)).expect("task");
+        fs::write(
+            home.join("data").join(task).join("brief.md"),
+            "Check queued dispatch retention.\n",
+        )
+        .expect("brief");
+    }
+    project
+}
+
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
@@ -89,6 +127,7 @@ esac
 fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
+    let project = queued_project(&home, &["retained", "default-spawn"]);
     let state = home.join("state");
     let config = home.join("config");
     let proc_root = temp.path().join("proc");
@@ -150,7 +189,7 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
             "headroom",
             "--queue-add",
             "retained",
-            "/project",
+            project.to_str().expect("project path"),
             "--harness",
             "codex",
         ],
@@ -190,7 +229,12 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     fs::write(config.join("api-capacity"), "9\n").expect("capacity");
     assert_success(&run(
         &home,
-        &["headroom", "--queue-add", "default-spawn", "/project"],
+        &[
+            "headroom",
+            "--queue-add",
+            "default-spawn",
+            project.to_str().expect("project path"),
+        ],
         &environment,
     ));
     let root = temp.path().join("spawn-root");
@@ -816,6 +860,7 @@ fn hidden_cmux_cli_covers_the_runtime_facade_and_refusals() {
 fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
+    let project = queued_project(&home, &["task", "cancel"]);
     let state = home.join("state");
     let config = home.join("config");
     let proc_root = temp.path().join("proc");
@@ -863,7 +908,7 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
             "headroom",
             "--queue-add",
             "task",
-            "/project",
+            project.to_str().expect("project path"),
             "--harness",
             "codex",
             "--model",
@@ -889,7 +934,12 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
 
     assert_success(&run(
         &home,
-        &["headroom", "--queue-add", "cancel", "/project"],
+        &[
+            "headroom",
+            "--queue-add",
+            "cancel",
+            project.to_str().expect("project path"),
+        ],
         &headroom_env,
     ));
     assert_success(&run(

@@ -16,12 +16,28 @@ mkdir -p "$HOME_DIR/state"
 cat > "$FAKE_SPAWN" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MX_QUEUE_TEST_SPAWN_LOG"
+printf '%s\n' "${MX_QUEUED_MODEL:-}" >> "$MX_QUEUE_TEST_SPAWN_LOG.models"
 [ "${MX_QUEUE_FAIL_TASK:-}" != "${1:-}" ]
 SH
 chmod +x "$FAKE_SPAWN"
 
+# Sources and accepted briefs exist before parking; parking never allocates a
+# task worktree or endpoint. Git is real, spawn transport below is a mock.
+seed_request() {
+  local home=$1 task=$2 project=$3
+  mkdir -p "$project" "$home/data/$task"
+  if [ ! -d "$project/.git" ]; then
+    git -C "$project" init -q -b main || fail 'fixture Git init failed'
+    git -C "$project" -c user.name=Fixture -c user.email=fixture@example.test commit --allow-empty -qm base || fail 'fixture base commit failed'
+  fi
+  printf 'Inspect %s in its recorded repository.\n' "$task" > "$home/data/$task/brief.md"
+}
+for task in later first keep cancel retry; do
+  seed_request "$HOME_DIR" "$task" "$HOME_DIR/projects/$task"
+done
+
 queue_cmd() {
-  MX_HOME="$HOME_DIR" \
+  MX_HOME="$HOME_DIR" MX_BACKEND=tmux \
   MX_HEADROOM_CPU_COUNT="${MX_QUEUE_CPU_COUNT:-8}" \
   MX_HEADROOM_LOAD1="${MX_QUEUE_LOAD1:-0}" \
   MX_HEADROOM_MEM_AVAILABLE_BYTES="${MX_QUEUE_MEM:-17179869184}" \
@@ -35,6 +51,7 @@ queue_cmd() {
 test_spawn_boundary_parks_before_allocation() {
   local home="$TMP_ROOT/spawn-boundary" project="$TMP_ROOT/not-allocated" out
   mkdir -p "$home/state" "$home/config"
+  seed_request "$home" parked "$project"
   # Pin the asserted backend independently of the terminal running this test.
   out=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
     MX_DATA_OVERRIDE="$home/data" MX_PROJECTS_OVERRIDE="$home/projects" \
@@ -49,11 +66,11 @@ test_spawn_boundary_parks_before_allocation() {
   assert_grep 'backend=tmux' "$home/state/.dispatch-queue/parked.request" \
     "spawn boundary did not preserve the resolved backend"
   assert_absent "$home/state/parked.meta" "at-limit spawn published task metadata"
-  assert_absent "$project" "at-limit spawn allocated a worktree"
+  [ "$(git -C "$project" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ] || fail "at-limit spawn allocated a worktree"
   assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/parked.request" 'queue lost selected mode'
-  assert_grep 'yolo=on' "$home/state/.dispatch-queue/parked.request" 'queue lost selected yolo'
+  assert_grep 'yolo=off' "$home/state/.dispatch-queue/parked.request" 'legacy yolo became active in queue'
   MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'mode queue drain failed'
-  assert_grep '--mode direct-PR --yolo on' "$home/spawn.log" 'drain lost selected authority'
+  assert_grep '--mode direct-PR --yolo off' "$home/spawn.log" 'drain lost selected authority'
 
   pass "at-limit spawn parks intent before worktree or endpoint allocation"
 }
@@ -64,13 +81,13 @@ test_queue_add_is_durable_and_visible() {
   assert_contains "$out" 'queued: later parked' "queue add did not report the parked outcome"
   assert_grep 'task_id=later' "$HOME_DIR/state/.dispatch-queue/later.request" \
     "queue record lost task identity"
-  assert_grep 'project=projects/later' "$HOME_DIR/state/.dispatch-queue/later.request" \
+  assert_grep "project=$(cd "$HOME_DIR/projects/later" && pwd -P)" "$HOME_DIR/state/.dispatch-queue/later.request" \
     "queue record lost project"
   assert_grep 'harness=codex' "$HOME_DIR/state/.dispatch-queue/later.request" \
     "queue record lost requested profile"
 
   out=$(queue_cmd --queue)
-  assert_contains "$out" $'\tlater\tprojects/later\tcodex\tgpt-test\thigh\t-\tdelivery' \
+  assert_contains "$out" $'\tlater\t'"$(cd "$HOME_DIR/projects/later" && pwd -P)"$'\tcodex\tgpt-test\thigh\ttmux\tdelivery' \
     "fresh process could not reconstruct and inspect the queued request"
 
   pass "at-limit-compatible queue records are durable and restart-reconstructable"
@@ -106,15 +123,16 @@ test_fifo_one_per_cycle_and_exactly_once() {
 
   queue_cmd --queue-drain >/dev/null || fail "first FIFO drain failed"
   [ "$(wc -l < "$SPAWN_LOG" | tr -d ' ')" -eq 1 ] || fail "one drain launched more than one request"
-  assert_grep 'first projects/first --harness claude --scout' "$SPAWN_LOG" \
+  assert_grep "first $(cd "$HOME_DIR/projects/first" && pwd -P) --harness claude" "$SPAWN_LOG" \
     "FIFO drain did not launch the oldest request with its profile"
+  assert_grep '"role":"researcher"' "$SPAWN_LOG.models" "FIFO drain lost canonical researcher assignment"
   assert_absent "$first_record" "successful drain retained the oldest record"
   assert_grep 'task_id=later' "$HOME_DIR/state/.dispatch-queue/later.request" \
     "one-cycle drain removed a second request"
 
   queue_cmd --queue-drain >/dev/null || fail "second FIFO drain failed"
   [ "$(wc -l < "$SPAWN_LOG" | tr -d ' ')" -eq 2 ] || fail "second drain did not launch exactly one request"
-  assert_grep 'later projects/later --harness codex --model gpt-test --effort high' "$SPAWN_LOG" \
+  assert_grep "later $(cd "$HOME_DIR/projects/later" && pwd -P) --harness codex --model gpt-test --effort high" "$SPAWN_LOG" \
     "second drain lost the stored profile"
   assert_absent "$HOME_DIR/state/.dispatch-queue/later.request" "successful second drain retained its record"
   queue_cmd --queue-drain >/dev/null || fail "empty drain failed"
@@ -161,6 +179,7 @@ echo "ALL TESTS PASSED"
 test_queued_registry_and_existing_task_authority_fail_closed() {
   local home="$TMP_ROOT/authority" project="$TMP_ROOT/authority/projects/app" out variant before
   mkdir -p "$home/state" "$home/config" "$home/data" "$project"
+  for task in registry existing legacy; do seed_request "$home" "$task" "$project"; done
   printf '%s\n' '- app [direct-PR +yolo] - app' > "$home/data/projects.md"
   parked_spawn() {
     MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" MX_CONFIG_OVERRIDE="$home/config" \
@@ -172,33 +191,37 @@ test_queued_registry_and_existing_task_authority_fail_closed() {
   out=$(parked_spawn registry projects/app codex --scout --backend cmux --model pinned --effort high) || fail 'registered scout did not park'
   assert_grep 'kind=scout' "$home/state/.dispatch-queue/registry.request" 'queue lost scout kind'
   assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/registry.request" 'queue did not read registry mode'
-  assert_grep 'yolo=on' "$home/state/.dispatch-queue/registry.request" 'queue did not read independent registry yolo'
+  assert_grep 'yolo=off' "$home/state/.dispatch-queue/registry.request" 'legacy registry yolo became active'
   before=$(cat "$home/state/.dispatch-queue/registry.request")
   printf '%s\n' '- app [local-only] - app' > "$home/data/projects.md"
   MX_HOME="$home" MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$FAKE_SPAWN" MX_QUEUE_TEST_SPAWN_LOG="$home/spawn.log" "$HEADROOM" --queue-drain >/dev/null || fail 'registry queue drain failed'
-  assert_grep '--mode direct-PR --yolo on' "$home/spawn.log" 'registry edit silently changed queued authority'
+  assert_grep '--mode direct-PR --yolo off' "$home/spawn.log" 'registry edit silently changed queued authority'
   assert_grep '--backend cmux' "$home/spawn.log" 'registry queue lost backend'
-  assert_grep '--scout' "$home/spawn.log" 'registry queue lost scout kind'
+  assert_grep '"role":"researcher"' "$home/spawn.log.models" 'registry queue lost canonical researcher assignment'
   [ -n "$before" ] || fail 'queued authority evidence was absent'
 
-  printf 'worktree=%s\nmode=direct-PR\nyolo=on\n' "$project" > "$home/state/existing.meta"
-  before=$(cat "$home/state/existing.meta")
-  parked_spawn existing projects/app --harness codex >/dev/null || fail 'recorded task could not retain authority'
-  assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/existing.request" 'existing task adopted changed registry mode'
-  assert_grep 'yolo=on' "$home/state/.dispatch-queue/existing.request" 'existing task adopted changed registry yolo'
-  for variant in mode yolo invalid-mode invalid-yolo missing-value; do
+  # New parked work pins identity; legacy task state remains unknown and cannot
+  # be upgraded merely by resubmitting a task with the same name.
+  parked_spawn existing projects/app --harness codex --mode direct-PR >/dev/null || fail 'canonical task did not park'
+  before=$(cat "$home/state/.dispatch-queue/existing.request")
+  for variant in mode role invalid-mode invalid-yolo missing-value; do
     case "$variant" in
       mode) set -- --mode local-only ;;
-      yolo) set -- --yolo off ;;
+      role) set -- --mode direct-PR --role reviewer ;;
       invalid-mode) set -- --mode unknown ;;
-      invalid-yolo) set -- --yolo maybe ;;
+      invalid-yolo) set -- --mode direct-PR --yolo maybe ;;
       missing-value) set -- --mode ;;
     esac
-    if parked_spawn existing projects/app --harness codex "$@" >"$home/$variant.out" 2>"$home/$variant.err"; then fail "queue accepted $variant authority change"; fi
-    [ "$(cat "$home/state/existing.meta")" = "$before" ] || fail 'refused queue request mutated existing authority'
-    assert_grep 'mode=direct-PR' "$home/state/.dispatch-queue/existing.request" 'refused queue request replaced pending authority'
-    assert_grep 'yolo=on' "$home/state/.dispatch-queue/existing.request" 'refused queue request replaced pending yolo'
+    if parked_spawn existing projects/app --harness codex "$@" >"$home/$variant.out" 2>"$home/$variant.err"; then fail "queue accepted $variant conflicting request"; fi
+    [ "$(cat "$home/state/.dispatch-queue/existing.request")" = "$before" ] || fail 'refused queue request changed pending identity'
   done
-  pass 'queued launch pins registry/scout authority and rejects malformed or conflicting relaunch settings'
+  parked_spawn existing projects/app --harness codex --mode direct-PR --yolo on >/dev/null || fail 'inert legacy yolo alias refused'
+  [ "$(cat "$home/state/.dispatch-queue/existing.request")" = "$before" ] || fail 'legacy yolo retargeted pending work'
+  printf 'worktree=%s\nmode=direct-PR\nyolo=on\n' "$project" > "$home/state/legacy.meta"
+  before=$(cat "$home/state/legacy.meta")
+  if parked_spawn legacy projects/app --harness codex >"$home/legacy.out" 2>"$home/legacy.err"; then fail 'legacy unknown task was silently resumed'; fi
+  [ "$(cat "$home/state/legacy.meta")" = "$before" ] || fail 'legacy refusal mutated old metadata'
+  assert_absent "$home/state/.dispatch-queue/legacy.request" 'legacy refusal created canonical queued task'
+  pass 'queued launch pins canonical repository/assignment identity, keeps yolo inert and rejects conflicting or legacy-unknown relaunches'
 }
 test_queued_registry_and_existing_task_authority_fail_closed

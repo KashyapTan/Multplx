@@ -5,6 +5,7 @@ mod bootstrap;
 mod deep_review;
 mod doctor;
 mod launcher;
+mod project;
 mod review;
 mod session_start;
 mod status_snapshot;
@@ -29,7 +30,7 @@ const WRAPPER_RUNTIME_ABI: &str = "multplx-rust-runtime-1";
 #[command(
     name = "mx",
     version,
-    about = "Multplx broker runtime",
+    about = "Multplx orchestration runtime",
     subcommand_required = true,
     arg_required_else_help = true
 )]
@@ -40,6 +41,18 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect and revise canonical task/attempt/brief bindings.
+    #[command(disable_help_flag = true)]
+    TaskModel {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Register and inspect stable local project and checkout identities.
+    #[command(disable_help_flag = true)]
+    Project {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Print the wrapper/runtime compatibility generation.
     #[command(hide = true)]
     RuntimeAbi,
@@ -231,7 +244,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Create a routed actor, scout, or daemon task.
+    /// Launch a sub-agent with an assignment role and optional persistent home.
     #[command(hide = true, disable_help_flag = true)]
     Spawn {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -622,6 +635,27 @@ impl Cli {
             }
             Command::Send { args } => run_send(&args),
             Command::DaemonReport { args } => run_daemon_report(&args),
+            Command::TaskModel { args } => {
+                let (_, home, _) = active_paths();
+                let state = std::env::var_os("MX_STATE_OVERRIDE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join("state"));
+                let args = args
+                    .iter()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>();
+                match multplx_domain::lifecycle::subagent_model::command(&args, &state) {
+                    Ok(output) => {
+                        print!("{output}");
+                        0
+                    }
+                    Err(error) => {
+                        eprintln!("error: {error}");
+                        1
+                    }
+                }
+            }
+            Command::Project { args } => project::run(&args),
             Command::HomeSeed { args } => run_home_seed(&args),
             Command::Spawn { args } => run_spawn(&args),
             Command::SuperviseDaemon { args } => {
@@ -1570,6 +1604,58 @@ fn run_daemon_report(args: &[OsString]) -> i32 {
             format!("{verb} [corr={correlation}]: {note} (via-helper)\n")
         }
     };
+    let id = status
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let meta = parent.join(format!("{id}.meta"));
+    let canonical = match fs::read_to_string(meta) {
+        Ok(text) => match multplx_domain::lifecycle::subagent_model::read_meta(id, &text) {
+            Ok(record) => !record.legacy_unknown,
+            Err(error) => {
+                eprintln!("error: refusing parent report with invalid task metadata: {error}");
+                return 1;
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            eprintln!("error: cannot inspect parent report identity: {error}");
+            return 1;
+        }
+    };
+    if canonical {
+        let report_state = std::env::var_os("MX_REPORT_STATE_OVERRIDE").map(PathBuf::from);
+        if report_state
+            .as_deref()
+            .and_then(|path| fs::canonicalize(path).ok())
+            != fs::canonicalize(parent).ok()
+        {
+            eprintln!("error: canonical parent report requires its bound report-state directory");
+            return 1;
+        }
+        let message = line
+            .trim_end()
+            .split_once(": ")
+            .map(|(_, message)| message)
+            .unwrap_or("");
+        let mut report_args = vec![
+            "--id".into(),
+            id.into(),
+            "--state".into(),
+            verb.to_string(),
+            "--message".into(),
+            format!("[corr={correlation}] {message}"),
+            "--correlation-id".into(),
+            correlation.into(),
+        ];
+        if doc_mode {
+            report_args.extend(["--artifact".into(), values[0].clone()]);
+        }
+        let result = multplx_domain::supervision::report(&report_args, &active_paths().0);
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
     match OpenOptions::new()
         .create(true)
         .append(true)
@@ -1625,41 +1711,40 @@ fn park_spawn_if_at_limit(
     args: &[OsString],
     single_checkout_request: Option<&str>,
 ) -> Result<Option<String>, String> {
+    queue_spawn(args, single_checkout_request, false)
+}
+
+fn queue_spawn(
+    args: &[OsString],
+    single_checkout_request: Option<&str>,
+    force: bool,
+) -> Result<Option<String>, String> {
     use multplx_backend::headroom::{HeadroomPaths, QueueRecord};
 
-    if args.iter().any(|value| value == "--daemon")
-        || std::env::var("MX_HEADROOM_SKIP_QUEUE").as_deref() == Ok("1")
+    if args
+        .iter()
+        .any(|value| matches!(value.to_str(), Some("--daemon" | "--persistent")))
+        || (!force && std::env::var("MX_HEADROOM_SKIP_QUEUE").as_deref() == Ok("1"))
     {
         return Ok(None);
     }
     let mut positional = Vec::new();
-    let mut harness = String::new();
-    let mut mode = String::new();
-    let mut yolo = String::new();
-    let mut model = String::new();
-    let mut effort = String::new();
     let mut backend = "tmux".to_owned();
-    let mut kind = "delivery".to_owned();
-    let mut index = 0_usize;
+    let mut index = 0;
     while index < args.len() {
         let value = args[index]
             .to_str()
             .ok_or("spawn argument is not valid UTF-8")?;
         match value {
-            "--scout" => kind = "scout".to_owned(),
-            "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" => {
+            "--scout" | "--review" => {}
+            "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" | "--role"
+            | "--output" => {
                 let next = args
                     .get(index + 1)
-                    .and_then(|next| next.to_str())
-                    .ok_or_else(|| format!("{value} requires a value"))?
-                    .to_owned();
-                match value {
-                    "--mode" => mode = next,
-                    "--yolo" => yolo = next,
-                    "--harness" => harness = next,
-                    "--model" => model = next,
-                    "--effort" => effort = next,
-                    _ => backend = next,
+                    .and_then(|value| value.to_str())
+                    .ok_or_else(|| format!("{value} requires a value"))?;
+                if value == "--backend" {
+                    backend = next.to_owned();
                 }
                 index += 1;
             }
@@ -1672,14 +1757,8 @@ fn park_spawn_if_at_limit(
     }
     let id = positional.first().ok_or("invalid spawn request")?;
     multplx_core::identifiers::TaskId::parse(id).map_err(|_| "invalid spawn request")?;
-    let project = positional.get(1).ok_or("invalid spawn request")?;
-    if harness.is_empty()
-        && let Some(positional_harness) = positional.get(2)
-    {
-        harness.clone_from(positional_harness);
-    }
-    if positional.len() > 3 {
-        return Err("invalid spawn request".to_owned());
+    if positional.len() < 2 || positional.len() > 3 {
+        return Err("invalid spawn request".into());
     }
     multplx_backend::facade::BackendName::parse(&backend)
         .map_err(|_| format!("unsupported backend: {backend}"))?;
@@ -1687,7 +1766,7 @@ fn park_spawn_if_at_limit(
     let headroom = multplx_backend::headroom::evaluate(&paths).map_err(|error| {
         format!("dispatch capacity could not be established; refusing to spawn {id}: {error}")
     })?;
-    if !headroom.at_limit() {
+    if !force && !headroom.at_limit() {
         return Ok(None);
     }
     if single_checkout_request.is_some() {
@@ -1700,57 +1779,60 @@ fn park_spawn_if_at_limit(
     let projects = std::env::var_os("MX_PROJECTS_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("projects"));
-    let project_path = if let Some(relative) = project.strip_prefix("projects/") {
-        projects.join(relative)
-    } else {
-        PathBuf::from(project)
-    };
-    let project_path = fs::canonicalize(&project_path).unwrap_or(project_path);
-    let resolution = multplx_domain::project_registry::resolve_path(
-        &data.join("projects.md"),
-        &projects,
-        &root,
-        &project_path,
-    );
     let state = std::env::var_os("MX_STATE_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("state"));
-    let selected_mode = if mode.is_empty() {
-        None
-    } else {
-        Some(
-            multplx_domain::project_registry::DeliveryMode::parse(&mode)
-                .ok_or("invalid delivery mode")?,
-        )
+    let context = multplx_domain::lifecycle::spawn::Context {
+        root,
+        home: home.clone(),
+        data,
+        state,
+        projects,
     };
-    let selected_yolo = match yolo.as_str() {
-        "" => None,
-        "on" => Some(true),
-        "off" => Some(false),
-        _ => return Err("invalid yolo".to_owned()),
-    };
-    let (resolved_mode, resolved_yolo) = multplx_domain::lifecycle::spawn::task_authority(
-        &state,
-        id,
-        &resolution,
-        selected_mode,
-        selected_yolo,
+    let config = std::env::var_os("MX_CONFIG_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("config"));
+    let settings = multplx_backend::harness::HarnessConfig::new(config);
+    settings.validate_aliases()?;
+    let mut request = multplx_domain::lifecycle::spawn::parse(
+        args,
+        &context,
+        &settings.actor(multplx_backend::harness::detect()),
     )?;
-    mode = resolved_mode;
-    yolo = if resolved_yolo { "on" } else { "off" }.to_owned();
+    if let Some(prior) =
+        multplx_backend::headroom::queued_model(&paths, id).map_err(|error| error.to_string())?
+    {
+        request.binding = Some(multplx_domain::lifecycle::subagent_model::read_meta(
+            id,
+            &format!("schema_version=2\ncanonical_model={prior}\n"),
+        )?);
+    }
+    multplx_domain::lifecycle::spawn::prepare_binding(&context, &mut request)?;
+    if let Some(binding) = &mut request.binding {
+        binding.schedule.state =
+            multplx_domain::lifecycle::subagent_model::WorkState::WaitingExternal;
+        binding.schedule.waiting_condition = Some("dispatch capacity".into());
+    }
+    let canonical_model = request
+        .binding
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| error.to_string())?;
     multplx_backend::headroom::queue_add(
         &paths,
         &QueueRecord {
             task_id: id.clone(),
-            project: project.clone(),
-            harness,
-            model,
-            effort,
-            backend,
-            kind,
-            mode,
-            yolo,
+            project: request.project.to_string_lossy().into_owned(),
+            harness: request.harness.clone(),
+            model: request.model.clone(),
+            effort: request.effort.clone(),
+            backend: request.backend.clone(),
+            kind: request.kind.clone(),
+            mode: request.mode.clone(),
+            yolo: "off".into(),
             enqueued_at: multplx_backend::headroom::now_epoch(),
+            canonical_model,
         },
     )
     .map(Some)
@@ -1894,18 +1976,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
     use multplx_backend::facade::{BackendName, RuntimeBackend, TaskSpec};
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
         println!(
-            "Usage: mx-spawn.sh <id> <project-path> [--scout|--daemon] [--mode deep-review|direct-PR|local-only] [--yolo on|off] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E]\nTask mode/yolo defaults come from the project registry; explicit task overrides also support self-repo work without a registry row. Pass the same overrides to mx-brief.sh. Existing task authority is preserved; conflicting relaunch overrides are refused. Scouts retain mode/yolo for promotion but produce reports; daemons use daemon/off. Task files use the system temporary root (TMPDIR on Unix); metadata tasktmp binds their cleanup location."
+            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer|sub-orchestrator] [--output report|implementation] [--persistent] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--replace-attempt CURRENT_ID]\nRoles describe the assignment; report and implementation outputs share delegation rights. --persistent launches an existing isolated home and accepts --role sub-orchestrator. Phase 05 owns named coordinator creation. Canonical defaults: config/subagent-harness, subagent-dispatch.json and persistent-subagent-harness. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation; role/outcome changes require explicit recorded reassignment. Task files use TMPDIR and metadata tasktmp binds cleanup."
         );
         return 0;
     }
 
-    if multplx_core::gate_refuse::is_gate_agent(
-        std::env::var_os("DEEP_REVIEW_GATE").is_some(),
-        std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
-    ) {
-        eprintln!("{}", multplx_core::gate_refuse::REFUSAL_MESSAGE);
-        return i32::from(multplx_core::gate_refuse::REFUSAL_EXIT);
-    }
     if args
         .first()
         .and_then(|value| value.to_str())
@@ -1927,7 +2002,14 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 shared.push(args[index].clone());
                 if matches!(
                     value,
-                    "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo"
+                    "--harness"
+                        | "--model"
+                        | "--effort"
+                        | "--backend"
+                        | "--mode"
+                        | "--yolo"
+                        | "--role"
+                        | "--output"
                 ) {
                     let Some(next) = args.get(index + 1) else {
                         eprintln!("error: {value} requires a value");
@@ -1968,12 +2050,22 @@ fn run_spawn(args: &[OsString]) -> i32 {
     }
     let mut parse_args = Vec::new();
     let mut single_checkout_request = None;
+    let mut replacement_attempt = None;
     let mut index = 0_usize;
     while index < args.len() {
         let Some(value) = args[index].to_str() else {
             eprintln!("error: spawn argument is not valid UTF-8");
             return 1;
         };
+        if value == "--replace-attempt" {
+            let Some(attempt) = args.get(index + 1).and_then(|value| value.to_str()) else {
+                eprintln!("error: --replace-attempt requires current attempt id");
+                return 1;
+            };
+            replacement_attempt = Some(attempt.to_owned());
+            index += 2;
+            continue;
+        }
         if value == "--single-checkout" {
             let Some(request) = args.get(index + 1).and_then(|value| value.to_str()) else {
                 eprintln!("error: --single-checkout requires a valid request id");
@@ -2018,6 +2110,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
         .map(PathBuf::from)
         .unwrap_or_else(|| context.home.join("config"));
     let settings = multplx_backend::harness::HarnessConfig::new(config.clone());
+    if let Err(error) = settings.validate_aliases() {
+        eprintln!("error: {error}");
+        return 1;
+    }
     if !parse_args.iter().any(|value| value == "--backend") {
         let (backend, notice) = resolve_spawn_backend(&config);
         parse_args.push(OsString::from("--backend"));
@@ -2037,7 +2133,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     }
-    let default_harness = if args.iter().any(|value| value == "--daemon") {
+    let default_harness = if args
+        .iter()
+        .any(|value| matches!(value.to_str(), Some("--daemon" | "--persistent")))
+    {
         settings.daemon(multplx_backend::harness::detect())
     } else {
         settings.actor(multplx_backend::harness::detect())
@@ -2085,13 +2184,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 explicit_effort = true;
                 skip_value = true;
             }
-            "--backend" | "--mode" | "--yolo" => skip_value = true,
+            "--backend" | "--mode" | "--yolo" | "--role" | "--output" => skip_value = true,
             value if value.starts_with("--") => {}
             _ => spawn_positionals += 1,
         }
     }
     explicit_harness |= spawn_positionals >= 3;
-    if request.kind == "daemon" && !explicit_harness {
+    if request.persistent && !explicit_harness {
         if !explicit_model && let Some(model) = settings.daemon_model() {
             request.model = model;
         }
@@ -2106,7 +2205,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!(
             "error: no launch template for harness '{}'{}",
             request.harness,
-            if request.kind == "daemon" {
+            if request.persistent {
                 " (check config/daemon-harness or the explicit selection)"
             } else {
                 ""
@@ -2118,10 +2217,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: {error_value}");
         return 1;
     }
-    if request.kind != "daemon" && config.join("actor-dispatch.json").is_file() && !explicit_harness
+    if !request.persistent
+        && (config.join("subagent-dispatch.json").is_file()
+            || config.join("actor-dispatch.json").is_file())
+        && !explicit_harness
     {
         eprintln!(
-            "error: config/actor-dispatch.json is active - pass an explicit harness resolved from the dispatch rules"
+            "error: config/subagent-dispatch.json (legacy actor-dispatch.json) is active - pass an explicit harness resolved from the dispatch rules"
         );
         return 1;
     }
@@ -2243,6 +2345,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
         request.single_checkout_base_branch = Some(base_branch);
         single_checkout_store = Some(store);
     }
+    if let Err(error) = multplx_domain::lifecycle::spawn::prepare_binding(&context, &mut request) {
+        eprintln!("error: {error}");
+        return 1;
+    }
     let lock_path = context.state.join(format!(".spawn-{}.lock", request.id));
     let lock = match multplx_core::locks::DirectoryLock::acquire_wait(
         lock_path,
@@ -2255,11 +2361,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     };
-    let recovering_daemon = request.kind == "daemon"
+    let recovering_daemon = request.persistent
         && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1")
         && context.state.join(format!("{}.meta", request.id)).is_file();
     let presentation_enabled = request.backend == "herdr"
-        && request.kind != "daemon"
+        && !request.persistent
         && config.join("herdr-presentation-spaces").is_file();
     let presentation_journal =
         multplx_backend::herdr_presentation::journal_path(&context.state, &request.id);
@@ -2268,11 +2374,106 @@ fn run_spawn(args: &[OsString]) -> i32 {
     if context.state.join(format!("{}.meta", request.id)).exists()
         && !recovering_daemon
         && !recovering_projection
+        && replacement_attempt.is_none()
     {
         eprintln!("error: metadata for {} already exists", request.id);
         return 1;
     }
-    if request.kind == "daemon" && !recovering_daemon {
+    let intent_path = context.state.join(format!(".spawn-{}.intent", request.id));
+    let intent = serde_json::to_vec(request.binding.as_ref().expect("prepared binding"))
+        .expect("serializable binding");
+    if intent_path.exists() {
+        eprintln!(
+            "error: interrupted launch intent for {}; reconcile the recorded endpoint/allocation before retrying",
+            request.id
+        );
+        return 1;
+    }
+    if let Some(expected) = &replacement_attempt
+        && request
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.attempt.as_ref())
+            .is_none_or(|attempt| &attempt.id != expected)
+    {
+        eprintln!("error: stale replacement attempt");
+        return 1;
+    }
+    if let Ok(meta) = fs::read_to_string(context.state.join(format!("{}.meta", request.id))) {
+        let current = match multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &meta)
+        {
+            Ok(record) => record,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+        if request.binding.as_ref().is_none_or(|binding| {
+            binding.attempt != current.attempt
+                || binding.accepted_brief_revision != current.accepted_brief_revision
+        }) {
+            eprintln!("error: task binding changed before reservation");
+            return 1;
+        }
+    }
+    if let Err(error) = multplx_core::filesystem::atomic_replace(&intent_path, &intent, 0o600) {
+        eprintln!("error: cannot reserve launch identity: {error}");
+        return 1;
+    }
+    drop(lock);
+    if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-intent") {
+        eprintln!("error: injected interruption after durable launch intent");
+        return 1;
+    }
+    if recovering_daemon || recovering_projection || replacement_attempt.is_some() {
+        // This path starts a new process. Reconcile and stop the former endpoint
+        // before assigning a replacement generation to the same persistent home.
+        if let Err(error) = isolate_prior_execution(
+            &context.state.join(format!("{}.meta", request.id)),
+            recovering_projection,
+        ) {
+            eprintln!("error: cannot isolate prior execution: {error}");
+            return 1;
+        }
+        if let Some(binding) = &mut request.binding {
+            let prior = binding
+                .attempt
+                .as_ref()
+                .expect("validated attempt")
+                .id
+                .clone();
+            if let Err(error) = binding.replace_attempt(&prior, true) {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    }
+    if recovering_daemon || recovering_projection || replacement_attempt.is_some() {
+        let _lock = match multplx_core::locks::DirectoryLock::acquire_wait(
+            context.state.join(format!(".spawn-{}.lock", request.id)),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        ) {
+            Ok(lock) => lock,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+        if fs::read(&intent_path).ok().as_deref() != Some(intent.as_slice()) {
+            eprintln!("error: launch reservation ownership changed");
+            return 1;
+        }
+        let replacement = serde_json::to_vec(request.binding.as_ref().expect("prepared binding"))
+            .expect("serializable binding");
+        if let Err(error) =
+            multplx_core::filesystem::atomic_replace(&intent_path, &replacement, 0o600)
+        {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    }
+    if request.persistent && !recovering_daemon {
         if let Some(commit) =
             multplx_domain::lifecycle::fast_forward::primary_head_commit(&context.root)
         {
@@ -2300,7 +2501,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             );
         }
     }
-    let _inherit_lock = if request.kind == "daemon" && !recovering_daemon {
+    let _inherit_lock = if request.persistent && !recovering_daemon {
         let inherit_lock = match multplx_domain::inheritance::acquire_inherit_lock(&request.home) {
             Ok(lock) => lock,
             Err(error_value) => {
@@ -2338,6 +2539,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     } else {
         None
     };
+    drop(_inherit_lock);
     let mut created_target = None;
     let mut herdr_endpoint = None;
     let mut projected_endpoint = None;
@@ -2466,7 +2668,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             _ => unreachable!(),
         };
         created_target = Some(target.clone());
-        let actor_worktree = if request.kind == "daemon" {
+        let actor_worktree = if request.persistent {
             request.home.clone()
         } else if request.single_checkout_override.is_some() {
             request.project.clone()
@@ -2559,6 +2761,9 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
             worktree
         };
+        if !request.persistent {
+            verify_launch_worktree(&context, &request, &actor_worktree)?;
+        }
         multplx_domain::lifecycle::spawn::publish_meta_for_worktree(
             &context,
             &request,
@@ -2575,17 +2780,23 @@ fn run_spawn(args: &[OsString]) -> i32 {
             multplx_core::filesystem::atomic_replace(&meta_path, meta.as_bytes(), 0o600)
                 .map_err(|error_value| error_value.to_string())?;
         }
-        let brief = if request.kind == "daemon" {
+        let brief = if request.persistent {
             request.home.join("data/charter.md")
         } else {
             context.data.join(&request.id).join("brief.md")
         };
+        let brief = request
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.accepted_brief_path.as_ref())
+            .map(PathBuf::from)
+            .unwrap_or(brief);
         let report_server = source_root.join("bin/mx-report-mcp");
         let task_tmp = std::env::temp_dir().join(format!("mx-{}", request.id));
         fs::create_dir_all(task_tmp.join("gotmp"))
             .map_err(|error_value| error_value.to_string())?;
         let cursor_plugin = task_tmp.join("cursor-turnend-plugin");
-        if request.harness == "cursor" && request.kind != "daemon" {
+        if request.harness == "cursor" && !request.persistent {
             fs::create_dir_all(cursor_plugin.join(".cursor-plugin"))
                 .and_then(|()| fs::create_dir_all(cursor_plugin.join("hooks")))
                 .map_err(|error_value| error_value.to_string())?;
@@ -2620,12 +2831,17 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error_value| error_value.to_string())?;
         }
         let mcp_config = task_tmp.join("report-mcp.json");
-        let report_home = if request.kind == "daemon" {
+        let report_home = if request.persistent {
             request.home.clone()
         } else {
             logical_home.clone()
         };
-        let mcp_json = serde_json::json!({"mcpServers":{"multplx_status":{"type":"stdio","command":report_server,"args":[],"env":{"MX_TASK_ID":request.id,"MX_HOME":report_home,"MX_REPORT_STATE_OVERRIDE":context.state}}}});
+        let attempt = request
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.attempt.as_ref())
+            .ok_or("launch attempt was not bound")?;
+        let mcp_json = serde_json::json!({"mcpServers":{"multplx_status":{"type":"stdio","command":report_server,"args":[],"env":{"MX_TASK_ID":request.id,"MX_HOME":report_home,"MX_REPORT_STATE_OVERRIDE":context.state,"MX_ATTEMPT_ID":attempt.id,"MX_ATTEMPT_GENERATION":attempt.generation.to_string(),"MX_BRIEF_REVISION":attempt.brief_revision.to_string()}}}});
         multplx_core::filesystem::atomic_replace(
             &mcp_config,
             serde_json::to_string(&mcp_json)
@@ -2649,8 +2865,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
             launch_path_word(&brief)?
         );
         let launch_path = std::env::var_os("PATH");
-        let common_environment =
-            launch_environment_block(&home_text, &request.id, &state_text, launch_path.as_deref())?;
+        let common_environment = format!(
+            "{} {} {} {}",
+            launch_environment_block(&home_text, &request.id, &state_text, launch_path.as_deref())?,
+            launch_environment("MX_ATTEMPT_ID", &attempt.id),
+            launch_environment("MX_ATTEMPT_GENERATION", &attempt.generation.to_string()),
+            launch_environment("MX_BRIEF_REVISION", &attempt.brief_revision.to_string())
+        );
         let model = if request.model == "default" {
             String::new()
         } else {
@@ -2672,13 +2893,18 @@ fn run_spawn(args: &[OsString]) -> i32 {
             format!("-c {} ", launch_shell_word(&value))
         };
         let codex_mcp_value = format!(
-            "mcp_servers.multplx_status={{command={},args=[],env={{MX_TASK_ID={},MX_HOME={},MX_REPORT_STATE_OVERRIDE={}}}}}",
+            "mcp_servers.multplx_status={{command={},args=[],env={{MX_TASK_ID={},MX_HOME={},MX_REPORT_STATE_OVERRIDE={},MX_ATTEMPT_ID={},MX_ATTEMPT_GENERATION={},MX_BRIEF_REVISION={}}}}}",
             serde_json::to_string(&report_server_text)
                 .map_err(|error_value| error_value.to_string())?,
             serde_json::to_string(&request.id).map_err(|error_value| error_value.to_string())?,
             serde_json::to_string(&report_home_text)
                 .map_err(|error_value| error_value.to_string())?,
-            serde_json::to_string(&state_text).map_err(|error_value| error_value.to_string())?
+            serde_json::to_string(&state_text).map_err(|error_value| error_value.to_string())?,
+            serde_json::to_string(&attempt.id).map_err(|error| error.to_string())?,
+            serde_json::to_string(&attempt.generation.to_string())
+                .map_err(|error| error.to_string())?,
+            serde_json::to_string(&attempt.brief_revision.to_string())
+                .map_err(|error| error.to_string())?
         );
         let codex_mcp = format!("-c {} ", launch_shell_word(&codex_mcp_value));
         let launch = match request.harness.as_str() {
@@ -2696,7 +2922,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 } else {
                     String::new()
                 },
-                if request.kind == "daemon" {
+                if request.persistent {
                     format!(
                         "-e {} -e {} ",
                         launch_path_word(
@@ -2731,7 +2957,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
             other => return Err(format!("unknown harness '{other}'")),
         };
-        let launch = if request.kind == "daemon" {
+        let launch = if request.persistent {
             format!(
                 "MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= {launch}"
             )
@@ -2783,6 +3009,29 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 )
             })?;
         }
+        {
+            let _identity_lock = multplx_core::locks::DirectoryLock::acquire_wait(
+                context.state.join(format!(".{}.identity.lock", request.id)),
+                &SystemProcessProbe::default(),
+                Duration::from_secs(5),
+            )
+            .map_err(|error| error.to_string())?;
+            let meta_path = context.state.join(format!("{}.meta", request.id));
+            let meta = fs::read_to_string(&meta_path).map_err(|error| error.to_string())?;
+            let mut record =
+                multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &meta)?;
+            if request.binding.as_ref().is_none_or(|binding| {
+                binding.attempt != record.attempt
+                    || binding.accepted_brief_revision != record.accepted_brief_revision
+            }) {
+                return Err("task binding changed during launch; retain current owner".into());
+            }
+            record.schedule.state = multplx_domain::lifecycle::subagent_model::WorkState::Running;
+            record.schedule.waiting_condition = None;
+            let meta = multplx_domain::lifecycle::subagent_model::write_meta(&meta, &record)?;
+            multplx_core::filesystem::atomic_replace(&meta_path, meta.as_bytes(), 0o600)
+                .map_err(|error| error.to_string())?;
+        }
         let task = multplx_core::identifiers::TaskId::parse(&request.id)
             .map_err(|error_value| error_value.to_string())?;
         let timestamp = {
@@ -2812,7 +3061,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         ) {
             eprintln!("{warning}");
         }
-        if request.kind == "daemon"
+        if request.persistent
             && !multplx_domain::inheritance::discard_pending(
                 &request.home,
                 Some(&request.id),
@@ -2835,9 +3084,20 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 );
             }
         }
+        let _intent_lock = multplx_core::locks::DirectoryLock::acquire_wait(
+            context.state.join(format!(".spawn-{}.lock", request.id)),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        )
+        .map_err(|error| error.to_string())?;
+        let expected = serde_json::to_vec(request.binding.as_ref().expect("prepared binding"))
+            .map_err(|error| error.to_string())?;
+        if fs::read(&intent_path).ok().as_deref() != Some(expected.as_slice()) {
+            return Err("launch reservation ownership changed".into());
+        }
+        fs::remove_file(&intent_path).map_err(|error| error.to_string())?;
         Ok(named_endpoint)
     })();
-    drop(lock);
     match result {
         Ok(endpoint) => {
             drop(presentation_lock);
@@ -2896,7 +3156,42 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     }
                 }
             }
-            let _ = fs::remove_file(context.state.join(format!("{}.meta", request.id)));
+            let _identity_lock = multplx_core::locks::DirectoryLock::acquire_wait(
+                context.state.join(format!(".{}.identity.lock", request.id)),
+                &SystemProcessProbe::default(),
+                Duration::from_secs(5),
+            );
+            if _identity_lock.is_err() {
+                eprintln!("error: {error_value}; launch intent retained for reconciliation");
+                return 1;
+            }
+            let meta_path = context.state.join(format!("{}.meta", request.id));
+            if let Ok(meta) = fs::read_to_string(&meta_path)
+                && let Ok(mut record) =
+                    multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &meta)
+            {
+                if request.binding.as_ref().is_none_or(|binding| {
+                    binding.attempt != record.attempt
+                        || binding.accepted_brief_revision != record.accepted_brief_revision
+                }) {
+                    eprintln!("error: {error_value}; task has a newer binding, retained");
+                    return 1;
+                }
+                record.schedule.state =
+                    multplx_domain::lifecycle::subagent_model::WorkState::WaitingExternal;
+                record.schedule.waiting_condition = Some(format!(
+                    "launch failed; reconcile retained endpoint/worktree: {error_value}"
+                ));
+                if let Ok(text) =
+                    multplx_domain::lifecycle::subagent_model::write_meta(&meta, &record)
+                {
+                    let _ = multplx_core::filesystem::atomic_replace(
+                        &meta_path,
+                        text.as_bytes(),
+                        0o600,
+                    );
+                }
+            }
             if let Some(record) = request.single_checkout_record.as_deref() {
                 let _ = fs::remove_file(record);
             }
@@ -3033,6 +3328,112 @@ fn run_teardown(args: &[OsString]) -> i32 {
     print!("{}", output.stdout);
     eprint!("{}", output.stderr);
     output.status
+}
+
+fn verify_launch_worktree(
+    context: &multplx_domain::lifecycle::spawn::Context,
+    request: &multplx_domain::lifecycle::spawn::Request,
+    worktree: &Path,
+) -> Result<(), String> {
+    let binding = request
+        .binding
+        .as_ref()
+        .ok_or("launch has no task binding")?;
+    let project = binding
+        .project
+        .as_ref()
+        .ok_or("launch has no project binding")?;
+    multplx_domain::project_registry::validate_binding(&context.home, project)?;
+    let git = |arguments: &[&str]| -> Result<String, String> {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(worktree)
+            .args(arguments)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err("cannot verify allocated worktree Git identity".into());
+        }
+        String::from_utf8(output.stdout)
+            .map(|value| value.trim().to_owned())
+            .map_err(|_| "worktree Git identity is not UTF-8".into())
+    };
+    let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    if fs::canonicalize(common).ok().as_ref() != Some(&project.common_git_dir) {
+        return Err(
+            "allocated worktree belongs to a different repository than the accepted binding".into(),
+        );
+    }
+    let head = git(&["rev-parse", "HEAD"])?;
+    if head == project.starting_revision {
+        return Ok(());
+    }
+    // A proven replacement may continue retained commits in its exact previous
+    // worktree. A fresh or queued allocation must start at the accepted base.
+    if let Ok(meta) = fs::read_to_string(context.state.join(format!("{}.meta", request.id))) {
+        let previous = multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &meta)?;
+        let previous_worktree = meta.lines().find_map(|line| line.strip_prefix("worktree="));
+        if previous.project.as_ref() == Some(project)
+            && previous
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| binding.prior_attempts.last() == Some(attempt))
+            && previous_worktree.and_then(|path| fs::canonicalize(path).ok())
+                == fs::canonicalize(worktree).ok()
+            && git(&[
+                "merge-base",
+                "--is-ancestor",
+                &project.starting_revision,
+                &head,
+            ])
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "allocated worktree HEAD {head} differs from accepted starting revision {}; retain the allocation and explicitly reconcile the base",
+        project.starting_revision
+    ))
+}
+
+fn isolate_prior_execution(meta: &Path, preserve_projection: bool) -> Result<(), String> {
+    use multplx_backend::facade::{
+        AgentState, BackendName, BackendTarget, KillOutcome, RuntimeBackend, backend_of_meta,
+        target_of_meta,
+    };
+    let backend = backend_of_meta(meta).map_err(|error| error.to_string())?;
+    let endpoint = target_of_meta(meta)
+        .map_err(|error| error.to_string())?
+        .ok_or("prior attempt has no verifiable endpoint")?;
+    let target = BackendTarget::new(backend, endpoint, None).map_err(|error| error.to_string())?;
+    let mut adapter: Box<dyn RuntimeBackend> = match backend {
+        BackendName::Tmux => Box::new(multplx_backend::tmux::TmuxBackend::system()),
+        BackendName::Herdr => Box::new(multplx_backend::herdr::HerdrBackend::system()),
+        BackendName::Cmux => Box::new(multplx_backend::cmux::CmuxBackend::system()),
+    };
+    let observed = adapter
+        .observe_agent(&target)
+        .map_err(|error| error.to_string())?;
+    if observed == AgentState::Missing
+        || (preserve_projection && backend == BackendName::Herdr && observed == AgentState::Dead)
+    {
+        // A dead projected pane has no agent. Its exact journal remains available
+        // to the presentation reconciler, which owns removing that empty husk.
+        return Ok(());
+    }
+    if matches!(
+        observed,
+        AgentState::Unreadable | AgentState::Unverified | AgentState::Ambiguous
+    ) {
+        return Err("prior execution is not sufficiently observed to isolate".into());
+    }
+    match adapter.kill_verified(&target) {
+        KillOutcome::Gone => Ok(()),
+        KillOutcome::StillPresent | KillOutcome::Unknown => {
+            Err("prior endpoint removal was not verified; retaining launch intent".into())
+        }
+    }
 }
 
 fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
@@ -3725,10 +4126,10 @@ fn run_harness(args: &[OsString]) -> i32 {
         .and_then(|value| value.to_str())
         .unwrap_or_default()
     {
-        "actor" => Some(settings.actor(own)),
-        "daemon" => Some(settings.daemon(own)),
-        "daemon-model" => settings.daemon_model(),
-        "daemon-effort" => settings.daemon_effort(),
+        "subagent" | "actor" => Some(settings.actor(own)),
+        "persistent-subagent" | "daemon" => Some(settings.daemon(own)),
+        "persistent-subagent-model" | "daemon-model" => settings.daemon_model(),
+        "persistent-subagent-effort" | "daemon-effort" => settings.daemon_effort(),
         _ => Some(own.to_string()),
     };
     if let Some(value) = value {
@@ -3746,7 +4147,7 @@ fn run_launch_harness(args: &[OsString]) -> i32 {
 }
 
 fn run_headroom(args: &[OsString]) -> i32 {
-    use multplx_backend::headroom::{HeadroomPaths, QueueRecord};
+    use multplx_backend::headroom::HeadroomPaths;
 
     let paths = HeadroomPaths::from_environment();
     let result: Result<String, String> = (|| {
@@ -3755,29 +4156,7 @@ fn run_headroom(args: &[OsString]) -> i32 {
             "--queue" if args.len() == 1 => multplx_backend::headroom::queue_list(&paths).map_err(|error| error.to_string()),
             "--queue-cancel" if args.len() == 2 => multplx_backend::headroom::queue_cancel(&paths, utf8_arg(args, 1, "task id")?).map_err(|error| error.to_string()),
             "--queue-drain" if args.len() == 1 => multplx_backend::headroom::queue_drain(&paths).map_err(|error| error.to_string()),
-            "--queue-add" if args.len() >= 3 => {
-                let id = utf8_arg(args, 1, "task id")?.to_owned();
-                let project = utf8_arg(args, 2, "project")?.to_owned();
-                let mut harness = String::new();
-                let mut model = String::new();
-                let mut effort = String::new();
-                let mut backend = String::new();
-                let mut kind = "delivery".to_owned();
-                let mut index = 3;
-                while index < args.len() {
-                    let flag = args[index].to_str().ok_or_else(|| "queue profile argument is not UTF-8".to_owned())?;
-                    match flag {
-                        "--scout" => { kind = "scout".to_owned(); index += 1; }
-                        "--harness" | "--model" | "--effort" | "--backend" => {
-                            let value = args.get(index + 1).and_then(|value| value.to_str()).ok_or_else(|| format!("{flag} requires a value"))?.to_owned();
-                            match flag { "--harness" => harness = value, "--model" => model = value, "--effort" => effort = value, _ => backend = value }
-                            index += 2;
-                        }
-                        _ => return Err(format!("unknown queue profile argument: {flag}")),
-                    }
-                }
-                multplx_backend::headroom::queue_add(&paths, &QueueRecord { task_id: id, project, harness, model, effort, backend, kind, mode: String::new(), yolo: String::new(), enqueued_at: multplx_backend::headroom::now_epoch() }).map_err(|error| error.to_string())
-            }
+            "--queue-add" if args.len() >= 3 => queue_spawn(&args[1..], None, true).map(|value| value.unwrap_or_default()),
             "--json" => Err("--json takes no arguments".to_owned()),
             "--queue" => Err("--queue takes no arguments".to_owned()),
             "--queue-cancel" => Err("--queue-cancel requires exactly one task id".to_owned()),
@@ -5768,6 +6147,33 @@ mod tests {
                 .expect_err("positionals")
                 .contains("invalid spawn request")
         );
+    }
+
+    #[test]
+    fn daemon_report_refuses_malformed_versioned_identity_before_append() {
+        let temp = tempfile::tempdir().expect("temp");
+        let status = temp.path().join("task.status");
+        let meta = temp.path().join("task.meta");
+        for malformed in [
+            "schema_version=2\nkind=daemon\n",
+            "schema_version=99\nkind=daemon\n",
+            "kind=daemon\nkind=scout\n",
+        ] {
+            fs::write(&meta, malformed).expect("metadata");
+            assert_eq!(
+                run_daemon_report(&args(&[
+                    status.to_str().unwrap(),
+                    "done",
+                    "0123456789abcdef",
+                    "late outcome"
+                ])),
+                1
+            );
+            assert!(
+                !status.exists(),
+                "malformed identity bypassed validated report owner"
+            );
+        }
     }
 
     #[test]

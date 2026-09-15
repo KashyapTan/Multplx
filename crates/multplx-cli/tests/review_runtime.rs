@@ -299,7 +299,7 @@ fn native_static_poll_revalidates_every_sidecar_component() {
 }
 
 #[test]
-fn native_promotion_preserves_identity_and_quotes_the_followup_home() {
+fn native_promotion_requires_explicit_revision_and_preserves_legacy_and_canonical_identity() {
     let temp = tempfile::tempdir().expect("tempdir");
     let state = temp.path().join("state");
     fs::create_dir(&state).expect("state");
@@ -313,22 +313,56 @@ fn native_promotion_preserves_identity_and_quotes_the_followup_home() {
         .env("MX_HOME", temp.path().join("home with ' quote"))
         .output()
         .expect("promote");
+    assert_eq!(output.status.code(), Some(1));
     assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+        String::from_utf8_lossy(&output.stderr).contains("legacy assignment identity is unknown")
     );
     assert_eq!(
         fs::read_to_string(&meta).expect("meta"),
-        "actor=codex\nkind=delivery\n"
+        "actor=codex\nkind=scout\n"
     );
     assert_eq!(
         fs::metadata(&meta).expect("meta").permissions().mode() & 0o777,
         0o600
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains(&format!("promoted {task} to delivery")));
-    assert!(stdout.contains("home with '\\'' quote"));
+    assert!(output.stdout.is_empty());
+    // Publish a valid current model through its owner; the compatibility command
+    // must direct explicit revision without rewriting role, attempt or brief.
+    use multplx_domain::lifecycle::subagent_model::{
+        ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+    };
+    let home = temp.path().join("home with ' quote");
+    let root = format!("root-home:{}", home.display());
+    let record = TaskRecord::new(
+        "canonical".into(),
+        AssignmentRole::Researcher,
+        ArtifactKind::Report,
+        false,
+        root.clone(),
+        root,
+        home.to_string_lossy().into_owned(),
+    );
+    let canonical_meta = state.join("canonical.meta");
+    let canonical_bytes = write_meta("kind=scout\n", &record).unwrap();
+    multplx_core::filesystem::atomic_replace(&canonical_meta, canonical_bytes.as_bytes(), 0o600)
+        .unwrap();
+    let canonical_output = mx()
+        .args(["review", "mx-promote.sh", "canonical"])
+        .env("MX_STATE_OVERRIDE", &state)
+        .env("MX_HOME", &home)
+        .output()
+        .expect("canonical promote");
+    assert_eq!(canonical_output.status.code(), Some(1));
+    assert!(canonical_output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&canonical_output.stderr).contains("mx task-model revise"));
+    assert_eq!(
+        fs::read_to_string(&canonical_meta).unwrap(),
+        canonical_bytes
+    );
+    assert_eq!(
+        fs::metadata(&canonical_meta).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 
     let output = mx()
         .args(["review", "mx-promote.sh", "../bad"])

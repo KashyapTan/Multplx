@@ -36,7 +36,7 @@ test_normal_and_bypass() {
 
 test_lifecycle_entrypoints_refuse_before_mutation() {
   local script out rc
-  for script in mx-spawn.sh mx-send.sh mx-teardown.sh; do
+  for script in mx-send.sh mx-teardown.sh; do
     out=$(env -u MX_GATE_REFUSE_BYPASS DEEP_REVIEW_GATE=1 \
       MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$TMP_ROOT/home" \
       "$ROOT/bin/$script" fake-task 2>&1)
@@ -48,7 +48,35 @@ test_lifecycle_entrypoints_refuse_before_mutation() {
   [ ! -e "$TMP_ROOT/home/state" ] || fail "lifecycle refusal created state"
   [ ! -e "$TMP_ROOT/home/data" ] || fail "lifecycle refusal created data"
   [ ! -e "$TMP_ROOT/home/projects" ] || fail "lifecycle refusal created projects"
-  pass "spawn, send, and teardown refuse deep-review turns before mutation"
+  pass "send and teardown retain their deep-review gate before mutation"
+}
+
+test_spawn_allows_common_delegation() {
+  local home="$TMP_ROOT/delegation" mate="$TMP_ROOT/child" fakebin
+  fakebin=$(mx_fakebin "$TMP_ROOT/delegation-bin")
+  mkdir -p "$home/data" "$home/config" "$mate/bin" "$mate/data" "$mate/config" "$mate/state"
+  printf 'review-child\n' > "$mate/.mx-daemon-home"
+  printf '# Child instructions\n' > "$mate/AGENTS.md"
+  printf 'Review the accepted evidence.\n' > "$mate/data/charter.md"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  list-windows) exit 0 ;;
+  new-window) printf '@1\n' ;;
+  display-message) printf '%%1\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  env -u MX_GATE_REFUSE_BYPASS DEEP_REVIEW_GATE=1 MX_SPAWN_NO_GUARD=1 \
+    MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$home" MX_BACKEND=tmux PATH="$fakebin:$PATH" \
+    "$ROOT/bin/mx-spawn.sh" review-child "$mate" codex --persistent --role reviewer --output report \
+    > "$TMP_ROOT/delegation.out" 2>&1 \
+    || fail "reviewer could not delegate a common child: $(cat "$TMP_ROOT/delegation.out")"
+  sed -n 's/^canonical_model=//p' "$home/state/review-child.meta" | \
+    jq -e '.role == "reviewer" and .artifact == "report" and .persistent == true and .attempt.generation == 1' >/dev/null \
+    || fail "delegation did not publish independent assignment/output/persistence"
+  pass "a review context can spawn a bound common sub-agent"
 }
 
 test_session_start_stays_silent() {
@@ -65,4 +93,5 @@ test_session_start_stays_silent() {
 test_marker_refusal
 test_normal_and_bypass
 test_lifecycle_entrypoints_refuse_before_mutation
+test_spawn_allows_common_delegation
 test_session_start_stays_silent

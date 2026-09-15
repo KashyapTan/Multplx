@@ -276,7 +276,24 @@ fn render_profile(value: &serde_json::Value) -> String {
 }
 
 fn actor_dispatch(paths: &Paths, output: &mut String, verbose: bool) {
-    let path = paths.config.join("actor-dispatch.json");
+    let canonical = paths.config.join("subagent-dispatch.json");
+    let filename = if canonical.exists() {
+        "subagent-dispatch.json"
+    } else {
+        "actor-dispatch.json"
+    };
+    let tag = if filename == "subagent-dispatch.json" {
+        "SUBAGENT_DISPATCH"
+    } else {
+        "ACTOR_DISPATCH"
+    };
+    if let Err(error) =
+        multplx_backend::harness::HarnessConfig::new(&paths.config).validate_aliases()
+    {
+        output.push_str(&format!("SUBAGENT_DISPATCH: {error}\n"));
+        return;
+    }
+    let path = paths.config.join(filename);
     if !path.is_file() {
         return;
     }
@@ -285,11 +302,15 @@ fn actor_dispatch(paths: &Paths, output: &mut String, verbose: bool) {
         .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
         .ok_or(())
     else {
-        output.push_str("ACTOR_DISPATCH: invalid config/actor-dispatch.json - malformed JSON\n");
+        output.push_str(&format!(
+            "{tag}: invalid config/{filename} - malformed JSON\n"
+        ));
         return;
     };
     let Some(object) = value.as_object() else {
-        output.push_str("ACTOR_DISPATCH: invalid config/actor-dispatch.json - top-level value must be an object\n");
+        output.push_str(&format!(
+            "{tag}: invalid config/{filename} - top-level value must be an object\n"
+        ));
         return;
     };
     let mut error = None;
@@ -367,13 +388,18 @@ fn actor_dispatch(paths: &Paths, output: &mut String, verbose: bool) {
         }
     }
     if let Some(error) = error {
-        output.push_str(&format!(
-            "ACTOR_DISPATCH: invalid config/actor-dispatch.json - {error}\n"
-        ));
+        output.push_str(&format!("{tag}: invalid config/{filename} - {error}\n"));
         return;
     }
     if verbose {
-        output.push_str("BOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\n");
+        let label = if filename == "subagent-dispatch.json" {
+            "sub-agent"
+        } else {
+            "actor"
+        };
+        output.push_str(&format!(
+            "BOOTSTRAP_INFO: {label} dispatch active config/{filename}\n"
+        ));
         for rule in object
             .get("rules")
             .and_then(|v| v.as_array())
@@ -398,7 +424,7 @@ fn actor_dispatch(paths: &Paths, output: &mut String, verbose: bool) {
                 render_profile(use_value)
             };
             output.push_str(&format!(
-                "BOOTSTRAP_INFO: actor dispatch rule: {} -> {rendered}\n",
+                "BOOTSTRAP_INFO: {label} dispatch rule: {} -> {rendered}\n",
                 rule["when"].as_str().unwrap()
             ));
         }
@@ -417,7 +443,7 @@ fn actor_dispatch(paths: &Paths, output: &mut String, verbose: bool) {
                 render_profile(default)
             };
             output.push_str(&format!(
-                "BOOTSTRAP_INFO: actor dispatch default: {rendered}\n"
+                "BOOTSTRAP_INFO: {label} dispatch default: {rendered}\n"
             ));
         }
     }
@@ -1080,6 +1106,41 @@ mod tests {
         let mut permissions = fs::metadata(path).expect("metadata").permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).expect("mode");
+    }
+
+    #[test]
+    fn canonical_dispatch_defaults_and_conflicting_aliases_are_reported() {
+        let temp = tempfile::tempdir().expect("temp");
+        let fixture = Paths {
+            root: temp.path().to_path_buf(),
+            source_root: temp.path().to_path_buf(),
+            home: temp.path().to_path_buf(),
+            data: temp.path().join("data"),
+            state: temp.path().join("state"),
+            config: temp.path().join("config"),
+            projects: temp.path().join("projects"),
+        };
+        fs::create_dir_all(&fixture.config).unwrap();
+        fs::write(fixture.config.join("subagent-dispatch.json"), "{}").unwrap();
+        let mut output = String::new();
+        actor_dispatch(&fixture, &mut output, true);
+        assert!(output.contains("sub-agent dispatch active config/subagent-dispatch.json"));
+        fs::write(fixture.config.join("subagent-dispatch.json"), "bad JSON").unwrap();
+        output.clear();
+        actor_dispatch(&fixture, &mut output, true);
+        assert!(
+            output.contains(
+                "SUBAGENT_DISPATCH: invalid config/subagent-dispatch.json - malformed JSON"
+            )
+        );
+        fs::write(fixture.config.join("actor-dispatch.json"), "{}").unwrap();
+        output.clear();
+        actor_dispatch(&fixture, &mut output, true);
+        assert!(output.contains("conflicting config/subagent-dispatch.json"));
+        fs::write(fixture.config.join("subagent-dispatch.json"), "{}").unwrap();
+        output.clear();
+        actor_dispatch(&fixture, &mut output, true);
+        assert!(output.contains("sub-agent dispatch active config/subagent-dispatch.json"));
     }
 
     #[test]

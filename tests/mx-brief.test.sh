@@ -121,9 +121,9 @@ test_same_named_self_repo() {
   assert_contains "$output" 'mode=deep-review, yolo=off' 'self brief inherited clone authority'
   assert_grep 'open or update its PR' "$home/data/self/brief.md" 'self completion instructions use wrong mode'
   output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" clone "$home/projects/Multplx") || fail 'clone brief refused'
-  assert_contains "$output" 'mode=local-only, yolo=on' 'clone authority lost'
+  assert_contains "$output" 'mode=local-only, yolo=off' 'clone authority lost'
   output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" override "$source" --mode direct-PR --yolo on) || fail 'self override refused'
-  assert_contains "$output" 'mode=direct-PR, yolo=on' 'self override lost'
+  assert_contains "$output" 'mode=direct-PR, yolo=off' 'self override lost'
   pass 'explicit self-repository and same-named clone briefs retain distinct authority'
 }
 
@@ -173,7 +173,7 @@ test_modes_do_not_request_review_or_merge() {
   mkdir -p "$home/data"
   for mode in deep-review direct-PR local-only; do
     output=$(MX_HOME="$home" "$ROOT/bin/mx-brief.sh" "mode-$mode" repo --mode "$mode" --yolo on) || fail 'mode scaffold failed'
-    assert_contains "$output" "mode=$mode, yolo=on" 'compatibility resolution changed'
+    assert_contains "$output" "mode=$mode, yolo=off" 'compatibility resolution changed'
     brief="$home/data/mode-$mode/brief.md"
     assert_no_grep 'mx-deep-review.sh' "$brief" 'mode automatically requested deep-review'
     assert_grep 'Only humans merge PRs' "$brief" 'yolo granted merge authority'

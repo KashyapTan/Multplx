@@ -16,7 +16,10 @@ use multplx_core::process::SystemProcessProbe;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
-pub const DEFAULT_ALLOWLIST: [&str; 4] = [
+pub const DEFAULT_ALLOWLIST: [&str; 7] = [
+    "subagent-dispatch.json",
+    "subagent-harness",
+    "persistent-subagent-harness",
     "actor-dispatch.json",
     "actor-harness",
     "backlog-backend",
@@ -1299,13 +1302,77 @@ mod tests {
         fs::create_dir_all(&destination).expect("destination");
         fs::write(source.join("actor-harness"), b"codex\n").expect("source config");
         let first = propagate_config(&source, &destination).expect("propagate");
-        assert_eq!(first.rows[1].status, Status::Pushed);
+        assert_eq!(
+            first
+                .rows
+                .iter()
+                .find(|row| row.item == "actor-harness")
+                .expect("legacy harness row")
+                .status,
+            Status::Pushed
+        );
         let second = propagate_config(&source, &destination).expect("propagate");
-        assert_eq!(second.rows[1].status, Status::Unchanged);
+        assert_eq!(
+            second
+                .rows
+                .iter()
+                .find(|row| row.item == "actor-harness")
+                .expect("legacy harness row")
+                .status,
+            Status::Unchanged
+        );
         fs::remove_file(source.join("actor-harness")).expect("remove source");
         let third = propagate_config(&source, &destination).expect("propagate");
-        assert_eq!(third.rows[1].reason, "mirrored primary absence");
+        assert_eq!(
+            third
+                .rows
+                .iter()
+                .find(|row| row.item == "actor-harness")
+                .expect("legacy harness row")
+                .reason,
+            "mirrored primary absence"
+        );
         assert!(!destination.join("actor-harness").exists());
+    }
+
+    #[test]
+    fn canonical_configuration_preserves_pinned_profile_bytes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("source");
+        let destination = temp.path().join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&destination).unwrap();
+        for (name, value) in [
+            ("subagent-harness", "codex\n"),
+            ("persistent-subagent-harness", "claude opus high\n"),
+            (
+                "subagent-dispatch.json",
+                "{\"default\":{\"harness\":\"codex\",\"model\":\"selected-model\",\"effort\":\"high\"}}\n",
+            ),
+        ] {
+            fs::write(source.join(name), value).unwrap();
+        }
+        let result = propagate_config(&source, &destination).unwrap();
+        assert!(!result.failed);
+        for name in [
+            "subagent-harness",
+            "persistent-subagent-harness",
+            "subagent-dispatch.json",
+        ] {
+            assert_eq!(
+                fs::read(source.join(name)).unwrap(),
+                fs::read(destination.join(name)).unwrap()
+            );
+            assert_eq!(
+                result
+                    .rows
+                    .iter()
+                    .find(|row| row.item == name)
+                    .unwrap()
+                    .status,
+                Status::Pushed
+            );
+        }
     }
 
     #[test]
@@ -1446,12 +1513,28 @@ mod tests {
                 .success()
         );
         let skipped = propagate_config(&source, &destination).expect("propagate");
-        assert_eq!(skipped.rows[1].status, Status::Skipped);
+        assert_eq!(
+            skipped
+                .rows
+                .iter()
+                .find(|row| row.item == "actor-harness")
+                .expect("legacy harness row")
+                .status,
+            Status::Skipped
+        );
         assert!(skipped.stderr.contains("warning: skipped"));
 
         fs::write(repository.join(".gitignore"), "config/actor-harness\n").expect("ignore");
         let pushed = propagate_config(&source, &destination).expect("propagate ignored");
-        assert_eq!(pushed.rows[1].status, Status::Pushed);
+        assert_eq!(
+            pushed
+                .rows
+                .iter()
+                .find(|row| row.item == "actor-harness")
+                .expect("legacy harness row")
+                .status,
+            Status::Pushed
+        );
     }
 
     #[test]
@@ -1464,7 +1547,15 @@ mod tests {
         fs::write(source.join("actor-harness"), "codex\n").expect("source item");
         let failed = propagate_config(&source, &destination).expect("outcome");
         assert!(failed.failed);
-        assert_eq!(failed.rows[1].status, Status::Error);
+        assert_eq!(
+            failed
+                .rows
+                .iter()
+                .find(|row| row.item == "actor-harness")
+                .expect("legacy harness row")
+                .status,
+            Status::Error
+        );
 
         let source_data = temp.path().join("source-data");
         let destination_data = temp.path().join("destination-data");

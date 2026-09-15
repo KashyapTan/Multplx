@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: mx-spawn.sh <id> <project-path> [--mode deep-review|direct-PR|local-only] [--yolo on|off] [profile flags]
+# Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer] [--output report|implementation] [--persistent] [profile flags]
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

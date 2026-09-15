@@ -15,9 +15,11 @@ Keep each repository's instructions with its task; do not load every discovered 
 Discovery and registration do not authorize changes to a borrowed checkout or its removal.
 Remote-free repositories can support local tasks.
 
-`bin/mx-project-mode.sh --help` describes the existing flat registry and path resolver.
+`mx project --help` describes explicit local registration, exact selector resolution, listing and metadata-only forgetting.
+`mx project register PATH --alias NAME` remembers a user-owned checkout without changing its files.
+`bin/mx-project-mode.sh --help` retains the legacy flat-registry compatibility view.
 `bin/mx-brief.sh --help` accepts project references for scaffolding.
-The legacy runtime still has flat managed-clone and mode fields; Phase 02 adds project/checkout identity and Phase 11 implements local registration, discovery and workspace entry.
+The [sub-agent model](../../../docs/subagent-model.md) owns project/checkout identity and frozen task bindings; Phase 11 implements discovery and workspace entry.
 Do not treat legacy mode or yolo values as a request for a review tool, a project-intake interview or merge authority.
 Use a URL for intentional cloning when no selected local checkout supplies the work.
 A request to unregister a borrowed repository does not authorize deleting its files.

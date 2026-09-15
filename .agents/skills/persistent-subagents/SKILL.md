@@ -11,18 +11,19 @@ metadata:
 Persistence is independent of assignment role.
 A sub-orchestrator owns a bounded charter, delegates project coding and test changes, and reports through its recorded parent channel.
 [A11](../../../porting.md#a11-scoped-sub-orchestrators) owns the accepted domain contract; Phase 05 publishes its named spawn and report grammar.
-Until then, the commands below are legacy interfaces, not proof of the new coordinator lifecycle.
+The common lifecycle supports persistent assignments; named coordinator provisioning and outcome relays remain Phase 05 work.
 
 | Operation | Existing command reference |
 | --- | --- |
-| Charter scaffold | `bin/mx-brief.sh <id> --daemon <project>...` or `--no-projects`; `MX_DAEMON_CHARTER` and `MX_DAEMON_SCOPE` supply text. |
+| Charter scaffold | `mx brief <id> --persistent <project>...` or `--no-projects`; legacy `--daemon`, `MX_DAEMON_CHARTER` and `MX_DAEMON_SCOPE` remain supported. |
 | Provision / validate | `bin/mx-home-seed.sh --help`; validate recorded homes before launch. |
-| Launch / recover | `bin/mx-spawn.sh <id> --daemon`; reuse the recorded home and reconcile existing children. |
+| Launch / recover | `mx spawn <id> --persistent`; reuse the recorded home and reconcile existing children; `--daemon` remains an alias. |
 | Inherited settings | `bin/mx-config-push.sh --help`; owned propagation preserves generations and pending reread delivery. |
 | Queued-work handoff | `bin/mx-backlog-handoff.sh --help`; move through the owner rather than copying two authoritative backlogs. |
 | Retirement | `bin/mx-teardown.sh --help`; retain unfinished work and uncertain ownership. |
 
 [Configuration](../../../docs/configuration.md) and the [inheritance implementation](../../../crates/multplx-domain/src/inheritance.rs) own the legacy registry, configuration allowlist and propagation schema.
+The [sub-agent record contract](../../../docs/subagent-model.md) distinguishes persistence, assignment, accepted brief and attempt identity.
 The seeded `data/charter.md` owns the assignment text; `.mx-daemon-home` binds the home identity.
 Home validation rejects duplicate, nested or overlapping registered homes.
 Provisioning rolls back only artifacts it created; a persistent reservation survives zero live processes and ordinary restarts.
