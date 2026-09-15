@@ -3531,6 +3531,17 @@ fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
             && endpoint == format!("{session}:{pane}")
         {
             let mut herdr = multplx_backend::herdr::HerdrBackend::system();
+            // Pane close may temporarily steal global session focus. Keep the
+            // snapshot, exact close, restoration and journal retirement in the
+            // same session transaction as projected spawn and recovery.
+            let _presentation_lock = multplx_core::locks::DirectoryLock::acquire_wait(
+                herdr
+                    .presentation_session_lock_path(session)
+                    .map_err(|error| error.to_string())?,
+                &SystemProcessProbe::default(),
+                Duration::from_secs(15),
+            )
+            .map_err(|error| format!("cannot serialize projected teardown: {error}"))?;
             if herdr.projection_endpoint_matches_journal(session, workspace, &journal, id) {
                 let _ = herdr.close_pane_focus_preserving(session, pane, None);
                 if herdr.pane_agent_state(session, pane)

@@ -2,7 +2,7 @@
 # Isolated real-Herdr E2E coverage for the default-off disposable single-task
 # presentation projection and its best-effort owning-parent ordering across
 # primary and daemon homes.
-# The test drives the real spawn and teardown scripts, a real Treehouse pool,
+# The test drives the real spawn and teardown scripts, real Git worktrees,
 # and the guarded named-session lab helper.
 set -u
 
@@ -30,6 +30,7 @@ MOVE_CALL_LOG="$TMP_ROOT/workspace-move-calls.log"
 FOCUS_AUDIT_LOG="$TMP_ROOT/focus-audit.log"
 ACTIVE_SEEDED_CONTROL="$TMP_ROOT/active-seeded-control"
 POST_CREATE_ABORT_CONTROL="$TMP_ROOT/post-create-abort-control"
+PROJECTION_CLEANUP_LOCK_CONTROL="$TMP_ROOT/projection-cleanup-lock-control"
 mkdir -p "$FAKEBIN" "$HARNESS_BIN"
 : > "$HERDR_CALL_LOG"
 : > "$TREEHOUSE_CALL_LOG"
@@ -37,7 +38,7 @@ mkdir -p "$FAKEBIN" "$HARNESS_BIN"
 : > "$FOCUS_AUDIT_LOG"
 REAL_MOVER="$ROOT/bin/backends/herdr-workspace-move"
 export REAL_HERDR REAL_MOVER HERDR_CALL_LOG TREEHOUSE_CALL_LOG MOVE_CALL_LOG FOCUS_AUDIT_LOG HERDR_ORIGINAL_PATH HERDR_LAB_HELPER
-export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL TMP_ROOT
+export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL PROJECTION_CLEANUP_LOCK_CONTROL TMP_ROOT
 
 # Herdr panes need a verified executable harness. Keep it outside FAKEBIN so
 # the real lab helper still reaches the real Herdr binary while provisioning
@@ -145,6 +146,17 @@ case "${1:-} ${2:-}" in
   "pane close") mutation=pane-close ;;
   "tab focus") mutation=tab-focus ;;
 esac
+if [ "$mutation" = pane-close ] && [ -f "$PROJECTION_CLEANUP_LOCK_CONTROL/panes" ] \
+   && grep -Fx "$mutation_target" "$PROJECTION_CLEANUP_LOCK_CONTROL/panes" >/dev/null; then
+  cleanup_lock=$(cat "$PROJECTION_CLEANUP_LOCK_CONTROL/path")
+  cleanup_owner=$(cat "$cleanup_lock/pid" 2>/dev/null || true)
+  if [ "$cleanup_owner" != "$PPID" ]; then
+    printf 'projected teardown pane %s is outside its CLI-owned session lock (owner=%s caller=%s)\n' "$mutation_target" "$cleanup_owner" "$PPID" >> "$PROJECTION_CLEANUP_LOCK_CONTROL/violation"
+    cat "$PROJECTION_CLEANUP_LOCK_CONTROL/violation" >&2
+    exit 1
+  fi
+  printf '%s\n' "$mutation_target" >> "$PROJECTION_CLEANUP_LOCK_CONTROL/verified"
+fi
 refusal_probe=0
 if [ "${1:-} ${2:-}" = "pane get" ] && [ -d "$ACTIVE_SEEDED_CONTROL" ] \
    && [ "$(cat "$ACTIVE_SEEDED_CONTROL/stage" 2>/dev/null || true)" = injected ] \
@@ -930,12 +942,25 @@ for ROUND in 1 2 3; do
   [ "$WAVE_SECOND_ORDER" = "$SECOND_ORDER_BEFORE" ] \
     || fail "focus wave $ROUND changed daemon relative order"
 
+  # Verify actual native teardown owns the shared session lock at each close,
+  # making the concurrency regression deterministic even when focus steals
+  # happen to restore in the right order on a particular machine.
+  mkdir -p "$PROJECTION_CLEANUP_LOCK_CONTROL"
+  session_presentation_lock_path > "$PROJECTION_CLEANUP_LOCK_CONTROL/path" \
+    || fail "focus wave $ROUND cannot resolve cleanup lock"
+  sed -n 's/^herdr_pane_id=//p' "$HOME_DIR/state/focus-$ROUND-a.meta" "$HOME_DIR/state/focus-$ROUND-b.meta" > "$PROJECTION_CLEANUP_LOCK_CONTROL/panes"
+  : > "$PROJECTION_CLEANUP_LOCK_CONTROL/verified"
   teardown_task "focus-$ROUND-a" "$HOME_DIR" > "$TMP_ROOT/focus-$ROUND-a-teardown.out" 2> "$TMP_ROOT/focus-$ROUND-a-teardown.err" &
   WAVE_A_TEARDOWN_PID=$!
   teardown_task "focus-$ROUND-b" "$HOME_DIR" > "$TMP_ROOT/focus-$ROUND-b-teardown.out" 2> "$TMP_ROOT/focus-$ROUND-b-teardown.err" &
   WAVE_B_TEARDOWN_PID=$!
-  wait "$WAVE_A_TEARDOWN_PID" || fail "focus wave $ROUND teardown A failed"
-  wait "$WAVE_B_TEARDOWN_PID" || fail "focus wave $ROUND teardown B failed"
+  wait "$WAVE_A_TEARDOWN_PID" || fail "focus wave $ROUND teardown A failed: $(cat "$PROJECTION_CLEANUP_LOCK_CONTROL/violation" "$TMP_ROOT/focus-$ROUND-a-teardown.err" 2>/dev/null)"
+  wait "$WAVE_B_TEARDOWN_PID" || fail "focus wave $ROUND teardown B failed: $(cat "$PROJECTION_CLEANUP_LOCK_CONTROL/violation" "$TMP_ROOT/focus-$ROUND-b-teardown.err" 2>/dev/null)"
+  sort "$PROJECTION_CLEANUP_LOCK_CONTROL/panes" > "$TMP_ROOT/expected-cleanup-panes"
+  sort "$PROJECTION_CLEANUP_LOCK_CONTROL/verified" > "$TMP_ROOT/verified-cleanup-panes"
+  cmp -s "$TMP_ROOT/expected-cleanup-panes" "$TMP_ROOT/verified-cleanup-panes" \
+    || fail "focus wave $ROUND did not close both exact panes under their CLI-owned session lock"
+  rm -rf "$PROJECTION_CLEANUP_LOCK_CONTROL"
   assert_focus_is "$MAINTAINER_FOCUS" "focus wave $ROUND concurrent teardowns"
   WAVE_REMAINING=$(lab workspace list | jq -r '.result.workspaces[].label')
   [ "$WAVE_REMAINING" = $'broker\ndaemon-alpha\ndaemon-bravo' ] \

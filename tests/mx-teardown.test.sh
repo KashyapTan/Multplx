@@ -1258,7 +1258,11 @@ case "${1:-} ${2:-}" in
     printf '%s\n' '{"server":{"running":true}}'
     ;;
   "session list")
-    printf '%s\n' '{"sessions":[{"name":"fmtest","running":true,"socket_path":"/tmp/fmtest.sock"}]}'
+    if [ "${MX_FAKE_HERDR_BAD_SOCKET:-0}" = 1 ]; then
+      printf '%s\n' '{"sessions":[{"name":"fmtest","running":true,"socket_path":"relative.sock"}]}'
+    else
+      printf '{"sessions":[{"name":"fmtest","running":true,"socket_path":"%s/session.sock"}]}\n' "$(cd "$(dirname "$MX_FAKE_HERDR_LOG")" && pwd -P)"
+    fi
     ;;
   "pane close")
     if [ "${MX_FAKE_HERDR_CLOSE_FAIL:-0}" = 1 ]; then
@@ -1327,6 +1331,58 @@ test_herdr_projection_teardown_retains_journal_when_close_unconfirmed() {
   pass "herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed"
 }
 
+test_herdr_projection_teardown_refuses_without_session_lock_ownership() {
+  local case_dir log closed restored lock ready release owner tick rc before after reason
+  for reason in invalid-socket live-owner; do
+    case_dir=$(make_case "herdr-projection-lock-$reason")
+    write_meta "$case_dir" local-only delivery
+    configure_herdr_projection_teardown_case "$case_dir"
+    log="$case_dir/herdr.log"; closed="$case_dir/closed"; restored="$case_dir/restored"; : > "$log"
+    cp "$case_dir/state/task-x1.meta" "$case_dir/meta.before"
+    cp "$case_dir/state/task-x1.herdr-presentation" "$case_dir/journal.before"
+    if [ "$reason" = live-owner ]; then
+      lock=$(PATH="$case_dir/fakebin:$PATH" MX_HOME="$case_dir" MX_FAKE_HERDR_LOG="$log" MX_HERDR_BIN="$case_dir/fakebin/herdr" \
+        bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_presentation_session_lock_path fmtest' "$ROOT") || fail 'cannot resolve fixture presentation lock'
+      ready="$case_dir/lock-ready"; release="$case_dir/lock-release"
+      ROOT="$ROOT" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" LOCK="$lock" READY="$ready" RELEASE="$release" bash -c '
+        . "$ROOT/bin/mx-wake-lib.sh"
+        mx_lock_try_acquire "$LOCK" || exit 1
+        trap '\''mx_lock_release "$LOCK"'\'' EXIT
+        mx_pid_identity "${BASHPID:-$$}" > "$LOCK/pid-identity" || exit 1
+        : > "$READY"
+        count=0
+        while [ ! -e "$RELEASE" ] && [ "$count" -lt 1000 ]; do sleep 0.05; count=$((count + 1)); done
+        [ -e "$RELEASE" ]
+      ' &
+      owner=$!
+      tick=0
+      while [ ! -e "$ready" ] && kill -0 "$owner" 2>/dev/null && [ "$tick" -lt 100 ]; do sleep 0.05; tick=$((tick + 1)); done
+      [ -e "$ready" ] || { kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail 'fixture presentation owner did not acquire lock'; }
+      before=$("$MX_RUST_BIN" primitive process-identity "$owner") || { : > "$release"; wait "$owner"; fail 'fixture presentation owner has no process identity'; }
+      rc=0
+      MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_CLOSED="$closed" MX_FAKE_HERDR_RESTORED="$restored" \
+        run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+      after=$("$MX_RUST_BIN" primitive process-identity "$owner") || { : > "$release"; wait "$owner"; fail 'teardown lost existing session lock owner'; }
+      : > "$release"; wait "$owner" || fail 'fixture session owner did not release lock'
+      [ "$before" = "$after" ] || fail 'teardown replaced live session lock owner'
+      assert_grep 'lock' "$case_dir/stderr" 'presentation lock refusal lost its reason'
+    else
+      rc=0
+      MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_CLOSED="$closed" MX_FAKE_HERDR_RESTORED="$restored" MX_FAKE_HERDR_BAD_SOCKET=1 \
+        run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+      assert_grep 'named-session socket is ambiguous' "$case_dir/stderr" 'invalid session identity refusal lost its reason'
+    fi
+    expect_code 1 "$rc" 'projected teardown without session lock ownership'
+    cmp "$case_dir/state/task-x1.meta" "$case_dir/meta.before" || fail 'unowned session teardown changed task metadata'
+    cmp "$case_dir/state/task-x1.herdr-presentation" "$case_dir/journal.before" || fail 'unowned session teardown changed journal'
+    assert_present "$case_dir/wt" 'unowned session teardown removed allocation'
+    assert_absent "$closed" 'unowned session teardown closed pane'
+    assert_absent "$restored" 'unowned session teardown changed focus'
+    assert_not_contains "$(cat "$log")" 'workspace list' 'unowned session teardown observed focus before acquiring lock'
+  done
+  pass 'projected teardown requires exact live session lock ownership before focus, endpoint, journal or allocation mutation'
+}
+
 test_local_only_fork_remote_allows
 test_teardown_prompts_owned_backlog_done
 test_teardown_manual_backend_prompts_hand_edit
@@ -1339,6 +1395,7 @@ test_exact_override_cannot_discard_nonempty_unlanded_allocation
 test_herdr_teardown_clears_escalation_marker
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed
+test_herdr_projection_teardown_refuses_without_session_lock_ownership
 test_squash_merged_branch_deleted_allows
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows

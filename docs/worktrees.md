@@ -59,6 +59,7 @@ An explicitly reconciled replacement attempt continues its existing worktree thr
 The prior token remains historical evidence and cannot release the replacement.
 Herdr projection recovery quiesces its exact restored shell through a recorded holding pane in the owning home before the allocation owner checks occupants and transfers the worker lease.
 The session owner then replaces that holding pane at the exact worker path; uncertain intermediate topology retains both receipts for recovery.
+Projected teardown holds the same session presentation lock as spawn and recovery through endpoint proof, pane close, focus restoration and journal retirement.
 No ignored content is classified as disposable cache.
 Unknown content is preserved, and later tasks receive separate worktrees.
 

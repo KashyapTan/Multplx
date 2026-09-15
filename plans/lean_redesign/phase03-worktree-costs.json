@@ -1,25 +1,25 @@
 {
   "schema_version": 1,
-  "started_utc": "2026-09-15T03:03:54.345040+00:00",
+  "started_utc": "2026-09-15T12:57:35.306636+00:00",
   "host": {
     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
     "machine": "arm64",
     "logical_cpus": 15,
     "load_average_start": [
-      3.8984375,
-      3.4033203125,
-      3.39404296875
+      4.515625,
+      3.6494140625,
+      3.93701171875
     ],
     "load_average_end": [
-      5.6943359375,
-      4.25,
-      3.7265625
+      3.3701171875,
+      3.50439453125,
+      3.8583984375
     ]
   },
-  "binary_sha256": "515f9a18cf62dcfe27df26009e34b343bd3c15a21beb7fd03012552982cb483c",
+  "binary_sha256": "5eee2c44245dea9d2a6954d45a14360e535fac335c6877ca603fcaa499a5f34b",
   "script_sha256": "4ea135c0781fdff5217d170faccea7b933a38c9daf25a50cc09f93657bd21e46",
   "git_version": "git version 2.55.0",
-  "overlap": "Final Phase03 release binary on a shared workstation. Rust clippy and workspace tests, the lock-contention fixture, isolation proof and coverage validation may overlap. Workload isolation was not enforced.",
+  "overlap": "Final Phase03 release with serialized Herdr teardown on a shared workstation. Rust validation and live Herdr checks may overlap; workload isolation was not enforced.",
   "method": {
     "trials": [
       1,
@@ -64,8 +64,8 @@
       },
       "cache_behavior": {
         "unclassified_ignored_bytes": 262145,
-        "release_refused_retained_ms": 246.413,
-        "fresh_fallback_acquire_ms": 332.275,
+        "release_refused_retained_ms": 262.734,
+        "fresh_fallback_acquire_ms": 335.071,
         "cache_preserved": true,
         "fresh_path_distinct": true,
         "cache_copied_to_fresh_path": false,
@@ -79,65 +79,65 @@
       "timings": {
         "acquire": {
           "observations": 1,
-          "total_ms": 563.342,
-          "median_ms": 563.342,
-          "min_ms": 563.342,
-          "max_ms": 563.342
+          "total_ms": 337.071,
+          "median_ms": 337.071,
+          "min_ms": 337.071,
+          "max_ms": 337.071
         },
         "same_request_retry": {
           "observations": 1,
-          "total_ms": 200.582,
-          "median_ms": 200.582,
-          "min_ms": 200.582,
-          "max_ms": 200.582
+          "total_ms": 215.856,
+          "median_ms": 215.856,
+          "min_ms": 215.856,
+          "max_ms": 215.856
         },
         "setup_readiness": {
           "observations": 1,
-          "total_ms": 27.47,
-          "median_ms": 27.47,
-          "min_ms": 27.47,
-          "max_ms": 27.47
+          "total_ms": 19.163,
+          "median_ms": 19.163,
+          "min_ms": 19.163,
+          "max_ms": 19.163
         },
         "release": {
           "observations": 1,
-          "total_ms": 574.582,
-          "median_ms": 574.582,
-          "min_ms": 574.582,
-          "max_ms": 574.582
+          "total_ms": 402.173,
+          "median_ms": 402.173,
+          "min_ms": 402.173,
+          "max_ms": 402.173
         },
         "prune_preview": {
           "observations": 1,
-          "total_ms": 411.874,
-          "median_ms": 411.874,
-          "min_ms": 411.874,
-          "max_ms": 411.874
+          "total_ms": 404.261,
+          "median_ms": 404.261,
+          "min_ms": 404.261,
+          "max_ms": 404.261
         },
         "prune_apply": {
           "observations": 1,
-          "total_ms": 475.216,
-          "median_ms": 475.216,
-          "min_ms": 475.216,
-          "max_ms": 475.216
+          "total_ms": 438.829,
+          "median_ms": 438.829,
+          "min_ms": 438.829,
+          "max_ms": 438.829
         }
       },
       "samples_ms": {
         "acquire": [
-          563.342
+          337.071
         ],
         "same_request_retry": [
-          200.582
+          215.856
         ],
         "setup_readiness": [
-          27.47
+          19.163
         ],
         "release": [
-          574.582
+          402.173
         ],
         "prune_preview": [
-          411.874
+          404.261
         ],
         "prune_apply": [
-          475.216
+          438.829
         ]
       }
     },
@@ -167,8 +167,8 @@
       },
       "cache_behavior": {
         "unclassified_ignored_bytes": 262145,
-        "release_refused_retained_ms": 285.639,
-        "fresh_fallback_acquire_ms": 346.031,
+        "release_refused_retained_ms": 263.53,
+        "fresh_fallback_acquire_ms": 318.985,
         "cache_preserved": true,
         "fresh_path_distinct": true,
         "cache_copied_to_fresh_path": false,
@@ -182,89 +182,89 @@
       "timings": {
         "acquire": {
           "observations": 5,
-          "total_ms": 1554.99,
-          "median_ms": 313.387,
-          "min_ms": 294.863,
-          "max_ms": 320.21
+          "total_ms": 1576.498,
+          "median_ms": 316.464,
+          "min_ms": 302.94,
+          "max_ms": 326.223
         },
         "same_request_retry": {
           "observations": 5,
-          "total_ms": 971.778,
-          "median_ms": 191.746,
-          "min_ms": 188.267,
-          "max_ms": 205.71
+          "total_ms": 1069.484,
+          "median_ms": 212.978,
+          "min_ms": 209.993,
+          "max_ms": 218.325
         },
         "setup_readiness": {
           "observations": 5,
-          "total_ms": 170.031,
-          "median_ms": 38.367,
-          "min_ms": 24.341,
-          "max_ms": 41.548
+          "total_ms": 93.612,
+          "median_ms": 18.818,
+          "min_ms": 18.383,
+          "max_ms": 18.92
         },
         "release": {
           "observations": 5,
-          "total_ms": 2446.246,
-          "median_ms": 503.382,
-          "min_ms": 446.849,
-          "max_ms": 529.765
+          "total_ms": 1999.135,
+          "median_ms": 396.694,
+          "min_ms": 386.984,
+          "max_ms": 421.876
         },
         "prune_preview": {
           "observations": 5,
-          "total_ms": 2361.871,
-          "median_ms": 475.57,
-          "min_ms": 410.426,
-          "max_ms": 517.177
+          "total_ms": 1934.951,
+          "median_ms": 390.178,
+          "min_ms": 378.11,
+          "max_ms": 394.614
         },
         "prune_apply": {
           "observations": 5,
-          "total_ms": 2661.668,
-          "median_ms": 537.074,
-          "min_ms": 482.255,
-          "max_ms": 568.07
+          "total_ms": 2096.76,
+          "median_ms": 420.925,
+          "min_ms": 412.015,
+          "max_ms": 428.116
         }
       },
       "samples_ms": {
         "acquire": [
-          294.863,
-          318.644,
-          307.887,
-          313.387,
-          320.21
+          323.97,
+          326.223,
+          302.94,
+          316.464,
+          306.901
         ],
         "same_request_retry": [
-          188.267,
-          194.787,
-          191.268,
-          191.746,
-          205.71
+          212.978,
+          212.096,
+          218.325,
+          216.092,
+          209.993
         ],
         "setup_readiness": [
-          24.341,
-          25.155,
-          38.367,
-          40.62,
-          41.548
+          18.591,
+          18.818,
+          18.92,
+          18.899,
+          18.383
         ],
         "release": [
-          503.382,
-          511.945,
-          529.765,
-          446.849,
-          454.305
+          395.619,
+          396.694,
+          386.984,
+          397.963,
+          421.876
         ],
         "prune_preview": [
-          517.177,
-          410.426,
-          516.665,
-          442.032,
-          475.57
+          392.217,
+          394.614,
+          390.178,
+          379.831,
+          378.11
         ],
         "prune_apply": [
-          521.525,
-          552.745,
-          482.255,
-          568.07,
-          537.074
+          428.116,
+          421.037,
+          412.015,
+          414.666,
+          420.925
         ]
       }
     },
@@ -294,8 +294,8 @@
       },
       "cache_behavior": {
         "unclassified_ignored_bytes": 262145,
-        "release_refused_retained_ms": 252.019,
-        "fresh_fallback_acquire_ms": 296.667,
+        "release_refused_retained_ms": 256.333,
+        "fresh_fallback_acquire_ms": 297.359,
         "cache_preserved": true,
         "fresh_path_distinct": true,
         "cache_copied_to_fresh_path": false,
@@ -309,119 +309,119 @@
       "timings": {
         "acquire": {
           "observations": 10,
-          "total_ms": 3168.783,
-          "median_ms": 322.59,
-          "min_ms": 286.146,
-          "max_ms": 342.559
+          "total_ms": 3095.835,
+          "median_ms": 305.177,
+          "min_ms": 294.089,
+          "max_ms": 341.48
         },
         "same_request_retry": {
           "observations": 10,
-          "total_ms": 1995.419,
-          "median_ms": 199.659,
-          "min_ms": 178.345,
-          "max_ms": 227.775
+          "total_ms": 2097.006,
+          "median_ms": 205.485,
+          "min_ms": 195.958,
+          "max_ms": 248.016
         },
         "setup_readiness": {
           "observations": 10,
-          "total_ms": 322.92,
-          "median_ms": 30.992,
-          "min_ms": 25.099,
-          "max_ms": 39.493
+          "total_ms": 180.362,
+          "median_ms": 17.417,
+          "min_ms": 15.261,
+          "max_ms": 22.841
         },
         "release": {
           "observations": 10,
-          "total_ms": 5382.495,
-          "median_ms": 490.395,
-          "min_ms": 432.526,
-          "max_ms": 787.242
+          "total_ms": 3919.513,
+          "median_ms": 390.893,
+          "min_ms": 363.489,
+          "max_ms": 433.975
         },
         "prune_preview": {
           "observations": 10,
-          "total_ms": 4495.958,
-          "median_ms": 449.975,
-          "min_ms": 417.241,
-          "max_ms": 509.078
+          "total_ms": 3874.497,
+          "median_ms": 386.981,
+          "min_ms": 370.472,
+          "max_ms": 400.245
         },
         "prune_apply": {
           "observations": 10,
-          "total_ms": 5004.174,
-          "median_ms": 507.472,
-          "min_ms": 466.762,
-          "max_ms": 533.42
+          "total_ms": 4265.635,
+          "median_ms": 426.351,
+          "min_ms": 409.287,
+          "max_ms": 451.72
         }
       },
       "samples_ms": {
         "acquire": [
-          322.675,
-          327.365,
-          322.506,
-          302.255,
-          286.146,
-          324.563,
-          325.695,
-          342.559,
-          308.371,
-          306.649
+          338.659,
+          305.291,
+          295.963,
+          294.089,
+          305.064,
+          341.48,
+          296.862,
+          309.942,
+          309.478,
+          299.007
         ],
         "same_request_retry": [
-          197.519,
-          201.8,
-          187.087,
-          178.345,
-          189.57,
-          186.49,
-          227.775,
-          201.811,
-          218.626,
-          206.396
+          211.755,
+          205.762,
+          211.002,
+          195.958,
+          203.276,
+          203.891,
+          205.208,
+          248.016,
+          213.92,
+          198.218
         ],
         "setup_readiness": [
-          26.874,
-          25.099,
-          26.766,
-          29.42,
-          35.707,
-          30.986,
-          30.997,
-          38.481,
-          39.493,
-          39.096
+          15.995,
+          22.841,
+          18.833,
+          15.713,
+          17.885,
+          16.996,
+          16.875,
+          22.125,
+          17.839,
+          15.261
         ],
         "release": [
-          541.195,
-          614.51,
-          698.847,
-          528.759,
-          452.031,
-          444.977,
-          432.526,
-          441.68,
-          440.727,
-          787.242
+          370.971,
+          363.489,
+          387.352,
+          378.512,
+          416.436,
+          394.433,
+          376.898,
+          402.64,
+          433.975,
+          394.807
         ],
         "prune_preview": [
-          425.771,
-          423.736,
-          509.078,
-          450.059,
-          471.769,
-          432.559,
-          449.89,
-          456.794,
-          459.061,
-          417.241
+          387.985,
+          370.472,
+          396.17,
+          395.722,
+          400.245,
+          397.814,
+          380.914,
+          384.823,
+          374.375,
+          385.978
         ],
         "prune_apply": [
-          469.554,
-          511.111,
-          533.42,
-          503.834,
-          475.899,
-          517.161,
-          523.736,
-          532.885,
-          466.762,
-          469.814
+          451.72,
+          410.251,
+          414.73,
+          409.287,
+          422.761,
+          439.701,
+          429.94,
+          436.693,
+          436.711,
+          413.841
         ]
       }
     },
@@ -451,8 +451,8 @@
       },
       "cache_behavior": {
         "unclassified_ignored_bytes": 262145,
-        "release_refused_retained_ms": 259.815,
-        "fresh_fallback_acquire_ms": 284.777,
+        "release_refused_retained_ms": 301.753,
+        "fresh_fallback_acquire_ms": 292.107,
         "cache_preserved": true,
         "fresh_path_distinct": true,
         "cache_copied_to_fresh_path": false,
@@ -466,183 +466,183 @@
       "timings": {
         "acquire": {
           "observations": 20,
-          "total_ms": 6110.424,
-          "median_ms": 302.321,
-          "min_ms": 289.209,
-          "max_ms": 380.126
+          "total_ms": 6031.636,
+          "median_ms": 298.521,
+          "min_ms": 277.874,
+          "max_ms": 331.909
         },
         "same_request_retry": {
           "observations": 20,
-          "total_ms": 4039.754,
-          "median_ms": 201.801,
-          "min_ms": 180.734,
-          "max_ms": 223.892
+          "total_ms": 4161.777,
+          "median_ms": 200.473,
+          "min_ms": 192.705,
+          "max_ms": 253.102
         },
         "setup_readiness": {
           "observations": 20,
-          "total_ms": 410.32,
-          "median_ms": 19.578,
-          "min_ms": 17.995,
-          "max_ms": 28.475
+          "total_ms": 327.796,
+          "median_ms": 15.834,
+          "min_ms": 15.184,
+          "max_ms": 21.835
         },
         "release": {
           "observations": 20,
-          "total_ms": 7925.981,
-          "median_ms": 393.68,
-          "min_ms": 370.322,
-          "max_ms": 494.005
+          "total_ms": 7743.397,
+          "median_ms": 389.914,
+          "min_ms": 359.752,
+          "max_ms": 405.896
         },
         "prune_preview": {
           "observations": 20,
-          "total_ms": 10686.454,
-          "median_ms": 382.51,
-          "min_ms": 355.801,
-          "max_ms": 1543.661
+          "total_ms": 7423.856,
+          "median_ms": 368.609,
+          "min_ms": 353.369,
+          "max_ms": 410.619
         },
         "prune_apply": {
           "observations": 20,
-          "total_ms": 10729.921,
-          "median_ms": 418.713,
-          "min_ms": 398.044,
-          "max_ms": 1059.821
+          "total_ms": 8078.027,
+          "median_ms": 404.44,
+          "min_ms": 382.788,
+          "max_ms": 430.597
         }
       },
       "samples_ms": {
         "acquire": [
-          380.126,
-          300.365,
-          289.209,
-          310.235,
-          308.181,
-          292.561,
-          308.477,
-          293.731,
-          302.543,
-          300.074,
-          310.131,
-          309.766,
-          307.728,
-          292.623,
-          297.059,
-          306.942,
-          295.666,
-          297.555,
-          305.353,
-          302.099
+          311.829,
+          330.367,
+          296.482,
+          293.071,
+          301.815,
+          284.461,
+          286.83,
+          323.603,
+          295.281,
+          283.509,
+          295.024,
+          310.821,
+          304.529,
+          331.909,
+          306.695,
+          295.955,
+          300.559,
+          277.874,
+          286.401,
+          314.624
         ],
         "same_request_retry": [
-          190.08,
-          180.734,
-          189.956,
-          205.286,
-          201.585,
-          202.133,
-          222.363,
-          189.457,
-          217.348,
-          211.907,
-          205.216,
-          197.847,
-          207.062,
-          202.018,
-          223.892,
-          207.766,
-          199.667,
-          189.883,
-          195.745,
-          199.811
+          219.813,
+          192.788,
+          194.84,
+          253.102,
+          208.932,
+          192.705,
+          194.935,
+          200.792,
+          223.114,
+          199.969,
+          210.392,
+          207.917,
+          212.179,
+          200.036,
+          199.057,
+          244.957,
+          209.109,
+          198.977,
+          198.008,
+          200.155
         ],
         "setup_readiness": [
-          28.475,
-          25.492,
-          21.18,
-          24.903,
-          18.564,
-          21.181,
-          20.39,
-          18.931,
-          19.665,
-          19.801,
-          19.025,
-          17.995,
-          18.223,
-          18.629,
-          19.491,
-          19.089,
-          18.461,
-          18.719,
-          20.976,
-          21.132
+          17.233,
+          15.573,
+          15.616,
+          16.374,
+          16.24,
+          15.339,
+          15.571,
+          16.728,
+          15.911,
+          15.184,
+          15.361,
+          15.287,
+          19.745,
+          15.948,
+          16.78,
+          16.556,
+          21.835,
+          15.427,
+          15.329,
+          15.758
         ],
         "release": [
-          370.322,
-          384.94,
-          372.837,
-          395.301,
-          393.542,
-          393.817,
-          394.493,
-          402.006,
-          395.625,
-          377.967,
-          398.067,
-          401.712,
-          382.294,
-          431.845,
-          494.005,
-          404.641,
-          387.771,
-          388.545,
-          374.854,
-          381.396
+          381.076,
+          390.864,
+          381.953,
+          386.225,
+          404.707,
+          396.816,
+          405.896,
+          397.741,
+          367.207,
+          373.904,
+          392.697,
+          390.189,
+          378.314,
+          359.752,
+          385.118,
+          403.305,
+          369.91,
+          396.177,
+          389.639,
+          391.908
         ],
         "prune_preview": [
-          355.801,
-          370.987,
-          597.734,
-          375.817,
-          383.563,
-          370.537,
-          395.696,
-          373.347,
-          394.148,
-          371.244,
-          372.669,
-          381.457,
-          1115.689,
-          365.798,
-          1543.661,
-          750.879,
-          929.401,
-          448.242,
-          380.848,
-          408.937
+          371.053,
+          371.541,
+          381.743,
+          383.469,
+          362.221,
+          365.08,
+          410.619,
+          362.067,
+          357.821,
+          375.349,
+          365.638,
+          373.136,
+          374.726,
+          365.907,
+          357.987,
+          378.786,
+          366.165,
+          353.369,
+          358.958,
+          388.223
         ],
         "prune_apply": [
-          400.252,
-          585.115,
-          419.874,
-          413.628,
-          416.783,
-          422.129,
-          405.197,
-          791.704,
-          414.728,
-          404.45,
-          406.151,
-          432.991,
-          502.573,
-          776.916,
-          996.197,
-          1059.821,
-          650.79,
-          415.025,
-          417.551,
-          398.044
+          401.146,
+          412.324,
+          402.281,
+          400.84,
+          405.566,
+          413.675,
+          382.788,
+          417.642,
+          390.185,
+          403.315,
+          392.821,
+          406.886,
+          406.048,
+          415.897,
+          395.724,
+          386.132,
+          409.627,
+          430.597,
+          394.031,
+          410.502
         ]
       }
     }
   ],
   "provider_and_download_sentinels_untouched": true,
-  "finished_utc": "2026-09-15T03:05:15.184767+00:00"
+  "finished_utc": "2026-09-15T12:58:44.853942+00:00"
 }

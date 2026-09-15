@@ -1,6 +1,6 @@
 # Phase 03 implementation evidence
 
-Status: planned - implementation finished; final full-shell and coverage validation remain in progress.
+Status: planned - the hosted Herdr focus race is fixed and focused checks pass; refreshed isolation, full-shell and hosted CI validation remain in progress.
 Branch: `lean-redesign-phase-03`, based on merged phases 01/02 at `8e0576ace6dddab031cd187d8f9c6d3997634f3a`.
 The [phase plan](03-built-in-worktree-lifecycle.html) and [A10](../../porting.md#a10-built-in-git-worktree-lifecycle) own acceptance.
 The implementation inspected and reused the actual Phase 02 task/project identities, filesystem transactions, locks and process-start identities.
@@ -32,9 +32,9 @@ Results below distinguish the final release/source from earlier development runs
 | Exact check | Result | Evidence and limits |
 | --- | --- | --- |
 | `cargo fmt --all -- --check` | Passed | Final Rust source after formatting |
-| `cargo build --release --workspace --locked` | Passed, 44.50s | `mx-phase03-test-complete-build.log`; fingerprint below |
-| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed, 0.44s | `mx-phase03-final-complete-clippy.log`; matches CI flags |
-| `cargo test --locked --workspace` | Passed, 540 tests, no failures or ignored tests | `mx-phase03-final-complete-rust.log`; instrumented-only shell contracts execute in coverage below |
+| `cargo build --release --workspace --locked` | Passed, 47.28s | `mx-phase03-herdr-lock-build.log`; fingerprint below |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed, 4.59s | `mx-phase03-herdr-lock-clippy.log`; matches CI flags |
+| `cargo test --locked --workspace` | Passed, 540 tests, no failures or ignored tests | `mx-phase03-herdr-lock-rust.log`; instrumented-only shell contracts execute in coverage below |
 | `cargo audit --deny warnings` | Passed | 70 dependencies; 1,246 RustSec advisories loaded; `mx-phase03-final-audit.log` |
 | `target/release/mx test-run tests/mx-spawn-worktree-settle.test.sh --json /private/tmp/mx-phase03-task-lock.json` | Passed, 44.930s, no skips | Real Git and live production lock owner; endpoints/harness mocked |
 | `target/release/mx test-run --check-coverage` | Passed, 128 fixtures | 107 accelerated, 11 serial and 10 Herdr; inventory/partition proof, not line coverage |
@@ -43,9 +43,9 @@ Results below distinguish the final release/source from earlier development runs
 | `for script in bin/*.sh bin/backends/*.sh; do bash -n "$script" || exit; done` | Passed | Toolbelt Bash syntax |
 | `[ "$(readlink .claude/skills)" = "../.agents/skills" ]` and `git diff --check` | Passed | Checkout invariants and whitespace |
 | `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-isolation-proof.json` | Passed, 106 candidates x 2 rounds, 494.125s | 0 failed rounds, 0 leaks, 0 known-failure exceptions; exact JSON archived in `docs/mx-test-isolation-proof.json` |
-| `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-final-all.json` | Initial final run: 119 passed, 1 failed, 8 declared skips; 300.105s | Herdr workspace-per-home teardown omitted the owning `MX_HOME`; exact-owner refusal exposed the fixture error. Explicit owner-home correction passed all 10 focused live assertions in 8.174s; full rerun follows coverage. |
-| Exact CI line-coverage command below | Passed, 93.01% (45,485 lines, 3,178 missed), all tests passed | `mx-phase03-final-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. The subsequent doctor fixture isolation correction is checked separately under instrumentation. |
-| Hosted Linux/macOS CI | Initial run found a non-hermetic missing-tool test on Linux | [Run 34970172346](https://github.com/KashyapTan/Multplx/actions/runs/34970172346); the doctor fixture found hosted `/usr/bin/gh` after removing its mock. Corrected fixture validation and CI rerun follow. |
+| `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-clean-all.json` | Passed, 120 passed, 0 failed, 8 declared skips; 289.254s | `mx-phase03-clean-all.log/json`; all 128 fixtures accounted for, all 10 real-Herdr fixtures passed. Includes the corrected owner-home and hermetic doctor fixtures. |
+| Exact CI line-coverage command below | Passed, 93.01% (45,485 lines, 3,178 missed), all tests passed | `mx-phase03-final-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. The subsequent doctor fixture isolation correction passed separately under instrumentation (`mx-phase03-doctor-hermetic-instrumented.log`) and in the release runner (3.201s, `mx-phase03-doctor-hermetic.log/json`). |
+| Hosted Linux/macOS CI | Rust, portable lanes and exact Linux coverage passed; Herdr focus regression fixed and rerun pending | [Run 34970863861](https://github.com/KashyapTan/Multplx/actions/runs/34970863861) passed Linux coverage at 93.00% (45,561 lines, 3,189 missed). The earlier doctor PATH leak was corrected; the subsequent Herdr focus failure prompted the session-lock fix below. |
 
 ```sh
 cargo llvm-cov --locked --workspace --all-targets \
@@ -53,6 +53,8 @@ cargo llvm-cov --locked --workspace --all-targets \
   --fail-under-lines 93
 ```
 
+The fresh coverage run passed 540 tests across 24 test binaries with no failures or ignored tests.
+The new worktree module measured 96.19% line coverage (1,787 lines, 68 missed), and teardown measured 94.35% (2,940 lines, 166 missed).
 The real-Git worktree, private-home lifecycle and daemon safety fixtures run through the instrumented command boundary.
 Additional owner tests cover malformed and stale tokens, replaced directories, interrupted journals and conservative cleanup.
 A nine-case isolated Git/forge failure matrix verifies conservative refusal and the exact command trace; matching-origin independent clones still cannot authorize unknown-path deletion.
@@ -70,36 +72,42 @@ Endpoint-before-metadata failure preserves the allocation and bound launch inten
 
 ## Session integration evidence
 
+Hosted CI exposed a concurrent native Herdr teardown focus race: projected pane close did not hold the shared session presentation lock.
+Native teardown now holds that lock across endpoint proof, focus capture, exact pane close, restoration and journal retirement.
+The deterministic live lock-owner assertion failed against the old release in 49.466s and passed with the fix in 166.896s (`mx-phase03-herdr-lock-before.log/json`, `mx-phase03-herdr-lock-after.log/json`).
+Portable instrumented tests also prove malformed-session and held-lock refusal preserve metadata, journals, allocation paths and focus without displacing the lock owner (`mx-phase03-herdr-session-lock-instrumented.log`).
+
 The live Herdr projection test passed in 162.03s after adding durable holding-pane quiescence (`mx-phase03-herdr-quiesce-live.log/json`).
 It verified concurrent homes, repeated restoration, stable worker path, preserved unfinished files, an advanced lease/generation, cleared holding receipt, focus, cleanup and the default-session tripwire.
 Nine focused Herdr receipt tests passed; the final full Rust run includes those cases.
 Corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
 The 300.105s complete-shell run rechecked the task-fenced release: the strengthened presentation fixture passed in 173.337s, including exact retained allocation/intent and duplicate-retry refusal after endpoint failure.
 Its separate workspace-per-home fixture failed because teardown did not select the owning home.
-After selecting the exact owner and eliminating duplicate fixture cleanup, its focused live rerun passed all 10 assertions in 8.174s with no cleanup warning (`mx-phase03-workspace-owner-final.log/json`); complete-suite rerun remains pending above.
+After selecting the exact owner and eliminating duplicate fixture cleanup, its focused live rerun passed all 10 assertions in 8.174s with no cleanup warning (`mx-phase03-workspace-owner-final.log/json`); the final complete-suite rerun passed all available fixtures in 289.254s (`mx-phase03-clean-all.log/json`).
+That clean run included all ten live Herdr fixtures; the strengthened presentation test passed in 164.185s.
 The model/composer helper is scripted: this is live session transport evidence, not live model execution or task-quality evidence.
 cmux is unavailable on this host; its existing live gates remain explicit, separate from deterministic adapter/launch checks.
 
 ## Final-binary worktree cost trial
 
 The reproducible [measurement script](../../tests/fixtures/measure-worktrees.py) produced [raw samples, disk observations and fingerprints](phase03-worktree-costs.json) on macOS 26.6.2 arm64 with Git 2.55.0.
-The release SHA-256 is `515f9a18cf62dcfe27df26009e34b343bd3c15a21beb7fd03012552982cb483c`.
+The release SHA-256 is `5eee2c44245dea9d2a6954d45a14360e535fac335c6877ca603fcaa499a5f34b`.
 The script fingerprint and host load are retained in the artifact.
-The trial ran from 03:03:54 to 03:05:15 UTC on 2026-09-15, with a local-only temporary repository containing a 1 MiB tracked file, two alternating owner homes and one serial trial at each task count.
+The trial ran from 12:57:35 to 12:58:44 UTC on 2026-09-15, with a local-only temporary repository containing a 1 MiB tracked file, two alternating owner homes and one serial trial at each task count.
 
 ```sh
-python3 tests/fixtures/measure-worktrees.py --binary target/release/mx --output plans/lean_redesign/phase03-worktree-costs.json --overlap 'Final Phase03 release binary on a shared workstation. Rust clippy and workspace tests, the lock-contention fixture, isolation proof and coverage validation may overlap. Workload isolation was not enforced.'
+python3 tests/fixtures/measure-worktrees.py --binary target/release/mx --output plans/lean_redesign/phase03-worktree-costs.json --overlap 'Final Phase03 release with serialized Herdr teardown on a shared workstation. Rust validation and live Herdr checks may overlap; workload isolation was not enforced.'
 ```
 
-Rust validation and the focused lock-contention fixture overlapped; isolation proof and coverage were subsequently sequenced separately.
+Rust validation and live Herdr checks overlapped; isolation proof and the full shell suite were subsequently sequenced separately.
 The artifact preserves the invocation's conservative overlap description and all timing samples unchanged.
 
 | Allocations | Median acquisition (ms) | Median release (ms) | Median prune application (ms) |
 | --- | ---: | ---: | ---: |
-| 1 | 563.342 | 574.582 | 475.216 |
-| 5 | 313.387 | 503.382 | 537.074 |
-| 10 | 322.590 | 490.395 | 507.472 |
-| 20 | 302.321 | 393.680 | 418.713 |
+| 1 | 337.071 | 402.173 | 438.829 |
+| 5 | 316.464 | 396.694 | 420.925 |
+| 10 | 305.177 | 390.893 | 426.351 |
+| 20 | 298.521 | 389.914 | 404.440 |
 
 Setup measures Git top-level/base/status readiness at the allocated directory and excludes endpoint/model startup.
 At 20 allocations, logical disk use rose from 1,085,023 to 22,109,131 bytes, then fell to 1,121,091 after safe prune, retaining durable records.
@@ -120,7 +128,8 @@ That completed coverage run measured 92.35%, below the unchanged 93% requirement
 Strengthened lifecycle and CLI tests then passed a fresh exact gate at 93.01%; no threshold or exclusion was relaxed.
 
 The isolation proof is archived with manifest SHA-256 `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f` and 647 conflict pairs.
-Complete the full shell suite and unchanged line-coverage gate, then recheck the final documentation and publish the branch/PR.
+The complete local shell suite and unchanged line-coverage gate passed.
+[PR #39](https://github.com/KashyapTan/Multplx/pull/39) is published as a draft while final hosted CI runs.
 Phase 03 remains planned until these checks pass; Phase 04 readiness is not yet declared.
 Phase 04 owns broader durable delegation/inbox recovery, Phase 05 owns named coordinator composition, Phase 09 owns executable legacy transfer, and Phase 12 owns release activation.
 No requirement assigned to this phase is waived or silently deferred.
