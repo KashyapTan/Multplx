@@ -119,9 +119,40 @@ impl HarnessConfig {
         }
     }
 
-    fn actor_token(&self) -> Option<String> {
-        fs::read_to_string(self.directory.join("actor-harness"))
+    /// Refuse conflicting canonical/legacy defaults before a launch.
+    pub fn validate_aliases(&self) -> Result<(), String> {
+        for (canonical, legacy) in [
+            ("subagent-harness", "actor-harness"),
+            ("persistent-subagent-harness", "daemon-harness"),
+            ("subagent-dispatch.json", "actor-dispatch.json"),
+        ] {
+            if let (Ok(new), Ok(old)) = (
+                fs::read_to_string(self.directory.join(canonical)),
+                fs::read_to_string(self.directory.join(legacy)),
+            ) && new.trim() != old.trim()
+            {
+                return Err(format!(
+                    "conflicting config/{canonical} and legacy config/{legacy}; reconcile before launch"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn config_text(&self, canonical: &str, legacy: &str) -> Option<String> {
+        fs::read_to_string(self.directory.join(canonical))
+            .or_else(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    fs::read_to_string(self.directory.join(legacy))
+                } else {
+                    Err(error)
+                }
+            })
             .ok()
+    }
+
+    fn actor_token(&self) -> Option<String> {
+        self.config_text("subagent-harness", "actor-harness")
             .map(|text| {
                 text.chars()
                     .filter(|character| !character.is_whitespace())
@@ -131,8 +162,7 @@ impl HarnessConfig {
     }
 
     fn daemon_fields(&self) -> Vec<String> {
-        fs::read_to_string(self.directory.join("daemon-harness"))
-            .ok()
+        self.config_text("persistent-subagent-harness", "daemon-harness")
             .and_then(|text| {
                 text.lines()
                     .map(str::trim)

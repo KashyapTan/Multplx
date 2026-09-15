@@ -1,4 +1,4 @@
-//! Native persistent-daemon spawn preflight and metadata transaction.
+//! Common sub-agent launch preflight and metadata publication.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -24,7 +24,12 @@ pub struct Request {
     pub id: String,
     pub home: PathBuf,
     pub project: PathBuf,
+    /// Bounded compatibility projection for legacy consumers.
     pub kind: String,
+    pub role: String,
+    pub output: String,
+    pub persistent: bool,
+    pub binding: Option<super::subagent_model::TaskRecord>,
     pub mode: String,
     pub yolo: bool,
     pub backend: String,
@@ -72,6 +77,13 @@ pub fn validate_for_launch(request: &Request) -> Result<(), String> {
     ] {
         validate_record_value(field, value)?;
     }
+    if !matches!(
+        request.role.as_str(),
+        "researcher" | "implementer" | "reviewer" | "sub-orchestrator"
+    ) || !matches!(request.output.as_str(), "report" | "implementation")
+    {
+        return Err("invalid common sub-agent assignment".into());
+    }
     if (request.kind == "daemon" && (request.mode != "daemon" || request.yolo))
         || (request.kind != "daemon"
             && crate::project_registry::DeliveryMode::parse(&request.mode).is_none())
@@ -85,13 +97,22 @@ pub fn validate_for_launch(request: &Request) -> Result<(), String> {
 
 fn registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, String> {
     let text = fs::read_to_string(path).map_err(|error_value| error_value.to_string())?;
-    let line = text
+    let lines = text
         .lines()
-        .find(|line| {
+        .filter(|line| {
             line.strip_prefix("- ")
                 .is_some_and(|tail| tail.split_whitespace().next() == Some(id))
         })
-        .ok_or_else(|| format!("no daemon registry entry for {id}"))?;
+        .collect::<Vec<_>>();
+    let line = match lines.as_slice() {
+        [line] => *line,
+        [] => return Err(format!("no daemon registry entry for {id}")),
+        _ => {
+            return Err(format!(
+                "duplicate persistent sub-agent registry identity: {id}"
+            ));
+        }
+    };
     let mut fields = BTreeMap::new();
     let Some(start) = line.find("(home: ") else {
         return Err("malformed daemon registry entry".to_owned());
@@ -101,11 +122,25 @@ fn registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, St
         .strip_suffix(')')
         .ok_or("malformed daemon registry entry")?;
     for field in details.split("; ") {
-        if let Some((key, value)) = field.split_once(": ") {
-            fields.insert(key.to_owned(), value.to_owned());
+        if let Some((key, value)) = field.split_once(": ")
+            && fields.insert(key.to_owned(), value.to_owned()).is_some()
+        {
+            return Err(format!(
+                "duplicate persistent sub-agent registry field: {key}"
+            ));
         }
     }
     Ok(fields)
+}
+
+fn optional_registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, String> {
+    if !path.exists() {
+        return Ok(BTreeMap::new());
+    }
+    match registry_fields(path, id) {
+        Err(error) if error.starts_with("no daemon registry entry for ") => Ok(BTreeMap::new()),
+        result => result,
+    }
 }
 
 pub fn task_authority(
@@ -116,7 +151,8 @@ pub fn task_authority(
     selected_yolo: Option<bool>,
 ) -> Result<(String, bool), String> {
     let mut mode = selected_mode.unwrap_or(resolution.mode).as_str().to_owned();
-    let mut yolo = selected_yolo.unwrap_or(resolution.yolo);
+    let mut yolo = false; // Legacy yolo is inert; no launch grants merge authority.
+    let _ = selected_yolo;
     let meta_path = state.join(format!("{id}.meta"));
     if meta_path.exists() {
         let meta = fs::read_to_string(&meta_path).map_err(|error| error.to_string())?;
@@ -141,14 +177,14 @@ pub fn task_authority(
         };
         if crate::project_registry::DeliveryMode::parse(recorded_mode).is_none()
             || selected_mode.is_some_and(|value| value.as_str() != recorded_mode)
-            || selected_yolo.is_some_and(|value| value != recorded_yolo)
         {
             return Err(
                 "refusing to change existing task delivery authority during launch".to_owned(),
             );
         }
         mode = recorded_mode.to_owned();
-        yolo = recorded_yolo;
+        let _ = recorded_yolo;
+        yolo = false;
     }
     Ok((mode, yolo))
 }
@@ -163,7 +199,10 @@ pub fn parse(
     let mut selected_mode = None;
     let mut selected_yolo = None;
     let mut daemon = false;
+    let mut legacy_daemon = false;
     let mut scout = false;
+    let mut role: Option<String> = None;
+    let mut output: Option<String> = None;
     let mut backend = "tmux".to_owned();
     let mut harness = None;
     let mut model = "default".to_owned();
@@ -174,9 +213,15 @@ pub fn parse(
             .to_str()
             .ok_or("spawn argument is not valid UTF-8")?;
         match value {
-            "--daemon" => daemon = true,
+            "--daemon" => {
+                daemon = true;
+                legacy_daemon = true;
+            }
+            "--persistent" => daemon = true,
             "--scout" => scout = true,
-            "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" => {
+            "--review" => role = Some("reviewer".into()),
+            "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" | "--role"
+            | "--output" => {
                 let next = args
                     .get(index + 1)
                     .and_then(|value| value.to_str())
@@ -184,6 +229,25 @@ pub fn parse(
                     .to_owned();
                 validate_record_value(value.trim_start_matches("--"), &next)?;
                 match value {
+                    "--role" => {
+                        if !matches!(
+                            next.as_str(),
+                            "researcher" | "implementer" | "reviewer" | "sub-orchestrator"
+                        ) {
+                            return Err("invalid assignment role".into());
+                        }
+                        if role.replace(next).is_some() {
+                            return Err("duplicate assignment role".into());
+                        }
+                    }
+                    "--output" => {
+                        if !matches!(next.as_str(), "report" | "implementation") {
+                            return Err("invalid output; expected report or implementation".into());
+                        }
+                        if output.replace(next).is_some() {
+                            return Err("duplicate output".into());
+                        }
+                    }
                     "--mode" => {
                         selected_mode = Some(
                             crate::project_registry::DeliveryMode::parse(&next)
@@ -211,6 +275,103 @@ pub fn parse(
         }
         index += 1;
     }
+    let candidate_id = positional.first().ok_or("invalid spawn request")?;
+    TaskId::parse(candidate_id).map_err(|_| "invalid spawn request")?;
+    if role.is_none()
+        && !scout
+        && let Ok(text) = fs::read_to_string(context.state.join(format!("{candidate_id}.meta")))
+    {
+        let record = super::subagent_model::read_meta(candidate_id, &text)?;
+        if !record.legacy_unknown {
+            role = Some(
+                match record.role {
+                    super::subagent_model::AssignmentRole::Researcher => "researcher",
+                    super::subagent_model::AssignmentRole::Reviewer => "reviewer",
+                    super::subagent_model::AssignmentRole::Implementer => "implementer",
+                    super::subagent_model::AssignmentRole::SubOrchestrator => "sub-orchestrator",
+                }
+                .into(),
+            );
+            if output.is_none() {
+                output = Some(
+                    if record.artifact == super::subagent_model::ArtifactKind::Implementation {
+                        "implementation"
+                    } else {
+                        "report"
+                    }
+                    .into(),
+                );
+            }
+        }
+    }
+    let scaffold = context.data.join(candidate_id).join("brief.md");
+    if !context.state.join(format!("{candidate_id}.meta")).exists()
+        && let Ok(brief) = fs::read_to_string(scaffold)
+    {
+        let markers = brief
+            .lines()
+            .filter_map(|line| line.strip_prefix("<!-- mx-assignment role="))
+            .collect::<Vec<_>>();
+        if markers.len() > 1 {
+            return Err("duplicate brief assignment markers".into());
+        }
+        if let Some(marker) = markers.first() {
+            let marked = marker.split_whitespace().next().unwrap_or_default();
+            if !matches!(
+                marked,
+                "researcher" | "implementer" | "reviewer" | "sub-orchestrator"
+            ) {
+                return Err("invalid brief assignment role".into());
+            }
+            if role.as_deref().is_some_and(|value| value != marked)
+                || (scout && marked != "researcher")
+            {
+                return Err("launch role conflicts with the accepted brief assignment".into());
+            }
+            role = Some(marked.into());
+            if let Some(marked_output) = marker
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix("output="))
+            {
+                let selected = match marked_output {
+                    "report" | "implementation" => marked_output,
+                    "coordination" if marked == "sub-orchestrator" => "report",
+                    _ => return Err("invalid brief assignment output".into()),
+                };
+                if output.as_deref().is_some_and(|value| value != selected) {
+                    return Err("launch output conflicts with the accepted brief assignment".into());
+                }
+                output = Some(selected.into());
+            }
+        }
+    }
+    if scout && role.as_deref().is_some_and(|value| value != "researcher") {
+        return Err("--scout conflicts with --role".into());
+    }
+    let role = role.unwrap_or_else(|| {
+        if scout {
+            "researcher"
+        } else if legacy_daemon {
+            "sub-orchestrator"
+        } else {
+            "implementer"
+        }
+        .into()
+    });
+    if role == "sub-orchestrator" && !daemon {
+        return Err("sub-orchestrator requires an existing persistent home; named coordinator spawn is owned by Phase 05".into());
+    }
+    let output = output.unwrap_or_else(|| {
+        if role == "implementer" {
+            "implementation"
+        } else {
+            "report"
+        }
+        .into()
+    });
+    if role == "sub-orchestrator" && output == "implementation" {
+        return Err("sub-orchestrators delegate implementation".into());
+    }
     let id = positional.first().ok_or("invalid spawn request")?.clone();
     TaskId::parse(&id).map_err(|_| "invalid spawn request")?;
     if !matches!(backend.as_str(), "tmux" | "herdr" | "cmux") {
@@ -219,7 +380,7 @@ pub fn parse(
     if daemon && backend == "cmux" {
         return Err("backend=cmux does not support --daemon spawns yet".to_owned());
     }
-    let fields = registry_fields(&context.data.join("daemons.md"), &id).unwrap_or_default();
+    let fields = optional_registry_fields(&context.data.join("daemons.md"), &id)?;
     if !daemon {
         let project_arg = positional.get(1).ok_or("invalid spawn request")?;
         let project = if let Some(relative) = project_arg.strip_prefix("projects/") {
@@ -233,6 +394,16 @@ pub fn parse(
                 context.data.join(&id).join("brief.md").display()
             )
         })?;
+        let project = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&project)
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|path| fs::canonicalize(path.trim()).ok())
+            .unwrap_or(project);
         if !context.data.join(&id).join("brief.md").is_file() {
             return Err(format!(
                 "no brief at {}",
@@ -251,6 +422,28 @@ pub fn parse(
         if let Some(warning) = &resolution.warning {
             eprintln!("{warning}");
         }
+        let selected_mode = if selected_mode.is_none()
+            && !context.state.join(format!("{id}.meta")).exists()
+            && project.join(".git").exists()
+        {
+            Some(
+                match crate::project_registry::publication_for_path_at(
+                    &context.home,
+                    &context.data,
+                    &context.projects,
+                    &project,
+                )? {
+                    crate::project_registry::PublicationDestination::Local => {
+                        crate::project_registry::DeliveryMode::LocalOnly
+                    }
+                    crate::project_registry::PublicationDestination::PullRequest => {
+                        crate::project_registry::DeliveryMode::DirectPr
+                    }
+                },
+            )
+        } else {
+            selected_mode
+        };
         let (mode, yolo) = task_authority(
             &context.state,
             &id,
@@ -264,7 +457,16 @@ pub fn parse(
             id,
             home: context.home.clone(),
             project,
-            kind: if scout { "scout" } else { "delivery" }.to_owned(),
+            kind: if output == "report" {
+                "scout"
+            } else {
+                "delivery"
+            }
+            .to_owned(),
+            role,
+            output,
+            persistent: false,
+            binding: None,
             backend,
             harness: harness.unwrap_or_else(|| default_harness.to_owned()),
             model,
@@ -376,6 +578,10 @@ pub fn parse(
         project: home.clone(),
         home,
         kind: "daemon".to_owned(),
+        role,
+        output,
+        persistent: true,
+        binding: None,
         mode: "daemon".to_owned(),
         yolo: false,
         backend,
@@ -389,6 +595,231 @@ pub fn parse(
     })
 }
 
+/// Freeze launch identity before any external endpoint is created. Project context
+/// changes cannot alter this binding; an existing attempt needs explicit recovery.
+pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), String> {
+    use super::subagent_model::{ArtifactKind, AssignmentRole, TaskRecord, read_meta};
+    use sha2::{Digest, Sha256};
+    super::subagent_model::require_writer_version(&context.state)?;
+    let role = match request.role.as_str() {
+        "researcher" => AssignmentRole::Researcher,
+        "reviewer" => AssignmentRole::Reviewer,
+        "sub-orchestrator" => AssignmentRole::SubOrchestrator,
+        _ => AssignmentRole::Implementer,
+    };
+    let artifact = if role == AssignmentRole::SubOrchestrator {
+        ArtifactKind::Coordination
+    } else if request.output == "report" {
+        ArtifactKind::Report
+    } else {
+        ArtifactKind::Implementation
+    };
+    let brief = if request.persistent {
+        request.home.join("data/charter.md")
+    } else {
+        context.data.join(&request.id).join("brief.md")
+    };
+    let queued = std::env::var("MX_QUEUED_MODEL").ok();
+    let existing = context.state.join(format!("{}.meta", request.id));
+    let prior = if request.binding.is_some() {
+        request.binding.take()
+    } else if let Some(queued) = queued {
+        Some(read_meta(
+            &request.id,
+            &format!("schema_version=2\ncanonical_model={queued}\n"),
+        )?)
+    } else if existing.exists() {
+        Some(read_meta(
+            &request.id,
+            &fs::read_to_string(existing).map_err(|error| error.to_string())?,
+        )?)
+    } else {
+        None
+    };
+    let brief = prior
+        .as_ref()
+        .and_then(|record| record.accepted_brief_path.as_ref())
+        .map(PathBuf::from)
+        .filter(|path| path.exists())
+        .unwrap_or(brief);
+    let body = fs::read(&brief)
+        .map_err(|error| format!("cannot bind accepted brief {}: {error}", brief.display()))?;
+    let digest = format!("{:x}", Sha256::digest(&body));
+    let mut record = if let Some(record) = prior {
+        if record.legacy_unknown {
+            return Err(
+                "legacy launch identity requires explicit home migration before replacement".into(),
+            );
+        }
+        if record.owner_home.as_deref().map(Path::new) != Some(resolved(&context.home).as_path())
+            || record.owner_state.as_deref().map(Path::new)
+                != Some(resolved(&context.state).as_path())
+        {
+            return Err("launch owner home/state does not match recorded identity".into());
+        }
+        if record.accepted_brief_digest.as_deref() != Some(&digest) {
+            return Err("accepted brief changed; record a new revision before launch".into());
+        }
+        if record.role != role
+            || record.artifact != artifact
+            || record.persistent != request.persistent
+        {
+            return Err(
+                "launch conflicts with recorded assignment; record reassignment first".into(),
+            );
+        }
+        if let Some(project) = &record.project {
+            crate::project_registry::validate_binding(&context.home, project)?;
+            if project.canonical_path != request.project {
+                return Err("launch cannot retarget the recorded checkout".into());
+            }
+        }
+        record
+    } else {
+        let owner_home = path_record_value("owner home", &resolved(&context.home))?.to_owned();
+        let default_root = format!("root-home:{owner_home}");
+        let (parent, parent_home, parent_state_path, root) = if let Ok(parent_id) =
+            std::env::var("MX_TASK_ID")
+        {
+            TaskId::parse(&parent_id).map_err(|error| error.to_string())?;
+            let parent_state = std::env::var_os("MX_REPORT_STATE_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| context.state.clone());
+            let parent_path = parent_state.join(format!("{parent_id}.meta"));
+            let parent = read_meta(
+                &parent_id,
+                &fs::read_to_string(&parent_path).map_err(|error| {
+                    format!(
+                        "cannot resolve launching parent {}: {error}",
+                        parent_path.display()
+                    )
+                })?,
+            )?;
+            if parent.legacy_unknown {
+                return Err("launching parent identity is legacy unknown; migrate before nesting canonical children".into());
+            }
+            let parent_home = parent.owner_home.clone().ok_or("parent home missing")?;
+            if parent_id == request.id && parent_home == owner_home {
+                return Err("self-parent launch cycle".into());
+            }
+            (
+                parent_id,
+                parent_home,
+                parent.owner_state.clone().ok_or("parent state missing")?,
+                parent.root_id.ok_or("parent root missing")?,
+            )
+        } else {
+            (
+                default_root.clone(),
+                owner_home.clone(),
+                resolved(&context.state).to_string_lossy().into_owned(),
+                default_root,
+            )
+        };
+        let mut record = TaskRecord::new(
+            request.id.clone(),
+            role,
+            artifact,
+            request.persistent,
+            parent,
+            root,
+            owner_home,
+        );
+        record.parent_home = Some(parent_home);
+        record.owner_state = Some(resolved(&context.state).to_string_lossy().into_owned());
+        record.parent_state = Some(parent_state_path);
+        record.persistent_home = request
+            .persistent
+            .then(|| request.home.to_string_lossy().into_owned());
+        record.accepted_brief_digest = Some(digest);
+        record.accepted_brief_path = Some(
+            context
+                .state
+                .join(format!("brief-revisions/{}-1.md", request.id))
+                .to_string_lossy()
+                .into_owned(),
+        );
+        record.briefs[0].scope =
+            String::from_utf8(body.clone()).map_err(|_| "accepted brief must be UTF-8")?;
+        record.briefs[0]
+            .source_artifacts
+            .push(brief.to_string_lossy().into_owned());
+        if !request.persistent {
+            record.project = Some(crate::project_registry::bind_project_at(
+                &context.home,
+                &context.data,
+                &context.projects,
+                &request.project,
+            )?);
+        }
+        record
+    };
+    record.runtime.provider = request.backend.clone();
+    record.validate()?;
+    let root = record.root_id.clone().ok_or("root identity missing")?;
+    let mut lineage = vec![record.clone()];
+    let mut pending = vec![record.clone()];
+    let mut loaded = std::collections::BTreeSet::new();
+    loaded.insert(super::subagent_model::qualified_task_id(
+        record.owner_home.as_deref().unwrap_or(""),
+        &record.task_id,
+    ));
+    while let Some(current) = pending.pop() {
+        let parent = current
+            .parent_id
+            .as_ref()
+            .ok_or("parent identity missing")?;
+        let mut edges = current
+            .schedule
+            .dependencies
+            .iter()
+            .map(|id| {
+                (
+                    id.clone(),
+                    current.owner_home.clone().unwrap_or_default(),
+                    current.owner_state.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        if parent != &root {
+            edges.push((
+                parent.clone(),
+                current.parent_home.clone().ok_or("parent home missing")?,
+                current.parent_state.clone(),
+            ));
+        }
+        for (id, home, state) in edges {
+            let key = super::subagent_model::qualified_task_id(&home, &id);
+            if !loaded.insert(key) {
+                continue;
+            }
+            TaskId::parse(&id).map_err(|error| error.to_string())?;
+            let state = if let Some(state) = state {
+                PathBuf::from(state)
+            } else if home == context.home.to_string_lossy() {
+                context.state.clone()
+            } else {
+                PathBuf::from(&home).join("state")
+            };
+            let path = state.join(format!("{id}.meta"));
+            let ancestor = read_meta(
+                &id,
+                &fs::read_to_string(&path).map_err(|error| {
+                    format!("cannot resolve lineage {}: {error}", path.display())
+                })?,
+            )?;
+            if ancestor.owner_home.as_deref() != Some(home.as_str()) || ancestor.legacy_unknown {
+                return Err("unresolved or wrong-home parent identity".into());
+            }
+            lineage.push(ancestor.clone());
+            pending.push(ancestor);
+        }
+    }
+    super::subagent_model::validate_lineage(&lineage, &[root])?;
+    request.binding = Some(record);
+    Ok(())
+}
+
 pub fn publish_meta(context: &Context, request: &Request, endpoint: &str) -> Result<(), String> {
     publish_meta_for_worktree(context, request, endpoint, &request.project)
 }
@@ -400,7 +831,35 @@ pub fn publish_meta_for_worktree(
     actor_worktree: &Path,
 ) -> Result<(), String> {
     validate_for_launch(request)?;
-    let fields = registry_fields(&context.data.join("daemons.md"), &request.id).unwrap_or_default();
+    let _publication_lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        context.state.join(format!(".spawn-{}.lock", request.id)),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(binding) = &request.binding {
+        let bytes = fs::read(context.state.join(format!(".spawn-{}.intent", request.id)))
+            .map_err(|error| format!("launch reservation missing: {error}"))?;
+        let reserved: super::subagent_model::TaskRecord = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("invalid launch reservation: {error}"))?;
+        if &reserved != binding {
+            return Err("launch reservation identity or accepted revision changed".into());
+        }
+        let prior_path = context.state.join(format!("{}.meta", request.id));
+        if prior_path.exists() {
+            let prior = super::subagent_model::read_meta(
+                &request.id,
+                &fs::read_to_string(prior_path).map_err(|error| error.to_string())?,
+            )?;
+            let expected_old = binding.prior_attempts.last().or(binding.attempt.as_ref());
+            if prior.attempt.as_ref() != expected_old
+                || prior.accepted_brief_revision != binding.accepted_brief_revision
+            {
+                return Err("task attempt or brief changed during external launch".into());
+            }
+        }
+    }
+    let fields = optional_registry_fields(&context.data.join("daemons.md"), &request.id)?;
     let projects = fields.get("projects").cloned().unwrap_or_default();
     let worktree = if request.kind == "daemon" {
         &request.home
@@ -461,6 +920,89 @@ pub fn publish_meta_for_worktree(
             record_value
         ));
     }
+    if let Some(binding) = &request.binding {
+        let mut record = binding.clone();
+        record.runtime.provider = request.backend.clone();
+        record.runtime.endpoint = Some(endpoint.into());
+        // Endpoint labels are reusable; the adapters do not export a proven
+        // immutable harness session identity here.
+        record.runtime.session_id = None;
+        text = super::subagent_model::write_meta(&text, &record)?;
+    }
+    if let Some(binding) = &request.binding {
+        use multplx_core::filesystem::{TransitionWrite, recoverable_transition};
+        let attempt = binding.attempt.as_ref().ok_or("launch attempt missing")?;
+        let brief = if request.persistent {
+            request.home.join("data/charter.md")
+        } else {
+            context.data.join(&request.id).join("brief.md")
+        };
+        let brief = binding
+            .accepted_brief_path
+            .as_ref()
+            .map(PathBuf::from)
+            .filter(|path| path.exists())
+            .unwrap_or(brief);
+        let bytes = fs::read(&brief).map_err(|error| error.to_string())?;
+        use sha2::{Digest, Sha256};
+        if binding.accepted_brief_digest.as_deref()
+            != Some(format!("{:x}", Sha256::digest(&bytes)).as_str())
+        {
+            return Err("accepted brief changed during launch".into());
+        }
+        let archive = PathBuf::from(format!(
+            "brief-revisions/{}-{}.md",
+            request.id, attempt.brief_revision
+        ));
+        fs::create_dir_all(context.state.join("brief-revisions"))
+            .map_err(|error| error.to_string())?;
+        let before_brief = fs::read(context.state.join(&archive)).ok();
+        if before_brief.as_ref().is_some_and(|prior| prior != &bytes) {
+            return Err("accepted brief archive conflicts".into());
+        }
+        let meta = PathBuf::from(format!("{}.meta", request.id));
+        let before_meta = fs::read(context.state.join(&meta)).ok();
+        if before_meta.as_deref() == Some(text.as_bytes()) {
+            return Ok(());
+        }
+        let operation = format!("launch-{}", attempt.id);
+        if context
+            .state
+            .join(".transitions")
+            .join(format!("{operation}.json"))
+            .exists()
+        {
+            let writes =
+                multplx_core::filesystem::read_transition_writes(&context.state, &operation)
+                    .map_err(|error| error.to_string())?;
+            if writes
+                .last()
+                .is_none_or(|write| write.path != meta || write.after != text.as_bytes())
+            {
+                return Err("launch recovery conflicts with recorded intent".into());
+            }
+            return multplx_core::filesystem::recover_transition(&context.state, &operation)
+                .map_err(|error| error.to_string());
+        }
+        return recoverable_transition(
+            &context.state,
+            &format!("launch-{}", attempt.id),
+            &[
+                TransitionWrite {
+                    path: archive,
+                    before: before_brief,
+                    after: bytes,
+                },
+                TransitionWrite {
+                    path: meta,
+                    before: before_meta,
+                    after: text.into_bytes(),
+                },
+            ],
+            None,
+        )
+        .map_err(|error| error.to_string());
+    }
     atomic_replace(
         context.state.join(format!("{}.meta", request.id)),
         text.as_bytes(),
@@ -511,7 +1053,7 @@ mod tests {
             "codex",
         )
         .unwrap();
-        assert_eq!((&*request.mode, request.yolo), ("local-only", true));
+        assert_eq!((&*request.mode, request.yolo), ("local-only", false));
         publish_meta_for_worktree(&context, &request, "broker:mx-task", &project).unwrap();
         fs::write(
             context.data.join("projects.md"),
@@ -524,7 +1066,7 @@ mod tests {
             "codex",
         )
         .unwrap();
-        assert_eq!((&*recovered.mode, recovered.yolo), ("local-only", true));
+        assert_eq!((&*recovered.mode, recovered.yolo), ("local-only", false));
         assert!(
             parse(
                 &args(&["task", project.to_str().unwrap(), "--mode", "direct-PR"]),
@@ -559,7 +1101,38 @@ mod tests {
             "codex",
         )
         .unwrap();
-        assert_eq!((&*own.mode, own.yolo), ("direct-PR", true));
+        assert_eq!((&*own.mode, own.yolo), ("direct-PR", false));
+    }
+
+    #[test]
+    fn scaffold_output_is_independent_and_conflicting_launch_cannot_reinterpret_it() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        fs::create_dir(context.projects.join("project")).unwrap();
+        fs::create_dir_all(context.data.join("task")).unwrap();
+        for (role, output) in [("implementer", "report"), ("researcher", "implementation")] {
+            fs::write(
+                context.data.join("task/brief.md"),
+                format!("<!-- mx-assignment role={role} persistent=false output={output} -->\nAccepted scope.\n"),
+            ).unwrap();
+            let request = parse(&args(&["task", "projects/project"]), &context, "codex").unwrap();
+            assert_eq!(request.role, role);
+            assert_eq!(request.output, output);
+            let other = if output == "report" {
+                "implementation"
+            } else {
+                "report"
+            };
+            assert!(
+                parse(
+                    &args(&["task", "projects/project", "--output", other]),
+                    &context,
+                    "codex"
+                )
+                .unwrap_err()
+                .contains("output conflicts")
+            );
+        }
     }
 
     #[test]
@@ -860,6 +1433,10 @@ mod tests {
             home: context.home.clone(),
             project: context.root.clone(),
             kind: "delivery".into(),
+            role: "implementer".into(),
+            output: "implementation".into(),
+            persistent: false,
+            binding: None,
             mode: "deep-review".into(),
             yolo: false,
             backend: "tmux".into(),
@@ -887,6 +1464,10 @@ mod tests {
             home: temp.path().join("home"),
             project: temp.path().join("project"),
             kind: "delivery".into(),
+            role: "implementer".into(),
+            output: "implementation".into(),
+            persistent: false,
+            binding: None,
             mode: "deep-review".into(),
             yolo: false,
             backend: "tmux".into(),

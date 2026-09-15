@@ -73,15 +73,16 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 02 · Multplx</div>
 <h1>One Sub-agent Model</h1>
 <p class="subtitle">Keep a dedicated orchestrator and a common sub-agent lifecycle, with researcher, implementer, reviewer and scoped sub-orchestrator assignments.</p>
-<div class="badges"><span class="badge phase">Phase 02 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 02 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · 2026-09-14</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<div class="callout"><div class="label">Implemented and verified</div><p>Phase 02 is complete within its assigned schema and lifecycle boundary. Read <a href="phase02-implementation.md">the implementation evidence</a> for exact checks and limitations, and <a href="../../porting.md">porting.md</a> for the shared contract. No operational-home migration or release activation is claimed.</p></div>
 <p><b>Dependencies:</b> 01.</p>
 <h2>Overview</h2>
 <p>Current task kind, delivery mode and yolo values are consumed by launch, brief generation, snapshots, teardown and persistent-home provisioning. The rename must change that model, while retaining the useful difference between a task, an execution attempt and a persistent home.</p>
 <h2>Owned source slice</h2>
 <table><tr><th>Current source</th><th>Responsibility</th></tr>
+<tr><td><a href="../../crates/multplx-domain/src/lifecycle/subagent_model.rs"><code>crates/multplx-domain/src/lifecycle/subagent_model.rs</code></a></td><td>Canonical schema, compatibility readers, attempt/brief validation, lineage, decisions, allocation/domain identities and explicit revision CLI.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/spawn.rs"><code>crates/multplx-domain/src/lifecycle/spawn.rs</code></a></td><td>Request parsing, kind/mode/yolo resolution and metadata publication.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/project_registry.rs"><code>crates/multplx-domain/src/project_registry.rs</code></a></td><td>Stable project/checkout identity, aliases, optional remotes and managed/user-owned status; separate publication destination from optional review selection.</td></tr>
 <tr><td><a href="../../crates/multplx-domain/src/lifecycle/brief.rs"><code>crates/multplx-domain/src/lifecycle/brief.rs</code></a></td><td>Common assignment scaffold with optional report or persistent context.</td></tr>
@@ -144,7 +145,18 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>A global actor-to-subagent replacement cannot distinguish wire tokens, user labels, service daemons and agent roles. Change semantic owners first; leave historical bytes and compatibility aliases to the migration phase.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<p><b>Status: complete for Phase 02, 2026-09-14.</b> Implemented on <code>lean-redesign-phase-02</code> from <code>abc2d9f</code>, the merged Phase 01 prerequisite. <a href="phase02-implementation.md">Detailed changes, exact checks, results, corrected failures and remaining phase boundaries</a>. The <a href="../../docs/subagent-model.md">implemented schema and CLI reference</a> owns current fields and compatibility mappings.</p>
+<ul>
+<li>Schema 2 separates assignment, output, persistence, task, attempt, accepted brief, parent/home/state and runtime identity. Explicit revisions retain history, stale reports remain evidence, and native session identity remains nullable when unproven.</li>
+<li>Recoverable filesystem receipts, durable prelaunch intent, short task locks and current-identity revalidation preserve unfinished work. Typed schedule/decision facts and snapshot projection remain derived from the existing task owner.</li>
+<li>Project/checkout identities and queued base revisions stay fixed. Launch rejects a returned worktree from another repository or starting commit; a proven same-worktree replacement retains task commits. Borrowed checkout synchronization and deletion are refused, while exact single-checkout retirement retains source files.</li>
+<li>Canonical role/output/persistence CLI and configuration aliases preserve explicit harness/model/effort, persistent homes and parent routing. Allocation/lease and A11 domain/transfer foundations are versioned; their later lifecycle owners remain explicit.</li>
+<li><code>cargo test --locked --workspace</code>: 500 passed, 0 failed, 0 ignored. Release build, formatting, all-target/all-feature Clippy, coverage guard, shadow diagnostic and diff checks passed.</li>
+<li><code>target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase02-all-final.json</code>: <code>total=127 failed=0 skipped_gate=8 duration_ms=302202</code>. All seven assigned suites passed without skips. The evidence identifies the unchanged optional gates and the full fault, identity, concurrency, persistence and cleanup checks.</li>
+<li>Real Codex and Cursor report calls accepted the current task/attempt/brief identity. The final real Herdr 0.7.4/Treehouse lab matrix passed with a stub model harness and the default-session tripwire intact. Four-harness launch-template assertions are mocked; no live Claude/Pi, forge publication, human merge, Linux or package activation is claimed.</li>
+<li><code>target/release/mx doc-audience-check</code> passed after the evidence/index updates: <code>surfaces=76 local_links=381</code>. Root <code>AGENTS.md</code> remains absent, and no operational session start or real-home migration was performed.</li>
+</ul>
+<p><b>Next phase:</b> Phase 03 is ready to begin. No Phase 02 acceptance item remains unresolved; automatic external-action reconciliation, built-in worktree lifecycle, coordinator composition and release activation remain with their assigned phases.</p>
 <nav class="footer-nav"><a href="01-lean-contract-and-skills.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="03-built-in-worktree-lifecycle.html">Next →</a></nav>
 </main>
 </body>

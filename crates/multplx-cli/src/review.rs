@@ -2808,42 +2808,21 @@ fn promote(args: &[OsString]) -> i32 {
         eprintln!("error: no meta for task {raw} at {}", meta.display());
         return 1;
     };
-    if !text.lines().any(|line| line == "kind=scout") {
-        eprintln!("error: task {raw} is not a scout task (kind=scout not in meta)");
-        return 1;
-    }
-    let mut output = text
+    if text
         .lines()
-        .filter(|line| !line.starts_with("kind="))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    output.push("kind=delivery".to_owned());
-    if atomic_replace(&meta, format!("{}\n", output.join("\n")).as_bytes(), 0o600).is_err() {
-        return 1;
-    }
-    let home = std::env::var_os("MX_HOME")
-        .or_else(|| std::env::var_os("MX_ROOT_OVERRIDE"))
-        .unwrap_or_else(|| OsString::from("."));
-    let quoted = shell_quote(&home.to_string_lossy());
-    println!("promoted {raw} to delivery (teardown protection restored)");
-    println!(
-        "next: MX_HOME={quoted} bin/mx-send.sh mx-{raw} '<delivery instructions: review scratch state with git status and git log; reset to a clean default-branch base; carry over only intended fix changes; create branch mx/{raw}; implement; report done>'"
-    );
-    0
-}
-
-fn shell_quote(value: &str) -> String {
-    if value
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-'))
+        .any(|line| line.starts_with("canonical_model="))
     {
-        value.to_owned()
+        eprintln!(
+            "mx-promote is a compatibility name, not a permission gate. Use mx task-model revise with the current revision, accepted brief and assignment role to record a changed outcome before execution."
+        );
     } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
+        eprintln!(
+            "legacy assignment identity is unknown; migrate this home before recording a role/outcome revision. Sub-agents do not need promotion to delegate or perform scoped work."
+        );
     }
+    1
 }
 
-#[allow(dead_code)]
 fn _credential_boundary_is_visible_to_rust() -> bool {
     agent_ambience()
 }

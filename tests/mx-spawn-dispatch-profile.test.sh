@@ -30,7 +30,12 @@ esac
 case "${1:-}" in
   display-message) printf 'broker\n'; exit 0 ;;
   list-windows) exit 0 ;;
-  new-window) printf '@1\n'; exit 0 ;;
+  new-window)
+    for held_lock in "$MX_STATE_OVERRIDE"/.spawn-*.lock; do
+      [ ! -d "$held_lock" ] || { printf 'task lock held across backend command\n' >&2; exit 79; }
+    done
+    printf '@1\n'; exit 0 ;;
+
   has-session|new-session|kill-window) exit 0 ;;
   send-keys)
     case "$*" in *Enter*)
@@ -129,6 +134,15 @@ assert_report_binding() {
     *) fail "launch missing the actor's operational home"$'\n'"$launch" ;;
   esac
   assert_contains "$launch" "MX_TASK_ID='$id'" "launch missing the immutable task binding"
+  local model attempt generation revision
+  model=$(sed -n 's/^canonical_model=//p' "$state/$id.meta")
+  attempt=$(printf '%s' "$model" | jq -r .attempt.id)
+  generation=$(printf '%s' "$model" | jq -r .attempt.generation)
+  revision=$(printf '%s' "$model" | jq -r .attempt.brief_revision)
+  assert_contains "$launch" "MX_ATTEMPT_ID='$attempt'" 'launch lost accepted attempt'
+  assert_contains "$launch" "MX_ATTEMPT_GENERATION='$generation'" 'launch lost attempt generation'
+  assert_contains "$launch" "MX_BRIEF_REVISION='$revision'" 'launch lost accepted brief revision'
+
   assert_contains "$launch" "MX_REPORT_STATE_OVERRIDE='$state_real'" \
     "launch missing the exact parent status-state binding"
 }
@@ -162,6 +176,9 @@ assert_claude_report_mcp_config() {
       .type == "stdio" and
       (.command | endswith("/bin/mx-report-mcp")) and
       (.args | length == 0) and
+      (.env.MX_ATTEMPT_ID | startswith("attempt-")) and
+      .env.MX_ATTEMPT_GENERATION == "1" and
+      .env.MX_BRIEF_REVISION == "1" and
       .env.MX_TASK_ID == $id and
       .env.MX_HOME == $home and
       .env.MX_REPORT_STATE_OVERRIDE == $state' \
@@ -201,7 +218,7 @@ test_active_dispatch_profile_requires_explicit_harness_for_ship() {
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 1 "$status" "delivery spawn without explicit harness should fail when dispatch profiles are active"
-  assert_contains "$out" "config/actor-dispatch.json is active - pass an explicit harness resolved from the dispatch rules" \
+  assert_contains "$out" "config/subagent-dispatch.json (legacy actor-dispatch.json) is active - pass an explicit harness resolved from the dispatch rules" \
     "spawn did not explain the dispatch-profile backstop"
   assert_absent "$HOME_DIR/state/$id.meta" "delivery refusal should happen before meta is written"
   pass "active actor-dispatch profile requires an explicit harness for delivery spawns"
@@ -217,7 +234,7 @@ test_active_dispatch_profile_requires_explicit_harness_for_scout() {
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
   status=$?
   expect_code 1 "$status" "scout spawn without explicit harness should fail when dispatch profiles are active"
-  assert_contains "$out" "config/actor-dispatch.json is active - pass an explicit harness resolved from the dispatch rules" \
+  assert_contains "$out" "config/subagent-dispatch.json (legacy actor-dispatch.json) is active - pass an explicit harness resolved from the dispatch rules" \
     "scout refusal did not explain the dispatch-profile backstop"
   assert_absent "$HOME_DIR/state/$id.meta" "scout refusal should happen before meta is written"
   pass "active actor-dispatch profile requires an explicit harness for scout spawns"
@@ -378,8 +395,10 @@ test_spawn_refuses_endpoint_loss_after_submission() {
   expect_code 1 "$status" "spawn should fail when its exact endpoint disappears after Enter"
   assert_contains "$out" "did not survive command submission" \
     "endpoint loss did not produce an actionable launch failure"
-  assert_absent "$HOME_DIR/state/$id.meta" "endpoint loss left trusted task metadata"
-  pass "spawn retires metadata and reports failure when the launch endpoint disappears"
+  assert_present "$HOME_DIR/state/$id.meta" 'endpoint loss discarded accepted task identity'
+  sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -e '.schedule.state == "waiting-external" and (.schedule.waiting_condition | contains("launch failed"))' >/dev/null || fail 'failed launch appeared running'
+  assert_present "$HOME_DIR/state/brief-revisions/$id-1.md" 'failed launch lost accepted brief'
+  pass "spawn preserves task identity, accepted brief and explicit launch-failure state"
 }
 
 test_pi_threads_model_and_max_effort() {
@@ -471,6 +490,60 @@ test_active_dispatch_profile_does_not_block_daemon_launch() {
   pass "active actor-dispatch profile does not block daemon launches"
 }
 
+test_interrupted_intent_refuses_duplicate_external_launch() {
+  local rec id out status attempt
+  id=reserved-before-endpoint
+  rec=$(make_spawn_case durable-intent codex "$id")
+  read_case_record "$rec"
+  out=$(MX_SPAWN_FAULT=after-intent run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 1 "$status" 'fault after durable intent did not interrupt'
+  assert_present "$HOME_DIR/state/.spawn-$id.intent" 'interruption lost durable intent'
+  assert_absent "$HOME_DIR/state/.spawn-$id.lock" 'external launch retained a task lock'
+  [ ! -s "$LAUNCH_LOG" ] || fail 'intent interruption started an external harness'
+  attempt=$(jq -r .attempt.id "$HOME_DIR/state/.spawn-$id.intent")
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --replace-attempt "$attempt")
+  status=$?
+  expect_code 1 "$status" 'unresolved intent allowed duplicate external execution'
+  assert_contains "$out" 'interrupted launch intent' 'retry did not identify retained unfinished launch'
+  [ ! -s "$LAUNCH_LOG" ] || fail 'unresolved retry started another harness'
+  pass 'durable prelaunch intent survives interruption and blocks uncertain duplicate execution'
+}
+
+test_common_assignment_and_replacement() {
+  local rec id out status first second
+  id=common-research-implementation
+  rec=$(make_spawn_case common-role codex "$id")
+  read_case_record "$rec"
+  out=$(DEEP_REVIEW_GATE=1 run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --role researcher --output implementation --yolo on)
+  status=$?
+  expect_code 0 "$status" "sub-agent delegation retained a kind permission gate: $out"
+  first=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+  sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -e '.role == "researcher" and .artifact == "implementation" and .persistent == false and .schedule.state == "running" and .runtime.session_id == null and .project.starting_revision != ""' >/dev/null || fail 'common model lost independent assignment/output facts'
+  assert_grep 'yolo=off' "$HOME_DIR/state/$id.meta" 'legacy yolo regained authority'
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --replace-attempt "$first")
+  status=$?
+  expect_code 0 "$status" "explicit reconciled replacement failed: $out"
+  second=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+  [ "$first" != "$second" ] || fail 'replacement reused attempt identity'
+  sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -e --arg first "$first" '.attempt.generation == 2 and .prior_attempts[0].id == $first' >/dev/null || fail 'replacement lost previous generation'
+  pass 'roles and outputs share delegation, and explicit replacement preserves prior attempt identity'
+}
+
+test_canonical_harness_alias_conflict() {
+  local rec id out status
+  id=config-conflict
+  rec=$(make_spawn_case canonical-alias codex "$id")
+  read_case_record "$rec"
+  printf 'claude\n' > "$HOME_DIR/config/subagent-harness"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 1 "$status" 'conflicting canonical/legacy defaults were selected arbitrarily'
+  assert_contains "$out" 'conflicting config/subagent-harness' 'alias conflict was not actionable'
+  assert_absent "$HOME_DIR/state/$id.meta" 'conflicting aliases created a task'
+  pass 'conflicting canonical and legacy harness defaults refuse before launch'
+}
+
 test_no_profile_keeps_claude_profile_defaults
 test_active_dispatch_profile_requires_explicit_harness_for_ship
 test_active_dispatch_profile_requires_explicit_harness_for_scout
@@ -486,5 +559,8 @@ test_pi_threads_model_and_max_effort
 test_cursor_private_plugin_and_effort_model
 test_batch_forwards_shared_profile_flags
 test_active_dispatch_profile_does_not_block_daemon_launch
+test_common_assignment_and_replacement
+test_canonical_harness_alias_conflict
+test_interrupted_intent_refuses_duplicate_external_launch
 
 echo "# all mx-spawn-dispatch-profile tests passed"

@@ -10,6 +10,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Getting Started](getting-started.md) takes a new operator from installation to a safe first broker request.
 - [Architecture](architecture.md) explains the maintainer, broker, actor, daemon, worktree, supervision, and delivery model.
 - [Configuration](configuration.md) owns `MX_HOME`, local settings, harness selection, dispatch profiles, capacity, and the universal toolchain.
+- [Sub-agent records](subagent-model.md) explains task, attempt, accepted brief, project and checkout identity and the lean compatibility boundary.
 - [Delivery](delivery.md) explains why agents stop at local commits and how an approved exact SHA reaches GitHub.
 
 ## Operate Multplx

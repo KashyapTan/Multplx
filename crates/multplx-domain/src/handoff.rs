@@ -1,4 +1,4 @@
-//! Validated main-to-daemon backlog handoff.
+//! Validated queued-work transfer between home owners.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,8 +26,12 @@ fn registry_home(registry: &Path, id: &str) -> Result<PathBuf, HandoffFailure> {
     })?;
     let mut matching = None;
     for line in text.lines() {
-        if line == format!("- {id}") || line.starts_with(&format!("- {id} ")) {
-            matching = Some(line);
+        if (line == format!("- {id}") || line.starts_with(&format!("- {id} ")))
+            && matching.replace(line).is_some()
+        {
+            return Err(fail(format!(
+                "error: duplicate persistent sub-agent registry identity: {id}"
+            )));
         }
     }
     let line = matching.ok_or_else(|| {
@@ -37,7 +41,12 @@ fn registry_home(registry: &Path, id: &str) -> Result<PathBuf, HandoffFailure> {
         ))
     })?;
     let marker = "(home:";
-    let Some(start) = line.rfind(marker) else {
+    if line.matches(marker).count() > 1 {
+        return Err(fail(format!(
+            "error: conflicting persistent sub-agent home identity: {id}"
+        )));
+    }
+    let Some(start) = line.find(marker) else {
         return Err(fail(format!(
             "error: daemon {id} has no home in {}",
             registry.display()
@@ -132,7 +141,7 @@ pub fn run(
 ) -> Result<String, HandoffFailure> {
     if keys.is_empty() {
         return Err(fail(
-            "usage: mx-backlog-handoff.sh <daemon-id> <item-key>...",
+            "usage: mx backlog-handoff <persistent-subagent-id> <item-key>... (queued work between home owners)",
         ));
     }
     let registry = data.join("daemons.md");
@@ -276,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_uses_last_home_field_after_parenthesized_prose() {
+    fn registry_rejects_conflicting_home_fields_after_parenthesized_prose() {
         let temp = tempfile::tempdir().expect("tempdir");
         let registry = temp.path().join("daemons.md");
         fs::write(
@@ -284,10 +293,9 @@ mod tests {
             "- daemon - work (id is legacy) (home: /first; note: x) (home: /last; scope: work)\n",
         )
         .expect("registry");
-        assert_eq!(
-            registry_home(&registry, "daemon").expect("home"),
-            Path::new("/last")
-        );
+        assert!(registry_home(&registry, "daemon").is_err());
+        fs::write(&registry, "- daemon - work (home: /one; scope: work)\n- daemon - work (home: /two; scope: work)\n").unwrap();
+        assert!(registry_home(&registry, "daemon").is_err());
     }
 
     #[test]

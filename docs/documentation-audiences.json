@@ -423,6 +423,14 @@
     {
       "path": "plans/lean_redesign/phase01-implementation.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase02-implementation.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/subagent-model.md",
+      "audience": "maintainer-architecture"
     }
   ]
 }

@@ -1,6 +1,6 @@
 # Configuration
 
-The files and environment variables you set to operate broker.
+The files and environment variables used by the orchestrator and its sub-agents.
 
 [Back to the documentation index](README.md).
 
@@ -17,6 +17,7 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 `config/` holds local gitignored operating choices, and `projects/` holds the legacy managed project clones; the lean local-checkout model is owned by [A9](../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat).
 
 `multplx-domain::lifecycle::spawn` owns base task metadata, while the runtime-backend section below owns backend-specific fields and selector interpretation.
+The [sub-agent model](subagent-model.md) owns the versioned task/attempt/brief and project/checkout contracts, including legacy mappings and the migration boundary.
 The producing Rust review helpers own the fields they append, `multplx-core::classification` owns status-event vocabulary, and the Rust actor-state backend owns current-state reconciliation.
 Wake, watcher, and away-mode state mechanics remain with the Rust supervision runtime and their reference sections rather than being duplicated into one exhaustive state tree here.
 
@@ -220,32 +221,35 @@ Launch mechanics and verified command templates are owned by the Rust lifecycle 
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Primary-session watcher wake protocols are rendered at session start by [`bin/mx-supervision-instructions.sh`](../bin/mx-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
 Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex and Cursor use bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
-`config/actor-harness` is a local, gitignored file containing one adapter name for actor and scout launches.
-When it is absent or contains `default`, actors mirror the broker's own harness.
-`config/daemon-harness` is a separate local, gitignored file containing the adapter the primary uses to launch daemon agents, optionally followed by model and effort tokens on the same line.
+`config/subagent-harness` is a local, gitignored file containing one adapter name for ordinary sub-agent launches; `config/actor-harness` remains its legacy alias.
+When it is absent or contains `default`, sub-agents mirror their parent's harness.
+`config/persistent-subagent-harness` selects the harness for persistent launches, optionally followed by model and effort tokens; `config/daemon-harness` remains its legacy alias.
 The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort>]`.
 A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
-When the harness token is absent or `default`, daemon launch falls back through `config/actor-harness` and then the primary's own harness, and no model or effort is read from that file.
-`mx-harness.sh daemon-model` and `mx-harness.sh daemon-effort` expose only the optional tokens from `config/daemon-harness`; `config/actor-harness` remains a bare adapter-name file.
+When the persistent harness token is absent or `default`, launch falls back through `config/subagent-harness` and then the parent's own harness, and no model or effort is read from that file.
+`mx harness persistent-subagent-model` and `mx harness persistent-subagent-effort` expose the optional tokens; `daemon-model` and `daemon-effort` remain command aliases.
+`mx harness subagent` and `mx harness persistent-subagent` resolve the harness defaults, with `actor` and `daemon` retained as aliases.
+Conflicting canonical and legacy files refuse launch instead of silently choosing one.
 An explicit harness argument to `mx-spawn.sh` still overrides either config file for that spawn only.
-An explicit `--model` or `--effort` overrides the matching token from `config/daemon-harness`; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
-When `config/actor-dispatch.json` exists, actor and scout spawns require an explicit resolved harness instead of automatically falling back to `config/actor-harness`.
-The inherited-local-material contract is owned by [inherited configuration](configuration.md#persistent-home-inheritance); its harness-relevant consequence is that a daemon's own actors use the primary's dispatch profiles and static harness value.
+An explicit `--model` or `--effort` overrides the matching persistent default; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
+When `config/subagent-dispatch.json` or its legacy alias exists, ordinary launches require an explicit resolved harness.
+The inherited-local-material contract is owned by [inherited configuration](configuration.md#persistent-home-inheritance); child homes receive the shared sub-agent defaults and profiles.
 Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit verified harness outside the config.
-`config/daemon-harness` is not inherited because daemons do not launch daemons.
+The canonical persistent default is inherited so nested delegation can select persistent execution without a separate role class.
+The legacy `config/daemon-harness` stays home-local for compatibility.
 For Pi daemon launches, `mx-spawn.sh` starts Pi with `-e` pointed at the daemon home's own tracked `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, both already present from the daemon home's git worktree.
 For Cursor launches, `mx-spawn.sh` always passes `--sandbox enabled --trust`; actor turn-end signaling comes from a private per-run plugin and primary behavior comes from tracked `.cursor` rules and hooks.
 Cursor model effort is encoded as `<model>[effort=<level>]`; use `agent models` in the authenticated account before choosing a named model.
 Cursor deep-review is deliberately unsupported because schema enforcement and project-rule suppression are not verified together.
 [Cursor CLI verification](verification/cursor-cli.md) owns the dated version, authentication, sandbox, hook, resume, daemon, and negative-control evidence.
 
-## Actors dispatch profiles (config/actor-dispatch.json)
+## Sub-agent dispatch profiles (config/subagent-dispatch.json)
 
-`config/actor-dispatch.json` is an optional local, gitignored file containing natural-language rules that broker reads before dispatching an actor or scout.
-The lifecycle runtime does not match those rules; broker chooses the best matching rule with judgment, resolves its profile object or array using available capacity and task requirements, and passes only concrete `--harness`, `--model`, and `--effort` flags to `mx-spawn.sh`.
-When the file exists, `mx-spawn.sh` enforces that contract by refusing actor and scout spawns that lack an explicit verified harness through `--harness` or the positional adapter form.
+`config/subagent-dispatch.json` is an optional local, gitignored file containing natural-language dispatch rules; `config/actor-dispatch.json` remains its compatibility alias.
+The lifecycle runtime does not match those rules; the assigning agent chooses a profile and passes concrete `--harness`, `--model`, and `--effort` flags to `mx spawn`.
+When the file exists, ordinary spawns require an explicit verified harness through `--harness` or the positional adapter form.
 Batch spawns satisfy the same requirement with a shared `--harness`.
-Daemon spawns are exempt and still resolve through `config/daemon-harness` and its optional model and effort tokens.
+Persistent spawns resolve through their separate persistent defaults and optional model and effort tokens.
 This section is the single owner of the canonical schema and its per-field semantics; the orchestrator selects concrete dispatch values without a fixed model-selection playbook.
 
 ```json
@@ -270,15 +274,16 @@ Both `use` and the optional top-level `default` accept either one profile object
 The single-object form stays fully backward-compatible, and every profile needs `harness`.
 Profile `model` and `effort` fields and rule `why` are optional.
 An omitted model or effort means the selected harness uses its own default for that axis.
-Every profile array is an implicit capacity-aware choice.
-If no dispatch rule fits, broker resolves `default` through the same object-or-array path before falling back to `config/actor-harness`.
-If a selected profile carries an effort value the chosen harness does not accept, `mx-spawn.sh` records the requested `effort=` in task meta for traceability but omits the launch flag, and bootstrap reports the invalid harness/effort pair as a `ACTOR_DISPATCH` diagnostic when it is visible in the file.
-See [`docs/examples/actor-dispatch.json`](examples/actor-dispatch.json) for a starting point to copy into local `config/actor-dispatch.json`.
-When the file exists, bootstrap validates it with `jq`.
-Valid files stay silent by default; with `MX_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits `BOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json`, one `BOOTSTRAP_INFO:` fact per rule, and one fact for the optional default profile set.
-Malformed JSON, an empty or malformed rule/default array, an unverified harness, or an effort value unsupported by that harness is reported as `ACTOR_DISPATCH: invalid config/actor-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
-While the file remains present, no actor or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
-Daemon homes inherit this file from the primary, so a daemon's own actors apply the same dispatch profile behavior.
+Profile arrays express available choices without prescribing a capacity-ranking reasoning procedure.
+If no dispatch rule fits, the assigning agent resolves `default` through the same object-or-array path before falling back to `config/subagent-harness`.
+If a selected profile carries an effort value the chosen harness does not accept, `mx-spawn.sh` records the requested `effort=` in task meta for traceability but omits the launch flag, and bootstrap reports the invalid harness/effort pair with the selected file's dispatch diagnostic.
+See [`docs/examples/actor-dispatch.json`](examples/actor-dispatch.json) for the compatible profile shape to copy into local `config/subagent-dispatch.json`.
+When the file exists, bootstrap validates it with the Rust JSON reader.
+Valid files stay silent by default; `MX_BOOTSTRAP_VERBOSE_FACTS=1` adds the selected file, rules and optional default profile facts.
+Malformed JSON, invalid profiles, unverified harnesses and unsupported efforts are reported as `SUBAGENT_DISPATCH` for the canonical file or `ACTOR_DISPATCH` for the legacy alias.
+The existing `MISSING: jq` dependency diagnostic remains part of bootstrap's toolchain reporting.
+While the file remains present, ordinary spawns require an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
+Persistent homes inherit profiles through the same configuration owner.
 
 ## Dispatch capacity (config/api-capacity / state/.dispatch-queue)
 
@@ -289,7 +294,8 @@ The optional global API budget is the nonnegative integer in `config/api-capacit
 This API signal is deliberately labeled `configured-budget`, not live provider quota.
 An unreadable local signal, malformed budget, or unaccounted configured candidate is an error rather than permission to guess.
 At limit, `bin/mx-spawn.sh` writes one private record per task under `state/.dispatch-queue/` and returns a queued outcome without allocating a worktree or endpoint.
-These spawn-created requests retain their resolved delivery mode and yolo choice when drained, even if project registry preferences change while they wait.
+Spawn-created requests retain their accepted task/attempt/brief identity, assignment, project/checkout and starting revision when drained, even if project context or defaults change while they wait.
+Legacy yolo is inert and does not grant merge authority.
 The watcher checks fresh headroom on each poll and launches at most the oldest one, preserving FIFO and leaving every record untouched while capacity remains unavailable.
 Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom.sh --queue-cancel <id>` to cancel one exact task.
 
@@ -312,7 +318,7 @@ That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh
 Backend tool availability uses the adapter's own executable resolver, so bootstrap and spawn agree on supported non-`PATH` locations such as cmux's bundled CLI.
 An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead of silently dropping its dependency delta or falling back to tmux.
 A herdr or cmux home is therefore never told `tmux` is missing, while Treehouse's command and durable-lease checks still run unconditionally because every supported backend delegates worktree acquisition to it.
-When `config/actor-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
+Bootstrap validates canonical dispatch profiles and the legacy alias in the Rust owner; `jq` remains part of the current general toolchain.
 Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
 An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
 Bootstrap also self-checks `bin/mx-vplan.sh`, its Rust service boundary, seed template, review SDK, and pinned Mermaid hash without launching a review server.
@@ -456,7 +462,7 @@ The shared staleness proof lives in `multplx-core`; the Rust teardown and system
 ## Persistent-home inheritance
 
 The [inheritance module](../crates/multplx-domain/src/inheritance.rs) owns the allowlist, byte validation, per-home lock and generation publication.
-The current allowlist contains `config/actor-dispatch.json`, `config/actor-harness`, `config/backlog-backend`, `config/herdr-presentation-spaces` and `data/maintainer-shared.md`.
+The current allowlist contains `config/subagent-dispatch.json`, `config/subagent-harness`, `config/persistent-subagent-harness`, the legacy `config/actor-dispatch.json` and `config/actor-harness` aliases, `config/backlog-backend`, `config/herdr-presentation-spaces` and `data/maintainer-shared.md`.
 `config/daemon-harness` and `data/learnings.md` remain home-local.
 An inherited literal `default` harness resolves against the child's own harness, not the parent's effective choice.
 Shared preference copies are read-only in children; divergent bytes are quarantined before replacement and are never copied back to the parent.

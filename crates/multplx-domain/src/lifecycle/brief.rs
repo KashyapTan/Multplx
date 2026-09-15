@@ -1,4 +1,4 @@
-//! Delivery, scout, and daemon brief scaffolding.
+//! Common assignment scaffolding with report and persistent-home context.
 
 use std::env;
 use std::ffi::OsString;
@@ -11,23 +11,29 @@ use multplx_core::identifiers::TaskId;
 use crate::project_registry::{DeliveryMode, resolve as resolve_project_mode};
 
 pub const HELP: &str = r#"Scaffold a sub-agent assignment at data/<task-id>/brief.md in the active home.
-Usage: mx brief <task-id> <repo-name|project-path> [--scout|--review]
-                [--context-file PATH] [--herdr-lab] [--mode MODE] [--yolo on|off]
-       mx brief <task-id> --daemon {<project>...|--no-projects} [--context-file PATH]
+Usage: mx brief <task-id> <repo-name|project-path> [--role researcher|implementer|reviewer|sub-orchestrator]
+                [--output report|implementation|coordination] [--context-file PATH] [--herdr-lab] [--mode MODE] [--yolo on|off]
+       mx brief <task-id> --persistent {<project>...|--no-projects} [--context-file PATH]
 The bin/mx-brief.sh compatibility entry accepts the same arguments.
-Default: implementation. --scout: research report. --review: review report.
---daemon scaffolds a persistent sub-orchestrator charter using the legacy home
-interface; MX_DAEMON_CHARTER and MX_DAEMON_SCOPE supply its outcome and scope.
+Default: implementer. --scout and --review alias researcher and reviewer.
+--role selects assignment metadata; all sub-agents share delegation rights.
+--output selects the requested artifact independently of role and persistence.
+Defaults: researcher/reviewer report, implementer implementation, sub-orchestrator
+coordination. The coordination scaffold requires the sub-orchestrator assignment.
+Sub-orchestrators delegate implementation and cannot select that output.
+--persistent adds isolated-home lifecycle context independently of --role.
+Legacy --daemon defaults its charter role to sub-orchestrator; MX_DAEMON_CHARTER and MX_DAEMON_SCOPE supply its outcome and scope.
 --no-projects deliberately leaves project selection unbound; bind a repository
 before implementation. It is mutually exclusive with a project list.
 Replace {TASK} with the accepted outcome, acceptance criteria and constraints.
 --context-file copies UTF-8 handoff context verbatim, including original research
 pointers, accepted revision, known task/attempt identity, checkout and base commit.
-These are scaffold inputs, not validated runtime identity: Phase 02 owns binding.
+Launch binds the accepted brief bytes and task, attempt, parent and checkout identities.
+Context text is evidence; it cannot override those validated launch bindings.
 Missing identities must remain explicitly unknown, never fabricated.
 Project paths use the existing resolver; bare names refer to registered clones.
 Keep repository instructions scoped to the selected task. No launch cwd or URL
-is required by this scaffolder. Phase 11 owns discovery and local registration.
+is required by this scaffolder. mx project owns explicit local registration; Phase 11 owns discovery.
 --mode and --yolo retain legacy resolution compatibility with spawn; they do not
 request review tools or grant merge authority. Only local-only changes the output
 destination. Deep-review and vplan require explicit task/workflow selection.
@@ -51,6 +57,23 @@ enum Kind {
     Scout,
     Review,
     Daemon,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Output {
+    Report,
+    Implementation,
+    Coordination,
+}
+
+impl Output {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Report => "report",
+            Self::Implementation => "implementation",
+            Self::Coordination => "coordination",
+        }
+    }
 }
 
 fn error(message: impl Into<String>) -> BriefError {
@@ -93,11 +116,11 @@ fn report_assignment(
     id: &str,
     repo: &str,
     herdr: bool,
-    review: bool,
+    role: &str,
 ) -> String {
-    let role = if review { "reviewer" } else { "researcher" };
+    let article = if role == "implementer" { "an" } else { "a" };
     format!(
-        "You are a {role} sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nUse the assigned isolated working location and this repository's applicable instructions.\nThis assignment produces a report; scratch changes are not a delivered implementation.\nPreserve useful artifacts outside disposable scratch state before cleanup.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\nWrite the report to `{}` with findings, original source/artifact pointers, relevant evidence, unresolved questions and limitations.\nFor review, identify the exact revision assessed; do not present historical evidence as current.\nReport the completed outcome through the validated status channel.\n",
+        "You are {article} {role} sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nUse the assigned isolated working location and this repository's applicable instructions.\nThis assignment produces a report; scratch changes are not a delivered implementation.\nPreserve useful artifacts outside disposable scratch state before cleanup.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\nWrite the report to `{}` with findings, original source/artifact pointers, relevant evidence, unresolved questions and limitations.\nFor review, identify the exact revision assessed; do not present historical evidence as current.\nReport the completed outcome through the validated status channel.\n",
         herdr_section(root, id, herdr),
         status_contract(root, state, id),
         constraints(),
@@ -128,20 +151,21 @@ fn daemon(root: &Path, state: &Path, id: &str, projects: &[String], no_projects:
 
 fn delivery(
     root: &Path,
-    _data: &Path,
     state: &Path,
     id: &str,
     repo: &str,
     herdr: bool,
     selected_mode: DeliveryMode,
+    role: &str,
 ) -> String {
+    let article = if role == "implementer" { "an" } else { "a" };
     let destination = if selected_mode == DeliveryMode::LocalOnly {
         "The destination is **local-only**: deliver the scoped local branch and evidence without a remote push or PR."
     } else {
         "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope."
     };
     format!(
-        "You are an implementer sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
+        "You are {article} {role} sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
         herdr_section(root, id, herdr),
         status_contract(root, state, id),
         constraints(),
@@ -157,7 +181,10 @@ pub fn run(
 ) -> Result<String, BriefError> {
     let mut selected_mode = None;
     let mut selected_yolo = None;
+    let mut output = None;
     let mut kind = Kind::Delivery;
+    let mut role_seen = false;
+    let mut persistent = false;
     let mut herdr = false;
     let mut no_projects = false;
     let mut positional = Vec::new();
@@ -183,6 +210,21 @@ pub fn run(
                     _ => return Err(error("--yolo requires on or off")),
                 })
             }
+            "--output" => {
+                if output.is_some() {
+                    return Err(error("--output may be supplied only once"));
+                }
+                output = Some(match arguments.next().and_then(|value| value.to_str()) {
+                    Some("report") => Output::Report,
+                    Some("implementation") => Output::Implementation,
+                    Some("coordination") => Output::Coordination,
+                    _ => {
+                        return Err(error(
+                            "--output requires report, implementation or coordination",
+                        ));
+                    }
+                });
+            }
             "--context-file" => {
                 if context_file.is_some() {
                     return Err(error("--context-file may be supplied only once"));
@@ -194,8 +236,28 @@ pub fn run(
                         .clone(),
                 );
             }
-            "--scout" | "--review" | "--daemon" => {
-                if kind != Kind::Delivery {
+            "--role" => {
+                if role_seen || kind != Kind::Delivery {
+                    return Err(error("choose only one assignment role"));
+                }
+                kind = match arguments.next().and_then(|value| value.to_str()) {
+                    Some("researcher") => Kind::Scout,
+                    Some("implementer") => Kind::Delivery,
+                    Some("reviewer") => Kind::Review,
+                    Some("sub-orchestrator") => Kind::Daemon,
+                    _ => return Err(error("invalid assignment role")),
+                };
+                role_seen = true;
+            }
+            "--persistent" => persistent = true,
+            "--daemon" => {
+                persistent = true;
+                if !role_seen {
+                    kind = Kind::Daemon;
+                }
+            }
+            "--scout" | "--review" => {
+                if kind != Kind::Delivery || role_seen {
                     return Err(error("choose only one assignment flag"));
                 }
                 kind = match arg.to_str() {
@@ -212,18 +274,33 @@ pub fn run(
             value => positional.push(value.to_owned()),
         }
     }
+    let output = output.unwrap_or(match kind {
+        Kind::Scout | Kind::Review => Output::Report,
+        Kind::Delivery => Output::Implementation,
+        Kind::Daemon => Output::Coordination,
+    });
+    if output == Output::Coordination && kind != Kind::Daemon {
+        return Err(error(
+            "coordination output requires the sub-orchestrator assignment",
+        ));
+    }
+    if kind == Kind::Daemon && output == Output::Implementation {
+        return Err(error(
+            "sub-orchestrator assignments delegate implementation and test-code changes",
+        ));
+    }
     let id = positional.first().ok_or_else(|| error("missing task id"))?;
     TaskId::parse(id).map_err(|_| error(format!("invalid task id: {id}")))?;
-    if kind == Kind::Daemon && herdr {
+    if persistent && herdr {
         return Err(error(
             "--herdr-lab applies only to actor delivery or scout briefs",
         ));
     }
-    if no_projects && kind != Kind::Daemon {
+    if no_projects && !persistent && kind != Kind::Daemon {
         return Err(error("--no-projects applies only to --daemon charters"));
     }
     let projects = positional.get(1..).unwrap_or_default();
-    if kind == Kind::Daemon {
+    if persistent || kind == Kind::Daemon {
         if no_projects && !projects.is_empty() {
             return Err(error(
                 "--no-projects cannot be combined with a project list",
@@ -237,10 +314,10 @@ pub fn run(
     } else if positional.get(1).is_none() {
         return Err(error("missing repo name"));
     }
-    if kind == Kind::Daemon && (selected_mode.is_some() || selected_yolo.is_some()) {
+    if persistent && (selected_mode.is_some() || selected_yolo.is_some()) {
         return Err(error("daemon briefs do not accept task mode or yolo"));
     }
-    if kind != Kind::Daemon && positional.len() != 2 {
+    if !persistent && kind != Kind::Daemon && positional.len() != 2 {
         return Err(error(
             "ordinary briefs require exactly one project reference",
         ));
@@ -269,7 +346,44 @@ pub fn run(
     } else {
         resolve_project_mode(&data.join("projects.md"), repo)
     };
-    let (mode, yolo) = if kind == Kind::Daemon {
+    if selected_mode.is_none()
+        && !persistent
+        && kind != Kind::Daemon
+        && !state.join(format!("{id}.meta")).exists()
+    {
+        let project_root = env::var_os("MX_PROJECTS_OVERRIDE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| home.join("projects"));
+        let project = if repo.contains('/') || repo == "." || repo == ".." {
+            repo.strip_prefix("projects/")
+                .map(|relative| project_root.join(relative))
+                .unwrap_or_else(|| repo.into())
+        } else {
+            crate::project_registry::resolve_checkout(home, repo)
+                .map(|binding| binding.canonical_path)
+                .unwrap_or_else(|_| project_root.join(repo))
+        };
+        if project.join(".git").exists() {
+            selected_mode = Some(
+                match crate::project_registry::publication_for_path_at(
+                    home,
+                    data,
+                    &project_root,
+                    &project,
+                )
+                .map_err(error)?
+                {
+                    crate::project_registry::PublicationDestination::Local => {
+                        DeliveryMode::LocalOnly
+                    }
+                    crate::project_registry::PublicationDestination::PullRequest => {
+                        DeliveryMode::DirectPr
+                    }
+                },
+            );
+        }
+    }
+    let (mode, yolo) = if persistent || kind == Kind::Daemon {
         (DeliveryMode::DeepReview, false)
     } else {
         let (mode, yolo) =
@@ -283,19 +397,65 @@ pub fn run(
     let path = data.join(id).join("brief.md");
     fs::create_dir_all(path.parent().expect("brief parent"))
         .map_err(|error_value| error(error_value.to_string()))?;
-    let mut body = match kind {
-        Kind::Daemon => daemon(root, state, id, projects, no_projects),
-        Kind::Scout | Kind::Review => report_assignment(
+    let assignment_role = match kind {
+        Kind::Delivery => "implementer",
+        Kind::Scout => "researcher",
+        Kind::Review => "reviewer",
+        Kind::Daemon => "sub-orchestrator",
+    };
+    let project_reference = if no_projects {
+        "unbound; bind an explicit repository before implementation".to_owned()
+    } else {
+        projects.join(", ")
+    };
+    let mut body = match output {
+        Output::Report => report_assignment(
             root,
             data,
             state,
             id,
-            &positional[1],
+            &project_reference,
             herdr,
-            kind == Kind::Review,
+            assignment_role,
         ),
-        Kind::Delivery => delivery(root, data, state, id, &positional[1], herdr, mode),
+        Output::Implementation => delivery(
+            root,
+            state,
+            id,
+            &project_reference,
+            herdr,
+            mode,
+            assignment_role,
+        ),
+        Output::Coordination => {
+            let mut charter = daemon(root, state, id, projects, no_projects);
+            if kind != Kind::Daemon {
+                charter = charter.replace(
+                    "persistent sub-orchestrator",
+                    &format!("persistent {assignment_role} sub-agent"),
+                );
+                charter=charter.replace("Delegate project implementation, code fixes and test-code changes to sub-agents.\nOwn synthesis, briefs, task coordination and communication within this scope.","Carry out the accepted assignment within scope. You may delegate further work using the common coordination protocol.");
+            }
+            if !persistent {
+                charter=charter.replace("persistent ","").replace("Persistence does not end when one task completes; retain child ownership and pending outcomes until reconciled or transferred.","Retain child ownership and pending outcomes until reconciled or transferred.");
+            }
+            charter
+        }
     };
+    if persistent && output != Output::Coordination {
+        body = body.replace(
+            &format!("{assignment_role} sub-agent"),
+            &format!("persistent {assignment_role} sub-agent"),
+        );
+        body.push_str(&format!("\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
+    }
+    if kind == Kind::Daemon && output != Output::Coordination {
+        body.push_str("\nDelegate project implementation, code fixes and test-code changes to sub-agents.\nOwn synthesis, briefs, task coordination and communication within the accepted scope.\n");
+    }
+    body.push_str(&format!(
+        "\n<!-- mx-assignment role={assignment_role} persistent={persistent} output={} -->\n",
+        output.as_str()
+    ));
     if let Some(context) = context {
         body.push_str("\n# Accepted handoff context\n");
         body.push_str(&context);
@@ -498,5 +658,93 @@ mod tests {
         )
         .expect_err("must not overwrite");
         assert!(error.message.contains("already exists"));
+    }
+    #[test]
+    fn output_is_independent_of_role_and_persistence() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let state = temp.path().join("state");
+        fs::create_dir_all(&data).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        for (id, role, output, persistent) in [
+            ("implementer-report", "implementer", "report", false),
+            (
+                "researcher-implementation",
+                "researcher",
+                "implementation",
+                false,
+            ),
+            ("persistent-review-report", "reviewer", "report", true),
+            ("coordinator-report", "sub-orchestrator", "report", false),
+        ] {
+            let mut values = vec![id, "repo", "--role", role, "--output", output];
+            if persistent {
+                values.push("--persistent");
+            }
+            run(&args(&values), temp.path(), temp.path(), &data, &state).unwrap();
+            let body = fs::read_to_string(data.join(id).join("brief.md")).unwrap();
+            assert!(body.contains(&format!("{role} sub-agent")));
+            assert!(body.contains(&format!(
+                "role={role} persistent={persistent} output={output}"
+            )));
+            if output == "report" {
+                assert!(body.contains("This assignment produces a report"));
+                assert!(body.contains("report.md"));
+                assert!(!body.contains("You may commit, push your task branch"));
+            } else {
+                assert!(body.contains("You may commit, push your task branch"));
+                assert!(!body.contains("This assignment produces a report"));
+            }
+            if persistent {
+                assert!(body.contains("persistent reviewer sub-agent"));
+                assert!(body.contains("empty queue means idle"));
+                assert!(body.contains("include that exact token in your parent status reply"));
+            }
+            if role == "sub-orchestrator" {
+                assert!(
+                    body.contains(
+                        "Delegate project implementation, code fixes and test-code changes"
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn conflicting_or_invalid_outputs_refuse_before_scaffolding() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let state = temp.path().join("state");
+        for values in [
+            vec!["task", "repo", "--output"],
+            vec!["task", "repo", "--output", "unknown"],
+            vec![
+                "task",
+                "repo",
+                "--role",
+                "implementer",
+                "--output",
+                "coordination",
+            ],
+            vec![
+                "task",
+                "repo",
+                "--output",
+                "report",
+                "--output",
+                "implementation",
+            ],
+            vec![
+                "task",
+                "repo",
+                "--role",
+                "sub-orchestrator",
+                "--output",
+                "implementation",
+            ],
+        ] {
+            assert!(run(&args(&values), temp.path(), temp.path(), &data, &state).is_err());
+            assert!(!data.join("task/brief.md").exists());
+        }
     }
 }

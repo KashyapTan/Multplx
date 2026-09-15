@@ -488,6 +488,8 @@ pub struct QueueRecord {
     pub mode: String,
     pub yolo: String,
     pub enqueued_at: u64,
+    /// Validated domain model frozen by the launch owner; opaque to the backend.
+    pub canonical_model: Option<String>,
 }
 
 fn valid_id(value: &str) -> bool {
@@ -509,10 +511,24 @@ fn one_line(label: &str, value: &str) -> Result<()> {
 
 impl QueueRecord {
     fn render(&self) -> Vec<u8> {
-        format!(
+        let mut text = format!(
             "version=1\ntask_id={}\nproject={}\nharness={}\nmodel={}\neffort={}\nbackend={}\nkind={}\nmode={}\nyolo={}\nenqueued_at={}\n",
-            self.task_id, self.project, self.harness, self.model, self.effort, self.backend, self.kind, self.mode, self.yolo, self.enqueued_at
-        ).into_bytes()
+            self.task_id,
+            self.project,
+            self.harness,
+            self.model,
+            self.effort,
+            self.backend,
+            self.kind,
+            self.mode,
+            self.yolo,
+            self.enqueued_at
+        );
+        if let Some(model) = &self.canonical_model {
+            text = text.replacen("version=1\n", "version=2\n", 1);
+            text.push_str(&format!("canonical_model={model}\n"));
+        }
+        text.into_bytes()
     }
 
     fn parse(path: &Path, expected_id: &str) -> Result<Self> {
@@ -540,15 +556,20 @@ impl QueueRecord {
             .map_err(|_| message(format!("queue record is unreadable: {}", path.display())))?;
         let mut fields = HashMap::new();
         for line in text.lines() {
-            if let Some((key, value)) = line.split_once('=') {
-                fields.insert(key, value);
+            if let Some((key, value)) = line.split_once('=')
+                && fields.insert(key, value).is_some()
+            {
+                return Err(message(format!("duplicate queue field: {key}")));
             }
         }
-        if fields.get("version") != Some(&"1") {
+        if !matches!(fields.get("version"), Some(&"1" | &"2")) {
             return Err(message(format!(
                 "queue record has an unsupported version: {}",
                 path.display()
             )));
+        }
+        if (fields.get("version") == Some(&"2")) != fields.contains_key("canonical_model") {
+            return Err(message("queue version and canonical binding conflict"));
         }
         let task_id = fields
             .get("task_id")
@@ -623,8 +644,23 @@ impl QueueRecord {
             mode,
             yolo,
             enqueued_at,
+            canonical_model: fields
+                .get("canonical_model")
+                .map(|value| (*value).to_owned()),
         })
     }
+}
+
+/// Read the frozen task binding for idempotent queue submission.
+pub fn queued_model(paths: &HeadroomPaths, id: &str) -> Result<Option<String>> {
+    if !valid_id(id) {
+        return Err(message("invalid queue task id"));
+    }
+    let path = paths.queue_dir().join(format!("{id}.request"));
+    if !path.exists() {
+        return Ok(None);
+    }
+    QueueRecord::parse(&path, id).map(|record| record.canonical_model)
 }
 
 fn acquire(paths: &HeadroomPaths) -> Result<DirectoryLock> {
@@ -728,6 +764,7 @@ pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> 
             && existing.model == record.model
             && existing.effort == record.effort
             && existing.backend == record.backend
+            && existing.canonical_model == record.canonical_model
             && existing.kind == record.kind
             && existing.mode == record.mode
             && existing.yolo == record.yolo
@@ -807,7 +844,10 @@ pub fn queue_drain(paths: &HeadroomPaths) -> Result<String> {
     if !record.yolo.is_empty() {
         command.args(["--yolo", &record.yolo]);
     }
-    if record.kind == "scout" {
+    if let Some(model) = &record.canonical_model {
+        command.env("MX_QUEUED_MODEL", model);
+    }
+    if record.kind == "scout" && record.canonical_model.is_none() {
         command.arg("--scout");
     }
     let status = command.status().map_err(|_| {
@@ -984,6 +1024,7 @@ mod tests {
             mode: String::new(),
             yolo: String::new(),
             enqueued_at: 1,
+            canonical_model: None,
         };
         for record in [
             QueueRecord {
@@ -1030,6 +1071,7 @@ mod tests {
             mode: String::new(),
             yolo: String::new(),
             enqueued_at: 1,
+            canonical_model: None,
         };
         assert!(
             queue_add(&paths, &record)
@@ -1078,6 +1120,7 @@ mod tests {
                             mode: String::new(),
                             yolo: String::new(),
                             enqueued_at: index,
+                            canonical_model: None,
                         },
                     )
                     .expect("queue add");
@@ -1109,6 +1152,7 @@ mod tests {
             mode: String::new(),
             yolo: String::new(),
             enqueued_at: 1,
+            canonical_model: None,
         };
         queue_add(&paths, &record).expect("published");
         std::fs::write(paths.queue_dir().join(".interrupted.tmp"), b"partial").expect("temporary");

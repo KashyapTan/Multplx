@@ -302,12 +302,20 @@ add_sm_home() {
   printf '%s\n' "$id" > "$home/.mx-daemon-home"
   printf '# Multplx\n' > "$home/AGENTS.md"
   printf 'charter\n' > "$home/data/charter.md"
-  {
-    printf 'window=%s\n' "$window"
-    printf 'kind=daemon\n'
-    printf 'harness=%s\n' "$harness"
-    printf 'home=%s\n' "$home"
-  } > "$w/home/state/$id.meta"
+  if [ "$harness" = custom-agent ]; then
+    # Unverified legacy adapters remain read-only diagnostic fixtures.
+    printf 'window=%s\nkind=daemon\nharness=%s\nhome=%s\n' "$window" "$harness" "$home" > "$w/home/state/$id.meta"
+    return
+  fi
+  local fb log="$w/initial-spawn.log"
+  fb=$(make_liveness_tmux "$w")
+  make_toolchain "$w" >/dev/null
+  : > "$log"
+  PATH="$fb:$BASE_PATH" TMUX='' MX_BACKEND=tmux MX_HOME="$w/home" \
+    MX_TEST_PANE_CMD=missing MX_TMUX_CALL_LOG="$log" MX_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/mx-spawn.sh" "$id" "$home" "$harness" --daemon > "$w/initial-spawn.out" 2>&1 \
+    || fail "canonical fixture launch failed: $(cat "$w/initial-spawn.out")"
+
 }
 
 run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> stdout

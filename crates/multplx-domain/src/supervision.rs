@@ -12,7 +12,7 @@ use rustix::process::{Pid, Signal, kill_process};
 use serde_json::json;
 use time::OffsetDateTime;
 
-/// Closed actor-writable status vocabulary.
+/// Closed sub-agent-writable status vocabulary.
 pub const REPORT_STATES: &[&str] = &[
     "working",
     "paused",
@@ -49,7 +49,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>]\n  mx-report --list-states\n\nThe closed actor-writable state vocabulary lives in the Rust report command.\nA write is accepted only when the caller is bound to the same task.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -57,6 +57,12 @@ struct ReportOptions {
     state: Option<String>,
     message: Option<String>,
     key: Option<String>,
+    attempt_id: Option<String>,
+    generation: Option<String>,
+    brief_revision: Option<String>,
+    message_id: Option<String>,
+    correlation_id: Option<String>,
+    artifact: Option<String>,
     list: bool,
 }
 
@@ -84,6 +90,16 @@ fn parse_report(args: &[String]) -> Result<ReportOptions, CommandResult> {
             "--id" => parsed.id = Some(value("--id", &mut index)?),
             "--state" => parsed.state = Some(value("--state", &mut index)?),
             "--message" => parsed.message = Some(value("--message", &mut index)?),
+            "--attempt-id" => parsed.attempt_id = Some(value("--attempt-id", &mut index)?),
+            "--generation" => parsed.generation = Some(value("--generation", &mut index)?),
+            "--brief-revision" => {
+                parsed.brief_revision = Some(value("--brief-revision", &mut index)?)
+            }
+            "--correlation-id" => {
+                parsed.correlation_id = Some(value("--correlation-id", &mut index)?)
+            }
+            "--message-id" => parsed.message_id = Some(value("--message-id", &mut index)?),
+            "--artifact" => parsed.artifact = Some(value("--artifact", &mut index)?),
             "--key" => parsed.key = Some(value("--key", &mut index)?),
             "--list-states" => {
                 parsed.list = true;
@@ -210,6 +226,28 @@ fn nudge_watcher(state: &Path) -> Option<String> {
     })
 }
 
+fn validate_report_home(
+    record: &crate::lifecycle::subagent_model::TaskRecord,
+    state: &Path,
+) -> Result<(), String> {
+    let home = record
+        .owner_home
+        .as_deref()
+        .ok_or("canonical task has no owning home")?;
+    let owned_state = record
+        .owner_state
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(home).join("state"));
+    let expected =
+        fs::canonicalize(owned_state).map_err(|_| "canonical task owning state is unavailable")?;
+    let actual = fs::canonicalize(state).map_err(|_| "report state is unavailable")?;
+    if expected != actual {
+        return Err("report recipient home does not own this task".into());
+    }
+    Ok(())
+}
+
 /// Run the Rust status reporter with exact public grammar and binding rules.
 #[must_use]
 pub fn report(args: &[String], root: &Path) -> CommandResult {
@@ -222,6 +260,12 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             || parsed.state.is_some()
             || parsed.message.is_some()
             || parsed.key.is_some()
+            || parsed.attempt_id.is_some()
+            || parsed.generation.is_some()
+            || parsed.brief_revision.is_some()
+            || parsed.message_id.is_some()
+            || parsed.correlation_id.is_some()
+            || parsed.artifact.is_some()
         {
             return usage_error("--list-states cannot be combined with write arguments");
         }
@@ -286,14 +330,206 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         || format!("{state_name}: {message}"),
         |key| format!("{state_name} [key={key}]: {message}"),
     );
-    if let Err(error) = append_single_write(
+    let mut identity_detail = serde_json::Value::Null;
+    let meta_path = state.join(format!("{}.meta", task.as_str()));
+    // One scoped lock serializes report acceptance with explicit brief changes.
+    let _binding_lock = match multplx_core::locks::DirectoryLock::try_acquire(
+        state.join(format!(".{}.identity.lock", task.as_str())),
+        &SystemProcessProbe::default(),
+    ) {
+        Ok(lock) => lock,
+        Err(error) => return binding_error(&error.to_string()),
+    };
+    let meta_text =
+        match multplx_core::filesystem::read_bounded_regular(&meta_path, 4 * 1024 * 1024) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(_) => return binding_error("task metadata is not valid UTF-8"),
+            },
+            Err(multplx_core::error::CoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                String::new()
+            }
+            Err(error) => return binding_error(&error.to_string()),
+        };
+    let canonical = if meta_text.is_empty() {
+        None
+    } else {
+        match crate::lifecycle::subagent_model::read_meta(task.as_str(), &meta_text) {
+            Ok(record) => Some(record),
+            Err(error) => return binding_error(&error),
+        }
+    };
+    if let Some(record) = canonical.filter(|record| !record.legacy_unknown) {
+        if let Err(error) = validate_report_home(&record, &state) {
+            return binding_error(&error);
+        }
+        use crate::lifecycle::subagent_model::{
+            Acknowledgement, Attempt, MessageEnvelope, SCHEMA_VERSION, new_identity,
+        };
+        let attempt_id = parsed.attempt_id.or_else(|| env::var("MX_ATTEMPT_ID").ok());
+        let generation = parsed
+            .generation
+            .or_else(|| env::var("MX_ATTEMPT_GENERATION").ok())
+            .and_then(|v| v.parse().ok());
+        let brief_revision = parsed
+            .brief_revision
+            .or_else(|| env::var("MX_BRIEF_REVISION").ok())
+            .and_then(|v| v.parse().ok());
+        let attempt = attempt_id.zip(generation).zip(brief_revision).map(
+            |((id, generation), brief_revision)| Attempt {
+                id,
+                generation,
+                brief_revision,
+            },
+        );
+        let message_id = parsed.message_id.unwrap_or_else(|| new_identity("report"));
+        if TaskId::parse(&message_id).is_err() {
+            return usage_error("invalid --message-id");
+        }
+        let recipient = record.parent_id.clone().unwrap_or_default();
+        let envelope = MessageEnvelope {
+            schema_version: SCHEMA_VERSION,
+            message_id: message_id.clone(),
+            task_id: task.to_string(),
+            task_home: record.owner_home.clone(),
+            parent_home: record.parent_home.clone(),
+            attempt,
+            parent_id: record.parent_id.clone(),
+            sender: bound.to_string(),
+            recipient: recipient.clone(),
+            brief_revision,
+            kind: state_name.clone(),
+            correlation_id: parsed.correlation_id.unwrap_or_else(|| message_id.clone()),
+            created_at: timestamp(),
+            summary: message.clone(),
+            artifact: parsed.artifact,
+            acknowledgement: Acknowledgement::Pending,
+        };
+        let validation = envelope.validate_current(&record, bound.as_str(), &recipient);
+        let evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err()});
+        let evidence_dir = state.join("evidence");
+        if let Err(error) = fs::create_dir_all(&evidence_dir) {
+            return binding_error(&error.to_string());
+        }
+        let evidence_path = evidence_dir.join(format!("{}-{}.json", task.as_str(), message_id));
+        let mut evidence_bytes = serde_json::to_vec(&evidence).expect("evidence JSON");
+        if evidence_path.exists() {
+            let old_bytes =
+                match multplx_core::filesystem::read_bounded_regular(&evidence_path, 1024 * 1024) {
+                    Ok(bytes) => bytes,
+                    Err(error) => return binding_error(&error.to_string()),
+                };
+            let old: serde_json::Value = match serde_json::from_slice(&old_bytes) {
+                Ok(value) => value,
+                Err(_) => return binding_error("corrupt retained evidence"),
+            };
+            let mut comparable = evidence.clone();
+            comparable["envelope"]["created_at"] = old["envelope"]["created_at"].clone();
+            if comparable["envelope"] != old["envelope"] {
+                return binding_error("message identity reused with different evidence");
+            }
+            let prior_receipt = state
+                .join(".transitions")
+                .join(format!("report-{}-{message_id}.json", task.as_str()));
+            if old["accepted"] == true && prior_receipt.is_file() {
+                let complete = multplx_core::filesystem::read_bounded_regular(
+                    &prior_receipt,
+                    16 * 1024 * 1024,
+                )
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|receipt| receipt["committed"] == true);
+                if complete {
+                    return CommandResult::success(String::new());
+                }
+            }
+            if old["accepted"] == false {
+                return binding_error(
+                    "historical evidence was rejected; message identity retained",
+                );
+            }
+            evidence_bytes = old_bytes;
+        }
+        if let Err(error) = validation {
+            if let Err(write_error) =
+                multplx_core::filesystem::atomic_replace(&evidence_path, &evidence_bytes, 0o600)
+            {
+                return binding_error(&write_error.to_string());
+            }
+            return binding_error(&format!("{error}; historical evidence retained"));
+        }
+        let status_path = state.join(format!("{}.status", task.as_str()));
+        let before =
+            match multplx_core::filesystem::read_bounded_regular(&status_path, 16 * 1024 * 1024) {
+                Ok(bytes) => Some(bytes),
+                Err(multplx_core::error::CoreError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    None
+                }
+                Err(error) => return binding_error(&error.to_string()),
+            };
+        let mut after = before.clone().unwrap_or_default();
+        after.extend_from_slice(format!("{line}\n").as_bytes());
+        let operation = format!("report-{}-{message_id}", task.as_str());
+        // Retry the recorded exact intent, rather than appending to its own result.
+        let receipt_path = state.join(".transitions").join(format!("{operation}.json"));
+        let writes = if receipt_path.exists() {
+            let receipt: serde_json::Value = match fs::read(&receipt_path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            {
+                Some(value) => value,
+                None => return binding_error("corrupt report operation"),
+            };
+            match serde_json::from_value(receipt["writes"].clone()) {
+                Ok(writes) => writes,
+                Err(_) => return binding_error("corrupt report write intent"),
+            }
+        } else {
+            vec![
+                // This unchanged authority record reserves the accepted revision
+                // until evidence/status publication is fully reconciled.
+                multplx_core::filesystem::TransitionWrite {
+                    path: format!("{}.meta", task.as_str()).into(),
+                    before: Some(meta_text.as_bytes().to_vec()),
+                    after: meta_text.as_bytes().to_vec(),
+                },
+                multplx_core::filesystem::TransitionWrite {
+                    path: evidence_path
+                        .strip_prefix(&state)
+                        .expect("state evidence")
+                        .into(),
+                    before: fs::read(&evidence_path).ok(),
+                    after: evidence_bytes,
+                },
+                multplx_core::filesystem::TransitionWrite {
+                    path: status_path
+                        .strip_prefix(&state)
+                        .expect("state status")
+                        .into(),
+                    before,
+                    after,
+                },
+            ]
+        };
+        if let Err(error) =
+            multplx_core::filesystem::recoverable_transition(&state, &operation, &writes, None)
+        {
+            return binding_error(&error.to_string());
+        }
+        identity_detail = serde_json::to_value(&envelope).expect("envelope JSON");
+    } else if let Err(error) = append_single_write(
         state.join(format!("{}.status", task.as_str())),
         format!("{line}\n").as_bytes(),
         0o600,
     ) {
         return CommandResult::error(1, format!("mx-report: {error}\n"));
     }
-    let detail = json!({"raw":line,"state":state_name,"validated":true});
+    drop(_binding_lock);
+    let detail = json!({"raw":line,"state":state_name,"validated":true,"identity":identity_detail});
     let writer = JournalWriter::new(&state);
     let mut stderr = writer
         .try_emit(

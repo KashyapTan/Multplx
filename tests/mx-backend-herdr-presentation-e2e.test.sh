@@ -398,8 +398,12 @@ make_project() {  # <dir>
 
 spawn_task() {  # <id> <home> <project>
   local id=$1 home=$2 project=$3
+  local replacement=()
+  if [ -f "$home/state/$id.meta" ]; then
+    replacement=(--replace-attempt "$(sed -n 's/^canonical_model=//p' "$home/state/$id.meta" | jq -r '.attempt.id')")
+  fi
   MX_GATE_REFUSE_BYPASS=1 MX_SPAWN_NO_GUARD=1 MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr
+    "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr ${replacement[@]+"${replacement[@]}"}
 }
 
 spawn_daemon_task() {
@@ -433,12 +437,21 @@ teardown_task() (  # <id> <home>
 )
 
 normalize_meta() {  # <meta>
-  sed -E \
-    -e 's|^window=.*$|window=<herdr-container-id>|' \
-    -e 's|^herdr_workspace_id=.*$|herdr_workspace_id=<herdr-container-id>|' \
-    -e 's|^herdr_tab_id=.*$|herdr_tab_id=<herdr-container-id>|' \
-    -e 's|^herdr_pane_id=.*$|herdr_pane_id=<herdr-container-id>|' \
-    "$1"
+  python3 - "$1" <<'PYTHON'
+import json, sys
+for line in open(sys.argv[1]):
+    key, value = line.rstrip('\n').split('=', 1)
+    if key in ('window', 'herdr_workspace_id', 'herdr_tab_id', 'herdr_pane_id'):
+        value = '<herdr-container-id>'
+    elif key == 'canonical_model':
+        model = json.loads(value)
+        assert model['attempt']['generation'] == 1
+        assert model['attempt']['brief_revision'] == 1
+        model['attempt']['id'] = '<attempt-id>'
+        model['runtime']['endpoint'] = '<herdr-container-id>'
+        value = json.dumps(model, sort_keys=True, separators=(',', ':'))
+    print(key + '=' + value)
+PYTHON
 }
 
 log_line_count() { wc -l < "$HERDR_CALL_LOG" | tr -d '[:space:]'; }
@@ -690,10 +703,12 @@ pass "real Herdr lab: bounded lock contention warns and falls back flat without 
 PROJECTION_ORDER_START=$(log_line_count)
 
 [ "$OFF_WT" = "$ON_WT" ] || fail "Treehouse did not reuse the same fixture worktree, so byte comparison is inconclusive"
+[ "$(sed -n 's/^canonical_model=//p' "$OFF_META" | jq -r '.attempt.id')" != "$(sed -n 's/^canonical_model=//p' "$ON_META" | jq -r '.attempt.id')" ] \
+  || fail "independent launches reused an attempt identity"
 normalize_meta "$OFF_META" > "$TMP_ROOT/off.meta.normalized"
 normalize_meta "$ON_META" > "$TMP_ROOT/on.meta.normalized"
 cmp -s "$TMP_ROOT/off.meta.normalized" "$TMP_ROOT/on.meta.normalized" \
-  || fail "metadata changed beyond Herdr container IDs between flag-off and projected paths"
+  || fail "metadata changed beyond fresh attempt identity and Herdr container IDs between flag-off and projected paths"
 
 # Two real concurrent primary spawns share the bounded presentation-order lock.
 # Their final relative order must match Herdr's actual serialized create order,
@@ -821,7 +836,7 @@ teardown_task shape "$HOME_DIR" > "$TMP_ROOT/on-teardown.out" 2> "$TMP_ROOT/on-t
   || fail "projected teardown failed: $(cat "$TMP_ROOT/on-teardown.err")"
 assert_focus_is "$MAINTAINER_FOCUS" "projected teardown"
 assert_cleanup_focus_steal_was_restored "$SHAPE_CLEANUP_AUDIT_START" "$PROJECTED_PANE" "$MAINTAINER_FOCUS"
-pass "real Herdr lab: Treehouse commands and metadata shape are byte-identical except for Herdr container IDs"
+pass "real Herdr lab: Treehouse commands and normalized metadata match; fresh attempt and Herdr container identities differ"
 if lab workspace get "$PROJECTED_WSID" >/dev/null 2>&1; then
   fail "closing the exact projected task pane did not remove its last-tab workspace"
 fi

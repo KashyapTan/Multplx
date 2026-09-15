@@ -6,6 +6,7 @@ The [README](../README.md) carries the high-level diagram and a short synopsis.
 The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
 The lean operating target is maintained in the [dormant operating contract](../AGENTS_E.md); this is the human-facing companion.
+Lean Phase 02 implements the [shared sub-agent and project records](subagent-model.md); the legacy delivery, backend and release interfaces below remain until their assigned phases replace them.
 
 ## Rust runtime workspace
 
@@ -204,7 +205,8 @@ Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show
 Multplx's own deep-review gate normally runs agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
 `bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
 Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
-The Rust lifecycle entry points for `mx-spawn.sh`, `mx-send.sh`, and `mx-teardown.sh` preserve the deep-review gate and exit with status 3 before system mutation when `DEEP_REVIEW_GATE` is present.
+The Rust lifecycle entry points for `mx-send.sh` and `mx-teardown.sh` retain their existing deep-review gate refusal when `DEEP_REVIEW_GATE` is present.
+Spawn no longer treats that marker as a blanket child-delegation prohibition; canonical task identity and explicit assignment still apply.
 A normal primary checkout or actor worktree has neither signal and remains unaffected.
 The Rust lifecycle gate owns the exact marker and test-harness bypass contract.
 
@@ -220,16 +222,18 @@ Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-st
 [`workflows.md`](workflows.md) owns the definition schema, state layout, lifecycle, and trust posture.
 The upstream-sync workflow composes that engine with a fetch-only private clone under the run artifact directory, and [`upstream.md`](upstream.md) owns its path map, review cursor, and retirement decision.
 
-## Two task shapes
+## Common tasks and separate assignments
 
-DELIVERY TASK change projects and delivery by project mode (`deep-review`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
+Tasks record report or implementation output separately from researcher, implementer, reviewer or sub-orchestrator assignment and persistence.
+Legacy delivery/scout/daemon kinds are compatibility projections of the [versioned record](subagent-model.md), not delegation permission classes.
+Accepted brief revisions, execution generations and selected checkout identities travel with launch, reports and queued work.
 The [lean intake contract](../porting.md#task-intake-roles-and-quality) makes research task-dependent.
 
 ## Dispatch profiles
 
-Actor and scout dispatch can stay on the static actor harness resolved by `config/actor-harness`, or it can use local dispatch profiles in `config/actor-dispatch.json`.
+Ordinary sub-agent dispatch resolves `config/subagent-harness` and optional `config/subagent-dispatch.json`, with `actor-harness` and `actor-dispatch.json` retained as bounded aliases.
 The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays from current capacity and task requirements, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
-The shell scripts validate the JSON shape and verified harness/effort combinations, but they do not parse task intent, match natural-language rules, or own array selection.
+The Rust owner validates the JSON shape and verified harness/effort combinations without parsing task intent or selecting profiles.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses actor and scout launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
 Daemon launches are exempt because they resolve the daemon harness and any optional daemon model or effort tokens instead.
@@ -239,7 +243,7 @@ That keeps spawn launch compatible across claude, codex, and pi while preserving
 ## Optional daemons
 
 `data/daemons.md` records persistent daemons with natural-language scopes, project clone lists, and home paths.
-`mx-home-seed.sh` provisions the isolated home, clones the listed PR-based projects into it, copies the charter to `data/charter.md`, and `mx-spawn.sh --daemon` launches it through the same session-provider and status-file path as any routed agent.
+`mx-home-seed.sh` provisions the isolated home, clones its selected projects, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.
 For a domain whose subject is the Multplx repo itself, a deliberate `--no-projects` seed creates a project-less home whose actors take pooled worktrees of that repo instead of separate clones.
 The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#daemon-routes-datadaemonsmd).
 On the herdr backend, a daemon launch lands in that daemon home's labeled workspace, and actors spawned from that home land in the same workspace.
@@ -247,7 +251,7 @@ When seeded with `-`, the home is a durable treehouse lease under the daemon id,
 Retirement or seed rollback returns the leased home; normal restart/recovery keeps it leased.
 If returning the lease fails during teardown, broker leaves the route and home intact instead of hiding a still-held lease.
 Seeding is transactional: if validation, cloning, initialization, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
-`local-only` projects stay with the main broker because they merge into the main local checkout instead of a remote-backed PR path.
+Local-only and remote-free projects can be selected for persistent homes without inventing a publication remote.
 The same project may appear in multiple daemon homes when their scopes differ, such as issue triage versus feature development.
 Daemons are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
 When called with `MX_HOME=<this-broker-home>` or when `MX_HOME` is already set to the active Multplx home, metadata-routed `mx-send.sh` requests to a live `kind=daemon` use the live-charter-compatible `from-broker` carrier owned by `multplx-domain::operational_input`, so the daemon returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.
@@ -260,7 +264,7 @@ Daemon homes converge conservatively to the primary's version and declared inher
 [Configuration](configuration.md#persistent-home-inheritance) owns the full guarded sync, propagation, nudge, and mid-session local-material push contract.
 
 Daemon agents can run on a different verified harness than actors.
-`config/daemon-harness` controls the primary's daemon launch harness and may also carry optional model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
+`config/persistent-subagent-harness` controls persistent launch defaults, with `config/daemon-harness` retained as its alias, and may carry model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
 A bare harness line remains harness-only, so existing `config/daemon-harness` files keep their previous behavior.
 When the harness token is unset or `default`, launch falls back to `config/actor-harness`, then to the primary's own harness, and the model and effort tokens are ignored.
 Those optional tokens are re-read on every daemon spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
@@ -273,7 +277,8 @@ The `data/daemons.md` line contract is owned by the [route schema](configuration
 
 ## Project modes are explicit
 
-`data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
+`data/projects.json` records canonical project and checkout identity, ownership and publication destination; `data/projects.md` remains the legacy mode reader.
+Historical `+yolo` values grant no merge authority, and legacy deep-review mode does not select a new review run implicitly.
 PR-based modes stop agent work at a clean local commit.
 The `deep-review` mode records an approved SHA through its gate for non-agent remote delivery.
 The `direct-PR` mode uses the owned gate-free preparation and explicit approval path described in [delivery.md](delivery.md#choose-and-complete-a-delivery-mode).

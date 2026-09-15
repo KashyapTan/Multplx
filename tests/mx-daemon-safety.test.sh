@@ -727,7 +727,7 @@ test_home_seed_refuses_missing_projects_without_signal() {
   pass "home seeding fails loudly on accidental project omission and rejects mixed --no-projects"
 }
 
-test_home_seed_refuses_local_only_project() {
+test_home_seed_preserves_local_only_project() {
   local home subhome err
   home="$TMP_ROOT/local-only-seed-home"
   subhome="$TMP_ROOT/local-only-seed-subhome"
@@ -736,13 +736,13 @@ test_home_seed_refuses_local_only_project() {
   mx_git_init_commit "$home/projects/alpha"
   printf '%s\n' '- alpha [local-only] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
 
-  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
-    fail "seed allowed a local-only project into a daemon home"
-  fi
-  grep -F 'project alpha is local-only; daemon routes support only deep-review and direct-PR projects' "$err" >/dev/null \
-    || fail "seed did not explain local-only project rejection"
-  [ ! -e "$subhome" ] || fail "seed created a subhome before rejecting a local-only project"
-  pass "home seeding refuses local-only projects"
+  MX_HOME="$home" MX_DAEMON_CHARTER='local alpha work' MX_DAEMON_SCOPE='local alpha work' \
+    mx_home_seed design "$subhome" alpha >/dev/null 2>"$err" || fail "local-only persistent seed failed: $(cat "$err")"
+  assert_present "$subhome/projects/alpha/.git" 'local-only checkout missing'
+  [ -z "$(git -C "$subhome/projects/alpha" remote)" ] || fail 'local-only seed invented a remote'
+  assert_grep '[local-only]' "$subhome/data/projects.md" 'local-only destination lost'
+  [ -z "$(git -C "$home/projects/alpha" status --porcelain)" ] || fail 'source checkout changed'
+  pass "persistent homes retain local-only repositories without inventing remotes"
 }
 
 test_home_seed_refuses_registry_delimiter_home() {
@@ -939,7 +939,7 @@ EOF
   pass "home seeding refuses registered home overlaps"
 }
 
-test_home_seed_refuses_remote_backed_project_without_origin() {
+test_home_seed_preserves_source_without_origin() {
   local home subhome err
   home="$TMP_ROOT/no-origin-home"
   subhome="$TMP_ROOT/no-origin-subhome"
@@ -949,11 +949,10 @@ test_home_seed_refuses_remote_backed_project_without_origin() {
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for no-origin seed test"
 
-  if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
-    fail "seed allowed remote-backed project without origin"
-  fi
-  grep -F 'project alpha is direct-PR but has no origin remote' "$err" >/dev/null || fail "seed did not explain missing origin for remote-backed project"
-  pass "remote-backed subhome seeding requires a source origin"
+  MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err" || fail "remote-free seed failed: $(cat "$err")"
+  [ -z "$(git -C "$subhome/projects/alpha" remote)" ] || fail 'seed fabricated missing origin'
+  [ "$(git -C "$subhome/projects/alpha" rev-parse HEAD)" = "$(git -C "$home/projects/alpha" rev-parse HEAD)" ] || fail 'seed lost source starting revision'
+  pass "persistent seeding preserves remote-free source revision and remote absence"
 }
 
 test_home_seed_refuses_existing_remote_backed_project_with_wrong_origin() {
@@ -2279,14 +2278,14 @@ test_home_seed_refuses_projectless_home_with_symlinked_projects
 test_home_seed_refuses_projectless_home_with_non_directory_projects
 test_home_seed_refuses_projectless_home_with_uninspectable_registry
 test_home_seed_refuses_missing_projects_without_signal
-test_home_seed_refuses_local_only_project
+test_home_seed_preserves_local_only_project
 test_home_seed_refuses_registry_delimiter_home
 test_home_seed_refuses_active_home_and_root
 test_home_seed_refuses_home_marked_for_another_id
 test_home_seed_refuses_home_registered_to_another_id
 test_home_seed_refuses_reassigning_existing_id_to_different_home
 test_home_seed_refuses_home_overlapping_registered_home
-test_home_seed_refuses_remote_backed_project_without_origin
+test_home_seed_preserves_source_without_origin
 test_home_seed_refuses_existing_remote_backed_project_with_wrong_origin
 test_home_seed_resolves_relative_source_origins
 test_home_seed_refuses_project_destinations_outside_subhome

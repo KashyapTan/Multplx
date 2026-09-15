@@ -50,7 +50,9 @@ case "${1:-}" in
   list-windows) exit 0 ;;
   new-window) printf '@1\n'; exit 0 ;;
   has-session|new-session|kill-window) exit 0 ;;
-  send-keys) exit 0 ;;
+  send-keys)
+    if [ -n "${MX_FAKE_SEND_LOG:-}" ]; then printf '%s\n' "$*" >> "$MX_FAKE_SEND_LOG"; fi
+    exit 0 ;;
 esac
 exit 0
 SH
@@ -96,6 +98,9 @@ run_settle_spawn() {
     MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
     MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
     MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
+    MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 \
+    MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY="${MX_HEADROOM_API_CAPACITY:-4}" \
+    MX_FAKE_SEND_LOG="$HOME_DIR/send.log" \
     MX_FAKE_PANE_PATH="$WT_DIR" MX_FAKE_PANE_STALE="$STALE_DIR" \
     MX_FAKE_PANE_STALE_READS="$STALE_READS" MX_FAKE_PANE_COUNTFILE="$COUNTFILE" \
     PATH="$FAKEBIN_DIR:$PATH" \
@@ -200,13 +205,24 @@ test_exact_single_checkout_mode_serializes_and_releases
 
 echo "# all mx-spawn-worktree-settle tests passed"
 
-test_registry_mode_survives_native_launch() {
-  local mode yolo id record output
+test_registry_maps_to_canonical_publication_without_implicit_review() {
+  local mode yolo id record output expected_mode expected_destination
   for mode in deep-review direct-PR local-only; do
     for yolo in off on; do
       id="mode-${mode//[^a-zA-Z]/}-${yolo}"
       record=$(make_settle_case "$id" "$id" 0)
       read_settle_record "$record"
+      if [ "$mode" = local-only ]; then
+        expected_mode=local-only
+        expected_destination=local
+      else
+        # A PR destination has a real local remote. A legacy deep-review label
+        # does not select the optional review tool for a new canonical task.
+        git clone --quiet --bare "$PROJ_DIR" "$HOME_DIR/origin.git" || fail 'fixture remote clone failed'
+        git -C "$PROJ_DIR" remote add origin "$HOME_DIR/origin.git" || fail 'fixture origin registration failed'
+        expected_mode=direct-PR
+        expected_destination=pull-request
+      fi
       if [ "$mode" = local-only ]; then
         # Exercise equivalent path spellings on every platform, including macOS /var aliases.
         ln -s "$WT_DIR" "$WT_DIR-alias"
@@ -215,9 +231,12 @@ test_registry_mode_survives_native_launch() {
       ln -s "$PROJ_DIR" "$HOME_DIR/projects/project"
       if [ "$yolo" = on ]; then printf '%s\n' "- project [$mode +yolo] - fixture" > "$HOME_DIR/data/projects.md"; else printf '%s\n' "- project [$mode] - fixture" > "$HOME_DIR/data/projects.md"; fi
       output=$(run_settle_spawn "$id") || fail "mode launch failed: $output"
-      assert_contains "$output" "mode=$mode yolo=$yolo" 'spawn authority report changed'
-      assert_grep "mode=$mode" "$HOME_DIR/state/$id.meta" 'metadata mode changed'
-      assert_grep "yolo=$yolo" "$HOME_DIR/state/$id.meta" 'metadata yolo changed'
+      assert_contains "$output" "mode=$expected_mode yolo=off" 'spawn canonical publication or inert yolo changed'
+      assert_grep "mode=$expected_mode" "$HOME_DIR/state/$id.meta" 'metadata publication destination changed'
+      assert_grep 'yolo=off' "$HOME_DIR/state/$id.meta" 'legacy yolo granted active authority'
+      [ "$(jq -r '.projects[0].publication' "$HOME_DIR/data/projects.json")" = "$expected_destination" ] || fail 'canonical destination disagrees with selected source'
+      [ "$(jq -r '.projects[0].review' "$HOME_DIR/data/projects.json")" = null ] || fail 'legacy registry implicitly selected deep review'
+      [ "$(jq -r '.projects[0].checkouts[0].ownership' "$HOME_DIR/data/projects.json")" = user-owned ] || fail 'symlinked legacy project was silently claimed as managed'
       if [ "$mode" = local-only ]; then
         # The local merge must pass the mode precondition and report the missing mx branch.
         MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1
@@ -239,6 +258,129 @@ test_registry_mode_survives_native_launch() {
       fi
     done
   done
-  pass 'registry modes and independent yolo survive the native launch and local landing precondition'
+  pass 'canonical publication matches remote availability, legacy review/yolo remain inert, and local landing retains safety checks'
 }
-test_registry_mode_survives_native_launch
+test_registry_maps_to_canonical_publication_without_implicit_review
+
+
+assert_rejected_before_harness() {
+  local id=$1
+  assert_grep 'treehouse get' "$HOME_DIR/send.log" 'identity refusal did not exercise allocation transport'
+  assert_no_grep 'MX_ATTEMPT_ID=' "$HOME_DIR/send.log" 'identity refusal sent canonical harness launch environment'
+  assert_no_grep 'codex' "$HOME_DIR/send.log" 'identity refusal launched the harness'
+  [ -f "$HOME_DIR/state/.spawn-$id.intent" ] || fail 'identity refusal lost durable launch intent'
+  assert_absent "$HOME_DIR/state/$id.meta" 'identity refusal published a runnable task endpoint'
+}
+
+test_settled_wrong_repository_and_base_refuse_before_harness() {
+  local variant rec id out status captured
+  for variant in repository base; do
+    id="settled-wrong-$variant"
+    rec=$(make_settle_case "$id" "$id" 0)
+    read_settle_record "$rec"
+    captured=$(git -C "$PROJ_DIR" rev-parse HEAD)
+    if [ "$variant" = repository ]; then
+      WT_DIR="$STALE_DIR"
+    else
+      # Still the correct common Git repository, but the worktree is on a
+      # different commit from the accepted source revision.
+      printf 'wrong base\n' > "$WT_DIR/base-drift"
+      git -C "$WT_DIR" add base-drift
+      git -C "$WT_DIR" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'worktree base drift'
+    fi
+    out=$(run_settle_spawn "$id" --harness codex --backend tmux)
+    status=$?
+    expect_code 1 "$status" "settled wrong $variant must refuse"
+    if [ "$variant" = repository ]; then
+      assert_contains "$out" 'different repository than the accepted binding' 'wrong-repository refusal lost its cause'
+    else
+      assert_contains "$out" 'differs from accepted starting revision' 'wrong-base refusal lost its cause'
+    fi
+    assert_rejected_before_harness "$id"
+    [ "$(git -C "$PROJ_DIR" rev-parse HEAD)" = "$captured" ] || fail 'identity refusal changed source revision'
+    [ -d "$WT_DIR" ] || fail 'identity refusal deleted unaccounted worktree'
+  done
+  pass 'settled wrong repository and wrong base refuse before harness and retain launch intent'
+}
+
+test_queued_head_drift_never_retargets_the_accepted_base() {
+  local rec id out status queued captured changed
+  id=queued-base-drift
+  rec=$(make_settle_case "$id" "$id" 0)
+  read_settle_record "$rec"
+  captured=$(git -C "$PROJ_DIR" rev-parse HEAD)
+  # The shared fake-test harness bypasses queueing by default; this case must
+  # exercise the real durable queue and its later drain.
+  out=$(MX_HEADROOM_SKIP_QUEUE=0 MX_HEADROOM_API_CAPACITY=0 run_settle_spawn "$id" --harness codex --backend tmux)
+  expect_code 0 "$?" 'initial queue request failed'
+  assert_contains "$out" "queued: $id parked" 'request did not reach durable queue'
+  queued=$(cat "$HOME_DIR/state/.dispatch-queue/$id.request")
+  assert_grep "\"starting_revision\":\"$captured\"" "$HOME_DIR/state/.dispatch-queue/$id.request" 'queue did not freeze accepted starting revision'
+  printf 'later source change\n' > "$PROJ_DIR/later-change"
+  git -C "$PROJ_DIR" add later-change
+  git -C "$PROJ_DIR" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'source advanced while queued'
+  changed=$(git -C "$PROJ_DIR" rev-parse HEAD)
+  # Model the allocator choosing latest HEAD instead of the frozen queue base.
+  # Both mutations affect only this synthetic repository and its test worktree.
+  git -C "$WT_DIR" reset --hard "$changed" >/dev/null
+  out=$(MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
+    MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
+    MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
+    MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 \
+    MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$SPAWN" \
+    MX_FAKE_SEND_LOG="$HOME_DIR/send.log" \
+    MX_FAKE_PANE_PATH="$WT_DIR" MX_FAKE_PANE_STALE="$STALE_DIR" \
+    MX_FAKE_PANE_STALE_READS=0 MX_FAKE_PANE_COUNTFILE="$COUNTFILE" \
+    PATH="$FAKEBIN_DIR:$PATH" "$ROOT/bin/mx-headroom.sh" --queue-drain 2>&1)
+  status=$?
+  expect_code 1 "$status" 'queued latest-HEAD allocation must refuse'
+  assert_contains "$out" 'differs from accepted starting revision' 'queued base mismatch lost its cause'
+  assert_contains "$out" 'record retained' 'queued base refusal lost resumable request'
+  [ "$(cat "$HOME_DIR/state/.dispatch-queue/$id.request")" = "$queued" ] || fail 'queue drift silently rewrote frozen task binding'
+  [ "$(git -C "$PROJ_DIR" rev-parse HEAD)" = "$changed" ] || fail 'queue drift reset the user source'
+  [ "$(git -C "$WT_DIR" rev-parse HEAD)" = "$changed" ] || fail 'queue drift reset the unaccounted worktree'
+  assert_rejected_before_harness "$id"
+  pass 'queued HEAD drift refuses without retargeting, resetting or dropping frozen request'
+}
+
+test_explicit_replacement_retains_its_recorded_worktree_commits() {
+  local rec id out status first model captured retained second sends
+  id=retained-worktree-replacement
+  rec=$(make_settle_case "$id" "$id" 0)
+  read_settle_record "$rec"
+  captured=$(git -C "$PROJ_DIR" rev-parse HEAD)
+  out=$(run_settle_spawn "$id" --harness codex --backend tmux)
+  expect_code 0 "$?" "initial retained-worktree launch failed: $out"
+  first=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+  printf 'retained task progress\n' > "$WT_DIR/task-progress"
+  git -C "$WT_DIR" add task-progress
+  git -C "$WT_DIR" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'task progress before replacement'
+  retained=$(git -C "$WT_DIR" rev-parse HEAD)
+
+  out=$(run_settle_spawn "$id" --replace-attempt "$first" --harness codex --backend tmux)
+  status=$?
+  expect_code 0 "$status" "proven replacement refused retained commits: $out"
+  assert_contains "$out" "spawned $id" 'replacement did not launch'
+  model=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta")
+  second=$(printf '%s' "$model" | jq -r '.attempt.id')
+  [ "$first" != "$second" ] || fail 'replacement reused prior attempt identity'
+  printf '%s' "$model" | jq -e --arg first "$first" --arg base "$captured" \
+    '.attempt.generation == 2 and .prior_attempts[0].id == $first and .project.starting_revision == $base' >/dev/null \
+    || fail 'replacement lost previous attempt or changed accepted base'
+  assert_grep "worktree=$WT_DIR" "$HOME_DIR/state/$id.meta" 'replacement changed recorded worktree'
+  [ "$(git -C "$WT_DIR" rev-parse HEAD)" = "$retained" ] || fail 'replacement reset retained task commits'
+  [ "$(git -C "$PROJ_DIR" rev-parse HEAD)" = "$captured" ] || fail 'replacement changed source HEAD'
+
+  sends=$(cat "$HOME_DIR/send.log")
+  out=$(run_settle_spawn "$id" --replace-attempt "$first" --harness codex --backend tmux)
+  expect_code 1 "$?" 'stale replacement proof must refuse'
+  [ "$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta")" = "$model" ] || fail 'stale replacement rewrote current task'
+  [ "$(cat "$HOME_DIR/send.log")" = "$sends" ] || fail 'stale replacement reached allocation or harness transport'
+  [ "$(git -C "$WT_DIR" rev-parse HEAD)" = "$retained" ] || fail 'stale replacement changed retained task commits'
+  pass 'proven replacement retains its recorded worktree commits and stale prior proof refuses unchanged'
+}
+
+test_settled_wrong_repository_and_base_refuse_before_harness
+test_queued_head_drift_never_retargets_the_accepted_base
+test_explicit_replacement_retains_its_recorded_worktree_commits

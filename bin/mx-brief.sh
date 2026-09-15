@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compatibility transport for the Rust brief scaffolder.
+# Usage: mx brief <id> <project-path> [--role researcher|implementer|reviewer] [--persistent] [--context-file PATH]
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

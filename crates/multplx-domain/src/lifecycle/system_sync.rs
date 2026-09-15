@@ -340,6 +340,22 @@ fn sync_one(context: &SyncContext, project: &Path, result: &mut SyncOutput) {
             .push(format!("{label}: skipped: not a git repo"));
         return;
     }
+    match crate::project_registry::checkout_ownership_at(&context.home, &context.projects, project)
+    {
+        Ok(crate::project_registry::CheckoutOwnership::Managed) => {}
+        Ok(crate::project_registry::CheckoutOwnership::UserOwned) => {
+            result
+                .stdout
+                .push(format!("{label}: skipped: user-owned checkout"));
+            return;
+        }
+        Err(error) => {
+            result.stdout.push(format!(
+                "{label}: skipped: checkout identity unavailable: {error}"
+            ));
+            return;
+        }
+    }
     let registry = context.home.join("data/projects.md");
     if resolve_project_mode(&registry, &label).mode == DeliveryMode::LocalOnly {
         result
@@ -610,6 +626,11 @@ mod tests {
             .output()
             .expect("app clone");
         assert!(output.status.success());
+        fs::write(
+            home.join("data/projects.md"),
+            "- app [direct-PR] - managed fixture\n",
+        )
+        .expect("legacy ownership");
         (SyncContext { home, projects }, seed, app)
     }
 
@@ -649,6 +670,45 @@ mod tests {
                 .any(|line| line.contains("recovered: re-attached main, synced"))
         );
         assert_eq!(run_git(&app, &["symbolic-ref", "--short", "HEAD"]), "main");
+    }
+
+    #[test]
+    fn borrowed_checkout_refresh_preserves_branch_index_files_and_remote_refs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (context, seed, app) = fixture(temp.path());
+        crate::project_registry::register_project(
+            &context.home,
+            &app,
+            None,
+            crate::project_registry::CheckoutOwnership::UserOwned,
+        )
+        .expect("borrowed fixture");
+        advance(&seed, "new remote commit");
+        run_git(&app, &["checkout", "-b", "user-branch", "--quiet"]);
+        fs::write(app.join("README.md"), "staged user changes").unwrap();
+        run_git(&app, &["add", "README.md"]);
+        fs::write(app.join("README.md"), "unstaged user changes").unwrap();
+        fs::write(app.join("untracked"), "user file").unwrap();
+        let refs = run_git(&app, &["show-ref"]);
+        let index = fs::read(app.join(".git/index")).unwrap();
+        assert_eq!(
+            run(&context, Some(&app)).stdout,
+            vec!["app: skipped: user-owned checkout"]
+        );
+        assert_eq!(run_git(&app, &["show-ref"]), refs);
+        assert_eq!(fs::read(app.join(".git/index")).unwrap(), index);
+        assert_eq!(
+            fs::read_to_string(app.join("README.md")).unwrap(),
+            "unstaged user changes"
+        );
+        assert_eq!(
+            fs::read_to_string(app.join("untracked")).unwrap(),
+            "user file"
+        );
+        assert_eq!(
+            run_git(&app, &["symbolic-ref", "--short", "HEAD"]),
+            "user-branch"
+        );
     }
 
     #[test]
@@ -734,6 +794,13 @@ mod tests {
         run_git(&no_origin, &["init", "-b", "main", "--quiet"]);
         fs::write(no_origin.join("file"), "x").expect("file");
         commit(&no_origin, "base");
+        crate::project_registry::register_project(
+            &context.home,
+            &no_origin,
+            None,
+            crate::project_registry::CheckoutOwnership::Managed,
+        )
+        .expect("managed fixture");
         assert_eq!(default_branch(&no_origin).as_deref(), Some("main"));
         let mut fetch_result = SyncOutput::default();
         assert!(fetch(&no_origin, "no-origin", &mut fetch_result).is_err());
@@ -772,6 +839,13 @@ mod tests {
         fs::write(detached.join("unique"), "x").expect("unique");
         let unique = commit(&detached, "unique detached");
         run_git(&detached, &["checkout", "--detach", &unique, "--quiet"]);
+        crate::project_registry::register_project(
+            &context.home,
+            &detached,
+            None,
+            crate::project_registry::CheckoutOwnership::Managed,
+        )
+        .expect("managed fixture");
         assert!(
             run(&context, Some(Path::new("detached"))).stdout[0]
                 .contains("detached HEAD with unique commits")
@@ -791,6 +865,13 @@ mod tests {
                 temp.path().join("missing-remote").to_str().expect("remote"),
             ],
         );
+        crate::project_registry::register_project(
+            &context.home,
+            &bad_fetch,
+            None,
+            crate::project_registry::CheckoutOwnership::Managed,
+        )
+        .expect("managed fixture");
         assert!(
             run(&context, Some(Path::new("bad-fetch"))).stdout[0]
                 .contains("skipped: fetch failed:")
@@ -819,6 +900,13 @@ mod tests {
                 empty_remote.to_str().expect("empty remote"),
             ],
         );
+        crate::project_registry::register_project(
+            &context.home,
+            &missing_base,
+            None,
+            crate::project_registry::CheckoutOwnership::Managed,
+        )
+        .expect("managed fixture");
         assert_eq!(
             run(&context, Some(Path::new("missing-base"))).stdout,
             vec!["missing-base: skipped: origin/main does not exist"]
@@ -1064,6 +1152,13 @@ mod tests {
         let dirty_head = run_git(&dirty, &["rev-parse", "HEAD"]);
         run_git(&dirty, &["checkout", "--detach", &dirty_head, "--quiet"]);
         fs::write(dirty.join("dirty"), "x").expect("dirty file");
+        crate::project_registry::register_project(
+            &context.home,
+            &dirty,
+            None,
+            crate::project_registry::CheckoutOwnership::Managed,
+        )
+        .expect("managed fixture");
         assert!(
             run(&context, Some(Path::new("dirty-detached"))).stdout[0]
                 .contains("detached HEAD with uncommitted changes")
@@ -1083,6 +1178,13 @@ mod tests {
         );
         run_git(&odd, &["remote", "set-head", "origin", "--delete"]);
         run_git(&odd, &["branch", "-m", "odd"]);
+        crate::project_registry::register_project(
+            &context.home,
+            &odd,
+            None,
+            crate::project_registry::CheckoutOwnership::Managed,
+        )
+        .expect("managed fixture");
         let odd_result = run(&context, Some(Path::new("odd")));
         assert!(
             odd_result.stdout[0].contains("cannot determine default branch"),

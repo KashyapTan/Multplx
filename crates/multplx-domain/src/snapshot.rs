@@ -185,8 +185,26 @@ pub struct BacklogRecord {
     pub local_note: Option<String>,
 }
 
+fn coordination_schema<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let version = Option::<u32>::deserialize(deserializer)?;
+    if version.is_some_and(|v| v != 2) {
+        return Err(serde::de::Error::custom(
+            "unsupported coordination projection schema",
+        ));
+    }
+    Ok(version)
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct Task {
+    #[serde(default, deserialize_with = "coordination_schema")]
+    pub coordination_schema: Option<u32>,
+    #[serde(default)]
+    pub coordination: Option<crate::lifecycle::subagent_model::TaskRecord>,
+    #[serde(default)]
+    pub coordination_error: Option<String>,
     pub id: String,
     pub kind: String,
     pub project: String,

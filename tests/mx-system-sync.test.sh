@@ -69,6 +69,8 @@ build_pair() {
   git -C "$work" push -q -u origin main
 
   git clone --quiet "file://$remote_abs" "$clone"
+  mkdir -p "$home/data"
+  printf -- "- %s [direct-PR] - managed test clone\n" "$name" >> "$home/data/projects.md"
   printf '%s\n' "$clone"
 }
 
@@ -114,6 +116,8 @@ build_packed_prunable() {
   git -C "$work" push -q origin main:refs/heads/feature
 
   git clone --quiet "file://$remote_abs" "$clone"
+  mkdir -p "$home/data"
+  printf -- "- %s [direct-PR] - managed test clone\n" "$name" >> "$home/data/projects.md"
   git -C "$clone" branch -q feature origin/feature
   commit_file "$work" file.txt v1 C1
   git -C "$work" push -q origin main
@@ -347,6 +351,8 @@ test_no_origin_skipped() {
   git init -q "$clone"
   git -C "$clone" symbolic-ref HEAD refs/heads/main
   commit_file "$clone" file.txt v0 C0
+  mkdir -p "$home/data"
+  printf -- "- theta [direct-PR] - managed test clone\n" > "$home/data/projects.md"
 
   out=$(run_sync "$home" "$clone")
 

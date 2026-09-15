@@ -120,7 +120,10 @@ phase_spawn() {
   assert_grep "MX_HOME='$SUB_ABS'" "$LOG" "daemon launch did not set MX_HOME to the subhome"
   assert_grep 'MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
   assert_grep 'MX_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
-  assert_grep "$SUB_ABS/data/charter.md" "$LOG" "launch did not use the persistent charter"
+  local accepted
+  accepted=$(sed -n 's/^canonical_model=//p' "$meta" | jq -r '.accepted_brief_path')
+  assert_grep "$accepted" "$LOG" "launch did not use the accepted immutable charter"
+  cmp -s "$accepted" "$SUB_ABS/data/charter.md" || fail "accepted charter bytes differ from the persistent source"
   assert_no_grep 'notify=' "$LOG" "daemon codex launch included the parent turn-end notify hook"
   assert_no_grep 'turn-ended' "$LOG" "daemon codex launch referenced a parent turn-ended signal"
   assert_no_grep 'treehouse get' "$LOG" "daemon spawn ran a project treehouse get"
@@ -183,11 +186,11 @@ EOF
 }
 
 phase_recovery() {
-  # Simulate a restart: drop the live meta, then respawn from the registry +
-  # persistent home (no explicit home argument).
-  rm -f "$HOME_DIR/state/design.meta"
+  # Restart from the retained owner-published binding and durable registry.
+  local prior_attempt
+  prior_attempt=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/design.meta" | jq -r '.attempt.id')
   PATH="$FAKEBIN:$PATH" MX_HOME="$HOME_DIR" MX_FAKE_TMUX_LOG="$LOG" MX_FAKE_TMUX_CAPTURE="$PANE" \
-    "$ROOT/bin/mx-spawn.sh" design codex --daemon >/dev/null 2>&1 \
+    "$ROOT/bin/mx-spawn.sh" design codex --daemon --replace-attempt "$prior_attempt" >/dev/null 2>&1 \
     || fail "recovery respawn failed"
   local meta="$HOME_DIR/state/design.meta"
   assert_grep "home=$SUB_ABS" "$meta" "respawn did not preserve the persistent home from the registry"
