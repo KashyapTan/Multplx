@@ -95,6 +95,11 @@ impl Fixture {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
             .env("MX_HEADROOM_SKIP_QUEUE", "1")
+            .env("MX_HEADROOM_CPU_COUNT", "8")
+            .env("MX_HEADROOM_LOAD1", "0")
+            .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
+            .env("MX_HEADROOM_API_CAPACITY", "8")
+            .env("MX_HEADROOM_IN_USE", "0")
             .env("TMPDIR", self.home.join("tmp"))
             .env("MX_SENTINEL_LOG", self.home.join("sentinel.log"))
             .env(

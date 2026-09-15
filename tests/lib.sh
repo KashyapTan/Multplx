@@ -43,6 +43,18 @@ unset CLAUDECODE CODEX_THREAD_ID PI_CODING_AGENT DEEP_REVIEW_GATE
 # Plan-07 headroom and queue suites unset this and own capacity enforcement.
 export MX_HEADROOM_SKIP_QUEUE=${MX_HEADROOM_SKIP_QUEUE:-1}
 
+# Legacy lifecycle fixtures exercise spawn, teardown, and config convergence,
+# rather than host-capacity discovery. Keep their admission inputs deterministic
+# so portable runners with different CPU/load/memory profiles reach the same
+# lifecycle boundary. Dedicated headroom suites override these values.
+if [ "$MX_HEADROOM_SKIP_QUEUE" = 1 ]; then
+  export MX_HEADROOM_CPU_COUNT=${MX_HEADROOM_CPU_COUNT:-8}
+  export MX_HEADROOM_LOAD1=${MX_HEADROOM_LOAD1:-0}
+  export MX_HEADROOM_MEM_AVAILABLE_BYTES=${MX_HEADROOM_MEM_AVAILABLE_BYTES:-17179869184}
+  export MX_HEADROOM_IN_USE=${MX_HEADROOM_IN_USE:-0}
+  export MX_HEADROOM_API_CAPACITY=${MX_HEADROOM_API_CAPACITY:-8}
+fi
+
 # Resolve the repo root from this library's own location. Consumed by sourcing
 # test files, not by this library, so it reads as "unused" here.
 # shellcheck disable=SC2034

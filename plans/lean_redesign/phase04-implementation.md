@@ -92,6 +92,13 @@ Acceptance rerun two passed every test but failed coverage at 92.99 percent: 52,
 One additional test-only regression verifies exact republication after inbox ingestion, conflicting payload and sequence rejection, and foreign acknowledgement fencing.
 The fresh full run above passed with the existing threshold and exclusion expression unchanged.
 
+PR #40's first hosted CI run exposed test-fixture portability under real runner contention.
+The macOS Phase 03 spawn fixture and shared legacy shell fixture boundary sampled host CPU, load and memory even though those tests exercise lifecycle behavior rather than capacity discovery.
+They now supply deterministic capacity inputs while retaining canonical immediate admission and receipt handling; the dedicated headroom suite continues to own real and unreadable signal behavior.
+The two macOS Phase 03 spawn failures pass in simultaneous focused runs, and the six portable shard failures pass together with six-way concurrency.
+The previously failing instrumented session-start process-liveness suite also passes against the instrumented binary after the shared fixture correction.
+The refreshed full workspace Rust suite, strict Clippy, formatting, ShellCheck, headroom and split-parity checks pass locally; hosted CI must confirm the pushed correction.
+
 The eight full-suite skips are the real cmux smoke, Claude stop/autoarm, Codex continuity, Cursor live, launcher live, Pi primary live, Pi strict types and Herdr daemon-marker fixtures.
 Their skips are preserved as skips rather than counted as live evidence.
 The separate strict Pi check and production tmux/Codex trial supply only the explicitly described evidence for those surfaces.
