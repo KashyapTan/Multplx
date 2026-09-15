@@ -1,6 +1,6 @@
 # Phase 03 implementation evidence
 
-Status: planned - the hosted Herdr focus race is fixed and focused checks pass; refreshed isolation, full-shell and hosted CI validation remain in progress.
+Status: planned - implementation, isolation and full regression checks pass; deterministic shared-lock tests are added and final fresh coverage validation is running.
 Branch: `lean-redesign-phase-03`, based on merged phases 01/02 at `8e0576ace6dddab031cd187d8f9c6d3997634f3a`.
 The [phase plan](03-built-in-worktree-lifecycle.html) and [A10](../../porting.md#a10-built-in-git-worktree-lifecycle) own acceptance.
 The implementation inspected and reused the actual Phase 02 task/project identities, filesystem transactions, locks and process-start identities.
@@ -42,10 +42,10 @@ Results below distinguish the final release/source from earlier development runs
 | `target/release/mx doc-audience-check` | Passed; final evidence/status edit will be rechecked | Documentation classifications and local links |
 | `for script in bin/*.sh bin/backends/*.sh; do bash -n "$script" || exit; done` | Passed | Toolbelt Bash syntax |
 | `[ "$(readlink .claude/skills)" = "../.agents/skills" ]` and `git diff --check` | Passed | Checkout invariants and whitespace |
-| `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-isolation-proof.json` | Passed, 106 candidates x 2 rounds, 494.125s | 0 failed rounds, 0 leaks, 0 known-failure exceptions; exact JSON archived in `docs/mx-test-isolation-proof.json` |
-| `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-clean-all.json` | Passed, 120 passed, 0 failed, 8 declared skips; 289.254s | `mx-phase03-clean-all.log/json`; all 128 fixtures accounted for, all 10 real-Herdr fixtures passed. Includes the corrected owner-home and hermetic doctor fixtures. |
+| `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-lock-isolation-proof.json` | Passed, 106 candidates x 2 rounds, 471.803s | 0 failed rounds, 0 leaks, 0 known-failure exceptions; exact JSON archived in `docs/mx-test-isolation-proof.json` |
+| `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-lock-clean-all.json` | Passed, 120 passed, 0 failed, 8 declared skips; 293.107s | `mx-phase03-lock-clean-all.log/json`; all 128 fixtures accounted for, all 10 real-Herdr fixtures passed. Includes the corrected owner-home and hermetic doctor fixtures and the deterministic projected teardown lock regression. |
 | Exact CI line-coverage command below | Passed, 93.01% (45,485 lines, 3,178 missed), all tests passed | `mx-phase03-final-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. The subsequent doctor fixture isolation correction passed separately under instrumentation (`mx-phase03-doctor-hermetic-instrumented.log`) and in the release runner (3.201s, `mx-phase03-doctor-hermetic.log/json`). |
-| Hosted Linux/macOS CI | Rust, portable lanes and exact Linux coverage passed; Herdr focus regression fixed and rerun pending | [Run 34970863861](https://github.com/KashyapTan/Multplx/actions/runs/34970863861) passed Linux coverage at 93.00% (45,561 lines, 3,189 missed). The earlier doctor PATH leak was corrected; the subsequent Herdr focus failure prompted the session-lock fix below. |
+| Hosted Linux/macOS CI | All functional jobs passed; coverage stabilization pending | [Run 34972482426](https://github.com/KashyapTan/Multplx/actions/runs/34972482426) passed all 540 tests, Linux/macOS Rust and every behavior lane, but measured 92.99% (45,570 lines, 3,193 missed). The new lock code was fully covered; shared-lock timing paths caused four previously covered lines to be missed. |
 
 ```sh
 cargo llvm-cov --locked --workspace --all-targets \
@@ -63,8 +63,7 @@ The Herdr compatibility fixture uses isolated real Git repositories to verify le
 Its separate packaged non-Git runtime case verifies the compatibility warning, unchanged home HEAD/charter and absence of invented ownership; endpoint/harness transport remains mocked.
 Linux CI explicitly installs `lsof`; neither the 93% threshold nor the existing exclusion expression was relaxed.
 Isolation proof, full shell regression and instrumented coverage run sequentially because separate runner processes do not share their resource scheduler.
-The archived isolation proof preceded the final coverage-only assertion additions; its manifest and production binary are unchanged.
-The final full shell and instrumented runs exercise those additional assertions.
+The archived isolation proof was regenerated after the Herdr session-lock fix and includes the final portable teardown lock-refusal assertions.
 
 Release itself is one atomic disposition-record publication, with no separate file-removal effect; the shared filesystem fault test verifies old/new visibility before and after rename.
 The external removal-before-completion-record boundary is covered by `Fault::AfterRemoval` and the real CLI `remove-git` crash: the durable record remains `removing`, and retry reconciles Git inventory before recording `removed`.
@@ -72,21 +71,18 @@ Endpoint-before-metadata failure preserves the allocation and bound launch inten
 
 ## Session integration evidence
 
+The live Herdr projection checks verify concurrent homes, repeated restoration, stable worker paths, preserved unfinished files, advanced lease/generation identity, cleared holding receipts, focus and cleanup.
+Nine focused Herdr receipt tests are included in the 540-test Rust run; corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
+The final complete local suite ran all ten real-Herdr fixtures without skips in 293.107s; the presentation fixture passed in 163.635s with the deterministic lock-owner assertion and unchanged focus/recovery checks.
+
 Hosted CI exposed a concurrent native Herdr teardown focus race: projected pane close did not hold the shared session presentation lock.
 Native teardown now holds that lock across endpoint proof, focus capture, exact pane close, restoration and journal retirement.
 The deterministic live lock-owner assertion failed against the old release in 49.466s and passed with the fix in 166.896s (`mx-phase03-herdr-lock-before.log/json`, `mx-phase03-herdr-lock-after.log/json`).
-Portable instrumented tests also prove malformed-session and held-lock refusal preserve metadata, journals, allocation paths and focus without displacing the lock owner (`mx-phase03-herdr-session-lock-instrumented.log`).
+Portable instrumented tests also prove malformed-session and held-lock refusal preserve metadata, journals, allocation paths and focus without displacing the lock owner (`mx-phase03-herdr-session-lock-instrumented2.log`, 35 teardown checks).
 
-The live Herdr projection test passed in 162.03s after adding durable holding-pane quiescence (`mx-phase03-herdr-quiesce-live.log/json`).
-It verified concurrent homes, repeated restoration, stable worker path, preserved unfinished files, an advanced lease/generation, cleared holding receipt, focus, cleanup and the default-session tripwire.
-Nine focused Herdr receipt tests passed; the final full Rust run includes those cases.
-Corrupt, foreign or uncertain topology refuses recovery without transferring ownership.
-The 300.105s complete-shell run rechecked the task-fenced release: the strengthened presentation fixture passed in 173.337s, including exact retained allocation/intent and duplicate-retry refusal after endpoint failure.
-Its separate workspace-per-home fixture failed because teardown did not select the owning home.
-After selecting the exact owner and eliminating duplicate fixture cleanup, its focused live rerun passed all 10 assertions in 8.174s with no cleanup warning (`mx-phase03-workspace-owner-final.log/json`); the final complete-suite rerun passed all available fixtures in 289.254s (`mx-phase03-clean-all.log/json`).
-That clean run included all ten live Herdr fixtures; the strengthened presentation test passed in 164.185s.
-The model/composer helper is scripted: this is live session transport evidence, not live model execution or task-quality evidence.
-cmux is unavailable on this host; its existing live gates remain explicit, separate from deterministic adapter/launch checks.
+The model/composer helper is scripted: live session transport evidence does not claim live model execution or task-quality evidence.
+The eight declared local gates are the unavailable cmux CLI, the Pi type check (`tsc` absent), and opt-in live Claude Stop, Codex continuity, Cursor authentication, launcher harness, Pi primary and Pi/Herdr daemon-marker checks.
+These are separate from deterministic adapter/launch checks; no new gate or skip was introduced to pass this phase.
 
 ## Final-binary worktree cost trial
 
@@ -117,19 +113,17 @@ Fresh paths are the implemented conservative policy; there is no idle warm pool,
 These small, serial, loaded-workstation observations establish costs, not concurrent throughput or a claimed velocity benefit.
 Combined model/task-quality and 20-session release trials remain Phase 12 work.
 
-## Remaining work and phase boundary
+## Verification corrections and phase boundary
 
-The initial complete shell run exposed obsolete fixtures and real safety/recovery regressions; fixes were verified with focused checks and the final Rust run.
-A separate host executable-startup stall was diagnosed before application execution and later recovered; no operating-system protection was changed.
-Those earlier results are not used as substitutes for the final pending gates above.
-The first final coverage attempt passed the Phase 03 instrumented lifecycle checks, then stopped on an existing workflow artifact-pointer fixture using a lexical macOS temporary path.
-The fixture now uses its physical temporary path while keeping the exact assertion; all 11 focused checks and the full instrumented test run then passed.
-That completed coverage run measured 92.35%, below the unchanged 93% requirement.
-Strengthened lifecycle and CLI tests then passed a fresh exact gate at 93.01%; no threshold or exclusion was relaxed.
+Earlier runs exposed a workflow artifact-pointer fixture using a lexical macOS temporary path, a Herdr teardown fixture omitting its owning `MX_HOME`, and a missing-tool doctor fixture falling through to hosted `/usr/bin/gh`.
+Those fixtures now use the physical temporary path, explicit owning home and an isolated negative-case PATH while preserving their exact assertions.
+The initial complete coverage run measured 92.35%; strengthened lifecycle and CLI tests passed the unchanged gate without additional exclusions.
+A subsequent Linux run missed four shared-lock lines because of timing variance; four deterministic lock tests now verify live-to-dead bounded waiting, ownership replacement during stale recovery, incomplete/aged owner proof and malformed path refusal.
+These tests preserve unknown material and verify ownership outcomes without changing production lock behavior.
+The native Herdr focus race and its deterministic red/green evidence are described above.
 
-The isolation proof is archived with manifest SHA-256 `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f` and 647 conflict pairs.
-The complete local shell suite and unchanged line-coverage gate passed.
-[PR #39](https://github.com/KashyapTan/Multplx/pull/39) is published as a draft while final hosted CI runs.
-Phase 03 remains planned until these checks pass; Phase 04 readiness is not yet declared.
+The final isolation proof is archived with manifest SHA-256 `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f` and 647 conflict pairs.
+[PR #39](https://github.com/KashyapTan/Multplx/pull/39) is published as a draft while the hosted coverage gate is stabilized and rerun.
+Phase 03 remains planned until those checks pass; Phase 04 readiness is not yet declared.
 Phase 04 owns broader durable delegation/inbox recovery, Phase 05 owns named coordinator composition, Phase 09 owns executable legacy transfer, and Phase 12 owns release activation.
 No requirement assigned to this phase is waived or silently deferred.
