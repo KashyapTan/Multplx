@@ -76,7 +76,7 @@ run_doctor() {
   MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" \
   MX_DOCTOR_COMPAT_PATHS="${MX_DOCTOR_TEST_COMPAT_PATHS:-}" \
   MX_DOCTOR_LOCK_STALE_SECS=0 \
-  PATH="$FAKEBIN_DIR:/usr/bin:/bin" \
+  PATH="${MX_DOCTOR_TEST_PATH:-$FAKEBIN_DIR:/usr/bin:/bin}" \
     "$DOCTOR" "$@"
 }
 
@@ -245,7 +245,11 @@ test_each_check_classifies_its_fixture() {
   rm -f "$FAKEBIN_DIR/treehouse"
   assert_check tools 0 'required tools are present'
   rm -f "$FAKEBIN_DIR/gh"
-  assert_check tools 2 'missing gh'
+  # The missing-tool case must not fall through to a host-installed gh (as on
+  # Ubuntu CI). Keep only the wrapper interpreter and path helper available.
+  ln -s "$(command -v bash)" "$FAKEBIN_DIR/bash"
+  ln -s "$(command -v dirname)" "$FAKEBIN_DIR/dirname"
+  MX_DOCTOR_TEST_PATH="$FAKEBIN_DIR" assert_check tools 2 'missing gh'
 
   read_case "$(make_case primary-tangle)"
   mx_git_init_commit "$ROOT_DIR"

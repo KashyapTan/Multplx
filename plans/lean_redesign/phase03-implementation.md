@@ -44,7 +44,8 @@ Results below distinguish the final release/source from earlier development runs
 | `[ "$(readlink .claude/skills)" = "../.agents/skills" ]` and `git diff --check` | Passed | Checkout invariants and whitespace |
 | `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-isolation-proof.json` | Passed, 106 candidates x 2 rounds, 494.125s | 0 failed rounds, 0 leaks, 0 known-failure exceptions; exact JSON archived in `docs/mx-test-isolation-proof.json` |
 | `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-phase03-final-all.json` | Initial final run: 119 passed, 1 failed, 8 declared skips; 300.105s | Herdr workspace-per-home teardown omitted the owning `MX_HOME`; exact-owner refusal exposed the fixture error. Explicit owner-home correction passed all 10 focused live assertions in 8.174s; full rerun follows coverage. |
-| Exact CI line-coverage command below | Tests passed; line threshold failed at 92.35% (44,994 lines, 3,440 missed) | Meaningful uncovered lifecycle/CLI paths are being added to coverage; 93% threshold and exclusions remain unchanged |
+| Exact CI line-coverage command below | Passed, 93.01% (45,485 lines, 3,178 missed), all tests passed | `mx-phase03-final-coverage.log`; fresh run with no `--no-clean`; threshold and exclusions unchanged. The subsequent doctor fixture isolation correction is checked separately under instrumentation. |
+| Hosted Linux/macOS CI | Initial run found a non-hermetic missing-tool test on Linux | [Run 34970172346](https://github.com/KashyapTan/Multplx/actions/runs/34970172346); the doctor fixture found hosted `/usr/bin/gh` after removing its mock. Corrected fixture validation and CI rerun follow. |
 
 ```sh
 cargo llvm-cov --locked --workspace --all-targets \
@@ -115,7 +116,8 @@ A separate host executable-startup stall was diagnosed before application execut
 Those earlier results are not used as substitutes for the final pending gates above.
 The first final coverage attempt passed the Phase 03 instrumented lifecycle checks, then stopped on an existing workflow artifact-pointer fixture using a lexical macOS temporary path.
 The fixture now uses its physical temporary path while keeping the exact assertion; all 11 focused checks and the full instrumented test run then passed.
-That completed coverage run measured 92.35%, below the unchanged 93% requirement, so coverage remains an open acceptance item until strengthened tests pass the full gate.
+That completed coverage run measured 92.35%, below the unchanged 93% requirement.
+Strengthened lifecycle and CLI tests then passed a fresh exact gate at 93.01%; no threshold or exclusion was relaxed.
 
 The isolation proof is archived with manifest SHA-256 `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f` and 647 conflict pairs.
 Complete the full shell suite and unchanged line-coverage gate, then recheck the final documentation and publish the branch/PR.
