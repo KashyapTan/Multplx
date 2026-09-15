@@ -123,6 +123,8 @@ test_default_local_reservations_allow_twenty_remote_workers() {
 test_unreadable_signals_refuse() {
   local out rc=0
   out=$(MX_HOME="$TMP_ROOT/unreadable" MX_HEADROOM_PLATFORM=Unknown \
+    MX_HEADROOM_CPU_COUNT='' MX_HEADROOM_LOAD1='' MX_HEADROOM_MEM_AVAILABLE_BYTES='' \
+    MX_HEADROOM_IN_USE='' \
     MX_HEADROOM_API_CAPACITY=1 "$HEADROOM" --json 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "unreadable local signals produced fabricated capacity"
   assert_contains "$out" 'CPU capacity signal is unreadable' "unreadable signal diagnostic was vague"

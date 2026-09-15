@@ -38,6 +38,12 @@ for split in doc["splits"]:
         assert current_assertions.count(after) == 1
         assert before not in current_assertions
         baseline_assertions[baseline_assertions.index(before)] = after
+    for addition in split.get("assertion_additions", []):
+        assert addition["reason"].strip()
+        assertion = addition["assertion"]
+        assert assertion not in baseline_assertions
+        assert current_assertions.count(assertion) == 1
+        baseline_assertions.append(assertion)
     mapped = [
         case
         for cases in split["after_groups"].values()
@@ -49,10 +55,10 @@ for split in doc["splits"]:
     assert set(mapped) == set(definitions)
     assert collections.Counter(current_assertions) == collections.Counter(baseline_assertions)
     expected_total += split["case_count"]
-assert expected_total == 140
+assert expected_total == 141
 PY
 
-pass "all 140 Plan-06 cases and named assertions map exactly once with explicit contract replacements"
+pass "all 141 maintained split cases and named assertions map exactly once with explicit contract changes"
 
 tmp=
 mx_test_tmproot_into tmp mx-test-helper-contract

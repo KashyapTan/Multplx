@@ -16,7 +16,7 @@
     "subagentStart": [
       {
         "command": "./bin/mx-cursor-hook.sh subagent-start",
-        "failClosed": true
+        "failClosed": false
       }
     ],
     "stop": [

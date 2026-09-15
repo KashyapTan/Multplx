@@ -1,6 +1,6 @@
 //! Composite local/API dispatch capacity and private durable dispatch queue.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -11,8 +11,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use multplx_core::filesystem::{atomic_replace, read_bounded_regular};
 use multplx_core::locks::DirectoryLock;
-use multplx_core::process::SystemProcessProbe;
-use serde::Serialize;
+use multplx_core::process::{ProcessIdentity, ProcessProbe, SystemProcessProbe};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::cmux::CmuxBackend;
@@ -35,6 +35,8 @@ type Result<T> = std::result::Result<T, HeadroomError>;
 
 #[derive(Clone, Debug)]
 pub struct HeadroomPaths {
+    /// Canonical operational root whose capacity is shared by every descendant home.
+    pub root_home: PathBuf,
     pub state: PathBuf,
     pub config: PathBuf,
     pub proc_root: PathBuf,
@@ -47,10 +49,13 @@ impl HeadroomPaths {
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        let home = std::env::var_os("MX_HOME")
+        let home = std::env::var_os("MX_ROOT_HOME")
+            .filter(|value| !value.is_empty())
             .map(PathBuf::from)
+            .or_else(|| std::env::var_os("MX_HOME").map(PathBuf::from))
             .unwrap_or(root);
         Self {
+            root_home: fs::canonicalize(&home).unwrap_or_else(|_| home.clone()),
             state: std::env::var_os("MX_STATE_OVERRIDE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join("state")),
@@ -63,11 +68,29 @@ impl HeadroomPaths {
         }
     }
 
+    /// Build paths for an already validated root home. Callers must derive this
+    /// from canonical task lineage rather than a launch-directory override.
+    #[must_use]
+    pub fn for_root(root_home: &Path) -> Self {
+        let root_home = fs::canonicalize(root_home).unwrap_or_else(|_| root_home.to_path_buf());
+        Self {
+            state: root_home.join("state"),
+            config: root_home.join("config"),
+            proc_root: std::env::var_os("MX_HEADROOM_PROC_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/proc")),
+            root_home,
+        }
+    }
+
     fn queue_dir(&self) -> PathBuf {
         self.state.join(".dispatch-queue")
     }
     fn queue_lock(&self) -> PathBuf {
         self.state.join(".dispatch-queue.lock")
+    }
+    fn admissions_dir(&self) -> PathBuf {
+        self.state.join(".admissions")
     }
 }
 
@@ -104,6 +127,8 @@ pub struct Headroom {
     local: LocalHeadroom,
     api: ApiHeadroom,
     candidates: BTreeMap<String, CandidateHeadroom>,
+    #[serde(skip)]
+    observed_active_receipts: BTreeSet<String>,
 }
 
 impl Headroom {
@@ -277,42 +302,151 @@ fn target_is_live(backend: &str, target: &str) -> bool {
     }
 }
 
-fn live_counts(paths: &HeadroomPaths) -> Result<(u64, HashMap<String, u64>)> {
-    if let Ok(value) = std::env::var("MX_HEADROOM_IN_USE") {
-        let count = parse_nonnegative_integer(&value)
-            .ok_or_else(|| message("live actor count is unreadable"))?;
-        return Ok((count, HashMap::new()));
+fn active_receipt_matches_metadata(
+    receipt: &AdmissionReceipt,
+    paths: &HeadroomPaths,
+    task_id: &str,
+    backend: &str,
+    target: &str,
+    attempt_id: Option<&str>,
+) -> bool {
+    receipt.state == AdmissionState::Active
+        && same_path(&receipt.owner_state, &paths.state)
+        && receipt.task_id == task_id
+        && if receipt.backend.is_empty() {
+            backend == "tmux"
+        } else {
+            receipt.backend == backend
+        }
+        && receipt
+            .endpoint
+            .as_deref()
+            .is_none_or(|endpoint| endpoint == target)
+        && attempt_id == Some(receipt.attempt_id.as_str())
+}
+
+fn live_counts_with_probe(
+    paths: &HeadroomPaths,
+    probe: impl Fn(&str, &str) -> bool,
+    overridden_native_use: Option<u64>,
+) -> Result<(u64, HashMap<String, u64>, BTreeSet<String>)> {
+    let active = receipts(paths)?
+        .into_iter()
+        .filter(|receipt| receipt.state == AdmissionState::Active)
+        .collect::<Vec<_>>();
+    let observed = active
+        .iter()
+        .map(|receipt| receipt.request_id.clone())
+        .collect::<BTreeSet<_>>();
+    // Canonical active receipts are the root-wide source of truth: unlike the
+    // root metadata directory, they include descendant homes and persistent
+    // sessions. Native metadata below contributes legacy root executions that
+    // have no exact active receipt.
+    let mut total = 0_u64;
+    let mut harnesses = HashMap::new();
+    for receipt in &active {
+        total = total.saturating_add(
+            receipt
+                .resources
+                .get("session")
+                .copied()
+                .unwrap_or_default(),
+        );
+        for (resource, units) in &receipt.resources {
+            if let Some(harness) = resource.strip_prefix("harness:") {
+                let entry = harnesses.entry(harness.to_owned()).or_insert(0_u64);
+                *entry = entry.saturating_add(*units);
+            }
+        }
+    }
+    if let Some(native_use) = overridden_native_use {
+        return Ok((total.saturating_add(native_use), harnesses, observed));
     }
     let entries = match fs::read_dir(&paths.state) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((0, HashMap::new())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok((total, harnesses, observed));
+        }
         Err(_) => return Err(message("live actor count is unreadable")),
     };
-    let mut total = 0_u64;
-    let mut harnesses = HashMap::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|value| value.to_str()) != Some("meta")
             || fs::symlink_metadata(&path).is_err()
-            || metadata_value(&path, "kind").as_deref() == Some("daemon")
         {
             continue;
         }
+        let Some(task_id) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
         let Some(target) = metadata_value(&path, "window") else {
             continue;
         };
         let backend = metadata_value(&path, "backend")
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "tmux".to_owned());
-        if target_is_live(&backend, &target) {
-            total += 1;
-            let harness = metadata_value(&path, "harness")
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "default".to_owned());
-            *harnesses.entry(harness).or_insert(0) += 1;
+        let attempt = metadata_value(&path, "canonical_model").and_then(|model| {
+            serde_json::from_str::<Value>(&model)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .pointer("/attempt/id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+        });
+        let matching = active
+            .iter()
+            .filter(|receipt| {
+                active_receipt_matches_metadata(
+                    receipt,
+                    paths,
+                    task_id,
+                    &backend,
+                    &target,
+                    attempt.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let harness = metadata_value(&path, "harness")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "default".to_owned());
+        let session_accounted = matching.iter().any(|receipt| {
+            receipt
+                .resources
+                .get("session")
+                .is_some_and(|units| *units > 0)
+        });
+        let harness_accounted = matching.iter().any(|receipt| {
+            receipt
+                .resources
+                .get(&format!("harness:{harness}"))
+                .is_some_and(|units| *units > 0)
+        });
+        if session_accounted && harness_accounted {
+            continue;
+        }
+        if probe(&backend, &target) {
+            if !session_accounted {
+                total = total.saturating_add(1);
+            }
+            if !harness_accounted {
+                *harnesses.entry(harness).or_insert(0) += 1;
+            }
         }
     }
-    Ok((total, harnesses))
+    Ok((total, harnesses, observed))
+}
+
+fn live_counts(paths: &HeadroomPaths) -> Result<(u64, HashMap<String, u64>, BTreeSet<String>)> {
+    let overridden_native_use = std::env::var("MX_HEADROOM_IN_USE")
+        .ok()
+        .map(|value| {
+            parse_nonnegative_integer(&value)
+                .ok_or_else(|| message("live actor count is unreadable"))
+        })
+        .transpose()?;
+    live_counts_with_probe(paths, target_is_live, overridden_native_use)
 }
 
 fn read_compact(path: &Path) -> Option<String> {
@@ -413,7 +547,7 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
     let cpu_count = cpu_count(paths)?;
     let load_one = load_one(paths)?;
     let memory_available = memory_available(paths)?;
-    let (in_use, harness_use) = live_counts(paths)?;
+    let (in_use, harness_use, observed_active_receipts) = live_counts(paths)?;
     let cpu_per_actor = std::env::var("MX_HEADROOM_CPU_PER_ACTOR")
         .ok()
         .map(|value| parse_positive_number(&value))
@@ -437,8 +571,10 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
     let mut candidate_max = None;
     for candidate in configured_candidates(paths)? {
         let capacity = configured_capacity(paths, Some(&candidate))?;
-        let candidate_in_use =
-            overridden_use.unwrap_or_else(|| harness_use.get(&candidate).copied().unwrap_or(0));
+        let active_candidate_use = harness_use.get(&candidate).copied().unwrap_or(0);
+        let candidate_in_use = overridden_use
+            .unwrap_or_default()
+            .saturating_add(active_candidate_use);
         let available = capacity
             .saturating_sub(candidate_in_use)
             .min(global_available);
@@ -473,12 +609,37 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
             available: global_available,
         },
         candidates,
+        observed_active_receipts,
     })
+}
+
+const DEFAULT_AGING_SECONDS: u64 = 300;
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DispatchState {
+    Queued,
+    Dispatching,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Dependency {
+    pub task_id: String,
+    pub owner_state: PathBuf,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueueRecord {
+    /// Stable caller identity. Repeated submission with this ID must converge.
+    pub request_id: String,
     pub task_id: String,
+    pub root_home: PathBuf,
+    pub owner_home: PathBuf,
+    pub owner_state: PathBuf,
+    pub parent_task_id: String,
+    pub parent_home: PathBuf,
+    pub parent_state: PathBuf,
     pub project: String,
     pub harness: String,
     pub model: String,
@@ -488,8 +649,45 @@ pub struct QueueRecord {
     pub mode: String,
     pub yolo: String,
     pub enqueued_at: u64,
+    pub priority: i32,
+    pub dependencies: Vec<Dependency>,
+    /// Named root-scoped units. `session` defaults to one when omitted.
+    pub resources: BTreeMap<String, u64>,
+    pub state: DispatchState,
+    pub dispatch_started_at: Option<u64>,
     /// Validated domain model frozen by the launch owner; opaque to the backend.
     pub canonical_model: Option<String>,
+}
+
+impl QueueRecord {
+    #[must_use]
+    pub fn legacy(task_id: String, project: String, enqueued_at: u64) -> Self {
+        Self {
+            request_id: task_id.clone(),
+            task_id,
+            root_home: PathBuf::new(),
+            owner_home: PathBuf::new(),
+            owner_state: PathBuf::new(),
+            parent_task_id: String::new(),
+            parent_home: PathBuf::new(),
+            parent_state: PathBuf::new(),
+            project,
+            harness: String::new(),
+            model: String::new(),
+            effort: String::new(),
+            backend: String::new(),
+            kind: "delivery".into(),
+            mode: String::new(),
+            yolo: String::new(),
+            enqueued_at,
+            priority: 0,
+            dependencies: Vec::new(),
+            resources: BTreeMap::from([("session".into(), 1)]),
+            state: DispatchState::Queued,
+            dispatch_started_at: None,
+            canonical_model: None,
+        }
+    }
 }
 
 fn valid_id(value: &str) -> bool {
@@ -512,8 +710,15 @@ fn one_line(label: &str, value: &str) -> Result<()> {
 impl QueueRecord {
     fn render(&self) -> Vec<u8> {
         let mut text = format!(
-            "version=1\ntask_id={}\nproject={}\nharness={}\nmodel={}\neffort={}\nbackend={}\nkind={}\nmode={}\nyolo={}\nenqueued_at={}\n",
+            "version=3\nrequest_id={}\ntask_id={}\nroot_home={}\nowner_home={}\nowner_state={}\nparent_task_id={}\nparent_home={}\nparent_state={}\nproject={}\nharness={}\nmodel={}\neffort={}\nbackend={}\nkind={}\nmode={}\nyolo={}\nenqueued_at={}\npriority={}\ndependencies={}\nresources={}\nstate={}\ndispatch_started_at={}\n",
+            self.request_id,
             self.task_id,
+            self.root_home.display(),
+            self.owner_home.display(),
+            self.owner_state.display(),
+            self.parent_task_id,
+            self.parent_home.display(),
+            self.parent_state.display(),
             self.project,
             self.harness,
             self.model,
@@ -522,10 +727,18 @@ impl QueueRecord {
             self.kind,
             self.mode,
             self.yolo,
-            self.enqueued_at
+            self.enqueued_at,
+            self.priority,
+            serde_json::to_string(&self.dependencies).expect("serializable dependencies"),
+            serde_json::to_string(&self.resources).expect("serializable resources"),
+            match self.state {
+                DispatchState::Queued => "queued",
+                DispatchState::Dispatching => "dispatching",
+            },
+            self.dispatch_started_at
+                .map_or_else(String::new, |value| value.to_string()),
         );
         if let Some(model) = &self.canonical_model {
-            text = text.replacen("version=1\n", "version=2\n", 1);
             text.push_str(&format!("canonical_model={model}\n"));
         }
         text.into_bytes()
@@ -562,15 +775,16 @@ impl QueueRecord {
                 return Err(message(format!("duplicate queue field: {key}")));
             }
         }
-        if !matches!(fields.get("version"), Some(&"1" | &"2")) {
+        if !matches!(fields.get("version"), Some(&"1" | &"2" | &"3")) {
             return Err(message(format!(
                 "queue record has an unsupported version: {}",
                 path.display()
             )));
         }
-        if (fields.get("version") == Some(&"2")) != fields.contains_key("canonical_model") {
+        if fields.get("version") == Some(&"2") && !fields.contains_key("canonical_model") {
             return Err(message("queue version and canonical binding conflict"));
         }
+        let version = fields.get("version").copied().unwrap_or_default();
         let task_id = fields
             .get("task_id")
             .copied()
@@ -579,7 +793,7 @@ impl QueueRecord {
         if !valid_id(&task_id) {
             return Err(message(format!("invalid queue task id: {task_id}")));
         }
-        if task_id != expected_id {
+        if version != "3" && task_id != expected_id {
             return Err(message(format!(
                 "queue record identity does not match its path: {}",
                 path.display()
@@ -609,7 +823,7 @@ impl QueueRecord {
             }
         }
         let kind = fields.get("kind").copied().unwrap_or_default().to_owned();
-        if !matches!(kind.as_str(), "delivery" | "scout") {
+        if !matches!(kind.as_str(), "delivery" | "scout" | "daemon") {
             return Err(message(format!(
                 "queue record has invalid kind: {}",
                 path.display()
@@ -619,7 +833,7 @@ impl QueueRecord {
         let yolo = fields.get("yolo").copied().unwrap_or_default().to_owned();
         if !matches!(
             mode.as_str(),
-            "" | "deep-review" | "direct-PR" | "local-only"
+            "" | "deep-review" | "direct-PR" | "local-only" | "daemon"
         ) || !matches!(yolo.as_str(), "" | "on" | "off")
         {
             return Err(message("queue record has invalid delivery authority"));
@@ -633,8 +847,75 @@ impl QueueRecord {
                     path.display()
                 ))
             })?;
+        let request_id = fields
+            .get("request_id")
+            .map_or_else(|| task_id.clone(), |value| (*value).to_owned());
+        if !valid_id(&request_id) {
+            return Err(message("invalid queue request id"));
+        }
+        if version == "3" && request_id != expected_id {
+            return Err(message(format!(
+                "queue request identity does not match its path: {}",
+                path.display()
+            )));
+        }
+        let path_field = |name: &str| -> Result<PathBuf> {
+            let value = fields.get(name).copied().unwrap_or_default();
+            if version == "3" && (value.is_empty() || !Path::new(value).is_absolute()) {
+                return Err(message(format!("queue {name} must be absolute")));
+            }
+            Ok(PathBuf::from(value))
+        };
+        let priority = fields
+            .get("priority")
+            .map(|value| value.parse::<i32>())
+            .transpose()
+            .map_err(|_| message("queue priority is invalid"))?
+            .unwrap_or_default();
+        let dependencies = fields
+            .get("dependencies")
+            .map(|value| serde_json::from_str::<Vec<Dependency>>(value))
+            .transpose()
+            .map_err(|_| message("queue dependencies are unreadable"))?
+            .unwrap_or_default();
+        let mut resources = fields
+            .get("resources")
+            .map(|value| serde_json::from_str::<BTreeMap<String, u64>>(value))
+            .transpose()
+            .map_err(|_| message("queue resources are unreadable"))?
+            .unwrap_or_default();
+        if resources.is_empty() {
+            resources.insert("session".into(), 1);
+        }
+        let state = match fields.get("state").copied().unwrap_or("queued") {
+            "queued" => DispatchState::Queued,
+            "dispatching" => DispatchState::Dispatching,
+            _ => return Err(message("queue dispatch state is invalid")),
+        };
+        let dispatch_started_at = fields
+            .get("dispatch_started_at")
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                parse_nonnegative_integer(value)
+                    .ok_or_else(|| message("queue dispatch start is invalid"))
+            })
+            .transpose()?;
+        if state == DispatchState::Dispatching && dispatch_started_at.is_none() {
+            return Err(message("dispatching queue record lacks its durable start"));
+        }
         Ok(Self {
+            request_id,
             task_id,
+            root_home: path_field("root_home")?,
+            owner_home: path_field("owner_home")?,
+            owner_state: path_field("owner_state")?,
+            parent_task_id: fields
+                .get("parent_task_id")
+                .copied()
+                .unwrap_or_default()
+                .to_owned(),
+            parent_home: path_field("parent_home")?,
+            parent_state: path_field("parent_state")?,
             project,
             harness,
             model,
@@ -644,6 +925,11 @@ impl QueueRecord {
             mode,
             yolo,
             enqueued_at,
+            priority,
+            dependencies,
+            resources,
+            state,
+            dispatch_started_at,
             canonical_model: fields
                 .get("canonical_model")
                 .map(|value| (*value).to_owned()),
@@ -707,7 +993,7 @@ pub fn queue_list(paths: &HeadroomPaths) -> Result<String> {
             if value.is_empty() { "-" } else { value }
         }
         output.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             record.enqueued_at,
             record.task_id,
             record.project,
@@ -715,23 +1001,122 @@ pub fn queue_list(paths: &HeadroomPaths) -> Result<String> {
             dash(&record.model),
             dash(&record.effort),
             dash(&record.backend),
-            record.kind
+            record.kind,
+            record.request_id,
+            record.priority,
+            match record.state {
+                DispatchState::Queued => "queued",
+                DispatchState::Dispatching => "dispatching",
+            }
         ));
     }
     Ok(output)
 }
 
-pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> {
-    if !valid_id(&record.task_id) {
-        return Err(message(format!(
-            "invalid queue task id: {}",
-            record.task_id
-        )));
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdmissionConfig {
+    version: u32,
+    #[serde(default = "default_aging_seconds")]
+    aging_seconds: u64,
+    #[serde(default)]
+    resources: BTreeMap<String, u64>,
+}
+
+const fn default_aging_seconds() -> u64 {
+    DEFAULT_AGING_SECONDS
+}
+
+impl Default for AdmissionConfig {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            aging_seconds: DEFAULT_AGING_SECONDS,
+            resources: BTreeMap::new(),
+        }
+    }
+}
+
+fn admission_config(paths: &HeadroomPaths) -> Result<AdmissionConfig> {
+    let path = paths.config.join("admission-capacity.json");
+    if !path.exists() {
+        return Ok(AdmissionConfig::default());
+    }
+    let bytes = read_bounded_regular(&path, RECORD_LIMIT)
+        .map_err(|_| message("configured admission capacity is unreadable"))?;
+    let config: AdmissionConfig = serde_json::from_slice(&bytes)
+        .map_err(|_| message("configured admission capacity is unreadable"))?;
+    if config.version != 1
+        || config.aging_seconds == 0
+        || config.resources.iter().any(|(name, capacity)| {
+            !valid_resource(name)
+                || *capacity == 0
+                || name == "session"
+                || name.starts_with("harness:")
+        })
+    {
+        return Err(message("configured admission capacity is invalid"));
+    }
+    Ok(config)
+}
+
+fn valid_resource(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+}
+
+fn validate_record(paths: &HeadroomPaths, record: &QueueRecord) -> Result<()> {
+    if !valid_id(&record.request_id) || !valid_id(&record.task_id) {
+        return Err(message("invalid queue request or task id"));
     }
     one_line("project", &record.project)?;
+    if !record.root_home.as_os_str().is_empty() && !same_path(&record.root_home, &paths.root_home) {
+        return Err(message("queued admission belongs to another root home"));
+    }
+    for (label, path) in [
+        ("root home", &record.root_home),
+        ("owner home", &record.owner_home),
+        ("owner state", &record.owner_state),
+        ("parent home", &record.parent_home),
+        ("parent state", &record.parent_state),
+    ] {
+        if !path.as_os_str().is_empty() && !path.is_absolute() {
+            return Err(message(format!("queue {label} must be absolute")));
+        }
+    }
+    let root_parent = format!("root-home:{}", record.root_home.display());
+    if !record.parent_task_id.is_empty()
+        && !valid_id(&record.parent_task_id)
+        && record.parent_task_id != root_parent
+    {
+        return Err(message("invalid queue parent task id"));
+    }
+    if record.resources.is_empty()
+        || record
+            .resources
+            .iter()
+            .any(|(name, units)| !valid_resource(name) || *units == 0)
+    {
+        return Err(message("queue resources are invalid"));
+    }
+    let mut dependencies = std::collections::BTreeSet::new();
+    if record.dependencies.iter().any(|dependency| {
+        !valid_id(&dependency.task_id)
+            || !dependency.owner_state.is_absolute()
+            || (dependency.task_id == record.task_id
+                && dependency.owner_state == record.owner_state)
+            || !dependencies.insert((dependency.owner_state.clone(), dependency.task_id.clone()))
+    }) {
+        return Err(message(
+            "queue dependencies contain a duplicate, self edge or invalid identity",
+        ));
+    }
     if !matches!(
         record.mode.as_str(),
-        "" | "deep-review" | "direct-PR" | "local-only"
+        "" | "deep-review" | "direct-PR" | "local-only" | "daemon"
     ) || !matches!(record.yolo.as_str(), "" | "on" | "off")
     {
         return Err(message("queue record has invalid delivery authority"));
@@ -746,29 +1131,201 @@ pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> 
             one_line("queue profile value", value)?;
         }
     }
-    if !matches!(record.kind.as_str(), "delivery" | "scout") {
+    if !matches!(record.kind.as_str(), "delivery" | "scout" | "daemon") {
         return Err(message(format!(
             "queue record has invalid kind: {}",
             record.kind
         )));
     }
+    Ok(())
+}
+
+fn qualified_dependency(state: &Path, task: &str) -> String {
+    format!("{}#task:{task}", state.display())
+}
+
+fn validate_dependency_graph(records: &[QueueRecord]) -> Result<()> {
+    let graph = records
+        .iter()
+        .map(|record| {
+            (
+                qualified_dependency(&record.owner_state, &record.task_id),
+                record
+                    .dependencies
+                    .iter()
+                    .map(|dependency| {
+                        qualified_dependency(&dependency.owner_state, &dependency.task_id)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    fn visit(
+        node: &str,
+        graph: &BTreeMap<String, Vec<String>>,
+        visiting: &mut std::collections::BTreeSet<String>,
+        visited: &mut std::collections::BTreeSet<String>,
+    ) -> bool {
+        if visited.contains(node) {
+            return true;
+        }
+        if !visiting.insert(node.to_owned()) {
+            return false;
+        }
+        if graph.get(node).is_some_and(|edges| {
+            edges
+                .iter()
+                .any(|edge| graph.contains_key(edge) && !visit(edge, graph, visiting, visited))
+        }) {
+            return false;
+        }
+        visiting.remove(node);
+        visited.insert(node.to_owned());
+        true
+    }
+    let mut visited = std::collections::BTreeSet::new();
+    for node in graph.keys() {
+        if !visit(
+            node,
+            &graph,
+            &mut std::collections::BTreeSet::new(),
+            &mut visited,
+        ) {
+            return Err(message("cyclic queued dependencies"));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AdmissionState {
+    Reserved,
+    Active,
+    Uncertain,
+    Retryable,
+    Released,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AdmissionReceipt {
+    pub version: u32,
+    pub request_id: String,
+    pub task_id: String,
+    pub root_home: PathBuf,
+    pub owner_home: PathBuf,
+    pub owner_state: PathBuf,
+    pub attempt_id: String,
+    pub backend: String,
+    /// Exact process lifetime that currently owns a reservation. Active and
+    /// terminal dispositions retain it as audit evidence.
+    pub owner: Option<ProcessIdentity>,
+    pub resources: BTreeMap<String, u64>,
+    pub state: AdmissionState,
+    pub endpoint: Option<String>,
+    pub allocation_id: Option<String>,
+    pub reason: Option<String>,
+    pub updated_at: u64,
+}
+
+fn receipt_path(paths: &HeadroomPaths, request_id: &str) -> Result<PathBuf> {
+    if !valid_id(request_id) {
+        return Err(message("invalid admission request id"));
+    }
+    Ok(paths.admissions_dir().join(format!("{request_id}.json")))
+}
+
+fn read_receipt(paths: &HeadroomPaths, request_id: &str) -> Result<Option<AdmissionReceipt>> {
+    let path = receipt_path(paths, request_id)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bytes = read_bounded_regular(&path, RECORD_LIMIT)
+        .map_err(|_| message("admission receipt is unreadable; retained"))?;
+    let receipt: AdmissionReceipt = serde_json::from_slice(&bytes)
+        .map_err(|error| message(format!("admission receipt is corrupt; retained: {error}")))?;
+    if receipt.version != 1
+        || receipt.request_id != request_id
+        || !same_path(&receipt.root_home, &paths.root_home)
+        || receipt.resources.is_empty()
+    {
+        return Err(message("admission receipt identity is invalid; retained"));
+    }
+    Ok(Some(receipt))
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    fs::canonicalize(left)
+        .ok()
+        .zip(fs::canonicalize(right).ok())
+        .is_some_and(|(canonical_left, canonical_right)| canonical_left == canonical_right)
+}
+
+fn write_receipt(paths: &HeadroomPaths, receipt: &AdmissionReceipt) -> Result<()> {
+    fs::create_dir_all(paths.admissions_dir())?;
+    fs::set_permissions(paths.admissions_dir(), fs::Permissions::from_mode(0o700))?;
+    atomic_replace(
+        receipt_path(paths, &receipt.request_id)?,
+        &serde_json::to_vec(receipt).map_err(|_| message("admission receipt cannot be encoded"))?,
+        0o600,
+    )
+    .map_err(|error| message(error.to_string()))
+}
+
+fn attempt_id(record: &QueueRecord) -> Result<String> {
+    let model = record
+        .canonical_model
+        .as_deref()
+        .ok_or_else(|| message("canonical admission lacks task binding"))?;
+    serde_json::from_str::<Value>(model)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/attempt/id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| message("canonical admission lacks attempt identity"))
+}
+
+pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> {
+    let mut record = record.clone();
+    if record.root_home.as_os_str().is_empty() {
+        record.root_home = paths.root_home.clone();
+    }
+    if record.owner_home.as_os_str().is_empty() {
+        record.owner_home = paths.root_home.clone();
+    }
+    if record.owner_state.as_os_str().is_empty() {
+        record.owner_state = paths.state.clone();
+    }
+    if record.parent_home.as_os_str().is_empty() {
+        record.parent_home = record.owner_home.clone();
+    }
+    if record.parent_state.as_os_str().is_empty() {
+        record.parent_state = record.owner_state.clone();
+    }
+    if record.resources.is_empty() {
+        record.resources.insert("session".into(), 1);
+    }
+    validate_record(paths, &record)?;
     let _lock = acquire(paths)?;
     let directory = paths.queue_dir();
     fs::create_dir_all(&directory)?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-    let path = directory.join(format!("{}.request", record.task_id));
+    let path = directory.join(format!("{}.request", record.request_id));
     if path.exists() {
-        let existing = QueueRecord::parse(&path, &record.task_id)?;
-        if existing.project == record.project
-            && existing.harness == record.harness
-            && existing.model == record.model
-            && existing.effort == record.effort
-            && existing.backend == record.backend
-            && existing.canonical_model == record.canonical_model
-            && existing.kind == record.kind
-            && existing.mode == record.mode
-            && existing.yolo == record.yolo
-        {
+        let existing = QueueRecord::parse(&path, &record.request_id)?;
+        let mut equivalent = record.clone();
+        equivalent.enqueued_at = existing.enqueued_at;
+        equivalent.state = existing.state;
+        equivalent.dispatch_started_at = existing.dispatch_started_at;
+        if existing == equivalent {
             return Ok(format!("queued: {} already parked\n", record.task_id));
         }
         return Err(message(format!(
@@ -782,6 +1339,9 @@ pub fn queue_add(paths: &HeadroomPaths, record: &QueueRecord) -> Result<String> 
             path.display()
         )));
     }
+    let mut records = queue_records(paths)?;
+    records.push(record.clone());
+    validate_dependency_graph(&records)?;
     atomic_replace(&path, &record.render(), 0o600).map_err(|error| message(error.to_string()))?;
     Ok(format!(
         "queued: {} parked until dispatch capacity is available\n",
@@ -798,22 +1358,666 @@ pub fn queue_cancel(paths: &HeadroomPaths, id: &str) -> Result<String> {
     if fs::symlink_metadata(&path).is_err() {
         return Err(message(format!("queued dispatch not found: {id}")));
     }
-    QueueRecord::parse(&path, id)?;
+    let record = QueueRecord::parse(&path, id)?;
+    if record.state != DispatchState::Queued {
+        return Err(message(format!(
+            "queued dispatch {id} is already dispatching; reconcile it before cancellation"
+        )));
+    }
     fs::remove_file(path)?;
     Ok(format!("cancelled: {id}\n"))
+}
+
+pub fn queue_priority(paths: &HeadroomPaths, id: &str, priority: i32) -> Result<String> {
+    if !valid_id(id) {
+        return Err(message("invalid queue task id"));
+    }
+    let _lock = acquire(paths)?;
+    let path = paths.queue_dir().join(format!("{id}.request"));
+    let mut record = QueueRecord::parse(&path, id)?;
+    if record.state != DispatchState::Queued {
+        return Err(message("cannot reprioritize a dispatch already in flight"));
+    }
+    record.priority = priority;
+    atomic_replace(path, &record.render(), 0o600).map_err(|error| message(error.to_string()))?;
+    Ok(format!("priority: {id}={priority}\n"))
+}
+
+fn canonical_identity(model: &str) -> Option<Vec<Value>> {
+    let value: Value = serde_json::from_str(model).ok()?;
+    let pointers = [
+        "/schema_version",
+        "/task_id",
+        "/parent_id",
+        "/root_id",
+        "/owner_home",
+        "/owner_state",
+        "/parent_home",
+        "/parent_state",
+        "/attempt/id",
+        "/attempt/generation",
+        "/attempt/brief_revision",
+        "/accepted_brief_revision",
+        "/accepted_brief_digest",
+        "/accepted_brief_path",
+        "/project/project_id",
+        "/project/checkout_id",
+        "/project/common_git_identity",
+        "/project/canonical_path",
+        "/project/starting_revision",
+    ];
+    pointers
+        .iter()
+        .map(|pointer| value.pointer(pointer).cloned())
+        .collect::<Option<Vec<_>>>()
+}
+
+fn exact_metadata_value<'a>(text: &'a str, key: &str) -> Result<Option<&'a str>> {
+    let mut values = text.lines().filter_map(|line| {
+        line.split_once('=')
+            .filter(|(candidate, _)| *candidate == key)
+            .map(|(_, value)| value)
+    });
+    let value = values.next();
+    if values.next().is_some() {
+        return Err(message(format!("spawn metadata repeats {key}; retained")));
+    }
+    Ok(value)
+}
+
+fn metadata_reconciled(record: &QueueRecord) -> Result<Option<(String, Option<String>)>> {
+    let path = record.owner_state.join(format!("{}.meta", record.task_id));
+    let Ok(text) = fs::read_to_string(path) else {
+        return Ok(None);
+    };
+    let model = exact_metadata_value(&text, "canonical_model")?
+        .ok_or_else(|| message("spawn metadata lacks canonical identity; retained"))?;
+    let expected = record
+        .canonical_model
+        .as_deref()
+        .and_then(canonical_identity)
+        .ok_or_else(|| message("queued dispatch lacks canonical identity; retained"))?;
+    if canonical_identity(model).as_ref() != Some(&expected) {
+        return Err(message(
+            "spawn metadata belongs to another task attempt; retained",
+        ));
+    }
+    let value: Value = serde_json::from_str(model)
+        .map_err(|_| message("spawn metadata canonical identity is unreadable; retained"))?;
+    let model_path_matches = |field: &str, expected: &Path| {
+        value
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|actual| same_path(Path::new(actual), expected))
+    };
+    if value.get("task_id").and_then(Value::as_str) != Some(record.task_id.as_str())
+        || !model_path_matches("owner_home", &record.owner_home)
+        || !model_path_matches("owner_state", &record.owner_state)
+        || value.get("parent_id").and_then(Value::as_str) != Some(record.parent_task_id.as_str())
+        || !model_path_matches("parent_home", &record.parent_home)
+        || !model_path_matches("parent_state", &record.parent_state)
+    {
+        return Err(message("spawn metadata routing identity changed; retained"));
+    }
+    let endpoint = exact_metadata_value(&text, "window")?.filter(|value| !value.is_empty());
+    let allocation = serde_json::from_str::<Value>(model).ok().and_then(|value| {
+        value
+            .pointer("/allocation/allocation_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    let backend = exact_metadata_value(&text, "backend")?.unwrap_or(record.backend.as_str());
+    if endpoint.is_some_and(|target| target_is_live(backend, target)) {
+        return Ok(Some((
+            endpoint.expect("checked endpoint").to_owned(),
+            allocation,
+        )));
+    }
+    Ok(None)
+}
+
+fn dependency_completed(dependency: &Dependency) -> bool {
+    let path = dependency
+        .owner_state
+        .join(format!("{}.meta", dependency.task_id));
+    let Ok(text) = fs::read_to_string(path) else {
+        return false;
+    };
+    let mut models = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("canonical_model="));
+    let model = models.next();
+    if model.is_none() || models.next().is_some() {
+        return false;
+    }
+    model
+        .and_then(|model| serde_json::from_str::<Value>(model).ok())
+        .and_then(|value| {
+            value
+                .pointer("/schedule/state")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .as_deref()
+        == Some("completed")
+}
+
+fn dispatch_score(record: &QueueRecord, now: u64, aging_seconds: u64) -> i64 {
+    let age = now.saturating_sub(record.enqueued_at) / aging_seconds;
+    i64::from(record.priority).saturating_add(i64::try_from(age).unwrap_or(i64::MAX))
+}
+
+fn receipts(paths: &HeadroomPaths) -> Result<Vec<AdmissionReceipt>> {
+    let entries = match fs::read_dir(paths.admissions_dir()) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut result = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| {
+                message(format!(
+                    "admission receipt path is unsafe: {}",
+                    path.display()
+                ))
+            })?;
+        if let Some(receipt) = read_receipt(paths, id)? {
+            result.push(receipt);
+        }
+    }
+    Ok(result)
+}
+
+fn resource_use(
+    paths: &HeadroomPaths,
+    observed_active_receipts: &BTreeSet<String>,
+) -> Result<BTreeMap<String, u64>> {
+    let mut used = BTreeMap::<String, u64>::new();
+    for receipt in receipts(paths)? {
+        if matches!(
+            receipt.state,
+            AdmissionState::Released | AdmissionState::Retryable
+        ) {
+            continue;
+        }
+        for (resource, units) in receipt.resources {
+            // Root-wide live counts include canonical active session and
+            // harness receipts. Configured custom resources have no native
+            // observer, so active receipts continue to count them here.
+            if receipt.state == AdmissionState::Active
+                && observed_active_receipts.contains(&receipt.request_id)
+                && (resource == "session" || resource.starts_with("harness:"))
+            {
+                continue;
+            }
+            let entry = used.entry(resource).or_default();
+            *entry = entry.saturating_add(units);
+        }
+    }
+    Ok(used)
+}
+
+fn fits(
+    record: &QueueRecord,
+    headroom: &Headroom,
+    config: &AdmissionConfig,
+    used: &BTreeMap<String, u64>,
+) -> bool {
+    record.resources.iter().all(|(resource, units)| {
+        let capacity = if resource == "session" {
+            headroom.available
+        } else if let Some(harness) = resource.strip_prefix("harness:") {
+            headroom
+                .candidates
+                .get(harness)
+                .map(|candidate| candidate.available)
+                // Native/provider limits that are not represented in the
+                // configured snapshot are opaque. The shared session budget
+                // still applies; inventing a zero provider limit would strand
+                // otherwise runnable work.
+                .unwrap_or(u64::MAX)
+        } else {
+            config.resources.get(resource).copied().unwrap_or(u64::MAX)
+        };
+        used.get(resource)
+            .copied()
+            .unwrap_or_default()
+            .saturating_add(*units)
+            <= capacity
+    })
+}
+
+fn absolute_ps_identity(pid: u32) -> Result<ProcessIdentity> {
+    if pid == 0 {
+        return Err(message("invalid admission owner PID"));
+    }
+    let ps = [Path::new("/bin/ps"), Path::new("/usr/bin/ps")]
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| message("system process table reader is unavailable"))?;
+    let output = Command::new(ps)
+        .args(["-p", &pid.to_string(), "-o", "lstart=", "-o", "command="])
+        .env("LC_ALL", "C")
+        .output()?;
+    if !output.status.success() || output.stdout.len() > RECORD_LIMIT {
+        return Err(message("cannot read admission owner process identity"));
+    }
+    let marker = String::from_utf8(output.stdout)
+        .map_err(|_| message("admission owner process identity is not UTF-8"))?
+        .trim_start()
+        .trim_end_matches('\n')
+        .to_owned();
+    if marker.is_empty() {
+        return Err(message("admission owner process is absent"));
+    }
+    Ok(ProcessIdentity { pid, marker })
+}
+
+fn admission_owner_identity(pid: u32) -> Result<ProcessIdentity> {
+    SystemProcessProbe::default()
+        .identity(pid)
+        .map_err(|error| message(format!("cannot identify admission owner: {error}")))
+        .or_else(|_| absolute_ps_identity(pid))
+}
+
+fn same_receipt_identity(existing: &AdmissionReceipt, expected: &AdmissionReceipt) -> bool {
+    existing.version == expected.version
+        && existing.request_id == expected.request_id
+        && existing.task_id == expected.task_id
+        && same_path(&existing.root_home, &expected.root_home)
+        && same_path(&existing.owner_home, &expected.owner_home)
+        && same_path(&existing.owner_state, &expected.owner_state)
+        && existing.attempt_id == expected.attempt_id
+        && existing.backend == expected.backend
+        && existing.resources == expected.resources
+}
+
+fn reserve(paths: &HeadroomPaths, record: &QueueRecord, now: u64) -> Result<()> {
+    let process = admission_owner_identity(std::process::id())?;
+    let receipt = AdmissionReceipt {
+        version: 1,
+        request_id: record.request_id.clone(),
+        task_id: record.task_id.clone(),
+        root_home: paths.root_home.clone(),
+        owner_home: record.owner_home.clone(),
+        owner_state: record.owner_state.clone(),
+        attempt_id: attempt_id(record)?,
+        backend: record.backend.clone(),
+        owner: Some(process),
+        resources: record.resources.clone(),
+        state: AdmissionState::Reserved,
+        endpoint: None,
+        allocation_id: None,
+        reason: None,
+        updated_at: now,
+    };
+    if let Some(mut existing) = read_receipt(paths, &record.request_id)? {
+        if !same_receipt_identity(&existing, &receipt) {
+            return Err(message(
+                "admission request conflicts with its durable receipt",
+            ));
+        }
+        if existing.state == AdmissionState::Retryable {
+            existing.state = AdmissionState::Reserved;
+            existing.reason = None;
+            existing.updated_at = now;
+            write_receipt(paths, &existing)?;
+        }
+        return Ok(());
+    }
+    write_receipt(paths, &receipt)
+}
+
+fn reservation_owner_is_live(receipt: &AdmissionReceipt, processes: &impl ProcessProbe) -> bool {
+    receipt.owner.as_ref().is_some_and(|owner| {
+        processes.is_alive(owner.pid)
+            && processes
+                .identity(owner.pid)
+                .is_ok_and(|current| current == *owner)
+    })
+}
+
+fn reservation_owner_is_live_on_host(receipt: &AdmissionReceipt) -> bool {
+    if reservation_owner_is_live(receipt, &SystemProcessProbe::default()) {
+        return true;
+    }
+    receipt.owner.as_ref().is_some_and(|owner| {
+        admission_owner_identity(owner.pid).is_ok_and(|current| current == *owner)
+    })
+}
+
+fn claim_reservation_owner(paths: &HeadroomPaths, request_id: &str) -> Result<()> {
+    let mut receipt = read_receipt(paths, request_id)?
+        .ok_or_else(|| message("admission receipt missing; retained"))?;
+    receipt.owner = Some(admission_owner_identity(std::process::id())?);
+    receipt.updated_at = now_epoch();
+    write_receipt(paths, &receipt)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmissionDecision {
+    Granted,
+    AlreadyActive,
+    Deferred,
+}
+
+fn existing_admission_decision(
+    state: AdmissionState,
+    allow_reserved: bool,
+) -> Result<AdmissionDecision> {
+    match state {
+        AdmissionState::Active => Ok(AdmissionDecision::AlreadyActive),
+        AdmissionState::Retryable => Ok(AdmissionDecision::Granted),
+        AdmissionState::Reserved if allow_reserved => Ok(AdmissionDecision::Granted),
+        AdmissionState::Reserved => Err(message(
+            "admission request is already reserved by an in-progress launch",
+        )),
+        AdmissionState::Uncertain => Err(message(
+            "admission request has an uncertain endpoint; reconcile it before retrying",
+        )),
+        AdmissionState::Released => Err(message(
+            "released admission request cannot be replayed; use a new request identity",
+        )),
+    }
+}
+
+fn admission_try_reserve_inner(
+    paths: &HeadroomPaths,
+    record: &QueueRecord,
+    allow_reserved: bool,
+) -> Result<AdmissionDecision> {
+    validate_record(paths, record)?;
+    if !record.dependencies.iter().all(dependency_completed) {
+        return Ok(AdmissionDecision::Deferred);
+    }
+    let headroom = evaluate(paths)?;
+    let config = admission_config(paths)?;
+    let _lock = acquire(paths)?;
+    if let Some(existing) = read_receipt(paths, &record.request_id)? {
+        let abandoned_reservation = existing.state == AdmissionState::Reserved
+            && existing.owner.is_some()
+            && !reservation_owner_is_live_on_host(&existing);
+        let decision = existing_admission_decision(
+            existing.state.clone(),
+            allow_reserved || abandoned_reservation,
+        )?;
+        reserve(paths, record, now_epoch())?;
+        if decision == AdmissionDecision::Granted {
+            claim_reservation_owner(paths, &record.request_id)?;
+        }
+        return Ok(decision);
+    }
+    if !fits(
+        record,
+        &headroom,
+        &config,
+        &resource_use(paths, &headroom.observed_active_receipts)?,
+    ) {
+        return Ok(AdmissionDecision::Deferred);
+    }
+    reserve(paths, record, now_epoch())?;
+    Ok(AdmissionDecision::Granted)
+}
+
+/// Atomically reserve root-scoped resources for an immediate launch. Resource
+/// probes run before the lock; the reservation is then rechecked against all
+/// durable receipts so competing homes cannot both spend the final unit.
+pub fn admission_try_reserve(
+    paths: &HeadroomPaths,
+    record: &QueueRecord,
+) -> Result<AdmissionDecision> {
+    admission_try_reserve_inner(paths, record, false)
+}
+
+/// Continue the reservation created by `queue_drain` in the child launch.
+/// Only the exact request/binding may consume a pre-existing reservation.
+pub fn admission_resume_reserved(
+    paths: &HeadroomPaths,
+    record: &QueueRecord,
+) -> Result<AdmissionDecision> {
+    admission_try_reserve_inner(paths, record, true)
+}
+
+pub fn admission_finish(
+    paths: &HeadroomPaths,
+    request_id: &str,
+    endpoint: Option<String>,
+    allocation_id: Option<String>,
+    error: Option<String>,
+) -> Result<()> {
+    let _lock = acquire(paths)?;
+    let mut receipt = read_receipt(paths, request_id)?
+        .ok_or_else(|| message("admission receipt missing; retained"))?;
+    receipt.updated_at = now_epoch();
+    receipt.endpoint = endpoint.or(receipt.endpoint);
+    receipt.allocation_id = allocation_id.or(receipt.allocation_id);
+    if error.is_none() {
+        receipt.state = AdmissionState::Active;
+        receipt.reason = None;
+    } else if receipt.state != AdmissionState::Retryable {
+        receipt.state = AdmissionState::Uncertain;
+        receipt.reason = error;
+    }
+    write_receipt(paths, &receipt)
+}
+
+/// Mark a failed launch retryable only with exact task-attempt evidence and a
+/// verified absent endpoint. The retained allocation remains on the receipt.
+pub fn admission_retryable(
+    paths: &HeadroomPaths,
+    request_id: &str,
+    task_id: &str,
+    owner_state: &Path,
+    attempt_id: &str,
+    reason: &str,
+) -> Result<()> {
+    let _lock = acquire(paths)?;
+    let mut receipt =
+        read_receipt(paths, request_id)?.ok_or_else(|| message("admission receipt missing"))?;
+    if receipt.task_id != task_id
+        || receipt.owner_state != owner_state
+        || receipt.attempt_id != attempt_id
+    {
+        return Err(message(
+            "admission retry evidence does not match its receipt",
+        ));
+    }
+    receipt.state = AdmissionState::Retryable;
+    receipt.updated_at = now_epoch();
+    receipt.reason = Some(reason.into());
+    write_receipt(paths, &receipt)
+}
+
+/// Release the unique admission proven to own the retired task attempt and
+/// endpoint. This prevents a task-id-only cleanup from freeing another home.
+pub fn admission_release_execution(
+    paths: &HeadroomPaths,
+    task_id: &str,
+    owner_state: &Path,
+    attempt_id: &str,
+    endpoint: &str,
+) -> Result<bool> {
+    let _lock = acquire(paths)?;
+    let mut matches = receipts(paths)?
+        .into_iter()
+        .filter(|receipt| {
+            receipt.task_id == task_id
+                && receipt.owner_state == owner_state
+                && receipt.attempt_id == attempt_id
+                && receipt.endpoint.as_deref() == Some(endpoint)
+                && matches!(
+                    receipt.state,
+                    AdmissionState::Active | AdmissionState::Uncertain
+                )
+        })
+        .collect::<Vec<_>>();
+    if matches.len() > 1 {
+        return Err(message(
+            "multiple admissions claim the retired execution; retained",
+        ));
+    }
+    let Some(mut receipt) = matches.pop() else {
+        return Ok(false);
+    };
+    receipt.state = AdmissionState::Released;
+    receipt.updated_at = now_epoch();
+    receipt.reason = Some("execution released by its lifecycle owner".into());
+    write_receipt(paths, &receipt)?;
+    Ok(true)
+}
+
+/// Reclaim active or uncertain receipts only when exact task metadata still
+/// binds the same attempt/backend/endpoint and the owning adapter reports that
+/// endpoint authoritatively missing. Provider errors remain uncertain.
+pub fn admission_reconcile_inactive(paths: &HeadroomPaths) -> Result<usize> {
+    let mut absent = Vec::new();
+    for receipt in receipts(paths)? {
+        if !matches!(
+            receipt.state,
+            AdmissionState::Active | AdmissionState::Uncertain
+        ) {
+            continue;
+        }
+        let Some(endpoint) = receipt.endpoint.as_deref() else {
+            continue;
+        };
+        let path = receipt
+            .owner_state
+            .join(format!("{}.meta", receipt.task_id));
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        let model = exact_metadata_value(&text, "canonical_model")?
+            .ok_or_else(|| message("admission metadata lacks canonical identity; retained"))?;
+        let value: Value = serde_json::from_str(model)
+            .map_err(|_| message("admission metadata canonical identity is invalid; retained"))?;
+        let expected_root = format!("root-home:{}", paths.root_home.display());
+        if value.get("task_id").and_then(Value::as_str) != Some(receipt.task_id.as_str())
+            || value.get("root_id").and_then(Value::as_str) != Some(expected_root.as_str())
+            || value.get("owner_home").and_then(Value::as_str) != receipt.owner_home.to_str()
+            || value.get("owner_state").and_then(Value::as_str) != receipt.owner_state.to_str()
+            || value.pointer("/attempt/id").and_then(Value::as_str)
+                != Some(receipt.attempt_id.as_str())
+            || exact_metadata_value(&text, "window")? != Some(endpoint)
+        {
+            return Err(message(
+                "admission metadata does not match its durable receipt; retained",
+            ));
+        }
+        let backend = exact_metadata_value(&text, "backend")?.unwrap_or("tmux");
+        let receipt_backend = if receipt.backend.is_empty() {
+            "tmux"
+        } else {
+            receipt.backend.as_str()
+        };
+        if backend != receipt_backend {
+            return Err(message("admission backend changed; retained"));
+        }
+        if crate::facade::observe_endpoint(
+            backend,
+            endpoint,
+            Some(format!("mx-{}", receipt.task_id)),
+            false,
+        )
+        .is_ok_and(|observation| !observation.exists)
+        {
+            absent.push((
+                receipt.task_id,
+                receipt.owner_state,
+                receipt.attempt_id,
+                endpoint.to_owned(),
+            ));
+        }
+    }
+    let mut released = 0;
+    for (task, state, attempt, endpoint) in absent {
+        if admission_release_execution(paths, &task, &state, &attempt, &endpoint)? {
+            released += 1;
+        }
+    }
+    Ok(released)
 }
 
 pub fn queue_drain(paths: &HeadroomPaths) -> Result<String> {
     if !paths.queue_dir().is_dir() {
         return Ok(String::new());
     }
-    let _lock = acquire(paths)?;
-    if evaluate(paths)?.available == 0 {
-        return Ok(String::new());
+    admission_reconcile_inactive(paths)?;
+    let headroom = evaluate(paths)?;
+    let config = admission_config(paths)?;
+    let now = now_epoch();
+    // Backend liveness can invoke an external provider. Observe before the
+    // short queue lock, then revalidate the exact record before committing.
+    let observed = queue_records(paths)?
+        .into_iter()
+        .filter(|record| record.state == DispatchState::Dispatching)
+        .map(|record| metadata_reconciled(&record).map(|result| (record, result)))
+        .collect::<Result<Vec<_>>>()?;
+    let lock = acquire(paths)?;
+    let mut records = queue_records(paths)?;
+    validate_dependency_graph(&records)?;
+    for (observed_record, outcome) in observed {
+        if let Some((endpoint, allocation)) = outcome
+            && records.iter().any(|record| record == &observed_record)
+        {
+            let record = observed_record;
+            reserve(paths, &record, now)?;
+            drop(lock);
+            admission_finish(paths, &record.request_id, Some(endpoint), allocation, None)?;
+            let _lock = acquire(paths)?;
+            let path = paths
+                .queue_dir()
+                .join(format!("{}.request", record.request_id));
+            if QueueRecord::parse(&path, &record.request_id)? != record {
+                return Err(message("dispatch changed during reconciliation; retained"));
+            }
+            fs::remove_file(path)?;
+            return Ok(format!("dispatch-queue: reconciled {}\n", record.task_id));
+        }
     }
-    let Some(record) = queue_records(paths)?.into_iter().next() else {
+    let used = resource_use(paths, &headroom.observed_active_receipts)?;
+    let aging = config.aging_seconds;
+    records.sort_by(|left, right| {
+        dispatch_score(right, now, aging)
+            .cmp(&dispatch_score(left, now, aging))
+            .then_with(|| left.enqueued_at.cmp(&right.enqueued_at))
+            .then_with(|| left.task_id.cmp(&right.task_id))
+    });
+    let mut selected = None;
+    for candidate in records {
+        let eligible = candidate.state == DispatchState::Queued
+            || read_receipt(paths, &candidate.request_id)?
+                .is_some_and(|receipt| receipt.state == AdmissionState::Retryable);
+        if eligible
+            && candidate.dependencies.iter().all(dependency_completed)
+            && fits(&candidate, &headroom, &config, &used)
+        {
+            selected = Some(candidate);
+            break;
+        }
+    }
+    let Some(mut record) = selected else {
         return Ok(String::new());
     };
+    record.state = DispatchState::Dispatching;
+    record.dispatch_started_at = Some(now);
+    reserve(paths, &record, now)?;
+    atomic_replace(
+        paths
+            .queue_dir()
+            .join(format!("{}.request", record.request_id)),
+        &record.render(),
+        0o600,
+    )
+    .map_err(|error| message(error.to_string()))?;
+    drop(lock);
     let spawn = std::env::var_os("MX_HEADROOM_SPAWN_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -825,6 +2029,9 @@ pub fn queue_drain(paths: &HeadroomPaths) -> Result<String> {
     let mut command = Command::new(spawn);
     command
         .env("MX_HEADROOM_SKIP_QUEUE", "1")
+        .env("MX_ADMISSION_REQUEST_ID", &record.request_id)
+        .env("MX_ROOT_HOME", &record.root_home)
+        .env("MX_SPAWN_RECOVERY_REQUEST", &record.request_id)
         .args([&record.task_id, &record.project]);
     if !record.harness.is_empty() {
         command.args(["--harness", &record.harness]);
@@ -850,23 +2057,62 @@ pub fn queue_drain(paths: &HeadroomPaths) -> Result<String> {
     if record.kind == "scout" && record.canonical_model.is_none() {
         command.arg("--scout");
     }
-    let status = command.status().map_err(|_| {
-        message(format!(
-            "queued dispatch {} could not be launched; record retained",
-            record.task_id
-        ))
-    })?;
+    if record.kind == "daemon" {
+        command.arg("--persistent");
+    }
+    for (name, units) in &record.resources {
+        if name != "session" && !name.starts_with("harness:") && !name.starts_with("project:") {
+            command.args(["--resource", &format!("{name}={units}")]);
+        }
+    }
+    let status = match command.status() {
+        Ok(status) => status,
+        Err(_) => {
+            admission_retryable(
+                paths,
+                &record.request_id,
+                &record.task_id,
+                &record.owner_state,
+                &attempt_id(&record)?,
+                "spawn command was not created; no endpoint exists",
+            )?;
+            return Err(message(format!(
+                "queued dispatch {} could not be launched; record retained",
+                record.task_id
+            )));
+        }
+    };
     if !status.success() {
+        admission_finish(
+            paths,
+            &record.request_id,
+            None,
+            None,
+            Some(
+                "spawn command failed; reconcile recorded endpoint and allocation before retry"
+                    .into(),
+            ),
+        )?;
         return Err(message(format!(
             "queued dispatch {} could not be launched; record retained",
             record.task_id
         )));
     }
-    fs::remove_file(
-        paths
-            .queue_dir()
-            .join(format!("{}.request", record.task_id)),
-    )?;
+    // The child process has exited, so this observation also occurs outside
+    // the queue lock.
+    let reconciled = metadata_reconciled(&record)?;
+    let (endpoint, allocation) = reconciled.map_or((None, None), |(endpoint, allocation)| {
+        (Some(endpoint), allocation)
+    });
+    admission_finish(paths, &record.request_id, endpoint, allocation, None)?;
+    let _lock = acquire(paths)?;
+    let path = paths
+        .queue_dir()
+        .join(format!("{}.request", record.request_id));
+    if QueueRecord::parse(&path, &record.request_id)? != record {
+        return Err(message("dispatch changed before acknowledgement; retained"));
+    }
+    fs::remove_file(path)?;
     Ok(format!("dispatch-queue: launched {}\n", record.task_id))
 }
 
@@ -880,15 +2126,24 @@ pub fn now_epoch() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::thread;
 
     use super::{
-        HeadroomPaths, QueueRecord, configured_candidates, configured_capacity, metadata_value,
-        parse_nonnegative_integer, parse_nonnegative_number, parse_positive_number,
-        profile_harnesses, queue_add, queue_cancel, queue_list, queue_records, read_compact,
-        valid_id,
+        AdmissionConfig, AdmissionDecision, AdmissionState, ApiHeadroom, Dependency, DispatchState,
+        Headroom, HeadroomPaths, LocalHeadroom, QueueRecord, absolute_ps_identity,
+        admission_config, admission_finish, admission_owner_identity, admission_reconcile_inactive,
+        admission_release_execution, admission_resume_reserved, admission_retryable,
+        admission_try_reserve, configured_candidates, configured_capacity, dependency_completed,
+        dispatch_score, evaluate, existing_admission_decision, fits, live_counts_with_probe,
+        metadata_reconciled, metadata_value, parse_nonnegative_integer, parse_nonnegative_number,
+        parse_positive_number, profile_harnesses, queue_add, queue_cancel, queue_list,
+        queue_priority, queue_records, read_compact, read_receipt, reservation_owner_is_live,
+        reserve, resource_use, same_receipt_identity, valid_id, validate_dependency_graph,
+        validate_record, write_receipt,
     };
 
     fn paths(temp: &tempfile::TempDir) -> HeadroomPaths {
@@ -897,9 +2152,65 @@ mod tests {
         std::fs::create_dir(&state).expect("state");
         std::fs::create_dir(&config).expect("config");
         HeadroomPaths {
+            root_home: temp.path().to_path_buf(),
             state,
             config,
             proc_root: temp.path().join("proc"),
+        }
+    }
+
+    fn admission_record(paths: &HeadroomPaths, request: &str, task: &str) -> QueueRecord {
+        QueueRecord {
+            request_id: request.into(),
+            task_id: task.into(),
+            root_home: paths.root_home.clone(),
+            owner_home: paths.root_home.clone(),
+            owner_state: paths.state.clone(),
+            parent_task_id: format!("root-home:{}", paths.root_home.display()),
+            parent_home: paths.root_home.clone(),
+            parent_state: paths.state.clone(),
+            project: "/tmp/project".into(),
+            harness: "codex".into(),
+            model: "default".into(),
+            effort: "default".into(),
+            backend: "tmux".into(),
+            kind: "delivery".into(),
+            mode: "deep-review".into(),
+            yolo: "off".into(),
+            enqueued_at: 10,
+            priority: 0,
+            dependencies: vec![],
+            resources: std::collections::BTreeMap::from([
+                ("session".into(), 1),
+                ("harness:codex".into(), 1),
+                ("project:demo".into(), 1),
+            ]),
+            state: DispatchState::Queued,
+            dispatch_started_at: None,
+            canonical_model: Some(r#"{"attempt":{"id":"attempt-1"}}"#.into()),
+        }
+    }
+
+    fn synthetic_headroom(available: u64) -> Headroom {
+        Headroom {
+            model: "local+api",
+            capacity: available,
+            in_use: 0,
+            available,
+            at_limit: available == 0,
+            local: LocalHeadroom {
+                cpu_count: 8.0,
+                load_one: 0.0,
+                memory_available_bytes: u64::MAX,
+                available,
+            },
+            api: ApiHeadroom {
+                source: "configured-budget",
+                capacity: available,
+                available,
+            },
+            candidates: std::collections::BTreeMap::new(),
+            observed_active_receipts: BTreeSet::new(),
         }
     }
 
@@ -975,6 +2286,25 @@ mod tests {
         std::fs::remove_file(paths.config.join("actor-dispatch.json")).expect("remove");
         std::fs::write(paths.config.join("actor-harness"), " \n").expect("actor");
         assert!(configured_candidates(&paths).is_err());
+
+        for invalid in [
+            "{",
+            r#"{"version":2}"#,
+            r#"{"version":1,"aging_seconds":0}"#,
+            r#"{"version":1,"resources":{"session":2}}"#,
+            r#"{"version":1,"resources":{"harness:codex":2}}"#,
+            r#"{"version":1,"resources":{"gpu":0}}"#,
+        ] {
+            std::fs::write(paths.config.join("admission-capacity.json"), invalid)
+                .expect("admission config");
+            assert!(admission_config(&paths).is_err(), "{invalid}");
+        }
+        std::fs::write(
+            paths.config.join("admission-capacity.json"),
+            r#"{"version":1,"aging_seconds":5,"resources":{"gpu":2}}"#,
+        )
+        .expect("admission config");
+        assert_eq!(admission_config(&paths).expect("valid").resources["gpu"], 2);
     }
 
     #[test]
@@ -1013,19 +2343,7 @@ mod tests {
     fn queue_mutation_rejects_invalid_and_conflicting_requests() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        let base = QueueRecord {
-            task_id: "one".to_owned(),
-            project: "project".to_owned(),
-            harness: String::new(),
-            model: String::new(),
-            effort: String::new(),
-            backend: String::new(),
-            kind: "delivery".to_owned(),
-            mode: String::new(),
-            yolo: String::new(),
-            enqueued_at: 1,
-            canonical_model: None,
-        };
+        let base = QueueRecord::legacy("one".to_owned(), "project".to_owned(), 1);
         for record in [
             QueueRecord {
                 task_id: "bad/id".to_owned(),
@@ -1060,19 +2378,8 @@ mod tests {
     fn queue_records_are_private_idempotent_and_cancel_exactly() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        let record = QueueRecord {
-            task_id: "one".to_owned(),
-            project: "projects/one".to_owned(),
-            harness: "codex".to_owned(),
-            model: String::new(),
-            effort: String::new(),
-            backend: String::new(),
-            kind: "delivery".to_owned(),
-            mode: String::new(),
-            yolo: String::new(),
-            enqueued_at: 1,
-            canonical_model: None,
-        };
+        let mut record = QueueRecord::legacy("one".to_owned(), "projects/one".to_owned(), 1);
+        record.harness = "codex".to_owned();
         assert!(
             queue_add(&paths, &record)
                 .expect("add")
@@ -1110,17 +2417,13 @@ mod tests {
                     queue_add(
                         &paths,
                         &QueueRecord {
-                            task_id: format!("task-{index}"),
-                            project: format!("projects/task-{index}"),
                             harness: "codex".to_owned(),
-                            model: String::new(),
-                            effort: String::new(),
                             backend: "tmux".to_owned(),
-                            kind: "delivery".to_owned(),
-                            mode: String::new(),
-                            yolo: String::new(),
-                            enqueued_at: index,
-                            canonical_model: None,
+                            ..QueueRecord::legacy(
+                                format!("task-{index}"),
+                                format!("projects/task-{index}"),
+                                index,
+                            )
                         },
                     )
                     .expect("queue add");
@@ -1141,21 +2444,742 @@ mod tests {
     fn queue_recovery_ignores_unpublished_temporary_files() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        let record = QueueRecord {
-            task_id: "published".to_owned(),
-            project: "projects/published".to_owned(),
-            harness: String::new(),
-            model: String::new(),
-            effort: String::new(),
-            backend: String::new(),
-            kind: "delivery".to_owned(),
-            mode: String::new(),
-            yolo: String::new(),
-            enqueued_at: 1,
-            canonical_model: None,
-        };
+        let record =
+            QueueRecord::legacy("published".to_owned(), "projects/published".to_owned(), 1);
         queue_add(&paths, &record).expect("published");
         std::fs::write(paths.queue_dir().join(".interrupted.tmp"), b"partial").expect("temporary");
         assert_eq!(queue_list(&paths).expect("recovery").lines().count(), 1);
+    }
+
+    #[test]
+    fn priority_changes_are_exact_and_dispatching_requests_cannot_be_cancelled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let record = admission_record(&paths, "request-one", "task-one");
+        queue_add(&paths, &record).expect("queue");
+        assert_eq!(
+            queue_priority(&paths, "request-one", 17).expect("priority"),
+            "priority: request-one=17\n"
+        );
+        let mut stored = queue_records(&paths).expect("records").remove(0);
+        assert_eq!(stored.priority, 17);
+        stored.state = DispatchState::Dispatching;
+        stored.dispatch_started_at = Some(20);
+        super::atomic_replace(
+            paths.queue_dir().join("request-one.request"),
+            &stored.render(),
+            0o600,
+        )
+        .expect("dispatching");
+        assert!(queue_cancel(&paths, "request-one").is_err());
+        assert!(queue_priority(&paths, "request-one", 1).is_err());
+        let mut new_high = admission_record(&paths, "new", "new");
+        new_high.priority = 5;
+        new_high.enqueued_at = 100;
+        let mut old_low = admission_record(&paths, "old", "old");
+        old_low.enqueued_at = 0;
+        assert!(dispatch_score(&old_low, 100, 10) > dispatch_score(&new_high, 100, 10));
+        assert_eq!(dispatch_score(&old_low, u64::MAX, 1), i64::MAX);
+    }
+
+    #[test]
+    fn qualified_dependency_cycles_are_rejected_across_owner_states() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let state_a = temp.path().join("home-a/state");
+        let state_b = temp.path().join("home-b/state");
+        std::fs::create_dir_all(&state_a).expect("state a");
+        std::fs::create_dir_all(&state_b).expect("state b");
+        let mut a = admission_record(&paths, "request-a", "task-a");
+        a.owner_state = state_a.clone();
+        a.dependencies = vec![Dependency {
+            task_id: "task-b".into(),
+            owner_state: state_b.clone(),
+        }];
+        let mut b = admission_record(&paths, "request-b", "task-b");
+        b.owner_state = state_b;
+        b.dependencies = vec![Dependency {
+            task_id: "task-a".into(),
+            owner_state: state_a,
+        }];
+        assert!(validate_dependency_graph(&[a.clone()]).is_ok());
+        assert!(validate_dependency_graph(&[a, b]).is_err());
+    }
+
+    #[test]
+    fn small_requests_bypass_unfit_large_requests_and_opaque_providers_do_not_invent_zero() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let config = AdmissionConfig {
+            version: 1,
+            aging_seconds: 10,
+            resources: std::collections::BTreeMap::from([("gpu".into(), 2)]),
+        };
+        let headroom = synthetic_headroom(1);
+        let mut large = admission_record(&paths, "large", "large-task");
+        large.priority = 100;
+        large.resources.insert("gpu".into(), 3);
+        let mut small = admission_record(&paths, "small", "small-task");
+        small.resources.insert("gpu".into(), 1);
+        let used = std::collections::BTreeMap::new();
+        assert!(!fits(&large, &headroom, &config, &used));
+        assert!(fits(&small, &headroom, &config, &used));
+        assert!(fits(
+            &small,
+            &synthetic_headroom(1),
+            &AdmissionConfig::default(),
+            &used
+        ));
+    }
+
+    #[test]
+    fn shared_receipts_serialize_competing_homes_and_release_requires_exact_execution() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let first = admission_record(&paths, "request-a", "task");
+        let mut second = admission_record(&paths, "request-b", "task");
+        second.owner_home = temp.path().join("other-home");
+        second.owner_state = second.owner_home.join("state");
+        reserve(&paths, &first, 1).expect("first reservation");
+        let used = resource_use(&paths, &BTreeSet::new()).expect("resource use");
+        assert_eq!(used.get("session"), Some(&1));
+        assert!(!fits(
+            &second,
+            &synthetic_headroom(1),
+            &AdmissionConfig::default(),
+            &used
+        ));
+        admission_finish(
+            &paths,
+            "request-a",
+            Some("session:task".into()),
+            Some("allocation-1".into()),
+            None,
+        )
+        .expect("active");
+        assert_eq!(
+            resource_use(&paths, &BTreeSet::from(["request-a".into()]))
+                .expect("active")
+                .get("session"),
+            None
+        );
+        assert!(
+            !admission_release_execution(
+                &paths,
+                "task",
+                &paths.state,
+                "wrong-attempt",
+                "session:task"
+            )
+            .expect("wrong evidence")
+        );
+        assert!(
+            admission_release_execution(&paths, "task", &paths.state, "attempt-1", "session:task")
+                .expect("release")
+        );
+        assert!(existing_admission_decision(AdmissionState::Released, false).is_err());
+    }
+
+    #[test]
+    fn admission_owner_and_symlinked_paths_reconcile_to_exact_physical_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let record = admission_record(&paths, "request", "task");
+        reserve(&paths, &record, 1).expect("reserve");
+        let receipt = read_receipt(&paths, "request")
+            .expect("receipt read")
+            .expect("receipt");
+        let linked = temp.path().join("linked-home");
+        symlink(temp.path(), &linked).expect("home symlink");
+        let mut equivalent = receipt.clone();
+        equivalent.root_home = linked.clone();
+        equivalent.owner_home = linked.clone();
+        equivalent.owner_state = linked.join("state");
+        assert!(same_receipt_identity(&receipt, &equivalent));
+
+        let absolute = absolute_ps_identity(std::process::id()).expect("absolute ps identity");
+        assert_eq!(absolute.pid, std::process::id());
+        assert!(!absolute.marker.is_empty());
+        assert_eq!(
+            admission_owner_identity(std::process::id())
+                .expect("admission owner")
+                .pid,
+            std::process::id()
+        );
+    }
+
+    #[test]
+    fn uncertain_admission_needs_proof_before_exact_retry() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let record = admission_record(&paths, "request", "task");
+        reserve(&paths, &record, 1).expect("reserve");
+        admission_finish(
+            &paths,
+            "request",
+            None,
+            Some("allocation".into()),
+            Some("unknown endpoint".into()),
+        )
+        .expect("uncertain");
+        assert!(existing_admission_decision(AdmissionState::Uncertain, true).is_err());
+        assert!(
+            admission_retryable(&paths, "request", "task", &paths.state, "wrong", "absent")
+                .is_err()
+        );
+        admission_retryable(
+            &paths,
+            "request",
+            "task",
+            &paths.state,
+            "attempt-1",
+            "verified absent",
+        )
+        .expect("retryable");
+        assert_eq!(
+            existing_admission_decision(AdmissionState::Retryable, false).expect("retry"),
+            AdmissionDecision::Granted
+        );
+        reserve(&paths, &record, 2).expect("reserve retry");
+        assert!(existing_admission_decision(AdmissionState::Reserved, false).is_err());
+        assert_eq!(
+            existing_admission_decision(AdmissionState::Reserved, true).expect("queue owner"),
+            AdmissionDecision::Granted
+        );
+        let mut receipt = super::read_receipt(&paths, "request")
+            .expect("receipt")
+            .expect("present");
+        receipt.owner = Some(multplx_core::process::ProcessIdentity {
+            pid: u32::MAX,
+            marker: "dead-owner".into(),
+        });
+        assert!(!reservation_owner_is_live(
+            &receipt,
+            &multplx_core::process::SystemProcessProbe::default()
+        ));
+    }
+
+    #[test]
+    fn reconciliation_rejects_duplicate_canonical_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let mut record = admission_record(&paths, "request", "task");
+        let identity = serde_json::json!({
+            "schema_version": 2,
+            "task_id": "task",
+            "parent_id": record.parent_task_id,
+            "root_id": format!("root-home:{}", paths.root_home.display()),
+            "owner_home": paths.root_home,
+            "owner_state": paths.state,
+            "parent_home": paths.root_home,
+            "parent_state": paths.state,
+            "attempt": {"id":"attempt-1","generation":1,"brief_revision":1},
+            "accepted_brief_revision": 1,
+            "accepted_brief_digest": "digest",
+            "accepted_brief_path": "/tmp/brief",
+            "project": {"project_id":"p","checkout_id":"c","common_git_identity":"g","canonical_path":"/tmp/project","starting_revision":"rev"}
+        });
+        record.canonical_model = Some(identity.to_string());
+        std::fs::write(
+            paths.state.join("task.meta"),
+            format!("canonical_model={identity}\ncanonical_model={identity}\nwindow=x\n"),
+        )
+        .expect("metadata");
+        assert!(metadata_reconciled(&record).is_err());
+    }
+
+    #[test]
+    fn queue_identity_and_dependency_failures_are_closed_before_mutation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let base = admission_record(&paths, "request", "task");
+
+        let mut cases = Vec::new();
+        let mut other_root = base.clone();
+        other_root.root_home = temp.path().join("other-root");
+        cases.push(other_root);
+        let mut relative_owner = base.clone();
+        relative_owner.owner_state = PathBuf::from("relative/state");
+        cases.push(relative_owner);
+        let mut invalid_parent = base.clone();
+        invalid_parent.parent_task_id = "bad/parent".into();
+        cases.push(invalid_parent);
+        let mut empty_resources = base.clone();
+        empty_resources.resources.clear();
+        cases.push(empty_resources);
+        let mut zero_resource = base.clone();
+        zero_resource.resources.insert("gpu".into(), 0);
+        cases.push(zero_resource);
+        let mut self_dependency = base.clone();
+        self_dependency.dependencies.push(Dependency {
+            task_id: self_dependency.task_id.clone(),
+            owner_state: self_dependency.owner_state.clone(),
+        });
+        cases.push(self_dependency);
+        let mut duplicate_dependency = base.clone();
+        let dependency = Dependency {
+            task_id: "prerequisite".into(),
+            owner_state: paths.state.clone(),
+        };
+        duplicate_dependency.dependencies = vec![dependency.clone(), dependency];
+        cases.push(duplicate_dependency);
+        let mut invalid_mode = base.clone();
+        invalid_mode.mode = "merge-anything".into();
+        cases.push(invalid_mode);
+        let mut invalid_yolo = base.clone();
+        invalid_yolo.yolo = "maybe".into();
+        cases.push(invalid_yolo);
+        for record in cases {
+            assert!(validate_record(&paths, &record).is_err(), "{record:?}");
+        }
+
+        assert!(queue_priority(&paths, "bad/id", 1).is_err());
+        let unsafe_record = admission_record(&paths, "unsafe", "unsafe-task");
+        std::fs::create_dir_all(paths.queue_dir()).expect("queue");
+        symlink(
+            temp.path().join("missing-target"),
+            paths.queue_dir().join("unsafe.request"),
+        )
+        .expect("broken symlink");
+        assert!(queue_add(&paths, &unsafe_record).is_err());
+
+        let dependency = Dependency {
+            task_id: "prerequisite".into(),
+            owner_state: paths.state.clone(),
+        };
+        assert!(!dependency_completed(&dependency));
+        std::fs::write(
+            paths.state.join("prerequisite.meta"),
+            "canonical_model={}\ncanonical_model={}\n",
+        )
+        .expect("duplicate models");
+        assert!(!dependency_completed(&dependency));
+        std::fs::write(
+            paths.state.join("prerequisite.meta"),
+            "canonical_model={bad json}\n",
+        )
+        .expect("invalid model");
+        assert!(!dependency_completed(&dependency));
+        std::fs::write(
+            paths.state.join("prerequisite.meta"),
+            r#"canonical_model={"schedule":{"state":"running"}}
+"#,
+        )
+        .expect("running model");
+        assert!(!dependency_completed(&dependency));
+        std::fs::write(
+            paths.state.join("prerequisite.meta"),
+            r#"canonical_model={"schedule":{"state":"completed"}}
+"#,
+        )
+        .expect("completed model");
+        assert!(dependency_completed(&dependency));
+
+        let mut deferred = base;
+        deferred.dependencies.push(Dependency {
+            task_id: "missing".into(),
+            owner_state: paths.state.clone(),
+        });
+        assert_eq!(
+            admission_try_reserve(&paths, &deferred).expect("dependency deferral"),
+            AdmissionDecision::Deferred
+        );
+        assert!(
+            read_receipt(&paths, "request")
+                .expect("receipt lookup")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn corrupt_conflicting_and_duplicate_admission_receipts_remain_retained() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        assert!(read_receipt(&paths, "bad/id").is_err());
+        let record = admission_record(&paths, "request", "task");
+        reserve(&paths, &record, 1).expect("reserve");
+        let receipt_path = paths.admissions_dir().join("request.json");
+        let original = std::fs::read(&receipt_path).expect("original receipt");
+
+        std::fs::write(&receipt_path, b"{").expect("corrupt receipt");
+        assert!(read_receipt(&paths, "request").is_err());
+        std::fs::write(&receipt_path, &original).expect("restore receipt");
+        let mut invalid = read_receipt(&paths, "request")
+            .expect("valid read")
+            .expect("receipt");
+        invalid.version = 2;
+        std::fs::write(&receipt_path, serde_json::to_vec(&invalid).expect("encode"))
+            .expect("invalid identity");
+        assert!(read_receipt(&paths, "request").is_err());
+        std::fs::write(&receipt_path, &original).expect("restore receipt");
+
+        let mut conflicting = record.clone();
+        conflicting.resources.insert("gpu".into(), 1);
+        assert!(reserve(&paths, &conflicting, 2).is_err());
+        assert!(absolute_ps_identity(0).is_err());
+        assert!(admission_finish(&paths, "missing", None, None, None).is_err());
+        assert!(
+            admission_retryable(
+                &paths,
+                "missing",
+                "task",
+                &paths.state,
+                "attempt-1",
+                "absent",
+            )
+            .is_err()
+        );
+
+        admission_finish(
+            &paths,
+            "request",
+            Some("session:task".into()),
+            Some("allocation".into()),
+            None,
+        )
+        .expect("active");
+        let active = read_receipt(&paths, "request")
+            .expect("read active")
+            .expect("active");
+        assert_eq!(
+            resource_use(&paths, &BTreeSet::from(["request".into()]))
+                .expect("active use")
+                .get("project:demo"),
+            Some(&1)
+        );
+        assert_eq!(
+            resource_use(&paths, &BTreeSet::from(["request".into()]))
+                .expect("native use")
+                .get("session"),
+            None
+        );
+
+        let mut duplicate = active.clone();
+        duplicate.request_id = "duplicate".into();
+        write_receipt(&paths, &duplicate).expect("duplicate execution claim");
+        assert!(
+            admission_release_execution(&paths, "task", &paths.state, "attempt-1", "session:task",)
+                .is_err()
+        );
+        duplicate.state = AdmissionState::Released;
+        write_receipt(&paths, &duplicate).expect("retire duplicate");
+        assert!(
+            admission_release_execution(&paths, "task", &paths.state, "attempt-1", "session:task",)
+                .expect("unique release")
+        );
+        assert!(
+            resource_use(&paths, &BTreeSet::new())
+                .expect("released use")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn public_admission_recovers_dead_reservation_and_keeps_active_custom_units() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        #[cfg(target_os = "linux")]
+        let paths = HeadroomPaths {
+            proc_root: PathBuf::from("/proc"),
+            ..paths
+        };
+        std::fs::write(
+            paths.config.join("admission-capacity.json"),
+            r#"{"version":1,"aging_seconds":5,"resources":{"gpu":2}}"#,
+        )
+        .expect("capacity");
+        let mut record = admission_record(&paths, "request", "task");
+        record.resources = std::collections::BTreeMap::from([("gpu".into(), 2)]);
+
+        assert_eq!(
+            admission_try_reserve(&paths, &record).expect("first reservation"),
+            AdmissionDecision::Granted
+        );
+        assert!(admission_try_reserve(&paths, &record).is_err());
+
+        let mut abandoned = read_receipt(&paths, "request")
+            .expect("read reservation")
+            .expect("reservation");
+        abandoned.owner = Some(multplx_core::process::ProcessIdentity {
+            pid: u32::MAX,
+            marker: "dead owner lifetime".into(),
+        });
+        write_receipt(&paths, &abandoned).expect("simulate owner crash");
+        assert_eq!(
+            admission_try_reserve(&paths, &record).expect("recover dead owner"),
+            AdmissionDecision::Granted
+        );
+        assert_eq!(
+            admission_resume_reserved(&paths, &record).expect("resume exact queue reservation"),
+            AdmissionDecision::Granted
+        );
+
+        admission_finish(
+            &paths,
+            "request",
+            Some("session:task".into()),
+            Some("allocation".into()),
+            None,
+        )
+        .expect("activate");
+        assert_eq!(
+            admission_try_reserve(&paths, &record).expect("active convergence"),
+            AdmissionDecision::AlreadyActive
+        );
+        let mut competing = admission_record(&paths, "competing", "other-task");
+        competing.resources = std::collections::BTreeMap::from([("gpu".into(), 1)]);
+        assert_eq!(
+            admission_try_reserve(&paths, &competing).expect("custom capacity"),
+            AdmissionDecision::Deferred
+        );
+        assert!(
+            read_receipt(&paths, "competing")
+                .expect("competing receipt lookup")
+                .is_none()
+        );
+
+        admission_finish(
+            &paths,
+            "request",
+            None,
+            None,
+            Some("provider result was uncertain".into()),
+        )
+        .expect("uncertain");
+        admission_retryable(
+            &paths,
+            "request",
+            "task",
+            &paths.state,
+            "attempt-1",
+            "endpoint proved absent",
+        )
+        .expect("retryable");
+        assert_eq!(
+            admission_try_reserve(&paths, &record).expect("retry reservation"),
+            AdmissionDecision::Granted
+        );
+    }
+
+    #[test]
+    fn actual_headroom_counts_nested_root_and_persistent_active_receipts_once() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        #[cfg(target_os = "linux")]
+        let paths = HeadroomPaths {
+            proc_root: PathBuf::from("/proc"),
+            ..paths
+        };
+        std::fs::write(paths.config.join("api-capacity"), "3\n").expect("global capacity");
+        std::fs::write(paths.config.join("api-capacity-codex"), "2\n").expect("codex capacity");
+        std::fs::write(paths.config.join("api-capacity-opaque"), "1\n").expect("opaque capacity");
+        std::fs::write(
+            paths.config.join("actor-dispatch.json"),
+            r#"{"rules":[],"default":[{"harness":"codex"},{"harness":"opaque"}]}"#,
+        )
+        .expect("dispatch candidates");
+
+        let mut nested = admission_record(&paths, "nested-request", "nested");
+        nested.owner_home = temp.path().join("child-home");
+        nested.owner_state = nested.owner_home.join("state");
+        nested.resources = BTreeMap::from([("session".into(), 1), ("harness:codex".into(), 1)]);
+        reserve(&paths, &nested, 1).expect("nested reserve");
+        admission_finish(
+            &paths,
+            "nested-request",
+            Some("session:nested".into()),
+            None,
+            None,
+        )
+        .expect("nested active");
+
+        let mut root = admission_record(&paths, "root-request", "root-task");
+        root.resources = nested.resources.clone();
+        reserve(&paths, &root, 1).expect("root reserve");
+        admission_finish(
+            &paths,
+            "root-request",
+            Some("session:root".into()),
+            None,
+            None,
+        )
+        .expect("root active");
+        std::fs::write(
+            paths.state.join("root-task.meta"),
+            "window=session:root\nharness=codex\nkind=delivery\ncanonical_model={\"attempt\":{\"id\":\"attempt-1\"}}\n",
+        )
+        .expect("root metadata");
+
+        let mut coordinator = admission_record(&paths, "coordinator-request", "coordinator");
+        coordinator.kind = "daemon".into();
+        coordinator.owner_home = temp.path().join("coordinator-home");
+        coordinator.owner_state = coordinator.owner_home.join("state");
+        coordinator.resources =
+            BTreeMap::from([("session".into(), 1), ("harness:opaque".into(), 1)]);
+        reserve(&paths, &coordinator, 1).expect("coordinator reserve");
+        admission_finish(
+            &paths,
+            "coordinator-request",
+            Some("provider:coordinator".into()),
+            None,
+            None,
+        )
+        .expect("coordinator active");
+
+        let headroom = evaluate(&paths).expect("actual headroom");
+        assert_eq!(headroom.in_use, 3);
+        assert_eq!(headroom.available, 0);
+        assert!(headroom.at_limit());
+        assert_eq!(headroom.candidates["codex"].in_use, 2);
+        assert_eq!(headroom.candidates["opaque"].in_use, 1);
+
+        let mut next = admission_record(&paths, "next-request", "next");
+        next.resources = BTreeMap::from([("session".into(), 1), ("harness:opaque".into(), 1)]);
+        assert_eq!(
+            admission_try_reserve(&paths, &next).expect("root budget exhausted"),
+            AdmissionDecision::Deferred
+        );
+
+        std::fs::write(
+            paths.state.join("legacy-daemon.meta"),
+            "window=legacy:daemon\nbackend=unknown\nharness=opaque\nkind=daemon\n",
+        )
+        .expect("legacy daemon metadata");
+        let (total, harnesses, observed) =
+            live_counts_with_probe(&paths, |_, _| true, None).expect("legacy live probe");
+        assert_eq!(total, 4, "root receipt and metadata must be deduplicated");
+        assert_eq!(harnesses.get("codex"), Some(&2));
+        assert_eq!(harnesses.get("opaque"), Some(&2));
+        assert_eq!(observed.len(), 3);
+    }
+
+    #[test]
+    fn nested_active_receipt_exhausts_a_one_session_root_budget() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        #[cfg(target_os = "linux")]
+        let paths = HeadroomPaths {
+            proc_root: PathBuf::from("/proc"),
+            ..paths
+        };
+        std::fs::write(paths.config.join("api-capacity"), "1\n").expect("capacity");
+        let mut nested = admission_record(&paths, "nested-request", "nested");
+        nested.owner_home = temp.path().join("child-home");
+        nested.owner_state = nested.owner_home.join("state");
+        reserve(&paths, &nested, 1).expect("nested reserve");
+        admission_finish(
+            &paths,
+            "nested-request",
+            Some("session:nested".into()),
+            None,
+            None,
+        )
+        .expect("nested active");
+
+        let headroom = evaluate(&paths).expect("actual root headroom");
+        assert_eq!((headroom.in_use, headroom.available), (1, 0));
+        let (overridden_total, overridden_harnesses, observed) =
+            live_counts_with_probe(&paths, |_, _| false, Some(0)).expect("zero native override");
+        assert_eq!(overridden_total, 1);
+        assert_eq!(overridden_harnesses.get("codex"), Some(&1));
+        assert!(observed.contains("nested-request"));
+        let next = admission_record(&paths, "next-request", "next");
+        assert_eq!(
+            admission_try_reserve(&paths, &next).expect("nested budget retained"),
+            AdmissionDecision::Deferred
+        );
+    }
+
+    #[test]
+    fn admission_recounts_receipts_activated_after_the_headroom_snapshot() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        #[cfg(target_os = "linux")]
+        let paths = HeadroomPaths {
+            proc_root: PathBuf::from("/proc"),
+            ..paths
+        };
+        std::fs::write(paths.config.join("api-capacity"), "1\n").expect("capacity");
+        let record = admission_record(&paths, "racing-request", "racing");
+        reserve(&paths, &record, 1).expect("reserved before snapshot");
+        let snapshot = evaluate(&paths).expect("headroom snapshot");
+        assert!(!snapshot.observed_active_receipts.contains("racing-request"));
+        admission_finish(
+            &paths,
+            "racing-request",
+            Some("session:racing".into()),
+            None,
+            None,
+        )
+        .expect("activate after snapshot");
+        let used = resource_use(&paths, &snapshot.observed_active_receipts)
+            .expect("locked receipt recount");
+        assert_eq!(used.get("session"), Some(&1));
+        let next = admission_record(&paths, "next-request", "next");
+        assert!(!fits(&next, &snapshot, &AdmissionConfig::default(), &used,));
+    }
+
+    #[test]
+    fn inactive_admission_reconciliation_requires_exact_metadata_and_backend() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let mut record = admission_record(&paths, "request", "task");
+        record.backend = "unknown".into();
+        reserve(&paths, &record, 1).expect("reserve");
+        admission_finish(
+            &paths,
+            "request",
+            Some("provider:endpoint".into()),
+            None,
+            None,
+        )
+        .expect("active");
+        let canonical = serde_json::json!({
+            "task_id": "task",
+            "root_id": format!("root-home:{}", paths.root_home.display()),
+            "owner_home": paths.root_home,
+            "owner_state": paths.state,
+            "attempt": {"id": "attempt-1"}
+        });
+        let metadata = |backend: &str, model: &serde_json::Value| {
+            format!("window=provider:endpoint\nbackend={backend}\ncanonical_model={model}\n")
+        };
+
+        std::fs::write(
+            paths.state.join("task.meta"),
+            metadata("unknown", &canonical),
+        )
+        .expect("unknown backend metadata");
+        assert_eq!(
+            admission_reconcile_inactive(&paths).expect("opaque provider"),
+            0
+        );
+
+        std::fs::write(
+            paths.state.join("task.meta"),
+            "window=provider:endpoint\nbackend=tmux\n",
+        )
+        .expect("missing identity");
+        assert!(admission_reconcile_inactive(&paths).is_err());
+        std::fs::write(
+            paths.state.join("task.meta"),
+            "window=provider:endpoint\nbackend=tmux\ncanonical_model={bad}\n",
+        )
+        .expect("bad identity");
+        assert!(admission_reconcile_inactive(&paths).is_err());
+        let mut wrong = canonical.clone();
+        wrong["task_id"] = serde_json::json!("other");
+        std::fs::write(paths.state.join("task.meta"), metadata("tmux", &wrong))
+            .expect("wrong identity");
+        assert!(admission_reconcile_inactive(&paths).is_err());
+        std::fs::write(paths.state.join("task.meta"), metadata("herdr", &canonical))
+            .expect("changed backend");
+        assert!(admission_reconcile_inactive(&paths).is_err());
+
+        std::fs::remove_file(paths.state.join("task.meta")).expect("remove metadata");
+        assert_eq!(
+            admission_reconcile_inactive(&paths).expect("missing metadata"),
+            0
+        );
     }
 }

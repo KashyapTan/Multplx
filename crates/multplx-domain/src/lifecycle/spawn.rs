@@ -42,6 +42,104 @@ pub struct Request {
     pub single_checkout_base_branch: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdmissionContext {
+    pub root_home: PathBuf,
+    pub owner_home: PathBuf,
+    pub owner_state: PathBuf,
+    pub parent_task_id: String,
+    pub parent_home: PathBuf,
+    pub parent_state: PathBuf,
+    pub attempt_id: String,
+}
+
+/// Project Phase 02 identity into the root-scoped admission boundary. The root
+/// path comes only from the validated canonical root identity established by
+/// `prepare_binding`; launch-directory and runtime-source overrides are ignored.
+pub fn admission_context(
+    record: &super::subagent_model::TaskRecord,
+) -> Result<AdmissionContext, String> {
+    record.validate()?;
+    let root = record.root_id.as_deref().ok_or("root identity missing")?;
+    let root_home = root
+        .strip_prefix("root-home:")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or("root identity does not name a canonical operational home")?;
+    let owner_home = PathBuf::from(record.owner_home.as_deref().ok_or("owner home missing")?);
+    let owner_state = PathBuf::from(record.owner_state.as_deref().ok_or("owner state missing")?);
+    let parent_task_id = record.parent_id.clone().ok_or("parent identity missing")?;
+    let parent_home = PathBuf::from(record.parent_home.as_deref().ok_or("parent home missing")?);
+    let parent_state = PathBuf::from(
+        record
+            .parent_state
+            .as_deref()
+            .ok_or("parent state missing")?,
+    );
+    for (name, path) in [
+        ("root home", &root_home),
+        ("owner home", &owner_home),
+        ("owner state", &owner_state),
+        ("parent home", &parent_home),
+        ("parent state", &parent_state),
+    ] {
+        if !path.is_absolute() {
+            return Err(format!("{name} is not absolute"));
+        }
+    }
+    let attempt_id = record
+        .attempt
+        .as_ref()
+        .ok_or("attempt identity missing")?
+        .id
+        .clone();
+    Ok(AdmissionContext {
+        root_home: super::home_seed::resolved(&root_home),
+        owner_home: super::home_seed::resolved(&owner_home),
+        owner_state: super::home_seed::resolved(&owner_state),
+        parent_task_id,
+        parent_home: super::home_seed::resolved(&parent_home),
+        parent_state: super::home_seed::resolved(&parent_state),
+        attempt_id,
+    })
+}
+
+/// Verify that a nested command is executing under the exact current parent
+/// attempt, report-owner state and runtime home recorded at launch.
+pub fn validate_initiating_parent(
+    parent: &super::subagent_model::TaskRecord,
+    runtime_home: &Path,
+    reported_state: &Path,
+    launch_attempt: &str,
+    launch_generation: u64,
+    launch_revision: u64,
+) -> Result<(), String> {
+    let recorded_parent_state = parent
+        .owner_state
+        .as_deref()
+        .map(PathBuf::from)
+        .ok_or("parent state missing")?;
+    if resolved(reported_state) != resolved(&recorded_parent_state) {
+        return Err("launching parent was read from the wrong owner state".into());
+    }
+    let runtime_parent_home = parent
+        .persistent_home
+        .as_deref()
+        .or(parent.owner_home.as_deref())
+        .ok_or("parent runtime home missing")?;
+    if resolved(runtime_home) != resolved(Path::new(runtime_parent_home)) {
+        return Err("launching parent runtime home does not match its task identity".into());
+    }
+    let attempt = parent.attempt.as_ref().ok_or("parent attempt missing")?;
+    if launch_attempt != attempt.id
+        || launch_generation != attempt.generation
+        || launch_revision != attempt.brief_revision
+    {
+        return Err("launching process belongs to a stale parent attempt or brief revision".into());
+    }
+    Ok(())
+}
+
 fn descendant(parent: &Path, child: &Path) -> bool {
     parent != child && child.starts_with(parent)
 }
@@ -634,10 +732,35 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
     let prior = if request.binding.is_some() {
         request.binding.take()
     } else if let Some(queued) = queued {
-        Some(read_meta(
+        let queued = read_meta(
             &request.id,
             &format!("schema_version=2\ncanonical_model={queued}\n"),
-        )?)
+        )?;
+        if existing.exists() {
+            let current = read_meta(
+                &request.id,
+                &fs::read_to_string(&existing).map_err(|error| error.to_string())?,
+            )?;
+            if current.task_id != queued.task_id
+                || current.parent_id != queued.parent_id
+                || current.root_id != queued.root_id
+                || current.owner_home != queued.owner_home
+                || current.owner_state != queued.owner_state
+                || current.parent_home != queued.parent_home
+                || current.parent_state != queued.parent_state
+                || current.attempt != queued.attempt
+                || current.accepted_brief_revision != queued.accepted_brief_revision
+                || current.accepted_brief_digest != queued.accepted_brief_digest
+                || current.project != queued.project
+                || current.role != queued.role
+                || current.artifact != queued.artifact
+            {
+                return Err("queued request conflicts with current task identity".into());
+            }
+            Some(current)
+        } else {
+            Some(queued)
+        }
     } else if existing.exists() {
         Some(read_meta(
             &request.id,
@@ -708,6 +831,24 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
             if parent.legacy_unknown {
                 return Err("launching parent identity is legacy unknown; migrate before nesting canonical children".into());
             }
+            let launch_attempt = std::env::var("MX_ATTEMPT_ID")
+                .map_err(|_| "launching parent attempt identity missing")?;
+            let launch_generation = std::env::var("MX_ATTEMPT_GENERATION")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or("launching parent attempt generation missing or invalid")?;
+            let launch_revision = std::env::var("MX_BRIEF_REVISION")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or("launching parent brief revision missing or invalid")?;
+            validate_initiating_parent(
+                &parent,
+                &context.home,
+                &parent_state,
+                &launch_attempt,
+                launch_generation,
+                launch_revision,
+            )?;
             let parent_home = parent.owner_home.clone().ok_or("parent home missing")?;
             if parent_id == request.id && parent_home == owner_home {
                 return Err("self-parent launch cycle".into());
@@ -843,8 +984,325 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LaunchStage {
+    Reserved,
+    EndpointCreated,
+    MetadataPublished,
+    Submitted,
+    Running,
+    Failed,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LaunchAction {
+    pub version: u32,
+    pub request_id: String,
+    pub task_id: String,
+    pub binding: super::subagent_model::TaskRecord,
+    pub backend: String,
+    pub worktree: Option<PathBuf>,
+    pub endpoint: Option<String>,
+    pub stage: LaunchStage,
+    pub detail: Option<String>,
+}
+
+fn action_path(context: &Context, request_id: &str) -> Result<PathBuf, String> {
+    TaskId::parse(request_id).map_err(|_| "invalid spawn action request id")?;
+    Ok(context
+        .state
+        .join(".spawn-actions")
+        .join(format!("{request_id}.json")))
+}
+
+pub fn read_action(context: &Context, request_id: &str) -> Result<Option<LaunchAction>, String> {
+    let path = action_path(context, request_id)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+        .map_err(|error| format!("spawn action receipt is unreadable; retained: {error}"))?;
+    let action: LaunchAction = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("spawn action receipt is corrupt; retained: {error}"))?;
+    if action.version != 1
+        || action.request_id != request_id
+        || action.task_id != action.binding.task_id
+    {
+        return Err("spawn action receipt identity is invalid; retained".into());
+    }
+    action.binding.validate()?;
+    Ok(Some(action))
+}
+
+pub fn reserve_action(
+    context: &Context,
+    request_id: &str,
+    request: &Request,
+) -> Result<LaunchAction, String> {
+    let binding = request.binding.as_ref().ok_or("spawn binding missing")?;
+    let expected = LaunchAction {
+        version: 1,
+        request_id: request_id.into(),
+        task_id: request.id.clone(),
+        binding: binding.clone(),
+        backend: request.backend.clone(),
+        worktree: None,
+        endpoint: None,
+        stage: LaunchStage::Reserved,
+        detail: None,
+    };
+    if let Some(existing) = read_action(context, request_id)? {
+        let same = existing.task_id == expected.task_id
+            && existing.binding == expected.binding
+            && existing.backend == expected.backend;
+        if !same {
+            return Err("spawn action request conflicts with its durable receipt".into());
+        }
+        return Ok(existing);
+    }
+    fs::create_dir_all(context.state.join(".spawn-actions")).map_err(|e| e.to_string())?;
+    atomic_replace(
+        action_path(context, request_id)?,
+        &serde_json::to_vec(&expected).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(expected)
+}
+
+fn same_launch_identity(
+    left: &super::subagent_model::TaskRecord,
+    right: &super::subagent_model::TaskRecord,
+) -> bool {
+    let same_project = match (&left.project, &right.project) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.project_id == right.project_id
+                && left.common_git_identity == right.common_git_identity
+                && left.common_git_dir == right.common_git_dir
+                && left.canonical_path == right.canonical_path
+                && left.ownership == right.ownership
+        }
+        _ => false,
+    };
+    left.schema_version == right.schema_version
+        && left.task_id == right.task_id
+        && left.role == right.role
+        && left.artifact == right.artifact
+        && left.persistent == right.persistent
+        && left.parent_id == right.parent_id
+        && left.root_id == right.root_id
+        && left.parent_home == right.parent_home
+        && left.owner_home == right.owner_home
+        && left.parent_state == right.parent_state
+        && left.owner_state == right.owner_state
+        && left.persistent_home == right.persistent_home
+        && left.home_allocation == right.home_allocation
+        && left.accepted_brief_digest == right.accepted_brief_digest
+        && left.accepted_brief_path == right.accepted_brief_path
+        && left.accepted_brief_revision == right.accepted_brief_revision
+        && left.briefs == right.briefs
+        && left.assignments == right.assignments
+        && same_project
+}
+
+/// Restore the exact attempt and allocation frozen before an interrupted
+/// launch. Only a receipt already marked failed after verified endpoint
+/// absence may replace the newly prepared, otherwise equivalent binding.
+pub fn recover_failed_action_binding(
+    context: &Context,
+    request_id: &str,
+    request: &mut Request,
+) -> Result<bool, String> {
+    let Some(action) = read_action(context, request_id)? else {
+        return Ok(false);
+    };
+    if action.task_id != request.id || action.backend != request.backend {
+        return Err("spawn action request conflicts with the retry target".into());
+    }
+    if action.stage != LaunchStage::Failed {
+        return Err(
+            "spawn action endpoint is not proven absent; reconcile it before retrying".into(),
+        );
+    }
+    let current = request.binding.as_ref().ok_or("spawn binding missing")?;
+    if !same_launch_identity(current, &action.binding) {
+        return Err("spawn action binding conflicts with the retry identity".into());
+    }
+    request.binding = Some(action.binding);
+    Ok(true)
+}
+
+/// Recover a launch reservation that stopped before allocation and endpoint
+/// creation. The absence of an action receipt proves that no later stage was
+/// durably entered; any allocated binding is therefore refused.
+pub fn recover_preallocation_intent(
+    context: &Context,
+    request_id: &str,
+    request: &mut Request,
+) -> Result<bool, String> {
+    if read_action(context, request_id)?.is_some() {
+        return Ok(false);
+    }
+    let path = context.state.join(format!(".spawn-{}.intent", request.id));
+    if !path.exists() {
+        return Ok(false);
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+        .map_err(|error| format!("spawn intent is unreadable; retained: {error}"))?;
+    let binding: super::subagent_model::TaskRecord = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("spawn intent is corrupt; retained: {error}"))?;
+    binding.validate()?;
+    if binding.allocation.is_some() {
+        return Err(
+            "spawn intent contains an allocation without an action receipt; retained".into(),
+        );
+    }
+    let current = request.binding.as_ref().ok_or("spawn binding missing")?;
+    if !same_launch_identity(current, &binding) {
+        return Err("spawn intent conflicts with the retry identity".into());
+    }
+    request.binding = Some(binding);
+    Ok(true)
+}
+
+pub fn advance_action(
+    context: &Context,
+    request_id: &str,
+    expected_binding: &super::subagent_model::TaskRecord,
+    stage: LaunchStage,
+    worktree: Option<&Path>,
+    endpoint: Option<&str>,
+    detail: Option<&str>,
+) -> Result<LaunchAction, String> {
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        context
+            .state
+            .join(format!(".spawn-action-{request_id}.lock")),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut action = read_action(context, request_id)?.ok_or("spawn action receipt missing")?;
+    if &action.binding != expected_binding {
+        return Err("spawn action binding changed; retained".into());
+    }
+    let rank = |value: LaunchStage| match value {
+        LaunchStage::Reserved => 0,
+        LaunchStage::EndpointCreated => 1,
+        LaunchStage::MetadataPublished => 2,
+        LaunchStage::Submitted => 3,
+        LaunchStage::Running => 4,
+        LaunchStage::Failed => 5,
+    };
+    if action.stage != LaunchStage::Failed
+        && stage != LaunchStage::Failed
+        && rank(stage) < rank(action.stage)
+    {
+        return Err("spawn action stage cannot move backward".into());
+    }
+    if let Some(path) = worktree {
+        if action.worktree.as_deref().is_some_and(|old| old != path) {
+            return Err("spawn action worktree changed; retained".into());
+        }
+        action.worktree = Some(path.to_path_buf());
+    }
+    if let Some(endpoint) = endpoint {
+        validate_record_value("endpoint", endpoint)?;
+        if action
+            .endpoint
+            .as_deref()
+            .is_some_and(|old| old != endpoint)
+            && action.stage != LaunchStage::Failed
+        {
+            return Err("spawn action endpoint changed before failure reconciliation".into());
+        }
+        action.endpoint = Some(endpoint.into());
+    }
+    action.stage = stage;
+    action.detail = detail.map(str::to_owned);
+    atomic_replace(
+        action_path(context, request_id)?,
+        &serde_json::to_vec(&action).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(action)
+}
+
+/// Begin a retry only after the backend owner has established that a recorded
+/// endpoint is absent. The allocation binding remains unchanged.
+pub fn retry_action_after_absence(
+    context: &Context,
+    request_id: &str,
+    expected_binding: &super::subagent_model::TaskRecord,
+    detail: &str,
+) -> Result<LaunchAction, String> {
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        context
+            .state
+            .join(format!(".spawn-action-{request_id}.lock")),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut action = read_action(context, request_id)?.ok_or("spawn action receipt missing")?;
+    if &action.binding != expected_binding || action.stage != LaunchStage::Failed {
+        return Err("spawn action is not eligible for absent-endpoint retry".into());
+    }
+    action.endpoint = None;
+    action.stage = LaunchStage::Reserved;
+    action.detail = Some(detail.into());
+    atomic_replace(
+        action_path(context, request_id)?,
+        &serde_json::to_vec(&action).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(action)
+}
+
 pub fn publish_meta(context: &Context, request: &Request, endpoint: &str) -> Result<(), String> {
     publish_meta_for_worktree(context, request, endpoint, &request.project)
+}
+
+/// Return the private generated-config directory for one exact launch attempt.
+pub fn task_temp_path(_context: &Context, request: &Request) -> Result<PathBuf, String> {
+    let Some(record) = request.binding.as_ref() else {
+        // Legacy metadata-only callers have no executable launch attempt.
+        return Ok(std::env::temp_dir().join(format!("mx-{}", request.id)));
+    };
+    task_temp_path_for_record(record)
+}
+
+/// Return the only qualified generated-config directory accepted for an exact
+/// canonical task attempt. Teardown uses this same derivation before removing
+/// the path recorded in metadata.
+pub fn task_temp_path_for_record(
+    record: &super::subagent_model::TaskRecord,
+) -> Result<PathBuf, String> {
+    record.validate()?;
+    let attempt = record
+        .attempt
+        .as_ref()
+        .ok_or("launch attempt identity is missing")?;
+    let root = record.root_id.as_deref().ok_or("root identity missing")?;
+    let owner_state = record
+        .owner_state
+        .as_deref()
+        .map(Path::new)
+        .ok_or("launch owner state is missing")?;
+    let key = crate::maintainer_override::sha256_text(&format!(
+        "{root}\0{}\0{}\0{}\0{}\0{}",
+        Path::new(owner_state).display(),
+        record.task_id,
+        attempt.id,
+        attempt.generation,
+        attempt.brief_revision
+    ));
+    Ok(std::env::temp_dir().join(format!("mx-{}-{}", record.task_id, &key[..16])))
 }
 
 pub fn publish_meta_for_worktree(
@@ -917,10 +1375,7 @@ pub fn publish_meta_for_worktree(
         request.kind,
         request.model,
         request.effort,
-        path_record_value(
-            "tasktmp",
-            &std::env::temp_dir().join(format!("mx-{}", request.id))
-        )?
+        path_record_value("tasktmp", &task_temp_path(context, request)?)?
     );
     if request.backend != "tmux" {
         text.push_str(&format!("backend={}\n", request.backend));
@@ -1055,6 +1510,425 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    fn bound_request(context: &Context) -> Request {
+        let owner = fs::canonicalize(&context.home).expect("owner");
+        let owner_text = owner.to_string_lossy().into_owned();
+        let mut binding = crate::lifecycle::subagent_model::TaskRecord::new(
+            "task".into(),
+            crate::lifecycle::subagent_model::AssignmentRole::Implementer,
+            crate::lifecycle::subagent_model::ArtifactKind::Implementation,
+            false,
+            format!("root-home:{owner_text}"),
+            format!("root-home:{owner_text}"),
+            owner_text,
+        );
+        binding.owner_state = Some(context.state.to_string_lossy().into_owned());
+        binding.parent_state = binding.owner_state.clone();
+        Request {
+            id: "task".into(),
+            project: context.root.clone(),
+            home: context.home.clone(),
+            kind: "delivery".into(),
+            role: "implementer".into(),
+            output: "implementation".into(),
+            persistent: false,
+            binding: Some(binding),
+            mode: "deep-review".into(),
+            yolo: false,
+            backend: "tmux".into(),
+            harness: "codex".into(),
+            model: "default".into(),
+            effort: "default".into(),
+            single_checkout_override: None,
+            single_checkout_record: None,
+            single_checkout_base_head: None,
+            single_checkout_base_branch: None,
+        }
+    }
+
+    #[test]
+    fn task_temp_path_is_owner_and_attempt_qualified() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let request = bound_request(&context);
+        let first = task_temp_path(&context, &request).expect("first temp path");
+        assert!(
+            first
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("mx-task-") && name.len() >= 24)
+        );
+
+        let mut next_attempt = request.clone();
+        let attempt = next_attempt
+            .binding
+            .as_mut()
+            .and_then(|record| record.attempt.as_mut())
+            .expect("attempt");
+        attempt.id.push_str("-next");
+        attempt.generation += 1;
+        assert_ne!(
+            task_temp_path(&context, &next_attempt).expect("next attempt path"),
+            first
+        );
+
+        let mut other_owner = request;
+        other_owner.binding.as_mut().expect("binding").owner_state = Some(
+            temp.path()
+                .join("other-state")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        assert_ne!(
+            task_temp_path(&context, &other_owner).expect("other owner path"),
+            first
+        );
+    }
+
+    #[test]
+    fn launch_actions_are_monotonic_and_retry_only_after_proven_absence() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let mut request = bound_request(&context);
+        let binding = request.binding.clone().expect("binding");
+        let reserved = reserve_action(&context, "request", &request).expect("reserve");
+        assert_eq!(reserved.stage, LaunchStage::Reserved);
+        advance_action(
+            &context,
+            "request",
+            &binding,
+            LaunchStage::EndpointCreated,
+            Some(Path::new("/tmp/worktree")),
+            Some("session:task"),
+            None,
+        )
+        .expect("endpoint");
+        assert!(
+            advance_action(
+                &context,
+                "request",
+                &binding,
+                LaunchStage::Reserved,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(retry_action_after_absence(&context, "request", &binding, "not proven").is_err());
+        advance_action(
+            &context,
+            "request",
+            &binding,
+            LaunchStage::Failed,
+            None,
+            None,
+            Some("verified absent"),
+        )
+        .expect("failed");
+        let mut fresh = binding.clone();
+        fresh.attempt.as_mut().expect("attempt").id = "new-attempt".into();
+        request.binding = Some(fresh);
+        assert!(recover_failed_action_binding(&context, "request", &mut request).expect("recover"));
+        assert_eq!(request.binding.as_ref(), Some(&binding));
+        let retry = retry_action_after_absence(
+            &context,
+            "request",
+            request.binding.as_ref().expect("binding"),
+            "absence checked",
+        )
+        .expect("retry");
+        assert_eq!(retry.stage, LaunchStage::Reserved);
+        assert_eq!(retry.endpoint, None);
+
+        let preallocation_root = temp.path().join("preallocation");
+        fs::create_dir(&preallocation_root).expect("preallocation root");
+        let preallocation = self::context(&preallocation_root);
+        let mut first = bound_request(&preallocation);
+        let frozen = first.binding.clone().expect("frozen binding");
+        atomic_replace(
+            preallocation.state.join(".spawn-task.intent"),
+            &serde_json::to_vec(&frozen).expect("intent"),
+            0o600,
+        )
+        .expect("write intent");
+        first
+            .binding
+            .as_mut()
+            .expect("fresh")
+            .attempt
+            .as_mut()
+            .expect("attempt")
+            .id = "fresh-attempt".into();
+        assert!(
+            recover_preallocation_intent(&preallocation, "preallocation-request", &mut first)
+                .expect("preallocation recovery")
+        );
+        assert_eq!(first.binding.as_ref(), Some(&frozen));
+    }
+
+    #[test]
+    fn launch_action_faults_retain_the_frozen_attempt_and_allocation_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let request = bound_request(&context);
+        let binding = request.binding.clone().expect("binding");
+
+        assert!(read_action(&context, "bad/id").is_err());
+        fs::create_dir_all(context.state.join(".spawn-actions")).expect("actions");
+        let path = context.state.join(".spawn-actions/request.json");
+        fs::write(&path, b"{").expect("corrupt action");
+        assert!(read_action(&context, "request").is_err());
+        let invalid = LaunchAction {
+            version: 1,
+            request_id: "request".into(),
+            task_id: "other".into(),
+            binding: binding.clone(),
+            backend: request.backend.clone(),
+            worktree: None,
+            endpoint: None,
+            stage: LaunchStage::Reserved,
+            detail: None,
+        };
+        atomic_replace(
+            &path,
+            &serde_json::to_vec(&invalid).expect("invalid action encoding"),
+            0o600,
+        )
+        .expect("invalid action");
+        assert!(read_action(&context, "request").is_err());
+        fs::remove_file(&path).expect("remove invalid action");
+
+        reserve_action(&context, "request", &request).expect("reserve");
+        let mut conflicting_request = request.clone();
+        conflicting_request.backend = "herdr".into();
+        assert!(reserve_action(&context, "request", &conflicting_request).is_err());
+        let mut retry = request.clone();
+        assert!(recover_failed_action_binding(&context, "request", &mut retry).is_err());
+        retry.id = "other".into();
+        assert!(recover_failed_action_binding(&context, "request", &mut retry).is_err());
+
+        let mut changed_binding = binding.clone();
+        changed_binding.role = crate::lifecycle::subagent_model::AssignmentRole::Reviewer;
+        assert!(
+            advance_action(
+                &context,
+                "request",
+                &changed_binding,
+                LaunchStage::EndpointCreated,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
+        advance_action(
+            &context,
+            "request",
+            &binding,
+            LaunchStage::EndpointCreated,
+            Some(Path::new("/tmp/worktree-one")),
+            Some("session:task"),
+            None,
+        )
+        .expect("endpoint");
+        assert!(
+            advance_action(
+                &context,
+                "request",
+                &binding,
+                LaunchStage::MetadataPublished,
+                Some(Path::new("/tmp/worktree-two")),
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            advance_action(
+                &context,
+                "request",
+                &binding,
+                LaunchStage::MetadataPublished,
+                None,
+                Some("session:other"),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            advance_action(
+                &context,
+                "request",
+                &binding,
+                LaunchStage::MetadataPublished,
+                None,
+                Some("unsafe\nendpoint"),
+                None,
+            )
+            .is_err()
+        );
+
+        let other_root = temp.path().join("other");
+        fs::create_dir(&other_root).expect("other root");
+        let other = self::context(&other_root);
+        let mut absent = bound_request(&other);
+        assert!(!recover_failed_action_binding(&other, "missing", &mut absent).expect("no action"));
+        assert!(!recover_preallocation_intent(&other, "missing", &mut absent).expect("no intent"));
+        fs::write(other.state.join(".spawn-task.intent"), b"{").expect("corrupt intent");
+        assert!(recover_preallocation_intent(&other, "missing", &mut absent).is_err());
+        let frozen = absent.binding.clone().expect("frozen");
+        atomic_replace(
+            other.state.join(".spawn-task.intent"),
+            &serde_json::to_vec(&frozen).expect("intent encoding"),
+            0o600,
+        )
+        .expect("intent");
+        absent.binding.as_mut().expect("current").role =
+            crate::lifecycle::subagent_model::AssignmentRole::Reviewer;
+        assert!(recover_preallocation_intent(&other, "missing", &mut absent).is_err());
+        reserve_action(&other, "missing", &bound_request(&other)).expect("action");
+        assert!(
+            !recover_preallocation_intent(&other, "missing", &mut absent).expect("action wins")
+        );
+
+        let mut legacy = bound_request(&context);
+        legacy.binding = None;
+        assert_eq!(
+            task_temp_path(&context, &legacy).expect("legacy temp"),
+            std::env::temp_dir().join("mx-task")
+        );
+    }
+
+    #[test]
+    fn nested_parent_validation_rejects_stale_attempt_and_wrong_home() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let mut request = bound_request(&context);
+        let parent = request.binding.take().expect("parent");
+        let attempt = parent.attempt.as_ref().expect("attempt");
+        assert!(
+            validate_initiating_parent(
+                &parent,
+                &context.home,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_initiating_parent(
+                &parent,
+                &context.home,
+                &context.state,
+                "stale-attempt",
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_initiating_parent(
+                &parent,
+                &context.root,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
+        let mut persistent = parent.clone();
+        persistent.persistent = true;
+        persistent.persistent_home = Some(context.root.to_string_lossy().into_owned());
+        assert!(
+            validate_initiating_parent(
+                &persistent,
+                &context.root,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_ok()
+        );
+
+        assert!(
+            validate_initiating_parent(
+                &parent,
+                &context.home,
+                &context.root,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_initiating_parent(
+                &parent,
+                &context.home,
+                &context.state,
+                &attempt.id,
+                attempt.generation + 1,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_initiating_parent(
+                &parent,
+                &context.home,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision + 1,
+            )
+            .is_err()
+        );
+        let mut missing_state = parent.clone();
+        missing_state.owner_state = None;
+        assert!(
+            validate_initiating_parent(
+                &missing_state,
+                &context.home,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
+        let mut missing_home = parent.clone();
+        missing_home.owner_home = None;
+        assert!(
+            validate_initiating_parent(
+                &missing_home,
+                &context.home,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
+        let mut missing_attempt = parent.clone();
+        missing_attempt.attempt = None;
+        assert!(
+            validate_initiating_parent(
+                &missing_attempt,
+                &context.home,
+                &context.state,
+                &attempt.id,
+                attempt.generation,
+                attempt.brief_revision,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1522,6 +2396,122 @@ mod tests {
             validate_for_launch(&request)
                 .expect_err("non-UTF-8 path")
                 .contains("not valid UTF-8")
+        );
+    }
+
+    #[test]
+    fn assignment_and_authority_options_fail_closed_before_launch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let project = context.projects.join("project");
+        fs::create_dir(&project).expect("project");
+        fs::create_dir_all(context.data.join("task")).expect("brief directory");
+        let brief = context.data.join("task/brief.md");
+        fs::write(&brief, "brief\n").expect("brief");
+
+        for values in [
+            vec!["task", "projects/project", "--role", "operator"],
+            vec![
+                "task",
+                "projects/project",
+                "--role",
+                "implementer",
+                "--role",
+                "reviewer",
+            ],
+            vec!["task", "projects/project", "--output", "archive"],
+            vec![
+                "task",
+                "projects/project",
+                "--output",
+                "report",
+                "--output",
+                "implementation",
+            ],
+            vec!["task", "projects/project", "--mode", "merge-anywhere"],
+            vec!["task", "projects/project", "--yolo", "maybe"],
+            vec!["task", "projects/project", "--scout", "--role", "reviewer"],
+            vec!["task", "projects/project", "--role", "sub-orchestrator"],
+            vec![
+                "task",
+                "projects/project",
+                "--role",
+                "sub-orchestrator",
+                "--output",
+                "implementation",
+            ],
+        ] {
+            assert!(
+                parse(&args(&values), &context, "codex").is_err(),
+                "{values:?}"
+            );
+        }
+
+        fs::write(
+            &brief,
+            "<!-- mx-assignment role=implementer output=implementation -->\n<!-- mx-assignment role=reviewer output=report -->\n",
+        )
+        .expect("duplicate markers");
+        assert!(parse(&args(&["task", "projects/project"]), &context, "codex").is_err());
+        fs::write(
+            &brief,
+            "<!-- mx-assignment role=operator output=report -->\n",
+        )
+        .expect("invalid marker role");
+        assert!(parse(&args(&["task", "projects/project"]), &context, "codex").is_err());
+        fs::write(
+            &brief,
+            "<!-- mx-assignment role=reviewer output=archive -->\n",
+        )
+        .expect("invalid marker output");
+        assert!(parse(&args(&["task", "projects/project"]), &context, "codex").is_err());
+        fs::write(
+            &brief,
+            "<!-- mx-assignment role=reviewer output=report -->\n",
+        )
+        .expect("role marker");
+        assert!(
+            parse(
+                &args(&["task", "projects/project", "--role", "implementer",]),
+                &context,
+                "codex",
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                &args(&["daemon", "--daemon", "--mode", "deep-review"]),
+                &context,
+                "codex",
+            )
+            .is_err()
+        );
+
+        let mut invalid = bound_request(&context);
+        invalid.role = "operator".into();
+        assert!(validate_for_launch(&invalid).is_err());
+        invalid.role = "implementer".into();
+        invalid.mode = "daemon".into();
+        assert!(validate_for_launch(&invalid).is_err());
+
+        let publication = bound_request(&context);
+        let binding = publication.binding.as_ref().expect("binding");
+        atomic_replace(
+            context.state.join(".spawn-task.intent"),
+            &serde_json::to_vec(binding).expect("intent encoding"),
+            0o600,
+        )
+        .expect("intent");
+        fs::write(&brief, "accepted bytes changed\n").expect("changed brief");
+        assert!(
+            publish_meta_for_worktree(
+                &context,
+                &publication,
+                "session:task",
+                &publication.project,
+            )
+            .expect_err("digest mismatch")
+            .contains("accepted brief changed")
         );
     }
 }

@@ -25,8 +25,21 @@ case "${1:-}" in
     printf '@1\n'
     exit 0
     ;;
-  has-session|new-session|send-keys|kill-window)
+  has-session|new-session|kill-window)
     printf '%s\n' "$*" >> "$MX_FAKE_TMUX_LOG"
+    exit 0
+    ;;
+  send-keys)
+    printf '%s\n' "$*" >> "$MX_FAKE_TMUX_LOG"
+    prev=
+    for argument in "$@"; do
+      if [ "$prev" = -l ]; then
+        launch_script=${argument#\'}
+        launch_script=${launch_script%\'}
+        [ ! -f "$launch_script" ] || cat "$launch_script" >> "$MX_FAKE_TMUX_LOG"
+      fi
+      prev=$argument
+    done
     exit 0
     ;;
   list-windows)

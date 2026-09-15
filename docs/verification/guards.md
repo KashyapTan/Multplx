@@ -2,7 +2,7 @@
 
 Audience: maintainer verification.
 
-This record contains current dated, version-scoped evidence for the primary-session watcher-arm, persistent-directory, and delegation guards plus the decision-hold completion gate.
+This record contains current dated, version-scoped evidence for the primary-session watcher-arm and persistent-directory guards plus the decision-hold completion gate. Its delegation-guard section is retained as explicitly superseded history.
 The linked mechanism pages own stable behavior, safety rationale, scope, and limits.
 Scratch paths, private task identities, and delivery chronology are intentionally omitted.
 
@@ -73,6 +73,10 @@ The stable mechanism and accepted non-goals remain in [cd-guard PreToolUse seatb
 
 ## Primary-session delegation guard
 
+This section is dated historical evidence for behavior retired by lean redesign Phase 04.
+
+The current runtime allows native delegation, does not register the guard, and retains its executable name only as an allowing compatibility entry.
+
 The live pass ran on 2026-07-22 with Claude Code 2.1.217 in fresh scratch repositories.
 The common launch command was:
 
@@ -106,7 +110,7 @@ bash -n bin/mx-subagent-pretool-check.sh
 tests/mx-subagent-pretool-check.test.sh
 ```
 
-The stable mechanism, exact deny list, harness applicability, and residual gap remain in [Primary-session delegation guard](../subagent-guard.md).
+The replacement observation and compatibility contract is in [Native delegation and observation](../subagent-guard.md).
 
 ### Codex applicability
 
@@ -148,7 +152,7 @@ SUBAGENT_TOOL=yes
 ```
 
 `collaboration.spawn_agent` creates a delegated agent, so Codex was applicable to this guard in that tested configuration.
-The tracked `.codex/hooks.json` did not wire the delegation guard at the time of the pass.
+The tracked `.codex/hooks.json` did not wire the delegation guard at the time of the pass and now wires native lifecycle observation instead.
 The earlier 2026-07-22 enumeration with Codex CLI 0.144.1 reported no delegation tool; applicability must therefore remain version- and configuration-scoped rather than being inferred from older evidence.
 
 ## Decision-hold completion gate

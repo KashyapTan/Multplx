@@ -73,10 +73,10 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 04 · Multplx</div>
 <h1>Free Delegation, Durable Coordination</h1>
 <p class="subtitle">Allow CLI and native delegation while keeping task-bound communication, queue ownership and truthful recovery.</p>
-<div class="badges"><span class="badge phase">Phase 04 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 04 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · scoped acceptance · 2026-09-15</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. Implementation, repository checks and live Codex CLI verification are complete. The user deferred other provider live trials until after all phases; the evidence records those limits.</p></div>
 <p><b>Dependencies:</b> 02, 03.</p>
 <h2>Overview</h2>
 <p>The current delegation guard denies tools by name shape, while in-flight supervision depends on metadata that only Multplx spawn creates. Freedom requires removing that guard and making native session limits visible without turning registration into another permission gate.</p>
@@ -154,7 +154,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Do not recreate the old guard as a mandatory tracking wrapper. Also do not call unobserved native children durable: preserving user freedom and reporting actual provider limits are both part of acceptance.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<p>Status: complete under user-approved acceptance on <code>lean-redesign-phase-04</code> from merged prerequisite <code>bee67f6</code>; repository validation and live Codex CLI pass, with other provider live trials deferred. <a href="phase04-implementation.md">Implementation evidence and deferred verification</a>. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
 <nav class="footer-nav"><a href="03-built-in-worktree-lifecycle.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="05-scoped-sub-orchestrators.html">Next →</a></nav>
 </main>
 </body>

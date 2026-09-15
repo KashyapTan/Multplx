@@ -2610,9 +2610,9 @@ test_retirement_crash_recovery() {
   assert_poll_absent "$state" task-a
   raw_count=$(grep -c $'\tcheck\t.*task-a.check.sh\t' "$state/.wake-queue")
   [ "$raw_count" -eq 2 ] || fail "post-queue retry did not preserve at-least-once rows"
-  MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/mx-wake-drain.sh" > "$dir/drain.out" 2>/dev/null
+  MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" owned_wake "$state" "$ROOT/bin/mx-wake-drain.sh" > "$dir/drain.out" 2>/dev/null
   drain_count=$(grep -c $'\tcheck\t.*task-a.check.sh\t' "$dir/drain.out")
-  [ "$drain_count" -eq 1 ] || fail "same-key crash retry rows did not deduplicate at drain"
+  [ "$drain_count" -eq 2 ] || fail "same-key crash retry transition rows were not both retained"
 
   dir=$(make_case retirement-after-receipt)
   state="$dir/home/state"

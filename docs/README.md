@@ -34,7 +34,9 @@ Choose the path that matches what you are trying to do; agent operating contract
 ## Safety and supervision
 
 - [Native session-start nudge](sessionstart-nudge.md), [turn-end guard](turnend-guard.md), and [watcher continuity](watcher-continuity.md) explain the primary supervision chain.
-- [Watcher arm guard](arm-pretool-check.md), [cd guard](cd-guard.md), and [delegation guard](subagent-guard.md) document the primary-session safety seatbelts.
+- [Watcher arm guard](arm-pretool-check.md) and [cd guard](cd-guard.md) document the primary-session safety seatbelts.
+- [Delegation and native observation](subagent-guard.md) explains allowed delegation, lifecycle evidence and session-bound recovery limits.
+- [Durable coordination](durable-coordination.md) describes wake handling, task-scoped messaging and repeat-safe terminal requests.
 - [Decision hold lifecycle](decision-hold-lifecycle.md) explains how unresolved maintainer decisions survive teardown.
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.

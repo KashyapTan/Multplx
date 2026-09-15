@@ -152,6 +152,33 @@ pub struct RetainedExecution {
     pub runtime: RuntimeReference,
     pub allocation: Option<AllocationBinding>,
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeObservationState {
+    Started,
+    Result,
+    Interrupted,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NativeDelegationObservation {
+    pub observation_id: String,
+    pub provider: String,
+    /// Retained only when the provider supplies a child identity.
+    pub child_id: Option<String>,
+    pub parent_session_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub parent_attempt: Option<Attempt>,
+    pub state: NativeObservationState,
+    pub observed_at: String,
+    /// A provider-owned transcript or result artifact. Its prose never
+    /// becomes an authoritative task completion transition.
+    pub artifact: Option<String>,
+    /// `provider-identity` is reserved for a provider whose continuation
+    /// behavior is independently verified. `session-bound` makes no survival
+    /// claim, even when an identifier is available for event correlation.
+    pub recovery: String,
+}
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TaskRecord {
@@ -177,6 +204,8 @@ pub struct TaskRecord {
     pub briefs: Vec<BriefRevision>,
     pub prior_attempts: Vec<Attempt>,
     pub retained_executions: Vec<RetainedExecution>,
+    #[serde(default)]
+    pub native_observations: Vec<NativeDelegationObservation>,
     pub assignments: Vec<AssignmentChange>,
     pub schedule: ScheduleFacts,
     pub project: Option<ProjectBinding>,
@@ -252,6 +281,7 @@ impl TaskRecord {
             }],
             prior_attempts: vec![],
             retained_executions: vec![],
+            native_observations: vec![],
             assignments: vec![AssignmentChange {
                 generation: 1,
                 role,
@@ -349,6 +379,20 @@ impl TaskRecord {
             a.id.is_empty() || a.generation == 0 || !attempts.insert((&a.id, a.generation))
         }) {
             return Err("invalid historical attempt identity".into());
+        }
+        let mut native_observations = BTreeSet::new();
+        if self.native_observations.iter().any(|observation| {
+            observation.observation_id.is_empty()
+                || observation.provider.is_empty()
+                || observation.observed_at.is_empty()
+                || !matches!(
+                    observation.recovery.as_str(),
+                    "provider-identity" | "session-bound"
+                )
+                || (observation.recovery == "provider-identity" && observation.child_id.is_none())
+                || !native_observations.insert(&observation.observation_id)
+        }) {
+            return Err("invalid native delegation observation".into());
         }
         let mut seen = BTreeSet::new();
         if self

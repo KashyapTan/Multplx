@@ -993,7 +993,7 @@ test_daemon_spawn_refuses_cmux_backend() {
   local dir state data config projects out status
   dir="$TMP_ROOT/daemon-refuse"; state="$dir/state"; data="$dir/data"; config="$dir/config"; projects="$dir/projects"
   mkdir -p "$state" "$data" "$config" "$projects"
-  out=$( MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" MX_PROJECTS_OVERRIDE="$projects" \
+  out=$( MX_HOME="$dir" MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" MX_PROJECTS_OVERRIDE="$projects" \
     "$ROOT/bin/mx-spawn.sh" sm-cmux-test --daemon --backend cmux 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "mx-spawn.sh should refuse a --daemon spawn with --backend cmux"

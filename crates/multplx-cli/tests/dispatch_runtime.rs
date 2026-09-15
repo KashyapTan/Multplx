@@ -1004,3 +1004,192 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
         Some(2)
     );
 }
+
+#[test]
+fn nested_headroom_commands_service_the_validated_root_queue() {
+    use multplx_domain::lifecycle::subagent_model::{
+        ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+    };
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root_home = temp.path().join("root-home");
+    let child_home = temp.path().join("child-home");
+    let root_state = root_home.join("state");
+    for path in [&root_state, &child_home] {
+        fs::create_dir_all(path).expect("directory");
+    }
+    let root_text = fs::canonicalize(&root_home)
+        .expect("root")
+        .to_string_lossy()
+        .into_owned();
+    let child_text = fs::canonicalize(&child_home)
+        .expect("child")
+        .to_string_lossy()
+        .into_owned();
+    let mut parent = TaskRecord::new(
+        "parent".into(),
+        AssignmentRole::SubOrchestrator,
+        ArtifactKind::Coordination,
+        true,
+        format!("root-home:{root_text}"),
+        format!("root-home:{root_text}"),
+        root_text.clone(),
+    );
+    parent.owner_state = Some(root_state.to_string_lossy().into_owned());
+    parent.parent_state = parent.owner_state.clone();
+    parent.persistent_home = Some(child_text.clone());
+    let attempt = parent.attempt.clone().expect("attempt");
+    fs::write(
+        root_state.join("parent.meta"),
+        write_meta("", &parent).expect("parent metadata"),
+    )
+    .expect("parent metadata");
+    let queue = root_state.join(".dispatch-queue");
+    fs::create_dir(&queue).expect("queue");
+    fs::write(
+        queue.join("nested.request"),
+        "version=1\ntask_id=nested\nproject=/tmp/project\nkind=delivery\nenqueued_at=1\n",
+    )
+    .expect("queue record");
+    fs::set_permissions(
+        queue.join("nested.request"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .expect("queue mode");
+    let invoke = |attempt_id: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mx"))
+            .args(["headroom", "--queue"])
+            .env("MX_HOME", &child_home)
+            .env("MX_TASK_ID", "parent")
+            .env("MX_REPORT_STATE_OVERRIDE", &root_state)
+            .env("MX_ATTEMPT_ID", attempt_id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .output()
+            .expect("headroom")
+    };
+    let listed = invoke(&attempt.id);
+    assert_success(&listed);
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("\tnested\t/tmp/project"));
+    let stale = invoke("stale-attempt");
+    assert!(!stale.status.success());
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("stale parent attempt"));
+    fs::remove_file(queue.join("nested.request")).expect("remove legacy queue fixture");
+
+    fs::create_dir_all(root_home.join("config")).expect("root config");
+    let queued_repo = queued_project(&root_home, &["queued-child"]);
+    let capacity = [
+        ("MX_HEADROOM_CPU_COUNT", Path::new("8")),
+        ("MX_HEADROOM_LOAD1", Path::new("0")),
+        ("MX_HEADROOM_MEM_AVAILABLE_BYTES", Path::new("17179869184")),
+        ("MX_HEADROOM_IN_USE", Path::new("0")),
+        ("MX_HEADROOM_API_CAPACITY", Path::new("4")),
+    ];
+    assert_success(&run(
+        &root_home,
+        &[
+            "headroom",
+            "--queue-add",
+            "queued-child",
+            queued_repo.to_str().expect("queued project"),
+            "--harness",
+            "codex",
+            "--backend",
+            "tmux",
+        ],
+        &capacity,
+    ));
+    let queue_spawn_log = temp.path().join("queue-spawn.log");
+    let queue_spawn = temp.path().join("queue-spawn");
+    executable(
+        &queue_spawn,
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n",
+            queue_spawn_log.display()
+        ),
+    );
+    let drain = Command::new(env!("CARGO_BIN_EXE_mx"))
+        .args(["headroom", "--queue-drain"])
+        .env("MX_HOME", &child_home)
+        .env("MX_TASK_ID", "parent")
+        .env("MX_REPORT_STATE_OVERRIDE", &root_state)
+        .env("MX_ATTEMPT_ID", &attempt.id)
+        .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+        .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+        .env("MX_HEADROOM_SPAWN_BIN", &queue_spawn)
+        .env("MX_HEADROOM_CPU_COUNT", "8")
+        .env("MX_HEADROOM_LOAD1", "0")
+        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
+        .env("MX_HEADROOM_IN_USE", "0")
+        .env("MX_HEADROOM_API_CAPACITY", "4")
+        .output()
+        .expect("nested queue drain");
+    assert_success(&drain);
+    assert!(String::from_utf8_lossy(&drain.stdout).contains("launched queued-child"));
+    assert!(!queue.join("queued-child.request").exists());
+    assert!(
+        fs::read_to_string(&queue_spawn_log)
+            .expect("queue spawn log")
+            .contains("queued-child")
+    );
+
+    let child_state = child_home.join("state");
+    fs::create_dir_all(&child_state).expect("child state");
+    fs::create_dir_all(child_home.join("config")).expect("child config");
+    let project = queued_project(&child_home, &["grandchild"]);
+    let fake_tmux = temp.path().join("tmux");
+    executable(
+        &fake_tmux,
+        r#"#!/bin/sh
+set -eu
+case "${1:-}" in
+  has-session|list-windows|set-window-option|send-keys) exit 0 ;;
+  new-session) exit 0 ;;
+  new-window) printf '@nested\n' ;;
+  *) exit 0 ;;
+esac
+"#,
+    );
+    let spawned = Command::new(env!("CARGO_BIN_EXE_mx"))
+        .args([
+            "spawn",
+            "grandchild",
+            project.to_str().expect("project"),
+            "--harness",
+            "codex",
+            "--backend",
+            "tmux",
+        ])
+        .env("MX_HOME", &child_home)
+        .env("MX_STATE_OVERRIDE", &child_state)
+        .env("MX_DATA_OVERRIDE", child_home.join("data"))
+        .env("MX_PROJECTS_OVERRIDE", child_home.join("projects"))
+        .env("MX_TASK_ID", "parent")
+        .env("MX_REPORT_STATE_OVERRIDE", &root_state)
+        .env("MX_ATTEMPT_ID", &attempt.id)
+        .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+        .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+        .env("MX_TMUX_BIN", &fake_tmux)
+        .env("MX_SPAWN_NO_GUARD", "1")
+        .env("MX_HEADROOM_CPU_COUNT", "8")
+        .env("MX_HEADROOM_LOAD1", "0")
+        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
+        .env("MX_HEADROOM_IN_USE", "0")
+        .env("MX_HEADROOM_API_CAPACITY", "4")
+        .output()
+        .expect("nested spawn");
+    assert_success(&spawned);
+    let grandchild =
+        fs::read_to_string(child_state.join("grandchild.meta")).expect("grandchild metadata");
+    let grandchild =
+        multplx_domain::lifecycle::subagent_model::read_meta("grandchild", &grandchild)
+            .expect("grandchild binding");
+    assert_eq!(grandchild.parent_id.as_deref(), Some("parent"));
+    assert_eq!(
+        grandchild.root_id.as_deref(),
+        Some(parent.root_id.as_deref().unwrap())
+    );
+    assert_eq!(grandchild.owner_home.as_deref(), Some(child_text.as_str()));
+    assert!(root_state.join(".admissions").is_dir());
+    assert!(!root_state.join("grandchild.meta").exists());
+}

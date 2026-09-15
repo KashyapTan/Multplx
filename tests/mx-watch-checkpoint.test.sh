@@ -124,7 +124,7 @@ test_signal_passes_through_and_exits_zero() {
   MX_HOME="$home" MX_POLL=1 MX_SIGNAL_GRACE=1 MX_CHECK_INTERVAL=999999 "$CHECKPOINT" --seconds 8 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "signal checkpoint exit"
   assert_contains "$(cat "$out")" "signal:" "signal wake was not passed through"
-  drained=$(MX_HOME="$home" "$ROOT/bin/mx-wake-drain.sh")
+  drained=$(owned_wake "$home/state" "$ROOT/bin/mx-wake-drain.sh")
   assert_contains "$drained" $'\tsignal\tdemo.status\t' "signal wake was not queued durably"
   pass "checkpoint passes through a real watcher wake and leaves the queue for drain"
 }

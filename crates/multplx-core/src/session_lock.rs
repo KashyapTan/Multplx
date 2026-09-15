@@ -35,7 +35,13 @@ pub fn harness_ancestry_pid(
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or(&row.command);
-        let interpreter_match = (row.command.contains("node") || row.command.contains("python"))
+        let interpreter = format!(
+            "{} {}",
+            row.command,
+            row.arguments.split_whitespace().next().unwrap_or_default()
+        )
+        .to_ascii_lowercase();
+        let interpreter_match = (interpreter.contains("node") || interpreter.contains("python"))
             && matcher.is_match(&row.arguments);
         if matcher.is_match(basename) || interpreter_match {
             return Ok(pid);

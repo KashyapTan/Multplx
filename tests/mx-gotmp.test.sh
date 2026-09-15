@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Behavior tests for per-task GOTMPDIR support (mx-gotmp).
 #
-# mx-spawn gives each task a temp root /tmp/mx-<id>/ with Go's build temp nested at
-# gotmp/, exports GOTMPDIR into the actor pane, and records tasktmp= in the task's
-# meta. mx-teardown reads tasktmp= and removes the whole root on cleanup.
+# mx-spawn gives each exact task attempt a qualified private temp root with Go's
+# build temp nested at gotmp/, exports GOTMPDIR into the actor pane, and records
+# tasktmp= in metadata. Teardown also accepts the exact legacy temp-root path.
 #
 # These tests exercise behavior directly: mx-teardown is run as a subprocess against a
 # fake MX_HOME/MX_ROOT (built so the real script resolves into it), with stub helper scripts.
@@ -34,10 +34,14 @@ pass() {
 }
 
 TMP_ROOT=
+LEGACY_TASK_TMP=
 
 cleanup() {
   if [ -n "${TMP_ROOT:-}" ]; then
     rm -rf "$TMP_ROOT"
+  fi
+  if [ -n "${LEGACY_TASK_TMP:-}" ]; then
+    rm -rf "$LEGACY_TASK_TMP"
   fi
 }
 trap cleanup EXIT
@@ -125,8 +129,9 @@ test_spawn_contract_and_mkdir_pattern() {
 # --- mx-teardown side (real subprocess) ---
 
 test_teardown_removes_tasktmp_dir() {
-  local id=td-rm-z2
-  local task_tmp="$TMP_ROOT/mx-$id"
+  local id="td-rm-z2-$$"
+  local task_tmp="${TMPDIR:-/tmp}/mx-$id"
+  LEGACY_TASK_TMP=$task_tmp
   mkdir -p "$task_tmp/gotmp"
   printf 'leftover\n' > "$task_tmp/gotmp/build-artifact"
   local fake
@@ -138,6 +143,7 @@ test_teardown_removes_tasktmp_dir() {
     || fail "teardown exited non-zero with a valid tasktmp"
   [ ! -e "$task_tmp" ] \
     || fail "teardown did not remove the tasktmp dir ($task_tmp still exists)"
+  LEGACY_TASK_TMP=
   pass "mx-teardown removes the dir pointed to by tasktmp= in meta"
 }
 

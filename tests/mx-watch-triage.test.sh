@@ -370,7 +370,7 @@ test_turn_ended_not_working_surfaced() {
   pid=$!
   wait_for_exit "$pid" 100 || fail "watcher did not surface a turn-end whose actor is not provably working"
   grep -F "signal: $state/task.turn-ended" "$out" >/dev/null || fail "watcher did not print the surfaced turn-end signal"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the surfaced turn-end failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the surfaced turn-end failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$state/task.turn-ended" >/dev/null || fail "surfaced turn-end was not queued"
   pass "a bare turn-end whose actor is not provably working is surfaced (the swallowed-finish fix)"
 }
@@ -389,7 +389,7 @@ test_working_note_not_working_surfaced() {
   pid=$!
   wait_for_exit "$pid" 100 || fail "watcher did not surface a working: note whose actor has no running pipeline and an idle pane"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "watcher did not print the surfaced working: signal"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the surfaced working: note failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the surfaced working: note failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null || fail "surfaced working: note was not queued"
   [ -s "$state/.seen-task_status" ] || fail "surfaced working: note did not advance its .seen-* suppressor"
   pass "a no-verb working: note whose actor is idle with no running pipeline is surfaced"
@@ -407,7 +407,7 @@ test_actionable_signal_surfaced() {
   pid=$!
   wait_for_exit "$pid" 100 || fail "watcher did not exit for an actionable needs-decision signal"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "watcher did not print the actionable signal reason"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the actionable signal failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the actionable signal failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null || fail "actionable signal was not queued"
   [ -s "$state/.hb-surfaced-task" ] || fail "actionable signal did not record the surfaced marker"
   pass "maintainer-relevant signal is surfaced (queue + exit) and marked surfaced"
@@ -431,7 +431,7 @@ test_terminal_stale_surfaced() {
   pid=$!
   wait_for_exit "$pid" 100 || fail "watcher did not exit for a stale pane on a terminal status"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the terminal stale wake"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the terminal stale failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the terminal stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "terminal stale was not queued"
   pass "a stale pane sitting on a terminal status is surfaced (queue + exit)"
 }
@@ -570,7 +570,7 @@ test_nonterminal_stale_provably_working_absorbed_then_escalated() {
   grep -F "stale: $window" "$out" >/dev/null || fail "escalation did not print a stale wake"
   grep -F "possible wedge" "$out" >/dev/null || fail "escalation did not flag a possible wedge"
   [ ! -e "$state/.stale-since-$key" ] || fail "stale-since timer was not cleared after escalation"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the wedge escalation failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the wedge escalation failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "wedge escalation was not queued"
   pass "provably-working non-terminal stale is absorbed on first sight, then wedge-escalated past the threshold"
 }
@@ -609,7 +609,7 @@ test_nonterminal_stale_not_working_surfaced() {
   grep -F "possible wedge" "$out" >/dev/null && fail "an immediate stopped-actor stale was mislabeled a wedge"
   [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "stale suppressor was not advanced on surface"
   [ ! -e "$state/.stale-since-$key" ] || fail "stale-since timer should not be set when surfacing immediately"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the immediate stale failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the immediate stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "immediate stale wake was not queued"
   pass "a not-provably-working non-terminal stale is surfaced immediately (never left to wait out the timer)"
 }
@@ -678,7 +678,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   grep -F "possible wedge" "$out" >/dev/null && fail "a declared pause was mislabeled a possible wedge"
   [ -e "$state/.paused-resurfaced-$key" ] || fail "the paused re-surface throttle marker was not recorded"
   [ ! -e "$state/.stale-since-$key" ] || fail "a paused re-surface must not use the wedge timer"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the paused re-surface failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the paused re-surface failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "paused re-surface was not queued"
   pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
 }
@@ -1215,7 +1215,7 @@ test_heartbeat_backstop_surfaces_unsurfaced_status() {
   grep -Fx "heartbeat" "$out" >/dev/null || fail "backstop did not exit with a heartbeat wake"
   [ "$(cat "$state/.hb-surfaced-miss" 2>/dev/null || true)" = "done: PR https://example.test/pr/5" ] \
     || fail "backstop did not record the status as surfaced (would re-fire next heartbeat)"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the backstop heartbeat failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the backstop heartbeat failed"
   grep "$(printf '\theartbeat\t')" "$drain_out" >/dev/null || fail "backstop heartbeat was not queued"
   pass "heartbeat backstop fail-safe surfaces a maintainer-relevant status the per-wake path missed"
 }
@@ -1267,7 +1267,7 @@ test_afk_present_reverts_watcher_to_one_shot() {
   pid=$!
   wait_for_exit "$pid" 100 || fail "with .afk present the watcher did not exit one-shot for a benign signal"
   grep -F "signal: $status_file" "$out" >/dev/null || fail "afk-mode watcher did not surface the signal for the daemon"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the afk-mode signal failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the afk-mode signal failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null \
     || fail "afk-mode benign signal was not queued for the daemon to classify"
   pass "with .afk present the watcher reverts to one-shot so the daemon owns triage (no double-triage)"
@@ -1303,7 +1303,7 @@ test_afk_paused_changed_pane_hands_off_plain_stale() {
   grep -Fx "stale: $window" "$out" >/dev/null || fail "AFK paused stale did not preserve its plain window identity: $(cat "$out")"
   grep -F "awaiting external" "$out" >/dev/null && fail "AFK watcher decorated a stale identity instead of handing it to the daemon"
   [ ! -e "$state/.paused-$key" ] || fail "AFK watcher recorded normal-mode pause tracking instead of handing off"
-  MX_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after AFK paused stale failed"
+  owned_wake "$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after AFK paused stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "stale: $window" >/dev/null \
     || fail "AFK paused stale was not queued with the plain window identity"
   pass "AFK changed paused panes hand off plain stale identities for daemon-owned pause triage"

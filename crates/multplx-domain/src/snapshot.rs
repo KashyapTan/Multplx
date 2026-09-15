@@ -79,6 +79,12 @@ pub struct WakeQueue {
     pub depth: u64,
     #[serde(default)]
     pub oldest_age_secs: Option<u64>,
+    #[serde(default)]
+    pub records: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]

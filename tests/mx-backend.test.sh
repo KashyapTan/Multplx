@@ -27,6 +27,9 @@ mx_git_identity fmtest fmtest@example.invalid
 . "$ROOT/bin/mx-backend.sh"
 
 TMP_ROOT=$(mx_test_tmproot mx-backend-tests)
+TEST_HOME="$TMP_ROOT/home"
+mkdir -p "$TEST_HOME/state"
+export MX_HOME="$TEST_HOME"
 
 # mx_backend_detect's cmux fallback (bundle id + process ancestry,
 # docs/cmux-backend.md "Runtime auto-detection") consults uname, lsappinfo,
@@ -667,7 +670,7 @@ run_spawn_case() {  # <bin-root> <fakebin> <log> <state> <data> <config> <proj> 
   local bin=$1 fb=$2 log=$3 state=$4 data=$5 config=$6 proj=$7; shift 7
   [ "${1:-}" = -- ] && shift
   : > "$log"
-  env PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$bin" \
+  env PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$bin" MX_HOME="$(dirname "$state")" \
     MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" \
     MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
     MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" MX_TMUX_LOG="$log" \
@@ -745,11 +748,10 @@ run_spawn_symlink_case() {  # <label> <physical|logical>
     *) fail "unknown symlink first-reply mode: $first_reply" ;;
   esac
   fb=$(make_spawn_symlink_fakebin "$TMP_ROOT/symlink-fake-$label" "$initial_path" "$wt")
-  data="$TMP_ROOT/symlink-data-$label"
-  mkdir -p "$data/$id"
+  local fixture_home="$TMP_ROOT/symlink-home-$label"
+  state="$fixture_home/state"; data="$fixture_home/data"; config="$fixture_home/config"
+  mkdir -p "$state" "$config" "$data/$id"
   printf 'test brief content\n' > "$data/$id/brief.md"
-  state="$TMP_ROOT/symlink-state-$label"; config="$TMP_ROOT/symlink-config-$label"
-  mkdir -p "$state" "$config"
   log="$TMP_ROOT/symlink-spawn-$label.log"
 
   out=$(run_spawn_case "$ROOT" "$fb" "$log" "$state" "$data" "$config" "$proj" -- "$id" "$proj" claude 2>&1)
@@ -822,7 +824,7 @@ test_spawn_default_backend_writes_no_meta_field() {
   state="$TMP_ROOT/nobackend-state"; config="$TMP_ROOT/nobackend-config"
   mkdir -p "$state" "$config"
 
-  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" \
+  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$TEST_HOME" \
     MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" \
     MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
     MX_TMUX_LOG="$TMP_ROOT/nobackend.log" \
@@ -846,7 +848,7 @@ test_spawn_explicit_backend_flag_beats_autodetect_herdr_env() {
 
   # HERDR_ENV=1 is present (as if broker itself were running under herdr),
   # but an explicit --backend tmux flag must still win outright.
-  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" \
+  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$TEST_HOME" \
     MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" \
     MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" HERDR_ENV=1 \
     MX_TMUX_LOG="$TMP_ROOT/explicit-backend.log" \
@@ -873,7 +875,7 @@ test_spawn_autodetect_nesting_resolves_tmux_silently() {
   # (tmux nested inside a herdr pane) - the full mx-spawn.sh pipeline, not just
   # mx_backend_name, must resolve this to tmux and stay completely silent about
   # it (today's default path, byte-identical).
-  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" \
+  out=$(PATH="$fb:$PATH" MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$TEST_HOME" \
     MX_STATE_OVERRIDE="$state" MX_DATA_OVERRIDE="$data" MX_CONFIG_OVERRIDE="$config" \
     MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" HERDR_ENV=1 \
     MX_TMUX_LOG="$TMP_ROOT/nest.log" \

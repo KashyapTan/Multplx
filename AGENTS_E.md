@@ -43,6 +43,7 @@ Use CLI owners for machine-owned state; do not hand-edit task records, status fi
 Reconcile recorded work and ownership before resuming, replacing or cleaning up an execution.
 A lock-refused session must not act as a writer or consume another owner's queue.
 A status line is a wake event, not current state; read the current task through its CLI owner before acting on old events.
+Record each claimed wake's durable disposition before acknowledgement, retaining a named trigger or bounded recheck for waiting work.
 Preserve task identity, parent routing, message correlation, accepted revision and evidence through handoffs.
 Retain uncommitted, unlanded or uncertain work and persistent reservations until their disposition is established.
 Use the emitted harness supervision protocol and home-scoped repair commands; never broadly kill watchers.

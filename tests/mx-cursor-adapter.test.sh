@@ -75,12 +75,8 @@ SH
   cp "$fixture/bin/mx-arm-pretool-check.sh" "$fixture/bin/mx-cd-pretool-check.sh"
   cat >"$fixture/bin/mx-subagent-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = --tool ]; then tool=${2:-}; else payload=$(cat); tool=$(printf '%s' "$payload" | jq -r '.tool_name'); fi
-if [ "$tool" = Task ] || [ "$tool" = subagentStart ]; then
-  printf '{"decision":"deny","reason":"dispatch through Multplx"}\n'
-  exit 2
-fi
-exit 0
+printf 'retired delegation guard was invoked\n' >&2
+exit 9
 SH
   cat >"$fixture/bin/mx-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
@@ -100,9 +96,9 @@ test_cursor_hook_translation_and_bounds() {
   output=$(printf '{"tool_name":"Shell","tool_input":{"command":"true"}}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool)
   [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor preToolUse allow translation failed"
   output=$(printf '{"tool_name":"Task","tool_input":{}}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool)
-  [ "$(printf '%s' "$output" | jq -r '.permission')" = deny ] || fail "Cursor preToolUse denial translation failed"
-  output=$(printf '{"agent_type":"generalPurpose"}' | "$fixture/bin/mx-cursor-hook.sh" subagent-start)
-  [ "$(printf '%s' "$output" | jq -r '.permission')" = deny ] || fail "Cursor subagentStart denial translation failed"
+  [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor native delegation tool was denied"
+  output=$(MX_STATE_OVERRIDE="$fixture/state" printf '{"agent_type":"generalPurpose","session_id":"parent-s"}' | "$fixture/bin/mx-cursor-hook.sh" subagent-start)
+  [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor subagentStart was denied"
   output=$(printf '{"session_id":"s","loop_count":0}' | "$fixture/bin/mx-cursor-hook.sh" stop)
   assert_contains "$output" 'restore one foreground checkpoint' "Cursor stop did not translate a guard block to follow-up"
   output=$(printf '{"session_id":"s","loop_count":1}' | "$fixture/bin/mx-cursor-hook.sh" stop)
@@ -114,10 +110,10 @@ test_cursor_hook_translation_and_bounds() {
     .version == 1 and
     (.hooks.sessionStart[0].failClosed == true) and
     (.hooks.preToolUse[0].failClosed == true) and
-    (.hooks.subagentStart[0].failClosed == true) and
+    (.hooks.subagentStart[0].failClosed == false) and
     (.hooks.stop[0].loop_limit == 1)
   ' "$ROOT/.cursor/hooks.json" >/dev/null || fail "tracked Cursor hook contract is incomplete"
-  pass "Cursor hooks translate shared guards, fail closed, and bound stop continuation"
+  pass "Cursor hooks preserve supervision, allow native delegation, and bound stop continuation"
 }
 
 test_cursor_spawn_profile_and_terminal_signatures() {

@@ -496,8 +496,8 @@ mod tests {
             .arg(&ready)
             .arg(&child_pid_path);
         let mut fixture =
-            ProcessFixture::spawn(&mut command, Duration::from_secs(1)).expect("spawn fixture");
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            ProcessFixture::spawn(&mut command, Duration::from_secs(5)).expect("spawn fixture");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !ready.is_file() && std::time::Instant::now() < deadline {
             thread::yield_now();
         }

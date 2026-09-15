@@ -18,7 +18,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
 use multplx_core::process::SystemProcessProbe;
@@ -163,6 +163,12 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Claim and disposition the durable orchestrator wake inbox.
+    #[command(disable_help_flag = true)]
+    Wake {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Capture a bounded endpoint tail through the shadow tmux backend.
     #[command(hide = true)]
     Peek {
@@ -190,6 +196,12 @@ enum Command {
     /// Construct and classify operational-input protocol messages.
     #[command(disable_help_flag = true)]
     OperationalInput {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Submit and inspect repeat-safe requests for the owning orchestrator.
+    #[command(disable_help_flag = true)]
+    Request {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -525,6 +537,7 @@ impl Cli {
             Command::LaunchHarness { args } => run_launch_harness(&args),
             Command::Headroom { args } => run_headroom(&args),
             Command::Worktree { args } => run_worktree(&args),
+            Command::Wake { args } => run_wake(&args),
             Command::Peek { target, lines } => run_peek(&target, lines),
             Command::ActorState { id } => run_actor_state(&id),
             Command::Backlog { args } => run_backlog(&args),
@@ -534,6 +547,7 @@ impl Cli {
             } => run_backlog_handoff(&daemon_id, &item_keys),
             Command::ProjectMode { project_name } => run_project_mode(&project_name),
             Command::OperationalInput { args } => run_operational_input(&args),
+            Command::Request { args } => run_request(&args),
             Command::BacklogBackend { config } => {
                 println!("{}", multplx_domain::backlog::backend_value(&config));
                 0
@@ -957,6 +971,7 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
         "mx-claude-stop-autoarm.sh",
         "mx-cursor-hook.sh",
         "mx-guard.sh",
+        "mx-native-observe.sh",
         "mx-report",
         "mx-subagent-pretool-check.sh",
         "mx-turnend-guard.sh",
@@ -1012,8 +1027,21 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
         eprint!("{}", result.stderr);
         return result.status;
     }
+    if entry == "mx-native-observe.sh" {
+        let values = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let mut payload = String::new();
+        let _ = io::stdin().read_to_string(&mut payload);
+        let root = active_paths().0;
+        let result = multplx_domain::supervision::native_observe(&values, &payload, &root);
+        print!("{}", result.stdout);
+        eprint!("{}", result.stderr);
+        return result.status;
+    }
     if entry == "mx-wake-drain.sh" {
-        return run_wake_drain();
+        return run_wake_drain(args);
     }
     if entry == "mx-subagent-pretool-check.sh" {
         let values = args
@@ -1079,9 +1107,334 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
     2
 }
 
-fn run_wake_drain() -> i32 {
-    use multplx_core::process::SystemProcessProbe;
-    use multplx_core::wake::{AnnotationLimits, WakeQueue, render_annotations};
+const WAKE_USAGE: &str = "Usage:\n  mx wake claim [--limit <n>]\n  mx wake list [--unfinished]\n  mx wake disposition <event-id> <handled|superseded|waiting|follow-up> --detail <text> [--condition <text>] [--trigger <id>] [--recheck-at <epoch>] [--follow-up <operation-id>]\n  mx wake ack <event-id>\n  mx wake resume <event-id> --trigger <id|recheck>\n  mx wake recover\n  mx wake pending\n\nClaim publishes JSON lines but does not acknowledge them. Record a durable disposition, then acknowledge it. A waiting disposition requires a named condition plus --trigger or --recheck-at and remains visible until resumed and terminally dispositioned.\n";
+
+fn wake_state() -> Result<(PathBuf, PathBuf), String> {
+    let (_, home, _) = active_paths();
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    fs::create_dir_all(&state)
+        .map_err(|error| format!("cannot create {}: {error}", state.display()))?;
+    Ok((home, state))
+}
+
+fn wake_handler_owner<P: multplx_core::process::ProcessProbe>(
+    state: &Path,
+    processes: &P,
+) -> Result<(multplx_core::process::ProcessIdentity, bool), String> {
+    use multplx_core::session_lock::{harness_ancestry_pid, harness_regex};
+
+    let lock = state.join(".lock");
+    if fs::symlink_metadata(&lock).is_ok_and(|metadata| metadata.is_file()) {
+        let pid = fs::read_to_string(&lock)
+            .map_err(|error| format!("cannot read session owner {}: {error}", lock.display()))?
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| format!("invalid session owner in {}", lock.display()))?;
+        if !processes.is_alive(pid) {
+            return Err(format!("session owner PID {pid} is not active"));
+        }
+        let caller = harness_ancestry_pid(std::process::id(), processes, &harness_regex())
+            .map_err(|_| "caller does not belong to a verified orchestrator session".to_owned())?;
+        if caller != pid {
+            return Err(format!(
+                "caller belongs to harness PID {caller}, but this home is owned by PID {pid}"
+            ));
+        }
+        return processes
+            .identity(pid)
+            .map(|owner| (owner, true))
+            .map_err(|error| format!("cannot verify session owner PID {pid}: {error}"));
+    }
+    Err("no verified orchestrator session owns this home; wake inbox is read-only".into())
+}
+
+fn wake_claim(limit: usize, raw: bool) -> Result<Vec<multplx_core::wake::WakeInboxItem>, String> {
+    use multplx_core::wake::WakeQueue;
+
+    let (home, state) = wake_state()?;
+    let queue = WakeQueue::new(&state);
+    let processes = SystemProcessProbe::default();
+    queue
+        .recover_abandoned_drains(&processes)
+        .map_err(|error| error.to_string())?;
+    let (owner, stable_session_owner) = wake_handler_owner(&state, &processes)?;
+    multplx_domain::operational_input::RequestStore::new(&state, &home)
+        .reconcile_notifications(SystemTime::now(), &processes)?;
+    if stable_session_owner {
+        queue
+            .recover_abandoned_claims(&processes)
+            .map_err(|error| error.to_string())?;
+    }
+    queue
+        .resume_due_waiting(&owner, SystemTime::now(), &processes)
+        .map_err(|error| error.to_string())?;
+    let items = queue
+        .claim_available(&owner, SystemTime::now(), limit, &processes)
+        .map_err(|error| error.to_string())?;
+    let mut stdout = io::stdout().lock();
+    for item in &items {
+        let bytes = if raw {
+            item.record.render().into_bytes()
+        } else {
+            let mut encoded = serde_json::to_vec(item).map_err(|error| error.to_string())?;
+            encoded.push(b'\n');
+            encoded
+        };
+        stdout
+            .write_all(&bytes)
+            .map_err(|error| error.to_string())?;
+        if raw {
+            eprintln!(
+                "wake claim {}: record a disposition and acknowledgement with `mx wake disposition` and `mx wake ack`",
+                item.event_id
+            );
+        }
+    }
+    stdout.flush().map_err(|error| error.to_string())?;
+    Ok(items)
+}
+
+fn wake_disposition(args: &[String]) -> Result<String, String> {
+    use multplx_core::wake::{WakeDisposition, WakeDispositionKind, WakeQueue};
+
+    if args.len() < 4 {
+        return Err("invalid disposition arguments".into());
+    }
+    let event_id = &args[1];
+    let kind = WakeDispositionKind::parse(&args[2]).map_err(|error| error.to_string())?;
+    let mut detail = None;
+    let mut condition = None;
+    let mut trigger = None;
+    let mut recheck = None;
+    let mut follow_up = None;
+    let mut index = 3;
+    while index < args.len() {
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| format!("{} requires a value", args[index]))?
+            .clone();
+        match args[index].as_str() {
+            "--detail" => detail = Some(value),
+            "--condition" => condition = Some(value),
+            "--trigger" => trigger = Some(value),
+            "--recheck-at" => {
+                recheck = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "--recheck-at must be an epoch".to_owned())?,
+                )
+            }
+            "--follow-up" => follow_up = Some(value),
+            unknown => return Err(format!("unknown disposition option: {unknown}")),
+        }
+        index += 2;
+    }
+    let (home, state) = wake_state()?;
+    if kind == WakeDispositionKind::FollowUp {
+        let operation = follow_up.as_deref().ok_or("--follow-up is required")?;
+        if !durable_follow_up_exists(&home, &state, operation) {
+            return Err(format!(
+                "follow-up {operation} has no validated durable receipt in the owning state"
+            ));
+        }
+    }
+    let processes = SystemProcessProbe::default();
+    let (owner, _) = wake_handler_owner(&state, &processes)?;
+    let item = WakeQueue::new(state)
+        .record_disposition(
+            event_id,
+            &owner,
+            WakeDisposition {
+                kind,
+                recorded_at: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                detail: detail.ok_or("--detail is required")?,
+                condition,
+                resume_trigger: trigger,
+                recheck_after_epoch: recheck,
+                follow_up_id: follow_up,
+            },
+            &processes,
+        )
+        .map_err(|error| error.to_string())?;
+    serde_json::to_string(&item).map_err(|error| error.to_string())
+}
+
+fn durable_follow_up_exists(home: &Path, state: &Path, id: &str) -> bool {
+    if multplx_core::identifiers::TaskId::parse(id.to_owned()).is_err() {
+        return false;
+    }
+    if multplx_core::filesystem::read_transition_writes(state, id).is_ok() {
+        return true;
+    }
+    if multplx_domain::operational_input::RequestStore::new(state, home)
+        .get(id)
+        .is_ok()
+    {
+        return true;
+    }
+    if let Ok(envelope) = multplx_domain::operational_input::read_message_envelope(state, id) {
+        let expected_home = fs::canonicalize(home).ok();
+        let routed_here = [
+            envelope.task_home.as_deref(),
+            envelope.parent_home.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .any(|path| Some(path) == expected_home);
+        if routed_here {
+            return true;
+        }
+    }
+    let path = state.join(".spawn-actions").join(format!("{id}.json"));
+    let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024) else {
+        return false;
+    };
+    serde_json::from_slice::<multplx_domain::lifecycle::spawn::LaunchAction>(&bytes).is_ok_and(
+        |action| {
+            action.request_id == id
+                && action
+                    .binding
+                    .owner_state
+                    .as_deref()
+                    .and_then(|path| fs::canonicalize(path).ok())
+                    == fs::canonicalize(state).ok()
+        },
+    )
+}
+
+fn run_wake(args: &[OsString]) -> i32 {
+    use multplx_core::wake::WakeQueue;
+
+    let values = args
+        .iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    if values.is_empty() || matches!(values.first().map(String::as_str), Some("-h" | "--help")) {
+        print!("{WAKE_USAGE}");
+        return 0;
+    }
+    let result: Result<Option<String>, String> = (|| match values[0].as_str() {
+        "claim" => {
+            let limit = match values.as_slice() {
+                [_] => 256,
+                [_, flag, value] if flag == "--limit" => value
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or("--limit must be a positive integer")?,
+                _ => return Err("invalid claim arguments".into()),
+            };
+            wake_claim(limit, false).map(|_| None)
+        }
+        "list" => {
+            let unfinished = match values.as_slice() {
+                [_] => false,
+                [_, flag] if flag == "--unfinished" => true,
+                _ => return Err("invalid list arguments".into()),
+            };
+            let (_, state) = wake_state()?;
+            let processes = SystemProcessProbe::default();
+            let items = WakeQueue::new(state)
+                .inbox_items(&processes)
+                .map_err(|error| error.to_string())?;
+            let items = items.into_iter().filter(|item| {
+                !unfinished
+                    || item.acknowledged_at.is_none()
+                    || item.disposition.as_ref().is_some_and(|disposition| {
+                        disposition.kind == multplx_core::wake::WakeDispositionKind::Waiting
+                    })
+            });
+            let mut output = String::new();
+            for item in items {
+                output.push_str(&serde_json::to_string(&item).map_err(|error| error.to_string())?);
+                output.push('\n');
+            }
+            Ok(Some(output))
+        }
+        "disposition" => wake_disposition(&values).map(Some),
+        "ack" if values.len() == 2 => {
+            let (_, state) = wake_state()?;
+            let processes = SystemProcessProbe::default();
+            let (owner, _) = wake_handler_owner(&state, &processes)?;
+            let item = WakeQueue::new(state)
+                .acknowledge(&values[1], &owner, SystemTime::now(), &processes)
+                .map_err(|error| error.to_string())?;
+            Ok(Some(
+                serde_json::to_string(&item).map_err(|error| error.to_string())?,
+            ))
+        }
+        "resume" if values.len() == 4 && values[2] == "--trigger" => {
+            let (_, state) = wake_state()?;
+            let processes = SystemProcessProbe::default();
+            let (owner, _) = wake_handler_owner(&state, &processes)?;
+            let item = WakeQueue::new(state)
+                .resume_waiting(
+                    &values[1],
+                    &values[3],
+                    &owner,
+                    SystemTime::now(),
+                    &processes,
+                )
+                .map_err(|error| error.to_string())?;
+            Ok(Some(
+                serde_json::to_string(&item).map_err(|error| error.to_string())?,
+            ))
+        }
+        "recover" if values.len() == 1 => {
+            let (_, state) = wake_state()?;
+            let processes = SystemProcessProbe::default();
+            let _ = wake_handler_owner(&state, &processes)?;
+            let count = WakeQueue::new(state)
+                .recover_abandoned_claims(&processes)
+                .map_err(|error| error.to_string())?;
+            Ok(Some(format!("recovered {count} abandoned wake claim(s)")))
+        }
+        "pending" if values.len() == 1 => {
+            let (_, state) = wake_state()?;
+            let processes = SystemProcessProbe::default();
+            let count = WakeQueue::new(state)
+                .unfinished_count(&processes)
+                .map_err(|error| error.to_string())?;
+            Ok(Some(count.to_string()))
+        }
+        _ => Err("invalid wake operation or arguments".into()),
+    })();
+    match result {
+        Ok(Some(output)) => {
+            print!("{output}");
+            if !output.ends_with('\n') {
+                println!();
+            }
+            0
+        }
+        Ok(None) => 0,
+        Err(error) => {
+            eprintln!("error: {error}");
+            eprint!("{WAKE_USAGE}");
+            1
+        }
+    }
+}
+
+fn run_wake_drain(args: &[OsString]) -> i32 {
+    use multplx_core::wake::{AnnotationLimits, render_annotations};
+
+    if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
+        print!(
+            "Usage: mx-wake-drain.sh [--help]\n\nClaim and display queued wakes as legacy five-field rows. Display does not acknowledge handling. Use `mx wake list --unfinished` to obtain event IDs, then `mx wake disposition` and `mx wake ack`.\n"
+        );
+        return 0;
+    }
+    if !args.is_empty() {
+        eprintln!("error: mx-wake-drain.sh accepts no arguments");
+        return 2;
+    }
 
     let (_, home, _) = active_paths();
     let state = std::env::var_os("MX_STATE_OVERRIDE")
@@ -1091,43 +1444,24 @@ fn run_wake_drain() -> i32 {
         eprintln!("mx wake drain: cannot create {}: {error}", state.display());
         return 1;
     }
-    let queue = WakeQueue::new(&state);
-    let processes = SystemProcessProbe::default();
-    if let Err(error) = queue.recover_abandoned_drains(&processes) {
-        eprintln!("mx wake drain: {error}");
-        return 1;
-    }
     let delay = std::env::var("MX_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0);
-    let drained = queue.drain_with_publish(&processes, |records| {
-        if delay > 0 {
-            std::thread::sleep(Duration::from_secs(delay));
-        }
-        let mut stdout = io::stdout().lock();
-        for record in records {
-            stdout
-                .write_all(record.render().as_bytes())
-                .map_err(|error| multplx_core::error::CoreError::Command {
-                    command: "publish wake drain".to_owned(),
-                    reason: error.to_string(),
-                })?;
-        }
-        stdout
-            .flush()
-            .map_err(|error| multplx_core::error::CoreError::Command {
-                command: "flush wake drain".to_owned(),
-                reason: error.to_string(),
-            })
-    });
-    let records = match drained {
-        Ok(records) => records,
+    if delay > 0 {
+        std::thread::sleep(Duration::from_secs(delay));
+    }
+    let claimed = match wake_claim(256, true) {
+        Ok(items) => items,
         Err(error) => {
             eprintln!("mx wake drain: {error}");
             return 1;
         }
     };
+    let records = claimed
+        .iter()
+        .map(|item| item.record.clone())
+        .collect::<Vec<_>>();
     let enrich_delay = std::env::var("MX_WAKE_ENRICH_TEST_DELAY")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -1439,15 +1773,29 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
         .join(" ");
     let mut correlation = None;
     let mut created = false;
-    if resolved.selector
+    let mut durable_message_id = None;
+    let destination_record = resolved.meta.as_ref().and_then(|meta| {
+        let task = meta.file_stem()?.to_str()?;
+        let raw = fs::read_to_string(meta).ok()?;
+        multplx_domain::lifecycle::subagent_model::read_meta(task, &raw)
+            .ok()
+            .filter(|record| !record.legacy_unknown)
+    });
+    let sender = std::env::var("MX_TASK_ID")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let task_scoped =
+        sender.is_some() || multplx_domain::operational_input::classify(&message).is_some();
+    let daemon = resolved.selector
         && resolved.meta.as_ref().is_some_and(|meta| {
             multplx_backend::facade::meta_get(meta, "kind")
                 .ok()
                 .flatten()
                 .as_deref()
                 == Some("daemon")
-        })
-    {
+        });
+    let durable_internal = resolved.selector && task_scoped && destination_record.is_some();
+    if daemon || durable_internal {
         let meta = resolved.meta.as_ref().expect("selector meta");
         let task = meta.file_stem().unwrap_or_default().to_string_lossy();
         let existing = std::env::var("MX_PENDING_REPLY_EXISTING_CORR")
@@ -1459,7 +1807,25 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
             existing.expect("reusable")
         } else {
             created = true;
-            match multplx_domain::lifecycle::pending_reply::create(&home, &state, &task, &message) {
+            let binding = destination_record.as_ref().map(|record| {
+                multplx_domain::lifecycle::pending_reply::ReplyBinding {
+                    message_id: None,
+                    parent_task_id: sender.as_deref(),
+                    recipient_task_id: Some(&record.task_id),
+                    recipient_home: record.owner_home.as_deref().map(Path::new),
+                    attempt_id: record.attempt.as_ref().map(|attempt| attempt.id.as_str()),
+                    attempt_generation: record.attempt.as_ref().map(|attempt| attempt.generation),
+                    brief_revision: record.accepted_brief_revision,
+                }
+            });
+            let created_reply = if let Some(binding) = binding.as_ref() {
+                multplx_domain::lifecycle::pending_reply::create_bound(
+                    &home, &state, &task, &message, binding,
+                )
+            } else {
+                multplx_domain::lifecycle::pending_reply::create(&home, &state, &task, &message)
+            };
+            match created_reply {
                 Ok(value) => value,
                 Err(_) => {
                     eprintln!(
@@ -1469,6 +1835,64 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
                 }
             }
         };
+        if durable_internal {
+            let record = destination_record
+                .as_ref()
+                .expect("validated destination record");
+            let message_id = format!("reply-{corr}");
+            if let Ok(existing) =
+                multplx_domain::operational_input::read_message_envelope(&state, &message_id)
+            {
+                if existing
+                    .validate_current(record, &existing.sender, &record.task_id)
+                    .is_err()
+                {
+                    eprintln!("error: durable internal message route no longer validates");
+                    return 1;
+                }
+                durable_message_id = Some(message_id);
+            } else {
+                let created_at = time::OffsetDateTime::now_utc()
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_else(|_| "1970-01-01T00:00:00Z".into());
+                let envelope = multplx_domain::lifecycle::subagent_model::MessageEnvelope {
+                    schema_version: multplx_domain::lifecycle::subagent_model::SCHEMA_VERSION,
+                    message_id: message_id.clone(),
+                    task_id: record.task_id.clone(),
+                    task_home: record.owner_home.clone(),
+                    parent_home: record.parent_home.clone(),
+                    attempt: record.attempt.clone(),
+                    parent_id: record.parent_id.clone(),
+                    sender: sender.clone().unwrap_or_else(|| "terminal-client".into()),
+                    recipient: record.task_id.clone(),
+                    brief_revision: record.accepted_brief_revision,
+                    kind: "task-note".into(),
+                    correlation_id: corr.clone(),
+                    created_at,
+                    summary: message.clone(),
+                    artifact: None,
+                    acknowledgement:
+                        multplx_domain::lifecycle::subagent_model::Acknowledgement::Pending,
+                };
+                if envelope
+                    .validate_current(record, &envelope.sender, &record.task_id)
+                    .is_err()
+                    || multplx_domain::operational_input::persist_message_envelope(
+                        &state, &envelope,
+                    )
+                    .is_err()
+                {
+                    if created {
+                        let _ = multplx_domain::lifecycle::pending_reply::discard_undelivered(
+                            &state, &corr,
+                        );
+                    }
+                    eprintln!("error: failed to persist a validated internal message envelope");
+                    return 1;
+                }
+                durable_message_id = Some(message_id);
+            }
+        }
         message = multplx_domain::lifecycle::pending_reply::embed(&message, &corr);
         if created
             && multplx_domain::lifecycle::pending_reply::prepare_delivery(&state, &corr).is_err()
@@ -1507,7 +1931,10 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
             .as_ref()
             .is_ok_and(|state| *state == multplx_core::composer::ComposerState::Pending)
     {
-        if created && let Some(corr) = &correlation {
+        if created
+            && !durable_internal
+            && let Some(corr) = &correlation
+        {
             let _ = multplx_domain::lifecycle::pending_reply::discard_undelivered(&state, corr);
         }
         if verdict.is_ok() {
@@ -1532,6 +1959,19 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
         eprintln!(
             "error: text was delivered to {}, but its pending-reply delivery commit failed; a durable recovery marker was stored and the watcher will reconcile it. Do not resend.",
             resolved.target.endpoint()
+        );
+        return 1;
+    }
+    if let Some(message_id) = durable_message_id
+        && multplx_domain::operational_input::advance_message_envelope(
+            &state,
+            &message_id,
+            multplx_domain::lifecycle::subagent_model::Acknowledgement::Delivered,
+        )
+        .is_err()
+    {
+        eprintln!(
+            "error: text was delivered, but its durable message acknowledgement could not be recorded; do not resend"
         );
         return 1;
     }
@@ -1719,25 +2159,208 @@ fn run_home_seed(args: &[OsString]) -> i32 {
     output.status
 }
 
+#[cfg(test)]
 fn park_spawn_if_at_limit(
     args: &[OsString],
     single_checkout_request: Option<&str>,
+    admission_request_id: Option<&str>,
 ) -> Result<Option<String>, String> {
-    queue_spawn(args, single_checkout_request, false)
+    queue_spawn(args, single_checkout_request, admission_request_id, false)
+}
+
+fn shared_headroom_paths() -> Result<multplx_backend::headroom::HeadroomPaths, String> {
+    let (_, home, _) = active_paths();
+    let home = fs::canonicalize(&home).unwrap_or(home);
+    let Some(task_id) = std::env::var("MX_TASK_ID")
+        .ok()
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(multplx_backend::headroom::HeadroomPaths::for_root(&home));
+    };
+    multplx_core::identifiers::TaskId::parse(&task_id).map_err(|error| error.to_string())?;
+    let reported_state = std::env::var_os("MX_REPORT_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("MX_STATE_OVERRIDE").map(PathBuf::from))
+        .unwrap_or_else(|| home.join("state"));
+    let meta_path = reported_state.join(format!("{task_id}.meta"));
+    let raw = fs::read_to_string(&meta_path).map_err(|error| {
+        format!(
+            "cannot resolve initiating task ancestry {}: {error}",
+            meta_path.display()
+        )
+    })?;
+    let record = multplx_domain::lifecycle::subagent_model::read_meta(&task_id, &raw)?;
+    let recorded_state = record
+        .owner_state
+        .as_deref()
+        .map(PathBuf::from)
+        .ok_or("initiating task owner state missing")?;
+    if fs::canonicalize(&reported_state).ok() != fs::canonicalize(&recorded_state).ok() {
+        return Err("initiating task ancestry was read from the wrong owner state".into());
+    }
+    let launch_attempt =
+        std::env::var("MX_ATTEMPT_ID").map_err(|_| "initiating task attempt identity missing")?;
+    let launch_generation = std::env::var("MX_ATTEMPT_GENERATION")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or("initiating task generation missing or invalid")?;
+    let launch_revision = std::env::var("MX_BRIEF_REVISION")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or("initiating task brief revision missing or invalid")?;
+    multplx_domain::lifecycle::spawn::validate_initiating_parent(
+        &record,
+        &home,
+        &reported_state,
+        &launch_attempt,
+        launch_generation,
+        launch_revision,
+    )?;
+    let admission = multplx_domain::lifecycle::spawn::admission_context(&record)?;
+    Ok(multplx_backend::headroom::HeadroomPaths::for_root(
+        &admission.root_home,
+    ))
+}
+
+fn admission_record(
+    request: &multplx_domain::lifecycle::spawn::Request,
+    selected_request_id: Option<&str>,
+    additional_resources: &std::collections::BTreeMap<String, u64>,
+) -> Result<
+    (
+        multplx_backend::headroom::HeadroomPaths,
+        multplx_backend::headroom::QueueRecord,
+    ),
+    String,
+> {
+    use multplx_backend::headroom::{DispatchState, HeadroomPaths, QueueRecord};
+    let binding = request
+        .binding
+        .as_ref()
+        .ok_or("prepared task binding missing")?;
+    let admission = multplx_domain::lifecycle::spawn::admission_context(binding)?;
+    let request_id = selected_request_id.map_or_else(
+        || {
+            let attempt = binding.attempt.as_ref().expect("validated attempt");
+            if attempt.generation > 1 {
+                use sha2::{Digest, Sha256};
+                let digest = format!("{:x}", Sha256::digest(attempt.id.as_bytes()));
+                format!("{}-g{}-{}", request.id, attempt.generation, &digest[..12])
+            } else if admission.owner_home == admission.root_home {
+                request.id.clone()
+            } else {
+                use sha2::{Digest, Sha256};
+                let digest = format!(
+                    "{:x}",
+                    Sha256::digest(
+                        format!("{}#task:{}", admission.owner_home.display(), request.id)
+                            .as_bytes(),
+                    )
+                );
+                format!("{}-{}", request.id, &digest[..12])
+            }
+        },
+        str::to_owned,
+    );
+    let mut resources = std::collections::BTreeMap::from([
+        ("session".into(), 1),
+        (format!("harness:{}", request.harness), 1),
+        (
+            format!(
+                "project:{}",
+                binding
+                    .project
+                    .as_ref()
+                    .map(|project| project.project_id.as_str())
+                    .unwrap_or("none")
+            ),
+            1,
+        ),
+    ]);
+    resources.extend(additional_resources.clone());
+    let record = QueueRecord {
+        request_id,
+        task_id: request.id.clone(),
+        root_home: admission.root_home.clone(),
+        owner_home: admission.owner_home,
+        owner_state: admission.owner_state,
+        parent_task_id: admission.parent_task_id,
+        parent_home: admission.parent_home,
+        parent_state: admission.parent_state,
+        project: request.project.to_string_lossy().into_owned(),
+        harness: request.harness.clone(),
+        model: request.model.clone(),
+        effort: request.effort.clone(),
+        backend: request.backend.clone(),
+        kind: request.kind.clone(),
+        mode: request.mode.clone(),
+        yolo: "off".into(),
+        enqueued_at: multplx_backend::headroom::now_epoch(),
+        priority: binding.schedule.priority,
+        dependencies: binding
+            .schedule
+            .dependencies
+            .iter()
+            .map(|task_id| multplx_backend::headroom::Dependency {
+                task_id: task_id.clone(),
+                owner_state: PathBuf::from(binding.owner_state.as_deref().unwrap_or_default()),
+            })
+            .collect(),
+        resources,
+        state: DispatchState::Queued,
+        dispatch_started_at: None,
+        canonical_model: Some(serde_json::to_string(binding).map_err(|error| error.to_string())?),
+    };
+    Ok((HeadroomPaths::for_root(&admission.root_home), record))
+}
+
+fn start_spawn_admission(
+    paths: &multplx_backend::headroom::HeadroomPaths,
+    record: &multplx_backend::headroom::QueueRecord,
+    request: &mut multplx_domain::lifecycle::spawn::Request,
+    single_checkout: bool,
+    resume_reserved: bool,
+) -> Result<Option<String>, String> {
+    let decision = if resume_reserved {
+        multplx_backend::headroom::admission_resume_reserved(paths, record)
+    } else {
+        multplx_backend::headroom::admission_try_reserve(paths, record)
+    }
+    .map_err(|error| format!("dispatch admission failed: {error}"))?;
+    match decision {
+        multplx_backend::headroom::AdmissionDecision::Granted => Ok(None),
+        multplx_backend::headroom::AdmissionDecision::AlreadyActive => Ok(Some(format!(
+            "spawned {} request={} already recorded under the shared root admission\n",
+            request.id, record.request_id
+        ))),
+        multplx_backend::headroom::AdmissionDecision::Deferred => {
+            if single_checkout {
+                return Err(
+                    "exact single-checkout grant cannot be queued; retry after capacity is available"
+                        .into(),
+                );
+            }
+            let mut parked = record.clone();
+            if let Some(binding) = request.binding.as_mut() {
+                binding.schedule.state =
+                    multplx_domain::lifecycle::subagent_model::WorkState::WaitingExternal;
+                binding.schedule.waiting_condition = Some("dispatch capacity or dependency".into());
+                parked.canonical_model = serde_json::to_string(binding).ok();
+            }
+            multplx_backend::headroom::queue_add(paths, &parked)
+                .map(Some)
+                .map_err(|error| error.to_string())
+        }
+    }
 }
 
 fn queue_spawn(
     args: &[OsString],
     single_checkout_request: Option<&str>,
+    admission_request_id: Option<&str>,
     force: bool,
 ) -> Result<Option<String>, String> {
-    use multplx_backend::headroom::{HeadroomPaths, QueueRecord};
-
-    if args
-        .iter()
-        .any(|value| matches!(value.to_str(), Some("--daemon" | "--persistent")))
-        || (!force && std::env::var("MX_HEADROOM_SKIP_QUEUE").as_deref() == Ok("1"))
-    {
+    if !force && std::env::var("MX_HEADROOM_SKIP_QUEUE").as_deref() == Ok("1") {
         return Ok(None);
     }
     let mut positional = Vec::new();
@@ -1748,7 +2371,7 @@ fn queue_spawn(
             .to_str()
             .ok_or("spawn argument is not valid UTF-8")?;
         match value {
-            "--scout" | "--review" => {}
+            "--scout" | "--review" | "--daemon" | "--persistent" => {}
             "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" | "--role"
             | "--output" => {
                 let next = args
@@ -1774,19 +2397,6 @@ fn queue_spawn(
     }
     multplx_backend::facade::BackendName::parse(&backend)
         .map_err(|_| format!("unsupported backend: {backend}"))?;
-    let paths = HeadroomPaths::from_environment();
-    let headroom = multplx_backend::headroom::evaluate(&paths).map_err(|error| {
-        format!("dispatch capacity could not be established; refusing to spawn {id}: {error}")
-    })?;
-    if !force && !headroom.at_limit() {
-        return Ok(None);
-    }
-    if single_checkout_request.is_some() {
-        return Err(
-            "an exact single-checkout grant cannot be queued; retry it after capacity is available"
-                .to_owned(),
-        );
-    }
     let (root, home, data) = active_paths();
     let projects = std::env::var_os("MX_PROJECTS_OVERRIDE")
         .map(PathBuf::from)
@@ -1811,8 +2421,14 @@ fn queue_spawn(
         &context,
         &settings.actor(multplx_backend::harness::detect()),
     )?;
+    let explicit_request_id = admission_request_id
+        .map(str::to_owned)
+        .or_else(|| std::env::var("MX_ADMISSION_REQUEST_ID").ok());
+    let provisional_paths = shared_headroom_paths()?;
+    let queued_request_id = explicit_request_id.as_deref().unwrap_or(id);
     if let Some(prior) =
-        multplx_backend::headroom::queued_model(&paths, id).map_err(|error| error.to_string())?
+        multplx_backend::headroom::queued_model(&provisional_paths, queued_request_id)
+            .map_err(|error| error.to_string())?
     {
         request.binding = Some(multplx_domain::lifecycle::subagent_model::read_meta(
             id,
@@ -1820,35 +2436,36 @@ fn queue_spawn(
         )?);
     }
     multplx_domain::lifecycle::spawn::prepare_binding(&context, &mut request)?;
+    let (paths, _) = admission_record(
+        &request,
+        explicit_request_id.as_deref(),
+        &std::collections::BTreeMap::new(),
+    )?;
+    let headroom = multplx_backend::headroom::evaluate(&paths).map_err(|error| {
+        format!("dispatch capacity could not be established; refusing to spawn {id}: {error}")
+    })?;
+    if !force && !headroom.at_limit() {
+        return Ok(None);
+    }
+    if single_checkout_request.is_some() {
+        return Err(
+            "an exact single-checkout grant cannot be queued; retry it after capacity is available"
+                .to_owned(),
+        );
+    }
     if let Some(binding) = &mut request.binding {
         binding.schedule.state =
             multplx_domain::lifecycle::subagent_model::WorkState::WaitingExternal;
         binding.schedule.waiting_condition = Some("dispatch capacity".into());
     }
-    let canonical_model = request
-        .binding
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(|error| error.to_string())?;
-    multplx_backend::headroom::queue_add(
-        &paths,
-        &QueueRecord {
-            task_id: id.clone(),
-            project: request.project.to_string_lossy().into_owned(),
-            harness: request.harness.clone(),
-            model: request.model.clone(),
-            effort: request.effort.clone(),
-            backend: request.backend.clone(),
-            kind: request.kind.clone(),
-            mode: request.mode.clone(),
-            yolo: "off".into(),
-            enqueued_at: multplx_backend::headroom::now_epoch(),
-            canonical_model,
-        },
-    )
-    .map(Some)
-    .map_err(|error| error.to_string())
+    let (_, record) = admission_record(
+        &request,
+        explicit_request_id.as_deref(),
+        &std::collections::BTreeMap::new(),
+    )?;
+    multplx_backend::headroom::queue_add(&paths, &record)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 fn configured_spawn_backend(config: &Path) -> Option<String> {
@@ -1960,6 +2577,14 @@ fn launch_path_word(path: &Path) -> Result<String, String> {
         .ok_or_else(|| format!("launch path is not valid UTF-8: {}", path.display()))
 }
 
+fn write_tmux_launch_script(task_tmp: &Path, launch: &str) -> Result<String, String> {
+    let path = task_tmp.join("launch.sh");
+    let script = format!("#!/bin/sh\n{launch}\n");
+    multplx_core::filesystem::atomic_replace(&path, script.as_bytes(), 0o700)
+        .map_err(|error| format!("cannot persist tmux launch command: {error}"))?;
+    launch_path_word(&path)
+}
+
 fn launch_environment(name: &str, value: &str) -> String {
     format!("{name}={}", launch_shell_word(value))
 }
@@ -1985,10 +2610,10 @@ fn launch_environment_block(
 }
 
 fn run_spawn(args: &[OsString]) -> i32 {
-    use multplx_backend::facade::{BackendName, RuntimeBackend, TaskSpec};
+    use multplx_backend::facade::{BackendName, KillOutcome, RuntimeBackend, TaskSpec};
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
         println!(
-            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer|sub-orchestrator] [--output report|implementation] [--persistent] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--replace-attempt CURRENT_ID]\nRoles describe the assignment; report and implementation outputs share delegation rights. --persistent launches an existing isolated home and accepts --role sub-orchestrator. Phase 05 owns named coordinator creation. Canonical defaults: config/subagent-harness, subagent-dispatch.json and persistent-subagent-harness. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation; role/outcome changes require explicit recorded reassignment. Task files use TMPDIR and metadata tasktmp binds cleanup."
+            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer|sub-orchestrator] [--output report|implementation] [--persistent] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID]\nRoles describe the assignment; report and implementation outputs share delegation rights. --persistent launches an existing isolated home and accepts --role sub-orchestrator. --request-id makes an uncertain submission repeat-safe; reuse is accepted only for the same frozen task attempt. --resource requests a positive unit count from config/admission-capacity.json and is repeatable for distinct names. Phase 05 owns named coordinator creation. Canonical defaults: config/subagent-harness, subagent-dispatch.json and persistent-subagent-harness. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation; role/outcome changes require explicit recorded reassignment. Task files use TMPDIR and metadata tasktmp binds cleanup."
         );
         return 0;
     }
@@ -2063,6 +2688,8 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let mut parse_args = Vec::new();
     let mut single_checkout_request = None;
     let mut replacement_attempt = None;
+    let mut admission_request_id = None;
+    let mut additional_resources = std::collections::BTreeMap::new();
     let mut index = 0_usize;
     while index < args.len() {
         let Some(value) = args[index].to_str() else {
@@ -2075,6 +2702,57 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 return 1;
             };
             replacement_attempt = Some(attempt.to_owned());
+            index += 2;
+            continue;
+        }
+        if value == "--request-id" {
+            let Some(request_id) = args.get(index + 1).and_then(|value| value.to_str()) else {
+                eprintln!("error: --request-id requires a stable request id");
+                return 1;
+            };
+            if multplx_core::identifiers::TaskId::parse(request_id).is_err() {
+                eprintln!("error: invalid --request-id");
+                return 1;
+            }
+            if admission_request_id
+                .replace(request_id.to_owned())
+                .is_some()
+            {
+                eprintln!("error: duplicate --request-id");
+                return 1;
+            }
+            index += 2;
+            continue;
+        }
+        if value == "--resource" {
+            let Some(specification) = args.get(index + 1).and_then(|value| value.to_str()) else {
+                eprintln!("error: --resource requires NAME=UNITS");
+                return 1;
+            };
+            let Some((name, units)) = specification.split_once('=') else {
+                eprintln!("error: --resource requires NAME=UNITS");
+                return 1;
+            };
+            let valid_name = !name.is_empty()
+                && name.len() <= 128
+                && name.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':')
+                })
+                && name != "session"
+                && !name.starts_with("harness:")
+                && !name.starts_with("project:");
+            let units = units.parse::<u64>().ok().filter(|units| *units > 0);
+            if !valid_name || units.is_none() {
+                eprintln!("error: --resource name and positive units are invalid or reserved");
+                return 1;
+            }
+            if additional_resources
+                .insert(name.to_owned(), units.expect("checked units"))
+                .is_some()
+            {
+                eprintln!("error: duplicate --resource {name}");
+                return 1;
+            }
             index += 2;
             continue;
         }
@@ -2169,14 +2847,33 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     };
-    match park_spawn_if_at_limit(&parse_args, single_checkout_request.as_deref()) {
-        Ok(Some(output)) => {
-            print!("{output}");
-            return 0;
+    let inherited_queue_request = std::env::var("MX_ADMISSION_REQUEST_ID").ok();
+    let queued_request_id = admission_request_id
+        .as_deref()
+        .or(inherited_queue_request.as_deref())
+        .unwrap_or(&request.id)
+        .to_owned();
+    let queued_paths = match shared_headroom_paths() {
+        Ok(paths) => paths,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return 1;
         }
+    };
+    match multplx_backend::headroom::queued_model(&queued_paths, &queued_request_id) {
+        Ok(Some(model)) => match multplx_domain::lifecycle::subagent_model::read_meta(
+            &request.id,
+            &format!("schema_version=2\ncanonical_model={model}\n"),
+        ) {
+            Ok(binding) => request.binding = Some(binding),
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        },
         Ok(None) => {}
-        Err(error_value) => {
-            eprintln!("error: {error_value}");
+        Err(error) => {
+            eprintln!("error: {error}");
             return 1;
         }
     }
@@ -2376,6 +3073,126 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: {error}");
         return 1;
     }
+    let inherited_admission_request = std::env::var("MX_ADMISSION_REQUEST_ID").ok();
+    let selected_admission_request = admission_request_id
+        .as_deref()
+        .or(inherited_admission_request.as_deref());
+    let (mut admission_paths, mut admission_record) =
+        match admission_record(&request, selected_admission_request, &additional_resources) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+    let recovering_daemon = request.persistent
+        && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1")
+        && context.state.join(format!("{}.meta", request.id)).is_file();
+    let presentation_enabled = request.backend == "herdr"
+        && !request.persistent
+        && config.join("herdr-presentation-spaces").is_file();
+    let presentation_journal =
+        multplx_backend::herdr_presentation::journal_path(&context.state, &request.id);
+    let recovering_projection = presentation_enabled
+        && (presentation_journal.exists() || fs::symlink_metadata(&presentation_journal).is_ok());
+    let starts_new_attempt =
+        recovering_daemon || recovering_projection || replacement_attempt.is_some();
+    let mut recovered_preallocation = false;
+    if !starts_new_attempt {
+        let prior_action = match multplx_domain::lifecycle::spawn::read_action(
+            &context,
+            &admission_record.request_id,
+        ) {
+            Ok(action) => action,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+        if prior_action.as_ref().is_some_and(|action| {
+            action.stage == multplx_domain::lifecycle::spawn::LaunchStage::Failed
+        }) {
+            if let Err(error) = multplx_domain::lifecycle::spawn::recover_failed_action_binding(
+                &context,
+                &admission_record.request_id,
+                &mut request,
+            ) {
+                eprintln!("error: {error}");
+                return 1;
+            }
+            (admission_paths, admission_record) = match self::admission_record(
+                &request,
+                selected_admission_request,
+                &additional_resources,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    return 1;
+                }
+            };
+        } else if prior_action.is_none() {
+            match multplx_domain::lifecycle::spawn::recover_preallocation_intent(
+                &context,
+                &admission_record.request_id,
+                &mut request,
+            ) {
+                Ok(recovered) => recovered_preallocation = recovered,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    return 1;
+                }
+            }
+            if recovered_preallocation {
+                (admission_paths, admission_record) = match self::admission_record(
+                    &request,
+                    selected_admission_request,
+                    &additional_resources,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        eprintln!("error: {error}");
+                        return 1;
+                    }
+                };
+            }
+        }
+    }
+    let recovering_request = std::env::var("MX_SPAWN_RECOVERY_REQUEST").as_deref()
+        == Ok(admission_record.request_id.as_str());
+    let resuming_request = recovering_request || recovered_preallocation;
+    let retiring_admission = starts_new_attempt.then(|| {
+        let binding = request.binding.as_ref().expect("prepared binding");
+        (
+            binding.task_id.clone(),
+            PathBuf::from(binding.owner_state.as_deref().unwrap_or_default()),
+            binding
+                .attempt
+                .as_ref()
+                .map(|attempt| attempt.id.clone())
+                .unwrap_or_default(),
+            binding.runtime.endpoint.clone(),
+        )
+    });
+    if !starts_new_attempt {
+        match start_spawn_admission(
+            &admission_paths,
+            &admission_record,
+            &mut request,
+            single_checkout_request.is_some(),
+            resuming_request,
+        ) {
+            Ok(Some(output)) => {
+                print!("{output}");
+                return 0;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    }
     let lock_path = context.state.join(format!(".spawn-{}.lock", request.id));
     let lock = match multplx_core::locks::DirectoryLock::acquire_wait(
         lock_path,
@@ -2388,19 +3205,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     };
-    let recovering_daemon = request.persistent
-        && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1")
-        && context.state.join(format!("{}.meta", request.id)).is_file();
-    let presentation_enabled = request.backend == "herdr"
-        && !request.persistent
-        && config.join("herdr-presentation-spaces").is_file();
-    let presentation_journal =
-        multplx_backend::herdr_presentation::journal_path(&context.state, &request.id);
-    let recovering_projection = presentation_enabled
-        && (presentation_journal.exists() || fs::symlink_metadata(&presentation_journal).is_ok());
     if context.state.join(format!("{}.meta", request.id)).exists()
         && !recovering_daemon
         && !recovering_projection
+        && !resuming_request
         && replacement_attempt.is_none()
     {
         eprintln!("error: metadata for {} already exists", request.id);
@@ -2409,7 +3217,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let intent_path = context.state.join(format!(".spawn-{}.intent", request.id));
     let intent = serde_json::to_vec(request.binding.as_ref().expect("prepared binding"))
         .expect("serializable binding");
-    if intent_path.exists() {
+    let reusing_intent = intent_path.exists();
+    if reusing_intent && fs::read(&intent_path).ok().as_deref() != Some(intent.as_slice()) {
+        eprintln!("error: interrupted launch intent conflicts with the retry binding");
+        return 1;
+    }
+    if reusing_intent && !resuming_request {
         eprintln!(
             "error: interrupted launch intent for {}; reconcile the recorded endpoint/allocation before retrying",
             request.id
@@ -2443,7 +3256,9 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     }
-    if let Err(error) = multplx_core::filesystem::atomic_replace(&intent_path, &intent, 0o600) {
+    if !reusing_intent
+        && let Err(error) = multplx_core::filesystem::atomic_replace(&intent_path, &intent, 0o600)
+    {
         eprintln!("error: cannot reserve launch identity: {error}");
         return 1;
     }
@@ -2498,6 +3313,61 @@ fn run_spawn(args: &[OsString]) -> i32 {
         {
             eprintln!("error: {error}");
             return 1;
+        }
+    }
+    if starts_new_attempt {
+        if let Some((task_id, owner_state, attempt_id, Some(endpoint))) = retiring_admission
+            && let Err(error) = multplx_backend::headroom::admission_release_execution(
+                &admission_paths,
+                &task_id,
+                &owner_state,
+                &attempt_id,
+                &endpoint,
+            )
+        {
+            eprintln!("error: could not transfer retired admission: {error}");
+            return 1;
+        }
+        (admission_paths, admission_record) = match self::admission_record(
+            &request,
+            selected_admission_request,
+            &additional_resources,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+        match start_spawn_admission(
+            &admission_paths,
+            &admission_record,
+            &mut request,
+            single_checkout_request.is_some(),
+            false,
+        ) {
+            Ok(Some(output)) => {
+                let meta_path = context.state.join(format!("{}.meta", request.id));
+                if let Ok(raw) = fs::read_to_string(&meta_path)
+                    && let Some(binding) = request.binding.as_ref()
+                    && let Ok(updated) =
+                        multplx_domain::lifecycle::subagent_model::write_meta(&raw, binding)
+                {
+                    let _ = multplx_core::filesystem::atomic_replace(
+                        &meta_path,
+                        updated.as_bytes(),
+                        0o600,
+                    );
+                }
+                let _ = fs::remove_file(&intent_path);
+                print!("{output}");
+                return 0;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
         }
     }
     if recovering_projection
@@ -2685,6 +3555,35 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: {error}");
         return 1;
     }
+    let binding_for_action = request.binding.as_ref().expect("prepared binding").clone();
+    let launch_action = match multplx_domain::lifecycle::spawn::reserve_action(
+        &context,
+        &admission_record.request_id,
+        &request,
+    ) {
+        Ok(action) => action,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    };
+    if launch_action.stage == multplx_domain::lifecycle::spawn::LaunchStage::Failed {
+        if let Err(error) = multplx_domain::lifecycle::spawn::retry_action_after_absence(
+            &context,
+            &admission_record.request_id,
+            &binding_for_action,
+            "prior failed endpoint was removed; retrying the same allocation",
+        ) {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    } else if launch_action.stage != multplx_domain::lifecycle::spawn::LaunchStage::Reserved {
+        eprintln!(
+            "error: spawn request {} has a recorded endpoint/action at stage {:?}; retained for reconciliation before retry",
+            admission_record.request_id, launch_action.stage
+        );
+        return 1;
+    }
     let mut created_target = None;
     let mut herdr_endpoint = None;
     let mut projected_endpoint = None;
@@ -2813,6 +3712,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
             _ => unreachable!(),
         };
         created_target = Some(target.clone());
+        multplx_domain::lifecycle::spawn::advance_action(
+            &context,
+            &admission_record.request_id,
+            &binding_for_action,
+            multplx_domain::lifecycle::spawn::LaunchStage::EndpointCreated,
+            Some(&actor_worktree),
+            Some(&named_endpoint),
+            None,
+        )?;
         if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-endpoint") {
             return Err("injected failure after endpoint before metadata".into());
         }
@@ -2821,6 +3729,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
             &request,
             &named_endpoint,
             &actor_worktree,
+        )?;
+        multplx_domain::lifecycle::spawn::advance_action(
+            &context,
+            &admission_record.request_id,
+            &binding_for_action,
+            multplx_domain::lifecycle::spawn::LaunchStage::MetadataPublished,
+            Some(&actor_worktree),
+            Some(&named_endpoint),
+            None,
         )?;
         if let Some((session, workspace, tab, pane)) = herdr_endpoint.as_ref() {
             let meta_path = context.state.join(format!("{}.meta", request.id));
@@ -2844,11 +3761,18 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map(PathBuf::from)
             .unwrap_or(brief);
         let report_server = source_root.join("bin/mx-report-mcp");
-        let task_tmp = std::env::temp_dir().join(format!("mx-{}", request.id));
+        let native_observer = source_root.join("bin/mx-native-observe.sh");
+        let native_observer_word = launch_path_word(&native_observer)?;
+        let attempt = request
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.attempt.as_ref())
+            .ok_or("launch attempt was not bound")?;
+        let task_tmp = multplx_domain::lifecycle::spawn::task_temp_path(&context, &request)?;
         fs::create_dir_all(task_tmp.join("gotmp"))
             .map_err(|error_value| error_value.to_string())?;
         let cursor_plugin = task_tmp.join("cursor-turnend-plugin");
-        if request.harness == "cursor" && !request.persistent {
+        if request.harness == "cursor" {
             fs::create_dir_all(cursor_plugin.join(".cursor-plugin"))
                 .and_then(|()| fs::create_dir_all(cursor_plugin.join("hooks")))
                 .map_err(|error_value| error_value.to_string())?;
@@ -2867,7 +3791,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error_value| error_value.to_string())?;
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/hooks.json"),
-                br#"{"version":1,"hooks":{"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
+                br#"{"version":1,"hooks":{"sessionStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh reconcile","failClosed":false}],"subagentStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh start","failClosed":false}],"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
                 0o600,
             )
             .map_err(|error_value| error_value.to_string())?;
@@ -2881,6 +3805,35 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 0o700,
             )
             .map_err(|error_value| error_value.to_string())?;
+            let observe = "#!/usr/bin/env bash\nset -u\nevent=${1:-}\ncase \"$event\" in start|reconcile) ;; *) cat >/dev/null; exit 0 ;; esac\n\"$MX_RUST_SOURCE_ROOT/bin/mx-native-observe.sh\" --provider cursor --event \"$event\" || true\n";
+            multplx_core::filesystem::atomic_replace(
+                cursor_plugin.join("hooks/observe.sh"),
+                observe.as_bytes(),
+                0o700,
+            )
+            .map_err(|error_value| error_value.to_string())?;
+        }
+        let claude_observer_settings = task_tmp.join("native-observer-claude.json");
+        if request.harness == "claude" {
+            let command = |event: &str| {
+                format!(
+                    "{} --provider claude --event {} || true",
+                    native_observer_word, event
+                )
+            };
+            let settings = serde_json::json!({"hooks":{
+                "SessionStart":[{"matcher":"startup|resume|clear","hooks":[{"type":"command","command":command("reconcile"),"timeout":5}]}],
+                "SubagentStart":[{"matcher":".*","hooks":[{"type":"command","command":command("start"),"async":true,"timeout":5}]}],
+                "SubagentStop":[{"matcher":".*","hooks":[{"type":"command","command":command("result"),"async":true,"timeout":5}]}]
+            }});
+            multplx_core::filesystem::atomic_replace(
+                &claude_observer_settings,
+                serde_json::to_string(&settings)
+                    .map_err(|error_value| error_value.to_string())?
+                    .as_bytes(),
+                0o600,
+            )
+            .map_err(|error_value| error_value.to_string())?;
         }
         let mcp_config = task_tmp.join("report-mcp.json");
         let report_home = if request.persistent {
@@ -2888,11 +3841,6 @@ fn run_spawn(args: &[OsString]) -> i32 {
         } else {
             logical_home.clone()
         };
-        let attempt = request
-            .binding
-            .as_ref()
-            .and_then(|binding| binding.attempt.as_ref())
-            .ok_or("launch attempt was not bound")?;
         let mcp_json = serde_json::json!({"mcpServers":{"multplx_status":{"type":"stdio","command":report_server,"args":[],"env":{"MX_TASK_ID":request.id,"MX_HOME":report_home,"MX_REPORT_STATE_OVERRIDE":context.state,"MX_ATTEMPT_ID":attempt.id,"MX_ATTEMPT_GENERATION":attempt.generation.to_string(),"MX_BRIEF_REVISION":attempt.brief_revision.to_string()}}}});
         multplx_core::filesystem::atomic_replace(
             &mcp_config,
@@ -2911,6 +3859,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         let report_home_text = path_text(&report_home)?;
         let state_text = path_text(&context.state)?;
         let home_text = path_text(&request.home)?;
+        let root_home_text = path_text(&admission_record.root_home)?;
         let brief_command = format!(
             "\"$({} encode launch-brief < {})\"",
             launch_path_word(&source_root.join("bin/mx-operational-input.sh"))?,
@@ -2918,11 +3867,14 @@ fn run_spawn(args: &[OsString]) -> i32 {
         );
         let launch_path = std::env::var_os("PATH");
         let common_environment = format!(
-            "{} {} {} {}",
+            "{} {} {} {} {} {} {}",
             launch_environment_block(&home_text, &request.id, &state_text, launch_path.as_deref())?,
             launch_environment("MX_ATTEMPT_ID", &attempt.id),
             launch_environment("MX_ATTEMPT_GENERATION", &attempt.generation.to_string()),
-            launch_environment("MX_BRIEF_REVISION", &attempt.brief_revision.to_string())
+            launch_environment("MX_BRIEF_REVISION", &attempt.brief_revision.to_string()),
+            launch_environment("MX_ROOT_HOME", &root_home_text),
+            launch_environment("MX_CURRENT_ADMISSION_ID", &admission_record.request_id),
+            launch_environment("MX_RUST_SOURCE_ROOT", &path_text(&source_root)?)
         );
         let model = if request.model == "default" {
             String::new()
@@ -2959,16 +3911,34 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 .map_err(|error| error.to_string())?
         );
         let codex_mcp = format!("-c {} ", launch_shell_word(&codex_mcp_value));
+        let codex_observer = |event_name: &str, event: &str| -> Result<String, String> {
+            let command = format!(
+                "{} --provider codex --event {} || true",
+                native_observer_word, event
+            );
+            let value = format!(
+                "hooks.{event_name}=[{{hooks=[{{type=\"command\",command={},timeout=5}}]}}]",
+                serde_json::to_string(&command).map_err(|error| error.to_string())?
+            );
+            Ok(format!("-c {} ", launch_shell_word(&value)))
+        };
+        let codex_native_hooks = format!(
+            "{}{}{}",
+            codex_observer("SessionStart", "reconcile")?,
+            codex_observer("SubagentStart", "start")?,
+            codex_observer("SubagentStop", "result")?
+        );
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "{common_environment} codex {codex_mcp}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
+                "{common_environment} codex {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
-                "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --mcp-config {} {model}{effort}{brief_command}",
-                launch_path_word(&mcp_config)?
+                "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",
+                launch_path_word(&mcp_config)?,
+                launch_path_word(&claude_observer_settings)?
             ),
             "pi" => format!(
-                "{common_environment} pi {model}{}{}{brief_command}",
+                "{common_environment} pi {model}{}{}-e {} {brief_command}",
                 if request.effort != "default" {
                     format!("--thinking {} ", launch_shell_word(&request.effort))
                 } else {
@@ -2989,7 +3959,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 } else {
                     launch_path_word(&context.state.join(format!("{}.pi-ext.ts", request.id)))
                         .map(|path| format!("-e {path} "))?
-                }
+                },
+                launch_path_word(
+                    &source_root.join(".pi/extensions/mx-native-delegation-observe.ts")
+                )?
             ),
             "cursor" => {
                 let cursor_model = if request.model == "default" {
@@ -3003,7 +3976,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     )
                 };
                 format!(
-                    "{common_environment} agent --sandbox enabled --trust {} {cursor_model}{brief_command}",
+                    "{common_environment} agent --sandbox enabled --trust --plugin-dir {} {cursor_model}{brief_command}",
                     launch_path_word(&cursor_plugin)?
                 )
             }
@@ -3022,11 +3995,16 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 "ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null"
             )
         );
+        let tmux_launch = if target.backend() == BackendName::Tmux {
+            write_tmux_launch_script(&task_tmp, &launch)?
+        } else {
+            String::new()
+        };
         match target.backend() {
             BackendName::Tmux => {
                 let mut backend = multplx_backend::tmux::TmuxBackend::system();
                 backend
-                    .send_literal(&target, &launch)
+                    .send_literal(&target, &tmux_launch)
                     .and_then(|()| backend.send_key(&target, "Enter"))
             }
             BackendName::Herdr => {
@@ -3043,6 +4021,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         }
         .map_err(|error_value| error_value.to_string())?;
+        multplx_domain::lifecycle::spawn::advance_action(
+            &context,
+            &admission_record.request_id,
+            &binding_for_action,
+            multplx_domain::lifecycle::spawn::LaunchStage::Submitted,
+            Some(&actor_worktree),
+            Some(&named_endpoint),
+            None,
+        )?;
         for _ in 0..2 {
             std::thread::sleep(Duration::from_millis(150));
             match target.backend() {
@@ -3084,6 +4071,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
             multplx_core::filesystem::atomic_replace(&meta_path, meta.as_bytes(), 0o600)
                 .map_err(|error| error.to_string())?;
         }
+        multplx_domain::lifecycle::spawn::advance_action(
+            &context,
+            &admission_record.request_id,
+            &binding_for_action,
+            multplx_domain::lifecycle::spawn::LaunchStage::Running,
+            Some(&actor_worktree),
+            Some(&named_endpoint),
+            None,
+        )?;
         let task = multplx_core::identifiers::TaskId::parse(&request.id)
             .map_err(|error_value| error_value.to_string())?;
         let timestamp = {
@@ -3168,6 +4164,23 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 eprintln!("error: could not record single-checkout result: {error_value}");
                 return 1;
             }
+            let allocation_id = request
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.allocation.as_ref())
+                .map(|allocation| allocation.allocation_id.clone());
+            if let Err(error) = multplx_backend::headroom::admission_finish(
+                &admission_paths,
+                &admission_record.request_id,
+                Some(endpoint.clone()),
+                allocation_id,
+                None,
+            ) {
+                eprintln!(
+                    "error: launch succeeded but admission receipt could not be finalized: {error}"
+                );
+                return 1;
+            }
             let reported_worktree =
                 fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
                     .ok()
@@ -3189,8 +4202,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
             0
         }
         Err(error_value) => {
+            let mut endpoint_absent = created_target.is_none();
             if let Some((session, pane)) = projected_endpoint.as_ref() {
-                let _ = herdr_backend().close_pane_focus_preserving(session, pane, None);
+                endpoint_absent = herdr_backend()
+                    .close_pane_focus_preserving(session, pane, None)
+                    .is_ok();
             }
             drop(presentation_lock);
             if projected_endpoint.is_none()
@@ -3198,13 +4214,20 @@ fn run_spawn(args: &[OsString]) -> i32 {
             {
                 match target.backend() {
                     BackendName::Tmux => {
-                        let _ = multplx_backend::tmux::TmuxBackend::system().kill_verified(target);
+                        endpoint_absent = matches!(
+                            multplx_backend::tmux::TmuxBackend::system().kill_verified(target),
+                            KillOutcome::Gone
+                        );
                     }
                     BackendName::Herdr => {
-                        let _ = herdr_backend().kill_verified(target);
+                        endpoint_absent =
+                            matches!(herdr_backend().kill_verified(target), KillOutcome::Gone);
                     }
                     BackendName::Cmux => {
-                        let _ = multplx_backend::cmux::CmuxBackend::system().kill_verified(target);
+                        endpoint_absent = matches!(
+                            multplx_backend::cmux::CmuxBackend::system().kill_verified(target),
+                            KillOutcome::Gone
+                        );
                     }
                 }
             }
@@ -3257,6 +4280,47 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     &format!("single-checkout spawn failed: {error_value}"),
                 );
             }
+            let allocation_id = request
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.allocation.as_ref())
+                .map(|allocation| allocation.allocation_id.clone());
+            if endpoint_absent {
+                let _ = multplx_domain::lifecycle::spawn::advance_action(
+                    &context,
+                    &admission_record.request_id,
+                    &binding_for_action,
+                    multplx_domain::lifecycle::spawn::LaunchStage::Failed,
+                    Some(&actor_worktree),
+                    None,
+                    Some(&error_value),
+                );
+            }
+            let admission_error = multplx_backend::headroom::admission_finish(
+                &admission_paths,
+                &admission_record.request_id,
+                None,
+                allocation_id,
+                Some(format!(
+                    "launch failed; reconcile endpoint and retained allocation: {error_value}"
+                )),
+            );
+            if admission_error.is_ok()
+                && endpoint_absent
+                && let (Some(attempt), Some(owner_state)) = (
+                    binding_for_action.attempt.as_ref(),
+                    binding_for_action.owner_state.as_deref(),
+                )
+            {
+                let _ = multplx_backend::headroom::admission_retryable(
+                    &admission_paths,
+                    &admission_record.request_id,
+                    &request.id,
+                    Path::new(owner_state),
+                    &attempt.id,
+                    "launch endpoint absence verified; exact allocation retained for retry",
+                );
+            }
             eprintln!("error: {error_value}");
             1
         }
@@ -3280,6 +4344,23 @@ fn run_teardown(args: &[OsString]) -> i32 {
         home,
         data,
     };
+    let admission_release = args
+        .first()
+        .and_then(|value| value.to_str())
+        .and_then(|id| {
+            let raw = fs::read_to_string(context.state.join(format!("{id}.meta"))).ok()?;
+            let record = multplx_domain::lifecycle::subagent_model::read_meta(id, &raw).ok()?;
+            let admission = multplx_domain::lifecycle::spawn::admission_context(&record).ok()?;
+            let attempt = record.attempt.as_ref()?.id.clone();
+            let endpoint = record.runtime.endpoint.as_ref()?.clone();
+            Some((
+                multplx_backend::headroom::HeadroomPaths::for_root(&admission.root_home),
+                record.task_id.clone(),
+                PathBuf::from(record.owner_state.as_ref()?),
+                attempt,
+                endpoint,
+            ))
+        });
     let output = if let [raw_id, flag, raw_request] = args
         && flag == "--override"
     {
@@ -3377,6 +4458,18 @@ fn run_teardown(args: &[OsString]) -> i32 {
             },
         }
     };
+    if output.status == 0
+        && let Some((paths, task_id, owner_state, attempt_id, endpoint)) = admission_release
+        && let Err(error) = multplx_backend::headroom::admission_release_execution(
+            &paths,
+            &task_id,
+            &owner_state,
+            &attempt_id,
+            &endpoint,
+        )
+    {
+        eprintln!("warning: retired task admission could not be released: {error}");
+    }
     print!("{}", output.stdout);
     eprint!("{}", output.stderr);
     output.status
@@ -3691,6 +4784,12 @@ fn run_pending_reply(args: &[OsString]) -> i32 {
         }
         Some("confirm") if values.len() == 3 => {
             pending_reply::confirm_delivery(Path::new(&values[1]), &values[2]).map(|()| None)
+        }
+        Some("ack") if values.len() == 3 => {
+            pending_reply::acknowledge(Path::new(&values[1]), &values[2]).map(|()| None)
+        }
+        Some("complete") if values.len() == 3 => {
+            pending_reply::complete(Path::new(&values[1]), &values[2]).map(|()| None)
         }
         Some("discard") if values.len() == 3 => {
             pending_reply::discard_undelivered(Path::new(&values[1]), &values[2]).map(|()| None)
@@ -4215,23 +5314,28 @@ fn run_launch_harness(args: &[OsString]) -> i32 {
 }
 
 fn run_headroom(args: &[OsString]) -> i32 {
-    use multplx_backend::headroom::HeadroomPaths;
-
-    let paths = HeadroomPaths::from_environment();
     let result: Result<String, String> = (|| {
+        let paths = shared_headroom_paths()?;
         match args.first().and_then(|value| value.to_str()).unwrap_or_default() {
             "--json" if args.len() == 1 => serde_json::to_string(&multplx_backend::headroom::evaluate(&paths).map_err(|error| error.to_string())?).map(|value| format!("{value}\n")).map_err(|error| error.to_string()),
             "--queue" if args.len() == 1 => multplx_backend::headroom::queue_list(&paths).map_err(|error| error.to_string()),
-            "--queue-cancel" if args.len() == 2 => multplx_backend::headroom::queue_cancel(&paths, utf8_arg(args, 1, "task id")?).map_err(|error| error.to_string()),
+            "--queue-cancel" if args.len() == 2 => multplx_backend::headroom::queue_cancel(&paths, utf8_arg(args, 1, "request id")?).map_err(|error| error.to_string()),
+            "--queue-priority" if args.len() == 3 => {
+                let id = utf8_arg(args, 1, "request id")?;
+                let priority = utf8_arg(args, 2, "priority")?.parse::<i32>()
+                    .map_err(|_| "priority must be a signed 32-bit integer".to_owned())?;
+                multplx_backend::headroom::queue_priority(&paths, id, priority).map_err(|error| error.to_string())
+            }
             "--queue-drain" if args.len() == 1 => multplx_backend::headroom::queue_drain(&paths).map_err(|error| error.to_string()),
-            "--queue-add" if args.len() >= 3 => queue_spawn(&args[1..], None, true).map(|value| value.unwrap_or_default()),
+            "--queue-add" if args.len() >= 3 => queue_spawn(&args[1..], None, None, true).map(|value| value.unwrap_or_default()),
             "--json" => Err("--json takes no arguments".to_owned()),
             "--queue" => Err("--queue takes no arguments".to_owned()),
-            "--queue-cancel" => Err("--queue-cancel requires exactly one task id".to_owned()),
+            "--queue-cancel" => Err("--queue-cancel requires exactly one request id".to_owned()),
+            "--queue-priority" => Err("--queue-priority requires a request id and signed priority".to_owned()),
             "--queue-drain" => Err("--queue-drain takes no arguments".to_owned()),
             "--queue-add" => Err("--queue-add requires task id and project".to_owned()),
-            "-h" | "--help" => Ok("Composite dispatch capacity and durable parked-dispatch queue.\n\nUsage:\n  mx-headroom.sh --json\n  mx-headroom.sh --queue\n  mx-headroom.sh --queue-add <id> <project> [profile flags]\n  mx-headroom.sh --queue-cancel <id>\n  mx-headroom.sh --queue-drain\n".to_owned()),
-            _ => Err("usage: mx-headroom.sh --json|--queue|--queue-add|--queue-cancel|--queue-drain".to_owned()),
+            "-h" | "--help" => Ok("Composite dispatch capacity and durable root-scoped admission queue.\n\nUsage:\n  mx-headroom.sh --json\n  mx-headroom.sh --queue\n  mx-headroom.sh --queue-add <id> <project> [profile flags]\n  mx-headroom.sh --queue-cancel <request-id>\n  mx-headroom.sh --queue-priority <request-id> <signed-priority>\n  mx-headroom.sh --queue-drain\n".to_owned()),
+            _ => Err("usage: mx-headroom.sh --json|--queue|--queue-add|--queue-cancel|--queue-priority|--queue-drain".to_owned()),
         }
     })();
     match result {
@@ -5161,6 +6265,258 @@ fn run_project_mode(name: &str) -> i32 {
 
 const OPERATIONAL_USAGE: &str = "Usage:\n  bin/mx-operational-input.sh encode <kind>  # body on stdin\n  bin/mx-operational-input.sh kind           # current input on stdin\n  bin/mx-operational-input.sh classify       # current or legacy input on stdin\n  bin/mx-operational-input.sh body           # current input on stdin\n\nCurrent construction kinds:\n  session-start watcher turn-end-guard away-supervisor from-broker launch-brief\n\nThe from-broker kind uses its established live-charter-compatible carrier.\n";
 
+const REQUEST_USAGE: &str = "Usage:\n  mx request connection\n  mx request submit --batch <id> --request <id> --task <id> --client <id> --project <id> --checkout <id> --start <revision> --brief <n> --scope <text> [--depends <task-id>]... [--artifact <path>] [--parent-task <id> --parent-home <path>] [--attempt <id> --generation <n>]\n  mx request get <request-id>\n  mx request acknowledge <request-id>\n  mx request response <request-id> --id <response-id> --summary <text> [--artifact <path>]\n  mx request complete <request-id> --id <completion-id> --summary <text> [--artifact <path>]\n\nSubmit returns the durable per-item receipt. Reusing the same request ID and bindings converges; changed bindings fail. One batch may contain independent project-bound items. Delivery, acknowledgement, response and completion are separate facts.\n";
+
+fn request_connected_owner(
+    state: &Path,
+    processes: &SystemProcessProbe,
+) -> Result<Option<multplx_core::process::ProcessIdentity>, String> {
+    use multplx_core::process::ProcessProbe;
+    use multplx_core::session_lock::{SessionLockStatus, harness_regex, status};
+
+    match status(state.join(".lock"), processes, &harness_regex()) {
+        SessionLockStatus::Held(pid) => processes
+            .identity(pid)
+            .map(Some)
+            .map_err(|error| error.to_string()),
+        SessionLockStatus::Free | SessionLockStatus::Stale(_) => Ok(None),
+        SessionLockStatus::Unreadable => Err("orchestrator connection record is unreadable".into()),
+    }
+}
+
+fn request_option(values: &[String], name: &str) -> Result<Option<String>, String> {
+    let matches = values
+        .windows(2)
+        .filter(|pair| pair[0] == name)
+        .map(|pair| pair[1].clone())
+        .collect::<Vec<_>>();
+    if matches.len() > 1 {
+        return Err(format!("{name} may be supplied once"));
+    }
+    Ok(matches.into_iter().next())
+}
+
+fn request_required(values: &[String], name: &str) -> Result<String, String> {
+    request_option(values, name)?.ok_or_else(|| format!("{name} is required"))
+}
+
+fn request_result(
+    values: &[String],
+) -> Result<multplx_domain::operational_input::RequestResult, String> {
+    if values.len() < 4 || !values.len().is_multiple_of(2) {
+        return Err("request result options require values".into());
+    }
+    for index in (0..values.len()).step_by(2) {
+        if !matches!(values[index].as_str(), "--id" | "--summary" | "--artifact") {
+            return Err(format!("unknown request result option: {}", values[index]));
+        }
+    }
+    Ok(multplx_domain::operational_input::RequestResult {
+        id: request_required(values, "--id")?,
+        recorded_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        summary: request_required(values, "--summary")?,
+        artifact: request_option(values, "--artifact")?,
+    })
+}
+
+fn run_request(args: &[OsString]) -> i32 {
+    use multplx_domain::operational_input::{RequestStore, RequestSubmission};
+
+    let values = args
+        .iter()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    if values.is_empty() || matches!(values.first().map(String::as_str), Some("-h" | "--help")) {
+        print!("{REQUEST_USAGE}");
+        return 0;
+    }
+    let result: Result<String, String> = (|| {
+        let (home, state) = wake_state()?;
+        let processes = SystemProcessProbe::default();
+        let store = RequestStore::new(&state, &home);
+        match values[0].as_str() {
+            "connection" if values.len() == 1 => {
+                let owner = request_connected_owner(&state, &processes)?;
+                let connected = owner.is_some();
+                let provider = detect_primary_harness(&runtime_root(&active_paths().0));
+                serde_json::to_string(&serde_json::json!({
+                    "schema": "mx-orchestrator-connection.v1",
+                    "home": fs::canonicalize(&home).map_err(|error| error.to_string())?,
+                    "state": fs::canonicalize(&state).map_err(|error| error.to_string())?,
+                    "owner": owner,
+                    "connected": connected,
+                    "provider": if provider == "unknown" { serde_json::Value::Null } else { serde_json::Value::String(provider) },
+                    "endpoint": serde_json::Value::Null,
+                    "attachment": "unavailable",
+                    "attachment_detail": "no validated primary conversation endpoint is recorded; durable request submission remains available",
+                }))
+                .map_err(|error| error.to_string())
+            }
+            "get" if values.len() == 2 => {
+                serde_json::to_string(&store.get(&values[1])?).map_err(|error| error.to_string())
+            }
+            "submit" => {
+                const OPTIONS: &[&str] = &[
+                    "--batch",
+                    "--request",
+                    "--task",
+                    "--client",
+                    "--project",
+                    "--checkout",
+                    "--start",
+                    "--brief",
+                    "--scope",
+                    "--depends",
+                    "--artifact",
+                    "--parent-task",
+                    "--parent-home",
+                    "--attempt",
+                    "--generation",
+                ];
+                if values.len() < 3 || !(values.len() - 1).is_multiple_of(2) {
+                    return Err("submit options require values".into());
+                }
+                for index in (1..values.len()).step_by(2) {
+                    if !OPTIONS.contains(&values[index].as_str()) {
+                        return Err(format!("unknown submit option: {}", values[index]));
+                    }
+                }
+                let owner = request_connected_owner(&state, &processes)?;
+                let dependencies = values
+                    .windows(2)
+                    .filter(|pair| pair[0] == "--depends")
+                    .map(|pair| pair[1].clone())
+                    .collect::<Vec<_>>();
+                let parent_task = request_option(&values, "--parent-task")?;
+                let parent_home = request_option(&values, "--parent-home")?;
+                let attempt = request_option(&values, "--attempt")?;
+                let generation = request_option(&values, "--generation")?
+                    .map(|value| {
+                        value
+                            .parse::<u64>()
+                            .map_err(|_| "--generation must be positive")
+                    })
+                    .transpose()?
+                    .filter(|value| *value > 0);
+                if parent_task.is_some() != parent_home.is_some()
+                    || attempt.is_some() != generation.is_some()
+                {
+                    return Err(
+                        "parent task/home and attempt/generation must be supplied together".into(),
+                    );
+                }
+                let brief = request_required(&values, "--brief")?
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or("--brief must be positive")?;
+                let batch_id = request_required(&values, "--batch")?;
+                let request_id = request_required(&values, "--request")?;
+                let task_id = request_required(&values, "--task")?;
+                let client_id = request_required(&values, "--client")?;
+                let project_id = request_required(&values, "--project")?;
+                let checkout_id = request_required(&values, "--checkout")?;
+                let starting_revision = request_required(&values, "--start")?;
+                let scope = request_required(&values, "--scope")?;
+                let context_artifact = request_option(&values, "--artifact")?;
+                let previously_accepted = store.get(&request_id).ok();
+                let binding =
+                    multplx_domain::project_registry::resolve_checkout(&home, &checkout_id)?;
+                if binding.project_id != project_id
+                    || binding.checkout_id != checkout_id
+                    || (previously_accepted.is_none()
+                        && binding.starting_revision != starting_revision)
+                {
+                    return Err(format!(
+                        "request project binding does not match validated checkout: project={} checkout={} start={}",
+                        binding.project_id, binding.checkout_id, binding.starting_revision
+                    ));
+                }
+                let request = RequestSubmission {
+                    batch_id: &batch_id,
+                    request_id: &request_id,
+                    task_id: &task_id,
+                    client_id: &client_id,
+                    recipient_owner: owner.as_ref(),
+                    parent_task_id: parent_task.as_deref(),
+                    parent_home: parent_home.as_deref(),
+                    attempt_id: attempt.as_deref(),
+                    attempt_generation: generation,
+                    project_id: &project_id,
+                    checkout_id: &checkout_id,
+                    starting_revision: &starting_revision,
+                    brief_revision: brief,
+                    scope: &scope,
+                    dependencies: &dependencies,
+                    context_artifact: context_artifact.as_deref(),
+                };
+                let accepted = store.submit(&request, SystemTime::now(), None)?;
+                let key = format!("request-{}", accepted.request.request_id);
+                let payload = format!(
+                    "request: batch={} request={} task={} project={} brief={}",
+                    accepted.request.batch_id,
+                    accepted.request.request_id,
+                    accepted.request.task_id,
+                    accepted.request.project_id,
+                    accepted.request.brief_revision
+                );
+                let (wake, _) = multplx_core::wake::WakeQueue::new(&state)
+                    .append_once(
+                        multplx_core::wake::WakeKind::Signal,
+                        &key,
+                        &payload,
+                        SystemTime::now(),
+                        &processes,
+                    )
+                    .map_err(|error| error.to_string())?;
+                let recorded = store.record_notification(
+                    &accepted.request.request_id,
+                    &format!("wake-{:020}", wake.sequence),
+                )?;
+                serde_json::to_string(&recorded).map_err(|error| error.to_string())
+            }
+            "acknowledge" if values.len() == 2 => {
+                let (owner, _) = wake_handler_owner(&state, &processes)?;
+                serde_json::to_string(&store.acknowledge(&values[1], &owner, SystemTime::now())?)
+                    .map_err(|error| error.to_string())
+            }
+            "response" if values.len() >= 6 => {
+                let (owner, _) = wake_handler_owner(&state, &processes)?;
+                serde_json::to_string(&store.record_response(
+                    &values[1],
+                    &owner,
+                    request_result(&values[2..])?,
+                )?)
+                .map_err(|error| error.to_string())
+            }
+            "complete" if values.len() >= 6 => {
+                let (owner, _) = wake_handler_owner(&state, &processes)?;
+                serde_json::to_string(&store.record_completion(
+                    &values[1],
+                    &owner,
+                    request_result(&values[2..])?,
+                )?)
+                .map_err(|error| error.to_string())
+            }
+            _ => Err("invalid request operation or arguments".into()),
+        }
+    })();
+    match result {
+        Ok(output) => {
+            println!("{output}");
+            0
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            eprint!("{REQUEST_USAGE}");
+            1
+        }
+    }
+}
+
 fn run_operational_input(args: &[OsString]) -> i32 {
     let values = args
         .iter()
@@ -5983,6 +7339,7 @@ mod tests {
     #[test]
     fn launch_transport_quotes_every_data_word_and_rejects_non_utf8_paths() {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::os::unix::fs::PermissionsExt;
 
         assert_eq!(launch_shell_word("plain"), "'plain'");
         assert_eq!(
@@ -6026,6 +7383,27 @@ mod tests {
             launch_path_word(Path::new(&OsString::from_vec(vec![b'/', 0xff])))
                 .expect_err("non-UTF-8")
                 .contains("not valid UTF-8")
+        );
+
+        let task_tmp = tempfile::tempdir().expect("task temp");
+        let long_launch = format!("env PAYLOAD='{}' command", "x".repeat(8192));
+        let submitted = write_tmux_launch_script(task_tmp.path(), &long_launch)
+            .expect("persist long tmux launch");
+        assert_eq!(
+            submitted,
+            launch_path_word(&task_tmp.path().join("launch.sh")).expect("quoted script path")
+        );
+        assert_eq!(
+            fs::read_to_string(task_tmp.path().join("launch.sh")).expect("launch script"),
+            format!("#!/bin/sh\n{long_launch}\n")
+        );
+        assert_eq!(
+            fs::metadata(task_tmp.path().join("launch.sh"))
+                .expect("launch metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
         );
 
         let config = tempfile::tempdir().expect("config");
@@ -6176,42 +7554,43 @@ mod tests {
     fn spawn_headroom_parser_rejects_malformed_requests_before_runtime_mutation() {
         use std::os::unix::ffi::OsStringExt;
 
-        assert_eq!(
-            park_spawn_if_at_limit(&args(&["--daemon"]), None).expect("daemon"),
-            None
+        assert!(
+            park_spawn_if_at_limit(&args(&["--daemon"]), None, None)
+                .expect_err("daemon without identity")
+                .contains("invalid spawn request")
         );
         assert!(
-            park_spawn_if_at_limit(&[OsString::from_vec(vec![0xff])], None)
+            park_spawn_if_at_limit(&[OsString::from_vec(vec![0xff])], None, None)
                 .expect_err("utf8")
                 .contains("not valid UTF-8")
         );
         assert!(
-            park_spawn_if_at_limit(&args(&["--harness"]), None)
+            park_spawn_if_at_limit(&args(&["--harness"]), None, None)
                 .expect_err("value")
                 .contains("requires a value")
         );
         assert!(
-            park_spawn_if_at_limit(&args(&["--unknown"]), None)
+            park_spawn_if_at_limit(&args(&["--unknown"]), None, None)
                 .expect_err("unknown")
                 .contains("unsupported native daemon spawn option")
         );
         assert!(
-            park_spawn_if_at_limit(&args(&[]), None)
+            park_spawn_if_at_limit(&args(&[]), None, None)
                 .expect_err("missing")
                 .contains("invalid spawn request")
         );
         assert!(
-            park_spawn_if_at_limit(&args(&["../bad", "/tmp/project"]), None)
+            park_spawn_if_at_limit(&args(&["../bad", "/tmp/project"]), None, None)
                 .expect_err("id")
                 .contains("invalid spawn request")
         );
         assert!(
-            park_spawn_if_at_limit(&args(&["task"]), None)
+            park_spawn_if_at_limit(&args(&["task"]), None, None)
                 .expect_err("project")
                 .contains("invalid spawn request")
         );
         assert!(
-            park_spawn_if_at_limit(&args(&["task", "/tmp/project", "pi", "extra"]), None)
+            park_spawn_if_at_limit(&args(&["task", "/tmp/project", "pi", "extra"]), None, None)
                 .expect_err("positionals")
                 .contains("invalid spawn request")
         );
@@ -6702,5 +8081,124 @@ mod tests {
             .run(),
             0
         );
+    }
+
+    #[test]
+    fn wake_and_request_parsers_reject_ambiguous_or_incomplete_operations() {
+        assert_eq!(run_wake(&args(&[])), 0);
+        assert_eq!(run_wake(&args(&["--help"])), 0);
+        assert_eq!(run_wake(&args(&["claim", "--limit", "0"])), 1);
+        assert_eq!(run_wake(&args(&["claim", "--limit"])), 1);
+        assert_eq!(run_wake(&args(&["list", "--unknown"])), 1);
+        assert_eq!(run_wake(&args(&["disposition"])), 1);
+        assert_eq!(
+            run_wake(&args(&[
+                "disposition",
+                "wake-00000000000000000001",
+                "unknown",
+                "--detail",
+                "done",
+            ])),
+            1
+        );
+        assert_eq!(
+            run_wake(&args(&[
+                "disposition",
+                "wake-00000000000000000001",
+                "waiting",
+                "--detail",
+                "blocked",
+                "--recheck-at",
+                "never",
+            ])),
+            1
+        );
+        assert_eq!(
+            run_wake(&args(&[
+                "disposition",
+                "wake-00000000000000000001",
+                "handled",
+                "--unknown",
+                "value",
+            ])),
+            1
+        );
+        assert_eq!(run_wake(&args(&["resume", "event", "--trigger"])), 1);
+        assert_eq!(run_wake(&args(&["recover", "extra"])), 1);
+        assert_eq!(run_wake(&args(&["unknown"])), 1);
+        assert_eq!(run_wake_drain(&args(&["--help"])), 0);
+        assert_eq!(run_wake_drain(&args(&["extra"])), 2);
+
+        let values = vec!["--id".into(), "one".into(), "--id".into(), "two".into()];
+        assert!(request_option(&values, "--id").is_err());
+        assert!(request_required(&[], "--id").is_err());
+        assert!(request_result(&["--id".into()]).is_err());
+        assert!(
+            request_result(&[
+                "--id".into(),
+                "result-1".into(),
+                "--unknown".into(),
+                "value".into(),
+            ])
+            .is_err()
+        );
+        let parsed = request_result(&[
+            "--id".into(),
+            "result-1".into(),
+            "--summary".into(),
+            "finished".into(),
+            "--artifact".into(),
+            "data/result.md".into(),
+        ])
+        .expect("request result");
+        assert_eq!(parsed.id, "result-1");
+        assert_eq!(parsed.summary, "finished");
+        assert_eq!(parsed.artifact.as_deref(), Some("data/result.md"));
+        assert_eq!(run_request(&args(&[])), 0);
+    }
+
+    #[test]
+    fn durable_follow_up_requires_a_local_validated_receipt() {
+        use multplx_domain::lifecycle::subagent_model::{Acknowledgement, MessageEnvelope};
+        use multplx_domain::operational_input::persist_message_envelope;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let state = home.join("custom-state");
+        let foreign = temp.path().join("foreign");
+        fs::create_dir_all(&state).expect("state");
+        fs::create_dir(&foreign).expect("foreign");
+        assert!(!durable_follow_up_exists(&home, &state, "../invalid"));
+        assert!(!durable_follow_up_exists(&home, &state, "missing"));
+
+        let envelope = |id: &str, routed_home: &Path| MessageEnvelope {
+            schema_version: 2,
+            message_id: id.into(),
+            task_id: "task-1".into(),
+            task_home: Some(routed_home.to_string_lossy().into_owned()),
+            parent_home: None,
+            attempt: None,
+            parent_id: None,
+            sender: "terminal-1".into(),
+            recipient: "task-1".into(),
+            brief_revision: Some(1),
+            kind: "task-note".into(),
+            correlation_id: id.into(),
+            created_at: "2026-09-15T12:00:00Z".into(),
+            summary: "continue work".into(),
+            artifact: None,
+            acknowledgement: Acknowledgement::Pending,
+        };
+        persist_message_envelope(&state, &envelope("local-message", &home)).expect("local receipt");
+        assert!(durable_follow_up_exists(&home, &state, "local-message"));
+        persist_message_envelope(&state, &envelope("foreign-message", &foreign))
+            .expect("foreign receipt");
+        assert!(!durable_follow_up_exists(&home, &state, "foreign-message"));
+        fs::write(
+            state.join("message-outbox/corrupt-message.json"),
+            b"not json",
+        )
+        .expect("corrupt receipt");
+        assert!(!durable_follow_up_exists(&home, &state, "corrupt-message"));
     }
 }

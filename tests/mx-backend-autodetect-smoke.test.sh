@@ -90,7 +90,8 @@ export PATH="$FAKEBIN:$PATH"
 
 # --- scratch world: MX_HOME with NO backend config, one throwaway project ---
 
-STATE="$TMP_ROOT/state"; DATA="$TMP_ROOT/data"; CONFIG="$TMP_ROOT/config"
+HOME_DIR="$TMP_ROOT/home"
+STATE="$HOME_DIR/state"; DATA="$HOME_DIR/data"; CONFIG="$HOME_DIR/config"
 mkdir -p "$STATE" "$DATA/$ID" "$CONFIG"
 printf 'trivial autodetect-smoke brief: nothing to do.\n' > "$DATA/$ID/brief.md"
 
@@ -105,7 +106,7 @@ git -C "$PROJ" -c user.name='Multplx Tests' -c user.email='tests@example.invalid
 
 OUT_FILE="$TMP_ROOT/spawn.out"; ERR_FILE="$TMP_ROOT/spawn.err"
 env -u TMUX -u MX_BACKEND PATH="$PATH" HERDR_ENV=1 \
-  MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$STATE" MX_DATA_OVERRIDE="$DATA" \
+  MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$STATE" MX_DATA_OVERRIDE="$DATA" \
   MX_CONFIG_OVERRIDE="$CONFIG" MX_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
   MX_SPAWN_NO_GUARD=1 \
   "$ROOT/bin/mx-spawn.sh" "$ID" "$PROJ" codex \
@@ -156,7 +157,7 @@ pass "real herdr: the auto-detected spawn's verified harness actually ran in the
 # --- teardown completes the trivial spawn/teardown cycle --------------------
 
 TEARDOWN_OUT="$TMP_ROOT/teardown.out"
-MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$STATE" MX_DATA_OVERRIDE="$DATA" \
+MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$STATE" MX_DATA_OVERRIDE="$DATA" \
   MX_CONFIG_OVERRIDE="$CONFIG" \
   "$ROOT/bin/mx-teardown.sh" "$ID" >"$TEARDOWN_OUT" 2>&1
 status=$?

@@ -7,6 +7,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-sessionstart-nudge.sh"
+          },
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/AGENTS.md\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/mx-native-observe.sh --provider claude --event reconcile",
+            "timeout": 5
           }
         ]
       }
@@ -24,13 +29,30 @@
             "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-cd-pretool-check.sh --claude"
           }
         ]
-      },
+      }
+    ],
+    "SubagentStart": [
       {
         "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/mx-subagent-pretool-check.sh --claude"
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/AGENTS.md\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/mx-native-observe.sh --provider claude --event start",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/AGENTS.md\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/mx-native-observe.sh --provider claude --event result",
+            "async": true,
+            "timeout": 5
           }
         ]
       }
