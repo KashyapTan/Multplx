@@ -157,9 +157,9 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Install the exact pinned Treehouse CI artifact.
-    #[command(hide = true, disable_help_flag = true)]
-    InstallTreehouse {
+    /// Acquire, inspect, retain, release or explicitly prune managed Git worktrees.
+    #[command(disable_help_flag = true)]
+    Worktree {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -214,7 +214,7 @@ enum Command {
         #[arg(default_value = ".")]
         directory: PathBuf,
     },
-    /// Safely refresh one or all registered project clones.
+    /// Safely refresh one or all registered project checkouts.
     #[command(hide = true)]
     SystemSync { project: Option<PathBuf> },
     /// Fast-forward the broker and daemon homes from origin.
@@ -524,9 +524,7 @@ impl Cli {
             Command::Harness { args } => run_harness(&args),
             Command::LaunchHarness { args } => run_launch_harness(&args),
             Command::Headroom { args } => run_headroom(&args),
-            Command::InstallTreehouse { args } => {
-                multplx_backend::treehouse_tools::run_installer(&args)
-            }
+            Command::Worktree { args } => run_worktree(&args),
             Command::Peek { target, lines } => run_peek(&target, lines),
             Command::ActorState { id } => run_actor_state(&id),
             Command::Backlog { args } => run_backlog(&args),
@@ -1688,6 +1686,20 @@ fn run_upstream_diff(args: &[OsString]) -> i32 {
     output.status
 }
 
+fn run_worktree(args: &[OsString]) -> i32 {
+    let (_, home, _) = active_paths();
+    match multplx_domain::lifecycle::worktree::run(args, &home) {
+        Ok(output) => {
+            println!("{output}");
+            0
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            1
+        }
+    }
+}
+
 fn run_home_seed(args: &[OsString]) -> i32 {
     let (root, home, data) = active_paths();
     let context = multplx_domain::lifecycle::home_seed::Context {
@@ -2122,17 +2134,6 @@ fn run_spawn(args: &[OsString]) -> i32 {
             eprintln!("{notice}");
         }
     }
-    match park_spawn_if_at_limit(&parse_args, single_checkout_request.as_deref()) {
-        Ok(Some(output)) => {
-            print!("{output}");
-            return 0;
-        }
-        Ok(None) => {}
-        Err(error_value) => {
-            eprintln!("error: {error_value}");
-            return 1;
-        }
-    }
     let default_harness = if args
         .iter()
         .any(|value| matches!(value.to_str(), Some("--daemon" | "--persistent")))
@@ -2153,6 +2154,32 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
     };
     let mut request = request;
+    // Serialize one task's complete spawn/replacement with ordinary and parent
+    // teardown. This task-scoped guard may span Git/backend work; it never
+    // blocks independent task IDs as a home-wide lock would. Acquire it before
+    // either queued or immediate binding preparation and keep it until return.
+    let _task_lifecycle_lock = match multplx_core::locks::DirectoryLock::acquire_wait(
+        context.state.join(format!(".teardown.{}.lock", request.id)),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    ) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("error: cannot acquire task lifecycle lock: {error}");
+            return 1;
+        }
+    };
+    match park_spawn_if_at_limit(&parse_args, single_checkout_request.as_deref()) {
+        Ok(Some(output)) => {
+            print!("{output}");
+            return 0;
+        }
+        Ok(None) => {}
+        Err(error_value) => {
+            eprintln!("error: {error_value}");
+            return 1;
+        }
+    }
     if single_checkout_request.is_some() && request.kind != "delivery" {
         eprintln!("error: --single-checkout is supported only for one delivery task");
         return 1;
@@ -2473,7 +2500,44 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     }
-    if request.persistent && !recovering_daemon {
+    if recovering_projection
+        && request.binding.as_ref().is_some_and(|binding| {
+            binding
+                .retained_executions
+                .last()
+                .is_some_and(|execution| execution.allocation.is_some())
+        })
+    {
+        let mut backend = multplx_backend::herdr::HerdrBackend::new(
+            multplx_backend::command::SystemCommandRunner,
+            std::env::var_os("MX_HERDR_BIN").unwrap_or_else(|| OsString::from("herdr")),
+            std::env::var("HERDR_SESSION").unwrap_or_else(|_| "default".to_owned()),
+            request.home.clone(),
+        );
+        if let Err(error) =
+            multplx_backend::herdr_presentation::quiesce_projection_before_allocation(
+                &mut backend,
+                &multplx_backend::herdr_presentation::ProjectionSpawnRequest {
+                    state: &context.state,
+                    task_id: &request.id,
+                    home: &request.home,
+                    cwd: &request.home,
+                    task_label: &format!("mx-{}", request.id),
+                    recovering: true,
+                },
+            )
+        {
+            eprintln!("error: cannot quiesce prior projection before allocation: {error}");
+            return 1;
+        }
+    }
+    if request.persistent
+        && !recovering_daemon
+        && request
+            .binding
+            .as_ref()
+            .is_none_or(|b| b.home_allocation.is_none())
+    {
         if let Some(commit) =
             multplx_domain::lifecycle::fast_forward::primary_head_commit(&context.root)
         {
@@ -2540,6 +2604,87 @@ fn run_spawn(args: &[OsString]) -> i32 {
         None
     };
     drop(_inherit_lock);
+    let actor_worktree = if request.persistent {
+        request.home.clone()
+    } else if request.single_checkout_override.is_some() {
+        request.project.clone()
+    } else {
+        let binding = request.binding.as_mut().expect("prepared binding");
+        let acquisition = (|| -> Result<_, String> {
+            use multplx_domain::lifecycle::worktree::{Acquire, Store};
+            let project = binding
+                .project
+                .as_ref()
+                .ok_or("allocation requires project binding")?;
+            let attempt = binding
+                .attempt
+                .as_ref()
+                .ok_or("allocation requires attempt")?;
+            let store = Store::new(project)?;
+            let previous = if replacement_attempt.is_some() || recovering_projection {
+                binding
+                    .retained_executions
+                    .last()
+                    .and_then(|execution| execution.allocation.as_ref())
+            } else {
+                None
+            };
+            let allocation = if let Some(previous) = previous {
+                if store.inspect(&previous.allocation_id)?.owner_home
+                    != multplx_domain::lifecycle::home_seed::resolved(&context.home)
+                {
+                    return Err("replacement allocation belongs to another home".into());
+                }
+                store.rebind(previous, &attempt.id, &request.id, &attempt.id)?
+            } else {
+                store.acquire(
+                    &Acquire {
+                        request_id: &attempt.id,
+                        owner_home: &context.home,
+                        project,
+                        task_id: &request.id,
+                        attempt_id: &attempt.id,
+                        persistent: false,
+                    },
+                    None,
+                )?
+            };
+            binding.allocation = Some(allocation.binding.clone());
+            let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+                context.state.join(format!(".spawn-{}.lock", request.id)),
+                &SystemProcessProbe::default(),
+                Duration::from_secs(5),
+            )
+            .map_err(|e| e.to_string())?;
+            let mut reserved: multplx_domain::lifecycle::subagent_model::TaskRecord =
+                serde_json::from_slice(&fs::read(&intent_path).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            reserved.allocation = binding.allocation.clone();
+            if reserved != *binding {
+                return Err("launch identity changed during allocation; retained".into());
+            }
+            multplx_core::filesystem::atomic_replace(
+                &intent_path,
+                &serde_json::to_vec(binding).map_err(|e| e.to_string())?,
+                0o600,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(PathBuf::from(allocation.binding.path))
+        })();
+        match acquisition {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("error: allocation retained for recovery: {error}");
+                return 1;
+            }
+        }
+    };
+    if !request.persistent
+        && let Err(error) = verify_launch_worktree(&context, &request, &actor_worktree)
+    {
+        eprintln!("error: {error}");
+        return 1;
+    }
     let mut created_target = None;
     let mut herdr_endpoint = None;
     let mut projected_endpoint = None;
@@ -2555,7 +2700,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let result: Result<_, String> = (|| {
         let spec = TaskSpec {
             label: format!("mx-{}", request.id),
-            working_directory: request.project.clone(),
+            working_directory: actor_worktree.clone(),
         };
         let (target, named_endpoint) = match request.backend.as_str() {
             "tmux" => {
@@ -2580,7 +2725,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                             state: &context.state,
                             task_id: &request.id,
                             home: &request.home,
-                            cwd: &request.project,
+                            cwd: &actor_worktree,
                             task_label: &spec.label,
                             recovering: recovering_projection,
                         },
@@ -2668,101 +2813,8 @@ fn run_spawn(args: &[OsString]) -> i32 {
             _ => unreachable!(),
         };
         created_target = Some(target.clone());
-        let actor_worktree = if request.persistent {
-            request.home.clone()
-        } else if request.single_checkout_override.is_some() {
-            request.project.clone()
-        } else {
-            match target.backend() {
-                BackendName::Tmux => {
-                    let mut backend = multplx_backend::tmux::TmuxBackend::system();
-                    backend
-                        .send_literal(&target, "treehouse get")
-                        .and_then(|()| backend.send_key(&target, "Enter"))
-                        .map_err(|error_value| error_value.to_string())?;
-                }
-                BackendName::Herdr => {
-                    let mut backend = herdr_backend();
-                    backend
-                        .send_literal(&target, "treehouse get")
-                        .and_then(|()| backend.send_key(&target, "Enter"))
-                        .map_err(|error_value| error_value.to_string())?;
-                }
-                BackendName::Cmux => {
-                    let mut backend = multplx_backend::cmux::CmuxBackend::system();
-                    backend
-                        .send_literal(&target, "treehouse get")
-                        .and_then(|()| backend.send_key(&target, "Enter"))
-                        .map_err(|error_value| error_value.to_string())?;
-                }
-            }
-            let project = fs::canonicalize(&request.project)
-                .map_err(|error_value| format!("cannot resolve project: {error_value}"))?;
-            let mut candidate = None;
-            let mut settled = None;
-            for _ in 0..60 {
-                let current = match target.backend() {
-                    BackendName::Tmux => {
-                        multplx_backend::tmux::TmuxBackend::system().current_path(&target)
-                    }
-                    BackendName::Herdr => herdr_backend().current_path(&target),
-                    BackendName::Cmux => {
-                        multplx_backend::cmux::CmuxBackend::system().current_path(&target)
-                    }
-                };
-                if let Ok(path) = current {
-                    let observed = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-                    if observed != project {
-                        if candidate.as_ref() == Some(&observed) {
-                            settled = Some(path);
-                            break;
-                        }
-                        candidate = Some(observed);
-                    } else {
-                        candidate = None;
-                    }
-                } else {
-                    candidate = None;
-                }
-                std::thread::sleep(Duration::from_secs(1));
-            }
-            let worktree = settled.ok_or_else(|| {
-                format!(
-                    "treehouse get did not enter a worktree within 60s; inspect window {named_endpoint}"
-                )
-            })?;
-            if !worktree.is_dir() {
-                return Err(format!(
-                    "treehouse get did not yield an isolated worktree: {}",
-                    worktree.display()
-                ));
-            }
-            let output = std::process::Command::new("git")
-                .args([
-                    "-C",
-                    worktree
-                        .to_str()
-                        .ok_or("worktree path is not valid UTF-8")?,
-                    "rev-parse",
-                    "--show-toplevel",
-                ])
-                .output()
-                .map_err(|error_value| error_value.to_string())?;
-            if !output.status.success() {
-                return Err("treehouse get did not yield an isolated worktree".to_owned());
-            }
-            let top = PathBuf::from(
-                String::from_utf8(output.stdout)
-                    .map_err(|_| "git worktree path is not UTF-8")?
-                    .trim(),
-            );
-            if fs::canonicalize(top).ok() != fs::canonicalize(&worktree).ok() {
-                return Err("treehouse get did not yield an isolated worktree".to_owned());
-            }
-            worktree
-        };
-        if !request.persistent {
-            verify_launch_worktree(&context, &request, &actor_worktree)?;
+        if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-endpoint") {
+            return Err("injected failure after endpoint before metadata".into());
         }
         multplx_domain::lifecycle::spawn::publish_meta_for_worktree(
             &context,
@@ -3345,11 +3397,16 @@ fn verify_launch_worktree(
         .ok_or("launch has no project binding")?;
     multplx_domain::project_registry::validate_binding(&context.home, project)?;
     let git = |arguments: &[&str]| -> Result<String, String> {
-        let output = std::process::Command::new("git")
-            .arg("-C")
-            .arg(worktree)
-            .args(arguments)
-            .output()
+        use multplx_backend::command::{CommandRequest, CommandRunner, SystemCommandRunner};
+        let mut command = CommandRequest::new(
+            "git",
+            [OsString::from("-C"), worktree.as_os_str().to_owned()]
+                .into_iter()
+                .chain(arguments.iter().map(OsString::from)),
+        );
+        command.env.push(("GIT_TERMINAL_PROMPT".into(), "0".into()));
+        let output = SystemCommandRunner
+            .run(&command)
             .map_err(|error| error.to_string())?;
         if !output.status.success() {
             return Err("cannot verify allocated worktree Git identity".into());

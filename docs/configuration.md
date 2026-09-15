@@ -89,7 +89,7 @@ Build the runtime with `cargo build --release --workspace --locked` when running
 
 For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.
 `tmux` is the verified reference backend (see [`docs/tmux-backend.md`](tmux-backend.md)); `herdr` and `cmux` are experimental spawn backends (see [`docs/herdr-backend.md`](herdr-backend.md) and [`docs/cmux-backend.md`](cmux-backend.md)).
-Treehouse remains the worktree provider for tmux, herdr, and cmux, since herdr and cmux are session providers only.
+The [built-in Git allocation owner](worktrees.md) supplies exact working paths to tmux, Herdr and cmux.
 New spawns choose the backend in this order: an explicit `--backend` flag broker passes when it spawns a task, then `MX_BACKEND`, then the first non-empty line of local gitignored `config/backend`, then runtime auto-detection from `$TMUX`, `HERDR_ENV=1`, or cmux runtime signals, then default `tmux`.
 If more than one runtime marker is present, detection resolves innermost-first: `$TMUX` is checked before `HERDR_ENV=1`, which is checked before cmux's primary `CMUX_WORKSPACE_ID` marker and its documented fallback signals - tmux or herdr started from inside a cmux terminal is the innermost, currently-executing layer, while cmux itself (a terminal application, not a nestable multiplexer) is always checked last.
 See [`docs/cmux-backend.md`](cmux-backend.md#runtime-detection) for why cmux can be selected when `CMUX_WORKSPACE_ID` is absent.
@@ -181,14 +181,15 @@ The existing parser accepts one route per line:
 Keep the route concise; `home:` locates the seeded charter and `projects:` is non-exclusive provisioning data.
 `mx-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
 The main broker routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
-Use `mx-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh broker worktree for the daemon home.
-Use the deliberate `--no-projects` signal only for a Multplx-repo domain that needs no separate project clones.
+Use `mx-home-seed.sh <id> - {<project>...|--no-projects}` to provision a private persistent home using installed runtime assets.
+Selected projects become canonical references to existing checkouts; seeding does not clone the runtime or projects.
+Use the deliberate `--no-projects` signal for a home with no initial project references.
 It cannot be combined with a project list, and omitting both still fails loudly.
 A project-less seed requires no existing project clones or `data/projects.md` entries in the home, so it refuses a populated-home conversion without changing that home.
 A preexisting project-bearing charter is also refused until it is re-scaffolded with `--no-projects` or removed.
-The lease is held under the daemon id until explicit retirement or seed rollback returns it, so normal restarts do not free or recycle the home.
-Teardown of a leased home fails closed if `treehouse return` cannot release the lease; plain-clone homes with no treehouse pool slot are removed directly.
-Daemon routes cover `deep-review` and `direct-PR` projects; `local-only` projects remain main-broker work.
+The reservation is held under the daemon id across normal restarts and interrupted seeding.
+Teardown retains uncertain Git-backed homes and archives new private homes using their exact recorded lease identity.
+Daemon routes also support local-only and remote-free projects without fabricating a publication remote.
 The deep-review gate is an in-repo script and requires no per-clone initialization during seeding.
 After creating a daemon, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <daemon-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-daemon homes.
 Set `MX_DAEMON_CHARTER` to seed from inline charter text when no filled charter brief exists; set `MX_DAEMON_SCOPE` when the routing scope should differ from the charter text.
@@ -237,7 +238,7 @@ The inherited-local-material contract is owned by [inherited configuration](conf
 Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit verified harness outside the config.
 The canonical persistent default is inherited so nested delegation can select persistent execution without a separate role class.
 The legacy `config/daemon-harness` stays home-local for compatibility.
-For Pi daemon launches, `mx-spawn.sh` starts Pi with `-e` pointed at the daemon home's own tracked `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, both already present from the daemon home's git worktree.
+For Pi persistent-home launches, `mx-spawn.sh` starts Pi with `-e` pointed at the home's `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, supplied through its links to installed runtime assets.
 For Cursor launches, `mx-spawn.sh` always passes `--sandbox enabled --trust`; actor turn-end signaling comes from a private per-run plugin and primary behavior comes from tracked `.cursor` rules and hooks.
 Cursor model effort is encoded as `<model>[effort=<level>]`; use `agent models` in the authenticated account before choosing a named model.
 Cursor deep-review is deliberately unsupported because schema enforcement and project-rule suppression are not verified together.
@@ -304,9 +305,10 @@ Use `bin/mx-headroom.sh --queue` to inspect parked requests and `bin/mx-headroom
 On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is Git, gh, jq, and Treehouse with durable `get --lease` support.
+The universal toolchain is Git, gh and jq.
+Safe worktree cleanup additionally requires a successful occupant observation with `lsof`; unavailable observation retains work.
 The viz and vplan services are Rust-native and do not require Node.
-[`upstream.md`](upstream.md#pinned-external-dependencies) owns Treehouse's exact version pin and points to the verified installer.
+The [worktree lifecycle](worktrees.md) is built into the runtime; there is no worktree-provider installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
 The in-repo deep-review scripts supply local validation, while official gh covers read-only agent operations plus credentialed non-agent delivery.
 Bootstrap does not require GitHub authentication in the broker session.
@@ -317,7 +319,7 @@ The per-backend delta is required only for the backend resolved from `MX_BACKEND
 That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh`: the resolved backend's own session-provider CLI (`tmux`, `herdr`, or `cmux`) plus the compatibility `jq` requirement for the JSON-emitting experimental adapters (`herdr`, `cmux`).
 Backend tool availability uses the adapter's own executable resolver, so bootstrap and spawn agree on supported non-`PATH` locations such as cmux's bundled CLI.
 An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead of silently dropping its dependency delta or falling back to tmux.
-A herdr or cmux home is therefore never told `tmux` is missing, while Treehouse's command and durable-lease checks still run unconditionally because every supported backend delegates worktree acquisition to it.
+A Herdr or cmux home is therefore never told `tmux` is missing; every supported backend uses built-in worktree acquisition.
 Bootstrap validates canonical dispatch profiles and the legacy alias in the Rust owner; `jq` remains part of the current general toolchain.
 Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
 An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
@@ -411,9 +413,9 @@ MX_WATCH_TRIAGE_LOG_MAX_BYTES=262144   # size cap for the watcher's absorbed-wak
 MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT=     # optional seconds allowed for bootstrap's best-effort clone refresh; unset/blank defaults to max(20, 5 + 3 * origin-backed-project-count)
 MX_SYSTEM_PRUNE=1        # set to 0 to skip pruning local branches whose upstream is gone
 MX_STALE_WORKTREE_LOCK_AGE_SECS=30       # min mtime age before mx-teardown.sh treats a leftover worktree git index.lock as provably stale
-MX_TREEHOUSE_RETURN_LOCK_RETRIES=3        # retries after a treehouse return fails on the transient git index.lock signature
-MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS=1 # seconds mx-teardown.sh waits before each retry after that signature
-MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=   # legacy alias for MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS when the new variable is unset
+MX_WORKTREE_LOCK_RETRIES=3        # rechecks before proving a Git index.lock stale
+MX_WORKTREE_LOCK_RETRY_WAIT_SECS=1 # seconds mx-teardown.sh waits before each retry after that signature
+MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=   # legacy alias for MX_WORKTREE_LOCK_RETRY_WAIT_SECS when the new variable is unset
 MX_SYSTEM_SYNC_PACKED_REFS_LOCK_RETRIES=3        # fetch retries after mx-system-sync.sh hits the orphaned .git/packed-refs.lock signature
 MX_SYSTEM_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=1 # seconds mx-system-sync.sh waits before each of those retries
 MX_SYSTEM_SYNC_PACKED_REFS_LOCK_AGE_SECS=30       # min mtime age before mx-system-sync.sh treats a leftover packed-refs.lock as provably stale
@@ -446,9 +448,9 @@ MX_LOG_MAX_BYTES=1048576           # daemon log size that triggers trimming
 MX_LOG_KEEP_LINES=2000             # daemon log lines kept when trimming
 ```
 
-`mx-teardown.sh` retries only Git's `Unable to create '...index.lock': File exists` return failure up to `MX_TREEHOUSE_RETURN_LOCK_RETRIES` times.
-`MX_TREEHOUSE_RETURN_LOCK_RETRIES` accepts a nonnegative integer, and an unset, blank, or invalid value uses the default of 3.
-`MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS` accepts nonnegative whole or fractional seconds between attempts.
+`mx-teardown.sh` rechecks a present Git index lock up to `MX_WORKTREE_LOCK_RETRIES` times before applying stale-lock proof.
+`MX_WORKTREE_LOCK_RETRIES` accepts a nonnegative integer, and an unset, blank, or invalid value uses the default of 3.
+`MX_WORKTREE_LOCK_RETRY_WAIT_SECS` accepts nonnegative whole or fractional seconds between attempts.
 When it is unset or blank, `MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS` remains a compatible fallback, and a blank fallback uses the 1-second default.
 An invalid nonblank wait falls back to 1 second rather than interrupting teardown.
 Teardown never removes a lock during the retry window, and after that window it attempts stale-lock cleanup only for a still-present lock that passes the configured age and live-holder checks.

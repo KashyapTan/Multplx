@@ -10,3 +10,4 @@ pub mod subagent_model;
 pub mod system_sync;
 pub mod teardown;
 pub mod upstream_diff;
+pub mod worktree;

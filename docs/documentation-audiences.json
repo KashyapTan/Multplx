@@ -431,6 +431,14 @@
     {
       "path": "docs/subagent-model.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/worktrees.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "plans/lean_redesign/phase03-implementation.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

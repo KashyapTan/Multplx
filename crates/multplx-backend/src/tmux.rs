@@ -718,9 +718,7 @@ mod tests {
             .send_literal(&pane, "literal $text")
             .expect("literal");
         backend.send_key(&pane, "Escape").expect("key");
-        backend
-            .send_text_line(&pane, "treehouse get")
-            .expect("line");
+        backend.send_text_line(&pane, "printf ready").expect("line");
         let calls = &backend.runner.calls;
         assert_eq!(
             calls[2].args,
@@ -747,7 +745,7 @@ mod tests {
         );
         assert_eq!(
             calls[8].args,
-            ["send-keys", "-t", "broker:mx-one", "treehouse get", "Enter"].map(OsString::from)
+            ["send-keys", "-t", "broker:mx-one", "printf ready", "Enter"].map(OsString::from)
         );
     }
 

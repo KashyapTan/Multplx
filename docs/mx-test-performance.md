@@ -117,6 +117,7 @@ The accepted proof table is updated only from complete runner JSON artifacts.
 | Plan-06 serial boundary | 2026-07-29 UTC | 96 scripts, 3,127,519 ms, 1 known branch-topology failure, 9 expected skips |
 | Plan-6.5 split assertion map | 2026-07-29 UTC | 140 cases mapped exactly once |
 | Resource isolation proof | 2026-08-03 UTC | 100 portable candidates x 2 rounds, 518,489 ms, 0 failed rounds, 0 leaks, 503 conflict pairs |
+| Lean Phase-03 resource isolation proof | 2026-09-14 EDT | 106 portable candidates x 2 rounds, 494,125 ms, 0 failed rounds, 0 leaks, 647 conflict pairs |
 | Plan-13 resource isolation proof | 2026-08-13 EDT | 105 portable candidates x 2 rounds, 665,226 ms, 0 failed rounds, 0 leaks |
 | Plan-13 accelerated local run 1 | 2026-08-13 EDT | 127 scripts, 312,296 ms, 0 failed, 8 declared skips, 1,474 assertions |
 | Plan-13 accelerated local run 2 | 2026-08-13 EDT | 127 scripts, 313,461 ms, 0 failed, 8 declared skips, 1,474 assertions |
@@ -132,9 +133,14 @@ The current Plan-13 three-run accelerated median is 312,525 ms, or 5 minutes 12.
 The maximum is 313,461 ms, or 5 minutes 13.5 seconds.
 The current serial-to-accelerated speedup is 3.22x.
 The exact parity command reported `MX_TEST_PARITY ok scripts=127 assertions=1474`.
-The current 127-script resource proof was produced at a temporary path with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json <temporary-proof-path>` and atomically promoted to `docs/mx-test-isolation-proof.json` after validation.
+The historical Plan-13 127-script resource proof was produced at a temporary path with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json <temporary-proof-path>` and atomically promoted to `docs/mx-test-isolation-proof.json` after validation.
 It reported `MX_ISOLATION_SUMMARY total=105 failed_rounds=0 concurrency=4 repeats=2 duration_ms=665226 leaks=0`.
-The proof records manifest SHA-256 `7ad4468ac085aaecc98277c3a2f5dd00498c5314fa744215df82a5c9f1098df8`, 644 declared conflict pairs, and no known-failure observations.
+That historical proof recorded manifest SHA-256 `7ad4468ac085aaecc98277c3a2f5dd00498c5314fa744215df82a5c9f1098df8`, 644 declared conflict pairs, and no known-failure observations.
+
+The current 128-script resource proof was regenerated for lean Phase 03 with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase03-isolation-proof.json` and its successful JSON atomically copied into the archive.
+It reports 106 portable candidates across two rounds, 494,125 ms, no failed rounds, no leaks and no known-failure exceptions.
+Its manifest SHA-256 is `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f`, with 647 declared conflict pairs.
+[Phase 03 evidence](../plans/lean_redesign/phase03-implementation.md) owns the changed lifecycle validation and costs; this update does not claim a new three-run performance or serial-parity baseline.
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.

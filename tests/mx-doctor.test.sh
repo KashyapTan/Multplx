@@ -33,17 +33,9 @@ esac
 exit 0
 SH
   cat >"$fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
-  printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
-  exit 0
-fi
-if [ "${1:-}" = status ]; then
-  [ -z "${MX_DOCTOR_FAKE_TREEHOUSE_STATUS:-}" ] \
-    || cat "$MX_DOCTOR_FAKE_TREEHOUSE_STATUS"
-  exit 0
-fi
-exit 0
+#!/bin/sh
+echo 'ERROR: removed worktree provider invoked' >&2
+exit 99
 SH
   cat >"$fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
@@ -64,7 +56,6 @@ SH
 make_case() {
   local name=$1 dir="$TMP_ROOT/$1" home="$TMP_ROOT/$1/home" fakebin
   mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$dir/root"
-  : >"$dir/treehouse.status"
   fakebin=$(make_fakebin "$dir")
   printf '%s|%s|%s|%s\n' "$dir" "$home" "$dir/root" "$fakebin"
 }
@@ -73,7 +64,6 @@ read_case() {
   IFS='|' read -r CASE_DIR HOME_DIR ROOT_DIR FAKEBIN_DIR <<EOF
 $1
 EOF
-  STATUS_FILE="$CASE_DIR/treehouse.status"
 }
 
 run_doctor() {
@@ -85,7 +75,6 @@ run_doctor() {
   MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
   MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" \
   MX_DOCTOR_COMPAT_PATHS="${MX_DOCTOR_TEST_COMPAT_PATHS:-}" \
-  MX_DOCTOR_TREEHOUSE_STATUS_FILE="$STATUS_FILE" \
   MX_DOCTOR_LOCK_STALE_SECS=0 \
   PATH="$FAKEBIN_DIR:/usr/bin:/bin" \
     "$DOCTOR" "$@"
@@ -183,14 +172,15 @@ test_each_check_classifies_its_fixture() {
   assert_check watcher-beacon 1 'WARN  watcher-beacon'
 
   read_case "$(make_case orphan-worktrees)"
-  wt="$CASE_DIR/orphan-wt"
-  mkdir -p "$wt"
-  printf '1    leased      %s (held by ghost)\n' "$wt" >"$STATUS_FILE"
-  assert_check orphan-worktrees 2 'active treehouse path'
+  mx_git_init_commit "$CASE_DIR/project"
+  MX_HOME="$HOME_DIR" "$MX_RUST_BIN" worktree acquire "$CASE_DIR/project" --request ghost --task ghost --attempt ghost-attempt --base "$(git -C "$CASE_DIR/project" rev-parse HEAD)" > "$CASE_DIR/allocation.json" || fail "real allocation fixture"
+  assert_check orphan-worktrees 1 'active allocation has no owning task metadata'
+  allocation_id=$(jq -r '.binding.allocation_id' "$CASE_DIR/allocation.json")
+  printf 'corrupt\n' > "$CASE_DIR/project/.git/multplx-worktrees/records/$allocation_id.json"
+  assert_check orphan-worktrees 1 'corrupt allocation'
 
   read_case "$(make_case missing-worktree-without-inventory)"
   write_meta missing "$CASE_DIR/absent-worktree"
-  rm -f "$STATUS_FILE"
   assert_check orphan-worktrees 2 'records missing worktree'
 
   read_case "$(make_case dangling-pids)"
@@ -253,7 +243,9 @@ test_each_check_classifies_its_fixture() {
 
   read_case "$(make_case tools)"
   rm -f "$FAKEBIN_DIR/treehouse"
-  assert_check tools 2 'missing treehouse'
+  assert_check tools 0 'required tools are present'
+  rm -f "$FAKEBIN_DIR/gh"
+  assert_check tools 2 'missing gh'
 
   read_case "$(make_case primary-tangle)"
   mx_git_init_commit "$ROOT_DIR"

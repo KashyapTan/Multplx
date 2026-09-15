@@ -2,7 +2,7 @@
 
 Herdr is an experimental agent-native terminal backend with native per-pane agent state and push events.
 Multplx requires Herdr protocol 14 or newer; versions 0.7.1, 0.7.3, 0.7.4, and 0.7.5 are verified, with protocol-16 features enabled only when available.
-Herdr provides the terminal session while Treehouse continues to provide task worktrees.
+Herdr provides terminal sessions at the exact paths returned by the [built-in Git allocation owner](worktrees.md).
 [`configuration.md`](configuration.md#runtime-backend-configbackend--mx_backend) owns shared backend selection and metadata semantics.
 
 ## Setup
@@ -27,7 +27,7 @@ The Rust adapter stops before creating a Herdr container or acquiring a task wor
 It parses Herdr JSON internally, so `jq` is not a backend runtime dependency.
 No separate first-run provisioning is required.
 
-The required CI lane uses the pinned installer transports in `bin/mx-install-herdr.sh` and `bin/mx-install-treehouse.sh`.
+The required CI lane installs Herdr through `bin/mx-install-herdr.sh`; worktree management is built in.
 The typed installer modules own release assets, checksums, download bounds, and post-install gates.
 Real harness credential tests remain opt-in rather than part of default CI.
 
@@ -70,7 +70,7 @@ Presentation is a best-effort visual projection, never task ownership or lifecyc
 Only a fresh task with neither metadata nor an existing presentation journal is eligible for projected creation.
 Multplx atomically publishes a three-field version 1 journal containing a random 128-bit base64url token before asking Herdr to create anything.
 After the new workspace converges to one exact task endpoint beneath one exact parent, the journal advances to a version 2 binding that records the physical home, named session, endpoint, parent, and immutable expected labels.
-The token is visible in the workspace title because Herdr exposes no verified hidden persistent field, but neither token, title, nor journal authorizes send, capture, task ownership, Treehouse return, or general recovery.
+The token is visible in the workspace title because Herdr exposes no verified hidden persistent field, but neither token, title, nor journal authorizes send, capture, task ownership, worktree release, or general recovery.
 
 The normal `mx-<id>` task tab is created in the exact new workspace returned by Herdr.
 Only the exact seeded default tab returned by the same workspace-create response can be pruned.
@@ -97,6 +97,11 @@ An existing journal suppresses another projected create.
 Before any recovery mutation, Multplx holds both the task spawn lock and the named-session presentation lock.
 A same-identity version 2 binding may replace one exact agent-free restart husk in place only when the physical home, session, metadata endpoint, unique token match, workspace shape and labels, parent identity and placement, and non-target focus snapshot all agree.
 The replacement tab and pane are created and verified before the old pane is rechecked and closed, then the journal advances atomically to the replacement endpoint before metadata publication.
+Before the worktree owner advances an allocation generation, the same guarded replacement moves an agent-free restored shell into a temporary holding tab whose cwd is the owning home.
+The exact projection workspace and focus survive, while the old shell stops occupying the worker worktree.
+A private version 1 `state/ID.herdr-quiescence` receipt records the previous binding before mutation and the verified holding binding after the presentation journal advances.
+After the worktree owner independently verifies that the worker path has no occupants, final reclaim verifies that receipt against the old metadata, creates the worker endpoint at the exact allocation path, closes the holding pane, and clears the receipt.
+An interruption after journal publication can reconcile only the exact sole holding endpoint with the original pane confirmed gone; uncertain topology, live or unknown agents, corrupt receipts, and changed ownership retain the allocation for recovery.
 The reclaim path never moves, closes, deletes, or renames a workspace and never touches a parent, sibling, maintainer, or foreign pane.
 A failed replacement rolls back only the exact response-derived new pane when focus-safe verification permits it.
 Version 1 journals, dead or missing panes, duplicate or absent tokens, renamed or detached spaces, cross-home mismatches, inconsistent endpoint bindings, active target tabs, and ambiguous identity or focus fall back flat without mutating the old projection when duplicate-agent risk is positively absent.

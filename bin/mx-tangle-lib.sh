@@ -2,9 +2,9 @@
 # Shared worktree-tangle guard for the Multplx-on-itself case.
 # Usage: . bin/mx-tangle-lib.sh
 #
-# Multplx is a treehouse-pooled git repo of itself: actor worktrees and
-# daemon homes are all linked `git worktree`s of the same repo, while the
-# PRIMARY checkout (the repo root broker operates from) is a normal checkout
+# When Multplx works on its own source, task worktrees are isolated linked
+# Git worktrees. Persistent homes may instead be private directories.
+# The PRIMARY checkout (the repo root broker operates from) is a normal checkout
 # on a real branch - normally the default branch, main. The "worktree tangle"
 # failure mode is an actor spawned to work on Multplx ITSELF branching and
 # committing in the primary checkout instead of its own disposable worktree,

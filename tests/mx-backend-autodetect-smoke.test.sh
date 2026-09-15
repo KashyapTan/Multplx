@@ -39,7 +39,6 @@ assert_contains_local() {  # <haystack> <needle> <msg>
 
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
-command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (required by mx-spawn.sh)"; exit 0; }
 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
@@ -62,7 +61,7 @@ ID="autodetectsmoke1"
 WT=
 cleanup_all() {
   local cleanup_status=0
-  [ -n "$WT" ] && command -v treehouse >/dev/null 2>&1 && treehouse return --force "$WT" >/dev/null 2>&1
+  [ -n "$WT" ] && mx_fixture_remove_worktree "$WT" >/dev/null 2>&1
   "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || cleanup_status=$?
   rm -rf "$TMP_ROOT"
   return "$cleanup_status"

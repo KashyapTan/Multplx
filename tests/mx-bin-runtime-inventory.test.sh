@@ -15,9 +15,11 @@ inventory_fail() {
   FAILED=1
 }
 
-git -C "$ROOT" ls-files -s bin \
-  | awk '$1 == "100755" { print $4 }' \
-  | LC_ALL=C sort > "$ACTUAL"
+git -C "$ROOT" ls-files --cached --others --exclude-standard -z bin \
+  | while IFS= read -r -d '' path; do
+      [ -f "$ROOT/$path" ] && [ -x "$ROOT/$path" ] && printf '%s\n' "$path"
+    done \
+  | LC_ALL=C sort -u > "$ACTUAL"
 awk -F '\t' '!/^#/ && NF { print $1 }' "$MANIFEST" | LC_ALL=C sort > "$DECLARED"
 
 missing=$(comm -23 "$ACTUAL" "$DECLARED" || true)

@@ -418,8 +418,7 @@ test_ci_and_docs_call_the_owner() {
     || fail "Herdr CI job must fail on herdr-not-found skips"
   grep -Fq 'target/release/mx install-herdr' "$CI" \
     || fail "Herdr CI job must install via the Rust binary"
-  grep -Fq 'target/release/mx install-treehouse' "$CI" \
-    || fail "Herdr CI job must install Treehouse via the Rust binary"
+  if grep -Fq 'install-treehouse' "$CI"; then fail "CI still installs the retired worktree provider"; fi
   grep -Fq 'target/release/mx herdr-ci-cleanup' "$CI" \
     || fail "Herdr CI job must use Rust-owned bounded lab cleanup"
   grep -Fq 'tests-timing-aggregate:' "$CI" \

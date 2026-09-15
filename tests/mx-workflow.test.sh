@@ -7,6 +7,9 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 mx_test_tmproot_into TMP_ROOT workflow
+# Workflow snapshots retain canonical home paths; standalone coverage may use
+# a symlinked TMPDIR (for example /var on macOS).
+TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 HOME_FIXTURE="$TMP_ROOT/home"
 REPO_FIXTURE="$TMP_ROOT/repo"
 mkdir -p "$HOME_FIXTURE/data" "$HOME_FIXTURE/state" "$REPO_FIXTURE/workflows"

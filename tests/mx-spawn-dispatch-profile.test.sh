@@ -61,7 +61,6 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  mx_fake_exit0 "$fakebin" treehouse
   printf '%s\n' "$fakebin"
 }
 

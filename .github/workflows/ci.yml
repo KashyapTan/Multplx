@@ -35,6 +35,9 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Install Git worktree occupant observer
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Test workspace
         run: cargo test --locked --workspace
       - name: Build release workspace
@@ -62,6 +65,8 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
+      - name: Install Git worktree occupant observer
+        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Enforce workspace line coverage
         # Behavior lanes own the named process-driven CLI modules, home seeding,
         # upstream review, and the three OS-lifecycle Herdr modules.
@@ -96,6 +101,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install Git worktree occupant observer
+        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Run portable parallel shard 1
@@ -120,6 +127,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install Git worktree occupant observer
+        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Run portable parallel shard 2
@@ -149,6 +158,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install Git worktree occupant observer
+        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Require tmux for e2e tests
@@ -199,6 +210,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install Git worktree occupant observer
+        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Require tools for real Herdr
@@ -213,20 +226,11 @@ jobs:
           set -eu
           target/release/mx install-herdr "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Install pinned Treehouse
-        run: |
-          set -eu
-          # Several real-herdr-gated E2E scripts require treehouse for spawn
-          # worktree acquisition (presentation, workspace-per-home, autodetect).
-          target/release/mx install-treehouse "$RUNNER_TEMP/bin"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Assert Herdr pin and protocol floor
         run: |
           set -eu
           command -v herdr >/dev/null || { echo "::error::herdr not on PATH after install"; exit 1; }
-          command -v treehouse >/dev/null || { echo "::error::treehouse not on PATH after install"; exit 1; }
           herdr --version
-          treehouse --version
           status=$(herdr status --json)
           printf '%s\n' "$status"
           version=$(printf '%s' "$status" | jq -r '.client.version // empty')

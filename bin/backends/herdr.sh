@@ -8,7 +8,7 @@
 # data/mx-backend-design-d7/herdr-verification-p2.md (real herdr v0.7.1,
 # protocol 14, macOS aarch64), refined by docs/herdr-backend.md's
 # "workspace-per-home" pass (AGENTS.md task herdr-sm-spaces-k4). Herdr is a
-# session provider ONLY (D3): the worktree provider stays treehouse, exactly
+# session provider ONLY (D3): the built-in lifecycle owns worktrees, exactly
 # like tmux. Sourced only through bin/mx-backend.sh's mx_backend_source in
 # normal operation; the unit tests source it directly, so the MX_HOME fallback
 # below keeps that path sane without mx-backend.sh's preamble.
@@ -109,7 +109,7 @@ MX_BACKEND_HERDR_DAEMON_MARKER=".mx-daemon-home"
 # Version 2 additionally binds the successful projection's exact home,
 # session, workspace, tab, pane, parent, and presentation labels so a resumed
 # spawn can replace one verified agent-free husk under the session lock.
-# No send, capture, Treehouse, or general task-ownership path reads it.
+# No send, capture, allocation, or general task-ownership path reads it.
 MX_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
 
 # mx_backend_herdr_workspace_label: the per-broker-HOME herdr workspace
@@ -1655,18 +1655,9 @@ mx_backend_herdr_target_ready() {  # <target>
   mx_backend_herdr_server_ensure "$MX_BACKEND_HERDR_SESSION" || return 1
 }
 
-# mx_backend_herdr_current_path: the live FOREGROUND process's cwd, or empty on
-# any error. Mirrors tmux's pane_current_path poll used for worktree-path
-# discovery after `treehouse get`.
-#
-# Verified pitfall: `pane get`'s `.result.pane.cwd` is the pane's cwd AT
-# CREATION TIME - the top-level shell's cwd - and does NOT update when that
-# shell `cd`s or enters a subshell (as `treehouse get` does). Reading it here
-# would make mx-spawn.sh's worktree-discovery poll never see the pane "leave"
-# the project directory, since `cwd` stays frozen at the original path forever.
-# `.result.pane.foreground_cwd` tracks the ACTUALLY RUNNING foreground
-# process's cwd instead, which is what changes when `treehouse get` enters its
-# worktree subshell - confirmed live against a real treehouse acquisition.
+# The live foreground process cwd is an observation only.
+# pane.cwd is frozen at creation; foreground_cwd follows the current process.
+# Allocation authority is the built-in owner, never this observation.
 mx_backend_herdr_current_path() {  # <target>
   mx_backend_herdr_target_ready "$1" || return 0
   mx_backend_herdr_cli "$MX_BACKEND_HERDR_SESSION" pane get "$MX_BACKEND_HERDR_PANE" 2>/dev/null \
@@ -1675,7 +1666,7 @@ mx_backend_herdr_current_path() {  # <target>
 
 # mx_backend_herdr_send_text_line: send one line of TEXT then submit,
 # ATOMICALLY - mirrors tmux's `send-keys -t T text Enter`. Used for the fixed
-# spawn-time commands (treehouse get, the GOTMPDIR export). `pane run` types
+# spawn-time commands (the GOTMPDIR export). `pane run` types
 # the command and submits it in one call (verified).
 mx_backend_herdr_send_text_line() {  # <target> <text>
   mx_backend_herdr_target_ready "$1" || return 1

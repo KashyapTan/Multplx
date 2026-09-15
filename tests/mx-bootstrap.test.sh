@@ -3,10 +3,8 @@
 #
 # Bootstrap prints one block or line per actionable problem, optional verbose
 # BOOTSTRAP_INFO fact, or completed bootstrap no-action fact and is silent when
-# all is well. broker consumes the exact 'MISSING: treehouse (install: ...)',
-# 'HEADROOM_INVALID: ...', and 'BOOTSTRAP_INFO: ...' lines, so those contracts
-# are pinned verbatim. The cases are table-driven over whether the
-# universally-required `treehouse get --help` advertises --lease.
+# all is well. Required tool, HEADROOM_INVALID, and BOOTSTRAP_INFO contracts
+# are pinned verbatim. Worktree allocation is built in and has no provider probe.
 # Dedicated system-sync cases pin the computed bootstrap timeout, explicit
 # override, blank-env defaulting, partial-output relay, and pre-launch timeout
 # scan.
@@ -29,7 +27,6 @@ unset TMUX TMUX_PANE HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_SOCKET_PATH CMUX_TAB_ID CMUX_PANEL_ID 2>/dev/null || true
 
 # A fake toolchain where every required tool is present.
-# treehouse's `get --help` advertises --lease only when MX_FAKE_TREEHOUSE_LEASE_HELP=1.
 make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
@@ -42,19 +39,6 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh"
-  cat > "$fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
-  if [ "${MX_FAKE_TREEHOUSE_LEASE_HELP:-}" = 1 ]; then
-    printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
-  else
-    printf '%s\n' 'Usage: treehouse get'
-  fi
-  exit 0
-fi
-exit 0
-SH
-  chmod +x "$fakebin/treehouse"
   printf '%s\n' "$fakebin"
 }
 
@@ -142,19 +126,19 @@ run_bootstrap_timeout_case() {
     export -f git
     if [ "$override" = __unset__ ]; then
       PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$fake_root" \
-        MX_BOOTSTRAP_TEST_TICK_MS=10 \
+        MX_BOOTSTRAP_TEST_TICK_MS=50 \
         MX_FAKE_SYSTEM_SYNC_STARTED_MARKER="$started_marker" \
         MX_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
         MX_FAKE_GIT_WAIT_FOR_SYSTEM_START="$wait_for_marker" \
-        MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null
+        "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null
     else
       PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$fake_root" \
-        MX_BOOTSTRAP_TEST_TICK_MS=10 \
+        MX_BOOTSTRAP_TEST_TICK_MS=50 \
         MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT="$override" \
         MX_FAKE_SYSTEM_SYNC_STARTED_MARKER="$started_marker" \
         MX_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
         MX_FAKE_GIT_WAIT_FOR_SYSTEM_START="$wait_for_marker" \
-        MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null
+        "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null
     fi
   )
 }
@@ -169,42 +153,16 @@ assert_timeout_report() {
   [ "$elapsed" -ge "$timeout" ] || fail "expected elapsed >= timeout, got elapsed=${elapsed}s timeout=${timeout}s"
 }
 
-# Each row (fields are '^'-separated; the install URL contains a literal '|'):
-#   <label>^<lease 1/0>^<mode>^<expect>^<notcontains>
-#   mode=empty -> output must be empty (expect/notcontains ignored)
-#   mode=exact -> output must equal <expect>
-#   mode=grep  -> output must contain <expect> (fixed string); <notcontains> must not appear
+# The quiet success case uses only the remaining required tools.
 test_bootstrap_reporting() {
-  local label lease mode expect notcontains case_dir fakebin out n
-  n=0
-  while IFS='^' read -r label lease mode expect notcontains; do
-    [ -n "$label" ] || continue
-    n=$((n + 1))
-    case_dir="$TMP_ROOT/case-$n"
-    mkdir -p "$case_dir/home"
-    fakebin=$(make_fake_toolchain "$case_dir")
-    # MX_ROOT_OVERRIDE points the worktree-tangle check at the non-git home dir so
-    # it stays inert: this suite pins tool detection, not the tangle guard, and the
-    # ambient checkout (CI runs on a feature branch) must not leak a TANGLE line in.
-    out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-      MX_FAKE_TREEHOUSE_LEASE_HELP="$lease" "$ROOT/bin/mx-bootstrap.sh")
-    case "$mode" in
-      empty)
-        [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
-      exact)
-        [ "$out" = "$expect" ] || fail "$label: expected '$expect', got: $out" ;;
-      grep)
-        printf '%s\n' "$out" | grep -Fx "$expect" >/dev/null || fail "$label: missing '$expect' (got: $out)"
-        if [ -n "$notcontains" ]; then
-          printf '%s\n' "$out" | grep -F "$notcontains" >/dev/null && fail "$label: unexpected '$notcontains' in: $out"
-        fi
-        ;;
-    esac
-  done <<'ROWS'
-treehouse --lease support is accepted silently^1^empty^^
-treehouse without --lease reports an upgrade^0^grep^MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)^
-ROWS
-  pass "bootstrap reports treehouse lease and owned headroom contracts"
+  local case_dir fakebin out
+  case_dir="$TMP_ROOT/quiet-bootstrap"
+  mkdir -p "$case_dir/home"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
+    "$ROOT/bin/mx-bootstrap.sh")
+  [ -z "$out" ] || fail "healthy bootstrap should be silent, got: $out"
+  pass "bootstrap reports built-in worktree and owned headroom contracts"
 }
 
 test_git_is_required_with_supported_install_instruction() {
@@ -227,7 +185,7 @@ git() {
 SH
 
   out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+    "$ROOT/bin/mx-bootstrap.sh")
   expected="MISSING: git (install: brew install git  # or the platform's package manager)"
   [ "$out" = "$expected" ] || fail "missing git should report the supported install instruction, got: $out"
   pass "bootstrap requires git with an install instruction"
@@ -250,7 +208,7 @@ make_fake_toolchain_no_tmux() {  # <case-dir> <extra-cli...>
 test_session_provider_backends_do_not_require_tmux() {
   local backend cli case_dir fakebin out
   # herdr/cmux are session providers only: they require their own CLI and jq,
-  # while universal treehouse provides their worktrees. With all genuine deps
+  # while built-in Git allocation provides worktrees. With all genuine deps
   # present and tmux absent, bootstrap must be silent.
   while IFS='^' read -r backend cli; do
     [ -n "$backend" ] || continue
@@ -260,13 +218,13 @@ test_session_provider_backends_do_not_require_tmux() {
     printf '%s\n' "$backend" > "$case_dir/home/config/backend"
     fakebin=$(make_fake_toolchain_no_tmux "$case_dir" "$cli")
     out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-      MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+      "$ROOT/bin/mx-bootstrap.sh")
     [ -z "$out" ] || fail "backend=$backend with tmux absent but its own deps present should be silent, got: $out"
   done <<'ROWS'
 herdr^herdr
 cmux^cmux
 ROWS
-  pass "bootstrap: session-provider backends require their own CLI + jq and universal treehouse, never tmux"
+  pass "bootstrap: session-provider backends require their own CLI + jq and built-in allocation, never tmux"
 }
 
 test_session_provider_backends_gate_own_cli_not_tmux() {
@@ -279,10 +237,10 @@ test_session_provider_backends_gate_own_cli_not_tmux() {
     mkdir -p "$case_dir/home/config"
     printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
     printf '%s\n' "$backend" > "$case_dir/home/config/backend"
-    # Toolchain has jq + treehouse but NOT the session CLI and NOT tmux.
+    # Toolchain has jq but NOT the session CLI and NOT tmux.
     fakebin=$(make_fake_toolchain_no_tmux "$case_dir")
     out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-      MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+      "$ROOT/bin/mx-bootstrap.sh")
     if [ "$backend" = herdr ]; then
       missing="MISSING_MANUAL: herdr (instructions: https://herdr.dev)"
     else
@@ -321,7 +279,7 @@ test_cmux_bundled_cli_satisfies_dependency() {
   mx_fake_exit0 "$case_dir/bundle" cmux
   bundle="$case_dir/bundle/cmux"
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_BACKEND_CMUX_BUNDLE_BIN="$bundle" MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+    MX_BACKEND_CMUX_BUNDLE_BIN="$bundle" "$ROOT/bin/mx-bootstrap.sh")
   [ -z "$out" ] || fail "a usable bundled cmux CLI should satisfy bootstrap without a PATH shim, got: $out"
   pass "bootstrap: the bundled cmux CLI satisfies the active backend dependency"
 }
@@ -334,7 +292,7 @@ test_unknown_backend_reports_invalid_configuration() {
   printf '%s\n' bogus > "$case_dir/home/config/backend"
   fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+    "$ROOT/bin/mx-bootstrap.sh")
   assert_contains "$out" "BACKEND_INVALID: bogus (known: tmux herdr cmux)" \
     "bootstrap should report an unknown resolved backend"
   assert_not_contains "$out" "MISSING: tmux" "an unknown backend should not silently fall back to tmux dependencies"
@@ -370,7 +328,7 @@ jq() {
 }
 SH
     out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-      MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+      "$ROOT/bin/mx-bootstrap.sh")
     assert_contains "$out" "MISSING: jq" "backend=$backend must fail closed on missing jq"
     assert_not_contains "$out" "MISSING: tmux" "backend=$backend must not demand tmux when jq is missing"
   done <<'ROWS'
@@ -380,41 +338,23 @@ ROWS
   pass "bootstrap: JSON-emitting backends require jq (their genuine dep), never tmux"
 }
 
-test_treehouse_requirement_is_unconditional() {
-  local case_dir fakebin out missing count
-  missing='MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)'
-
-  # An invalid backend has no verified dependency delta. It must not suppress
-  # the universal treehouse lease-capability check.
-  case_dir="$TMP_ROOT/invalid-backend-old-treehouse"
-  mkdir -p "$case_dir/home/config"
-  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
-  printf '%s\n' bogus > "$case_dir/home/config/backend"
-  fakebin=$(make_fake_toolchain "$case_dir")
-  out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    "$ROOT/bin/mx-bootstrap.sh")
-  assert_contains "$out" "BACKEND_INVALID: bogus (known: tmux herdr cmux)" \
-    "invalid backend setup must remain actionable"
-  assert_contains "$out" "$missing" \
-    "invalid backend setup must not suppress the treehouse durable-lease check"
-  count=$(printf '%s\n' "$out" | grep -Fxc "$missing")
-  [ "$count" -eq 1 ] || fail "old treehouse should produce exactly one missing diagnostic, got $count"
-
-  # The command-presence probe is universal for the same reason.
-  case_dir="$TMP_ROOT/invalid-backend-missing-treehouse"
-  mkdir -p "$case_dir/home/config"
-  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
-  printf '%s\n' bogus > "$case_dir/home/config/backend"
+test_external_worktree_provider_is_unused() {
+  local case_dir fakebin out
+  case_dir="$TMP_ROOT/no-external-worktree-provider"
+  mkdir -p "$case_dir"
   fakebin=$(make_fake_toolchain "$case_dir")
   rm -f "$fakebin/treehouse"
-  out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
-  assert_contains "$out" "$missing" \
-    "invalid backend setup must not suppress the treehouse command probe"
-  count=$(printf '%s\n' "$out" | grep -Fxc "$missing")
-  [ "$count" -eq 1 ] || fail "missing treehouse should produce exactly one missing diagnostic, got $count"
-
-  pass "bootstrap: treehouse presence and durable-lease support are unconditional requirements"
+  out=$(MX_BACKEND=tmux PATH="$fakebin:$PATH" MX_HOME="$case_dir" "$ROOT/bin/mx-bootstrap.sh" 2>&1)
+  assert_not_contains "$out" 'MISSING: treehouse' "built-in worktree lifecycle must not require an external provider"
+  cat > "$fakebin/treehouse" <<'SH'
+#!/bin/sh
+echo 'EXTERNAL_WORKTREE_PROVIDER_INVOKED' >&2
+exit 99
+SH
+  chmod +x "$fakebin/treehouse"
+  out=$(MX_BACKEND=tmux PATH="$fakebin:$PATH" MX_HOME="$case_dir" "$ROOT/bin/mx-bootstrap.sh" 2>&1)
+  assert_not_contains "$out" 'EXTERNAL_WORKTREE_PROVIDER_INVOKED' "bootstrap invoked removed provider"
+  pass "bootstrap works without Treehouse and ignores a failing sentinel"
 }
 
 test_system_sync_timeout_scales_with_origin_backed_project_count() {
@@ -558,7 +498,7 @@ run_routine_bootstrap_fixture() {
   home=${fixture%%|*}
   fakebin=${fixture#*|}
   PATH="$fakebin:$BASE_PATH" MX_BACKEND=tmux MX_HOME="$home" MX_ROOT_OVERRIDE="$root" \
-    MX_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    \
     "$shell" "$ROOT/bin/mx-bootstrap.sh"
 }
 
@@ -600,7 +540,7 @@ exit 1
 SH
   chmod +x "$broken"
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_VPLAN_SELF_CHECK_OVERRIDE="$broken" MX_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    MX_VPLAN_SELF_CHECK_OVERRIDE="$broken" \
     "$ROOT/bin/mx-bootstrap.sh")
   expected="VPLAN_INVALID: bundled mx-vplan.sh self-check failed"
   [ "$out" = "$expected" ] || fail "broken vplan self-check should report '$expected', got: $out"
@@ -617,11 +557,11 @@ test_actor_dispatch_active_rules_are_verbose_bootstrap_info() {
   add_real_jq "$fakebin"
 
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+    "$ROOT/bin/mx-bootstrap.sh")
   [ -z "$out" ] || fail "active dispatch profile should be silent by default, got: $out"
 
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-    MX_BOOTSTRAP_VERBOSE_FACTS=1 MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+    MX_BOOTSTRAP_VERBOSE_FACTS=1 "$ROOT/bin/mx-bootstrap.sh")
 
   expect=$'BOOTSTRAP_INFO: vplan self-check passed\nBOOTSTRAP_INFO: headroom self-check passed\nBOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
   [ "$out" = "$expect" ] || fail "active dispatch verbose info block mismatch"$'\n'"expected: $expect"$'\n'"actual:   $out"
@@ -641,7 +581,7 @@ test_actor_dispatch_validation() {
     fakebin=$(make_fake_toolchain "$case_dir")
     add_real_jq "$fakebin"
     out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
-      MX_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/mx-bootstrap.sh")
+      "$ROOT/bin/mx-bootstrap.sh")
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
@@ -682,7 +622,7 @@ test_herdr_install_requires_manual_action
 test_cmux_bundled_cli_satisfies_dependency
 test_unknown_backend_reports_invalid_configuration
 test_json_backends_require_jq_not_tmux
-test_treehouse_requirement_is_unconditional
+test_external_worktree_provider_is_unused
 test_system_sync_timeout_scales_with_origin_backed_project_count
 test_system_sync_timeout_floor_preserves_small_systems
 test_system_sync_timeout_explicit_override_wins

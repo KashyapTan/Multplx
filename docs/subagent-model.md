@@ -35,7 +35,7 @@ Readers reject duplicate keys, unsupported versions and conflicting identities.
 | `accepted_brief_revision`, `accepted_brief_digest`, `accepted_brief_path`, `briefs`, `assignments` | Accepted scope/evidence history and explicit responsibility changes |
 | `runtime` | Provider, nullable exportable session identity and endpoint |
 | `schedule` | Priority, dependencies, runnable/waiting state and revision-bound human decisions |
-| `project`, `allocation`, `domain`, `owning_coordinator`, `transfers` | Task-local routing and resource/domain ownership |
+| `project`, `allocation`, `home_allocation`, `domain`, `owning_coordinator`, `transfers` | Task-local routing and resource/domain ownership |
 | `legacy_unknown` | Historical records whose execution identity cannot be proven |
 
 `mx task-model inspect <task-id>` prints the normalized record without converting the source.
@@ -138,7 +138,9 @@ Teardown validates canonical source identity and refuses removal targets that ov
 
 An allocation binds project/common-Git identity, exact path, base commit, task attempt, persistence and an acquisition generation.
 A stale lease cannot release a replacement allocation of the same path.
-Phase 03 owns the Git acquire, inspect, retain, release and scoped prune implementation.
+The [built-in lifecycle](worktrees.md) implements Git acquire, inspect, retain, release and scoped prune.
+An optional `home_allocation` binds persistent private-home path, owner, lease and generation independently of a live process.
+This is an additive canonical version 2 field; absent legacy ownership remains unproven, never authorization for cleanup.
 Legacy external-provider leases retain their uncertainty until ownership is established by that lifecycle.
 
 A coordinator domain records its scope revision, assignment generation, root home, immediate parent and owning home.

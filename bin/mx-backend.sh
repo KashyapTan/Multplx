@@ -295,9 +295,8 @@ mx_backend_validate_spawn() {  # <name>
 #   - jq, for the JSON-emitting experimental adapters (herdr, cmux) whose
 #     spawn/liveness paths parse the backend's JSON output (see each adapter's
 #     tool check, e.g. mx_backend_herdr_tool_check);
-# Treehouse is deliberately absent from this backend delta because every
-# supported backend delegates worktree acquisition to it; bootstrap owns that
-# unconditional requirement in its universal toolchain.
+# Worktree acquisition belongs to the built-in Git lifecycle and is independent
+# of each session backend toolchain.
 # Prints a single space-separated line and returns 0 for a known backend; returns
 # 1 and prints nothing for an unknown backend.
 mx_backend_required_tools() {  # <backend>

@@ -388,6 +388,16 @@ pub fn parse(
         } else {
             PathBuf::from(project_arg)
         };
+        let project = if project.exists() {
+            project
+        } else {
+            crate::project_registry::resolve_checkout(
+                &context.home,
+                project_arg.strip_prefix("projects/").unwrap_or(project_arg),
+            )
+            .map(|binding| binding.canonical_path)
+            .unwrap_or(project)
+        };
         let project = fs::canonicalize(&project).map_err(|_| {
             format!(
                 "no brief at {}",
@@ -816,6 +826,19 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         }
     }
     super::subagent_model::validate_lineage(&lineage, &[root])?;
+    if request.persistent
+        && let Some(allocation) =
+            super::home_seed::read_home_allocation(&context.data, &request.id)?
+    {
+        if allocation.binding.path != resolved(&request.home)
+            || allocation.binding.owner_home != resolved(&context.home)
+            || allocation.state != "active"
+        {
+            return Err("persistent home allocation is not active at the selected path".into());
+        }
+        super::home_seed::verify_active_home(&allocation)?;
+        record.home_allocation = Some(allocation.binding);
+    }
     request.binding = Some(record);
     Ok(())
 }

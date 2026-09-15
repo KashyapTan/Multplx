@@ -32,7 +32,7 @@ set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-fail() { printf 'not ok - %s\n' "$1" >&2; cleanup_all; exit 1; }
+fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 pass() { printf 'ok - %s\n' "$1"; }
 assert_contains_local() {  # <haystack> <needle> <msg>
   case "$1" in
@@ -49,7 +49,6 @@ assert_not_contains_local() {  # <haystack> <needle> <msg>
 
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
-command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (required by mx-spawn.sh)"; exit 0; }
 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
@@ -65,8 +64,8 @@ SESSION="mx-lab-herdr-e2e-$$"
 export HERDR_SESSION="$SESSION"
 WT1=; WT2=
 cleanup_all() {
-  [ -n "$WT1" ] && command -v treehouse >/dev/null 2>&1 && treehouse return --force "$WT1" >/dev/null 2>&1
-  [ -n "$WT2" ] && command -v treehouse >/dev/null 2>&1 && treehouse return --force "$WT2" >/dev/null 2>&1
+  [ -n "$WT1" ] && mx_fixture_remove_worktree "$WT1" >/dev/null 2>&1
+  [ -n "$WT2" ] && mx_fixture_remove_worktree "$WT2" >/dev/null 2>&1
   herdr_safe_stop_and_delete "$SESSION"
   rm -rf "$TMP_ROOT"
 }
@@ -212,7 +211,7 @@ pass "real herdr E2E: list_live from the daemon's own context sees only tasks in
 # --- 5. teardown closes the RIGHT tab, and no other ------------------------
 
 TD1_OUT="$TMP_ROOT/td1.out"
-MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$PRIMARY_HOME/state" MX_DATA_OVERRIDE="$PRIMARY_HOME/data" \
+MX_HOME="$PRIMARY_HOME" MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$PRIMARY_HOME/state" MX_DATA_OVERRIDE="$PRIMARY_HOME/data" \
   MX_CONFIG_OVERRIDE="$PRIMARY_HOME/config" \
   "$ROOT/bin/mx-teardown.sh" cm1 >"$TD1_OUT" 2>&1
 rc=$?
@@ -231,7 +230,7 @@ WT1=
 pass "real herdr E2E: tearing down cm1 closes only its own tab - the daemon's and cm2's tabs survive untouched"
 
 TD2_OUT="$TMP_ROOT/td2.out"
-MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$SM_HOME/state" MX_DATA_OVERRIDE="$SM_HOME/data" \
+MX_HOME="$SM_HOME" MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$SM_HOME/state" MX_DATA_OVERRIDE="$SM_HOME/data" \
   MX_CONFIG_OVERRIDE="$SM_HOME/config" \
   "$ROOT/bin/mx-teardown.sh" cm2 >"$TD2_OUT" 2>&1
 rc=$?

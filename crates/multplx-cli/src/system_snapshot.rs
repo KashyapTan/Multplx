@@ -628,6 +628,20 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
         .and_then(|text| multplx_domain::lifecycle::subagent_model::read_meta(&id, &text));
     let coordination_error = normalized.as_ref().err().cloned();
     let coordination = normalized.ok();
+    let allocation_observation = coordination.as_ref().and_then(|task| {
+        let token = task.allocation.as_ref()?;
+        let result = task
+            .project
+            .as_ref()
+            .ok_or_else(|| "allocation project missing".to_owned())
+            .and_then(multplx_domain::lifecycle::worktree::Store::new)
+            .and_then(|store| store.observe(token));
+        Some(match result {
+            Ok(observation) => json!(observation),
+            Err(error) => json!({"allocation": null, "error": error}),
+        })
+    });
+
     let kind = fields
         .get("kind")
         .filter(|v| !v.is_empty())
@@ -702,7 +716,7 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
         .cloned()
         .unwrap_or(Value::Null);
     Some(
-        json!({"id":id,"coordination_schema":2,"coordination":coordination,"coordination_error":coordination_error,"kind":kind,"harness":fields.get("harness").cloned().unwrap_or_default(),"mode":fields.get("mode").cloned().unwrap_or_default(),"yolo":fields.get("yolo").cloned().unwrap_or_default(),"project":fields.get("project").cloned().unwrap_or_default(),"backend":backend,"paths":{"meta":observed(Some(path)),"status_log":{"path":status_path,"present":status_path.is_file(),"kind":"event_history","last_event":{"state":multplx_core::classification::status_line_verb(last),"note":multplx_core::classification::status_line_note(last),"raw":last}},"worktree":observed(fields.get("worktree").map(Path::new)),"home":observed(fields.get("home").map(Path::new)),"report":observed(Some(&report))},"daemon_projects":fields.get("projects").map(|v|v.split(',').map(str::trim).filter(|v|!v.is_empty()).collect::<Vec<_>>()).unwrap_or_default(),"current_state":{"state":current_state,"source":current_source,"detail":current["detail"],"raw":current["raw"],"observed_at":generated,"freshness":"fresh"},"endpoint":{"detail":endpoint_detail,"target":target,"exists":exists,"agent_alive":alive,"status":if exists==Some(false){"absent"}else if matches!(alive.as_str(),"alive"|"dead"){alive.as_str()}else{"unknown"},"observed_at":generated,"freshness":"fresh"},"pr":{"url":pr,"source":pr_source},"hints":{"pending_decision":open.iter().any(|row|row["verb"]=="needs-decision"),"blocked_event":open.iter().any(|row|row["verb"]=="blocked"),"open_decisions":open,"scout_report_present":report.is_file(),"last_event_text":last},"actions":if kind=="daemon"{json!({"send":format!("bin/mx-send.sh mx-{id} '<request>'"),"watch":"read status/doc return channel; do not routinely mx-peek a daemon for answers","return_channel_note":"Daemon answers come back through status/doc paths after a marked mx-send request."})}else{json!({"watch":format!("bin/mx-peek.sh mx-{id}"),"steer":format!("bin/mx-send.sh mx-{id} '<instruction>'"),"return_channel_note":Value::Null})},"backlog":owned}),
+        json!({"id":id,"coordination_schema":2,"coordination":coordination,"allocation_observation":allocation_observation,"coordination_error":coordination_error,"kind":kind,"harness":fields.get("harness").cloned().unwrap_or_default(),"mode":fields.get("mode").cloned().unwrap_or_default(),"yolo":fields.get("yolo").cloned().unwrap_or_default(),"project":fields.get("project").cloned().unwrap_or_default(),"backend":backend,"paths":{"meta":observed(Some(path)),"status_log":{"path":status_path,"present":status_path.is_file(),"kind":"event_history","last_event":{"state":multplx_core::classification::status_line_verb(last),"note":multplx_core::classification::status_line_note(last),"raw":last}},"worktree":observed(fields.get("worktree").map(Path::new)),"home":observed(fields.get("home").map(Path::new)),"report":observed(Some(&report))},"daemon_projects":fields.get("projects").map(|v|v.split(',').map(str::trim).filter(|v|!v.is_empty()).collect::<Vec<_>>()).unwrap_or_default(),"current_state":{"state":current_state,"source":current_source,"detail":current["detail"],"raw":current["raw"],"observed_at":generated,"freshness":"fresh"},"endpoint":{"detail":endpoint_detail,"target":target,"exists":exists,"agent_alive":alive,"status":if exists==Some(false){"absent"}else if matches!(alive.as_str(),"alive"|"dead"){alive.as_str()}else{"unknown"},"observed_at":generated,"freshness":"fresh"},"pr":{"url":pr,"source":pr_source},"hints":{"pending_decision":open.iter().any(|row|row["verb"]=="needs-decision"),"blocked_event":open.iter().any(|row|row["verb"]=="blocked"),"open_decisions":open,"scout_report_present":report.is_file(),"last_event_text":last},"actions":if kind=="daemon"{json!({"send":format!("bin/mx-send.sh mx-{id} '<request>'"),"watch":"read status/doc return channel; do not routinely mx-peek a daemon for answers","return_channel_note":"Daemon answers come back through status/doc paths after a marked mx-send request."})}else{json!({"watch":format!("bin/mx-peek.sh mx-{id}"),"steer":format!("bin/mx-send.sh mx-{id} '<instruction>'"),"return_channel_note":Value::Null})},"backlog":owned}),
     )
 }
 fn actor_state(paths: &Paths, id: &str) -> Value {

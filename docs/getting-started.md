@@ -14,7 +14,8 @@ Use macOS or Linux and install one verified coding-agent harness:
 - Cursor CLI, launched with `agent` or `cursor-agent`.
 - Pi, launched with `pi`.
 
-Every Multplx home needs Git, the official GitHub CLI, `jq`, and Treehouse with durable lease support.
+Every Multplx home needs Git, the official GitHub CLI, and `jq`.
+Safe worktree cleanup uses `lsof` to observe occupants; unavailable observation retains the allocation.
 Building from source additionally requires the stable Rust toolchain.
 Your runtime backend adds its own CLI requirement.
 tmux is the verified reference backend; Herdr and cmux are experimental, and Codex App is not selectable.

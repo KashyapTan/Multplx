@@ -47,7 +47,7 @@ The `flag` class is also deliberate for mixed files where path-only matching can
 | `bin/fm-brief.sh` | relevant | `bin/mx-brief.sh`, with additive Multplx briefing behavior. |
 | `bin/fm-send.sh` | relevant | `bin/mx-send.sh`, with additive Multplx routing behavior. |
 | `bin/fm-decision-hold.sh` | relevant | `bin/mx-decision-hold.sh`. |
-| `bin/fm-install-treehouse.sh` | relevant | `bin/mx-install-treehouse.sh` and its Rust default implementation, whose external pin remains separately reviewed. |
+| `bin/fm-install-treehouse.sh` | relevant | Historical worktree-provider integration; retired by the built-in lifecycle in lean Phase 03. |
 | `tests/fm-crew-state.test.sh` | relevant | Regression coverage for `bin/mx-actor-state.sh`. |
 | `tests/fm-watch*.test.sh` | relevant | Watcher and checkpoint regression coverage. |
 | `tests/fm-watcher-lock.test.sh` | relevant | Watcher-lock regression coverage. |
@@ -104,10 +104,11 @@ _No completed upstream review has been recorded._
 
 | Dependency | Upstream | Pin | Verification owner |
 |---|---|---|---|
-| Treehouse worktree provider | https://github.com/kunchenguid/treehouse | `v2.0.1` | `crates/multplx-backend/src/treehouse_tools.rs` owns the per-platform SHA-256 table, bounded download, exact post-install version check, and `get --lease` gate; `bin/mx-install-treehouse.sh` is the public Rust transport. |
+| Worktree lifecycle | Git | System Git | [Built-in allocation owner](worktrees.md); no external worktree-provider install or download. |
 
-Treehouse release review is part of the upstream watch.
-A pin bump is an ordinary reviewed change that updates both the version and every platform checksum in the Rust implementation.
+Treehouse v2.0.1 is historical migration provenance only.
+Its [replacement assessment](../plans/lean_redesign/treehouse-replacement-assessment.md) records the source schema and transfer constraints.
+The removed installer is not an upstream dependency to update.
 
 ## Phase 0 baseline (2026-07-27, macOS; corrected after plan 01)
 

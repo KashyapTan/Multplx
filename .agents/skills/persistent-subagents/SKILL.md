@@ -26,8 +26,9 @@ The common lifecycle supports persistent assignments; named coordinator provisio
 The [sub-agent record contract](../../../docs/subagent-model.md) distinguishes persistence, assignment, accepted brief and attempt identity.
 The seeded `data/charter.md` owns the assignment text; `.mx-daemon-home` binds the home identity.
 Home validation rejects duplicate, nested or overlapping registered homes.
-Provisioning rolls back only artifacts it created; a persistent reservation survives zero live processes and ordinary restarts.
-[A10](../../../porting.md#a10-built-in-git-worktree-lifecycle) replaces the legacy allocation dependency in Phase 03.
+Interrupted provisioning restores recorded parent artifacts and retains the reserved home; a persistent reservation survives zero live processes and ordinary restarts.
+[Worktree operations](../../../docs/worktrees.md) describe built-in allocation and private home reservations.
+Home seed remembers project references without copying repositories; retirement retains private home material in an explicit archive.
 
 Keep parent task/report binding separate from the child's own operational home.
 Preserve correlation tokens on replies and original artifact pointers on detailed outcomes.

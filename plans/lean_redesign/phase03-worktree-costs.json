@@ -1,0 +1,648 @@
+{
+  "schema_version": 1,
+  "started_utc": "2026-09-15T03:03:54.345040+00:00",
+  "host": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 15,
+    "load_average_start": [
+      3.8984375,
+      3.4033203125,
+      3.39404296875
+    ],
+    "load_average_end": [
+      5.6943359375,
+      4.25,
+      3.7265625
+    ]
+  },
+  "binary_sha256": "515f9a18cf62dcfe27df26009e34b343bd3c15a21beb7fd03012552982cb483c",
+  "script_sha256": "4ea135c0781fdff5217d170faccea7b933a38c9daf25a50cc09f93657bd21e46",
+  "git_version": "git version 2.55.0",
+  "overlap": "Final Phase03 release binary on a shared workstation. Rust clippy and workspace tests, the lock-contention fixture, isolation proof and coverage validation may overlap. Workload isolation was not enforced.",
+  "method": {
+    "trials": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "repetitions_per_count": 1,
+    "repository": "local-only temporary Git repository; 1 MiB tracked file, cache/ ignored",
+    "timing": "wall clock per serial CLI operation; includes process startup, registry validation and Git/lsof",
+    "setup": "three Git readiness observations at exact allocated cwd: top-level, exact HEAD, clean status; no endpoint or harness startup",
+    "same_request_retry": "idempotent active allocation reconciliation, not idle warm worktree reuse",
+    "idle_warm_reuse": "not applicable: implementation creates fresh paths instead of reusing disposed paths",
+    "disk": "regular-file logical bytes and st_blocks*512 allocated bytes, includes local Git records and both homes; no symlink following",
+    "cleanup": "manager prunes only clean disposed allocations; retained cache stays until temporary test fixture destruction",
+    "limitations": "one small local fixture per task count, serial and workstation-loaded; no model throughput, concurrent acquisition scaling, endpoint latency or production repository extrapolation"
+  },
+  "trials": [
+    {
+      "task_count": 1,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085023,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 2137046,
+        "allocated_bytes": 2273280,
+        "files": 41
+      },
+      "disk_after_release": {
+        "logical_bytes": 2137081,
+        "allocated_bytes": 2273280,
+        "files": 41
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1087646,
+        "allocated_bytes": 1191936,
+        "files": 32
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 246.413,
+        "fresh_fallback_acquire_ms": 332.275,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2403635,
+          "allocated_bytes": 2555904,
+          "files": 46
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 1,
+          "total_ms": 563.342,
+          "median_ms": 563.342,
+          "min_ms": 563.342,
+          "max_ms": 563.342
+        },
+        "same_request_retry": {
+          "observations": 1,
+          "total_ms": 200.582,
+          "median_ms": 200.582,
+          "min_ms": 200.582,
+          "max_ms": 200.582
+        },
+        "setup_readiness": {
+          "observations": 1,
+          "total_ms": 27.47,
+          "median_ms": 27.47,
+          "min_ms": 27.47,
+          "max_ms": 27.47
+        },
+        "release": {
+          "observations": 1,
+          "total_ms": 574.582,
+          "median_ms": 574.582,
+          "min_ms": 574.582,
+          "max_ms": 574.582
+        },
+        "prune_preview": {
+          "observations": 1,
+          "total_ms": 411.874,
+          "median_ms": 411.874,
+          "min_ms": 411.874,
+          "max_ms": 411.874
+        },
+        "prune_apply": {
+          "observations": 1,
+          "total_ms": 475.216,
+          "median_ms": 475.216,
+          "min_ms": 475.216,
+          "max_ms": 475.216
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          563.342
+        ],
+        "same_request_retry": [
+          200.582
+        ],
+        "setup_readiness": [
+          27.47
+        ],
+        "release": [
+          574.582
+        ],
+        "prune_preview": [
+          411.874
+        ],
+        "prune_apply": [
+          475.216
+        ]
+      }
+    },
+    {
+      "task_count": 5,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085023,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 6342387,
+        "allocated_bytes": 6623232,
+        "files": 83
+      },
+      "disk_after_release": {
+        "logical_bytes": 6342562,
+        "allocated_bytes": 6623232,
+        "files": 83
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1095387,
+        "allocated_bytes": 1216512,
+        "files": 38
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 285.639,
+        "fresh_fallback_acquire_ms": 346.031,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2410459,
+          "allocated_bytes": 2572288,
+          "files": 50
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 5,
+          "total_ms": 1554.99,
+          "median_ms": 313.387,
+          "min_ms": 294.863,
+          "max_ms": 320.21
+        },
+        "same_request_retry": {
+          "observations": 5,
+          "total_ms": 971.778,
+          "median_ms": 191.746,
+          "min_ms": 188.267,
+          "max_ms": 205.71
+        },
+        "setup_readiness": {
+          "observations": 5,
+          "total_ms": 170.031,
+          "median_ms": 38.367,
+          "min_ms": 24.341,
+          "max_ms": 41.548
+        },
+        "release": {
+          "observations": 5,
+          "total_ms": 2446.246,
+          "median_ms": 503.382,
+          "min_ms": 446.849,
+          "max_ms": 529.765
+        },
+        "prune_preview": {
+          "observations": 5,
+          "total_ms": 2361.871,
+          "median_ms": 475.57,
+          "min_ms": 410.426,
+          "max_ms": 517.177
+        },
+        "prune_apply": {
+          "observations": 5,
+          "total_ms": 2661.668,
+          "median_ms": 537.074,
+          "min_ms": 482.255,
+          "max_ms": 568.07
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          294.863,
+          318.644,
+          307.887,
+          313.387,
+          320.21
+        ],
+        "same_request_retry": [
+          188.267,
+          194.787,
+          191.268,
+          191.746,
+          205.71
+        ],
+        "setup_readiness": [
+          24.341,
+          25.155,
+          38.367,
+          40.62,
+          41.548
+        ],
+        "release": [
+          503.382,
+          511.945,
+          529.765,
+          446.849,
+          454.305
+        ],
+        "prune_preview": [
+          517.177,
+          410.426,
+          516.665,
+          442.032,
+          475.57
+        ],
+        "prune_apply": [
+          521.525,
+          552.745,
+          482.255,
+          568.07,
+          537.074
+        ]
+      }
+    },
+    {
+      "task_count": 10,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085023,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 11597981,
+        "allocated_bytes": 12050432,
+        "files": 133
+      },
+      "disk_after_release": {
+        "logical_bytes": 11598331,
+        "allocated_bytes": 12050432,
+        "files": 133
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1103961,
+        "allocated_bytes": 1236992,
+        "files": 43
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 252.019,
+        "fresh_fallback_acquire_ms": 296.667,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2419043,
+          "allocated_bytes": 2592768,
+          "files": 55
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 10,
+          "total_ms": 3168.783,
+          "median_ms": 322.59,
+          "min_ms": 286.146,
+          "max_ms": 342.559
+        },
+        "same_request_retry": {
+          "observations": 10,
+          "total_ms": 1995.419,
+          "median_ms": 199.659,
+          "min_ms": 178.345,
+          "max_ms": 227.775
+        },
+        "setup_readiness": {
+          "observations": 10,
+          "total_ms": 322.92,
+          "median_ms": 30.992,
+          "min_ms": 25.099,
+          "max_ms": 39.493
+        },
+        "release": {
+          "observations": 10,
+          "total_ms": 5382.495,
+          "median_ms": 490.395,
+          "min_ms": 432.526,
+          "max_ms": 787.242
+        },
+        "prune_preview": {
+          "observations": 10,
+          "total_ms": 4495.958,
+          "median_ms": 449.975,
+          "min_ms": 417.241,
+          "max_ms": 509.078
+        },
+        "prune_apply": {
+          "observations": 10,
+          "total_ms": 5004.174,
+          "median_ms": 507.472,
+          "min_ms": 466.762,
+          "max_ms": 533.42
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          322.675,
+          327.365,
+          322.506,
+          302.255,
+          286.146,
+          324.563,
+          325.695,
+          342.559,
+          308.371,
+          306.649
+        ],
+        "same_request_retry": [
+          197.519,
+          201.8,
+          187.087,
+          178.345,
+          189.57,
+          186.49,
+          227.775,
+          201.811,
+          218.626,
+          206.396
+        ],
+        "setup_readiness": [
+          26.874,
+          25.099,
+          26.766,
+          29.42,
+          35.707,
+          30.986,
+          30.997,
+          38.481,
+          39.493,
+          39.096
+        ],
+        "release": [
+          541.195,
+          614.51,
+          698.847,
+          528.759,
+          452.031,
+          444.977,
+          432.526,
+          441.68,
+          440.727,
+          787.242
+        ],
+        "prune_preview": [
+          425.771,
+          423.736,
+          509.078,
+          450.059,
+          471.769,
+          432.559,
+          449.89,
+          456.794,
+          459.061,
+          417.241
+        ],
+        "prune_apply": [
+          469.554,
+          511.111,
+          533.42,
+          503.834,
+          475.899,
+          517.161,
+          523.736,
+          532.885,
+          466.762,
+          469.814
+        ]
+      }
+    },
+    {
+      "task_count": 20,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085023,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 22109131,
+        "allocated_bytes": 22904832,
+        "files": 233
+      },
+      "disk_after_release": {
+        "logical_bytes": 22109831,
+        "allocated_bytes": 22904832,
+        "files": 233
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1121091,
+        "allocated_bytes": 1277952,
+        "files": 53
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 259.815,
+        "fresh_fallback_acquire_ms": 284.777,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2436173,
+          "allocated_bytes": 2633728,
+          "files": 65
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 20,
+          "total_ms": 6110.424,
+          "median_ms": 302.321,
+          "min_ms": 289.209,
+          "max_ms": 380.126
+        },
+        "same_request_retry": {
+          "observations": 20,
+          "total_ms": 4039.754,
+          "median_ms": 201.801,
+          "min_ms": 180.734,
+          "max_ms": 223.892
+        },
+        "setup_readiness": {
+          "observations": 20,
+          "total_ms": 410.32,
+          "median_ms": 19.578,
+          "min_ms": 17.995,
+          "max_ms": 28.475
+        },
+        "release": {
+          "observations": 20,
+          "total_ms": 7925.981,
+          "median_ms": 393.68,
+          "min_ms": 370.322,
+          "max_ms": 494.005
+        },
+        "prune_preview": {
+          "observations": 20,
+          "total_ms": 10686.454,
+          "median_ms": 382.51,
+          "min_ms": 355.801,
+          "max_ms": 1543.661
+        },
+        "prune_apply": {
+          "observations": 20,
+          "total_ms": 10729.921,
+          "median_ms": 418.713,
+          "min_ms": 398.044,
+          "max_ms": 1059.821
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          380.126,
+          300.365,
+          289.209,
+          310.235,
+          308.181,
+          292.561,
+          308.477,
+          293.731,
+          302.543,
+          300.074,
+          310.131,
+          309.766,
+          307.728,
+          292.623,
+          297.059,
+          306.942,
+          295.666,
+          297.555,
+          305.353,
+          302.099
+        ],
+        "same_request_retry": [
+          190.08,
+          180.734,
+          189.956,
+          205.286,
+          201.585,
+          202.133,
+          222.363,
+          189.457,
+          217.348,
+          211.907,
+          205.216,
+          197.847,
+          207.062,
+          202.018,
+          223.892,
+          207.766,
+          199.667,
+          189.883,
+          195.745,
+          199.811
+        ],
+        "setup_readiness": [
+          28.475,
+          25.492,
+          21.18,
+          24.903,
+          18.564,
+          21.181,
+          20.39,
+          18.931,
+          19.665,
+          19.801,
+          19.025,
+          17.995,
+          18.223,
+          18.629,
+          19.491,
+          19.089,
+          18.461,
+          18.719,
+          20.976,
+          21.132
+        ],
+        "release": [
+          370.322,
+          384.94,
+          372.837,
+          395.301,
+          393.542,
+          393.817,
+          394.493,
+          402.006,
+          395.625,
+          377.967,
+          398.067,
+          401.712,
+          382.294,
+          431.845,
+          494.005,
+          404.641,
+          387.771,
+          388.545,
+          374.854,
+          381.396
+        ],
+        "prune_preview": [
+          355.801,
+          370.987,
+          597.734,
+          375.817,
+          383.563,
+          370.537,
+          395.696,
+          373.347,
+          394.148,
+          371.244,
+          372.669,
+          381.457,
+          1115.689,
+          365.798,
+          1543.661,
+          750.879,
+          929.401,
+          448.242,
+          380.848,
+          408.937
+        ],
+        "prune_apply": [
+          400.252,
+          585.115,
+          419.874,
+          413.628,
+          416.783,
+          422.129,
+          405.197,
+          791.704,
+          414.728,
+          404.45,
+          406.151,
+          432.991,
+          502.573,
+          776.916,
+          996.197,
+          1059.821,
+          650.79,
+          415.025,
+          417.551,
+          398.044
+        ]
+      }
+    }
+  ],
+  "provider_and_download_sentinels_untouched": true,
+  "finished_utc": "2026-09-15T03:05:15.184767+00:00"
+}

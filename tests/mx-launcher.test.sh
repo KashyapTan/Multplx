@@ -224,7 +224,7 @@ test_plan13_adapters_are_exec_only() {
     bin/mx-cd-pretool-check.sh bin/mx-check-register.sh bin/mx-config-push.sh \
     bin/mx-daemon-report.sh bin/mx-deep-review.sh bin/mx-deliver.sh bin/mx-doc-audience-check.sh bin/mx-ensure-agents-md.sh \
     bin/mx-harness.sh bin/mx-headroom.sh bin/mx-herdr-ci-cleanup.sh \
-    bin/mx-install-herdr.sh bin/mx-install-treehouse.sh bin/mx-launch-harness.sh \
+    bin/mx-install-herdr.sh bin/mx-launch-harness.sh \
     bin/mx-launcher-install.sh bin/mx-launcher.sh bin/mx-maintainer-override.sh bin/mx-override-run.sh \
     bin/mx-merge-local.sh bin/mx-pr-check.sh bin/mx-pr-merge.sh bin/mx-pr-poll.sh bin/mx-project-mode.sh bin/mx-promote.sh \
     bin/mx-report bin/mx-report-mcp bin/mx-send.sh \

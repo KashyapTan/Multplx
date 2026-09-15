@@ -17,11 +17,9 @@ pass() { printf 'ok - %s\n' "$1"; }
 
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
-command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found"; exit 0; }
 [ -x "$HERDR_LAB_HELPER" ] || { echo "skip: Herdr lab helper not executable at $HERDR_LAB_HELPER"; exit 0; }
 
 REAL_HERDR=$(command -v herdr)
-REAL_TREEHOUSE=$(command -v treehouse)
 HERDR_ORIGINAL_PATH=$PATH
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/mx-herdr-presentation.XXXXXX")
 FAKEBIN="$TMP_ROOT/fakebin"
@@ -38,7 +36,7 @@ mkdir -p "$FAKEBIN" "$HARNESS_BIN"
 : > "$MOVE_CALL_LOG"
 : > "$FOCUS_AUDIT_LOG"
 REAL_MOVER="$ROOT/bin/backends/herdr-workspace-move"
-export REAL_HERDR REAL_TREEHOUSE REAL_MOVER HERDR_CALL_LOG TREEHOUSE_CALL_LOG MOVE_CALL_LOG FOCUS_AUDIT_LOG HERDR_ORIGINAL_PATH HERDR_LAB_HELPER
+export REAL_HERDR REAL_MOVER HERDR_CALL_LOG TREEHOUSE_CALL_LOG MOVE_CALL_LOG FOCUS_AUDIT_LOG HERDR_ORIGINAL_PATH HERDR_LAB_HELPER
 export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL TMP_ROOT
 
 # Herdr panes need a verified executable harness. Keep it outside FAKEBIN so
@@ -224,7 +222,8 @@ set -u
 if [ -d "$POST_CREATE_ABORT_CONTROL" ] && [ "${1:-}" = get ]; then
   exit 0
 fi
-exec "$REAL_TREEHOUSE" "$@"
+echo 'removed worktree provider invoked' >&2
+exit 99
 SH
 
 cat > "$FAKEBIN/herdr-workspace-mover" <<'SH'
@@ -283,7 +282,7 @@ cleanup_all() {
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
     [ -d "$wt" ] || continue
-    "$REAL_TREEHOUSE" return --force "$wt" >/dev/null 2>&1 || true
+    mx_fixture_remove_worktree "$wt" >/dev/null 2>&1 || true
   done <<EOF
 $RECORDED_WORKTREES
 EOF
@@ -397,13 +396,14 @@ make_project() {  # <dir>
 }
 
 spawn_task() {  # <id> <home> <project>
-  local id=$1 home=$2 project=$3
+  local id=$1 home=$2 project=$3 fault=
+  case "$id" in abort-*) fault=after-endpoint;; esac
   local replacement=()
   if [ -f "$home/state/$id.meta" ]; then
     replacement=(--replace-attempt "$(sed -n 's/^canonical_model=//p' "$home/state/$id.meta" | jq -r '.attempt.id')")
   fi
   MX_GATE_REFUSE_BYPASS=1 MX_SPAWN_NO_GUARD=1 MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr ${replacement[@]+"${replacement[@]}"}
+    MX_SPAWN_FAULT="$fault" "$ROOT/bin/mx-spawn.sh" "$id" "$project" codex --backend herdr ${replacement[@]+"${replacement[@]}"}
 }
 
 spawn_daemon_task() {
@@ -443,12 +443,20 @@ for line in open(sys.argv[1]):
     key, value = line.rstrip('\n').split('=', 1)
     if key in ('window', 'herdr_workspace_id', 'herdr_tab_id', 'herdr_pane_id'):
         value = '<herdr-container-id>'
+    elif key == 'worktree':
+        value = '<allocation-path>'
     elif key == 'canonical_model':
         model = json.loads(value)
         assert model['attempt']['generation'] == 1
         assert model['attempt']['brief_revision'] == 1
         model['attempt']['id'] = '<attempt-id>'
         model['runtime']['endpoint'] = '<herdr-container-id>'
+        allocation = model['allocation']
+        assert allocation['path']
+        assert allocation['generation'] == 1
+        assert allocation['base_revision'] == model['project']['starting_revision']
+        for field in ('allocation_id', 'lease_id', 'path', 'attempt_id'):
+            allocation[field] = '<allocation-' + field + '>'
         value = json.dumps(model, sort_keys=True, separators=(',', ':'))
     print(key + '=' + value)
 PYTHON
@@ -702,7 +710,8 @@ assert_focus_is "$MAINTAINER_FOCUS" "bounded presentation lock flat fallback tea
 pass "real Herdr lab: bounded lock contention warns and falls back flat without projection or focus drift"
 PROJECTION_ORDER_START=$(log_line_count)
 
-[ "$OFF_WT" = "$ON_WT" ] || fail "Treehouse did not reuse the same fixture worktree, so byte comparison is inconclusive"
+[ "$OFF_WT" != "$ON_WT" ] || fail "independent allocations reused a mutable worktree"
+[ ! -s "$TREEHOUSE_CALL_LOG" ] || fail "runtime invoked the removed worktree provider"
 [ "$(sed -n 's/^canonical_model=//p' "$OFF_META" | jq -r '.attempt.id')" != "$(sed -n 's/^canonical_model=//p' "$ON_META" | jq -r '.attempt.id')" ] \
   || fail "independent launches reused an attempt identity"
 normalize_meta "$OFF_META" > "$TMP_ROOT/off.meta.normalized"
@@ -795,9 +804,9 @@ spawn_task abort-b "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/abort-b.out" 2> "$TMP
 ABORT_B_PID=$!
 if wait "$ABORT_A_PID"; then fail "post-create abort fixture A unexpectedly succeeded"; fi
 if wait "$ABORT_B_PID"; then fail "post-create abort fixture B unexpectedly succeeded"; fi
-grep -F "did not yield an isolated worktree" "$TMP_ROOT/abort-a.err" >/dev/null 2>&1 \
+grep -F "injected failure after endpoint before metadata" "$TMP_ROOT/abort-a.err" >/dev/null 2>&1 \
   || fail "post-create abort fixture A did not reach the armed validation failure: $(cat "$TMP_ROOT/abort-a.err")"
-grep -F "did not yield an isolated worktree" "$TMP_ROOT/abort-b.err" >/dev/null 2>&1 \
+grep -F "injected failure after endpoint before metadata" "$TMP_ROOT/abort-b.err" >/dev/null 2>&1 \
   || fail "post-create abort fixture B did not reach the armed validation failure: $(cat "$TMP_ROOT/abort-b.err")"
 ABORT_A_PANE=$(cat "$POST_CREATE_ABORT_CONTROL/abort-a/task-pane")
 ABORT_B_PANE=$(cat "$POST_CREATE_ABORT_CONTROL/abort-b/task-pane")
@@ -827,6 +836,42 @@ for ABORT_PANE in "$ABORT_A_PANE" "$ABORT_B_PANE"; do
 done
 [ ! -e "$HOME_DIR/state/abort-a.meta" ] && [ ! -e "$HOME_DIR/state/abort-b.meta" ] \
   || fail "post-create abort fixtures published task metadata before launch"
+for ABORT_ID in abort-a abort-b; do
+  ABORT_INTENT="$HOME_DIR/state/.spawn-$ABORT_ID.intent"
+  [ -f "$ABORT_INTENT" ] && [ ! -L "$ABORT_INTENT" ] || fail "$ABORT_ID lost its durable launch intent"
+  ABORT_WT=$(jq -er '.allocation.path | select(length > 0)' "$ABORT_INTENT") || fail "$ABORT_ID intent lacks its allocation path"
+  [ -d "$ABORT_WT" ] || fail "$ABORT_ID endpoint failure removed its allocation"
+  ABORT_ALLOCATION_ID=$(jq -er '.allocation.allocation_id' "$ABORT_INTENT")
+  ABORT_COMMON_GIT=$(git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir) || fail "cannot inspect abort allocation ownership"
+  ABORT_RECORD="$ABORT_COMMON_GIT/multplx-worktrees/records/$ABORT_ALLOCATION_ID.json"
+  [ -f "$ABORT_RECORD" ] && [ ! -L "$ABORT_RECORD" ] || fail "$ABORT_ID allocation receipt is missing or unsafe"
+  jq -e --slurpfile intent "$ABORT_INTENT" --arg id "$ABORT_ID" '
+    .state == "active" and .binding == $intent[0].allocation and .project == $intent[0].project and
+    .binding.task_id == $id and .binding.attempt_id == $intent[0].attempt.id and
+    .binding.generation >= 1 and (.binding.lease_id | length) > 0 and
+    (.directory_identity | length) == 2
+  ' "$ABORT_RECORD" >/dev/null || fail "$ABORT_ID lost its exact active allocation binding"
+  [ "$(git -C "$ABORT_WT" rev-parse HEAD)" = "$(jq -r '.binding.base_revision' "$ABORT_RECORD")" ] \
+    || fail "$ABORT_ID retained allocation moved from its recorded base"
+  cp "$ABORT_INTENT" "$TMP_ROOT/$ABORT_ID.intent-before-retry"
+  cp "$ABORT_RECORD" "$TMP_ROOT/$ABORT_ID.allocation-before-retry"
+  git -C "$PROJECT_DIR" worktree list --porcelain > "$TMP_ROOT/$ABORT_ID.worktrees-before-retry"
+  ABORT_RETRY_START=$(log_line_count)
+  if spawn_task "$ABORT_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/$ABORT_ID-retry.out" 2> "$TMP_ROOT/$ABORT_ID-retry.err"; then
+    fail "$ABORT_ID unresolved launch intent allowed a duplicate retry"
+  fi
+  grep -F 'interrupted launch intent' "$TMP_ROOT/$ABORT_ID-retry.err" >/dev/null \
+    || fail "$ABORT_ID retry lost its explicit recovery fence"
+  if sed -n "$((ABORT_RETRY_START + 1)),\$p" "$HERDR_CALL_LOG" | grep -E $'^(workspace\tcreate|tab\tcreate)' >/dev/null; then
+    fail "$ABORT_ID retry created another Herdr endpoint"
+  fi
+  cmp -s "$ABORT_INTENT" "$TMP_ROOT/$ABORT_ID.intent-before-retry" || fail "$ABORT_ID retry changed its durable intent"
+  cmp -s "$ABORT_RECORD" "$TMP_ROOT/$ABORT_ID.allocation-before-retry" || fail "$ABORT_ID retry changed its allocation receipt"
+  git -C "$PROJECT_DIR" worktree list --porcelain > "$TMP_ROOT/$ABORT_ID.worktrees-after-retry"
+  cmp -s "$TMP_ROOT/$ABORT_ID.worktrees-before-retry" "$TMP_ROOT/$ABORT_ID.worktrees-after-retry" \
+    || fail "$ABORT_ID retry allocated another worktree"
+done
+pass "real Herdr lab: endpoint failure retains exact allocation and intent; retries create no duplicate resource"
 rm -rf "$POST_CREATE_ABORT_CONTROL"
 rm -f "$HOME_DIR/state/abort-a.herdr-presentation" "$HOME_DIR/state/abort-b.herdr-presentation"
 pass "real Herdr lab: concurrent post-create abort cleanup stays serialized with exact focus restoration"
@@ -836,7 +881,7 @@ teardown_task shape "$HOME_DIR" > "$TMP_ROOT/on-teardown.out" 2> "$TMP_ROOT/on-t
   || fail "projected teardown failed: $(cat "$TMP_ROOT/on-teardown.err")"
 assert_focus_is "$MAINTAINER_FOCUS" "projected teardown"
 assert_cleanup_focus_steal_was_restored "$SHAPE_CLEANUP_AUDIT_START" "$PROJECTED_PANE" "$MAINTAINER_FOCUS"
-pass "real Herdr lab: Treehouse commands and normalized metadata match; fresh attempt and Herdr container identities differ"
+pass "real Herdr lab: no external provider is invoked; normalized metadata matches and fresh allocation/container identities differ"
 if lab workspace get "$PROJECTED_WSID" >/dev/null 2>&1; then
   fail "closing the exact projected task pane did not remove its last-tab workspace"
 fi
@@ -1118,6 +1163,8 @@ for RESTART_ID in mx-hibit-resume-r1 wheelhouse-healing-r1; do
   OLD_RESTART_WT=$(remember_meta_worktree "$RESTART_META")
   OLD_RESTART_WSID=$(grep '^herdr_workspace_id=' "$RESTART_META" | cut -d= -f2-)
   OLD_RESTART_PANE=$(grep '^herdr_pane_id=' "$RESTART_META" | cut -d= -f2-)
+  OLD_ALLOCATION=$(sed -n 's/^canonical_model=//p' "$RESTART_META" | jq -c '.allocation')
+  printf 'unfinished work survives exact same-identity recovery\n' > "$OLD_RESTART_WT/restart-progress.txt"
   OLD_RESTART_LABEL=$(lab workspace get "$OLD_RESTART_WSID" | jq -r '.result.workspace.label')
   [ "$(grep '^version=' "$HOME_DIR/state/$RESTART_ID.herdr-presentation")" = version=2 ] \
     || fail "$RESTART_ID fresh projection did not publish an exact restart binding"
@@ -1143,6 +1190,17 @@ for RESTART_ID in mx-hibit-resume-r1 wheelhouse-healing-r1; do
   NEW_RESTART_WT=$(remember_meta_worktree "$RESTART_META")
   NEW_RESTART_WSID=$(grep '^herdr_workspace_id=' "$RESTART_META" | cut -d= -f2-)
   NEW_RESTART_PANE=$(grep '^herdr_pane_id=' "$RESTART_META" | cut -d= -f2-)
+  [ "$NEW_RESTART_WT" = "$OLD_RESTART_WT" ] || fail "$RESTART_ID recovery lost the retained working directory"
+  grep -Fx 'unfinished work survives exact same-identity recovery' "$NEW_RESTART_WT/restart-progress.txt" >/dev/null \
+    || fail "$RESTART_ID recovery lost unfinished work"
+  sed -n 's/^canonical_model=//p' "$RESTART_META" | jq -e --argjson prior "$OLD_ALLOCATION" '
+    .allocation.allocation_id == $prior.allocation_id and
+    .allocation.path == $prior.path and
+    .allocation.generation == ($prior.generation + 1) and
+    .allocation.lease_id != $prior.lease_id
+  ' >/dev/null || fail "$RESTART_ID recovery did not advance the exact allocation generation"
+  [ ! -e "$HOME_DIR/state/$RESTART_ID.herdr-quiescence" ] || fail "$RESTART_ID successful recovery retained a stale holding receipt"
+  rm "$NEW_RESTART_WT/restart-progress.txt"
   [ "$NEW_RESTART_WSID" = "$OLD_RESTART_WSID" ] \
     || fail "$RESTART_ID reclaim flattened into a different workspace"
   [ "$NEW_RESTART_PANE" != "$OLD_RESTART_PANE" ] \
@@ -1172,15 +1230,15 @@ for RESTART_ID in mx-hibit-resume-r1 wheelhouse-healing-r1; do
       || fail "$RESTART_ID repeated reclaim changed workspace identity"
     [ "$NEW_RESTART_PANE" != "$PRIOR_RESTART_PANE" ] \
       || fail "$RESTART_ID repeated reclaim reused the prior husk pane"
-    "$REAL_TREEHOUSE" return --force "$PRIOR_RESTART_WT" >/dev/null 2>&1 || true
+    mx_fixture_remove_worktree "$PRIOR_RESTART_WT" >/dev/null 2>&1 || true
   fi
 
   teardown_task "$RESTART_ID" "$HOME_DIR" > "$TMP_ROOT/$RESTART_ID-teardown.out" 2> "$TMP_ROOT/$RESTART_ID-teardown.err" \
     || fail "$RESTART_ID teardown after reclaim failed: $(cat "$TMP_ROOT/$RESTART_ID-teardown.err")"
   [ ! -e "$HOME_DIR/state/$RESTART_ID.herdr-presentation" ] \
     || fail "$RESTART_ID exact reclaimed teardown did not retire its journal"
-  "$REAL_TREEHOUSE" return --force "$OLD_RESTART_WT" >/dev/null 2>&1 || true
-  "$REAL_TREEHOUSE" return --force "$NEW_RESTART_WT" >/dev/null 2>&1 || true
+  mx_fixture_remove_worktree "$OLD_RESTART_WT" >/dev/null 2>&1 || true
+  mx_fixture_remove_worktree "$NEW_RESTART_WT" >/dev/null 2>&1 || true
 done
 pass "real Herdr lab: Hi Bit and Wheelhouse-style same-identity restarts reclaim one nested space with exact focus and idempotence"
 
@@ -1215,8 +1273,8 @@ CROSS_NEW_PANE=$(grep '^herdr_pane_id=' "$CROSS_RESTART_META" | cut -d= -f2-)
   || fail "cross-home reclaim changed the daemon child's presentation label"
 teardown_task "$CROSS_RESTART_ID" "$SECOND_HOME_A" > "$TMP_ROOT/cross-restart-teardown.out" 2> "$TMP_ROOT/cross-restart-teardown.err" \
   || fail "cross-home reclaimed teardown failed: $(cat "$TMP_ROOT/cross-restart-teardown.err")"
-"$REAL_TREEHOUSE" return --force "$CROSS_OLD_WT" >/dev/null 2>&1 || true
-"$REAL_TREEHOUSE" return --force "$CROSS_NEW_WT" >/dev/null 2>&1 || true
+mx_fixture_remove_worktree "$CROSS_OLD_WT" >/dev/null 2>&1 || true
+mx_fixture_remove_worktree "$CROSS_NEW_WT" >/dev/null 2>&1 || true
 pass "real Herdr lab: daemon restart binding and reclaim stay isolated to the exact child home and parent"
 
 # Two homes recovering concurrently serialize on the named session lock and
@@ -1268,10 +1326,10 @@ teardown_task "$PRIMARY_WAVE_ID" "$HOME_DIR" > "$TMP_ROOT/primary-wave-teardown.
   || fail "concurrent primary recovery teardown failed"
 teardown_task "$BRAVO_WAVE_ID" "$SECOND_HOME_B" > "$TMP_ROOT/bravo-wave-teardown.out" 2> "$TMP_ROOT/bravo-wave-teardown.err" \
   || fail "concurrent daemon recovery teardown failed"
-"$REAL_TREEHOUSE" return --force "$PRIMARY_WAVE_OLD_WT" >/dev/null 2>&1 || true
-"$REAL_TREEHOUSE" return --force "$BRAVO_WAVE_OLD_WT" >/dev/null 2>&1 || true
-"$REAL_TREEHOUSE" return --force "$PRIMARY_WAVE_NEW_WT" >/dev/null 2>&1 || true
-"$REAL_TREEHOUSE" return --force "$BRAVO_WAVE_NEW_WT" >/dev/null 2>&1 || true
+mx_fixture_remove_worktree "$PRIMARY_WAVE_OLD_WT" >/dev/null 2>&1 || true
+mx_fixture_remove_worktree "$BRAVO_WAVE_OLD_WT" >/dev/null 2>&1 || true
+mx_fixture_remove_worktree "$PRIMARY_WAVE_NEW_WT" >/dev/null 2>&1 || true
+mx_fixture_remove_worktree "$BRAVO_WAVE_NEW_WT" >/dev/null 2>&1 || true
 pass "real Herdr lab: concurrent cross-home recoveries replace exact husks under one session lock with no focus drift"
 
 # Seed a legacy old-format primary projection and a flat daemon tab; correction must not migrate them.
@@ -1297,7 +1355,6 @@ pass "real Herdr lab: legacy projection labels and flat daemon tabs are left unm
 for META_HOME_PAIR in \
   "p1:$HOME_DIR" "p2:$HOME_DIR" "pcw:$HOME_DIR" "post-legacy:$HOME_DIR" \
   "a1:$SECOND_HOME_A" "a2:$SECOND_HOME_A" "acw:$SECOND_HOME_A" \
-  "alpha:$HOME_DIR" \
   "b1:$SECOND_HOME_B" "b2:$SECOND_HOME_B" "bcw:$SECOND_HOME_B"
 do
   TASK_ID=${META_HOME_PAIR%%:*}
@@ -1305,6 +1362,14 @@ do
   teardown_task "$TASK_ID" "$TASK_HOME" > "$TMP_ROOT/td-$TASK_ID.out" 2> "$TMP_ROOT/td-$TASK_ID.err" \
     || fail "multi-home teardown of $TASK_ID failed: $(cat "$TMP_ROOT/td-$TASK_ID.err")"
 done
+# This fixture deliberately uses an older plain home with no owner receipt.
+# Closing its exact endpoint must preserve the home for explicit migration.
+if teardown_task alpha "$HOME_DIR" > "$TMP_ROOT/td-alpha.out" 2> "$TMP_ROOT/td-alpha.err"; then
+  fail "unowned legacy home teardown unexpectedly succeeded"
+fi
+grep -F 'home has no exact owned allocation' "$TMP_ROOT/td-alpha.err" >/dev/null || fail "legacy home retention reason missing"
+[ -f "$SECOND_HOME_A/data/charter.md" ] || fail "legacy home retirement lost persistent state"
+[ -f "$HOME_DIR/state/alpha.meta" ] || fail "legacy home retention lost its task binding"
 assert_focus_is "$MAINTAINER_FOCUS" "multi-home teardown"
 pass "real Herdr lab: multi-home exact-pane teardowns restore maintainer focus without workspace close authority"
 

@@ -15,12 +15,11 @@ CLEANUP="$ROOT/bin/mx-herdr-ci-cleanup.sh"
 CI="$ROOT/.github/workflows/ci.yml"
 
 assert_present "$HERDR_INSTALL" "bin/mx-install-herdr.sh is missing"
-assert_present "$TREEHOUSE_INSTALL" "bin/mx-install-treehouse.sh is missing"
+[ ! -e "$TREEHOUSE_INSTALL" ] || fail "retired Treehouse installer adapter exists"
 assert_present "$HERDR_RUST" "Rust Herdr installer is missing"
-assert_present "$TREEHOUSE_RUST" "Rust Treehouse installer is missing"
+[ ! -e "$TREEHOUSE_RUST" ] || fail "retired Treehouse installer exists"
 assert_present "$CLEANUP" "bin/mx-herdr-ci-cleanup.sh is missing"
 [ -x "$HERDR_INSTALL" ] || fail "mx-install-herdr.sh must be executable"
-[ -x "$TREEHOUSE_INSTALL" ] || fail "mx-install-treehouse.sh must be executable"
 [ -x "$CLEANUP" ] || fail "mx-herdr-ci-cleanup.sh must be executable"
 
 test_herdr_installer_pins_exact_version_and_checksums() {
@@ -45,18 +44,20 @@ test_herdr_installer_pins_exact_version_and_checksums() {
   pass "Herdr installer pins exact version, asset, checksum, and protocol floor"
 }
 
-test_treehouse_installer_pins_exact_version_and_checksums() {
-  assert_grep 'const VERSION: &str = "2.0.1"' "$TREEHOUSE_RUST" \
-    "Rust Treehouse installer must pin the suite-verified 2.0.1 release"
-  assert_grep 'kunchenguid/treehouse' "$TREEHOUSE_RUST" \
-    "Rust Treehouse installer must use the official GitHub release source"
-  assert_grep '1d5a32751ab921670103fd201ddb2b91b47338cb13976f45642b827cf8976af2' "$TREEHOUSE_RUST" \
-    "Rust Treehouse installer must pin the Linux amd64 SHA-256"
-  assert_grep 'MAX_BYTES: u64 = 15_000_000' "$TREEHOUSE_RUST" \
-    "Rust Treehouse installer must bound the download size"
-  assert_grep 'Sha256' "$TREEHOUSE_RUST" \
-    "Rust Treehouse installer must verify a SHA-256 checksum"
-  pass "Rust Treehouse installer pins the exact version, asset, and checksum"
+test_retired_worktree_installer_cannot_download() {
+  local dir fakebin rc
+  mx_test_tmproot_into dir mx-retired-installer
+  fakebin=$(mx_fakebin "$dir")
+  cat > "$fakebin/curl" <<SH
+#!/bin/sh
+touch '$dir/download-invoked'
+exit 99
+SH
+  chmod +x "$fakebin/curl"
+  PATH="$fakebin:$PATH" "$MX_RUST_BIN" install-treehouse "$dir/install" > "$dir/out" 2>&1 && fail "retired installer command succeeded"
+  [ ! -e "$dir/download-invoked" ] || fail "retired command downloaded an asset"
+  assert_grep 'unrecognized subcommand' "$dir/out" "retired command still dispatched"
+  pass "Treehouse installer is retired and cannot download assets"
 }
 
 test_cleanup_only_targets_job_owned_lab_sessions() {
@@ -76,7 +77,7 @@ test_cleanup_only_targets_job_owned_lab_sessions() {
 
 test_host_adapters_are_exec_only() {
   local adapter lines
-  for adapter in "$HERDR_INSTALL" "$TREEHOUSE_INSTALL" "$CLEANUP"; do
+  for adapter in "$HERDR_INSTALL" "$CLEANUP"; do
     lines=$(wc -l < "$adapter" | tr -d ' ')
     [ "$lines" -le 10 ] || fail "$(basename "$adapter") is not a minimal host adapter"
     assert_grep 'exec "$BINARY"' "$adapter" \
@@ -84,13 +85,13 @@ test_host_adapters_are_exec_only() {
     assert_no_grep 'curl|sha256|jq|mktemp|mkdir|rm |mv |cp |chmod|case |while |for ' "$adapter" \
       "$(basename "$adapter") contains installer or cleanup policy"
   done
-  pass "Herdr and Treehouse host adapters contain transport only"
+  pass "Herdr host adapters contain transport only"
 }
 
 test_ci_wires_installers_and_required_lane() {
   assert_grep 'tests-herdr:' "$CI" "CI must define the required Herdr Behavior job"
   assert_grep 'target/release/mx install-herdr' "$CI" "CI must call the Rust Herdr installer"
-  assert_grep 'target/release/mx install-treehouse' "$CI" "CI must call the Rust Treehouse installer"
+  assert_no_grep 'install-treehouse' "$CI" "CI must not install the retired provider"
   assert_grep 'target/release/mx herdr-ci-cleanup snapshot' "$CI" "CI must snapshot sessions through Rust before the suite"
   assert_grep 'target/release/mx herdr-ci-cleanup teardown' "$CI" "CI must teardown job-owned sessions through Rust after"
   assert_grep "fail-on-gate-skip 'herdr not found'" "$CI" \
@@ -116,7 +117,7 @@ test_ci_wires_installers_and_required_lane() {
 }
 
 test_herdr_installer_pins_exact_version_and_checksums
-test_treehouse_installer_pins_exact_version_and_checksums
+test_retired_worktree_installer_cannot_download
 test_cleanup_only_targets_job_owned_lab_sessions
 test_host_adapters_are_exec_only
 test_ci_wires_installers_and_required_lane

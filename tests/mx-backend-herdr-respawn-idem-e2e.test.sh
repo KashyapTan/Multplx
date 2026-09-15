@@ -21,10 +21,8 @@
 # instead of refusing, while a GENUINELY live duplicate (a real registered
 # agent, via herdr's own `pane report-agent`) still refuses exactly as
 # before. Adapter-level (mx_backend_herdr_container_ensure/create_task), not
-# through the full bin/mx-spawn.sh + treehouse pipeline - mirrors
-# tests/mx-backend-herdr-prune-safety-e2e.test.sh's own style, and avoids any
-# question of whether treehouse itself supports re-acquiring a worktree for
-# an id that already has one checked out (a separate, out-of-scope concern).
+# through the full bin/mx-spawn.sh allocation pipeline; the worktree suite
+# separately checks acquisition request reconciliation and allocation ownership.
 #
 # Safety (tests/herdr-test-safety.sh): cleanup uses ONLY
 # herdr_safe_stop_and_delete, never a bare/inline-prefixed `herdr server

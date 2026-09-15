@@ -27,7 +27,7 @@ The global `multplx` command activates that distribution from any directory, aft
 ## Why Multplx
 
 - **One conversation** - request work, answer real decisions, and receive outcomes through one broker.
-- **Parallel isolation** - actors work independently in Treehouse-managed git worktrees instead of sharing a checkout.
+- **Parallel isolation** - actors work independently in built-in Git worktree allocations instead of sharing a checkout.
 - **Durable supervision** - validated status events, a wake queue, and harness-specific turn-end guards keep work observable without an idle model loop.
 - **Explicit authority** - product, architecture, destructive, security-sensitive, and merge decisions remain with the maintainer unless a narrowly configured routine policy applies.
 - **Safe delivery** - every agent session stops at local commits; a separate credentialed context pushes only an approved exact SHA.
