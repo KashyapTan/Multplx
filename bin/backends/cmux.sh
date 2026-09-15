@@ -5,7 +5,7 @@
 # section 4) plus the live-app verification pass recorded in
 # docs/cmux-backend.md (real cmux 0.64.17, macOS aarch64, 2026-07-03). cmux is
 # a session provider ONLY, exactly like herdr: the worktree provider
-# stays treehouse. Sourced only through bin/mx-backend.sh's mx_backend_source
+# is the built-in lifecycle. Sourced only through bin/mx-backend.sh's mx_backend_source
 # in normal operation; the unit tests source it directly.
 #
 # Container shape: cmux has no "session" layer to multiplex the way
@@ -23,7 +23,7 @@
 # runtime auto-detection when broker itself is already running inside a
 # cmux-spawned terminal (primary CMUX_WORKSPACE_ID marker, with documented
 # macOS fallback signals for wrapper-stripped claude). cmux is a
-# pure session provider (treehouse still owns the worktree) and Escape IS
+# pure session provider (the built-in lifecycle owns the worktree) and Escape IS
 # natively supported.
 #
 # Empirical findings from the live verification pass (docs/cmux-backend.md has
@@ -36,7 +36,7 @@
 #      (herdr-shape): `workspace list`'s `current_directory` field reflects a
 #      `cd` run directly in the surface's own top-level shell, but stays
 #      frozen at wherever that shell was when it launched a foreground
-#      subshell (exactly what `treehouse get` does) - verified live: a nested
+#      subshell (for example, a nested shell) - verified live: a nested
 #      `bash -c 'cd /Users && exec bash'` left `current_directory` reporting
 #      the PARENT shell's last cwd, never following into the subshell. Fixed
 #      with an active pwd-marker-probe workaround
@@ -427,19 +427,9 @@ mx_backend_cmux_target_ready() {  # <target> [expected-label]
   mx_backend_cmux_surface_exists "$MX_BACKEND_CMUX_WORKSPACE" "$MX_BACKEND_CMUX_SURFACE"
 }
 
-# mx_backend_cmux_current_path: the live foreground process's cwd, or empty on
-# any error. An active pwd-marker-probe workaround.
-#
-# Verified pitfall (finding #2 above): cmux's `current_directory` field DOES
-# reflect a `cd` run directly in the surface's own top-level shell, but stays
-# FROZEN at whatever directory that shell was in when it launched `treehouse
-# get` as a foreground command - it never follows that command's own internal
-# `cd` into the acquired worktree. cmux's control socket exposes no
-# live-process cwd field either (unlike herdr's `foreground_cwd`), so passive
-# polling cannot solve this here. Active
-# probe instead: print the surface's `$PWD` with a unique marker (atomically
-# submitted via send_text_line), briefly settle, then capture and read only
-# that marker line. Scoped to mx-spawn.sh's own worktree-discovery poll loop.
+# mx_backend_cmux_current_path: bounded diagnostic observation of the surface's
+# shell cwd. A marker-delimited probe uses one brief settle and a bounded capture
+# because cached tab metadata can lag a foreground command's directory change.
 mx_backend_cmux_current_path() {  # <target> [expected-label]
   local target=$1 expected_label=${2:-} out line marker_begin="__MX_CMUX_CWD_BEGIN__" marker_end="__MX_CMUX_CWD_END__" in_block=0 chunk="" last=""
   mx_backend_cmux_target_ready "$target" "$expected_label" || return 0
@@ -499,7 +489,7 @@ mx_backend_cmux_send_key() {  # <target> <key> [expected-label]
 # mx_backend_cmux_send_text_line: send one line of TEXT then submit. cmux has
 # no single-call atomic "run and submit" primitive (like herdr's `pane run`),
 # so this composes send (literal) + send-key enter - used for the fixed
-# spawn-time commands (treehouse get, the GOTMPDIR export).
+# spawn-time commands (the GOTMPDIR export).
 mx_backend_cmux_send_text_line() {  # <target> <text> [expected-label]
   mx_backend_cmux_send_literal "$1" "$2" "${3:-}" || return 1
   mx_backend_cmux_send_key "$1" Enter "${3:-}"

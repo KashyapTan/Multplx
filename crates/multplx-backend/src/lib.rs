@@ -13,7 +13,6 @@ pub mod herdr_presentation;
 pub mod herdr_tools;
 pub mod herdr_wire;
 pub mod tmux;
-pub mod treehouse_tools;
 
 /// Identifies the current implementation boundary in diagnostics and tests.
 pub const SHADOW_BOUNDARY: &str = "backend-dispatch-rust";

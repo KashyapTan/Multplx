@@ -660,7 +660,6 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
-  mx_fake_exit0 "$fb" treehouse
   printf '%s\n' "$fb"
 }
 
@@ -693,18 +692,9 @@ run_spawn_case() {  # <bin-root> <fakebin> <log> <state> <data> <config> <proj> 
 
 # --- symlinked project prefix must not false-refuse the isolation guard -----
 #
-# docs/herdr-backend.md "Known gaps": a real backend's pane_current_path read
-# (tmux, herdr) reports the OS-level PHYSICALLY-resolved cwd. When the project
-# itself lives under a symlinked prefix (e.g. macOS's /tmp -> /private/tmp),
-# mx-spawn.sh's PROJ_ABS - a logical `cd && pwd` - differs string-for-string
-# from that physical read even before treehouse moves the pane at all, so the
-# worktree-discovery poll used to mistake an UNMOVED pane for one that had
-# already left the project, handing validate_spawn_worktree the project's own
-# directory as "the worktree" and tripping its false isolation refusal.
-# make_spawn_symlink_fakebin's tmux stub returns an unmoved project path on the
-# first pane_current_path poll, then the real worktree path from the second poll
-# onward, so this test fails loudly if the PROJ_ABS/PROJ_ABS_REAL
-# canonicalization in bin/mx-spawn.sh ever regresses.
+# Spawn must canonicalize a borrowed project reached through a symlink and launch
+# directly in its owned allocation. Backend cwd reports are not allocation facts.
+# The stub advertises both logical and physical stale cwd shapes; neither is polled.
 make_spawn_symlink_fakebin() {  # <dir> <initial-project-path> <worktree-path> -> echoes fakebin dir
   local dir=$1 initial_path=$2 wt=$3 fb="$1/fakebin" counter="$1/poll-count"
   mkdir -p "$fb"
@@ -731,12 +721,11 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
-  mx_fake_exit0 "$fb" treehouse
   printf '%s\n' "$fb"
 }
 
 run_spawn_symlink_case() {  # <label> <physical|logical>
-  local label=$1 first_reply=$2 real_root link_root proj wt id fb data state config log out rc proj_phys initial_path
+  local label=$1 first_reply=$2 real_root link_root proj wt id fb data state config log out rc proj_phys initial_path allocated canonical
   real_root="$TMP_ROOT/symlink-real-$label"; link_root="$TMP_ROOT/symlink-link-$label"
   mkdir -p "$real_root"
   ln -s "$real_root" "$link_root"
@@ -766,8 +755,16 @@ run_spawn_symlink_case() {  # <label> <physical|logical>
   out=$(run_spawn_case "$ROOT" "$fb" "$log" "$state" "$data" "$config" "$proj" -- "$id" "$proj" claude 2>&1)
   rc=$?
   expect_code 0 "$rc" "mx-spawn.sh should succeed for a project reached through a symlinked prefix when the backend reports $first_reply cwd"$'\n'"$out"
-  assert_contains "$out" "worktree=$wt" \
-    "mx-spawn.sh did not resolve a symlinked-prefix project to its real worktree when the backend reports $first_reply cwd"
+  allocated=$(sed -n 's/^worktree=//p' "$state/$id.meta")
+  [ -n "$allocated" ] && [ -d "$allocated" ] || fail "spawn did not publish an existing allocation"
+  [ "$allocated" != "$proj_phys" ] && [ "$allocated" != "$wt" ] || fail "spawn reused borrowed or foreign checkout"
+  canonical=$(sed -n 's/^canonical_model=//p' "$state/$id.meta")
+  printf '%s\n' "$canonical" | jq -e --arg project "$proj_phys" --arg worktree "$allocated" '
+    .project.canonical_path == $project and .allocation.path == $worktree
+  ' >/dev/null || fail "symlinked project/allocation canonical identity mismatch"
+  assert_contains "$out" "worktree=$allocated" "spawn output lost allocation path"
+  assert_no_grep 'pane_current_path' "$log" "spawn polled cwd instead of using the allocation"
+  assert_grep "$allocated" "$log" "backend create did not receive exact allocation cwd"
 
   rm -rf "/tmp/mx-$id"
 }

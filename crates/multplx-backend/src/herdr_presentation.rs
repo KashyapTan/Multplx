@@ -54,7 +54,8 @@ pub enum ProjectionJournal {
 }
 
 /// Version-2 exact projection binding.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectionBinding {
     /// Task id.
     pub task_id: String,
@@ -137,6 +138,189 @@ impl ProjectionJournal {
             )
             .into_bytes(),
         }
+    }
+}
+
+/// Durable proof that an exact restored endpoint was moved outside its worker allocation.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectionQuiescence {
+    version: u8,
+    previous: ProjectionBinding,
+    holding: Option<ProjectionBinding>,
+}
+
+fn quiescence_path(journal: &Path) -> PathBuf {
+    journal.with_extension("herdr-quiescence")
+}
+
+fn read_quiescence(journal: &Path) -> Result<Option<ProjectionQuiescence>, BackendError> {
+    let path = quiescence_path(journal);
+    if fs::symlink_metadata(&path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Ok(None);
+    }
+    let bytes = read_bounded_regular(&path, 64 * 1024)
+        .map_err(|error| BackendError::Metadata(error.to_string()))?;
+    let receipt: ProjectionQuiescence = serde_json::from_slice(&bytes)
+        .map_err(|error| BackendError::Metadata(error.to_string()))?;
+    if receipt.version != 1
+        || receipt
+            .holding
+            .as_ref()
+            .is_some_and(|holding| !same_projection(&receipt.previous, holding))
+    {
+        return Err(BackendError::Metadata(
+            "invalid projection quiescence receipt".to_owned(),
+        ));
+    }
+    Ok(Some(receipt))
+}
+
+fn write_quiescence(journal: &Path, receipt: &ProjectionQuiescence) -> Result<(), BackendError> {
+    let bytes =
+        serde_json::to_vec(receipt).map_err(|error| BackendError::Metadata(error.to_string()))?;
+    atomic_replace(quiescence_path(journal), &bytes, 0o600)
+        .map_err(|error| BackendError::Metadata(error.to_string()))
+}
+
+fn same_projection(previous: &ProjectionBinding, replacement: &ProjectionBinding) -> bool {
+    let mut expected = previous.clone();
+    expected.tab_id.clone_from(&replacement.tab_id);
+    expected.pane_id.clone_from(&replacement.pane_id);
+    expected == *replacement
+        && previous.tab_id != replacement.tab_id
+        && previous.pane_id != replacement.pane_id
+}
+
+/// Quiesce a restored projection before rebinding its worker allocation.
+///
+/// The exact old agent-free pane is replaced by a holding shell in the owning
+/// home, under the session presentation lock. A durable receipt links the old
+/// metadata to the holding endpoint; ordinary reclaim consumes that proof only
+/// after the resource owner has independently checked worker-path occupants.
+/// Uncertain interruption states retain the original allocation and projection.
+pub fn quiesce_projection_before_allocation<R: CommandRunner>(
+    backend: &mut HerdrBackend<R>,
+    request: &ProjectionSpawnRequest<'_>,
+) -> Result<(), BackendError> {
+    if !request.recovering {
+        return Err(BackendError::Metadata(
+            "projection quiescence requires an explicit recovery attempt".to_owned(),
+        ));
+    }
+    let session = backend.session().to_owned();
+    let _lock = DirectoryLock::acquire_wait(
+        backend.presentation_session_lock_path(&session)?,
+        &SystemProcessProbe::default(),
+        Duration::from_secs(15),
+    )
+    .map_err(|error| BackendError::Metadata(error.to_string()))?;
+    let journal = journal_path(request.state, request.task_id);
+    let metadata = read_bounded_regular(
+        request.state.join(format!("{}.meta", request.task_id)),
+        1024 * 1024,
+    )
+    .map_err(|error| BackendError::Metadata(error.to_string()))?;
+    let metadata =
+        String::from_utf8(metadata).map_err(|error| BackendError::Metadata(error.to_string()))?;
+    let exact = |key: &str| -> Result<String, BackendError> {
+        let prefix = format!("{key}=");
+        let values = metadata
+            .lines()
+            .filter_map(|line| line.strip_prefix(&prefix))
+            .collect::<Vec<_>>();
+        if values.len() == 1 && !values[0].is_empty() {
+            Ok(values[0].to_owned())
+        } else {
+            Err(BackendError::Metadata(format!(
+                "ambiguous projection metadata {key}"
+            )))
+        }
+    };
+    let ProjectionJournal::V2(binding) = read_journal(&journal, request.task_id)? else {
+        return Err(BackendError::Metadata(
+            "projection has no exact bound journal".to_owned(),
+        ));
+    };
+    let existing_receipt = read_quiescence(&journal)?;
+    let recovering_quiescence = existing_receipt.is_some();
+    let mut receipt = existing_receipt.unwrap_or(ProjectionQuiescence {
+        version: 1,
+        previous: (*binding).clone(),
+        holding: None,
+    });
+    let previous = &receipt.previous;
+    if exact("backend")? != "herdr"
+        || exact("herdr_session")? != session
+        || exact("window")? != format!("{}:{}", session, previous.pane_id)
+        || exact("herdr_workspace_id")? != previous.workspace_id
+        || exact("herdr_tab_id")? != previous.tab_id
+        || exact("herdr_pane_id")? != previous.pane_id
+        || previous.task_id != request.task_id
+        || previous.home != home_identity(request.home)?
+        || previous.session != session
+        || previous.parent_label != backend.workspace_label()
+        || previous.task_label != request.task_label
+    {
+        return Err(BackendError::Metadata(
+            "projection quiescence identity mismatch".to_owned(),
+        ));
+    }
+    if *binding != *previous {
+        if same_projection(previous, &binding)
+            && receipt
+                .holding
+                .as_ref()
+                .is_none_or(|holding| holding == binding.as_ref())
+            && backend.projection_live_binding_matches(&session, &binding)
+            && backend.pane_agent_state(&session, &previous.pane_id) == PaneAgentState::Dead
+            && backend.pane_agent_state(&session, &binding.pane_id) == PaneAgentState::NoAgent
+        {
+            receipt.holding = Some(*binding);
+            return write_quiescence(&journal, &receipt);
+        }
+        return Err(BackendError::Metadata(
+            "projection quiescence recovery is uncertain".to_owned(),
+        ));
+    }
+    if receipt.holding.is_some() {
+        return Err(BackendError::Metadata(
+            "projection holding endpoint changed".to_owned(),
+        ));
+    }
+    // An already missing original endpoint needs no holding shell. The existing
+    // projection recovery owner still proves whether a flat fallback is safe.
+    if !recovering_quiescence
+        && backend.pane_agent_state(&session, &previous.pane_id) == PaneAgentState::Dead
+    {
+        return Ok(());
+    }
+    write_quiescence(&journal, &receipt)?;
+    match backend.projection_reclaim_task_inner(
+        &session,
+        &journal,
+        request.task_id,
+        request.home,
+        &previous.workspace_id,
+        &previous.tab_id,
+        &previous.pane_id,
+        &previous.parent_label,
+        request.task_label,
+        request.home,
+    ) {
+        ReclaimOutcome::Reclaimed { .. } => {
+            let ProjectionJournal::V2(holding) = read_journal(&journal, request.task_id)? else {
+                return Err(BackendError::Metadata(
+                    "quiescence lost exact journal".to_owned(),
+                ));
+            };
+            receipt.holding = Some(*holding);
+            write_quiescence(&journal, &receipt)
+        }
+        _ => Err(BackendError::Metadata(
+            "projection could not safely quiesce its exact restored pane".to_owned(),
+        )),
     }
 }
 
@@ -884,6 +1068,83 @@ impl<R: CommandRunner> HerdrBackend<R> {
     /// Replace one exact agent-free restored husk, rolling back any new pane on refusal.
     #[allow(clippy::too_many_arguments)]
     pub fn projection_reclaim_task(
+        &mut self,
+        session: &str,
+        journal_path: &Path,
+        task_id: &str,
+        home: &Path,
+        meta_workspace: &str,
+        meta_tab: &str,
+        meta_pane: &str,
+        parent_label: &str,
+        task_label: &str,
+        cwd: &Path,
+    ) -> ReclaimOutcome {
+        let receipt = match read_quiescence(journal_path) {
+            Ok(receipt) => receipt,
+            Err(_) => return ReclaimOutcome::Refuse,
+        };
+        let Some(receipt) = receipt else {
+            return self.projection_reclaim_task_inner(
+                session,
+                journal_path,
+                task_id,
+                home,
+                meta_workspace,
+                meta_tab,
+                meta_pane,
+                parent_label,
+                task_label,
+                cwd,
+            );
+        };
+        let Some(holding) = &receipt.holding else {
+            return ReclaimOutcome::Refuse;
+        };
+        let previous = &receipt.previous;
+        if previous.task_id != task_id
+            || previous.home != home_identity(home).unwrap_or_default()
+            || previous.session != session
+            || previous.workspace_id != meta_workspace
+            || previous.tab_id != meta_tab
+            || previous.pane_id != meta_pane
+            || previous.parent_label != parent_label
+            || previous.task_label != task_label
+            || read_journal(journal_path, task_id).ok()
+                != Some(ProjectionJournal::V2(Box::new(holding.clone())))
+            || self.pane_agent_state(session, meta_pane) != PaneAgentState::Dead
+        {
+            return ReclaimOutcome::Refuse;
+        }
+        let outcome = self.projection_reclaim_task_inner(
+            session,
+            journal_path,
+            task_id,
+            home,
+            &holding.workspace_id,
+            &holding.tab_id,
+            &holding.pane_id,
+            parent_label,
+            task_label,
+            cwd,
+        );
+        if let ReclaimOutcome::Reclaimed { pane_id, .. } = &outcome {
+            let cleared = fs::remove_file(quiescence_path(journal_path)).and_then(|()| {
+                let parent = journal_path
+                    .parent()
+                    .ok_or_else(|| std::io::Error::other("journal has no parent"))?;
+                fs::File::open(parent)?.sync_all()
+            });
+            if cleared.is_err() {
+                let _ = self.rollback_reclaim(session, pane_id);
+                return ReclaimOutcome::Refuse;
+            }
+        }
+        outcome
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn projection_reclaim_task_inner(
         &mut self,
         session: &str,
         journal_path: &Path,
@@ -1693,6 +1954,9 @@ mod tests {
                 },
                 Some("pane") if args.get(1).is_some_and(|arg| arg == "get") => {
                     let pane = args.get(2).map_or("child:p1", |arg| arg.as_ref());
+                    if pane == "child:p0" {
+                        return Ok(output(br#"{"error":{"code":"pane_not_found"}}"#));
+                    }
                     let (tab, workspace) = if pane.starts_with("new") {
                         ("new:t2", "new")
                     } else {
@@ -1746,6 +2010,131 @@ mod tests {
             workspace_label: projection_workspace_label("task", TOKEN),
             task_label: "mx-task".to_owned(),
         }
+    }
+
+    #[test]
+    fn quiescence_receipts_reconcile_after_journal_publication_and_reject_foreign_handoffs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = std::fs::canonicalize(temp.path()).expect("home");
+        let holding = binding(&home);
+        let mut previous = holding.clone();
+        previous.tab_id = "child:t0".to_owned();
+        previous.pane_id = "child:p0".to_owned();
+        let journal = create_journal(&home, "task", TOKEN).expect("journal");
+        bind_journal(&journal, holding.clone()).expect("holding journal");
+        std::fs::write(
+            home.join("task.meta"),
+            concat!(
+                "backend=herdr\nherdr_session=named\nwindow=named:child:p0\n",
+                "herdr_workspace_id=child\nherdr_tab_id=child:t0\nherdr_pane_id=child:p0\n"
+            ),
+        )
+        .expect("prior metadata");
+        let receipt = super::ProjectionQuiescence {
+            version: 1,
+            previous: previous.clone(),
+            holding: None,
+        };
+        super::write_quiescence(&journal, &receipt).expect("prepared receipt");
+        let mut backend = HerdrBackend::new(
+            PresentationRunner {
+                socket: home.join("named.sock"),
+                calls: Vec::new(),
+            },
+            "herdr",
+            "named",
+            home.clone(),
+        );
+        let request = super::ProjectionSpawnRequest {
+            state: &home,
+            task_id: "task",
+            home: &home,
+            cwd: &home,
+            task_label: "mx-task",
+            recovering: true,
+        };
+        super::quiesce_projection_before_allocation(&mut backend, &request)
+            .expect("recover exact holding");
+        super::quiesce_projection_before_allocation(&mut backend, &request)
+            .expect("idempotent holding");
+        let completed = super::read_quiescence(&journal)
+            .expect("read receipt")
+            .expect("receipt");
+        assert_eq!(completed.previous, previous);
+        assert_eq!(completed.holding, Some(holding.clone()));
+        assert_eq!(
+            read_journal(&journal, "task").expect("journal"),
+            ProjectionJournal::V2(Box::new(holding))
+        );
+        let mut foreign = completed;
+        foreign.previous.home = home.join("foreign");
+        foreign.holding.as_mut().expect("holding").home = foreign.previous.home.clone();
+        super::write_quiescence(&journal, &foreign).expect("foreign receipt");
+        assert!(super::quiesce_projection_before_allocation(&mut backend, &request).is_err());
+        assert_eq!(
+            backend.projection_reclaim_task(
+                "named", &journal, "task", &home, "child", "child:t0", "child:p0", "broker",
+                "mx-task", &home
+            ),
+            super::ReclaimOutcome::Refuse
+        );
+        std::fs::remove_file(super::quiescence_path(&journal)).expect("remove test receipt");
+        super::write_journal_v2(&journal, previous.clone())
+            .expect("already missing endpoint journal");
+        super::quiesce_projection_before_allocation(&mut backend, &request)
+            .expect("missing original needs no holding tab");
+        assert!(
+            super::read_quiescence(&journal)
+                .expect("no receipt")
+                .is_none()
+        );
+        super::write_quiescence(
+            &journal,
+            &super::ProjectionQuiescence {
+                version: 1,
+                previous,
+                holding: None,
+            },
+        )
+        .expect("uncertain prepared receipt");
+        assert!(super::quiesce_projection_before_allocation(&mut backend, &request).is_err());
+    }
+
+    #[test]
+    fn quiescence_receipts_reject_corruption_versions_symlinks_and_changed_projection() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal_path(temp.path(), "task");
+        assert_eq!(super::read_quiescence(&journal).expect("absent"), None);
+        let previous = binding(temp.path());
+        let mut holding = previous.clone();
+        holding.tab_id = "child:t2".to_owned();
+        holding.pane_id = "child:p2".to_owned();
+        let mut receipt = super::ProjectionQuiescence {
+            version: 1,
+            previous,
+            holding: Some(holding),
+        };
+        super::write_quiescence(&journal, &receipt).expect("valid");
+        assert!(super::read_quiescence(&journal).is_ok());
+        receipt.version = 2;
+        super::write_quiescence(&journal, &receipt).expect("unknown version");
+        assert!(super::read_quiescence(&journal).is_err());
+        receipt.version = 1;
+        receipt.holding.as_mut().expect("holding").workspace_id = "foreign".to_owned();
+        super::write_quiescence(&journal, &receipt).expect("foreign projection");
+        assert!(super::read_quiescence(&journal).is_err());
+        let path = super::quiescence_path(&journal);
+        std::fs::write(&path, "corrupt").expect("corrupt");
+        assert!(super::read_quiescence(&journal).is_err());
+        std::fs::remove_file(&path).expect("remove fixture");
+        let foreign = temp.path().join("foreign.json");
+        std::fs::write(&foreign, "{}").expect("foreign bytes");
+        symlink(&foreign, &path).expect("symlink");
+        assert!(super::read_quiescence(&journal).is_err());
+        assert_eq!(
+            std::fs::read_to_string(foreign).expect("foreign bytes"),
+            "{}"
+        );
     }
 
     #[test]

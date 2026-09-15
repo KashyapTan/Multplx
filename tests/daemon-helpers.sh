@@ -2,19 +2,15 @@
 # tests/daemon-helpers.sh - shared fixtures and mocks for the daemon
 # suites (mx-daemon-lifecycle-e2e and mx-daemon-safety).
 #
-# These mocks encode daemon-lifecycle behavior (fake tmux that logs window
-# ops, fake treehouse that leases/returns homes, fake deep-review that records
-# init/doctor), so they live here rather than in the generic tests/lib.sh. The
-# generic git/identity/meta primitives come from lib.sh, which this file pulls in.
+# Endpoint operations use a recording tmux mock. A failing retired-provider
+# sentinel proves these suites use the built-in home and worktree owners.
+# Generic Git, identity and metadata primitives come from lib.sh.
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-# A fake tmux (window ops are logged to MX_FAKE_TMUX_LOG, list-windows returns
-# MX_FAKE_TMUX_WINDOW, capture-pane echoes MX_FAKE_TMUX_CAPTURE) plus a fake
-# treehouse (durable lease of MX_FAKE_TREEHOUSE_HOME, recording the lease holder
-# to MX_FAKE_TREEHOUSE_LEASE_FILE; `return` removes the target and lease unless
-# MX_FAKE_TREEHOUSE_RETURN_FAIL is set). Echoes the fakebin dir.
+# Fake tmux records window operations and reports fixture endpoint state.
+# The retired provider sentinel logs and fails every invocation.
 make_fake_tmux() {
   local dir=$1 fakebin capture
   fakebin=$(mx_fakebin "$dir")
@@ -53,47 +49,8 @@ exit 1
 SH
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
-set -u
-printf 'treehouse %s\n' "$*" >> "${MX_FAKE_TMUX_LOG:-/dev/null}"
-case "${1:-}" in
-  get)
-    # Durable lease: print only the worktree path to stdout (banners to stderr),
-    # and record the lease holder so tests can assert it is set and later cleared.
-    shift
-    holder=
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --lease) ;;
-        --lease-holder) shift; holder=${1:-} ;;
-        --lease-holder=*) holder=${1#--lease-holder=} ;;
-      esac
-      shift
-    done
-    if [ -n "${MX_FAKE_TREEHOUSE_HOME:-}" ]; then
-      mkdir -p "$MX_FAKE_TREEHOUSE_HOME"
-      [ -n "${MX_FAKE_TREEHOUSE_LEASE_FILE:-}" ] && printf '%s\n' "$holder" > "$MX_FAKE_TREEHOUSE_LEASE_FILE"
-      printf 'leased worktree for %s\n' "${holder:-unknown}" >&2
-      printf '%s\n' "$MX_FAKE_TREEHOUSE_HOME"
-    fi
-    exit 0
-    ;;
-  return)
-    shift
-    target=
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --force) ;;
-        *) target=$1 ;;
-      esac
-      shift
-    done
-    [ -z "${MX_FAKE_TREEHOUSE_RETURN_FAIL:-}" ] || exit 17
-    [ -n "${MX_FAKE_TREEHOUSE_LEASE_FILE:-}" ] && rm -f "$MX_FAKE_TREEHOUSE_LEASE_FILE"
-    [ -n "$target" ] && rm -rf -- "$target"
-    exit 0
-    ;;
-esac
-exit 0
+printf 'unexpected retired provider invocation: treehouse %s\n' "$*" >> "${MX_FAKE_TMUX_LOG:-/dev/null}"
+exit 99
 SH
   chmod +x "$fakebin/tmux"
   chmod +x "$fakebin/treehouse"

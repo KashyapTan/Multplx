@@ -2,7 +2,7 @@
 # Shared read-only environment probes for bootstrap and mx-doctor.
 #
 # This file is the single owner of:
-# - required external-tool presence and Treehouse durable-lease compatibility;
+# - required external-tool presence;
 # - supported install guidance for those tools;
 # - primary-checkout worktree-tangle classification.
 #
@@ -29,13 +29,12 @@ if ! command -v mx_primary_tangle_branch >/dev/null 2>&1; then
   . "$MX_PROBE_LIB_DIR/mx-tangle-lib.sh"
 fi
 
-MX_PROBE_COMMON_TOOLS="git gh jq treehouse"
+MX_PROBE_COMMON_TOOLS="git gh jq"
 
 mx_probe_install_cmd() {
   case "$1" in
     tmux|git|gh|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
     cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
-    treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     *) return 1 ;;
   esac
 }
@@ -56,10 +55,6 @@ mx_probe_missing_tool_record() {
   printf 'MISSING\t%s\t%s\n' "$tool" "$(mx_probe_install_cmd "$tool")"
 }
 
-mx_probe_treehouse_supports_lease() {
-  treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
-}
-
 mx_probe_tool_records() {
   local backend=$1 backend_tools='' tool
   if ! backend_tools=$(mx_backend_required_tools "$backend"); then
@@ -73,9 +68,7 @@ mx_probe_tool_records() {
   for tool in $MX_PROBE_COMMON_TOOLS; do
     command -v "$tool" >/dev/null 2>&1 || mx_probe_missing_tool_record "$tool"
   done
-  if command -v treehouse >/dev/null 2>&1 && ! mx_probe_treehouse_supports_lease; then
-    mx_probe_missing_tool_record treehouse
-  fi
+
 }
 
 mx_probe_render_bootstrap_tool_record() {

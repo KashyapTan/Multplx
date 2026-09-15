@@ -477,19 +477,24 @@ mod tests {
         assert!(!signal_group(i32::MAX as u32, Signal::TERM).expect("absent process group"));
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[test]
-    fn linux_process_fixture_allows_cooperative_group_cleanup() {
+    fn process_fixture_allows_cooperative_group_cleanup() {
         let home = TempHome::new().expect("home");
         let ready = home.join("state/ready");
+        let child_pid_path = home.join("state/child-pid");
         let mut command = Command::new("/bin/sh");
         command
             .args([
                 "-c",
-                "trap 'exit 0' TERM; : > \"$1\"; while :; do sleep 1; done",
+                // Publish readiness only after the group child exists. A
+                // builtin wait lets TERM interrupt immediately, and the trap
+                // reaps the child before reporting successful cleanup.
+                "trap 'wait \"$child\" 2>/dev/null; exit 0' TERM; sleep 60 & child=$!; printf '%s\\n' \"$child\" > \"$2\"; : > \"$1\"; wait \"$child\"",
                 "sh",
             ])
-            .arg(&ready);
+            .arg(&ready)
+            .arg(&child_pid_path);
         let mut fixture =
             ProcessFixture::spawn(&mut command, Duration::from_secs(1)).expect("spawn fixture");
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -497,8 +502,19 @@ mod tests {
             thread::yield_now();
         }
         assert!(ready.is_file(), "process fixture did not become ready");
+        let child_pid = fs::read_to_string(child_pid_path)
+            .expect("read published child PID")
+            .trim()
+            .parse::<u32>()
+            .expect("valid child PID before readiness");
 
         assert!(fixture.stop().expect("cooperative cleanup").success());
+        let probe = Command::new("/bin/kill")
+            .args(["-0", &child_pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .expect("probe group child");
+        assert!(!probe.success(), "cooperative cleanup left its child alive");
     }
 
     #[test]

@@ -71,7 +71,7 @@ SH
 
   status=0
   PATH="$fakebin:$PATH" MX_HOME="$home" MX_TEST_LIVE_PID="$$" \
-    "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+    "$CHECKPOINT" --seconds 3 >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "live timeout lock checkpoint exit"
   assert_present "$home/state/.watch.lock/pid" \
     "checkpoint removed a lock owned by a live process"

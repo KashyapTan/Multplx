@@ -296,12 +296,13 @@ fn stable_id(prefix: &str, value: &str) -> String {
 }
 
 fn git_value(path: &Path, args: &[&str]) -> Result<String, String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(args)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let output = crate::lifecycle::worktree::command_output(
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args),
+    )
+    .map_err(|e| e.to_string())?;
     if !output.status.success() {
         return Err(format!(
             "Git {} at {}: {}",
@@ -551,6 +552,69 @@ pub fn bind_project(home: &Path, path: &Path) -> Result<ProjectBinding, String> 
     bind_project_at(home, &home.join("data"), &home.join("projects"), path)
 }
 
+/// Remember a previously inspected source in a new home without copying it.
+/// Home seeding observes Git before taking its publication lock, then this
+/// owner rechecks filesystem identity and publishes only catalog metadata.
+pub fn remember_reference(
+    home: &Path,
+    source: &ProjectRecord,
+    binding: &ProjectBinding,
+    alias: &str,
+) -> Result<(), String> {
+    if source.project_id != binding.project_id
+        || source.common_git_identity != binding.common_git_identity
+        || identity(&binding.canonical_path)? != binding.checkout_identity
+        || identity(&binding.common_git_dir)? != binding.common_git_identity
+    {
+        return Err("project reference changed before home publication".into());
+    }
+    let data = home.join("data");
+    fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        data.join(".projects.lock"),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|e| e.to_string())?;
+    let mut catalog = read_catalog(home)?;
+    let mut reference = source.clone();
+    reference
+        .checkouts
+        .retain(|c| c.checkout_id == binding.checkout_id);
+    if reference.checkouts.len() != 1 {
+        return Err("source checkout is not in its project record".into());
+    }
+    reference.checkouts[0].ownership = CheckoutOwnership::UserOwned;
+    reference.aliases = vec![alias.into()];
+    if let Some(existing) = catalog
+        .projects
+        .iter_mut()
+        .find(|p| p.project_id == reference.project_id)
+    {
+        for checkout in &reference.checkouts {
+            if !existing
+                .checkouts
+                .iter()
+                .any(|c| c.checkout_id == checkout.checkout_id)
+            {
+                existing.checkouts.push(checkout.clone());
+            }
+        }
+        if !existing.aliases.contains(&alias.to_owned()) {
+            existing.aliases.push(alias.into());
+        }
+    } else {
+        catalog.projects.push(reference);
+    }
+    catalog.validate()?;
+    multplx_core::filesystem::atomic_replace(
+        data.join("projects.json"),
+        &serde_json::to_vec(&catalog).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())
+}
+
 pub fn bind_project_at(
     home: &Path,
     legacy_data: &Path,
@@ -582,8 +646,16 @@ pub fn validate_binding(home: &Path, binding: &ProjectBinding) -> Result<(), Str
     {
         return Err("binding conflicts with recorded project/checkout identity".to_owned());
     }
+    verify_location(binding)
+}
+
+/// Validate a durable resource's source identity even when its home registry is
+/// unavailable. This does not register, adopt or change checkout ownership.
+pub fn verify_location(binding: &ProjectBinding) -> Result<(), String> {
     let actual = inspect_checkout(&binding.canonical_path)?;
     if actual.canonical_path != binding.canonical_path
+        || actual.project_id != binding.project_id
+        || actual.checkout_id != binding.checkout_id
         || actual.checkout_identity != binding.checkout_identity
         || actual.common_git_dir != binding.common_git_dir
         || actual.common_git_identity != binding.common_git_identity
@@ -939,6 +1011,12 @@ mod identity_tests {
         let path = temp.path().join("app");
         repo(&path);
         let binding = bind_project(&home, &path).expect("bind");
+        let mut forged = binding.clone();
+        forged.project_id = "project-forged".into();
+        assert!(verify_location(&forged).is_err());
+        forged = binding.clone();
+        forged.checkout_id = "checkout-forged".into();
+        assert!(verify_location(&forged).is_err());
         fs::rename(&path, temp.path().join("old-app")).expect("move");
         assert!(validate_binding(&home, &binding).is_err());
         repo(&path);

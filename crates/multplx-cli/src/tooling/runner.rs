@@ -258,7 +258,8 @@ fn family(path: &str) -> &'static str {
         | "mx-pr-merge.test.sh"
         | "mx-push-service.test.sh"
         | "mx-review-diff.test.sh"
-        | "mx-teardown.test.sh" => "pr-forge",
+        | "mx-teardown.test.sh"
+        | "mx-worktree.test.sh" => "pr-forge",
         "mx-afk-inject-e2e.test.sh" | "mx-afk-return.test.sh" => "afk",
         "mx-status-snapshot-catchup-forge.test.sh"
         | "mx-status-snapshot-landed-bounds.test.sh"

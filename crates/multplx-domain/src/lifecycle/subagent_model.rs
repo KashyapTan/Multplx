@@ -167,6 +167,8 @@ pub struct TaskRecord {
     pub parent_state: Option<String>,
     pub parent_home: Option<String>,
     pub persistent_home: Option<String>,
+    #[serde(default)]
+    pub home_allocation: Option<super::home_seed::HomeBinding>,
     pub accepted_brief_digest: Option<String>,
     pub accepted_brief_path: Option<String>,
     pub runtime: RuntimeReference,
@@ -231,6 +233,7 @@ impl TaskRecord {
             ),
             owner_home: Some(owner_home),
             persistent_home: None,
+            home_allocation: None,
             accepted_brief_digest: None,
             accepted_brief_path: None,
             runtime: RuntimeReference::default(),
@@ -366,6 +369,16 @@ impl TaskRecord {
             return Err("domain requires explicit bounded scope and identity".into());
         }
 
+        if let Some(home) = &self.home_allocation
+            && (!self.persistent
+                || home.id != self.task_id
+                || home.generation == 0
+                || home.lease_id.is_empty()
+                || self.owner_home.as_deref().map(Path::new) != Some(home.owner_home.as_path())
+                || self.persistent_home.as_deref().map(Path::new) != Some(home.path.as_path()))
+        {
+            return Err("private home allocation does not match persistent task ownership".into());
+        }
         if let Some(allocation) = &self.allocation {
             if allocation.persistent != self.persistent
                 || !Path::new(&allocation.path).is_absolute()

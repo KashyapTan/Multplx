@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/mx-daemon-safety.test.sh - daemon home safety invariants:
 # the path-boundary matrices (seed/spawn/teardown), registry/charter/origin
-# validation, treehouse lease handling, clone provisioning, child-worktree
+# validation, durable home ownership, borrowed project references, child-worktree
 # protection, and backlog-handoff safety. The happy-path
 # operator flow lives in mx-daemon-lifecycle-e2e.test.sh; this file keeps the
 # destructive-invariant coverage that an e2e run cannot deterministically reach.
@@ -111,7 +111,7 @@ test_lock_status_is_per_home() {
   pass "mx-lock status is scoped per home"
 }
 
-test_seed_allows_overlapping_clones_and_drops_owner() {
+test_seed_allows_overlapping_references_and_drops_owner() {
   # A project may appear in several daemons' (non-exclusive) clone lists; the
   # registry never uses the legacy owns: field, and the removed `owner` subcommand
   # stays gone. The full happy seed - charter copied, clones+origins, deep-review
@@ -149,7 +149,7 @@ EOF
   if MX_HOME="$home" mx_home_seed owner alpha >/dev/null 2>&1; then
     fail "owner subcommand still succeeded after routing moved to scopes"
   fi
-  pass "seed allows overlapping project clone lists and drops the owns/owner routing"
+  pass "seed allows overlapping project references and drops legacy owner routing"
 }
 
 test_home_seed_validate_rejects_duplicate_homes() {
@@ -216,37 +216,36 @@ EOF
   pass "home seed validation rejects nested home routes"
 }
 
-test_home_seed_uses_treehouse_acquired_home() {
-  local home acquired acquired_abs fakebin log lease out
+test_home_seed_creates_owned_private_home() {
+  local home acquired acquired_abs fakebin log out
   home="$TMP_ROOT/dash-home"
-  acquired="$TMP_ROOT/dash-acquired-home"
   mkdir -p "$home/projects" "$home/data" "$home/state"
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-alpha.git"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  make_activated_broker_clone "$acquired"
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fake")
   log="$TMP_ROOT/dash-fake/tmux.log"
-  lease="$TMP_ROOT/dash-fake/lease"
 
-  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$acquired" MX_FAKE_TMUX_LOG="$log" \
-    MX_FAKE_TREEHOUSE_LEASE_FILE="$lease" \
+  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
     MX_DAEMON_CHARTER='dash acquired scope' MX_DAEMON_SCOPE='dash acquired scope' \
     mx_home_seed dash - alpha) \
-    || fail "seed failed for a treehouse-acquired home"
+    || fail "seed failed for a built-in private home"
+  acquired=${out#home=}
   acquired_abs=$(cd "$acquired" && pwd -P)
-  printf '%s\n' "$out" | grep -F "home=$acquired_abs" >/dev/null || fail "seed did not report acquired home"
-  grep -F 'treehouse get --lease --lease-holder dash' "$log" >/dev/null || fail "seed did not durably lease a home under the daemon id"
-  [ -f "$lease" ] || fail "seed did not record a treehouse lease"
-  [ "$(cat "$lease")" = dash ] || fail "seed did not set the lease holder to the daemon id"
+  [ -f "$home/data/.home-allocation-dash.json" ] || fail "missing durable private home allocation"
+  jq -e '.version == 1 and .state == "active" and .binding.generation == 1' "$home/data/.home-allocation-dash.json" >/dev/null || fail "invalid home allocation"
+  assert_no_grep treehouse "$log" "external provider was invoked"
   [ -f "$acquired/.mx-daemon-home" ] || fail "seed did not mark acquired home"
-  [ "$(cat "$acquired/.mx-daemon-home")" = dash ] || fail "seed wrote wrong acquired-home marker"
-  [ -d "$acquired/projects/alpha/.git" ] || fail "seed did not clone project into acquired home"
-  grep -F "home: $acquired_abs" "$home/data/daemons.md" >/dev/null || fail "registry did not record acquired home"
-  pass "home seeding durably leases treehouse-acquired dash homes under the daemon id"
+  [ "$(cat "$acquired/.mx-daemon-home")" = dash ] || fail "wrong home marker"
+  [ ! -e "$acquired/.git" ] || fail "private home fabricated a Git repository"
+  [ ! -e "$acquired/projects/alpha" ] || fail "private home copied project"
+  jq -e --arg source "$(cd "$home/projects/alpha" && pwd -P)" '.projects[0].checkouts[0].canonical_path == $source' "$acquired/data/projects.json" >/dev/null || fail "source reference missing"
+  grep -F "home: $acquired_abs" "$home/data/daemons.md" >/dev/null || fail "registry missing"
+  pass "private homes retain durable ownership and borrow source projects without cloning"
+
 }
 
-test_home_seed_returns_treehouse_acquired_home_on_assignment_failure() {
+test_home_seed_preserves_foreign_home_on_assignment_failure() {
   local home acquired acquired_abs fakebin log err
   home="$TMP_ROOT/dash-fail-home"
   acquired="$TMP_ROOT/dash-fail-acquired-home"
@@ -261,52 +260,38 @@ test_home_seed_returns_treehouse_acquired_home_on_assignment_failure() {
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fail-fake")
   log="$TMP_ROOT/dash-fail-fake/tmux.log"
 
-  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$acquired" MX_FAKE_TMUX_LOG="$log" \
+  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
     MX_DAEMON_CHARTER='dash acquired scope' MX_DAEMON_SCOPE='dash acquired scope' \
-    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
+    mx_home_seed dash "$acquired" alpha >/dev/null 2>"$err"; then
     fail "seed reused an acquired home marked for another daemon"
   fi
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not explain acquired marked-home rejection"
-  grep -F "treehouse return --force $acquired_abs" "$log" >/dev/null \
-    || fail "failed acquired seed did not return the home through treehouse"
+  [ -f "$acquired/.mx-daemon-home" ] || fail "foreign marker removed"
+  [ "$(cat "$acquired/.mx-daemon-home")" = other ] || fail "foreign marker changed"
   if [ -f "$home/data/daemons.md" ] && grep -F -- '- dash ' "$home/data/daemons.md" >/dev/null; then
     fail "failed acquired seed left a registry route"
   fi
-  pass "home seeding returns rejected acquired homes through treehouse"
+  pass "home seeding preserves foreign home ownership"
 }
 
-test_home_seed_warns_when_acquired_home_return_fails() {
-  local home acquired acquired_abs fakebin log err lease
-  home="$TMP_ROOT/dash-return-fail-home"
-  acquired="$TMP_ROOT/dash-return-fail-acquired-home"
-  err="$TMP_ROOT/dash-return-fail.err"
-  mkdir -p "$home/projects" "$home/data" "$home/state"
-  mx_git_init_commit "$home/projects/alpha"
-  mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/dash-return-fail-alpha.git"
-  printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  make_activated_broker_clone "$acquired"
-  acquired_abs=$(cd "$acquired" && pwd -P)
-  printf 'other\n' > "$acquired/.mx-daemon-home"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/dash-return-fail-fake")
-  log="$TMP_ROOT/dash-return-fail-fake/tmux.log"
-  lease="$TMP_ROOT/dash-return-fail-fake/lease"
-
-  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$acquired" MX_FAKE_TMUX_LOG="$log" \
-    MX_FAKE_TREEHOUSE_LEASE_FILE="$lease" MX_FAKE_TREEHOUSE_RETURN_FAIL=1 \
-    MX_DAEMON_CHARTER='dash acquired scope' MX_DAEMON_SCOPE='dash acquired scope' \
-    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
-    fail "seed reused an acquired home after return failure setup"
+test_home_seed_recovers_retained_private_reservation() {
+  local home err path
+  home="$TMP_ROOT/seed-fault-home"
+  err="$TMP_ROOT/seed-fault.err"
+  mkdir -p "$home/data" "$home/state"
+  if MX_HOME="$home" MX_HOME_SEED_FAIL_AFTER=home MX_DAEMON_CHARTER=scope MX_DAEMON_SCOPE=scope mx_home_seed dash - --no-projects > /dev/null 2>"$err"; then
+    fail "injected home seed failure succeeded"
   fi
-  grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not report original acquired-home rejection"
-  grep -F "warning: failed to return treehouse-acquired home $acquired_abs during seed rollback" "$err" >/dev/null \
-    || fail "seed rollback did not warn when treehouse return failed"
-  [ -f "$lease" ] || fail "failed rollback return did not preserve lease evidence"
-  grep -F "treehouse return --force $acquired_abs" "$log" >/dev/null \
-    || fail "failed rollback did not attempt to return the acquired home"
-  pass "home seed rollback warns when treehouse-acquired return fails"
+  grep -F 'retained unfinished home' "$err" >/dev/null || fail "partial home not retained"
+  path=$(jq -r '.binding.path' "$home/data/.home-allocation-dash.json")
+  [ -d "$path" ] || fail "reserved home disappeared"
+  [ ! -e "$home/data/daemons.md" ] || fail "failed seed published route"
+  MX_HOME="$home" MX_DAEMON_CHARTER=scope MX_DAEMON_SCOPE=scope mx_home_seed dash - --no-projects >/dev/null || fail "same home seed did not recover"
+  jq -e '.state == "active"' "$home/data/.home-allocation-dash.json" >/dev/null || fail "recovery did not commit ownership"
+  pass "home-seed interruption retains its reservation and recovers the same private home"
 }
 
-test_home_seed_does_not_return_unsafe_acquired_home() {
+test_home_seed_preserves_unsafe_requested_paths() {
   local home descendant fakebin log err
   home="$TMP_ROOT/dash-active-home"
   descendant="$home/data/dash-descendant-home"
@@ -318,30 +303,29 @@ test_home_seed_does_not_return_unsafe_acquired_home() {
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-active-fake")
   log="$TMP_ROOT/dash-active-fake/tmux.log"
 
-  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
-    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
+  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
+    MX_DAEMON_CHARTER=scope mx_home_seed dash "$home" alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home matching the active Multplx home"
   fi
   grep -F 'daemon home cannot be the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active acquired-home rejection"
-  grep -F "treehouse return --force" "$log" >/dev/null \
-    && fail "seed returned an unsafe acquired active home through treehouse"
+  assert_no_grep treehouse "$log" "unsafe-home refusal invoked external provider"
   [ -d "$home/projects/alpha" ] || fail "unsafe acquired-home rollback removed the active home"
 
+  mkdir -p "$descendant"
   : > "$log"
-  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TREEHOUSE_HOME="$descendant" MX_FAKE_TMUX_LOG="$log" \
-    mx_home_seed dash - alpha >/dev/null 2>"$err"; then
+  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
+    MX_DAEMON_CHARTER=scope mx_home_seed dash "$descendant" alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home inside the active Multplx home"
   fi
   grep -F 'daemon home cannot be inside the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active descendant acquired-home rejection"
-  grep -F "treehouse return --force" "$log" >/dev/null \
-    && fail "seed returned an unsafe acquired active descendant through treehouse"
+  assert_no_grep treehouse "$log" "unsafe-descendant refusal invoked external provider"
   [ -d "$descendant" ] || fail "unsafe acquired-home rollback removed the active descendant"
   pass "home seeding leaves unsafe acquired active homes untouched"
 }
 
-test_home_seed_rolls_back_failed_clone() {
+test_home_seed_borrows_offline_projects() {
   local home subhome err missing_remote
   home="$TMP_ROOT/rollback-home"
   subhome="$TMP_ROOT/rollback-subhome"
@@ -357,21 +341,12 @@ test_home_seed_rolls_back_failed_clone() {
 - beta [direct-PR] - beta project (added 2026-06-22)
 EOF
 
-  if MX_HOME="$home" MX_DAEMON_CHARTER='rollback scope' MX_DAEMON_SCOPE='rollback scope' \
-    mx_home_seed rollback "$subhome" alpha beta >/dev/null 2>"$err"; then
-    fail "seed succeeded even though the second project clone failed"
-  fi
-  grep -F 'does not appear to be a git repository' "$err" >/dev/null \
-    || grep -F 'repository' "$err" >/dev/null \
-    || fail "seed failure did not include the clone error"
-  [ ! -e "$subhome" ] || fail "failed seed left the newly created daemon home behind"
-  [ ! -e "$subhome/.mx-daemon-home" ] || fail "failed seed left a subhome marker"
-  [ ! -e "$subhome/projects/alpha" ] || fail "failed seed left a previously cloned project"
-  [ ! -e "$home/data/rollback/brief.md" ] || fail "failed seed left a generated charter brief"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- rollback ' "$home/data/daemons.md" >/dev/null; then
-    fail "failed seed left a registry route"
-  fi
-  pass "home seeding rolls back failed clone attempts without residue"
+  MX_HOME="$home" MX_DAEMON_CHARTER='offline scope' MX_DAEMON_SCOPE='offline scope' mx_home_seed rollback "$subhome" alpha beta >/dev/null 2>"$err" || fail "offline project references should not require a clone or fetch"
+  [ ! -e "$subhome/projects/alpha" ] || fail "home copied project source"
+  jq -e '.projects | length == 2' "$subhome/data/projects.json" >/dev/null || fail "offline references missing"
+  [ ! -e "$missing_remote" ] || fail "seed created a remote"
+  pass "home seeding uses local project references without fetching unavailable remotes"
+
 }
 
 test_home_seed_refuses_missing_filled_charter() {
@@ -738,8 +713,9 @@ test_home_seed_preserves_local_only_project() {
 
   MX_HOME="$home" MX_DAEMON_CHARTER='local alpha work' MX_DAEMON_SCOPE='local alpha work' \
     mx_home_seed design "$subhome" alpha >/dev/null 2>"$err" || fail "local-only persistent seed failed: $(cat "$err")"
-  assert_present "$subhome/projects/alpha/.git" 'local-only checkout missing'
-  [ -z "$(git -C "$subhome/projects/alpha" remote)" ] || fail 'local-only seed invented a remote'
+  assert_absent "$subhome/projects/alpha" 'local-only source was cloned'
+  jq -e --arg source "$(cd "$home/projects/alpha" && pwd -P)" '.projects[] | .checkouts[] | select(.canonical_path == $source) | .ownership == "user-owned"' "$subhome/data/projects.json" >/dev/null || fail 'local-only borrowed checkout missing'
+  [ -z "$(git -C "$home/projects/alpha" remote)" ] || fail 'local-only seed invented a remote'
   assert_grep '[local-only]' "$subhome/data/projects.md" 'local-only destination lost'
   [ -z "$(git -C "$home/projects/alpha" status --porcelain)" ] || fail 'source checkout changed'
   pass "persistent homes retain local-only repositories without inventing remotes"
@@ -923,14 +899,14 @@ test_home_seed_refuses_home_overlapping_registered_home() {
 - child - child domain (home: $registered_child; scope: child domain; projects: gamma; added 2026-06-22)
 EOF
 
-  if MX_HOME="$home" mx_home_seed design "$nested" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" MX_DAEMON_CHARTER=scope mx_home_seed design "$nested" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home inside a registered daemon home"
   fi
   grep -F 'overlaps registered daemon home' "$err" >/dev/null \
     || fail "seed did not explain registered ancestor overlap"
   [ ! -e "$nested" ] || fail "seed created a nested home inside a registered home"
 
-  if MX_HOME="$home" mx_home_seed design "$parent" alpha >/dev/null 2>"$err"; then
+  if MX_HOME="$home" MX_DAEMON_CHARTER=scope mx_home_seed design "$parent" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home containing a registered daemon home"
   fi
   grep -F 'overlaps registered daemon home' "$err" >/dev/null \
@@ -950,8 +926,9 @@ test_home_seed_preserves_source_without_origin() {
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for no-origin seed test"
 
   MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err" || fail "remote-free seed failed: $(cat "$err")"
-  [ -z "$(git -C "$subhome/projects/alpha" remote)" ] || fail 'seed fabricated missing origin'
-  [ "$(git -C "$subhome/projects/alpha" rev-parse HEAD)" = "$(git -C "$home/projects/alpha" rev-parse HEAD)" ] || fail 'seed lost source starting revision'
+  [ -z "$(git -C "$home/projects/alpha" remote)" ] || fail 'seed fabricated missing origin'
+  jq -e --arg source "$(cd "$home/projects/alpha" && pwd -P)" '.projects[].checkouts[] | select(.canonical_path == $source)' "$subhome/data/projects.json" >/dev/null || fail 'seed lost source identity'
+  assert_absent "$subhome/projects/alpha" 'remote-free source was cloned'
   pass "persistent seeding preserves remote-free source revision and remote absence"
 }
 
@@ -973,12 +950,11 @@ test_home_seed_refuses_existing_remote_backed_project_with_wrong_origin() {
   if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted existing remote-backed project with wrong origin"
   fi
-  expected=$(git -C "$home/projects/alpha" remote get-url origin)
-  grep -F "seeded project alpha at $subhome_abs/projects/alpha has origin" "$err" >/dev/null \
-    || fail "seed did not identify wrong origin for existing remote-backed project"
-  grep -F "expected $expected" "$err" >/dev/null \
-    || fail "seed did not report expected origin for existing remote-backed project"
-  pass "remote-backed subhome seeding validates existing destination origins"
+  assert_grep 'existing project checkout conflicts with borrowed reference' "$err" 'seed did not identify conflicting destination'
+  [ "$(git -C "$subhome/projects/alpha" remote get-url origin)" = "$home/projects/alpha" ] || fail 'refusal changed existing clone origin'
+  assert_absent "$subhome/.mx-daemon-home" 'refusal marked conflicting home'
+  pass 'subhome seeding refuses existing project checkout that conflicts with borrowed source'
+
 }
 
 test_home_seed_resolves_relative_source_origins() {
@@ -996,9 +972,10 @@ test_home_seed_resolves_relative_source_origins() {
   subhome_abs=$(cd "$subhome" && pwd -P)
   expected=$(cd "$home/remotes/relative-alpha.git" && pwd -P)
   printf '%s\n' "$out" | grep -F "home=$subhome_abs" >/dev/null || fail "seed did not report relative-origin subhome"
-  [ -d "$subhome/projects/alpha/.git" ] || fail "relative source origin was not cloned"
-  actual=$(git -C "$subhome/projects/alpha" remote get-url origin)
-  [ "$actual" = "$expected" ] || fail "relative source origin was not cloned through the resolved path"
+  assert_absent "$subhome/projects/alpha" "relative source was cloned"
+  actual=$(git -C "$home/projects/alpha" remote get-url origin)
+  [ "$actual" = ../../remotes/relative-alpha.git ] || fail "relative source remote changed"
+  jq -e --arg source "$(cd "$home/projects/alpha" && pwd -P)" '.projects[] | select(.remote == "../../remotes/relative-alpha.git") | .checkouts[] | select(.canonical_path == $source)' "$subhome/data/projects.json" >/dev/null || fail "borrowed reference lost relative-remote source context"
   MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null \
     || fail "relative source origin did not compare equal on reseed"
   pass "home seeding resolves relative source origins against the source project"
@@ -1122,7 +1099,8 @@ test_home_seed_crash_recovery_and_concurrency() {
     status=$?
   fi
   expect_code 1 "$status" "native home seed recovery followed by an injected fault"
-  [ ! -e "$crash_home" ] || fail "native home seed recovery left the crashed home"
+  assert_present "$crash_home" 'native recovery deleted retained private state'
+  jq -e '.state == "reserved"' "$home/data/.home-allocation-crash.json" >/dev/null || fail 'native recovery lost allocation reservation'
   [ ! -e "$home/data/crash/brief.md" ] \
     || fail "native home seed recovery left the generated charter"
   [ ! -e "$home/data/.home-seed.transaction.crash" ] \
@@ -1131,6 +1109,11 @@ test_home_seed_crash_recovery_and_concurrency() {
     ! grep -F -- '- crash ' "$home/data/daemons.md" >/dev/null \
       || fail "native home seed recovery left a registry route"
   fi
+
+  local lease
+  lease=$(jq -r '.binding.lease_id' "$home/data/.home-allocation-crash.json")
+  MX_HOME="$home" MX_DAEMON_CHARTER='crash charter' mx_home_seed crash "$crash_home" alpha >/dev/null || fail 'retained seed could not resume'
+  jq -e --arg lease "$lease" '.state == "active" and .binding.lease_id == $lease' "$home/data/.home-allocation-crash.json" >/dev/null || fail 'seed recovery changed allocation generation'
 
   MX_HOME="$home" MX_DAEMON_CHARTER='first charter' \
     mx_home_seed first "$first" alpha >/dev/null 2>"$TMP_ROOT/native-first.err" &
@@ -1316,45 +1299,34 @@ test_mx_send_refuses_bare_window_without_home_meta() {
   pass "mx-send refuses a bare broker window with no metadata in this home"
 }
 
-test_daemon_teardown_retires_empty_home() {
-  local home subhome subhome_abs fakebin log lease fmroot
-  home="$TMP_ROOT/teardown-home"
-  subhome="$TMP_ROOT/teardown-subhome"
-  fmroot="$TMP_ROOT/teardown-fmroot"
-  make_broker_git_root "$fmroot"
-  git -C "$fmroot" worktree add --quiet --detach "$subhome" HEAD
-  mkdir -p "$home/state" "$home/data" "$subhome/state"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
-  subhome_abs=$(cd "$subhome" && pwd -P)
-  cat > "$home/state/domain.meta" <<EOF
-window=broker:mx-domain
-worktree=$subhome
-project=$subhome
-harness=echo
-kind=daemon
-mode=daemon
-yolo=off
-home=$subhome
-projects=alpha
-EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
-  fakebin=$(make_fake_tmux "$TMP_ROOT/teardown-fake")
-  log="$TMP_ROOT/teardown-fake/tmux.log"
-  lease="$TMP_ROOT/teardown-fake/lease"
-  printf 'domain\n' > "$lease"
-  PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$fmroot" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-fake/pane.txt" \
-    MX_FAKE_TREEHOUSE_LEASE_FILE="$lease" \
-    "$ROOT/bin/mx-teardown.sh" domain >/dev/null 2>/dev/null \
-    || fail "teardown failed for empty daemon home"
-  grep -F "treehouse return --force $subhome_abs" "$log" >/dev/null || fail "teardown did not release the daemon home lease via treehouse return"
-  [ ! -e "$lease" ] || fail "teardown left the daemon home lease held after retirement"
-  [ ! -d "$subhome" ] || fail "teardown did not remove the retired daemon home"
-  [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta"
-  grep -F -- '- domain ' "$home/data/daemons.md" >/dev/null && fail "teardown did not remove daemon registry route"
-  pass "daemon teardown retires empty homes and releases routing"
+seed_owned_daemon_fixture() {
+  local home=$1 id=$2 subhome=$3 fakebin=$4 log=$5
+  mkdir -p "$home/state" "$home/data"
+  MX_HOME="$home" MX_DAEMON_CHARTER='owned home fixture' MX_DAEMON_SCOPE='owned home fixture' mx_home_seed "$id" "$subhome" --no-projects >/dev/null || fail 'owned home fixture seed failed'
+  PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$ACTIVE_ROOT" MX_HOME="$home" MX_SPAWN_NO_GUARD=1 MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$(dirname "$log")/pane.txt" "$ROOT/bin/mx-spawn.sh" "$id" "$subhome" codex --daemon >/dev/null || fail 'owned home fixture spawn failed'
 }
 
-test_daemon_teardown_refuses_failed_leased_home_return() {
+test_daemon_teardown_retires_empty_home() {
+  local home subhome fakebin log receipt retained
+  home="$TMP_ROOT/teardown-home"
+  subhome="$TMP_ROOT/teardown-subhome"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/teardown-fake")
+  log="$TMP_ROOT/teardown-fake/tmux.log"
+  seed_owned_daemon_fixture "$home" domain "$subhome" "$fakebin" "$log"
+  printf 'retained durable context\n' > "$subhome/data/context.md"
+  PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-fake/pane.txt" "$ROOT/bin/mx-teardown.sh" domain >/dev/null || fail 'owned home retirement failed'
+  receipt="$home/data/.home-allocation-domain.json"
+  jq -e '.state == "retired"' "$receipt" >/dev/null || fail 'retirement receipt missing'
+  retained=$(jq -r '.retained_path' "$receipt")
+  assert_grep 'retained durable context' "$retained/data/context.md" 'retirement lost persistent data'
+  assert_absent "$subhome" 'retired home remains active'
+  assert_absent "$home/state/domain.meta" 'retirement did not clear parent metadata'
+  assert_no_grep '- domain ' "$home/data/daemons.md" 'retirement retained route'
+  assert_no_grep 'treehouse' "$log" 'retirement invoked external provider'
+  pass 'daemon teardown retires its exact private-home generation and preserves durable context'
+}
+
+test_daemon_teardown_retains_legacy_linked_home() {
   local home subhome subhome_abs fakebin log fmroot err rc
   home="$TMP_ROOT/teardown-return-fail-home"
   subhome="$TMP_ROOT/teardown-return-fail-subhome"
@@ -1382,21 +1354,20 @@ EOF
 
   set +e
   PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$fmroot" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-return-fail-fake/pane.txt" \
-    MX_FAKE_TREEHOUSE_RETURN_FAIL=1 \
     "$ROOT/bin/mx-teardown.sh" domain >/dev/null 2>"$err"
   rc=$?
   set -e
 
-  [ "$rc" -ne 0 ] || fail "teardown succeeded despite failed treehouse return"
-  grep -F "treehouse return --force $subhome_abs" "$log" >/dev/null || fail "teardown did not try to return the leased home"
-  grep -F 'treehouse return failed for daemon home' "$err" >/dev/null || fail "teardown did not report failed leased home return"
+  [ "$rc" -ne 0 ] || fail "teardown adopted legacy home ownership"
+  assert_no_grep 'treehouse' "$log" 'retirement invoked legacy provider'
+  assert_grep 'retained' "$err" 'teardown did not explain retained legacy home'
   [ -d "$subhome" ] || fail "teardown removed a leased home after return failed"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared meta after leased home return failed"
   grep -F -- '- domain ' "$home/data/daemons.md" >/dev/null || fail "teardown removed registry route after leased home return failed"
-  pass "daemon teardown refuses to hide failed leased-home return"
+  pass "daemon teardown retains legacy linked homes for explicit migration"
 }
 
-test_daemon_teardown_removes_plain_clone_home_without_treehouse_return() {
+test_daemon_teardown_retains_legacy_plain_home() {
   local home subhome subhome_abs fakebin log
   home="$TMP_ROOT/plain-clone-teardown-home"
   subhome="$TMP_ROOT/plain-clone-teardown-subhome"
@@ -1419,15 +1390,15 @@ EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/plain-clone-teardown-fake")
   log="$TMP_ROOT/plain-clone-teardown-fake/tmux.log"
 
-  PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/plain-clone-teardown-fake/pane.txt" \
-    MX_FAKE_TREEHOUSE_RETURN_FAIL=1 \
-    "$ROOT/bin/mx-teardown.sh" domain >/dev/null 2>/dev/null \
-    || fail "teardown failed for plain-clone daemon home"
-  grep -F "treehouse return --force $subhome_abs" "$log" >/dev/null && fail "teardown tried to return a plain-clone home through treehouse"
-  [ ! -d "$subhome" ] || fail "teardown did not remove the plain-clone daemon home"
-  [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta for plain-clone home"
-  grep -F -- '- domain ' "$home/data/daemons.md" >/dev/null && fail "teardown did not remove plain-clone registry route"
-  pass "daemon teardown raw-removes plain-clone homes"
+  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/plain-clone-teardown-fake/pane.txt" "$ROOT/bin/mx-teardown.sh" domain > /dev/null 2> "$TMP_ROOT/plain-retain.err"; then
+    fail 'teardown deleted an unowned legacy home'
+  fi
+  assert_present "$subhome" 'teardown deleted an unowned legacy home'
+  assert_present "$home/state/domain.meta" 'teardown lost legacy routing metadata'
+  assert_grep '- domain ' "$home/data/daemons.md" 'teardown removed legacy route'
+  assert_no_grep 'treehouse' "$log" 'teardown invoked retired provider'
+  pass 'daemon teardown retains plain legacy homes without ownership receipts'
+
 }
 
 test_daemon_teardown_crash_recovery_and_concurrency() {
@@ -1439,18 +1410,13 @@ test_daemon_teardown_crash_recovery_and_concurrency() {
   second_home="$TMP_ROOT/native-teardown-second-home"
   err="$TMP_ROOT/native-teardown-crash.err"
   mkdir -p "$home/state" "$home/data"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/native-teardown-transaction-fake")
+  log="$TMP_ROOT/native-teardown-transaction-fake/tmux.log"
   for spec in "crash:$crash_home" "trigger:$trigger_home" "first:$first_home" "second:$second_home"; do
     tid=${spec%%:*}
     subhome=${spec#*:}
-    mkdir -p "$subhome/state"
-    mark_broker_home "$subhome"
-    printf '%s\n' "$tid" > "$subhome/.mx-daemon-home"
-    mx_write_daemon_meta "$home/state/$tid.meta" "$subhome"
-    printf -- '- %s - native transaction fixture (home: %s; scope: native teardown; projects: alpha; added 2026-06-22)\n' \
-      "$tid" "$subhome" >> "$home/data/daemons.md"
+    seed_owned_daemon_fixture "$home" "$tid" "$subhome" "$fakebin" "$log"
   done
-  fakebin=$(make_fake_tmux "$TMP_ROOT/native-teardown-transaction-fake")
-  log="$TMP_ROOT/native-teardown-transaction-fake/tmux.log"
 
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
       MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/native-teardown-transaction-fake/pane.txt" \
@@ -1496,7 +1462,7 @@ test_daemon_teardown_crash_recovery_and_concurrency() {
   pass "native daemon teardown journals recover crashes and serialize concurrent retirements"
 }
 
-test_daemon_force_teardown_discards_child_work() {
+test_daemon_override_retains_unowned_child_work() {
   local home subhome childproj childwt fakebin log
   home="$TMP_ROOT/force-teardown-home"
   subhome="$TMP_ROOT/force-teardown-subhome"
@@ -1532,16 +1498,16 @@ EOF
     "$ROOT/bin/mx-teardown.sh" domain >/dev/null 2>&1; then
     fail "teardown allowed a daemon with in-flight child work"
   fi
-  PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
-    override_teardown domain >/dev/null 2>/dev/null \
-    || fail "override teardown failed to discard child work"
-  [ ! -d "$subhome" ] || fail "force teardown did not remove the retired daemon home"
-  [ ! -d "$childwt" ] || fail "force teardown did not remove child worktree"
-  [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta"
-  grep -F -- '- domain ' "$home/data/daemons.md" >/dev/null && fail "force teardown did not remove daemon registry route"
-  grep -F 'kill-window -t broker:mx-child' "$log" >/dev/null || fail "force teardown did not kill child window"
-  grep -F 'kill-window -t broker:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window"
-  pass "daemon force teardown discards child work"
+  if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" override_teardown domain >/dev/null 2>"$TMP_ROOT/force-legacy.err"; then
+    fail 'override discarded a child without exact allocation ownership'
+  fi
+  assert_present "$subhome" 'override removed legacy parent home'
+  assert_present "$childwt" 'override removed unowned child worktree'
+  assert_present "$home/state/domain.meta" 'override lost parent metadata'
+  assert_present "$subhome/state/child.meta" 'override lost child metadata'
+  assert_grep '- domain ' "$home/data/daemons.md" 'override removed legacy route'
+  pass 'daemon override retains child work without exact allocation ownership'
+
 }
 
 test_daemon_force_teardown_refuses_child_quarantine_symlink() {
@@ -1611,7 +1577,10 @@ test_daemon_force_teardown_preserves_child_on_unproven_lock() {
   childwt="$TMP_ROOT/force-lock-child-worktree"
   err="$TMP_ROOT/force-lock-child.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state"
-  mx_git_worktree "$childproj" "$childwt" force-child-lock
+  mx_git_init_commit "$childproj"
+  childproj=$(cd "$childproj" && pwd -P)
+  MX_HOME="$subhome" "$MX_RUST_BIN" worktree acquire "$childproj" --request child --task child --attempt child-attempt --base "$(git -C "$childproj" rev-parse HEAD)" > "$home/child-allocation.json" || fail 'child allocation fixture failed'
+  childwt=$(jq -r '.binding.path' "$home/child-allocation.json")
   printf 'domain\n' > "$subhome/.mx-daemon-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
@@ -1634,34 +1603,10 @@ kind=delivery
 mode=deep-review
 yolo=off
 EOF
+  mx_fixture_bind_allocation "$subhome" child "$home/child-allocation.json" || fail 'child metadata allocation binding failed'
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-lock-child-fake")
   log="$TMP_ROOT/force-lock-child-fake/tmux.log"
-  cat > "$fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-set -u
-printf 'treehouse %s\n' "$*" >> "${MX_FAKE_TMUX_LOG:-/dev/null}"
-case "${1:-}" in
-  return)
-    shift
-    target=
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --force) ;;
-        *) target=$1 ;;
-      esac
-      shift
-    done
-    lock=$(git -C "$target" rev-parse --git-path index.lock 2>/dev/null || true)
-    if [ -n "$lock" ] && [ -e "$lock" ]; then
-      echo "fatal: Unable to create '$lock': File exists." >&2
-      exit 128
-    fi
-    [ -n "$target" ] && rm -rf -- "$target"
-    exit 0
-    ;;
-esac
-exit 0
-SH
+  printf '#!/bin/sh\nexit 93\n' > "$fakebin/treehouse"
   cat > "$fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -1679,12 +1624,12 @@ SH
   rc=$?
   set -e
 
-  [ "$rc" -ne 0 ] || fail "force teardown succeeded after child treehouse refused an unproven lock"
+  [ "$rc" -ne 0 ] || fail "force teardown succeeded despite an unproven child lock"
   [ -d "$childwt" ] || fail "force teardown raw-removed child worktree after unproven lock refusal"
   [ -e "$lock" ] || fail "force teardown removed unproven child index.lock"
   [ -d "$subhome" ] || fail "force teardown removed subhome after child lock refusal"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta after child lock refusal"
-  grep -F 'not provably stale' "$err" >/dev/null || fail "force teardown did not explain unproven child lock refusal"
+  grep -F 'not provably stale' "$err" >/dev/null || { cat "$err" >&2; fail "force teardown did not explain unproven child lock refusal"; }
   pass "daemon force teardown preserves child worktree after unproven lock refusal"
 }
 
@@ -1696,23 +1641,11 @@ test_daemon_force_teardown_allows_operational_dir_symlinks_inside_home() {
     target="$subhome/internal-$opdir"
     err="$TMP_ROOT/symlink-inside-teardown-$opdir.err"
     rm -rf "$home" "$subhome"
-    mkdir -p "$home/state" "$home/data" "$subhome" "$target"
-    printf 'domain\n' > "$subhome/.mx-daemon-home"
-    ln -s "$target" "$subhome/$opdir"
-    cat > "$home/state/domain.meta" <<EOF
-window=broker:mx-domain
-worktree=$subhome
-project=$subhome
-harness=echo
-kind=daemon
-mode=daemon
-yolo=off
-home=$subhome
-projects=alpha
-EOF
-    printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
     fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-inside-teardown-fake-$opdir")
     log="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/tmux.log"
+    seed_owned_daemon_fixture "$home" domain "$subhome" "$fakebin" "$log"
+    mv "$subhome/$opdir" "$target"
+    ln -s "internal-$opdir" "$subhome/$opdir"
     PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/pane.txt" \
       override_teardown domain >/dev/null 2>"$err" \
       || fail "override teardown refused $opdir symlinked inside the daemon home"
@@ -2258,15 +2191,15 @@ EOF
 
 test_mx_home_parameterization
 test_lock_status_is_per_home
-test_seed_allows_overlapping_clones_and_drops_owner
+test_seed_allows_overlapping_references_and_drops_owner
 test_home_seed_validate_rejects_duplicate_homes
 test_home_seed_validate_rejects_duplicate_ids
 test_home_seed_validate_rejects_nested_homes
-test_home_seed_uses_treehouse_acquired_home
-test_home_seed_returns_treehouse_acquired_home_on_assignment_failure
-test_home_seed_warns_when_acquired_home_return_fails
-test_home_seed_does_not_return_unsafe_acquired_home
-test_home_seed_rolls_back_failed_clone
+test_home_seed_creates_owned_private_home
+test_home_seed_preserves_foreign_home_on_assignment_failure
+test_home_seed_recovers_retained_private_reservation
+test_home_seed_preserves_unsafe_requested_paths
+test_home_seed_borrows_offline_projects
 test_home_seed_refuses_missing_filled_charter
 test_home_seed_refuses_placeholder_charter
 test_home_seed_refuses_empty_charter_fields
@@ -2296,10 +2229,10 @@ test_daemon_spawn_requires_seeded_matching_home
 test_daemon_spawn_refuses_operational_dirs_outside_subhome
 test_mx_send_refuses_bare_window_without_home_meta
 test_daemon_teardown_retires_empty_home
-test_daemon_teardown_refuses_failed_leased_home_return
-test_daemon_teardown_removes_plain_clone_home_without_treehouse_return
+test_daemon_teardown_retains_legacy_linked_home
+test_daemon_teardown_retains_legacy_plain_home
 test_daemon_teardown_crash_recovery_and_concurrency
-test_daemon_force_teardown_discards_child_work
+test_daemon_override_retains_unowned_child_work
 test_daemon_force_teardown_refuses_child_quarantine_symlink
 test_daemon_force_teardown_preserves_child_on_unproven_lock
 test_daemon_force_teardown_allows_operational_dir_symlinks_inside_home

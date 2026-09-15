@@ -1,7 +1,7 @@
 # Task and daemon lifecycle verification
 
 This record covers Rust-port Portion 07 on 2026-08-11.
-The lean redesign's later identity and lifecycle changes are recorded separately in [Phase 02 implementation evidence](../../plans/lean_redesign/phase02-implementation.md), with the schema owned by [sub-agent records](../subagent-model.md).
+The lean redesign's later identity and lifecycle changes are recorded separately in [Phase 02 implementation evidence](../../plans/lean_redesign/phase02-implementation.md) and [Phase 03 implementation evidence](../../plans/lean_redesign/phase03-implementation.md), with the schema owned by [sub-agent records](../subagent-model.md).
 
 Production task and daemon lifecycle have one implementation: the Rust multicall boundary.
 

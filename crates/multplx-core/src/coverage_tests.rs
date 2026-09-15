@@ -211,16 +211,11 @@ fn journal_vocabulary_validation_and_accessors_are_covered() {
 
 struct MissingTools {
     available: HashSet<String>,
-    lease: bool,
 }
 
 impl ToolProbe for MissingTools {
     fn available(&self, tool: &str) -> bool {
         self.available.contains(tool)
-    }
-
-    fn treehouse_supports_lease(&self) -> bool {
-        self.lease
     }
 }
 
@@ -240,15 +235,14 @@ fn probe_vocabulary_order_and_rendering_are_covered() {
     );
     assert!(Backend::parse("bad").is_err());
     let probe = MissingTools {
-        available: HashSet::from(["treehouse".to_owned()]),
-        lease: false,
+        available: HashSet::new(),
     };
     let records = tool_records("herdr", &probe);
     assert!(matches!(records[0], ToolRecord::MissingManual { .. }));
     assert!(
-        records.iter().any(
-            |record| matches!(record, ToolRecord::Missing { tool, .. } if tool == "treehouse")
-        )
+        records
+            .iter()
+            .any(|record| matches!(record, ToolRecord::Missing { tool, .. } if tool == "git"))
     );
     for record in records {
         assert!(record.render_record().ends_with('\n'));

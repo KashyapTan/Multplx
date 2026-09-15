@@ -353,7 +353,10 @@ mod tests {
     use crate::process::{AncestryRow, ProcessIdentity, ProcessProbe};
 
     #[derive(Clone, Default)]
-    struct FakeProcesses(Arc<Mutex<HashMap<u32, bool>>>);
+    struct FakeProcesses(
+        Arc<Mutex<HashMap<u32, bool>>>,
+        Option<Arc<dyn Fn(u32) -> bool + Send + Sync>>,
+    );
 
     struct FakeHolder(HolderStatus);
 
@@ -365,6 +368,9 @@ mod tests {
 
     impl ProcessProbe for FakeProcesses {
         fn is_alive(&self, pid: u32) -> bool {
+            if let Some(probe) = &self.1 {
+                return probe(pid);
+            }
             pid == std::process::id()
                 || self
                     .0
@@ -547,5 +553,147 @@ mod tests {
             std::fs::read(&displaced).expect("replacement remains"),
             b"replacement"
         );
+    }
+
+    #[test]
+    fn bounded_wait_rechecks_liveness_before_recovering_the_same_dead_owner() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.lock");
+        let old = temp.path().join("old-owner");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("pid"), "42\n").unwrap();
+        symlink(&old, &path).unwrap();
+        let observations = Arc::new(AtomicUsize::new(0));
+        let calls = observations.clone();
+        let processes = FakeProcesses(
+            Arc::default(),
+            Some(Arc::new(move |pid| {
+                assert_eq!(pid, 42);
+                calls.fetch_add(1, Ordering::SeqCst) == 0
+            })),
+        );
+        let lock = DirectoryLock::acquire_wait(&path, &processes, Duration::from_secs(1)).unwrap();
+        assert!(observations.load(Ordering::SeqCst) >= 3);
+        assert_eq!(super::read_owner_pid(&path), Some(std::process::id()));
+        assert!(!old.exists());
+        assert!(!temp.path().join("session.lock.steal").exists());
+        lock.release().unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn stale_observation_cannot_steal_a_replacement_or_an_unknown_owner() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        for replacement_has_pid in [true, false] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("session.lock");
+            let old = temp.path().join("old-owner");
+            let replacement = temp.path().join("replacement-owner");
+            for owner in [&old, &replacement] {
+                std::fs::create_dir(owner).unwrap();
+                std::fs::write(owner.join("private"), "retain owner material").unwrap();
+            }
+            std::fs::write(old.join("pid"), "42\n").unwrap();
+            if replacement_has_pid {
+                std::fs::write(replacement.join("pid"), "43\n").unwrap();
+            }
+            symlink(&old, &path).unwrap();
+            let changed = AtomicBool::new(false);
+            let observed_path = path.clone();
+            let new_owner = replacement.clone();
+            let processes = FakeProcesses(
+                Arc::default(),
+                Some(Arc::new(move |pid| {
+                    assert_eq!(pid, 42);
+                    if !changed.swap(true, Ordering::SeqCst) {
+                        std::fs::remove_file(&observed_path).unwrap();
+                        symlink(&new_owner, &observed_path).unwrap();
+                    }
+                    false
+                })),
+            );
+            let result = DirectoryLock::try_acquire(&path, &processes);
+            let expected = if replacement_has_pid { "43" } else { "unknown" };
+            assert!(matches!(result, Err(CoreError::LockHeld { owner }) if owner == expected));
+            assert_eq!(std::fs::read_link(&path).unwrap(), replacement);
+            for owner in [&old, &replacement] {
+                assert_eq!(
+                    std::fs::read_to_string(owner.join("private")).unwrap(),
+                    "retain owner material"
+                );
+            }
+            assert!(!temp.path().join("session.lock.steal").exists());
+            assert!(!std::fs::read_dir(temp.path()).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".owner.")
+            }));
+        }
+    }
+
+    #[test]
+    fn incomplete_owner_requires_age_proof_and_unknown_material_is_never_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.lock");
+        let processes = FakeProcesses::default();
+        std::fs::create_dir(&path).unwrap();
+        let directory = std::fs::File::open(&path).unwrap();
+        directory
+            .set_times(
+                std::fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
+            )
+            .unwrap();
+        assert!(
+            matches!(DirectoryLock::acquire_wait(&path, &processes, Duration::ZERO), Err(CoreError::LockHeld { owner }) if owner == "mid-acquire owner")
+        );
+        directory
+            .set_times(std::fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+            .unwrap();
+        let lock = DirectoryLock::try_acquire(&path, &processes).unwrap();
+        lock.release().unwrap();
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("private"), "unattributed work").unwrap();
+        std::fs::File::open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+            .unwrap();
+        assert!(DirectoryLock::try_acquire(&path, &processes).is_err());
+        assert_eq!(
+            std::fs::read_to_string(path.join("private")).unwrap(),
+            "unattributed work"
+        );
+        assert!(!temp.path().join("session.lock.steal").exists());
+    }
+
+    #[test]
+    fn malformed_lock_paths_refuse_without_leaving_published_owners() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        let temp = tempfile::tempdir().unwrap();
+        let processes = FakeProcesses::default();
+        let invalid = temp.path().join(OsString::from_vec(vec![0xff]));
+        assert!(matches!(
+            DirectoryLock::acquire_wait(&invalid, &processes, Duration::from_secs(1)),
+            Err(CoreError::UnsafePath { .. })
+        ));
+        let trailing = temp.path().join("missing-lock/");
+        assert!(DirectoryLock::try_acquire(&trailing, &processes).is_err());
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+        let cycle = temp.path().join("index.lock");
+        symlink("index.lock", &cycle).unwrap();
+        assert!(
+            git_lock_is_provably_stale(
+                &cycle,
+                None,
+                Duration::ZERO,
+                SystemTime::now(),
+                &FakeHolder(HolderStatus::Clear)
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read_link(cycle).unwrap(), Path::new("index.lock"));
     }
 }

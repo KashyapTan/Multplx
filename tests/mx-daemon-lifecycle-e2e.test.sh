@@ -5,7 +5,7 @@
 #   seed -> spawn -> routed send -> backlog handoff -> recovery respawn -> teardown
 #
 # Each phase asserts the durable contracts the consolidation audit lists, so the
-# many former positive unit tests (registry scope/charter/clone/mode, spawn meta,
+# many former positive unit tests (registry scope/charter/reference/mode, spawn meta,
 # bare-window send, recovery respawn, teardown of an empty home, backlog handoff)
 # collapse into one lifecycle. The path-boundary safety invariants and the
 # lease-specific paths live in mx-daemon-safety.test.sh.
@@ -13,9 +13,8 @@
 # Coverage anchored here (must not regress):
 #   - registry line records scope (from a filled charter brief) and project list
 #   - charter is copied into the subhome
-#   - remote-backed projects are cloned with their origin URL preserved
-#   - a deep-review project is initialized (init + doctor) in the NEW subhome clone
-#     and the parent project clone is never mutated (no write through a project)
+#   - source projects are recorded as borrowed references, preserving their remotes
+#   - persistent state lives in an owned private home with no project copies
 #   - spawn meta records kind=daemon, home=, and the project list; launch runs
 #     in the subhome with the persistent charter and cleared operational overrides
 #   - a bare `mx-<id>` send targets the window recorded in THIS home's meta
@@ -42,7 +41,8 @@ BETA_ORIGIN=
 # --- shared world + seed ----------------------------------------------------
 setup_world() {
   mkdir -p "$HOME_DIR/projects" "$HOME_DIR/data" "$HOME_DIR/state"
-  make_activated_broker_clone "$SUB"
+  make_activated_broker_clone "$TMP_ROOT/active-runtime"
+  export MX_ROOT_OVERRIDE="$TMP_ROOT/active-runtime"
   mx_git_init_commit "$HOME_DIR/projects/alpha"
   mx_git_init_commit "$HOME_DIR/projects/beta"
   mx_git_init_commit "$HOME_DIR/projects/gamma"
@@ -57,7 +57,7 @@ EOF
   ALPHA_ORIGIN=$(git -C "$HOME_DIR/projects/alpha" remote get-url origin)
   BETA_ORIGIN=$(git -C "$HOME_DIR/projects/beta" remote get-url origin)
 
-  # One combined fakebin for tmux and treehouse lifecycle behavior.
+  # Endpoint operations are mocked; home ownership and Git observations are real.
   FAKEBIN=$(make_fake_tmux "$TMP_ROOT/fake")
 
   # A filled charter brief whose routing scope differs from the charter summary,
@@ -79,14 +79,16 @@ phase_seed() {
   assert_present "$SUB/data/charter.md" "seed did not copy the charter into the subhome"
   assert_grep 'customer onboarding charter' "$SUB/data/charter.md" "charter body was not copied verbatim"
 
-  # Projects cloned; remote-backed origins preserved.
-  assert_present "$SUB/projects/alpha/.git" "alpha was not cloned"
-  assert_present "$SUB/projects/beta/.git" "beta was not cloned"
-  assert_present "$SUB/projects/gamma/.git" "gamma was not cloned"
-  [ "$(git -C "$SUB/projects/alpha" remote get-url origin)" = "$ALPHA_ORIGIN" ] \
-    || fail "alpha clone did not preserve its origin URL"
-  [ "$(git -C "$SUB/projects/beta" remote get-url origin)" = "$BETA_ORIGIN" ] \
-    || fail "direct-PR beta clone did not preserve its origin URL"
+  # Scoped homes remember borrowed project checkouts without copying repositories.
+  local name source
+  for name in alpha beta gamma; do
+    source=$(cd "$HOME_DIR/projects/$name" && pwd -P)
+    assert_absent "$SUB/projects/$name" 'seed unexpectedly cloned a project'
+    jq -e --arg source "$source" '.projects[] | select(.checkouts[].canonical_path == $source) | .checkouts[] | select(.canonical_path == $source) | .ownership == "user-owned"' "$SUB/data/projects.json" >/dev/null || fail 'borrowed project identity not retained'
+  done
+  [ "$(git -C "$HOME_DIR/projects/alpha" remote get-url origin)" = "$ALPHA_ORIGIN" ] || fail 'alpha source remote changed'
+  [ "$(git -C "$HOME_DIR/projects/beta" remote get-url origin)" = "$BETA_ORIGIN" ] || fail 'beta source remote changed'
+  jq -e '.state == "active"' "$HOME_DIR/data/.home-allocation-design.json" >/dev/null || fail 'home ownership was not activated'
 
   # Registry line: scope from the filled brief, project list, no legacy owns field.
   assert_grep '- design - customer onboarding charter' "$HOME_DIR/data/daemons.md" "registry summary not from the charter"
@@ -101,7 +103,7 @@ phase_seed() {
     || fail "beta delivery mode not preserved in the subhome"
   MX_HOME="$HOME_DIR" "$ROOT/bin/mx-home-seed.sh" validate >/dev/null || fail "registry validation failed after seed"
 
-  pass "seed: registry scope+projects, charter copied, and clones preserve origins"
+  pass "seed: scoped project references, copied charter and durable private-home ownership"
 }
 
 phase_spawn() {
@@ -116,7 +118,7 @@ phase_spawn() {
   assert_grep "home=$SUB_ABS" "$meta" "spawn meta did not record the subhome"
   assert_grep 'projects=alpha, beta, gamma' "$meta" "spawn meta did not record the project list"
   # Launch ran in the subhome, with the persistent charter and cleared overrides,
-  # and never ran a project-style treehouse get.
+  # and never invoked the retired worktree provider.
   assert_grep "MX_HOME='$SUB_ABS'" "$LOG" "daemon launch did not set MX_HOME to the subhome"
   assert_grep 'MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
   assert_grep 'MX_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
@@ -126,8 +128,29 @@ phase_spawn() {
   cmp -s "$accepted" "$SUB_ABS/data/charter.md" || fail "accepted charter bytes differ from the persistent source"
   assert_no_grep 'notify=' "$LOG" "daemon codex launch included the parent turn-end notify hook"
   assert_no_grep 'turn-ended' "$LOG" "daemon codex launch referenced a parent turn-ended signal"
-  assert_no_grep 'treehouse get' "$LOG" "daemon spawn ran a project treehouse get"
+  assert_no_grep treehouse "$LOG" "daemon spawn invoked the retired allocation provider"
   pass "spawn: launches in the subhome with persistent charter, records routing meta"
+}
+
+phase_borrowed_project_child() {
+  local child=design-alpha-child model allocation source_head parent_meta
+  source_head=$(git -C "$HOME_DIR/projects/alpha" rev-parse HEAD)
+  parent_meta=$(cat "$HOME_DIR/state/design.meta")
+  mkdir -p "$SUB/data/$child"
+  printf 'Implement bounded alpha fixture work.\n' > "$SUB/data/$child/brief.md"
+  printf '#!/bin/sh\nexit 0\n' > "$FAKEBIN/gh"
+  chmod +x "$FAKEBIN/gh"
+  PATH="$FAKEBIN:$PATH" MX_HOME="$SUB" MX_SPAWN_NO_GUARD=1 MX_FAKE_TMUX_LOG="$LOG" MX_FAKE_TMUX_CAPTURE="$PANE" "$ROOT/bin/mx-spawn.sh" "$child" alpha codex --backend tmux >/dev/null || fail 'scoped home could not spawn from its borrowed project reference'
+  model=$(sed -n 's/^canonical_model=//p' "$SUB/state/$child.meta")
+  allocation=$(printf '%s' "$model" | jq -r '.allocation.path')
+  printf '%s' "$model" | jq -e --arg home "$SUB_ABS" --arg base "$source_head" '.owner_home == $home and .allocation.base_revision == $base and .project.starting_revision == $base' >/dev/null || fail 'descendant allocation lost owner or accepted base'
+  [ "$(git -C "$allocation" rev-parse HEAD)" = "$source_head" ] || fail 'descendant allocation differs from accepted source revision'
+  [ "$allocation" != "$HOME_DIR/projects/alpha" ] || fail 'descendant mutated borrowed checkout in place'
+  PATH="$FAKEBIN:$PATH" MX_HOME="$SUB" MX_FAKE_TMUX_LOG="$LOG" MX_FAKE_TMUX_CAPTURE="$PANE" "$ROOT/bin/mx-teardown.sh" "$child" >/dev/null || fail 'scoped home could not retire its exact child allocation'
+  assert_absent "$allocation" 'scoped child allocation remained after disposal'
+  [ "$(cat "$HOME_DIR/state/design.meta")" = "$parent_meta" ] || fail 'child lifecycle rewrote parent task binding'
+  [ "$(git -C "$HOME_DIR/projects/alpha" rev-parse HEAD)" = "$source_head" ] || fail 'child lifecycle changed borrowed source'
+  pass 'scoped home acquires and retires a child allocation from its borrowed project reference'
 }
 
 phase_send() {
@@ -207,17 +230,23 @@ phase_teardown() {
     || fail "teardown failed for the empty daemon home"
   printf '%s\n' "$teardown_out" | grep -F 'Backlog:' >/dev/null \
     && fail "daemon teardown emitted a main-backlog completion reminder"
-  assert_absent "$SUB" "teardown did not remove the retired daemon home"
+  assert_absent "$SUB" "teardown did not retire the active home path"
+  local archived
+  archived=$(jq -r '.retained_path' "$HOME_DIR/data/.home-allocation-design.json")
+  jq -e '.state == "retired"' "$HOME_DIR/data/.home-allocation-design.json" >/dev/null || fail 'retirement state was not durable'
+  assert_present "$archived/data/charter.md" 'retirement lost persistent charter'
+  assert_present "$archived/data/backlog.md" 'retirement lost persistent backlog'
   assert_absent "$HOME_DIR/state/design.meta" "teardown did not clear the parent meta"
   assert_no_grep '- design ' "$HOME_DIR/data/daemons.md" "teardown did not remove the registry route"
   # The parent's source projects are untouched (no write through a parent home).
   assert_present "$HOME_DIR/projects/alpha" "teardown disturbed a parent project"
-  pass "teardown: removes the home, then clears meta and the registry route"
+  pass "teardown: archives persistent state, then clears metadata and the registry route"
 }
 
 setup_world
 phase_seed
 phase_spawn
+phase_borrowed_project_child
 phase_send
 phase_handoff
 phase_recovery

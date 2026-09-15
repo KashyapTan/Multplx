@@ -33,7 +33,7 @@ Migration must not infer newer identity guarantees from these records. [Pinned s
 Git already supplies worktree creation, machine-readable inventory, movement and removal.
 The replacement therefore needs a small ownership and recovery layer around Git, not a second implementation of Git itself. [Git worktree documentation](https://git-scm.com/docs/git-worktree)
 
-## What Multplx actually calls today
+## Multplx callers at the research baseline
 
 | Source | Observed integration | Replacement work |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ The replacement therefore needs a small ownership and recovery layer around Git,
 | [Teardown](../../crates/multplx-domain/src/lifecycle/teardown.rs), `return_worktree` and `remove_home_with` | Validates task work and invokes `treehouse return --force`; retries some Git index-lock failures | Keep proven work-retention checks, but use exact allocation generation and Git-supported cleanup. |
 | [Probe](../../crates/multplx-core/src/probe.rs) and [bootstrap](../../crates/multplx-cli/src/bootstrap.rs) | Require the executable and its lease flag, and offer an upstream installer | Remove external readiness/download checks; validate the internal capability. |
 | [Doctor](../../crates/multplx-cli/src/doctor.rs), `orphan-worktrees` | Checks missing task paths; the extra Treehouse orphan comparison uses an optional fixture file in this code path | Reconcile actual canonical allocation and Git inventory, not a fictional live pool observation. |
-| [Installer](../../crates/multplx-backend/src/treehouse_tools.rs) and [CI](../../.github/workflows/ci.yml) | Pin v2.0.1 with platform checksums and install it for integration lanes | Retire the dependency and prove integration with Treehouse absent. |
+| Retired installer (`crates/multplx-backend/src/treehouse_tools.rs` at baseline `8e0576a`) and [CI](../../.github/workflows/ci.yml) | Pin v2.0.1 with platform checksums and install it for integration lanes | Retire the dependency and prove integration with Treehouse absent. |
 | [Briefs](../../crates/multplx-domain/src/lifecycle/brief.rs), [backend adapters](../../bin/backends/) and tests | Assume pooled detached worktrees, shell entry and fake provider commands | Keep isolation/outcome checks while replacing provider-specific mechanics and fixtures. |
 
 The worktree source is the assigned project, not the launch directory or the orchestrator's runtime directory.

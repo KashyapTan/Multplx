@@ -16,7 +16,7 @@ pub(crate) struct Paths {
     pub(crate) source_root: PathBuf,
 }
 
-const COMMON: &[&str] = &["git", "gh", "jq", "treehouse"];
+const COMMON: &[&str] = &["git", "gh", "jq"];
 
 fn executable(tool: &str) -> bool {
     Command::new("bash")
@@ -38,7 +38,6 @@ fn install_command(tool: &str) -> Option<&'static str> {
         "curl" => Some("brew install curl  # or the platform's package manager"),
         "jq" => Some("brew install jq  # or the platform's package manager"),
         "cmux" => Some("brew install --cask cmux  # or see https://cmux.com"),
-        "treehouse" => Some("curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh"),
         _ => None,
     }
 }
@@ -111,15 +110,12 @@ fn tool_diagnostics(paths: &Paths, output: &mut String) {
             missing(output, tool);
         }
     }
-    if executable("treehouse") {
-        let lease = Command::new("treehouse")
-            .args(["get", "--help"])
-            .output()
-            .ok()
-            .is_some_and(|result| String::from_utf8_lossy(&result.stdout).contains("--lease"));
-        if !lease {
-            missing(output, "treehouse");
-        }
+    if executable("git")
+        && let Err(error) = multplx_domain::lifecycle::worktree::capability()
+    {
+        output.push_str(&format!(
+            "WORKTREE_CAPABILITY: {error}; install Git with worktree and merge-tree support\n"
+        ));
     }
 }
 
@@ -1306,7 +1302,7 @@ mod tests {
 
     #[test]
     fn install_and_missing_diagnostics_cover_known_and_manual_tools() {
-        for tool in ["tmux", "git", "gh", "curl", "jq", "cmux", "treehouse"] {
+        for tool in ["tmux", "git", "gh", "curl", "jq", "cmux"] {
             assert!(install_command(tool).is_some(), "{tool}");
         }
         assert!(install_command("herdr").is_none());

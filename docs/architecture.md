@@ -19,7 +19,7 @@ The exact maintainer-override state machine plugs into the session-lock primitiv
 `multplx-domain` owns typed durable records and the task/daemon lifecycle state machines.
 Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
-Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue, and pinned Treehouse installer.
+Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue.
 Portion 07 adds typed task and daemon lifecycle state machines behind the stable lifecycle entry points.
 Portion 08 makes Rust the production entry owner for supervision, watcher, wake, hook, reporting, and away-mode paths.
 Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
@@ -29,7 +29,7 @@ The Portion 09 snapshot module parses the canonical JSON into typed task, endpoi
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
 Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
 Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
-The backend, harness, headroom, and Treehouse entry points execute the Rust path and never fall back after execution begins.
+The backend, harness, and headroom entry points execute the Rust path and never fall back after execution begins.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
 Portion 12 makes `multplx-services` the production owner of the disposable viz and vplan loopback HTTP services, their bounded HTTP framing, lifecycle records, token and PID-identity validation, child-command bounds, cache, and atomic confirmation persistence.
 The stable shell adapters execute that Rust boundary before state access.
@@ -42,7 +42,7 @@ The cross-cutting port contract and cutover gates remain owned by [`plans/rust_p
 
 `bin/mx-doctor.sh` enters the Rust Portion 09 command boundary before running the read-only on-demand projection of system invariants across locks, liveness, tasks, worktrees, queues, holds, runs, tools, and compatibility paths.
 It consumes the existing PID identity, stale-lock, backend target, supervision, backlog, and tangle owners instead of defining parallel proof rules.
-`bin/mx-probe-lib.sh` is the single owner of structured tool, Treehouse compatibility, and primary-tangle probes shared by doctor and session-start bootstrap.
+`bin/mx-probe-lib.sh` is the single owner of structured tool and primary-tangle probes shared by doctor and session-start bootstrap.
 Doctor's `--fix` surface is limited to a proof-bound stale watcher-lock cleanup and an under-lock orphan wake-row prune, while every lifecycle decision remains with its existing command or recovery procedure.
 [`doctor.md`](doctor.md) owns the check catalog, severities, output contract, thresholds, and exact repair boundary.
 
@@ -166,7 +166,7 @@ On an unmarked return, `multplx-cli::supervision` owns ordered shutdown, durable
 ## Runtime session backends
 
 The runtime backend is the session-provider layer below broker's scripts.
-It owns task endpoint creation, bounded capture, text/key sends, current-path reads for spawn-time worktree discovery when the backend does not create the worktree itself, live-window fallback lookup, agent-process liveness probes where verified, and endpoint teardown.
+It owns task endpoint creation at the allocated path, bounded capture, text/key sends, current-path observations, live-window fallback lookup, agent-process liveness probes where verified, and endpoint teardown.
 The Rust CLI and `multplx-backend` centralize backend selection, `state/<id>.meta` handling, target resolution, and operation dispatch.
 The public `bin/mx-backend.sh` and backend-specific shell filenames retain only transport or sourced compatibility surfaces; tmux is the verified reference backend ([`docs/tmux-backend.md`](tmux-backend.md)), while Herdr and cmux remain experimental.
 New spawns select a backend from `--backend`, then `MX_BACKEND`, then local `config/backend`, then runtime auto-detection from `$TMUX`, `HERDR_ENV=1`, or cmux runtime signals, then default `tmux`.
@@ -177,17 +177,17 @@ The Rust watcher entered through `mx-watch.sh` polls each window's backend for a
 That poll loop is the default event source for backends with no native push events, so this stays an extraction of the abstraction rather than a watcher rewrite.
 For capable Herdr sessions, the same watcher replaces its terminal sleep with a bounded native event wait that immediately surfaces `blocked`; [Push events and polling fallback](herdr-backend.md#push-events-and-polling-fallback) owns the current mechanism and capability gates, while [runtime backend verification](verification/runtime-backends.md#native-blocked-event) owns the active evidence.
 The deeper session-start agent-process liveness probe is separate from that busy-state poll: tmux and Herdr have verified classifiers for daemon recovery, and cmux does not support daemon spawns.
-Herdr is experimental and can be selected explicitly or by runtime auto-detection: Treehouse remains its worktree provider, [`herdr-backend.md`](herdr-backend.md) owns current setup and safety limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#herdr) owns active empirical evidence.
+Herdr is experimental and can be selected explicitly or by runtime auto-detection: the built-in Git lifecycle supplies its worktrees, [`herdr-backend.md`](herdr-backend.md) owns current setup and safety limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#herdr) owns active empirical evidence.
 Herdr's durable default container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `broker`, daemon homes use `daemon-<daemon-id>`, and recovery/list-live scopes to the current `MX_HOME`'s workspace.
 Its optional default-off presentation projection may place one clean new task in a disposable workspace without changing endpoint authority or lifecycle ownership; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns that conditional design and its narrow home-local restored-shell cleanup at locked session start.
-cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or by runtime auto-detection from its primary `CMUX_WORKSPACE_ID` marker plus documented fallback signals: Treehouse remains its worktree provider, [`cmux-backend.md`](cmux-backend.md) owns current setup and limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) owns active source and live evidence.
+cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or by runtime auto-detection from its primary `CMUX_WORKSPACE_ID` marker plus documented fallback signals: the built-in Git lifecycle supplies its worktrees, [`cmux-backend.md`](cmux-backend.md) owns current setup and limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) owns active source and live evidence.
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `MX_ROOT` path, and `--daemon` spawns are refused.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
 ## Worktrees, not branches in your checkout
 
-Actors never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) is the backend-independent worktree provider that pools clean worktrees for tmux, herdr, and cmux task sessions.
-The exact external pin and its checksum owner are recorded in [`upstream.md`](upstream.md#pinned-external-dependencies).
+Actors never intentionally touch your project clone; the [built-in worktree owner](worktrees.md) acquires isolated Git worktrees before creating tmux, Herdr, or cmux task sessions.
+The resource owner records exact project, base, path, attempt and lease generation before endpoint launch.
 For delivery and scout work, `mx-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
 
 The Multplx repo has one extra exposure because it can dispatch actors to work on itself.
@@ -242,15 +242,16 @@ That keeps spawn launch compatible across claude, codex, and pi while preserving
 
 ## Optional daemons
 
-`data/daemons.md` records persistent daemons with natural-language scopes, project clone lists, and home paths.
-`mx-home-seed.sh` provisions the isolated home, clones its selected projects, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.
-For a domain whose subject is the Multplx repo itself, a deliberate `--no-projects` seed creates a project-less home whose actors take pooled worktrees of that repo instead of separate clones.
+`data/daemons.md` records persistent daemons with natural-language scopes, project references, and home paths.
+`mx-home-seed.sh` provisions a private home, remembers selected project checkouts, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.
+A deliberate `--no-projects` seed creates a project-less home; later project work receives isolated allocations from its explicitly selected repository.
 The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#daemon-routes-datadaemonsmd).
 On the herdr backend, a daemon launch lands in that daemon home's labeled workspace, and actors spawned from that home land in the same workspace.
-When seeded with `-`, the home is a durable treehouse lease under the daemon id, so it survives with no live process and is not recycled by later `treehouse get` or pruning.
-Retirement or seed rollback returns the leased home; normal restart/recovery keeps it leased.
-If returning the lease fails during teardown, broker leaves the route and home intact instead of hiding a still-held lease.
-Seeding is transactional: if validation, cloning, initialization, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
+When seeded with `-`, a private home has a durable identity and reservation that survives zero live processes.
+See [worktrees](worktrees.md) for allocation, retention and retirement mechanics.
+Retirement archives private home material through its exact lease; deliberate Git-backed homes remain retained in place.
+If ownership or occupant checks fail, teardown leaves the route and home intact.
+Interrupted seeding restores recorded parent artifacts and preserves the reserved home for reconciliation.
 Local-only and remote-free projects can be selected for persistent homes without inventing a publication remote.
 The same project may appear in multiple daemon homes when their scopes differ, such as issue triage versus feature development.
 Daemons are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
@@ -292,7 +293,7 @@ PR-based task merges run from the same non-agent credential context through `bin
 The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
 `multplx-domain::review_delivery` owns canonical GitHub identity reconstruction, exact SHA and ref validation, closed delivery and poll schemas, no-follow private-file reads, and the inert intent sanitizer.
 Fixed shell filenames remain available where existing homes or host integrations require a pathname, and they delegate to the Rust command boundary.
-Teardown is fail-closed for delivery worktrees: dirty worktrees refuse, committed work must be landed, and any ready-to-push handoff must be delivered or explicitly discarded before the worktree is returned.
+Teardown is fail-closed for delivery worktrees: dirty or uncertain work stays retained, committed work must be landed, and the exact allocation token must pass safe release and prune checks.
 The `mx teardown --help` contract and [`bin/mx-teardown.sh`](../bin/mx-teardown.sh)'s compatibility header describe the landed-work proofs, PR-discovery fallback, and stale-lock recovery procedure implemented by the Rust lifecycle layer.
 
 ## Project memory belongs to projects

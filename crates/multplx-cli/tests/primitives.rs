@@ -346,7 +346,7 @@ fn supervisor_and_probe_rendering_match_legacy() {
         );
     }
 
-    for tool in ["tmux", "cmux", "treehouse", "herdr"] {
+    for tool in ["tmux", "cmux", "herdr"] {
         let legacy = shell(&format!(
             ". \"$ROOT/bin/mx-probe-lib.sh\"; mx_probe_install_cmd '{tool}' 2>/dev/null || mx_probe_manual_install_url '{tool}'"
         ));

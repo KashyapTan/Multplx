@@ -2,7 +2,7 @@
 # Tests for bin/mx-teardown.sh's landed-work safety and stale-lock recovery.
 #
 # The check refuses to tear down a worktree whose work has not LANDED, because
-# treehouse return hard-resets the worktree. "Landed" means reachable from a remote
+# Built-in allocation cleanup refuses data loss. "Landed" means reachable from a remote
 # OR - for a normal delivery task whose commits are not so reachable - its PR is merged
 # and GitHub reports a PR head that contains the current local work, or its content
 # is already in the up-to-date default branch.
@@ -26,7 +26,7 @@
 #   (c) local-only + merged into local main, no remote         -> ALLOW  (no regression)
 #   (d) deep-review + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
 #   (e) deep-review + unpushed, no PR, content not in default  -> REFUSE (safety)
-#   (f) local-only + truly unpushed + exact discard grant       -> ALLOW
+#   (f) nonempty unlanded allocation + exact legacy discard grant -> RETAIN
 #   (g) deep-review + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
 #   (h) deep-review + no PR but content already in default     -> ALLOW  (content fallback)
 #   (i) deep-review + dirty worktree, even when work landed     -> REFUSE (dirty wins)
@@ -40,12 +40,12 @@
 #   (q) deep-review + NO pr= recorded, PR discovered by branch  -> ALLOW  (yolo/no-CI merge)
 #
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
-# killed actors process (bin/mx-teardown.sh's teardown_treehouse_return).
+# killed actors process (built-in worktree lock observation).
 #   (r) provably-stale index.lock (old mtime, no live holder) -> lock removed, ALLOW
 #   (s) index.lock with a live holder, any age                -> lock kept, REFUSE
 #   (t) lsof error while checking index.lock                  -> lock kept, REFUSE
 #   (u) dirty worktree after stale lock cleanup               -> lock removed, REFUSE
-#   (v) non-linked repo index.lock                            -> lock removed, ALLOW
+#   (v) foreign normal clone replaces allocation              -> lock kept, REFUSE
 #   (w) index.lock mtime read failure                         -> lock kept, REFUSE
 #   (x) transient lock cleared after first failed return      -> retry ALLOW
 #   (y) persistent lock (never clears, not provably stale)    -> REFUSE loudly
@@ -63,7 +63,7 @@ export REAL_GIT_FOR_TEST
 
 # Build a fresh sandbox for one test case. Sets up:
 #   $CASE/state/        - broker state dir (with a fresh watcher beacon)
-#   $CASE/fakebin/      - mocks for treehouse, tmux (PATH-prepended by caller)
+#   $CASE/fakebin/      - mocked endpoint/PR probes and a retired-provider sentinel
 #   $CASE/origin.git/   - bare upstream repo (so the project clone has origin)
 #   $CASE/project/      - clone of origin; acts as the Multplx project dir
 #   $CASE/wt/           - a worktree of the project (the task worktree)
@@ -78,8 +78,8 @@ make_case() {
   # run; the ALLOW cases need them so the script can complete cleanly.
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
-# `treehouse return --force <wt>`: succeed silently.
-exit 0
+echo "unexpected retired provider invocation: treehouse $*" >&2
+exit 99
 SH
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -113,7 +113,9 @@ SH
   git clone -q "$case_dir/origin.git" "$case_dir/project"
   git -C "$case_dir/project" remote set-head origin main 2>/dev/null || true
   # Add a worktree on a fresh task branch; that branch is where the actor commits.
-  git -C "$case_dir/project" worktree add -q -b mx/task-x1 "$case_dir/wt" main
+  MX_HOME="$case_dir" "$MX_RUST_BIN" worktree acquire "$case_dir/project" --request task-x1 --task task-x1 --attempt attempt-x1 --base "$(git -C "$case_dir/project" rev-parse HEAD)" > "$case_dir/allocation.json" || return 1
+  ln -s "$(jq -r '.binding.path' "$case_dir/allocation.json")" "$case_dir/wt"
+  git -C "$case_dir/wt" checkout -q -b mx/task-x1
 
   # Fresh watcher beacon so mx-guard stays quiet.
   touch "$case_dir/state/.last-watcher-beat"
@@ -126,10 +128,11 @@ write_meta() {
   local case_dir=$1 mode=$2 kind=$3
   mx_write_meta "$case_dir/state/task-x1.meta" \
     "window=mx-task-x1" \
-    "worktree=$case_dir/wt" \
-    "project=$case_dir/project" \
+    "worktree=$(cd "$case_dir/wt" && pwd -P)" \
+    "project=$(cd "$case_dir/project" && pwd -P)" \
     "kind=$kind" \
     "mode=$mode"
+  mx_fixture_bind_allocation "$case_dir" task-x1 "$case_dir/allocation.json" || fail "canonical allocation fixture"
 }
 
 # Commit something on the worktree's task branch. Args: case_dir [message]
@@ -240,117 +243,26 @@ SH
   chmod +x "$case_dir/fakebin/gh"
 }
 
-# Override fakebin/treehouse so `treehouse return --force <wt>` fails with a
-# git "file exists" lock error whenever the worktree's real index.lock is
-# present, and succeeds once it is gone. This drives the lock through
-# mx-teardown.sh's own retry-then-stale-cleanup logic (teardown_treehouse_return
-# in bin/mx-teardown.sh) rather than hand-simulating that logic in the test.
-add_lock_aware_treehouse() {
-  local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = return ]; then
-  shift
-  wt=""
-  for a in "$@"; do
-    case "$a" in
-      --force) ;;
-      *) wt=$a ;;
-    esac
-  done
-  lock=$(git -C "$wt" rev-parse --git-path index.lock 2>/dev/null || true)
-  case "$lock" in
-    /*|'') ;;
-    *) lock="$wt/$lock" ;;
-  esac
-  if [ -n "$lock" ] && [ -e "$lock" ]; then
-    echo "fatal: Unable to create '$lock': File exists." >&2
-    exit 128
-  fi
+# Allocation cleanup observes real Git index locks directly. The provider sentinel
+# must remain unused. For transient locks, a fixture writer releases its own lock
+# during the runtime's bounded wait, after the first index-path observation.
+use_direct_git_lock_observation() { :; }
+use_persistent_git_lock_observation() { :; }
+add_transient_git_lock_writer() {
+  local case_dir=$1 real
+  real=$(command -v git)
+  printf '#!/usr/bin/env bash\nreal=%q\n' "$real" > "$case_dir/fakebin/git"
+  cat >> "$case_dir/fakebin/git" <<'SH'
+if [[ "$*" == *"rev-parse --git-path index.lock"* ]] && [ ! -e "${MX_TEST_LOCK_WRITER_RECEIPT:?}".started ]; then
+  path=$("$real" "$@") || exit $?
+  : > "$MX_TEST_LOCK_WRITER_RECEIPT.started"
+  (sleep 0.2; rm -f "$path"; printf 'released\n' > "$MX_TEST_LOCK_WRITER_RECEIPT") >/dev/null 2>&1 &
+  printf '%s\n' "$path"
   exit 0
 fi
-exit 0
+exec "$real" "$@"
 SH
-  chmod +x "$case_dir/fakebin/treehouse"
-}
-
-# treehouse return fails once with the index.lock signature, then clears the lock
-# (simulating a dying actors git process finishing) so the next retry succeeds.
-# The first failure always reports the lock path even if the file is removed in
-# the same attempt - matching the production race where the lock self-clears
-# between the failed return and the supervisor's existence check.
-add_transient_lock_treehouse() {
-  local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = return ]; then
-  shift
-  wt=""
-  for a in "$@"; do
-    case "$a" in
-      --force) ;;
-      *) wt=$a ;;
-    esac
-  done
-  lock=$(git -C "$wt" rev-parse --git-path index.lock 2>/dev/null || true)
-  case "$lock" in
-    /*|'') ;;
-    *) lock="$wt/$lock" ;;
-  esac
-  count_file="${TREEHOUSE_ATTEMPT_FILE:?}"
-  count=0
-  if [ -f "$count_file" ]; then
-    count=$(cat "$count_file")
-  fi
-  count=$(( count + 1 ))
-  printf '%s\n' "$count" > "$count_file"
-  if [ "$count" -eq 1 ]; then
-    # Emit the real git signature, then drop the lock so a lock-existence-only
-    # recovery path would wrongly abort without retrying.
-    if [ -n "$lock" ]; then
-      echo "fatal: Unable to create '$lock': File exists." >&2
-      rm -f "$lock"
-    else
-      echo "fatal: Unable to create 'index.lock': File exists." >&2
-    fi
-    exit 128
-  fi
-  exit 0
-fi
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/treehouse"
-}
-
-# treehouse return always fails with the lock signature while the lock file
-# remains; used to assert exhausted retries still refuse loudly.
-add_persistent_lock_treehouse() {
-  local case_dir=$1
-  cat > "$case_dir/fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = return ]; then
-  shift
-  wt=""
-  for a in "$@"; do
-    case "$a" in
-      --force) ;;
-      *) wt=$a ;;
-    esac
-  done
-  lock=$(git -C "$wt" rev-parse --git-path index.lock 2>/dev/null || true)
-  case "$lock" in
-    /*|'') ;;
-    *) lock="$wt/$lock" ;;
-  esac
-  if [ -z "$lock" ]; then
-    lock="index.lock"
-  fi
-  echo "fatal: Unable to create '$lock': File exists." >&2
-  exit 128
-fi
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/treehouse"
+  chmod +x "$case_dir/fakebin/git"
 }
 
 git_index_lock_path() {
@@ -443,17 +355,29 @@ SH
   chmod +x "$case_dir/fakebin/git"
 }
 
+# Endpoint-only fixture edits must update both canonical and compatibility fields.
+refresh_fixture_endpoint() {
+  local case_dir=$1 meta model backend window
+  meta="$case_dir/state/task-x1.meta"
+  backend=$(sed -n 's/^backend=//p' "$meta" | tail -1)
+  window=$(sed -n 's/^window=//p' "$meta")
+  model=$(sed -n 's/^canonical_model=//p' "$meta" | jq -c --arg backend "${backend:-tmux}" --arg window "$window" '.runtime.provider=$backend | .runtime.endpoint=$window')
+  sed '/^canonical_model=/d' "$meta" > "$meta.tmp"
+  printf 'canonical_model=%s\n' "$model" >> "$meta.tmp"
+  mv "$meta.tmp" "$meta"
+}
+
 # Run teardown with PATH mocking. Args: case_dir [extra args...]
 run_teardown() {
   local case_dir=$1 bindings request operation target; shift
   if [ "${1:-}" = --force ]; then
     shift
-    bindings=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+    bindings=$(MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
       MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-override-bindings.sh" cleanup task-x1) || return 1
     operation=$(printf '%s' "$bindings" | jq -r '.operation')
     target=$(printf '%s' "$bindings" | jq -r '.target')
-    request=$(MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+    request=$(MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
       MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-maintainer-override.sh" request \
       --boundary cleanup.discard-unlanded --task task-x1 \
@@ -465,7 +389,7 @@ run_teardown() {
     # lock owner and the grant command is its descendant, matching real primary
     # authority without bypassing the lock proof.
     printf '%s\n' "$$" > "$case_dir/state/.lock"
-    MX_ROOT_OVERRIDE="$ROOT" MX_STATE_OVERRIDE="$case_dir/state" \
+    MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
       MX_DATA_OVERRIDE="$case_dir/data" \
       "$ROOT/bin/mx-maintainer-override.sh" grant "$request" \
       --maintainer-words "Grant cleanup.discard-unlanded for $operation on $target only." \
@@ -473,6 +397,7 @@ run_teardown() {
     set -- --override "$request" "$@"
   fi
   MX_ROOT_OVERRIDE="$ROOT" \
+  MX_HOME="$case_dir" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   MX_CONFIG_OVERRIDE="$case_dir/config" \
   MX_DATA_OVERRIDE="$case_dir/data" \
@@ -492,6 +417,7 @@ test_local_only_fork_remote_allows() {
   rc=$?
   set -e
 
+  [ "$rc" -eq 0 ] || cat "$case_dir/stderr" >&2
   expect_code 0 "$rc" "fork-allow: teardown should succeed when HEAD is on a fork remote"
   ! grep -q REFUSED "$case_dir/stderr" || fail "fork-allow: teardown printed a REFUSED line"
   pass "local-only worktree with HEAD on a fork remote is torn down (fix holds)"
@@ -501,6 +427,7 @@ test_teardown_prompts_owned_backlog_done() {
   local case_dir out
   case_dir=$(make_case owned-backlog-reminder)
   write_meta "$case_dir" deep-review delivery
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   out=$(run_teardown "$case_dir") || fail "teardown failed with owned backlog"
   printf '%s\n' "$out" | grep -F 'bin/mx-backlog.sh done task-x1 --pr https://github.com/example/repo/pull/7' >/dev/null \
@@ -518,6 +445,7 @@ test_teardown_manual_backend_prompts_hand_edit() {
   local case_dir out
   case_dir=$(make_case manual-backlog-optout)
   write_meta "$case_dir" deep-review delivery
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   printf '%s\n' manual > "$case_dir/config/backlog-backend"
   out=$(run_teardown "$case_dir") || fail "teardown failed with manual backlog backend"
@@ -756,6 +684,7 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   MX_ROOT_OVERRIDE="$ROOT" \
+  MX_HOME="$case_dir" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
     "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
@@ -764,6 +693,7 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   new_head=$(git -C "$case_dir/wt" rev-parse HEAD)
 
   MX_ROOT_OVERRIDE="$ROOT" \
+  MX_HOME="$case_dir" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
     "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
@@ -793,6 +723,7 @@ test_pr_check_records_remote_head_when_local_lags() {
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   MX_ROOT_OVERRIDE="$ROOT" \
+  MX_HOME="$case_dir" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
     "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
@@ -822,6 +753,25 @@ test_content_in_default_fallback_allows() {
   expect_code 0 "$rc" "content-landed: teardown should succeed when content is already in the default branch"
   ! grep -q REFUSED "$case_dir/stderr" || fail "content-landed: teardown printed a REFUSED line"
   pass "worktree whose content already landed in the default branch is torn down (content fallback)"
+}
+
+test_open_pr_retains_even_when_content_landed() {
+  local case_dir rc
+  case_dir=$(make_case open-pr-landed)
+  write_meta "$case_dir" deep-review delivery
+  wt_commit_file "$case_dir" feature.txt 'landed content' 'feature'
+  land_on_origin_main "$case_dir" feature.txt 'landed content'
+  append_pr_meta_url "$case_dir"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  sed 's/MERGED/OPEN/g' "$case_dir/fakebin/gh" > "$case_dir/fakebin/gh.tmp"
+  mv "$case_dir/fakebin/gh.tmp" "$case_dir/fakebin/gh"
+  chmod +x "$case_dir/fakebin/gh"
+  if run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"; then rc=0; else rc=$?; fi
+  expect_code 1 "$rc" 'open PR must block allocation cleanup despite landed content'
+  assert_grep 'open pull request' "$case_dir/stderr" 'open PR retention cause missing'
+  assert_grep 'landed content' "$case_dir/wt/feature.txt" 'open PR worktree was discarded'
+  assert_present "$case_dir/state/task-x1.meta" 'open PR task metadata lost'
+  pass 'open PR retains allocation even when its content exists on default branch'
 }
 
 test_content_fallback_refreshes_stale_origin_ref() {
@@ -896,7 +846,7 @@ test_stale_index_lock_cleared_and_teardown_succeeds() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_lock_aware_treehouse "$case_dir"
+  use_direct_git_lock_observation "$case_dir"
   add_lsof_no_holder "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
@@ -925,7 +875,7 @@ test_live_index_lock_is_never_removed_and_teardown_refuses() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_lock_aware_treehouse "$case_dir"
+  use_direct_git_lock_observation "$case_dir"
   add_lsof_live_holder "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
@@ -957,7 +907,7 @@ test_lsof_error_never_clears_index_lock() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_lock_aware_treehouse "$case_dir"
+  use_direct_git_lock_observation "$case_dir"
   add_lsof_error "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
@@ -991,7 +941,7 @@ test_stale_index_lock_cleanup_rechecks_dirty_worktree() {
   git -C "$case_dir/project" fetch -q origin
   printf '%s\n' dirty > "$case_dir/wt/feature.txt"
 
-  add_lock_aware_treehouse "$case_dir"
+  use_direct_git_lock_observation "$case_dir"
   add_lsof_no_holder "$case_dir"
   add_git_status_lock_failure "$case_dir"
 
@@ -1019,7 +969,10 @@ test_stale_index_lock_cleanup_rechecks_dirty_worktree() {
 test_non_linked_index_lock_path_is_checked_from_worktree() {
   local case_dir rc lock
   case_dir=$(make_case non-linked-index-lock)
-  git -C "$case_dir/project" worktree remove --force "$case_dir/wt"
+  local allocated
+  allocated=$(jq -r '.binding.path' "$case_dir/allocation.json")
+  git -C "$case_dir/project" worktree remove --force "$allocated"
+  rm "$case_dir/wt"
   git clone -q "$case_dir/origin.git" "$case_dir/wt"
   git -C "$case_dir/wt" checkout -q -b mx/task-x1
   write_meta "$case_dir" deep-review delivery
@@ -1027,7 +980,7 @@ test_non_linked_index_lock_path_is_checked_from_worktree() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/wt" fetch -q origin
 
-  add_lock_aware_treehouse "$case_dir"
+  use_direct_git_lock_observation "$case_dir"
   add_lsof_no_holder "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
@@ -1041,11 +994,12 @@ test_non_linked_index_lock_path_is_checked_from_worktree() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "non-linked-index-lock: teardown should clear a normal repo index.lock"
-  assert_grep "removed provably-stale git lock" "$case_dir/stderr" \
-    "non-linked-index-lock: teardown did not report clearing the stale lock"
-  assert_absent "$lock" "non-linked-index-lock: stale lock file should have been removed"
-  pass "normal repo index.lock is resolved from the worktree and cleared when stale"
+  expect_code 1 "$rc" 'foreign replacement checkout must retain even with a stale lock'
+  assert_present "$case_dir/wt/.git" 'cleanup removed a foreign replacement clone'
+  assert_present "$lock" 'cleanup changed a lock in the foreign replacement clone'
+  assert_present "$case_dir/state/task-x1.meta" 'cleanup lost metadata for foreign replacement'
+  pass 'cleanup refuses a normal clone replacing the recorded linked allocation'
+
 }
 
 test_index_lock_mtime_read_failure_refuses() {
@@ -1056,7 +1010,7 @@ test_index_lock_mtime_read_failure_refuses() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_lock_aware_treehouse "$case_dir"
+  use_direct_git_lock_observation "$case_dir"
   add_lsof_no_holder "$case_dir"
   lock=$(git_index_lock_path "$case_dir/wt")
   mkdir -p "$(dirname "$lock")"
@@ -1073,8 +1027,8 @@ test_index_lock_mtime_read_failure_refuses() {
   expect_code 1 "$rc" "mtime-error-index-lock: teardown should refuse when lock mtime cannot be read"
   assert_grep "cannot read mtime for git lock" "$case_dir/stderr" \
     "mtime-error-index-lock: teardown did not report the mtime read failure"
-  assert_grep "not provably stale" "$case_dir/stderr" \
-    "mtime-error-index-lock: teardown did not explain the refusal"
+  assert_grep "cannot inspect worktree" "$case_dir/stderr" \
+    "mtime-error-index-lock: teardown did not refuse inspection after the mtime error"
   assert_not_contains "$(cat "$case_dir/stderr")" "removed provably-stale git lock" \
     "mtime-error-index-lock: teardown removed a lock after mtime read failed"
   [ -e "$lock" ] || fail "mtime-error-index-lock: lock file was removed after mtime read failed"
@@ -1089,7 +1043,7 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_transient_lock_treehouse "$case_dir"
+  add_transient_git_lock_writer "$case_dir"
   add_lsof_no_holder "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
@@ -1098,13 +1052,13 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
   # Fresh lock: not old enough for the force-remove path; patience must win.
   touch "$lock"
 
-  attempt_file="$case_dir/treehouse-attempts"
+  attempt_file="$case_dir/lock-writer-receipt"
   : > "$attempt_file"
 
   set +e
-  TREEHOUSE_ATTEMPT_FILE="$attempt_file" \
-  MX_TREEHOUSE_RETURN_LOCK_RETRIES=2 \
-  MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS=0 \
+  MX_TEST_LOCK_WRITER_RECEIPT="$attempt_file" \
+  MX_WORKTREE_LOCK_RETRIES=2 \
+  MX_WORKTREE_LOCK_RETRY_WAIT_SECS=0.5 \
   MX_STALE_WORKTREE_LOCK_AGE_SECS=3600 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
@@ -1115,10 +1069,9 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
     "transient-index-lock: teardown did not report success on retry"
   assert_not_contains "$(cat "$case_dir/stderr")" "removed provably-stale git lock" \
     "transient-index-lock: teardown force-removed a lock that only needed patience"
-  [ "$(cat "$attempt_file")" = 2 ] \
-    || fail "transient-index-lock: expected exactly 2 treehouse return attempts, got $(cat "$attempt_file")"
+  [ "$(cat "$attempt_file")" = released ] || fail "transient-index-lock: fixture owner did not release lock"
   assert_absent "$lock" "transient-index-lock: lock should remain cleared after success"
-  pass "transient index.lock cleared after first failed return is retried successfully without force-remove"
+  pass "transient index.lock released by its fixture owner clears during bounded retry without force-removal"
 }
 
 test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
@@ -1129,7 +1082,7 @@ test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_persistent_lock_treehouse "$case_dir"
+  use_persistent_git_lock_observation "$case_dir"
   # Fresh lock with a live holder: never provably stale, never force-removed.
   add_lsof_live_holder "$case_dir"
 
@@ -1139,8 +1092,8 @@ test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
   touch "$lock"
 
   set +e
-  MX_TREEHOUSE_RETURN_LOCK_RETRIES=2 \
-  MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS=0 \
+  MX_WORKTREE_LOCK_RETRIES=2 \
+  MX_WORKTREE_LOCK_RETRY_WAIT_SECS=0 \
   MX_STALE_WORKTREE_LOCK_AGE_SECS=3600 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
@@ -1167,20 +1120,20 @@ test_empty_retry_wait_uses_default_without_aborting() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_transient_lock_treehouse "$case_dir"
+  add_transient_git_lock_writer "$case_dir"
   add_lsof_no_holder "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
   mkdir -p "$(dirname "$lock")"
   : > "$lock"
 
-  attempt_file="$case_dir/treehouse-attempts"
+  attempt_file="$case_dir/lock-writer-receipt"
   : > "$attempt_file"
 
   set +e
-  TREEHOUSE_ATTEMPT_FILE="$attempt_file" \
-  MX_TREEHOUSE_RETURN_LOCK_RETRIES=1 \
-  MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS='' \
+  MX_TEST_LOCK_WRITER_RECEIPT="$attempt_file" \
+  MX_WORKTREE_LOCK_RETRIES=1 \
+  MX_WORKTREE_LOCK_RETRY_WAIT_SECS='' \
   MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS='' \
   MX_STALE_WORKTREE_LOCK_AGE_SECS=3600 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
@@ -1190,8 +1143,7 @@ test_empty_retry_wait_uses_default_without_aborting() {
   expect_code 0 "$rc" "empty-retry-wait: teardown should fall back to the default wait"
   assert_grep "waiting 1s and retrying" "$case_dir/stderr" \
     "empty-retry-wait: teardown did not use the default retry wait"
-  [ "$(cat "$attempt_file")" = 2 ] \
-    || fail "empty-retry-wait: expected exactly 2 treehouse return attempts, got $(cat "$attempt_file")"
+  [ "$(cat "$attempt_file")" = released ] || fail "empty-retry-wait: fixture owner did not release lock"
   pass "empty retry wait overrides use the default without aborting teardown"
 }
 
@@ -1203,7 +1155,7 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   git -C "$case_dir/wt" push -q origin mx/task-x1
   git -C "$case_dir/project" fetch -q origin
 
-  add_persistent_lock_treehouse "$case_dir"
+  use_persistent_git_lock_observation "$case_dir"
   add_lsof_live_holder "$case_dir"
 
   lock=$(git_index_lock_path "$case_dir/wt")
@@ -1211,8 +1163,8 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   : > "$lock"
 
   set +e
-  MX_TREEHOUSE_RETURN_LOCK_RETRIES=1 \
-  MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS='' \
+  MX_WORKTREE_LOCK_RETRIES=1 \
+  MX_WORKTREE_LOCK_RETRY_WAIT_SECS='' \
   MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0.1 \
   MX_STALE_WORKTREE_LOCK_AGE_SECS=3600 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
@@ -1227,21 +1179,21 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   pass "fractional legacy retry wait remains supported without arithmetic"
 }
 
-test_local_only_force_overrides_unpushed() {
+test_exact_override_cannot_discard_nonempty_unlanded_allocation() {
   local case_dir rc
   case_dir=$(make_case force-override)
   write_meta "$case_dir" local-only delivery
-  wt_commit "$case_dir" "unpushed work"
+  wt_commit_file "$case_dir" unpublished.txt 'irreplaceable task work' 'unpushed work'
 
   set +e
   run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
-  expect_code 0 "$rc" \
-    "discard-override: exact grant should authorize the bound unpushed-work discard"$'\n'"$(cat "$case_dir/stderr")"
-  ! grep -q REFUSED "$case_dir/stderr" || fail "discard-override: REFUSED printed despite an exact grant"
-  pass "local-only worktree with unpushed work is torn down under one exact discard grant"
+  expect_code 1 "$rc" 'legacy discard grant must not bypass allocation data preservation'
+  assert_grep 'irreplaceable task work' "$case_dir/wt/unpublished.txt" 'override discarded unlanded content'
+  assert_present "$case_dir/state/task-x1.meta" 'override discarded task metadata'
+  pass 'exact legacy override retains nonempty unlanded allocation content'
 }
 
 test_herdr_teardown_clears_escalation_marker() {
@@ -1251,6 +1203,7 @@ test_herdr_teardown_clears_escalation_marker() {
   sed -i.bak 's/^window=.*/window=default:wG:pQ/' "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.meta.bak"
   printf '%s\n' 'backend=herdr' >> "$case_dir/state/task-x1.meta"
+  refresh_fixture_endpoint "$case_dir"
   cat > "$case_dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -1260,7 +1213,7 @@ SH
   : > "$marker"
 
   run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "herdr-marker-cleanup: forced teardown failed"
+    || { cat "$case_dir/stderr" >&2; fail "herdr-marker-cleanup: forced teardown failed"; }
   [ ! -e "$marker" ] || fail "herdr-marker-cleanup: teardown left the pane's escalation marker behind"
   pass "herdr teardown removes pane-owned escalation dedupe state"
 }
@@ -1275,6 +1228,7 @@ configure_herdr_projection_teardown_case() {  # <case-dir>
     'herdr_workspace_id=w1' \
     'herdr_tab_id=w1:t2' \
     'herdr_pane_id=w1:p2' >> "$case_dir/state/task-x1.meta"
+  refresh_fixture_endpoint "$case_dir"
   printf '%s\n' \
     'version=1' \
     'task_id=task-x1' \
@@ -1304,7 +1258,11 @@ case "${1:-} ${2:-}" in
     printf '%s\n' '{"server":{"running":true}}'
     ;;
   "session list")
-    printf '%s\n' '{"sessions":[{"name":"fmtest","running":true,"socket_path":"/tmp/fmtest.sock"}]}'
+    if [ "${MX_FAKE_HERDR_BAD_SOCKET:-0}" = 1 ]; then
+      printf '%s\n' '{"sessions":[{"name":"fmtest","running":true,"socket_path":"relative.sock"}]}'
+    else
+      printf '{"sessions":[{"name":"fmtest","running":true,"socket_path":"%s/session.sock"}]}\n' "$(cd "$(dirname "$MX_FAKE_HERDR_LOG")" && pwd -P)"
+    fi
     ;;
   "pane close")
     if [ "${MX_FAKE_HERDR_CLOSE_FAIL:-0}" = 1 ]; then
@@ -1373,6 +1331,58 @@ test_herdr_projection_teardown_retains_journal_when_close_unconfirmed() {
   pass "herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed"
 }
 
+test_herdr_projection_teardown_refuses_without_session_lock_ownership() {
+  local case_dir log closed restored lock ready release owner tick rc before after reason
+  for reason in invalid-socket live-owner; do
+    case_dir=$(make_case "herdr-projection-lock-$reason")
+    write_meta "$case_dir" local-only delivery
+    configure_herdr_projection_teardown_case "$case_dir"
+    log="$case_dir/herdr.log"; closed="$case_dir/closed"; restored="$case_dir/restored"; : > "$log"
+    cp "$case_dir/state/task-x1.meta" "$case_dir/meta.before"
+    cp "$case_dir/state/task-x1.herdr-presentation" "$case_dir/journal.before"
+    if [ "$reason" = live-owner ]; then
+      lock=$(PATH="$case_dir/fakebin:$PATH" MX_HOME="$case_dir" MX_FAKE_HERDR_LOG="$log" MX_HERDR_BIN="$case_dir/fakebin/herdr" \
+        bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_presentation_session_lock_path fmtest' "$ROOT") || fail 'cannot resolve fixture presentation lock'
+      ready="$case_dir/lock-ready"; release="$case_dir/lock-release"
+      ROOT="$ROOT" MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" LOCK="$lock" READY="$ready" RELEASE="$release" bash -c '
+        . "$ROOT/bin/mx-wake-lib.sh"
+        mx_lock_try_acquire "$LOCK" || exit 1
+        trap '\''mx_lock_release "$LOCK"'\'' EXIT
+        mx_pid_identity "${BASHPID:-$$}" > "$LOCK/pid-identity" || exit 1
+        : > "$READY"
+        count=0
+        while [ ! -e "$RELEASE" ] && [ "$count" -lt 1000 ]; do sleep 0.05; count=$((count + 1)); done
+        [ -e "$RELEASE" ]
+      ' &
+      owner=$!
+      tick=0
+      while [ ! -e "$ready" ] && kill -0 "$owner" 2>/dev/null && [ "$tick" -lt 100 ]; do sleep 0.05; tick=$((tick + 1)); done
+      [ -e "$ready" ] || { kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail 'fixture presentation owner did not acquire lock'; }
+      before=$("$MX_RUST_BIN" primitive process-identity "$owner") || { : > "$release"; wait "$owner"; fail 'fixture presentation owner has no process identity'; }
+      rc=0
+      MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_CLOSED="$closed" MX_FAKE_HERDR_RESTORED="$restored" \
+        run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+      after=$("$MX_RUST_BIN" primitive process-identity "$owner") || { : > "$release"; wait "$owner"; fail 'teardown lost existing session lock owner'; }
+      : > "$release"; wait "$owner" || fail 'fixture session owner did not release lock'
+      [ "$before" = "$after" ] || fail 'teardown replaced live session lock owner'
+      assert_grep 'lock' "$case_dir/stderr" 'presentation lock refusal lost its reason'
+    else
+      rc=0
+      MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_CLOSED="$closed" MX_FAKE_HERDR_RESTORED="$restored" MX_FAKE_HERDR_BAD_SOCKET=1 \
+        run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+      assert_grep 'named-session socket is ambiguous' "$case_dir/stderr" 'invalid session identity refusal lost its reason'
+    fi
+    expect_code 1 "$rc" 'projected teardown without session lock ownership'
+    cmp "$case_dir/state/task-x1.meta" "$case_dir/meta.before" || fail 'unowned session teardown changed task metadata'
+    cmp "$case_dir/state/task-x1.herdr-presentation" "$case_dir/journal.before" || fail 'unowned session teardown changed journal'
+    assert_present "$case_dir/wt" 'unowned session teardown removed allocation'
+    assert_absent "$closed" 'unowned session teardown closed pane'
+    assert_absent "$restored" 'unowned session teardown changed focus'
+    assert_not_contains "$(cat "$log")" 'workspace list' 'unowned session teardown observed focus before acquiring lock'
+  done
+  pass 'projected teardown requires exact live session lock ownership before focus, endpoint, journal or allocation mutation'
+}
+
 test_local_only_fork_remote_allows
 test_teardown_prompts_owned_backlog_done
 test_teardown_manual_backend_prompts_hand_edit
@@ -1381,10 +1391,11 @@ test_local_only_merged_to_local_main_allows
 test_deep_review_origin_remote_allows
 test_ready_to_push_record_refuses_even_after_partial_push
 test_deep_review_truly_unpushed_refuses
-test_local_only_force_overrides_unpushed
+test_exact_override_cannot_discard_nonempty_unlanded_allocation
 test_herdr_teardown_clears_escalation_marker
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed
+test_herdr_projection_teardown_refuses_without_session_lock_ownership
 test_squash_merged_branch_deleted_allows
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows
@@ -1394,6 +1405,7 @@ test_pr_check_does_not_refresh_stale_pr_head
 test_pr_check_records_remote_head_when_local_lags
 test_content_in_default_fallback_allows
 test_content_fallback_refreshes_stale_origin_ref
+test_open_pr_retains_even_when_content_landed
 test_dirty_worktree_refuses
 test_gh_error_and_content_absent_refuses
 test_stale_index_lock_cleared_and_teardown_succeeds

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Behavior tests for the worktree-tangle guards.
 #
-# Multplx is a treehouse-pooled git repo of itself: linked worktrees and
+# Multplx uses built-in Git worktree allocations: linked worktrees and
 # daemon homes all sit at a detached HEAD on the default branch, while the
 # PRIMARY checkout (MX_ROOT) is a normal checkout on a real branch. The "tangle"
 # is an actor branching/committing in the primary instead of its own worktree,
@@ -148,9 +148,7 @@ test_brief_assertion_precedes_branch() {
 
 # --- GUARD 1b: mx-spawn isolation abort -------------------------------------
 
-# A fake tmux that reports MX_FAKE_PANE_PATH as the post-`treehouse get` pane cwd
-# (so the spawn's worktree-resolution loop resolves to a path we control), names
-# the session on '#S', and swallows window ops. Echoes the fakebin dir.
+# Fake tmux offers arbitrary pane cwd; spawn must ignore it for allocation.
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
@@ -169,7 +167,8 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  mx_fake_exit0 "$fakebin" treehouse
+  printf '#!/bin/sh\nexit 93\n' > "$fakebin/treehouse"
+  chmod +x "$fakebin/treehouse"
   printf '%s\n' "$fakebin"
 }
 
@@ -195,23 +194,19 @@ test_spawn_isolation_abort() {
   git -C "$proj" worktree add -q --detach "$TMP_ROOT/spawn-wt" >/dev/null 2>&1
   mkdir -p "$TMP_ROOT/spawn-notgit" "$proj/sub"
 
-  # Abort: the pane resolves to a plain non-git directory (not a worktree at all).
-  out=$(run_spawn "$home" abort-notgit-dd4 "$proj" "$TMP_ROOT/spawn-notgit" "$fakebin"); status=$?
-  expect_code 1 "$status" "spawn into a non-worktree dir should abort"
-  assert_contains "$out" "did not yield an isolated worktree" "non-worktree spawn lacked the isolation error"
-  assert_absent "$home/state/abort-notgit-dd4.meta" "aborted spawn must not record meta"
+  # Stale pane observations must never redirect the built-in allocation.
+  local id pane allocated
+  for pane in "$TMP_ROOT/spawn-notgit" "$proj/sub" "$TMP_ROOT/spawn-wt"; do
+    id="allocated-$(basename "$pane")"
+    out=$(run_spawn "$home" "$id" "$proj" "$pane" "$fakebin"); status=$?
+    expect_code 0 "$status" 'built-in isolated allocation should succeed'
+    allocated=$(sed -n 's/^worktree=//p' "$home/state/$id.meta")
+    [ -f "$allocated/.git" ] || fail 'spawn did not record a linked worktree'
+    [ "$allocated" != "$pane" ] || fail 'spawn adopted pane cwd as allocation'
+    [ "$(git -C "$allocated" rev-parse HEAD)" = "$(git -C "$proj" rev-parse HEAD)" ] || fail 'allocation base differs'
+  done
+  pass 'mx-spawn: pre-created owner allocation ignores stale non-Git, primary and foreign pane paths'
 
-  # Abort: the pane resolves INTO the primary checkout (a subdir of PROJ_ABS).
-  out=$(run_spawn "$home" abort-primary-ee5 "$proj" "$proj/sub" "$fakebin"); status=$?
-  expect_code 1 "$status" "spawn landing inside the primary checkout should abort"
-  assert_contains "$out" "did not yield an isolated worktree" "primary-checkout spawn lacked the isolation error"
-
-  # Proceed: the pane resolves to a genuine, isolated worktree.
-  out=$(run_spawn "$home" ok-isolated-ff6 "$proj" "$TMP_ROOT/spawn-wt" "$fakebin"); status=$?
-  expect_code 0 "$status" "spawn into a genuine isolated worktree should succeed"
-  assert_contains "$out" "spawned ok-isolated-ff6" "isolated spawn did not report success"
-  assert_not_contains "$out" "did not yield an isolated worktree" "isolated spawn wrongly tripped the guard"
-  pass "mx-spawn: aborts unless the resolved worktree is a genuine, isolated worktree"
 }
 
 # --- GUARD 1c: mx-spawn tmux window construction ----------------------------
@@ -224,11 +219,9 @@ test_spawn_isolation_abort() {
 #     tmux appends at the next free index instead of the active window index, which
 #     collides under base-index 1;
 #   - the window id is captured (-P -F #{window_id}) and automatic-rename/allow-rename
-#     are disabled so the mx-<id> name survives treehouse cd'ing into the worktree;
-#   - the treehouse-get send-keys and the worktree wait loop target that stable
-#     window id, never the (possibly-renamed) name - a lost name would let
-#     display-message fall back to the active client's window and misread broker's
-#     OWN pane as the worktree, tangling a hook into the primary checkout.
+#     are disabled so the mx-<id> name remains stable;
+#   - endpoint creation receives the pre-created exact allocation cwd;
+#   - harness sends target the stable id without consulting pane cwd.
 make_spawn_record_fakebin() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
@@ -248,7 +241,8 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  mx_fake_exit0 "$fakebin" treehouse
+  printf '#!/bin/sh\nexit 93\n' > "$fakebin/treehouse"
+  chmod +x "$fakebin/treehouse"
   printf '%s\n' "$fakebin"
 }
 
@@ -292,13 +286,12 @@ test_spawn_tmux_window_construction() {
   assert_grep "set-window-option -t @spawnwid allow-rename off" "$rec" \
     "must disable allow-rename on the spawned window"
 
-  # Bug 2 fix (b): treehouse-get and the worktree wait loop target the stable id.
-  assert_grep "send-keys -t @spawnwid -l treehouse get" "$rec" \
-    "treehouse get literal text must be sent to the stable window id"
-  assert_grep "send-keys -t @spawnwid Enter" "$rec" \
-    "treehouse get submit must be sent to the stable window id"
-  assert_grep "display-message -p -t @spawnwid #{pane_current_path}" "$rec" \
-    "the worktree wait loop must query the stable window id, not the name"
+  # Backend creation receives the already recorded owned worktree.
+  wt=$(sed -n 's/^worktree=//p' "$home/state/rec-win-gg7.meta")
+  assert_grep "-c $wt" "$rec" 'new endpoint did not use exact owner allocation cwd'
+  assert_grep 'send-keys -t @spawnwid -l' "$rec" 'harness command did not target stable window'
+  assert_no_grep 'treehouse' "$rec" 'retired allocation transport was invoked'
+  assert_no_grep '#{pane_current_path}' "$rec" 'spawn still polls pane cwd to identify allocation'
 
   pass "mx-spawn: appends windows by session-colon, pins the name, and targets the window id"
 }

@@ -6,6 +6,7 @@ Read [porting.md](porting.md) for the accepted direction and [plans/lean_redesig
 Those documents describe the target; existing code still implements parts of the older operating model.
 Phase 01 supplies lean instruction scaffolds and optional operational references.
 Phase 02 supplies validated task/attempt/brief and project identity, recoverable filesystem primitives and allocation/domain foundations; remaining runtime freedoms and release activation stay with their later-phase owners.
+Phase 03 supplies built-in Git worktree ownership, exact-path launch integration, guarded cleanup and private persistent homes; the external Treehouse runtime dependency is retired.
 
 ## This checkout
 

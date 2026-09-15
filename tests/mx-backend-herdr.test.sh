@@ -138,6 +138,19 @@ case "$cmd $sub" in
   "pane list")
     jq_state --arg w "$ws" '{result:{panes:[.tabs[]|select(.workspace_id==$w)|{pane_id:.pane_id, tab_id:.tab_id}]}}'
     ;;
+  "pane get")
+    pane=${3:-}
+    if jq_state -e --arg p "$pane" 'any(.tabs[]; .pane_id == $p)' >/dev/null; then
+      jq_state --arg p "$pane" '{result:{pane:(.tabs[]|select(.pane_id==$p))}}'
+    else
+      printf '{"error":{"code":"pane_not_found"}}\n'
+      exit 1
+    fi
+    ;;
+  "session list")
+    jq -n --arg session "${HERDR_SESSION:-default}" --arg socket "$STATE.sock" \
+      '{sessions:[{name:$session,running:true,socket_path:$socket}]}'
+    ;;
   "pane close")
     pane=${3:-}
     jq_state --arg p "$pane" '.tabs |= [.[]|select(.pane_id != $p)]' | save
@@ -3006,3 +3019,156 @@ test_wait_transition_stream_absorb_clears_then_timeout
 test_wait_transition_reader_failure_returns_2
 test_wait_transition_bad_ack_returns_2_and_cleans_up
 test_wait_transition_clean_timeout_returns_1
+
+# The transport is mocked; allocation acquisition and intent publication use
+# the real CLI and a private Git repository. This covers the portable launch
+# boundary independently of the mandatory real-Herdr presentation lab.
+test_native_herdr_allocation_failure_and_recovery() (
+  set -eu
+  local dir home project fb state log common allocation
+  dir="$TMP_ROOT/native-allocation-boundary"
+  mkdir -p "$dir"
+  dir=$(cd "$dir" && pwd -P)
+  home="$dir/home"; project="$dir/project"; state="$dir/state.json"; log="$dir/log"
+  mkdir -p "$home/state" "$home/config" "$home/data/retained" "$home/data/healthy"
+  printf 'Keep this task isolated.\n' > "$home/data/retained/brief.md"
+  printf 'Keep this task isolated.\n' > "$home/data/healthy/brief.md"
+  mx_git_init_commit "$project"
+  fb=$(make_herdr_statefake "$dir")
+  printf '#!/bin/sh\nexit 0\n' > "$fb/codex"; chmod +x "$fb/codex"
+  export PATH="$fb:$PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT"
+  export MX_HERDR_BIN="$fb/herdr" MX_HERDR_LOG="$log" MX_FAKE_HERDR_STATE="$state" HERDR_SESSION=fmtest
+  export MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=34359738368 MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=8
+  : > "$log"
+  if MX_SPAWN_FAULT=after-endpoint "$ROOT/bin/mx-spawn.sh" retained "$project" codex --backend herdr > "$dir/failure.out" 2>&1; then
+    fail 'endpoint-before-metadata fault unexpectedly succeeded'
+  fi
+  grep -q 'injected failure after endpoint before metadata' "$dir/failure.out" || fail "wrong endpoint failure: $(cat "$dir/failure.out")"
+  [ ! -e "$home/state/retained.meta" ] || fail 'fault published task metadata'
+  [ -f "$home/state/.spawn-retained.intent" ] || fail 'fault discarded durable launch intent'
+  common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir)
+  allocation="$common/multplx-worktrees/records/$(jq -r '.allocation.allocation_id' "$home/state/.spawn-retained.intent").json"
+  jq -e --slurpfile intent "$home/state/.spawn-retained.intent" '.state == "active" and .binding == $intent[0].allocation' "$allocation" >/dev/null || fail 'failed endpoint lost its exact active allocation'
+  [ -d "$(jq -r '.binding.path' "$allocation")" ] || fail 'failed endpoint deleted retained worktree'
+  jq -e '.tabs|length == 0' "$state" >/dev/null || fail 'failed endpoint left a task pane'
+  cp "$home/state/.spawn-retained.intent" "$dir/intent.saved"
+  cp "$allocation" "$dir/allocation.saved"
+  : > "$log"
+  if "$ROOT/bin/mx-spawn.sh" retained "$project" codex --backend herdr > "$dir/retry.out" 2>&1; then fail 'uncertain retry duplicated launch'; fi
+  grep -q 'interrupted launch intent' "$dir/retry.out" || fail 'retry did not fence uncertain launch'
+  cmp "$home/state/.spawn-retained.intent" "$dir/intent.saved" || fail 'retry rewrote intent'
+  cmp "$allocation" "$dir/allocation.saved" || fail 'retry advanced allocation'
+  if grep -q $'\x1fcreate' "$log"; then fail 'retry created a duplicate endpoint'; fi
+  pass 'mock Herdr launch: endpoint fault retains exact allocation and intent; duplicate retry is fenced'
+
+  # No parent workspace is visible, so the supported presentation opt-in must
+  # fall back to one ordinary endpoint without changing the allocated cwd.
+  printf '{"next":1,"workspaces":[],"tabs":[],"agent_status":{}}\n' > "$state"
+  : > "$home/config/herdr-presentation-spaces"
+  : > "$log"
+  "$ROOT/bin/mx-spawn.sh" healthy "$project" codex --backend herdr > "$dir/healthy.out" 2>&1 || fail "flat fallback launch failed: $(cat "$dir/healthy.out")"
+  grep -q 'parent is absent or ambiguous' "$dir/healthy.out" || fail 'missing-parent fallback did not explain its topology'
+  jq -e '.tabs|length == 1' "$state" >/dev/null || fail 'fallback did not produce one task pane'
+  local worktree
+  worktree=$(sed -n 's/^worktree=//p' "$home/state/healthy.meta")
+  [ -d "$worktree" ] && [ "$worktree" != "$project" ] || fail 'fallback did not use a dedicated Git worktree'
+  grep -Fq $'\x1f--cwd\x1f'"$worktree"$'\x1f' "$log" || fail 'backend did not receive allocated cwd'
+  [ ! -e "$home/state/.spawn-healthy.intent" ] || fail 'successful fallback retained completed intent'
+
+  # Damaged recovery proof must fail before rebinding/removing the old worktree.
+  printf 'unfinished\n' > "$worktree/progress.txt"
+  printf 'invalid projection journal\n' > "$home/state/healthy.herdr-presentation"
+  cp "$home/state/healthy.meta" "$dir/healthy.saved"
+  : > "$log"
+  if "$ROOT/bin/mx-spawn.sh" healthy "$project" codex --backend herdr > "$dir/recovery.out" 2>&1; then fail 'damaged projection recovery launched a duplicate'; fi
+  grep -q 'cannot quiesce prior projection before allocation' "$dir/recovery.out" || fail "recovery failed at the wrong boundary: $(cat "$dir/recovery.out")"
+  cmp "$home/state/healthy.meta" "$dir/healthy.saved" || fail 'unsafe recovery changed current task identity'
+  [ "$(cat "$worktree/progress.txt")" = unfinished ] || fail 'unsafe recovery lost progress'
+  jq -e '.retained_executions[-1].allocation != null' "$home/state/.spawn-healthy.intent" >/dev/null || fail 'replacement intent lost prior allocation proof'
+  if grep -q $'\x1fcreate\|\x1fclose' "$log"; then fail 'damaged recovery mutated the endpoint'; fi
+  pass 'mock Herdr projection: fallback uses exact allocation; corrupt recovery retains work and prior identity'
+
+  # Existing Git-backed homes remain launchable without inventing a private
+  # ownership receipt. Recovery must reuse their exact recorded workspace.
+  local legacy legacy_source base before_workspace before_pane before_attempt after_pane
+  legacy="$dir/legacy-home"
+  legacy_source="$dir/legacy-source"
+  mx_git_init_commit "$legacy_source"
+  git -C "$legacy_source" branch -M main
+  git clone -q "$legacy_source" "$legacy"
+  export MX_ROOT_OVERRIDE="$legacy_source"
+  mkdir -p "$legacy/state" "$legacy/config" "$legacy/data" "$legacy/bin"
+  printf '# Existing scoped home\n' > "$legacy/AGENTS.md"
+  printf 'legacy\n' > "$legacy/.mx-daemon-home"
+  printf 'Maintain the existing scoped project.\n' > "$legacy/data/charter.md"
+  printf 'preserve legacy work\n' > "$legacy/unfinished.txt"
+  base=$(git -C "$legacy" rev-parse HEAD)
+  "$ROOT/bin/mx-spawn.sh" legacy "$legacy" codex --daemon --backend herdr > "$dir/legacy.out" 2>&1 || fail "legacy home launch failed: $(cat "$dir/legacy.out")"
+  grep -q 'sync skipped before launch: dirty working tree' "$dir/legacy.out" || fail "legacy launch did not preserve a dirty Git home: $(cat "$dir/legacy.out")"
+  [ ! -e "$home/data/.home-allocation-legacy.json" ] || fail 'legacy launch fabricated deletion authority'
+  before_workspace=$(sed -n 's/^herdr_workspace_id=//p' "$home/state/legacy.meta")
+  before_pane=$(sed -n 's/^herdr_pane_id=//p' "$home/state/legacy.meta")
+  before_attempt=$(sed -n 's/^canonical_model=//p' "$home/state/legacy.meta" | jq -r '.attempt.id')
+  [ -n "$before_workspace" ] && [ -n "$before_pane" ] || fail 'legacy endpoint lacked exact identity'
+  : > "$log"
+  MX_SPAWN_RECOVERY=1 "$ROOT/bin/mx-spawn.sh" legacy "$legacy" codex --daemon --backend herdr > "$dir/legacy-recovery.out" 2>&1 || fail "legacy home restart failed: $(cat "$dir/legacy-recovery.out")"
+  [ "$(sed -n 's/^herdr_workspace_id=//p' "$home/state/legacy.meta")" = "$before_workspace" ] || fail 'legacy restart changed owning workspace'
+  after_pane=$(sed -n 's/^herdr_pane_id=//p' "$home/state/legacy.meta")
+  [ "$after_pane" != "$before_pane" ] || fail 'legacy restart reused prior execution endpoint'
+  sed -n 's/^canonical_model=//p' "$home/state/legacy.meta" | jq -e --arg prior "$before_attempt" '.attempt.id != $prior and .retained_executions[-1].attempt.id == $prior and .home_allocation == null' >/dev/null || fail 'legacy restart did not retain prior attempt without owned-home authority'
+  jq -e --arg old "$before_pane" --arg new "$after_pane" 'all(.tabs[]; .pane_id != $old) and any(.tabs[]; .pane_id == $new)' "$state" >/dev/null || fail 'legacy restart did not replace exactly its old endpoint'
+  if grep -q $'\x1fworkspace\x1fcreate' "$log"; then fail 'legacy recovery created another workspace'; fi
+  [ "$(git -C "$legacy" rev-parse HEAD)" = "$base" ] || fail 'legacy restart rewrote unrelated Git base'
+  [ "$(cat "$legacy/unfinished.txt")" = 'preserve legacy work' ] || fail 'legacy restart discarded unfinished work'
+  [ ! -e "$home/state/.spawn-legacy.intent" ] || fail 'successful legacy restart retained completed intent'
+  if "$ROOT/bin/mx-teardown.sh" legacy > "$dir/legacy-retire.out" 2>&1; then fail 'legacy teardown assumed private deletion authority'; fi
+  grep -q 'home has no exact owned allocation; retained for explicit legacy migration' "$dir/legacy-retire.out" || fail "legacy retirement failed for wrong reason: $(cat "$dir/legacy-retire.out")"
+  [ -f "$legacy/data/charter.md" ] && [ -f "$legacy/unfinished.txt" ] && [ -f "$home/state/legacy.meta" ] || fail 'unowned legacy retirement lost durable state'
+  pass 'mock Herdr legacy home: restart keeps workspace and prior attempt; retirement retains unowned Git home'
+
+  # A clean, pre-existing legacy clone can still fast-forward to an already
+  # available runtime commit. Only the clone advances; its source is read-only.
+  local clean old_base new_base source_status
+  clean="$dir/legacy-clean"
+  mkdir -p "$legacy_source/bin" "$legacy_source/data"
+  printf '# Existing legacy instructions\n' > "$legacy_source/AGENTS.md"
+  printf 'Keep this charter across runtime updates.\n' > "$legacy_source/data/charter.md"
+  printf 'runtime-v1\n' > "$legacy_source/bin/runtime-version"
+  git -C "$legacy_source" add AGENTS.md data/charter.md bin/runtime-version
+  git -C "$legacy_source" -c user.name=Tests -c user.email=tests@example.invalid commit -qm 'legacy runtime v1'
+  git clone -q "$legacy_source" "$clean"
+  old_base=$(git -C "$clean" rev-parse HEAD)
+  printf 'runtime-v2\n' > "$legacy_source/bin/runtime-version"
+  git -C "$legacy_source" add bin/runtime-version
+  git -C "$legacy_source" -c user.name=Tests -c user.email=tests@example.invalid commit -qm 'legacy runtime v2'
+  new_base=$(git -C "$legacy_source" rev-parse HEAD)
+  git -C "$clean" fetch -q origin
+  mkdir -p "$clean/state" "$clean/config"
+  printf 'legacy-clean\n' > "$clean/.mx-daemon-home"
+  source_status=$(git -C "$legacy_source" status --porcelain)
+  [ "$old_base" != "$new_base" ] || fail 'legacy update fixture has no advancing runtime commit'
+  "$ROOT/bin/mx-spawn.sh" legacy-clean "$clean" codex --daemon --backend herdr > "$dir/legacy-clean.out" 2>&1 || fail "clean legacy launch failed: $(cat "$dir/legacy-clean.out")"
+  [ "$(git -C "$clean" rev-parse HEAD)" = "$new_base" ] || fail 'clean legacy runtime did not fast-forward to exact source commit'
+  [ "$(cat "$clean/bin/runtime-version")" = runtime-v2 ] || fail 'legacy runtime contents did not advance'
+  [ "$(cat "$clean/data/charter.md")" = 'Keep this charter across runtime updates.' ] || fail 'runtime fast-forward lost charter'
+  [ -f "$home/state/legacy-clean.meta" ] && [ ! -e "$home/state/.spawn-legacy-clean.intent" ] || fail 'updated legacy launch did not publish its durable task'
+  [ "$(git -C "$legacy_source" rev-parse HEAD)" = "$new_base" ] && [ "$(git -C "$legacy_source" status --porcelain)" = "$source_status" ] || fail 'legacy runtime update mutated the source checkout'
+  [ ! -e "$home/data/.home-allocation-legacy-clean.json" ] || fail 'legacy runtime update fabricated home deletion authority'
+  pass 'mock Herdr legacy runtime: exact fast-forward preserves charter and leaves source checkout unchanged'
+
+  # Packaged runtime assets have no Git default branch. The same legacy-home
+  # compatibility launch must preserve the clone and explain the skipped sync.
+  local assets assets_home
+  assets="$dir/runtime-assets"; assets_home="$dir/legacy-assets"
+  mkdir -p "$assets"
+  git clone -q "$legacy_source" "$assets_home"
+  mkdir -p "$assets_home/state" "$assets_home/config"
+  printf 'legacy-assets\n' > "$assets_home/.mx-daemon-home"
+  MX_ROOT_OVERRIDE="$assets" "$ROOT/bin/mx-spawn.sh" legacy-assets "$assets_home" codex --daemon --backend herdr > "$dir/legacy-assets.out" 2>&1 || fail "packaged legacy launch failed: $(cat "$dir/legacy-assets.out")"
+  grep -q 'primary default-branch commit cannot be resolved' "$dir/legacy-assets.out" || fail 'packaged legacy launch did not explain unavailable runtime revision'
+  [ "$(git -C "$assets_home" rev-parse HEAD)" = "$new_base" ] && [ "$(cat "$assets_home/data/charter.md")" = 'Keep this charter across runtime updates.' ] || fail 'packaged legacy launch changed Git base or charter'
+  [ -z "$(find "$assets" -mindepth 1 -print)" ] || fail 'legacy launch changed packaged runtime assets'
+  [ ! -e "$home/data/.home-allocation-legacy-assets.json" ] && [ -f "$home/state/legacy-assets.meta" ] || fail 'packaged legacy launch lost identity or fabricated ownership'
+  pass 'mock Herdr packaged runtime: legacy Git home launches with explicit unavailable-revision warning'
+)
+test_native_herdr_allocation_failure_and_recovery

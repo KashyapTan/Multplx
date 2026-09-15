@@ -31,7 +31,7 @@ The checkout must also carry `AGENTS.md` and `bin/`, and any failure to confirm 
 The guard recognizes the exact operational root `AGENTS.md` filename.
 
 The cd-guard does not inspect `.mx-daemon-home`.
-It therefore applies in a git-cloned daemon home where git-dir equals git-common-dir, but remains inert in a treehouse-leased daemon home that is itself a linked worktree.
+It therefore applies in a git-cloned daemon home where git-dir equals git-common-dir, but remains inert in a Git-worktree-backed persistent home that is itself a linked worktree.
 Daemon child actors and scout worktrees are likewise inert under the linked-worktree test.
 
 ## Block vs allow

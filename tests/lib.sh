@@ -505,3 +505,31 @@ assert_absent() {
 assert_present() {
   [ -e "$1" ] || fail "$2"
 }
+
+# Synthetic task metadata around a real owner-created Git allocation.
+# This fixture does not fake acquisition, landing, or deletion.
+mx_fixture_bind_allocation() {
+  local home=$1 id=$2 allocation=$3 meta model
+  home=$(cd "$home" && pwd -P)
+  meta="$home/state/$id.meta"
+  model=$(MX_HOME="$home" MX_STATE_OVERRIDE="$home/state" "$MX_RUST_BIN" task-model inspect "$id") || return 1
+  model=$(printf '%s' "$model" | jq -c --slurpfile allocation "$allocation" --arg home "$home" '
+    .legacy_unknown=false | .owner_home=$home | .owner_state=($home+"/state") |
+    .parent_home=$home | .parent_state=($home+"/state") | .parent_id="orchestrator" | .root_id="orchestrator" |
+    .allocation=$allocation[0].binding | .project=$allocation[0].project |
+    .attempt={id:$allocation[0].binding.attempt_id,generation:1,brief_revision:1} |
+    .accepted_brief_revision=1 |
+    .briefs=[{revision:1,scope:"fixture",acceptance_criteria:[],source_artifacts:[],reason:"test"}] |
+    .assignments=[{generation:1,role:.role,brief_revision:1,reason:"test"}]') || return 1
+  printf 'schema_version=2\ncanonical_model=%s\n' "$model" >> "$meta"
+}
+
+# Disposal of test-owned Git fixtures after their endpoints are stopped.
+# Runtime cleanup is exercised separately through lease-bound mx operations.
+mx_fixture_remove_worktree() {
+  local path=$1 common
+  [ -d "$path" ] || return 0
+  case "$path" in "$TMP_ROOT"/*) ;; *) echo 'refusing cleanup outside test root' >&2; return 1;; esac
+  common=$(git -C "$path" rev-parse --path-format=absolute --git-common-dir) || return 1
+  git --git-dir="$common" worktree remove --force -- "$path"
+}

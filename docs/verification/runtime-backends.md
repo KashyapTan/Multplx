@@ -422,7 +422,7 @@ Observed real versions:
 ```text
 codex-cli 0.147.0-alpha.6.5
 Cursor CLI 2026.08.04-aaa8809
-Treehouse v2.0.1 with get --lease
+Treehouse v2.0.1 with get --lease (historical pre-Phase-03 measurement)
 Claude unavailable
 Pi unavailable
 ```
@@ -476,3 +476,8 @@ The host-tool sequence was:
 Observed guarantee: a Desktop-owned thread can write Multplx lifecycle files when the prompt provides an authorized absolute path, and create, send, read, and archive work at the Desktop host-tool layer.
 The missing guarantee remains a supported shell-callable bridge that lets Multplx perform those operations against the same visible Desktop endpoint.
 App-server partial methods and raw socket experiments do not satisfy that bridge contract.
+
+## Lean Phase 03 supersession
+
+The installer and external worktree dependency described in earlier measurements above are retired.
+The [Phase 03 implementation evidence](../../plans/lean_redesign/phase03-implementation.md) records replacement checks and their current validation status.

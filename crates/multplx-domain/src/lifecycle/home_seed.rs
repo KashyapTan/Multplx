@@ -19,10 +19,227 @@ use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-pub const USAGE: &str = "Seed a persistent sub-agent home; ownership, routes, pinned settings and leases survive idle sessions.\nusage: mx home-seed <id> <home|-> {<project>...|--no-projects}\n       mx-home-seed.sh validate\n";
+pub const USAGE: &str = "Seed a persistent sub-agent home; ownership survives idle sessions.\nusage: mx home-seed <id> <home|-> {<project>...|--no-projects} [--git-allocation PROJECT ALLOCATION]\n       mx home-seed validate\nA new home is a private directory using installed runtime assets.\nFor a deliberate Git-backed home, first acquire a persistent worktree for this id, then pass its exact path and allocation.\n";
 
 const MARKER: &str = ".mx-daemon-home";
 const TRANSACTION_PREFIX: &str = ".home-seed.transaction.";
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HomeBinding {
+    pub id: String,
+    pub owner_home: PathBuf,
+    pub path: PathBuf,
+    pub lease_id: String,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HomeAllocation {
+    pub version: u32,
+    pub binding: HomeBinding,
+    pub runtime_root: PathBuf,
+    pub state: String,
+    pub retained_path: Option<PathBuf>,
+    #[serde(default)]
+    pub directory_identity: Option<(u64, u64)>,
+    #[serde(default)]
+    pub git_allocation: Option<super::worktree::Allocation>,
+}
+
+pub fn read_home_allocation(data: &Path, id: &str) -> Result<Option<HomeAllocation>, String> {
+    TaskId::parse(id).map_err(|e| e.to_string())?;
+    let path = data.join(format!(".home-allocation-{id}.json"));
+    if !path.exists() && fs::symlink_metadata(&path).is_err() {
+        return Ok(None);
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+        .map_err(|e| e.to_string())?;
+    let allocation: HomeAllocation = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("corrupt home allocation; retained: {e}"))?;
+    if allocation.version != 1
+        || allocation.binding.id != id
+        || allocation.binding.generation == 0
+        || allocation.binding.lease_id.is_empty()
+        || allocation.binding.lease_id.len() > 128
+        || !allocation
+            .binding
+            .lease_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        || !allocation.binding.path.is_absolute()
+        || !allocation.binding.owner_home.is_absolute()
+        || !matches!(
+            allocation.state.as_str(),
+            "reserved" | "active" | "archiving" | "retired"
+        )
+    {
+        return Err("invalid home allocation; retained".into());
+    }
+    Ok(Some(allocation))
+}
+
+/// Retirement preserves private operational material in an explicit archive.
+/// Exact lease identity fences delayed teardown after a home path is reused.
+pub fn retire_home(data: &Path, token: &HomeBinding) -> Result<PathBuf, String> {
+    let mut allocation =
+        read_home_allocation(data, &token.id)?.ok_or("home allocation missing; retained")?;
+    if allocation.binding != *token {
+        return Err("stale home allocation lease; retained".into());
+    }
+    let archive = token
+        .owner_home
+        .parent()
+        .ok_or("owner home parent missing")?
+        .join(format!(
+            ".multplx-retired-homes-{}",
+            &crate::maintainer_override::sha256_text(&token.owner_home.to_string_lossy())[..16]
+        ))
+        .join(&token.lease_id);
+    if allocation.git_allocation.is_none()
+        && allocation
+            .retained_path
+            .as_ref()
+            .is_some_and(|path| path != &archive)
+    {
+        return Err("home archive identity mismatch".into());
+    }
+    if allocation.state == "retired" {
+        return allocation
+            .retained_path
+            .ok_or("retired home has no retained path".into());
+    }
+    if let Some(git) = &allocation.git_allocation {
+        let store = super::worktree::Store::new(&git.project)?;
+        let current = store.inspect(&git.binding.allocation_id)?;
+        if current.binding != git.binding
+            || current.owner_home != token.owner_home
+            || !current.binding.persistent
+            || Path::new(&current.binding.path) != token.path
+        {
+            return Err("Git-backed home ownership changed; retained".into());
+        }
+        verify_home_directory(&allocation, &token.path)?;
+        super::worktree::occupants(&token.path)?;
+        store.retain(
+            &git.binding,
+            "retired persistent home; private material retained",
+        )?;
+        let _lock = home_publication_lock(data, token)?;
+        allocation.state = "retired".into();
+        allocation.retained_path = Some(token.path.clone());
+        atomic_replace(
+            data.join(format!(".home-allocation-{}.json", token.id)),
+            &serde_json::to_vec(&allocation).map_err(|e| e.to_string())?,
+            0o600,
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(token.path.clone());
+    }
+    if token.path.exists() {
+        verify_home_directory(&allocation, &token.path)?;
+        let metadata = fs::symlink_metadata(&token.path).map_err(|e| e.to_string())?;
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || resolved(&token.path) != token.path
+        {
+            return Err("unsafe private home path; retained".into());
+        }
+        super::worktree::occupants(&token.path)?;
+        let _lock = home_publication_lock(data, token)?;
+        if fs::symlink_metadata(&archive).is_ok() {
+            return Err("archive path already occupied; retain both paths".into());
+        }
+        fs::create_dir_all(archive.parent().ok_or("archive parent missing")?)
+            .map_err(|e| e.to_string())?;
+        if resolved(archive.parent().expect("archive parent"))
+            != archive.parent().expect("archive parent")
+        {
+            return Err("archive parent traverses a symlink".into());
+        }
+        allocation.state = "archiving".into();
+        allocation.retained_path = Some(archive.clone());
+        atomic_replace(
+            data.join(format!(".home-allocation-{}.json", token.id)),
+            &serde_json::to_vec(&allocation).map_err(|e| e.to_string())?,
+            0o600,
+        )
+        .map_err(|e| e.to_string())?;
+        fs::rename(&token.path, &archive)
+            .map_err(|e| format!("home archive move failed; retained: {e}"))?;
+    } else if allocation.state != "archiving" || !archive.is_dir() {
+        return Err("home/archive disposition cannot be proven".into());
+    }
+    verify_home_directory(&allocation, &archive)?;
+    let _lock = home_publication_lock(data, token)?;
+    allocation.state = "retired".into();
+    allocation.retained_path = Some(archive.clone());
+    atomic_replace(
+        data.join(format!(".home-allocation-{}.json", token.id)),
+        &serde_json::to_vec(&allocation).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(archive)
+}
+
+// Home seed and retirement share a short publication lock. All external Git and
+// occupant probes run before acquiring it; exact ownership is checked again.
+fn home_publication_lock(data: &Path, token: &HomeBinding) -> Result<DirectoryLock, String> {
+    let lock = DirectoryLock::acquire_wait(
+        data.join(".home-seed.lock"),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|e| e.to_string())?;
+    let current =
+        read_home_allocation(data, &token.id)?.ok_or("home receipt disappeared; retained")?;
+    if current.binding != *token {
+        return Err("stale home allocation lease; retained".into());
+    }
+    Ok(lock)
+}
+
+fn verify_home_directory(allocation: &HomeAllocation, path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || resolved(path) != path
+        || allocation.directory_identity != Some((metadata.dev(), metadata.ino()))
+    {
+        return Err("home directory identity changed or unproven; retained".into());
+    }
+    Ok(())
+}
+
+/// Verify the leased directory before starting a new persistent process.
+pub fn verify_active_home(allocation: &HomeAllocation) -> Result<(), String> {
+    if allocation.state != "active" {
+        return Err("persistent home is not active".into());
+    }
+    verify_home_directory(allocation, &allocation.binding.path)?;
+    if let Some(git) = &allocation.git_allocation {
+        let store = super::worktree::Store::new(&git.project)?;
+        let current = store.inspect(&git.binding.allocation_id)?;
+        if current.binding != git.binding
+            || current.state != super::worktree::State::Active
+            || current.owner_home != allocation.binding.owner_home
+            || !current.binding.persistent
+            || Path::new(&current.binding.path) != allocation.binding.path
+        {
+            return Err("persistent Git home allocation changed; retained".into());
+        }
+        if store
+            .list()?
+            .iter()
+            .any(|o| o.path == allocation.binding.path && o.error.is_some())
+        {
+            return Err("persistent Git home identity cannot be verified".into());
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 struct Route {
@@ -60,6 +277,8 @@ struct SeedJournal {
     home: String,
     created_home: bool,
     acquired_home: bool,
+    #[serde(default)]
+    home_binding: Option<HomeBinding>,
     created_projects: Vec<String>,
     originals: Vec<OriginalFile>,
 }
@@ -204,8 +423,7 @@ fn command(program: &str, args: &[&std::ffi::OsStr], cwd: Option<&Path>) -> Resu
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let output = command
-        .output()
+    let output = super::worktree::command_output(&mut command)
         .map_err(|error_value| format!("could not start {program}: {error_value}"))?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -498,7 +716,19 @@ fn normalized_origin(repo: &Path, url: &str) -> PathBuf {
 }
 
 fn project_origin(context: &Context, project: &str) -> Result<(PathBuf, String), String> {
-    let source = context.projects.join(project);
+    let local = context.projects.join(project);
+    let source = if local.is_dir() {
+        local
+    } else {
+        crate::project_registry::resolve_checkout(&context.home, project)
+            .map_err(|_| {
+                format!(
+                    "project {project} not found at {} or in the canonical catalog",
+                    local.display()
+                )
+            })?
+            .canonical_path
+    };
     if !source.is_dir() {
         return Err(format!(
             "project {project} not found at {}",
@@ -682,35 +912,13 @@ fn rollback(context: &Context, transaction: &Path, journal: &SeedJournal) -> Vec
             }
         }
     }
-    if journal.acquired_home {
-        if safe_created_home(context, &home) {
-            let result = command(
-                "treehouse",
-                &["return".as_ref(), "--force".as_ref(), home.as_os_str()],
-                Some(&context.root),
-            );
-            if result.is_err() {
-                warnings.push(format!("warning: failed to return treehouse-acquired home {} during seed rollback; lease may still be held", home.display()));
-            }
-        }
-    } else if journal.created_home {
-        if safe_created_home(context, &home)
-            && let Err(error_value) = fs::remove_dir_all(&home)
-            && error_value.kind() != std::io::ErrorKind::NotFound
-        {
-            warnings.push(format!(
-                "warning: failed to remove created daemon home {}: {error_value}",
-                home.display()
-            ));
-        }
-    } else {
-        for project in journal.created_projects.iter().rev() {
-            let project = PathBuf::from(project);
-            if validate_child(&home.join("projects"), &project, "created project").is_ok() {
-                let _ = fs::remove_dir_all(project);
-            }
-        }
+    if (journal.acquired_home || journal.created_home)
+        && home.exists()
+        && safe_created_home(context, &home)
+    {
+        warnings.push(format!("warning: retained unfinished home {} after seed rollback; inspect and retry the same home", home.display()));
     }
+
     warnings
 }
 
@@ -777,6 +985,7 @@ fn recover(context: &Context) -> Result<(), String> {
             context.data.join("daemons.md"),
             context.data.join(&journal.id).join("brief.md"),
             home.join("data/projects.md"),
+            home.join("data/projects.json"),
             home.join("data/charter.md"),
             home.join(MARKER),
         ]
@@ -791,6 +1000,7 @@ fn recover(context: &Context) -> Result<(), String> {
                         "backup-parent-registry"
                             | "backup-parent-brief"
                             | "backup-sub-registry"
+                            | "backup-project-catalog"
                             | "backup-charter"
                             | "backup-marker"
                     )
@@ -807,11 +1017,42 @@ fn recover(context: &Context) -> Result<(), String> {
         }
         if journal.state == "prepared" {
             let warnings = rollback(context, &transaction, &journal);
-            if !warnings.is_empty() {
+            for warning in &warnings {
+                eprintln!("{warning}");
+            }
+            if warnings
+                .iter()
+                .any(|warning| !warning.starts_with("warning: retained unfinished home"))
+            {
                 return Err(warnings.join("\n"));
             }
         }
+        if journal.state == "committed" {
+            activate_home(context, &journal)?;
+        }
         fs::remove_dir_all(&transaction).map_err(|error_value| error_value.to_string())?;
+    }
+    Ok(())
+}
+
+fn activate_home(context: &Context, journal: &SeedJournal) -> Result<(), String> {
+    if let Some(mut allocation) = read_home_allocation(&context.data, &journal.id)? {
+        if allocation.binding.path != Path::new(&journal.home)
+            || allocation.binding.owner_home != resolved(&context.home)
+            || journal.home_binding.as_ref() != Some(&allocation.binding)
+        {
+            return Err("home allocation identity changed".into());
+        }
+        verify_home_directory(&allocation, Path::new(&journal.home))?;
+        allocation.state = "active".into();
+        atomic_replace(
+            context
+                .data
+                .join(format!(".home-allocation-{}.json", journal.id)),
+            &serde_json::to_vec(&allocation).map_err(|e| e.to_string())?,
+            0o600,
+        )
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -882,10 +1123,27 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     let requested = PathBuf::from(&args[1]);
     let mut no_projects = false;
     let mut projects = Vec::new();
-    for arg in &args[2..] {
+    let mut git_request = None;
+    let mut arguments = args[2..].iter();
+    while let Some(arg) = arguments.next() {
         let value = arg.to_str().ok_or("project name is not valid UTF-8")?;
         if value == "--no-projects" {
             no_projects = true;
+        } else if value == "--git-allocation" {
+            if git_request.is_some() {
+                return Err("duplicate --git-allocation".into());
+            }
+            let project = arguments
+                .next()
+                .and_then(|a| a.to_str())
+                .ok_or("--git-allocation requires PROJECT ALLOCATION")?;
+            let allocation = arguments
+                .next()
+                .and_then(|a| a.to_str())
+                .ok_or("--git-allocation requires PROJECT ALLOCATION")?;
+            git_request = Some((project, allocation));
+        } else if value.starts_with('-') {
+            return Err(format!("unknown home-seed option: {value}"));
         } else {
             projects.push(value.to_owned());
         }
@@ -911,9 +1169,82 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     }
     validate_registry(&context.data.join("daemons.md"))
         .map_err(|value| value.trim_start_matches("error: ").trim_end().to_owned())?;
-    for project in &projects {
-        project_origin(context, project)?;
+    let existing_brief = context.data.join(id).join("brief.md");
+    if existing_brief.is_file() {
+        charter_fields(&existing_brief)?;
+    } else {
+        match env::var("MX_DAEMON_CHARTER").ok() {
+            None => {
+                return Err(format!(
+                    "no filled daemon charter brief at {}; set MX_DAEMON_CHARTER or scaffold one and replace {{TASK}}",
+                    existing_brief.display()
+                ));
+            }
+            Some(value) if normalize_registry_text(&value).is_empty() => {
+                return Err("empty Charter section".into());
+            }
+            _ => {}
+        }
+        if env::var("MX_DAEMON_SCOPE").is_ok_and(|value| normalize_registry_text(&value).is_empty())
+        {
+            return Err("empty Routing scope section".into());
+        }
     }
+    let mut references = Vec::new();
+    for project in &projects {
+        let (source, _) = project_origin(context, project)?;
+        let binding = crate::project_registry::bind_project_at(
+            &context.home,
+            &context.data,
+            &context.projects,
+            &source,
+        )?;
+        let catalog = crate::project_registry::read_catalog(&context.home)?;
+        let record = catalog
+            .projects
+            .into_iter()
+            .find(|p| p.project_id == binding.project_id)
+            .ok_or("project reference missing")?;
+        references.push((project.clone(), binding, record));
+    }
+
+    // Resolve and verify the deliberate Git allocation before the home publication lock.
+    // This never adopts an arbitrary existing Git checkout.
+    let git_allocation = if let Some((selector, allocation_id)) = git_request {
+        if requested == Path::new("-") {
+            return Err("--git-allocation requires its exact home path".into());
+        }
+        let project = if Path::new(selector).exists() {
+            crate::project_registry::bind_project_at(
+                &context.home,
+                &context.data,
+                &context.projects,
+                Path::new(selector),
+            )?
+        } else {
+            crate::project_registry::resolve_checkout(&context.home, selector)?
+        };
+        let store = super::worktree::Store::new(&project)?;
+        let allocation = store.inspect(allocation_id)?;
+        if allocation.state != super::worktree::State::Active
+            || !allocation.binding.persistent
+            || allocation.binding.task_id != id
+            || allocation.owner_home != resolved(&context.home)
+            || Path::new(&allocation.binding.path) != resolved(&requested)
+        {
+            return Err("Git home requires an active persistent allocation owned by this home and task at the exact requested path".into());
+        }
+        if store
+            .list()?
+            .iter()
+            .any(|o| o.path == resolved(&requested) && o.error.is_some())
+        {
+            return Err("Git home allocation identity cannot be verified".into());
+        }
+        Some(allocation)
+    } else {
+        None
+    };
 
     fs::create_dir_all(&context.data).map_err(|error_value| error_value.to_string())?;
     let data = real_directory(&context.data, "active data directory")?;
@@ -939,6 +1270,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         home: String::new(),
         created_home: false,
         acquired_home: requested == Path::new("-"),
+        home_binding: None,
         created_projects: Vec::new(),
         originals: Vec::new(),
     };
@@ -946,50 +1278,146 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
 
     let operation = (|| -> Result<String, String> {
         let home = if journal.acquired_home {
-            let value = command(
-                "treehouse",
-                &[
-                    "get".as_ref(),
-                    "--lease".as_ref(),
-                    "--lease-holder".as_ref(),
-                    id.as_ref(),
-                ],
-                Some(&context.root),
-            )?;
-            if value.is_empty() {
-                return Err("treehouse get --lease did not report a Multplx home".to_owned());
-            }
-            PathBuf::from(value)
+            let active = resolved(&context.home);
+            let parent = active.parent().ok_or("active home has no parent")?;
+            parent
+                .join(format!(
+                    ".multplx-homes-{}",
+                    &crate::maintainer_override::sha256_text(&active.to_string_lossy())[..16]
+                ))
+                .join(id)
         } else {
             resolved(&requested)
         };
-        journal.home = path_text(&home, "daemon home")?;
-        journal.created_home = !journal.acquired_home && !home.exists();
-        publish_journal(&transaction, &journal)?;
         let home = validate_home_boundary(context, &home)?;
         journal.home = path_text(&home, "daemon home")?;
+        journal.created_home = !home.exists();
         publish_journal(&transaction, &journal)?;
         validate_assignment(&context.data.join("daemons.md"), id, &home)?;
-        if journal.created_home {
-            fs::create_dir_all(home.parent().ok_or("daemon home has no parent")?)
-                .map_err(|error_value| error_value.to_string())?;
-            command(
-                "git",
-                &[
-                    "clone".as_ref(),
-                    "--quiet".as_ref(),
-                    context.root.as_os_str(),
-                    home.as_os_str(),
-                ],
-                None,
-            )?;
-            if !home.join("AGENTS.md").is_file() && context.root.join("AGENTS.md").is_file() {
+        if let Some(prior) = read_home_allocation(&context.data, id)? {
+            if prior.binding.owner_home != resolved(&context.home) {
+                return Err("home allocation belongs to another owner; retained".into());
+            }
+            if prior.state == "active" {
+                if prior.binding.path != home {
+                    return Err("active home allocation path changed; retained".into());
+                }
+                verify_home_directory(&prior, &home)?;
+            }
+            if prior.state == "retired" && home.exists() && git_allocation.is_none() {
+                return Err(
+                    "retired home path is occupied; retained until explicitly reconciled".into(),
+                );
+            }
+        }
+        let resume_private = read_home_allocation(&context.data, id)?
+            .is_some_and(|a| a.state == "reserved" && a.binding.path == home);
+        if journal.created_home || resume_private || git_allocation.is_some() {
+            let receipt = context.data.join(format!(".home-allocation-{id}.json"));
+            let previous = read_home_allocation(&context.data, id)?;
+            if previous
+                .as_ref()
+                .is_some_and(|p| p.state == "reserved" && p.directory_identity.is_none())
+                && home.exists()
+                && git_allocation.is_none()
+            {
+                return Err(
+                    "unfinished home path has no directory identity; retained for reconciliation"
+                        .into(),
+                );
+            }
+            let generation = match previous.as_ref() {
+                Some(prior) if prior.state == "retired" => prior
+                    .binding
+                    .generation
+                    .checked_add(1)
+                    .ok_or("home generation exhausted")?,
+                Some(prior) if prior.state == "reserved" && prior.binding.path == home => {
+                    prior.binding.generation
+                }
+                Some(prior)
+                    if prior.state == "active"
+                        && prior.binding.path == home
+                        && prior.git_allocation.as_ref().map(|a| &a.binding)
+                            == git_allocation.as_ref().map(|a| &a.binding) =>
+                {
+                    prior.binding.generation
+                }
+                Some(_) => {
+                    return Err("existing home allocation unresolved; retain and reconcile".into());
+                }
+                None => 1,
+            };
+            let binding = previous
+                .as_ref()
+                .filter(|prior| matches!(prior.state.as_str(), "reserved" | "active"))
+                .map(|prior| prior.binding.clone())
+                .unwrap_or_else(|| HomeBinding {
+                    id: id.into(),
+                    owner_home: resolved(&context.home),
+                    path: home.clone(),
+                    generation,
+                    lease_id: super::subagent_model::new_identity("home"),
+                });
+            let mut allocation = HomeAllocation {
+                version: 1,
+                binding,
+                runtime_root: resolved(&context.root),
+                state: "reserved".into(),
+                retained_path: None,
+                directory_identity: previous
+                    .as_ref()
+                    .filter(|p| matches!(p.state.as_str(), "reserved" | "active"))
+                    .and_then(|p| p.directory_identity),
+                git_allocation: git_allocation.clone().or_else(|| {
+                    previous
+                        .as_ref()
+                        .filter(|p| matches!(p.state.as_str(), "reserved" | "active"))
+                        .and_then(|p| p.git_allocation.clone())
+                }),
+            };
+            if allocation.directory_identity.is_some() {
+                verify_home_directory(&allocation, &home)?;
+            }
+            atomic_replace(
+                &receipt,
+                &serde_json::to_vec(&allocation).map_err(|e| e.to_string())?,
+                0o600,
+            )
+            .map_err(|e| e.to_string())?;
+            if journal.created_home {
+                fs::create_dir_all(home.parent().ok_or("home parent missing")?)
+                    .map_err(|e| e.to_string())?;
+                fs::create_dir(&home)
+                    .map_err(|e| format!("home path appeared during reservation; retained: {e}"))?;
+            }
+            fs::set_permissions(&home, fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?;
+            let directory = fs::symlink_metadata(&home).map_err(|e| e.to_string())?;
+            allocation.directory_identity = Some((directory.dev(), directory.ino()));
+            atomic_replace(
+                &receipt,
+                &serde_json::to_vec(&allocation).map_err(|e| e.to_string())?,
+                0o600,
+            )
+            .map_err(|e| e.to_string())?;
+            // Runtime assets remain at their installation owner; homes contain
+            // private coordination/configuration state, never a runtime clone.
+            for name in ["bin", "share", ".agents"] {
+                let source = context.root.join(name);
+                if source.exists() && fs::symlink_metadata(home.join(name)).is_err() {
+                    std::os::unix::fs::symlink(resolved(&source), home.join(name))
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            if !home.join("AGENTS.md").exists() {
                 fs::copy(context.root.join("AGENTS.md"), home.join("AGENTS.md"))
-                    .map_err(|error_value| error_value.to_string())?;
+                    .map_err(|e| format!("runtime contract unavailable: {e}"))?;
             }
         }
         let home = verify_broker_home(context, &home)?;
         journal.home = path_text(&home, "daemon home")?;
+        journal.home_binding = read_home_allocation(&context.data, id)?.map(|a| a.binding);
         publish_journal(&transaction, &journal)?;
         validate_assignment(&context.data.join("daemons.md"), id, &home)?;
         validate_operational_dirs(context, &home)?;
@@ -1024,6 +1452,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
             ("parent-registry", context.data.join("daemons.md")),
             ("parent-brief", parent_brief.clone()),
             ("sub-registry", home.join("data/projects.md")),
+            ("project-catalog", home.join("data/projects.json")),
             ("charter", home.join("data/charter.md")),
             ("marker", home.join(MARKER)),
         ] {
@@ -1069,88 +1498,15 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         let (summary, scope) = charter_fields(&parent_brief)?;
         injected("brief")?;
 
-        for project in &projects {
-            let (source, origin) = project_origin(context, project)?;
-            let destination = validate_child(
-                &home.join("projects"),
-                &home.join("projects").join(project),
-                "project destination",
-            )?;
-            if destination.exists() {
-                real_directory(&destination, "seeded project")?;
-                command(
-                    "git",
-                    &[
-                        "-C".as_ref(),
-                        destination.as_os_str(),
-                        "rev-parse".as_ref(),
-                        "--is-inside-work-tree".as_ref(),
-                    ],
-                    None,
-                )
-                .map_err(|_| {
-                    format!(
-                        "seeded project {project} at {} is not a git repo",
-                        destination.display()
-                    )
-                })?;
-                let actual = command(
-                    "git",
-                    &[
-                        "-C".as_ref(),
-                        destination.as_os_str(),
-                        "remote".as_ref(),
-                        "get-url".as_ref(),
-                        "origin".as_ref(),
-                    ],
-                    None,
-                )
-                .unwrap_or_default();
-                if origin.is_empty() && !actual.is_empty() {
-                    return Err(format!("seeded project {project} has a conflicting origin"));
-                }
-                if !origin.is_empty()
-                    && normalized_origin(&destination, &actual)
-                        != normalized_origin(&source, &origin)
-                {
-                    return Err(format!(
-                        "seeded project {project} at {} has origin {actual}; expected {origin}",
-                        destination.display()
-                    ));
-                }
-            } else {
-                journal
-                    .created_projects
-                    .push(path_text(&destination, "created project")?);
-                publish_journal(&transaction, &journal)?;
-                command(
-                    "git",
-                    &[
-                        "clone".as_ref(),
-                        "--quiet".as_ref(),
-                        if origin.is_empty() {
-                            source.as_os_str()
-                        } else {
-                            origin.as_ref()
-                        },
-                        destination.as_os_str(),
-                    ],
-                    None,
-                )?;
-                if origin.is_empty() {
-                    command(
-                        "git",
-                        &[
-                            "-C".as_ref(),
-                            destination.as_os_str(),
-                            "remote".as_ref(),
-                            "remove".as_ref(),
-                            "origin".as_ref(),
-                        ],
-                        None,
-                    )?;
-                }
+        for (alias, binding, record) in &references {
+            let local = home.join("projects").join(alias);
+            if fs::symlink_metadata(&local).is_ok() && resolved(&local) != binding.canonical_path {
+                return Err(format!(
+                    "existing project checkout conflicts with borrowed reference {alias}: {}; retain and reconcile",
+                    local.display()
+                ));
             }
+            crate::project_registry::remember_reference(&home, record, binding, alias)?;
         }
         injected("projects")?;
 
@@ -1217,6 +1573,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         Ok(stdout) => {
             journal.state = "committed".to_owned();
             publish_journal(&transaction, &journal)?;
+            activate_home(context, &journal)?;
             fs::remove_dir_all(transaction).map_err(|error_value| error_value.to_string())?;
             Ok(stdout)
         }
@@ -1268,6 +1625,230 @@ pub fn run(args: &[OsString], context: &Context) -> Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn owned_home(context: &Context, path: &Path, generation: u64) -> HomeAllocation {
+        fs::create_dir_all(&context.data).unwrap();
+        fs::create_dir_all(path).unwrap();
+        let metadata = fs::metadata(path).unwrap();
+        let allocation = HomeAllocation {
+            version: 1,
+            binding: HomeBinding {
+                id: "durable".into(),
+                owner_home: resolved(&context.home),
+                path: resolved(path),
+                lease_id: super::super::subagent_model::new_identity("home"),
+                generation,
+            },
+            runtime_root: resolved(&context.root),
+            state: "active".into(),
+            retained_path: None,
+            directory_identity: Some((metadata.dev(), metadata.ino())),
+            git_allocation: None,
+        };
+        write_allocation(context, &allocation);
+        allocation
+    }
+
+    fn write_allocation(context: &Context, allocation: &HomeAllocation) {
+        atomic_replace(
+            context.data.join(".home-allocation-durable.json"),
+            &serde_json::to_vec(allocation).unwrap(),
+            0o600,
+        )
+        .unwrap();
+    }
+
+    fn projectless_seed_fixture(context: &Context) {
+        fs::create_dir_all(context.root.join("bin")).unwrap();
+        fs::create_dir_all(context.data.join("durable")).unwrap();
+        fs::write(context.root.join("AGENTS.md"), "fixture runtime").unwrap();
+        fs::write(context.data.join("durable/brief.md"), "# Charter\nNone. This is a project-less domain\n# Project references\nNone. This is a project-less domain\n# Routing scope\nMeasurement domain\n").unwrap();
+    }
+
+    #[test]
+    fn seeding_a_retired_private_home_uses_a_new_generation_and_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        projectless_seed_fixture(&context);
+        let path = resolved(&temp.path().join("private"));
+        let args = [
+            "durable".into(),
+            path.as_os_str().to_owned(),
+            "--no-projects".into(),
+        ];
+        seed(&args, &context).unwrap();
+        let first = read_home_allocation(&context.data, "durable")
+            .unwrap()
+            .unwrap();
+        fs::write(path.join("unfinished"), "old progress").unwrap();
+        let archive = retire_home(&context.data, &first.binding).unwrap();
+        seed(&args, &context).unwrap();
+        let next = read_home_allocation(&context.data, "durable")
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.binding.generation, first.binding.generation + 1);
+        assert_ne!(next.binding.lease_id, first.binding.lease_id);
+        assert_ne!(next.directory_identity, first.directory_identity);
+        assert!(next.git_allocation.is_none());
+        assert_eq!(next.state, "active");
+        assert_eq!(
+            fs::read_to_string(archive.join("unfinished")).unwrap(),
+            "old progress"
+        );
+        assert!(retire_home(&context.data, &first.binding).is_err());
+    }
+
+    #[test]
+    fn malformed_home_lease_and_replaced_active_directory_cannot_redirect_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        projectless_seed_fixture(&context);
+        let path = resolved(&temp.path().join("private"));
+        let args = [
+            "durable".into(),
+            path.as_os_str().to_owned(),
+            "--no-projects".into(),
+        ];
+        seed(&args, &context).unwrap();
+        let first = read_home_allocation(&context.data, "durable")
+            .unwrap()
+            .unwrap();
+        let mut corrupt = first.clone();
+        corrupt.binding.lease_id = "../foreign".into();
+        write_allocation(&context, &corrupt);
+        assert!(
+            retire_home(&context.data, &corrupt.binding)
+                .unwrap_err()
+                .contains("invalid home allocation")
+        );
+        write_allocation(&context, &first);
+        let old = path.with_file_name("preserved-old-home");
+        fs::rename(&path, &old).unwrap();
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("foreign"), "keep").unwrap();
+        assert!(
+            seed(&args, &context)
+                .unwrap_err()
+                .contains("directory identity")
+        );
+        assert_eq!(fs::read_to_string(path.join("foreign")).unwrap(), "keep");
+        assert!(!path.join("AGENTS.md").exists());
+        assert!(old.join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn private_retirement_preserves_material_and_fences_reused_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        let path = temp.path().join("private");
+        let first = owned_home(&context, &path, 1);
+        fs::write(path.join("unfinished"), "keep").unwrap();
+        let archive = retire_home(&context.data, &first.binding).unwrap();
+        assert_eq!(
+            fs::read_to_string(archive.join("unfinished")).unwrap(),
+            "keep"
+        );
+        assert!(!path.exists());
+        assert_eq!(retire_home(&context.data, &first.binding).unwrap(), archive);
+        let second = owned_home(&context, &path, 2);
+        fs::write(path.join("new"), "new owner").unwrap();
+        assert!(
+            retire_home(&context.data, &first.binding)
+                .unwrap_err()
+                .contains("stale")
+        );
+        assert!(path.join("new").exists());
+        assert_ne!(first.binding.lease_id, second.binding.lease_id);
+    }
+
+    #[test]
+    fn retirement_reconciles_rename_before_receipt_and_refuses_replacement() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        let path = temp.path().join("private");
+        let mut allocation = owned_home(&context, &path, 1);
+        let archive = retire_home(&context.data, &allocation.binding).unwrap();
+        allocation.state = "archiving".into();
+        allocation.retained_path = Some(archive.clone());
+        write_allocation(&context, &allocation);
+        assert_eq!(
+            retire_home(&context.data, &allocation.binding).unwrap(),
+            archive
+        );
+        let second = owned_home(&context, &path, 2);
+        fs::rename(&path, temp.path().join("original")).unwrap();
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("foreign"), "keep").unwrap();
+        assert!(
+            retire_home(&context.data, &second.binding)
+                .unwrap_err()
+                .contains("identity")
+        );
+        assert!(path.join("foreign").exists());
+        fs::remove_dir_all(&path).unwrap();
+        std::os::unix::fs::symlink(temp.path().join("original"), &path).unwrap();
+        assert!(retire_home(&context.data, &second.binding).is_err());
+    }
+
+    #[test]
+    fn deliberate_git_home_retirement_keeps_worktree_and_persistent_reservation() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        fs::create_dir_all(&context.home).unwrap();
+        let project = temp.path().join("project");
+        fs::create_dir(&project).unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec![
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "base",
+                "--allow-empty",
+            ],
+        ] {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&project)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        let project = crate::project_registry::bind_project(&context.home, &project).unwrap();
+        let store = super::super::worktree::Store::new(&project).unwrap();
+        let git = store
+            .acquire(
+                &super::super::worktree::Acquire {
+                    request_id: "home",
+                    owner_home: &context.home,
+                    project: &project,
+                    task_id: "durable",
+                    attempt_id: "home-attempt",
+                    persistent: true,
+                },
+                None,
+            )
+            .unwrap();
+        let path = PathBuf::from(&git.binding.path);
+        let mut home = owned_home(&context, &path, 1);
+        home.git_allocation = Some(git.clone());
+        write_allocation(&context, &home);
+        fs::write(path.join("private-state"), "preserve").unwrap();
+        assert_eq!(retire_home(&context.data, &home.binding).unwrap(), path);
+        assert_eq!(retire_home(&context.data, &home.binding).unwrap(), path);
+        assert!(path.join("private-state").exists());
+        assert_eq!(
+            store.inspect(&git.binding.allocation_id).unwrap().state,
+            super::super::worktree::State::Retained
+        );
+        assert!(store.release(&git.binding).is_err());
+    }
 
     #[test]
     fn projectless_charters_accept_both_versions_and_reject_ambiguity() {
@@ -1347,6 +1928,7 @@ mod tests {
                 home: String::new(),
                 created_home: false,
                 acquired_home: false,
+                home_binding: None,
                 created_projects: Vec::new(),
                 originals: Vec::new(),
             },

@@ -8,10 +8,8 @@
 # default (tmux, `backend=` absent) path stays byte-identical. Sourced only
 # through bin/mx-backend.sh's mx_backend_source, never directly.
 #
-# Worktree acquisition (running `treehouse get` inside the pane, and polling
-# its cwd) is unchanged by this extraction: P1 scopes only the session
-# provider, not the worktree provider, so mx-spawn.sh still drives that part
-# inline with these same send/current-path primitives.
+# Worktree acquisition belongs to the built-in lifecycle.
+# Session creation receives its exact directory before any harness command.
 #
 # The verified composer/busy-detection and verify-and-retry-submit primitives
 # already live in bin/mx-tmux-lib.sh, shared with the away-mode daemon
@@ -79,7 +77,7 @@ mx_backend_tmux_container_ensure() {
 #     ("$ses:"), so a non-default base-index (e.g. base-index 1) cannot collide.
 #   - PIN the window name by disabling automatic-rename and allow-rename on the
 #     new window: the maintainer's tmux may rename the window away from mx-<id> once
-#     treehouse cd's into the worktree, which would break name-based targeting.
+#     the harness changes directory, which would break name-based targeting.
 # The returned window id lets callers target the window even if its name is ever
 # lost, so worktree discovery cannot fall back to the active client's window.
 mx_backend_tmux_create_task() {  # <session> <window-name> <proj-abs> -> prints window id
@@ -94,16 +92,15 @@ mx_backend_tmux_create_task() {  # <session> <window-name> <proj-abs> -> prints 
   printf '%s\n' "$wid"
 }
 
-# mx_backend_tmux_current_path: the live pane's current working directory, or
-# empty on any tmux error. Mirrors mx-spawn.sh's worktree-discovery poll:
-# `tmux display-message -p -t "$T" '#{pane_current_path}'`.
+# mx_backend_tmux_current_path: one diagnostic observation of the live pane's
+# current working directory, or empty on tmux error.
 mx_backend_tmux_current_path() {  # <target>
   tmux display-message -p -t "$1" '#{pane_current_path}' 2>/dev/null
 }
 
 # mx_backend_tmux_send_text_line: send one line of TEXT then Enter, with no
 # composer verification - used for the fixed spawn-time commands
-# (`treehouse get`, the GOTMPDIR export) that already ran this exact sequence
+# (the GOTMPDIR export) that already ran this exact sequence
 # inline in mx-spawn.sh. Mirrors `tmux send-keys -t "$T" "<text>" Enter`.
 mx_backend_tmux_send_text_line() {  # <target> <text>
   tmux send-keys -t "$1" "$2" Enter

@@ -429,7 +429,7 @@ fn cmux_malformed_and_socket_states_fail_closed() {
 }
 
 #[test]
-fn launcher_validation_and_treehouse_download_refusals_are_observable() {
+fn launcher_validation_and_retired_installer_refusal_are_observable() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
     fs::create_dir_all(&home).expect("home");
@@ -509,7 +509,11 @@ fn launcher_validation_and_treehouse_download_refusals_are_observable() {
 
     let fake_bin = temp.path().join("fake-bin");
     fs::create_dir(&fake_bin).expect("fake bin");
-    executable(&fake_bin.join("curl"), "#!/bin/sh\nexit 22\n");
+    let invoked = temp.path().join("download-invoked");
+    executable(
+        &fake_bin.join("curl"),
+        &format!("#!/bin/sh\n/bin/touch '{}'\nexit 99\n", invoked.display()),
+    );
     let destination = temp.path().join("treehouse");
     let install = run(
         &home,
@@ -520,7 +524,15 @@ fn launcher_validation_and_treehouse_download_refusals_are_observable() {
         &[("PATH", fake_bin.as_path())],
     );
     assert!(!install.status.success());
-    assert!(String::from_utf8_lossy(&install.stderr).contains("download failed"));
+    assert!(String::from_utf8_lossy(&install.stderr).contains("unrecognized subcommand"));
+    assert!(
+        !invoked.exists(),
+        "retired installer must not invoke a download"
+    );
+    assert!(
+        !destination.exists(),
+        "retired installer must not publish a binary"
+    );
 }
 
 #[test]
@@ -688,7 +700,7 @@ fn launcher_rejects_incomplete_roots_homes_reals_and_recursive_shims() {
 }
 
 #[test]
-fn cmux_tool_resolution_and_treehouse_archive_bounds_are_enforced() {
+fn cmux_tool_resolution_is_enforced() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home = temp.path().join("home");
     fs::create_dir_all(home.join("config")).expect("config");
@@ -729,39 +741,6 @@ fn cmux_tool_resolution_and_treehouse_archive_bounds_are_enforced() {
         ("MX_BACKEND_CMUX_BUNDLE_BIN", bundle.as_path()),
     ];
     assert_success(&run(&home, &["cmux", "tool-check"], &available));
-
-    let fake_bin = temp.path().join("fake-bin");
-    fs::create_dir(&fake_bin).expect("fake bin");
-    let destination = temp.path().join("treehouse");
-    executable(
-        &fake_bin.join("curl"),
-        "#!/bin/sh\nout=\nwhile [ $# -gt 0 ]; do if [ \"$1\" = -o ]; then shift; out=$1; fi; shift; done\nprintf abc > \"$out\"\n",
-    );
-    let checksum = run(
-        &home,
-        &[
-            "install-treehouse",
-            destination.to_str().expect("destination"),
-        ],
-        &[("PATH", fake_bin.as_path())],
-    );
-    assert!(!checksum.status.success());
-    assert!(String::from_utf8_lossy(&checksum.stderr).contains("checksum mismatch"));
-
-    executable(
-        &fake_bin.join("curl"),
-        "#!/bin/sh\nout=\nwhile [ $# -gt 0 ]; do if [ \"$1\" = -o ]; then shift; out=$1; fi; shift; done\n/bin/dd if=/dev/zero of=\"$out\" bs=1000000 count=16 2>/dev/null\n",
-    );
-    let oversized = run(
-        &home,
-        &[
-            "install-treehouse",
-            destination.to_str().expect("destination"),
-        ],
-        &[("PATH", fake_bin.as_path())],
-    );
-    assert!(!oversized.status.success());
-    assert!(String::from_utf8_lossy(&oversized.stderr).contains("size limit"));
 }
 
 #[test]

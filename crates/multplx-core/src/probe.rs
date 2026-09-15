@@ -2,7 +2,6 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::error::{CoreError, Result};
 use crate::tangle::{default_branch, primary_tangle_branch, render_bootstrap_tangle};
@@ -92,7 +91,6 @@ pub fn install_command(tool: &str) -> Option<&'static str> {
         "curl" => Some("brew install curl  # or the platform's package manager"),
         "jq" => Some("brew install jq  # or the platform's package manager"),
         "cmux" => Some("brew install --cask cmux  # or see https://cmux.com"),
-        "treehouse" => Some("curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh"),
         _ => None,
     }
 }
@@ -106,8 +104,6 @@ pub fn manual_install_url(tool: &str) -> Option<&'static str> {
 pub trait ToolProbe {
     /// Return whether a named executable is available.
     fn available(&self, tool: &str) -> bool;
-    /// Return whether Treehouse advertises durable leases.
-    fn treehouse_supports_lease(&self) -> bool;
 }
 
 /// Host PATH observation.
@@ -122,33 +118,6 @@ impl ToolProbe for SystemToolProbe {
             })
         })
     }
-
-    fn treehouse_supports_lease(&self) -> bool {
-        Command::new("treehouse")
-            .args(["get", "--help"])
-            .output()
-            .ok()
-            .filter(|output| output.stdout.len() + output.stderr.len() <= 64 * 1024)
-            .is_some_and(|output| output_supports_lease(&output.stdout, &output.stderr))
-    }
-}
-
-fn output_supports_lease(stdout: &[u8], stderr: &[u8]) -> bool {
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(stdout),
-        String::from_utf8_lossy(stderr)
-    );
-    text.match_indices("--lease").any(|(index, flag)| {
-        let before = text[..index].chars().next_back();
-        let after = text[index + flag.len()..].chars().next();
-        let boundary = |character: Option<char>| {
-            character.is_none_or(|character| {
-                !character.is_ascii_alphanumeric() && !matches!(character, '_' | '-')
-            })
-        };
-        boundary(before) && boundary(after)
-    })
 }
 
 fn executable_candidates(tool: &str) -> impl Iterator<Item = PathBuf> {
@@ -196,14 +165,12 @@ pub fn tool_records(backend_name: &str, probe: &impl ToolProbe) -> Vec<ToolRecor
             backend: backend_name.to_owned(),
         });
     }
-    for tool in ["node", "git", "gh", "jq", "treehouse"] {
+    for tool in ["node", "git", "gh", "jq"] {
         if !probe.available(tool) {
             records.push(missing(tool));
         }
     }
-    if probe.available("treehouse") && !probe.treehouse_supports_lease() {
-        records.push(missing("treehouse"));
-    }
+
     records
 }
 
@@ -232,49 +199,22 @@ mod tests {
 
     use super::{
         Backend, SystemToolProbe, ToolProbe, ToolRecord, install_command, manual_install_url,
-        output_supports_lease, tool_records,
+        tool_records,
     };
 
     struct FixtureProbe {
         tools: HashSet<String>,
-        lease: bool,
     }
 
     impl ToolProbe for FixtureProbe {
         fn available(&self, tool: &str) -> bool {
             self.tools.contains(tool)
         }
-
-        fn treehouse_supports_lease(&self) -> bool {
-            self.lease
-        }
     }
 
     #[test]
-    fn lease_flag_boundaries_and_tool_guidance_are_exhaustive() {
-        for (stdout, stderr, expected) in [
-            ("--lease", "", true),
-            ("usage: get --lease VALUE", "", true),
-            ("", "flags:\n  --lease\n", true),
-            ("--lease-extra", "", false),
-            ("x--lease", "", false),
-            ("no lease flag", "", false),
-        ] {
-            assert_eq!(
-                output_supports_lease(stdout.as_bytes(), stderr.as_bytes()),
-                expected
-            );
-        }
-        for tool in [
-            "tmux",
-            "node",
-            "git",
-            "gh",
-            "curl",
-            "jq",
-            "cmux",
-            "treehouse",
-        ] {
+    fn tool_guidance_is_exhaustive() {
+        for tool in ["tmux", "node", "git", "gh", "curl", "jq", "cmux"] {
             assert!(
                 install_command(tool).is_some(),
                 "missing guidance for {tool}"
@@ -289,43 +229,17 @@ mod tests {
     }
 
     #[test]
-    fn tool_records_cover_invalid_backend_and_lease_capability() {
+    fn tool_records_cover_invalid_backend_without_external_worktree_provider() {
         let all = HashSet::from_iter(
-            [
-                "tmux",
-                "herdr",
-                "cmux",
-                "node",
-                "git",
-                "gh",
-                "jq",
-                "treehouse",
-            ]
-            .map(str::to_owned),
+            ["tmux", "herdr", "cmux", "node", "git", "gh", "jq"].map(str::to_owned),
         );
-        assert!(
-            tool_records(
-                "tmux",
-                &FixtureProbe {
-                    tools: all.clone(),
-                    lease: true
-                }
-            )
-            .is_empty()
-        );
-        let lease_missing = tool_records(
-            "tmux",
-            &FixtureProbe {
-                tools: all,
-                lease: false,
-            },
-        );
-        assert_eq!(lease_missing.len(), 1);
+        assert!(tool_records("tmux", &FixtureProbe { tools: all.clone() }).is_empty());
+        let lease_missing = tool_records("tmux", &FixtureProbe { tools: all });
+        assert!(lease_missing.is_empty());
         let invalid = tool_records(
             "invalid",
             &FixtureProbe {
                 tools: HashSet::new(),
-                lease: false,
             },
         );
         assert!(matches!(invalid[0], ToolRecord::BackendInvalid { .. }));
@@ -349,6 +263,5 @@ mod tests {
         assert!(!probe.available(executable.to_str().expect("path")));
         assert!(!probe.available(temp.path().to_str().expect("directory")));
         assert!(!probe.available(temp.path().join("absent").to_str().expect("absent")));
-        let _ = probe.treehouse_supports_lease();
     }
 }

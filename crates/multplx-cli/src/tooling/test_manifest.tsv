@@ -125,3 +125,4 @@ tests/mx-wake-queue.test.sh	watcher-process
 tests/mx-watch-checkpoint.test.sh	watcher-process
 tests/mx-watch-triage.test.sh	watcher-process
 tests/mx-watcher-lock.test.sh	watcher-process
+tests/mx-worktree.test.sh	none

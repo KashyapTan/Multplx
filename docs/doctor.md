@@ -31,7 +31,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 | --- | --- |
 | `watcher-lock` | `OK` when the watcher lock is absent or its PID identity matches a live process, and `FAIL` when the lock is malformed, provably stale, or cannot be proved safe. |
 | `watcher-beacon` | `OK` while the home is idle or the supervision beacon is fresh, and `WARN` when in-flight task metadata exists without a fresh beacon. |
-| `orphan-worktrees` | `FAIL` when a task metadata record names a missing worktree or an active Treehouse worktree has no owning task or daemon record, and `WARN` when Treehouse inventory cannot be read. |
+| `orphan-worktrees` | `FAIL` when task metadata names a missing worktree; `WARN` for corrupt, retained or incomplete canonical allocations and unavailable Git inventory. |
 | `dangling-pids` | `FAIL` when a persisted task, watcher, away-mode, or sub-supervisor PID is dead, reused, or missing its required identity. |
 | `stateless-sessions` | Uses the recorded tmux, Herdr, or cmux backend without starting a session; `FAIL` distinguishes an absent recorded endpoint from an unreadable or unsupported observation and retains failure details. Records without a target are skipped. |
 | `wake-queue-orphans` | `FAIL` when a task-scoped queue row has no task metadata or a queue row is malformed, while global watcher rows remain valid without task metadata. |
@@ -40,7 +40,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 | `gate-runs` | `OK` for terminal runs or nonterminal runs backed by a live task, and `FAIL` for malformed or unowned nonterminal gate records. |
 | `workflow-runs` | `OK` for terminal runs, intentional waits, live actor stages, or a running reconcile owner, and `FAIL` for malformed or abandoned nonterminal records. |
 | `orphan-servers` | `FAIL` when a vplan or future visualization run record lacks its identity-matched process or a reserved loopback port has an unrecorded listener. |
-| `tools` | `FAIL` when a universal or selected-backend tool is absent, the backend is invalid, or Treehouse lacks durable lease support. |
+| `tools` | `FAIL` when a universal or selected-backend tool is absent or the backend is invalid. |
 | `primary-tangle` | `FAIL` when the primary checkout is on a named non-default branch, using the same shared tangle probe as bootstrap. |
 | `compat-symlinks` | `OK` when retired compatibility paths are absent or resolve, and `WARN` when a configured path dangles or is not a symlink. |
 
@@ -65,5 +65,5 @@ A second `--fix` on the repaired state makes no further filesystem changes.
 `MX_DOCTOR_DISPATCH_MAX_AGE_SECS` sets the parked dispatch warning age and defaults to `172800`, or 48 hours.
 `MX_DOCTOR_COMPAT_PATHS` may replace the newline-separated compatibility-path inventory for an installation with different retired paths.
 
-Bootstrap and doctor share tool, Treehouse compatibility, and primary-tangle logic through `bin/mx-probe-lib.sh`.
+Bootstrap and doctor share tool and primary-tangle logic through `bin/mx-probe-lib.sh`.
 Bootstrap retains its session-start diagnostics and mutation gates, while doctor provides a separate on-demand read-only report.

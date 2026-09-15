@@ -19,7 +19,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-operational-input.sh` | Transport canonical cross-language operational-input construction and parsing to Rust |
 | `mx-bootstrap.sh`        | Detect toolchain and system problems, run the locked session-start sweeps, and install approved tools |
 | `mx-doctor.sh`           | Sweep system invariants read-only and optionally apply its two proof-bound repairs |
-| `mx-probe-lib.sh`        | Share structured tool, Treehouse compatibility, and primary-tangle probes with bootstrap and doctor |
+| `mx-probe-lib.sh`        | Share structured tool and primary-tangle probes with bootstrap and doctor |
 | `mx-system-sync.sh`       | Refresh project clones with safe fast-forwards, self-heals, `STUCK:` reports, branch pruning, and bounded recovery from an orphaned `.git/packed-refs.lock` |
 | `mx-system-snapshot.sh`   | Print the read-only structured system snapshot JSON (schema `mx-system-snapshot.v1`)   |
 | `mx-system-view.sh`       | Render the system snapshot as a human Markdown view                                   |
@@ -39,7 +39,6 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-brief.sh`            | Scaffold common role/output assignments, persistent charters and Herdr-lab briefs |
 | `mx-herdr-lab.sh`        | Provision and guardedly operate an isolated, never-default Herdr lab session         |
 | `mx-install-herdr.sh`    | Install CI's exact-version Herdr pin with official asset URL, SHA-256, and protocol checks |
-| `mx-install-treehouse.sh`| Install CI's exact-version Treehouse pin for real-Herdr E2E that needs spawn worktrees |
 | `mx-herdr-ci-cleanup.sh` | Snapshot and tear down only job-owned `mx-lab-*` sessions in the Herdr CI lane       |
 | `mx-test-run.sh`         | Compatibility transport to the Rust behavior-test runner |
 | `mx-test-isolation-proof.sh` | Compatibility transport to the Rust repeated conflict-matrix and leak proof |
@@ -108,6 +107,6 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-pr-check.sh`         | Enter the Rust boundary to record canonical PR metadata and arm a static merge poll |
 | `mx-pr-merge.sh`         | Enter the non-agent Rust boundary to record PR metadata and merge a canonical GitHub URL |
 | `mx-promote.sh`          | Atomically promote a scout task in place to a protected delivery task through Rust  |
-| `mx-teardown.sh`         | Fail-closed teardown: return landed delivery worktrees, require completed scout deliverables, retire daemon homes |
+| `mx-teardown.sh`         | Guarded teardown: release proven landed allocations, require completed scout deliverables, preserve retired home material |
 | `mx-harness.sh`          | Detect the running harness and resolve the actor or daemon harness, model, and effort |
 | `mx-lock.sh`             | Per-home broker session lock                                                      |

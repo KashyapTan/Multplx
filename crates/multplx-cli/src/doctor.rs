@@ -195,27 +195,85 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                 })
                 .map(|(id, _)| id.clone())
                 .collect::<Vec<_>>();
-            let fixture = std::env::var_os("MX_DOCTOR_TREEHOUSE_STATUS_FILE").map(PathBuf::from);
-            let orphan = fixture
-                .and_then(|p| fs::read_to_string(p).ok())
-                .unwrap_or_default()
-                .lines()
-                .find(|line| {
-                    line.contains("leased")
-                        && !rows
-                            .iter()
-                            .any(|(_, raw)| line.contains(&meta(raw, "worktree")))
-                })
-                .map(str::to_owned);
-            if let Some(row) = orphan {
-                finding(
-                    name,
-                    "FAIL",
-                    format!("active treehouse path has no task metadata: {row}"),
-                    Some("use bin/mx-teardown.sh for owned cleanup".into()),
-                    false,
-                )
-            } else if !missing.is_empty() {
+            let mut allocation_errors = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
+            let home = std::env::var_os("MX_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| paths.root.clone());
+            let mut projects = Vec::new();
+            match multplx_domain::project_registry::read_catalog(&home) {
+                Ok(catalog) => {
+                    for project in catalog.projects {
+                        if let Some(checkout) = project.checkouts.first() {
+                            match multplx_domain::project_registry::resolve_checkout(
+                                &home,
+                                &checkout.checkout_id,
+                            ) {
+                                Ok(binding) => projects.push(binding),
+                                Err(error) => allocation_errors.push(error),
+                            }
+                        }
+                    }
+                }
+                Err(error) => allocation_errors.push(error),
+            }
+            for (id, raw) in &rows {
+                if let Ok(task) = multplx_domain::lifecycle::subagent_model::read_meta(id, raw)
+                    && let Some(project) = task.project
+                {
+                    projects.push(project);
+                }
+            }
+            for project in &projects {
+                if seen.insert(project.common_git_identity.clone()) {
+                    match multplx_domain::lifecycle::worktree::Store::new(project)
+                        .and_then(|store| store.list())
+                    {
+                        Ok(observations) => {
+                            for observation in observations {
+                                if let Some(allocation) = observation.allocation {
+                                    if let Some(error) = observation.error {
+                                        allocation_errors
+                                            .push(format!("{}: {error}", allocation.binding.path));
+                                    } else if allocation.state
+                                        == multplx_domain::lifecycle::worktree::State::Active
+                                        && !allocation.binding.persistent
+                                        && fs::canonicalize(&allocation.owner_home).ok()
+                                            == fs::canonicalize(&home).ok()
+                                        && !rows.iter().any(|(id, raw)| {
+                                            id == &allocation.binding.task_id
+                                                && raw.contains(&allocation.binding.allocation_id)
+                                        })
+                                    {
+                                        allocation_errors.push(format!("{}: active allocation has no owning task metadata; retained", allocation.binding.path));
+                                    } else if matches!(
+                                        allocation.state,
+                                        multplx_domain::lifecycle::worktree::State::Reserved
+                                            | multplx_domain::lifecycle::worktree::State::Retained
+                                    ) {
+                                        allocation_errors.push(format!(
+                                            "{}: {:?}; ownership retained",
+                                            allocation.binding.path, allocation.state
+                                        ));
+                                    }
+                                } else if observation
+                                    .path
+                                    .to_string_lossy()
+                                    .contains("multplx-worktrees")
+                                {
+                                    allocation_errors.push(format!(
+                                        "{}: {}",
+                                        observation.path.display(),
+                                        observation.error.unwrap_or_default()
+                                    ));
+                                }
+                            }
+                        }
+                        Err(error) => allocation_errors.push(error),
+                    }
+                }
+            }
+            if !missing.is_empty() {
                 finding(
                     name,
                     "FAIL",
@@ -226,11 +284,19 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                     Some("use bin/mx-teardown.sh for owned cleanup".into()),
                     false,
                 )
+            } else if !allocation_errors.is_empty() {
+                finding(
+                    name,
+                    "WARN",
+                    allocation_errors.join("; "),
+                    Some("inspect the canonical allocation with mx worktree list PROJECT".into()),
+                    false,
+                )
             } else {
                 finding(
                     name,
                     "OK",
-                    "task worktrees and treehouse inventory agree",
+                    "task worktrees and canonical allocation inventory checked",
                     None,
                     false,
                 )
@@ -470,7 +536,7 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
             }
         }
         "tools" => {
-            let tools = ["git", "gh", "jq", "treehouse"];
+            let tools = ["git", "gh", "jq"];
             let missing = tools
                 .into_iter()
                 .filter(|tool| {
@@ -481,10 +547,19 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                 })
                 .collect::<Vec<_>>();
             if missing.is_empty() {
+                if let Err(error) = multplx_domain::lifecycle::worktree::capability() {
+                    return finding(
+                        name,
+                        "FAIL",
+                        error,
+                        Some("install Git with worktree and merge-tree support".into()),
+                        false,
+                    );
+                }
                 finding(
                     name,
                     "OK",
-                    "required tools are present and treehouse supports durable leases",
+                    "required tools are present; worktrees use built-in Git allocation",
                     None,
                     false,
                 )

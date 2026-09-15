@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -18,6 +18,7 @@ use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 
 use super::home_seed::resolved;
+use super::worktree::{command_output, command_output_with};
 
 pub const USAGE: &str = "usage: mx-teardown.sh <task-id> [--override <request-id>]\n";
 const JOURNAL_PREFIX: &str = ".teardown.transaction.";
@@ -43,6 +44,8 @@ struct Journal {
     id: String,
     home: String,
     stage: String,
+    #[serde(default)]
+    home_allocation: Option<super::home_seed::HomeBinding>,
 }
 
 fn error(status: i32, message: impl Into<String>) -> Output {
@@ -216,6 +219,35 @@ fn registry_home(line: &str) -> Option<&str> {
     Some(&tail[..end])
 }
 
+fn validate_task_target(
+    context: &Context,
+    id: &str,
+    values: &BTreeMap<String, String>,
+    path: &Path,
+) -> Result<PathBuf, String> {
+    let raw = values
+        .iter()
+        .map(|(key, value)| format!("{key}={value}\n"))
+        .collect::<String>();
+    let task = super::subagent_model::read_meta(id, &raw)?;
+    if let Some(token) = task.allocation.as_ref() {
+        let target = require_owned_directory(path, "task worktree")?;
+        let store = super::worktree::Store::new(
+            task.project.as_ref().ok_or("allocation project missing")?,
+        )?;
+        let allocation = store.inspect(&token.allocation_id)?;
+        if allocation.binding != *token
+            || Path::new(&token.path) != target
+            || allocation.owner_home
+                != fs::canonicalize(&context.home).map_err(|e| e.to_string())?
+        {
+            return Err("unsafe task target: allocation lease or path mismatch".into());
+        }
+        return Ok(target);
+    }
+    validate_removal_target(context, path, "task worktree")
+}
+
 fn validate_registry_descendants(registry: &Path, home: &Path) -> Result<(), String> {
     let bytes = match read_regular(registry, "daemon registry") {
         Ok(bytes) => bytes,
@@ -314,18 +346,16 @@ fn validate_pr_artifacts(state: &Path, id: &str) -> Result<(), String> {
 }
 
 fn listed_worktree(project: &Path, target: &Path) -> Result<bool, String> {
-    let output = Command::new("git")
-        .args([
-            "-C".as_ref(),
-            project.as_os_str(),
-            "-c".as_ref(),
-            "core.quotePath=false".as_ref(),
-            "worktree".as_ref(),
-            "list".as_ref(),
-            "--porcelain".as_ref(),
-        ])
-        .output()
-        .map_err(|error_value| error_value.to_string())?;
+    let output = command_output(Command::new("git").args([
+        "-C".as_ref(),
+        project.as_os_str(),
+        "-c".as_ref(),
+        "core.quotePath=false".as_ref(),
+        "worktree".as_ref(),
+        "list".as_ref(),
+        "--porcelain".as_ref(),
+    ]))
+    .map_err(|error_value| error_value.to_string())?;
     if !output.status.success() {
         return Ok(false);
     }
@@ -354,12 +384,8 @@ fn listed_worktree(project: &Path, target: &Path) -> Result<bool, String> {
 }
 
 fn git_text(directory: &Path, arguments: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(directory)
-        .args(arguments)
-        .output()
-        .ok()?;
+    let output =
+        command_output(Command::new("git").arg("-C").arg(directory).args(arguments)).ok()?;
     output
         .status
         .success()
@@ -367,12 +393,7 @@ fn git_text(directory: &Path, arguments: &[&str]) -> Option<String> {
 }
 
 fn git_success(directory: &Path, arguments: &[&str]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(directory)
-        .args(arguments)
-        .status()
-        .is_ok_and(|status| status.success())
+    git_text(directory, arguments).is_some()
 }
 
 fn default_branch(project: &Path) -> Option<String> {
@@ -413,13 +434,25 @@ fn pr_number(target: &str) -> Option<String> {
     (!number.is_empty()).then_some(number)
 }
 
-fn pr_landed(worktree: &Path, recorded: Option<&str>) -> bool {
-    let branch = git_text(worktree, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .unwrap_or_else(|| "HEAD".to_owned());
-    let target = recorded
-        .map(str::to_owned)
-        .or_else(|| {
-            let output = Command::new("gh")
+/// A known open PR always retains the resource, even when its patch is also
+/// present on the default branch. Unavailable evidence for a recorded PR or a
+/// GitHub remote is unknown, not permission to discard the branch.
+pub(super) fn publication_blocked(worktree: &Path, recorded: Option<&str>) -> bool {
+    let origin = git_text(worktree, &["remote", "get-url", "origin"]);
+    if recorded.is_none() && origin.is_none() {
+        return false;
+    }
+    let github = origin
+        .as_deref()
+        .is_some_and(|url| url.contains("github.com"));
+    let target = if let Some(target) = recorded.filter(|value| !value.is_empty()) {
+        target.to_owned()
+    } else {
+        let Some(branch) = git_text(worktree, &["rev-parse", "--abbrev-ref", "HEAD"]) else {
+            return true;
+        };
+        let output = command_output(
+            Command::new("gh")
                 .args([
                     "pr",
                     "list",
@@ -434,9 +467,73 @@ fn pr_landed(worktree: &Path, recorded: Option<&str>) -> bool {
                     "--jq",
                     ".[0].number",
                 ])
-                .current_dir(worktree)
-                .output()
-                .ok()?;
+                .current_dir(worktree),
+        );
+        let Ok(output) = output else {
+            return github;
+        };
+        if !output.status.success() {
+            return github;
+        }
+        let target = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if target.is_empty() || target == "null" {
+            return false;
+        }
+        target
+    };
+    let output = command_output(
+        Command::new("gh")
+            .args([
+                "pr",
+                "view",
+                &target,
+                "--json",
+                "state,headRefOid",
+                "-q",
+                ".state + \"\\t\" + .headRefOid",
+            ])
+            .current_dir(worktree),
+    );
+    match output {
+        Ok(output) if output.status.success() => {
+            pr_state_blocks_cleanup(&String::from_utf8_lossy(&output.stdout))
+        }
+        _ => true,
+    }
+}
+
+fn pr_state_blocks_cleanup(row: &str) -> bool {
+    let Some((state, head)) = row.trim().split_once('\t') else {
+        return true;
+    };
+    head.is_empty() || !matches!(state.to_ascii_lowercase().as_str(), "merged" | "closed")
+}
+
+fn pr_landed(worktree: &Path, recorded: Option<&str>) -> bool {
+    let branch = git_text(worktree, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .unwrap_or_else(|| "HEAD".to_owned());
+    let target = recorded
+        .map(str::to_owned)
+        .or_else(|| {
+            let output = command_output(
+                Command::new("gh")
+                    .args([
+                        "pr",
+                        "list",
+                        "--state",
+                        "all",
+                        "--head",
+                        &branch,
+                        "--limit",
+                        "1",
+                        "--json",
+                        "number",
+                        "--jq",
+                        ".[0].number",
+                    ])
+                    .current_dir(worktree),
+            )
+            .ok()?;
             output
                 .status
                 .success()
@@ -444,18 +541,19 @@ fn pr_landed(worktree: &Path, recorded: Option<&str>) -> bool {
         })
         .filter(|value| !value.is_empty());
     let Some(target) = target else { return false };
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "view",
-            &target,
-            "--json",
-            "state,headRefOid",
-            "-q",
-            ".state + \"\\t\" + .headRefOid",
-        ])
-        .current_dir(worktree)
-        .output();
+    let output = command_output(
+        Command::new("gh")
+            .args([
+                "pr",
+                "view",
+                &target,
+                "--json",
+                "state,headRefOid",
+                "-q",
+                ".state + \"\\t\" + .headRefOid",
+            ])
+            .current_dir(worktree),
+    );
     let Ok(output) = output else { return false };
     if !output.status.success() {
         return false;
@@ -518,24 +616,22 @@ fn pr_landed(worktree: &Path, recorded: Option<&str>) -> bool {
 }
 
 fn patch_id(worktree: &Path, commit: &str) -> Option<String> {
-    let shown = Command::new("git")
-        .arg("-C")
-        .arg(worktree)
-        .args(["show", "--pretty=medium", "--no-ext-diff", commit])
-        .output()
-        .ok()?;
+    let shown = command_output(Command::new("git").arg("-C").arg(worktree).args([
+        "show",
+        "--pretty=medium",
+        "--no-ext-diff",
+        commit,
+    ]))
+    .ok()?;
     if !shown.status.success() {
         return None;
     }
-    let mut child = Command::new("git")
-        .args(["patch-id", "--stable"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .ok()?;
-    std::io::Write::write_all(child.stdin.as_mut()?, &shown.stdout).ok()?;
-    drop(child.stdin.take());
-    let output = child.wait_with_output().ok()?;
+    let output = command_output_with(
+        Command::new("git").args(["patch-id", "--stable"]),
+        Some(&shown.stdout),
+        Duration::from_secs(30),
+    )
+    .ok()?;
     output.status.success().then(|| {
         String::from_utf8_lossy(&output.stdout)
             .split_whitespace()
@@ -578,6 +674,12 @@ fn content_in_default(worktree: &Path, project: &Path) -> bool {
     merged_tree.lines().next() == Some(default_tree.as_str())
 }
 
+/// Existing Git/forge landing evidence shared with the allocation owner.
+pub(super) fn allocation_landed(worktree: &Path, project: &Path) -> bool {
+    !publication_blocked(worktree, None)
+        && (pr_landed(worktree, None) || content_in_default(worktree, project))
+}
+
 fn persistent_metadata(id: &str, values: &BTreeMap<String, String>) -> Result<bool, String> {
     let text = values
         .iter()
@@ -608,9 +710,9 @@ fn validate_worktree_safety(
         ));
     }
     let dirty = git_status_after_stale_lock_cleanup(worktree)
-        .ok_or_else(|| {
+        .map_err(|cause| {
             format!(
-                "REFUSED: cannot inspect worktree {} for uncommitted changes.",
+                "REFUSED: cannot inspect worktree {} for uncommitted changes: {cause}.",
                 worktree.display()
             )
         })?
@@ -631,6 +733,11 @@ fn validate_worktree_safety(
             "REFUSED: worktree {} has uncommitted changes present.",
             worktree.display()
         ));
+    }
+    if publication_blocked(worktree, values.get("pr").map(String::as_str)) {
+        return Err(
+            "REFUSED: open pull request or uncertain publication evidence; retained".into(),
+        );
     }
     if unpushed.is_empty() {
         return Ok(());
@@ -680,14 +787,33 @@ fn environment_seconds(name: &str, fallback: Option<&str>, default: f64) -> f64 
                 .and_then(|name| env::var(name).ok())
                 .filter(|value| !value.is_empty())
         })
-        .and_then(|value| value.parse().ok())
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
         .unwrap_or(default)
+}
+
+struct BoundedHolderProbe;
+impl multplx_core::locks::HolderProbe for BoundedHolderProbe {
+    fn holder_status(&self, path: &Path) -> multplx_core::locks::HolderStatus {
+        use multplx_core::locks::HolderStatus;
+        match command_output(Command::new("lsof").arg("--").arg(path)) {
+            Ok(output) if output.status.success() => HolderStatus::Held,
+            Ok(output)
+                if output.status.code() == Some(1)
+                    && output.stdout.is_empty()
+                    && output.stderr.is_empty() =>
+            {
+                HolderStatus::Clear
+            }
+            _ => HolderStatus::Unknown,
+        }
+    }
 }
 
 fn stale_lock_proof(
     lock: &Path,
     minimum_age: f64,
-    probe: &multplx_core::locks::LsofProbe,
+    probe: &impl multplx_core::locks::HolderProbe,
 ) -> Result<bool, multplx_core::error::CoreError> {
     if env::var("MX_TEARDOWN_TEST_LOCK_MTIME_ERROR").as_deref() == Ok("1") {
         return Err(multplx_core::error::CoreError::Io {
@@ -695,6 +821,19 @@ fn stale_lock_proof(
             path: lock.to_owned(),
             source: std::io::Error::other("injected mtime read failure"),
         });
+    }
+    use multplx_core::locks::HolderStatus;
+    for path in std::iter::once(lock).chain(lock.parent()) {
+        match probe.holder_status(path) {
+            HolderStatus::Held => return Ok(false),
+            HolderStatus::Unknown => {
+                return Err(multplx_core::error::CoreError::Command {
+                    command: "lsof".into(),
+                    reason: format!("lsof check failed for {}", path.display()),
+                });
+            }
+            HolderStatus::Clear => {}
+        }
     }
     multplx_core::locks::git_lock_is_provably_stale(
         lock,
@@ -715,121 +854,95 @@ fn index_lock(worktree: &Path) -> Option<PathBuf> {
     })
 }
 
-fn git_status_after_stale_lock_cleanup(worktree: &Path) -> Option<String> {
-    if let Some(status) = git_text(worktree, &["status", "--porcelain"]) {
-        return Some(status);
-    }
-    let lock = index_lock(worktree)?;
+pub(super) fn git_status_after_stale_lock_cleanup(worktree: &Path) -> Result<String, String> {
+    let lock = index_lock(worktree).ok_or("cannot resolve Git index lock")?;
+    let status = || {
+        git_text(worktree, &["status", "--porcelain"])
+            .ok_or_else(|| "Git status failed or timed out".to_owned())
+    };
     if !lock.exists() {
-        return None;
+        return status();
     }
-    let retries = environment_usize("MX_TREEHOUSE_RETURN_LOCK_RETRIES", 3);
+    let retries = environment_usize("MX_WORKTREE_LOCK_RETRIES", 3).min(30);
     let wait = environment_seconds(
-        "MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS",
+        "MX_WORKTREE_LOCK_RETRY_WAIT_SECS",
         Some("MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS"),
         1.0,
+    )
+    .clamp(0.0, 2.0);
+    eprintln!(
+        "teardown: Git lock {}; waiting {wait}s and retrying ({retries} attempts, waiting {wait}s each)",
+        lock.display()
     );
     for _ in 0..retries {
-        std::thread::sleep(Duration::from_secs_f64(wait.max(0.0)));
-        if let Some(status) = git_text(worktree, &["status", "--porcelain"]) {
-            return Some(status);
+        std::thread::sleep(Duration::from_secs_f64(wait));
+        if !lock.exists() {
+            eprintln!("teardown: Git lock observation succeeded on retry");
+            return status();
         }
     }
+    eprintln!("teardown: Git lock persisted across {retries} retries");
     let minimum_age = environment_seconds("MX_STALE_WORKTREE_LOCK_AGE_SECS", None, 30.0);
-    let probe = multplx_core::locks::LsofProbe;
-    if stale_lock_proof(&lock, minimum_age, &probe).ok()? {
-        fs::remove_file(&lock).ok()?;
-        eprintln!(
-            "teardown: removed provably-stale git lock {}",
+    let proof = stale_lock_proof(&lock, minimum_age, &BoundedHolderProbe).map_err(|e| match e {
+        multplx_core::error::CoreError::Io { .. } => format!(
+            "cannot read mtime for git lock {}: {e}; retained",
             lock.display()
-        );
-        return git_text(worktree, &["status", "--porcelain"]);
+        ),
+        _ => format!(
+            "Git lock {} not provably stale: {e}; retained",
+            lock.display()
+        ),
+    })?;
+    if !proof {
+        return Err(format!(
+            "Git lock {} not provably stale: live/unknown holders or insufficient age; retained",
+            lock.display()
+        ));
     }
-    None
+    fs::remove_file(&lock).map_err(|e| {
+        format!(
+            "cannot remove proven stale Git lock {}: {e}",
+            lock.display()
+        )
+    })?;
+    eprintln!(
+        "teardown: removed provably-stale git lock {}",
+        lock.display()
+    );
+    status()
 }
 
-fn return_worktree(project: &Path, worktree: &Path) -> Result<(), String> {
-    let retries = environment_usize("MX_TREEHOUSE_RETURN_LOCK_RETRIES", 3);
-    let wait = environment_seconds(
-        "MX_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS",
-        Some("MX_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS"),
-        1.0,
-    );
-    let minimum_age = environment_seconds("MX_STALE_WORKTREE_LOCK_AGE_SECS", None, 30.0);
-    for attempt in 0..=retries {
-        let output = Command::new("treehouse")
-            .args(["return".as_ref(), "--force".as_ref(), worktree.as_os_str()])
-            .current_dir(project)
-            .output()
-            .map_err(|error_value| format!("treehouse command unavailable: {error_value}"))?;
-        if output.status.success() {
-            if attempt > 0 {
-                eprintln!("teardown: worktree return succeeded on retry");
-            }
-            return Ok(());
-        }
-        let detail = String::from_utf8_lossy(&output.stderr);
-        if !detail.contains("index.lock") {
-            return Err(format!(
-                "treehouse return failed for task worktree {}: {}",
-                worktree.display(),
-                detail.trim()
-            ));
-        }
-        let Some(lock) = index_lock(worktree) else {
-            return Err("treehouse return failed: cannot resolve git index.lock".to_owned());
-        };
-        if attempt < retries {
-            eprintln!(
-                "teardown: git index.lock blocked worktree return; waiting {wait}s and retrying"
-            );
-            std::thread::sleep(Duration::from_secs_f64(wait.max(0.0)));
-            continue;
-        }
-        let probe = multplx_core::locks::LsofProbe;
-        let stale = stale_lock_proof(&lock, minimum_age, &probe);
-        match stale {
-            Ok(true) => {
-                fs::remove_file(&lock).map_err(|error_value| error_value.to_string())?;
-                eprintln!(
-                    "teardown: removed provably-stale git lock {}",
-                    lock.display()
-                );
-                let retry = Command::new("treehouse")
-                    .args(["return".as_ref(), "--force".as_ref(), worktree.as_os_str()])
-                    .current_dir(project)
-                    .output()
-                    .map_err(|error_value| error_value.to_string())?;
-                if retry.status.success() {
-                    return Ok(());
-                }
-                return Err("treehouse return still failing after stale-lock cleanup".to_owned());
-            }
-            Ok(false) => {
-                let holder = multplx_core::locks::HolderProbe::holder_status(&probe, &lock);
-                let qualifier = if holder == multplx_core::locks::HolderStatus::Unknown {
-                    " (lsof check failed)"
-                } else {
-                    ""
-                };
-                return Err(format!(
-                    "git lock {} persisted across {} retries (waiting {wait}s each) and is not provably stale{qualifier}",
-                    lock.display(),
-                    retries
-                ));
-            }
-            Err(error_value) => {
-                return Err(format!(
-                    "cannot read mtime for git lock {}; not provably stale: {error_value}",
-                    lock.display()
-                ));
-            }
-        }
+fn return_allocation(
+    id: &str,
+    values: &BTreeMap<String, String>,
+    worktree: &Path,
+) -> Result<(), String> {
+    let meta = values
+        .iter()
+        .map(|(key, value)| format!("{key}={value}\n"))
+        .collect::<String>();
+    let task = super::subagent_model::read_meta(id, &meta)?;
+    let token = task
+        .allocation
+        .as_ref()
+        .ok_or("legacy or unknown worktree ownership; retain for explicit migration")?;
+    if Path::new(&token.path) != worktree {
+        return Err("worktree path differs from allocation token".into());
     }
-    unreachable!()
+    let store =
+        super::worktree::Store::new(task.project.as_ref().ok_or("allocation project missing")?)?;
+    store.release(token)?;
+    store.prune(token, true, None)?;
+    Ok(())
 }
 
 fn validate_children(context: &Context, home: &Path) -> Result<Vec<PathBuf>, String> {
+    let child_context = Context {
+        root: context.root.clone(),
+        home: home.to_owned(),
+        data: home.join("data"),
+        state: home.join("state"),
+    };
     let state = home.join("state");
     if !state.exists() {
         return Ok(Vec::new());
@@ -862,12 +975,26 @@ fn validate_children(context: &Context, home: &Path) -> Result<Vec<PathBuf>, Str
                 .filter(|value| !value.is_empty())
                 .or_else(|| values.get("worktree"))
                 .ok_or("child daemon metadata has no home")?;
-            let child_home = validate_home(context, &child_id, Path::new(child_home))?;
+            validate_removal_target(context, Path::new(child_home), "child daemon home")?;
+            let child_home = validate_home(&child_context, &child_id, Path::new(child_home))?;
             let _ = validate_children(context, &child_home)?;
         } else if let Some(worktree) = values.get("worktree").filter(|value| !value.is_empty())
             && Path::new(worktree).exists()
         {
-            let target = validate_removal_target(context, Path::new(worktree), "child worktree")?;
+            let raw = values
+                .iter()
+                .map(|(key, value)| format!("{key}={value}\n"))
+                .collect::<String>();
+            if super::subagent_model::read_meta(&child_id, &raw)?
+                .allocation
+                .is_none()
+            {
+                // Legacy paths have no resource-owner proof to narrow these
+                // exclusions: preserve the outer active-home boundary as well.
+                validate_removal_target(context, Path::new(worktree), "child worktree")?;
+            }
+            let target =
+                validate_task_target(&child_context, &child_id, &values, Path::new(worktree))?;
             let project = values
                 .get("project")
                 .ok_or("child metadata has no project")?;
@@ -876,16 +1003,14 @@ fn validate_children(context: &Context, home: &Path) -> Result<Vec<PathBuf>, Str
                     "REFUSED: unsafe child worktree removal target {worktree} is not a git worktree for {project}"
                 ));
             }
-            let lock_output = Command::new("git")
-                .args([
-                    "-C".as_ref(),
-                    target.as_os_str(),
-                    "rev-parse".as_ref(),
-                    "--git-path".as_ref(),
-                    "index.lock".as_ref(),
-                ])
-                .output()
-                .map_err(|error_value| error_value.to_string())?;
+            let lock_output = command_output(Command::new("git").args([
+                "-C".as_ref(),
+                target.as_os_str(),
+                "rev-parse".as_ref(),
+                "--git-path".as_ref(),
+                "index.lock".as_ref(),
+            ]))
+            .map_err(|error_value| error_value.to_string())?;
             if lock_output.status.success() {
                 let lock_text = String::from_utf8(lock_output.stdout)
                     .map_err(|_| "git lock path is not valid UTF-8".to_owned())?;
@@ -940,6 +1065,12 @@ fn cleanup_children<F>(context: &Context, home: &Path, kill: &mut F) -> Result<(
 where
     F: FnMut(&Path) -> Result<(), String>,
 {
+    let child_context = Context {
+        root: context.root.clone(),
+        home: home.to_owned(),
+        data: home.join("data"),
+        state: home.join("state"),
+    };
     let state = home.join("state");
     if !state.is_dir() {
         return Ok(());
@@ -951,6 +1082,15 @@ where
             .and_then(|value| value.to_str())
             .ok_or("child id is not valid UTF-8")?
             .to_owned();
+        let _child_lock = DirectoryLock::acquire_wait(
+            state.join(format!(".teardown.{child_id}.lock")),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        )
+        .map_err(|e| format!("cannot acquire child teardown lock: {e}"))?;
+        // Discovery above is read-only. Re-read the authoritative generation
+        // after taking the same task guard as spawn, then hold it through the
+        // endpoint stop and exact-allocation cleanup.
         let values = metadata(&meta_path)?;
         kill(&meta_path)?;
         if persistent_metadata(&child_id, &values)? {
@@ -959,30 +1099,13 @@ where
                 .filter(|value| !value.is_empty())
                 .or_else(|| values.get("worktree"))
                 .ok_or("child daemon has no home")?;
-            cleanup_children(context, Path::new(child_home), kill)?;
-            remove_home(context, Path::new(child_home))?;
+            cleanup_children(&child_context, Path::new(child_home), kill)?;
+            remove_home(&child_context, Path::new(child_home))?;
+            remove_registry_entry(&child_context, &child_id)?;
         } else if let Some(worktree) = values.get("worktree").filter(|value| !value.is_empty())
             && Path::new(worktree).exists()
         {
-            let project = values.get("project").ok_or("child task has no project")?;
-            let output = Command::new("treehouse")
-                .args([
-                    "return".as_ref(),
-                    "--force".as_ref(),
-                    Path::new(worktree).as_os_str(),
-                ])
-                .current_dir(project)
-                .output();
-            match output {
-                Ok(output) if output.status.success() => {}
-                Ok(output) if String::from_utf8_lossy(&output.stderr).contains("index.lock") => {
-                    return Err(format!(
-                        "child treehouse return is not provably stale: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ));
-                }
-                _ => fs::remove_dir_all(worktree).map_err(|error_value| error_value.to_string())?,
-            }
+            return_allocation(&child_id, &values, Path::new(worktree))?;
         }
         remove_pr_artifacts(&state, &child_id)?;
         for suffix in ["status", "turn-ended", "meta", "pi-ext.ts", "journal"] {
@@ -1067,19 +1190,17 @@ fn has_children(home: &Path) -> Result<Option<PathBuf>, String> {
     Ok(None)
 }
 
-fn treehouse_slot(root: &Path, home: &Path) -> Result<bool, String> {
-    let output = Command::new("git")
-        .args([
-            "-C",
-            path_text(root, "Multplx root")?.as_str(),
-            "-c",
-            "core.quotePath=false",
-            "worktree",
-            "list",
-            "--porcelain",
-        ])
-        .output()
-        .map_err(|error_value| error_value.to_string())?;
+fn linked_runtime_worktree(root: &Path, home: &Path) -> Result<bool, String> {
+    let output = command_output(Command::new("git").args([
+        "-C",
+        path_text(root, "Multplx root")?.as_str(),
+        "-c",
+        "core.quotePath=false",
+        "worktree",
+        "list",
+        "--porcelain",
+    ]))
+    .map_err(|error_value| error_value.to_string())?;
     if !output.status.success() {
         return Ok(false);
     }
@@ -1092,39 +1213,44 @@ fn treehouse_slot(root: &Path, home: &Path) -> Result<bool, String> {
 }
 
 fn remove_home(context: &Context, home: &Path) -> Result<(), String> {
-    remove_home_with(context, home, OsStr::new("treehouse"))
-}
-
-fn remove_home_with(context: &Context, home: &Path, treehouse: &OsStr) -> Result<(), String> {
     if !home.exists() {
         return Ok(());
     }
     crate::project_registry::protect_borrowed_checkouts(&context.home, home)?;
     crate::project_registry::protect_borrowed_checkouts(home, home)?;
-    if treehouse_slot(&context.root, home)? {
-        let output = Command::new(treehouse)
-            .args(["return".as_ref(), "--force".as_ref(), home.as_os_str()])
-            .current_dir(&context.root)
-            .output()
-            .map_err(|error_value| format!("treehouse command unavailable: {error_value}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "treehouse return failed for daemon home {}; lease may still be held{}",
-                home.display(),
-                if output.stderr.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
-                }
-            ));
+    let id = fs::read_to_string(home.join(MARKER)).map_err(|e| e.to_string())?;
+    if let Some(allocation) = super::home_seed::read_home_allocation(&context.data, id.trim())? {
+        let meta = fs::read_to_string(context.state.join(format!("{}.meta", id.trim())))
+            .map_err(|e| e.to_string())?;
+        let task = super::subagent_model::read_meta(id.trim(), &meta)?;
+        let token = task
+            .home_allocation
+            .as_ref()
+            .ok_or("home lease not bound to task metadata; retained")?;
+        if token != &allocation.binding || token.path != home {
+            return Err("stale or foreign home lease; retained".into());
         }
-    } else {
-        fs::remove_dir_all(home).map_err(|error_value| error_value.to_string())?;
+        let archive = super::home_seed::retire_home(&context.data, token)?;
+        eprintln!("retained private home at {}", archive.display());
+        return Ok(());
     }
-    Ok(())
+    if linked_runtime_worktree(&context.root, home)? {
+        return Err(
+            "Git-backed home retained: explicit allocation retirement or legacy migration required"
+                .into(),
+        );
+    }
+    Err("home has no exact owned allocation; retained for explicit legacy migration".into())
 }
 
 fn remove_registry_entry(context: &Context, id: &str) -> Result<(), String> {
+    // Shared with home-seed publication; never held across Git or process work.
+    let _registry_lock = DirectoryLock::acquire_wait(
+        context.data.join(".home-seed.lock"),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|e| format!("cannot acquire home registry publication lock: {e}"))?;
     let registry = context.data.join("daemons.md");
     let bytes = match read_regular(&registry, "daemon registry") {
         Ok(bytes) => bytes,
@@ -1257,9 +1383,16 @@ where
 {
     let home = validate_removal_target(context, Path::new(&journal.home), "daemon home")?;
     if journal.stage == "prepared" {
+        if let Ok(raw) = fs::read_to_string(context.state.join(format!("{}.meta", journal.id))) {
+            let task = super::subagent_model::read_meta(&journal.id, &raw)?;
+            if task.home_allocation != journal.home_allocation {
+                return Err("stale home retirement journal; retained".into());
+            }
+        }
         if home.exists() {
             validate_home(context, &journal.id, &home)?;
         }
+        kill(&context.state.join(format!("{}.meta", journal.id)))?;
         remove_home(context, &home)?;
         journal.stage = "home-removed".to_owned();
         publish(path, journal)?;
@@ -1272,7 +1405,6 @@ where
         injected("registry")?;
     }
     if journal.stage == "registry-removed" {
-        kill(&context.state.join(format!("{}.meta", journal.id)))?;
         remove_state(context, &journal.id)?;
         journal.stage = "committed".to_owned();
         publish(path, journal)?;
@@ -1284,7 +1416,7 @@ where
     fs::remove_file(path).map_err(|error_value| error_value.to_string())
 }
 
-fn recover<F>(context: &Context, kill: &mut F) -> Result<(), String>
+fn recover<F>(context: &Context, selected: Option<&str>, kill: &mut F) -> Result<(), String>
 where
     F: FnMut(&Path) -> Result<(), String>,
 {
@@ -1297,6 +1429,9 @@ where
         let Some(id) = name.strip_prefix(JOURNAL_PREFIX) else {
             continue;
         };
+        if selected.is_some_and(|selected| selected != id) {
+            continue;
+        }
         crate::review_delivery::OperationalTaskId::parse(id.to_owned())
             .map_err(|_| "malformed teardown transaction id".to_owned())?;
         let path = entry.path();
@@ -1307,6 +1442,41 @@ where
             return Err("teardown recovery journal identity mismatch".to_owned());
         }
         finish_transaction(context, &path, &mut journal, kill)?;
+    }
+    Ok(())
+}
+
+/// Reconcile other idle task journals under their own reservations. A busy or
+/// corrupt unrelated task never monopolizes the home's teardown path; its
+/// journal remains durable and the requested task still receives full checks.
+fn recover_other_tasks<F>(context: &Context, selected: &str, kill: &mut F) -> Result<(), String>
+where
+    F: FnMut(&Path) -> Result<(), String>,
+{
+    for entry in fs::read_dir(&context.state).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        let Some(id) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(JOURNAL_PREFIX))
+        else {
+            continue;
+        };
+        if id == selected
+            || crate::review_delivery::OperationalTaskId::parse(id.to_owned()).is_err()
+        {
+            continue;
+        }
+        let Ok(_lock) = DirectoryLock::acquire_wait(
+            context.state.join(format!(".teardown.{id}.lock")),
+            &SystemProcessProbe::default(),
+            Duration::ZERO,
+        ) else {
+            continue;
+        };
+        if let Err(error) = recover(context, Some(id), kill) {
+            eprintln!("teardown: retained recovery journal for {id}: {error}");
+        }
     }
     Ok(())
 }
@@ -1326,13 +1496,14 @@ where
     path_text(&context.data, "active data")?;
     path_text(&context.state, "active state")?;
     let state = require_owned_directory(&context.state, "active state")?;
+    recover_other_tasks(context, id, &mut kill)?;
     let _lock = DirectoryLock::acquire_wait(
-        state.join(".teardown.lock"),
+        state.join(format!(".teardown.{id}.lock")),
         &SystemProcessProbe::default(),
         Duration::from_secs(5),
     )
     .map_err(|error_value| format!("cannot acquire teardown lock: {error_value}"))?;
-    recover(context, &mut kill)?;
+    recover(context, Some(id), &mut kill)?;
     let meta = context.state.join(format!("{id}.meta"));
     let values = metadata(&meta).map_err(|error_value| {
         if !meta.exists() {
@@ -1342,17 +1513,14 @@ where
         }
     })?;
     if values.get("kind").map(String::as_str).unwrap_or("delivery") != "daemon" {
+        let mut endpoint_stopped = false;
         validate_pr_artifacts(&context.state, id)?;
         if let (Some(raw_worktree), Some(raw_project)) = (
             values.get("worktree").filter(|value| !value.is_empty()),
             values.get("project").filter(|value| !value.is_empty()),
         ) && Path::new(raw_worktree).exists()
         {
-            let worktree = validate_removal_target(
-                context,
-                &require_owned_directory(Path::new(raw_worktree), "task worktree")?,
-                "task worktree",
-            )?;
+            let worktree = validate_task_target(context, id, &values, Path::new(raw_worktree))?;
             let worktree_argument = Path::new(raw_worktree);
             let project = require_owned_directory(Path::new(raw_project), "task project")?;
             validate_worktree_safety(context, id, &values, worktree_argument, &project)?;
@@ -1363,9 +1531,13 @@ where
                     project.display()
                 ));
             }
-            return_worktree(&project, worktree_argument)?;
+            kill(&meta)?;
+            endpoint_stopped = true;
+            return_allocation(id, &values, worktree_argument)?;
         }
-        kill(&meta)?;
+        if !endpoint_stopped {
+            kill(&meta)?;
+        }
         remove_pr_artifacts(&context.state, id)?;
         remove_task_tmp(&values, id)?;
         remove_state(context, id)?;
@@ -1398,6 +1570,11 @@ where
         id: id.to_owned(),
         home: path_text(&home, "daemon home")?,
         stage: "prepared".to_owned(),
+        home_allocation: super::subagent_model::read_meta(
+            id,
+            &fs::read_to_string(&meta).map_err(|e| e.to_string())?,
+        )?
+        .home_allocation,
     };
     publish(&journal_path, &journal)?;
     finish_transaction(context, &journal_path, &mut journal, &mut kill)?;
@@ -1444,13 +1621,14 @@ where
             .map_err(|_| "invalid teardown request".to_owned())?;
         let state = require_owned_directory(&context.state, "active state")?;
         require_owned_directory(&context.data, "active data")?;
+        recover_other_tasks(context, id, &mut kill)?;
         let _lock = DirectoryLock::acquire_wait(
-            state.join(".teardown.lock"),
+            state.join(format!(".teardown.{id}.lock")),
             &SystemProcessProbe::default(),
             Duration::from_secs(5),
         )
         .map_err(|error_value| format!("cannot acquire teardown lock: {error_value}"))?;
-        recover(context, &mut kill)?;
+        recover(context, Some(id), &mut kill)?;
         let meta = context.state.join(format!("{id}.meta"));
         let values = metadata_for_retirement(&meta, true)?;
         if values.get("kind").map(String::as_str).unwrap_or("delivery") != "daemon" {
@@ -1507,7 +1685,7 @@ where
             } else if Path::new(raw_worktree).exists() {
                 let worktree = require_owned_directory(Path::new(raw_worktree), "task worktree")?;
                 let project = require_owned_directory(Path::new(raw_project), "task project")?;
-                let target = validate_removal_target(context, &worktree, "task worktree")?;
+                let target = validate_task_target(context, id, &values, &worktree)?;
                 if !listed_worktree(&project, &target)? {
                     return Err(format!(
                         "REFUSED: unsafe task worktree removal target {} is not a git worktree for {}",
@@ -1515,20 +1693,8 @@ where
                         project.display()
                     ));
                 }
-                let output = Command::new("treehouse")
-                    .args(["return".as_ref(), "--force".as_ref(), target.as_os_str()])
-                    .current_dir(&project)
-                    .output()
-                    .map_err(|error_value| {
-                        format!("treehouse command unavailable: {error_value}")
-                    })?;
-                if !output.status.success() {
-                    return Err(format!(
-                        "treehouse return failed for task worktree {}: {}",
-                        target.display(),
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ));
-                }
+                kill(&meta)?;
+                return_allocation(id, &values, &target)?;
             }
             remove_pr_artifacts(&context.state, id)?;
             remove_task_tmp(&values, id)?;
@@ -1553,6 +1719,11 @@ where
             id: id.to_owned(),
             home: path_text(&home, "daemon home")?,
             stage: "prepared".to_owned(),
+            home_allocation: super::subagent_model::read_meta(
+                id,
+                &fs::read_to_string(&meta).map_err(|e| e.to_string())?,
+            )?
+            .home_allocation,
         };
         publish(&journal_path, &journal)?;
         finish_transaction(context, &journal_path, &mut journal, &mut kill)?;
@@ -1607,6 +1778,114 @@ mod tests {
     fn seed_home(path: &Path, id: &str) {
         fs::create_dir_all(path).expect("home");
         fs::write(path.join(MARKER), format!("{id}\n")).expect("marker");
+    }
+
+    fn bind_private_home(context: &Context, id: &str, home: &Path) {
+        let token = super::super::home_seed::HomeBinding {
+            id: id.into(),
+            owner_home: fs::canonicalize(&context.home).unwrap(),
+            path: home.to_owned(),
+            lease_id: format!("home-test-{id}"),
+            generation: 1,
+        };
+        fs::write(home.join("private-preserved"), "keep private state").unwrap();
+        let metadata = fs::metadata(home).unwrap();
+        let allocation = super::super::home_seed::HomeAllocation {
+            version: 1,
+            binding: token.clone(),
+            runtime_root: context.root.clone(),
+            state: "active".into(),
+            retained_path: None,
+            directory_identity: Some((metadata.dev(), metadata.ino())),
+            git_allocation: None,
+        };
+        fs::write(
+            context.data.join(format!(".home-allocation-{id}.json")),
+            serde_json::to_vec(&allocation).unwrap(),
+        )
+        .unwrap();
+        let path = context.state.join(format!("{id}.meta"));
+        let raw = fs::read_to_string(&path).unwrap();
+        let mut task = super::super::subagent_model::read_meta(id, &raw).unwrap();
+        task.owner_home = Some(token.owner_home.to_string_lossy().into_owned());
+        task.persistent_home = Some(token.path.to_string_lossy().into_owned());
+        task.persistent = true;
+        task.home_allocation = Some(token);
+        fs::write(
+            path,
+            format!(
+                "{raw}canonical_model={}\n",
+                serde_json::to_string(&task).unwrap()
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn independent_teardowns_do_not_hold_a_home_wide_external_operation_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        fs::write(context.state.join("a.meta"), "kind=delivery\n").unwrap();
+        fs::write(context.state.join("b.meta"), "kind=delivery\n").unwrap();
+        fs::write(
+            context.state.join(format!("{JOURNAL_PREFIX}unrelated")),
+            "broken",
+        )
+        .unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let gate = barrier.clone();
+        let other = context.clone();
+        let worker = std::thread::spawn(move || {
+            run(&["a".into()], &other, |_| {
+                gate.wait();
+                gate.wait();
+                Ok(())
+            })
+        });
+        barrier.wait();
+        let result = run(&["b".into()], &context, |_| Ok(()));
+        barrier.wait();
+        assert_eq!(result.status, 0, "{}", result.stderr);
+        assert_eq!(worker.join().unwrap().status, 0);
+        assert!(
+            context
+                .state
+                .join(format!("{JOURNAL_PREFIX}unrelated"))
+                .exists()
+        );
+    }
+
+    #[test]
+    fn open_or_unknown_pr_state_blocks_content_landing_fallback() {
+        for row in [
+            "OPEN\tabc",
+            "open\tabc",
+            "UNKNOWN\tabc",
+            "MERGED",
+            "MERGED\t",
+        ] {
+            assert!(pr_state_blocks_cleanup(row), "{row}");
+        }
+        assert!(!pr_state_blocks_cleanup("MERGED\tabc"));
+        assert!(!pr_state_blocks_cleanup("CLOSED\tabc"));
+    }
+
+    #[test]
+    fn unowned_plain_homes_retain_private_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("legacy");
+        seed_home(&home, "legacy");
+        fs::write(home.join("important"), "private content").unwrap();
+        assert!(
+            remove_home(&context, &home)
+                .unwrap_err()
+                .contains("no exact owned allocation")
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("important")).unwrap(),
+            "private content"
+        );
     }
 
     #[test]
@@ -1878,6 +2157,17 @@ mod tests {
         .expect("task meta");
         fs::write(parent.join("state/child-task.status"), "done\n").expect("status");
         fs::write(parent.join("state/unrelated.txt"), "keep\n").expect("unrelated");
+        fs::create_dir(parent.join("data")).unwrap();
+        bind_private_home(
+            &Context {
+                root: context.root.clone(),
+                home: parent.clone(),
+                data: parent.join("data"),
+                state: parent.join("state"),
+            },
+            "child-daemon",
+            &child,
+        );
         let mut killed = Vec::new();
         cleanup_children(&context, &parent, &mut |path| {
             killed.push(path.file_stem().unwrap().to_string_lossy().into_owned());
@@ -1890,6 +2180,29 @@ mod tests {
         assert!(!parent.join("state/child-daemon.meta").exists());
         assert!(!parent.join("state/child-task.status").exists());
         assert!(parent.join("state/unrelated.txt").exists());
+    }
+
+    #[test]
+    fn legacy_nested_child_retirement_preserves_outer_active_home_boundary() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let child_home = fs::canonicalize(temp.path()).unwrap().join("child-home");
+        fs::create_dir_all(child_home.join("state")).unwrap();
+        fs::write(
+            child_home.join("state/child.meta"),
+            format!(
+                "kind=delivery\nworktree={}\nproject={}\n",
+                context.data.display(),
+                context.root.display()
+            ),
+        )
+        .unwrap();
+        assert!(
+            validate_children(&context, &child_home)
+                .unwrap_err()
+                .contains("inside the active Multplx home")
+        );
+        assert!(context.data.is_dir());
     }
 
     #[test]
@@ -1976,6 +2289,7 @@ mod tests {
             id: "daemon".into(),
             home: temp.path().join("removed-home").display().to_string(),
             stage: "prepared".into(),
+            home_allocation: None,
         };
         publish(&journal_path, &journal).expect("publish");
         let mut killed = Vec::new();
@@ -1996,10 +2310,11 @@ mod tests {
                 id: "recovery".into(),
                 home: temp.path().join("gone").display().to_string(),
                 stage: "home-removed".into(),
+                home_allocation: None,
             },
         )
         .expect("publish");
-        recover(&context, &mut |_| Ok(())).expect("recover");
+        recover(&context, None, &mut |_| Ok(())).expect("recover");
         assert!(!recovery.exists());
 
         let malformed = context.state.join(format!("{JOURNAL_PREFIX}bad"));
@@ -2009,11 +2324,12 @@ mod tests {
                 id: "bad".into(),
                 home: temp.path().join("gone").display().to_string(),
                 stage: "unexpected".into(),
+                home_allocation: None,
             },
         )
         .expect("publish");
         assert!(
-            recover(&context, &mut |_| Ok(()))
+            recover(&context, None, &mut |_| Ok(()))
                 .expect_err("stage")
                 .contains("malformed daemon teardown journal stage")
         );
@@ -2166,6 +2482,7 @@ mod tests {
             ),
         )
         .expect("registry");
+        bind_private_home(&context, "daemon", &home);
         let mut killed = false;
         let result = run_override("daemon", &context, |_| {
             killed = true;
@@ -2174,6 +2491,14 @@ mod tests {
         assert_eq!(result.status, 0, "{}", result.stderr);
         assert!(killed);
         assert!(!home.exists());
+        let receipt = super::super::home_seed::read_home_allocation(&context.data, "daemon")
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.state, "retired");
+        assert_eq!(
+            fs::read_to_string(receipt.retained_path.unwrap().join("private-preserved")).unwrap(),
+            "keep private state"
+        );
         assert!(!context.state.join("daemon.meta").exists());
         assert!(
             !fs::read_to_string(context.data.join("daemons.md"))
@@ -2195,6 +2520,7 @@ mod tests {
             format!("kind=daemon\nhome={}\nwindow=mx-daemon\n", home.display()),
         )
         .expect("meta");
+        bind_private_home(&context, "daemon", &home);
         let result = run(&[OsString::from("daemon")], &context, |_| Ok(()));
         assert_eq!(result.status, 0, "{}", result.stderr);
         assert!(!home.exists());
@@ -2247,7 +2573,7 @@ mod tests {
         let malformed = context.state.join(format!("{JOURNAL_PREFIX}bad"));
         fs::write(&malformed, "not-json\n").expect("malformed");
         assert!(
-            recover(&context, &mut |_| Ok(()))
+            recover(&context, None, &mut |_| Ok(()))
                 .expect_err("json")
                 .contains("malformed teardown recovery journal")
         );
@@ -2258,11 +2584,12 @@ mod tests {
                 id: "other".into(),
                 home: temp.path().join("gone").display().to_string(),
                 stage: "committed".into(),
+                home_allocation: None,
             },
         )
         .expect("publish");
         assert!(
-            recover(&context, &mut |_| Ok(()))
+            recover(&context, None, &mut |_| Ok(()))
                 .expect_err("identity")
                 .contains("identity mismatch")
         );
@@ -2326,7 +2653,7 @@ mod tests {
         assert!(index_lock(&repo).is_some());
         assert_eq!(
             git_status_after_stale_lock_cleanup(&repo).as_deref(),
-            Some("")
+            Ok("")
         );
         assert_eq!(
             pr_number("https://example.test/o/r/pull/123/files").as_deref(),
@@ -2382,7 +2709,7 @@ mod tests {
         assert!(default_branch(&not_repo).is_none());
         assert!(!content_in_default(&not_repo, &not_repo));
         assert!(index_lock(&not_repo).is_none());
-        assert!(git_status_after_stale_lock_cleanup(&not_repo).is_none());
+        assert!(git_status_after_stale_lock_cleanup(&not_repo).is_err());
     }
 
     #[test]
@@ -2488,11 +2815,12 @@ mod tests {
                 id: "unsafe".to_owned(),
                 home: context.home.join("data/victim").display().to_string(),
                 stage: "home-removed".to_owned(),
+                home_allocation: None,
             },
         )
         .expect("journal");
 
-        let result = recover(&context, &mut |_| Ok(()));
+        let result = recover(&context, None, &mut |_| Ok(()));
 
         assert!(result.is_err());
         assert!(journal.exists());
@@ -2543,7 +2871,7 @@ mod tests {
                 child_worktree.to_str().unwrap(),
             ],
         );
-        assert!(treehouse_slot(&project, &resolved(&child_worktree)).expect("slot"));
+        assert!(linked_runtime_worktree(&project, &resolved(&child_worktree)).expect("slot"));
 
         let mut local_only = BTreeMap::new();
         local_only.insert("kind".into(), "delivery".into());
@@ -2603,9 +2931,9 @@ mod tests {
             killed.push(path.to_owned());
             Ok(())
         })
-        .expect("return child worktree");
+        .expect_err("legacy child ownership remains retained for migration");
         assert_eq!(killed.len(), 1);
-        assert!(!child_worktree.exists());
+        assert!(child_worktree.exists());
 
         let unrelated = temp.path().join("unrelated");
         fs::create_dir(&unrelated).expect("unrelated");
@@ -2680,20 +3008,8 @@ mod tests {
         );
         let mut return_context = context.clone();
         return_context.root = project;
-        let treehouse = temp.path().join("treehouse");
-        fs::write(
-            &treehouse,
-            "#!/bin/sh\n[ \"$1\" = return ] && [ \"$2\" = --force ] || exit 2\nexec git worktree remove --force \"$3\"\n",
-        )
-        .expect("treehouse fixture");
-        let mut permissions = fs::metadata(&treehouse)
-            .expect("treehouse metadata")
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&treehouse, permissions).expect("treehouse mode");
-        remove_home_with(&return_context, &removable, treehouse.as_os_str())
-            .expect("return worktree home");
-        assert!(!removable.exists());
+        assert!(remove_home(&return_context, &removable).is_err());
+        assert!(removable.exists());
     }
 
     #[test]
@@ -2721,5 +3037,301 @@ mod tests {
         fs::write(&registry_target, "# registry\n").expect("registry target");
         symlink(&registry_target, context.data.join("daemons.md")).expect("registry link");
         assert!(remove_registry_entry(&context, "daemon").is_err());
+    }
+
+    #[test]
+    fn stale_home_journal_and_lease_never_kill_or_retire_a_new_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = context.home.with_file_name("owned-home");
+        seed_home(&home, "owned");
+        fs::write(
+            context.state.join("owned.meta"),
+            format!("kind=daemon\nhome={}\n", home.display()),
+        )
+        .unwrap();
+        bind_private_home(&context, "owned", &home);
+        let meta = context.state.join("owned.meta");
+        let raw = fs::read_to_string(&meta).unwrap();
+        let task = super::super::subagent_model::read_meta("owned", &raw).unwrap();
+        let mut old = task.home_allocation.clone().unwrap();
+        old.generation += 1;
+        let journal_path = context.state.join(format!("{JOURNAL_PREFIX}owned"));
+        let mut journal = Journal {
+            id: "owned".into(),
+            home: home.display().to_string(),
+            stage: "prepared".into(),
+            home_allocation: Some(old.clone()),
+        };
+        publish(&journal_path, &journal).unwrap();
+        assert!(
+            finish_transaction(&context, &journal_path, &mut journal, &mut |_| panic!(
+                "stale journal killed endpoint"
+            ))
+            .unwrap_err()
+            .contains("stale home retirement journal")
+        );
+        let mut stale_task = task;
+        stale_task.home_allocation = Some(old);
+        fs::write(
+            &meta,
+            format!(
+                "canonical_model={}\n",
+                serde_json::to_string(&stale_task).unwrap()
+            ),
+        )
+        .unwrap();
+        assert!(
+            remove_home(&context, &home)
+                .unwrap_err()
+                .contains("stale or foreign home lease")
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("private-preserved")).unwrap(),
+            "keep private state"
+        );
+        assert!(journal_path.exists());
+    }
+
+    #[test]
+    fn unrelated_busy_recovery_and_escaped_child_state_preserve_their_artifacts() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = context.home.with_file_name("child-home");
+        fs::create_dir(&home).unwrap();
+        assert!(validate_children(&context, &home).unwrap().is_empty());
+        cleanup_children(&context, &home, &mut |_| panic!("no children")).unwrap();
+        symlink(&context.state, home.join("state")).unwrap();
+        assert!(
+            validate_children(&context, &home)
+                .unwrap_err()
+                .contains("outside the daemon home")
+        );
+        let journal = context.state.join(format!("{JOURNAL_PREFIX}busy"));
+        fs::write(&journal, "unread while busy").unwrap();
+        let selected = context.state.join(format!("{JOURNAL_PREFIX}selected"));
+        fs::write(&selected, "unread selected").unwrap();
+        let invalid = context.state.join(format!("{JOURNAL_PREFIX}bad id"));
+        fs::write(&invalid, "invalid id retained").unwrap();
+        let _guard = DirectoryLock::acquire_wait(
+            context.state.join(".teardown.busy.lock"),
+            &SystemProcessProbe::default(),
+            Duration::ZERO,
+        )
+        .unwrap();
+        recover_other_tasks(&context, "selected", &mut |_| panic!("busy task killed")).unwrap();
+        assert_eq!(fs::read_to_string(&journal).unwrap(), "unread while busy");
+        assert!(selected.exists() && invalid.exists());
+    }
+
+    #[test]
+    fn copied_canonical_metadata_and_temporary_path_aliases_are_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = context.home.with_file_name("daemon-home");
+        seed_home(&home, "daemon");
+        let meta = context.state.join("daemon.meta");
+        fs::write(&meta, format!("kind=daemon\nhome={}\n", home.display())).unwrap();
+        bind_private_home(&context, "daemon", &home);
+        let copied_state = context.home.with_file_name("copied-state");
+        fs::create_dir(&copied_state).unwrap();
+        let copy = copied_state.join("daemon.meta");
+        fs::copy(&meta, &copy).unwrap();
+        assert!(
+            metadata(&copy)
+                .unwrap_err()
+                .contains("owner state does not match")
+        );
+        fs::write(&copy, "kind=daemon\nkind=delivery\n").unwrap();
+        assert!(
+            metadata(&copy)
+                .unwrap_err()
+                .contains("duplicate task metadata field")
+        );
+        let temporary = copied_state.join("mx-task");
+        symlink(&home, &temporary).unwrap();
+        let values = BTreeMap::from([("tasktmp".into(), temporary.display().to_string())]);
+        assert!(
+            remove_task_tmp(&values, "task")
+                .unwrap_err()
+                .contains("unsafe task temporary")
+        );
+        fs::remove_file(&temporary).unwrap();
+        fs::write(&temporary, "private").unwrap();
+        assert!(remove_task_tmp(&values, "task").is_err());
+        assert_eq!(fs::read_to_string(&temporary).unwrap(), "private");
+        assert!(home.join("private-preserved").exists());
+    }
+
+    #[test]
+    fn git_landing_conflicts_and_unreachable_remote_retain_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let repo = &context.root;
+        let git = |args: &[&str]| git_text(repo, args).unwrap();
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        fs::write(repo.join("file"), "base\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "base"]);
+        git(&["checkout", "-b", "feature"]);
+        fs::write(repo.join("file"), "feature\n").unwrap();
+        git(&["commit", "-am", "feature"]);
+        git(&["checkout", "main"]);
+        fs::write(repo.join("file"), "main conflict\n").unwrap();
+        git(&["commit", "-am", "main"]);
+        git(&["checkout", "feature"]);
+        assert!(!content_in_default(repo, repo));
+        git(&[
+            "remote",
+            "add",
+            "origin",
+            repo.join("nonexistent.git").to_str().unwrap(),
+        ]);
+        assert!(!content_in_default(repo, repo));
+        let legacy = context.home.with_file_name("legacy-linked");
+        git(&["worktree", "add", "--detach", legacy.to_str().unwrap()]);
+        seed_home(&legacy, "legacy");
+        fs::write(legacy.join("private"), "keep").unwrap();
+        assert!(
+            remove_home(&context, &legacy)
+                .unwrap_err()
+                .contains("Git-backed home retained")
+        );
+        assert_eq!(fs::read_to_string(legacy.join("private")).unwrap(), "keep");
+        assert!(listed_worktree(repo, &legacy).unwrap());
+    }
+
+    #[test]
+    fn incomplete_forge_landing_evidence_is_never_permission_to_discard() {
+        const CASE: &str = "MX_TEST_TEARDOWN_FORGE_CASE";
+        if let Ok(scenario) = env::var(CASE) {
+            let worktree = env::current_dir().unwrap();
+            let target = if scenario == "missing-number" {
+                "unidentified-pr"
+            } else {
+                "123"
+            };
+            assert!(
+                !pr_landed(&worktree, Some(target)),
+                "unsafe landing proof: {scenario}"
+            );
+            let trace = fs::read_to_string(env::var_os("MX_TEST_FORGE_TRACE").unwrap()).unwrap();
+            assert!(
+                trace.contains(&env::var("MX_TEST_FORGE_EXPECT").unwrap()),
+                "wrong refusal branch: {trace}"
+            );
+            return;
+        }
+        // Each fake forge/Git observation runs in its own test process so the
+        // hermetic PATH cannot affect concurrently executing real Git tests.
+        let temp = tempfile::tempdir().unwrap();
+        let shim = temp.path().join("bin");
+        fs::create_dir(&shim).unwrap();
+        let git = shim.join("git");
+        fs::write(
+            &git,
+            r#"#!/bin/sh
+[ "$1" = -C ] && shift 2
+printf 'git %s\n' "$*" >> "$MX_TEST_FORGE_TRACE"
+case "$1" in
+rev-parse) printf 'feature\n';;
+cat-file) case "$MX_TEST_TEARDOWN_FORGE_CASE" in missing-number|fetch-fail) exit 1;; esac;;
+fetch) exit 1;;
+merge-base) [ "$2" = --is-ancestor ] && exit 1
+    [ "$MX_TEST_TEARDOWN_FORGE_CASE" = no-base ] && exit 1
+    printf 'base\n';;
+log) [ "$MX_TEST_TEARDOWN_FORGE_CASE" = log-fail ] && exit 1
+    [ "$3" = HEAD ] && exit 1
+    printf 'pr-commit\n';;
+show) [ "$MX_TEST_TEARDOWN_FORGE_CASE" = patch-fail ] && exit 1
+    printf 'patch-body\n';;
+patch-id) printf 'patch-id commit\n';;
+*) exit 1;;
+esac
+"#,
+        )
+        .unwrap();
+        let gh = shim.join("gh");
+        fs::write(
+            &gh,
+            r#"#!/bin/sh
+printf 'gh %s\n' "$*" >> "$MX_TEST_FORGE_TRACE"
+case "$MX_TEST_TEARDOWN_FORGE_CASE" in
+view-fail) exit 1;;
+malformed) printf 'unknown\n';;
+open) printf 'OPEN\thead\n';;
+*) printf 'MERGED\thead\n';;
+esac
+"#,
+        )
+        .unwrap();
+        for path in [&git, &gh] {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        for (scenario, expected) in [
+            ("view-fail", "gh pr view 123"),
+            ("malformed", "gh pr view 123"),
+            ("open", "gh pr view 123"),
+            ("missing-number", "git cat-file -e head^{commit}"),
+            ("fetch-fail", "git fetch --quiet origin refs/pull/123/head"),
+            ("no-base", "git merge-base HEAD head"),
+            ("log-fail", "git log --format=%H base..head"),
+            (
+                "patch-fail",
+                "git show --pretty=medium --no-ext-diff pr-commit",
+            ),
+            ("unpushed-fail", "git log --format=%H HEAD --not --remotes"),
+        ] {
+            let trace = temp.path().join(format!("{scenario}.trace"));
+            let result = Command::new(env::current_exe().unwrap())
+                .args(["--exact", "lifecycle::teardown::tests::incomplete_forge_landing_evidence_is_never_permission_to_discard", "--nocapture"])
+                .current_dir(temp.path()).env("PATH", &shim).env(CASE, scenario)
+                .env("MX_TEST_FORGE_TRACE", trace).env("MX_TEST_FORGE_EXPECT", expected)
+                .output().unwrap();
+            assert!(
+                result.status.success(),
+                "{scenario}: {}",
+                String::from_utf8_lossy(&result.stdout)
+            );
+        }
+    }
+
+    #[test]
+    fn matching_origin_clone_observation_does_not_authorize_unknown_cleanup() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let clone = context.home.with_file_name("independent-clone");
+        fs::create_dir(&clone).unwrap();
+        for repo in [&context.root, &clone] {
+            assert!(git_success(repo, &["init", "-b", "main"]));
+            assert!(git_success(
+                repo,
+                &["remote", "add", "origin", "../remote.git"]
+            ));
+        }
+        assert!(listed_worktree(&context.root, &clone).unwrap());
+        let values = BTreeMap::from([
+            ("worktree".into(), clone.display().to_string()),
+            ("project".into(), context.root.display().to_string()),
+        ]);
+        fs::write(clone.join("private"), "keep").unwrap();
+        assert!(
+            return_allocation("legacy", &values, &clone)
+                .unwrap_err()
+                .contains("unknown worktree ownership")
+        );
+        assert_eq!(fs::read_to_string(clone.join("private")).unwrap(), "keep");
+        assert!(git_success(
+            &clone,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "ssh://different.invalid/repo.git"
+            ]
+        ));
+        assert!(!listed_worktree(&context.root, &clone).unwrap());
     }
 }
