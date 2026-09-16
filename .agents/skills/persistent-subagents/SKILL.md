@@ -10,11 +10,12 @@ metadata:
 
 Persistence is independent of assignment role.
 A sub-orchestrator owns a bounded charter, delegates project coding and test changes, and reports through its recorded parent channel.
-[A11](../../../porting.md#a11-scoped-sub-orchestrators) owns the accepted domain contract; Phase 05 publishes its named spawn and report grammar.
-The common lifecycle supports persistent assignments; named coordinator provisioning and outcome relays remain Phase 05 work.
+[A11](../../../porting.md#a11-scoped-sub-orchestrators) owns the accepted domain contract.
+The [scoped coordinator reference](../../../docs/scoped-coordinators.md) owns named provisioning, parent outcomes and the verification boundary.
 
 | Operation | Existing command reference |
 | --- | --- |
+| Scoped coordinator | `mx spawn <id> --sub-orchestrator --project <selector> --scope <text>`; repeat `--project`, or use `--idea <id>` for repository-free research. Add `--persistent` for a standing domain and `--request-id <id>` for repeat-safe creation. |
 | Charter scaffold | `mx brief <id> --persistent <project>...` or `--no-projects`; legacy `--daemon`, `MX_DAEMON_CHARTER` and `MX_DAEMON_SCOPE` remain supported. |
 | Provision / validate | `bin/mx-home-seed.sh --help`; validate recorded homes before launch. |
 | Launch / recover | `mx spawn <id> --persistent`; reuse the recorded home and reconcile existing children; `--daemon` remains an alias. |

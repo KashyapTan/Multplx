@@ -11,7 +11,9 @@ PR merges remain human-executed.
 The dependency-ordered implementation plans are in [plans/lean_redesign](plans/lean_redesign/index.html).
 
 This is a planned product redesign, not a behavior-preserving language port.
-No runtime change is implemented by these planning documents.
+These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
+Phases 01-05 are implemented and verified; [Phase 05 evidence](plans/lean_redesign/phase05-implementation.md) records scoped coordination checks and live-test limits.
+Later phases and release activation remain planned.
 The original source baseline was commit `6360b040460a08c2d5b8bcfcbc5e64e6e024ab53`, inspected on 2026-09-11.
 This revision incorporates the user's 2026-09-14 notes and architecture review at commit `c09ede3d015799739354ff00e5b0e5e84845737e`.
 The objective is high-quality progress on 10-20 concurrent tasks through one human-facing orchestrator, measured by completed useful work and human attention rather than agent count.
@@ -382,10 +384,10 @@ Simple work can still go directly to an implementer; never create a coordinator 
 
 #### Spawn and domain identity
 
-Expose the planned public command `mx spawn <id> --sub-orchestrator --project <project-id> --scope <text>` through the existing spawn owner.
+Phase 05 implements the public command `mx spawn <id> --sub-orchestrator --project <project-id> --scope <text>` through the existing spawn owner.
 Support repeatable `--project` for an explicitly bounded idea spanning repositories, or `--idea <idea-id>` for research before a repository exists; require an explicit domain instead of silently choosing the runtime repository.
 Support `--request-id <id>` for repeat-safe creation and `--persistent` for a standing domain assignment, alongside the common harness/model/effort options.
-These are target CLI forms to implement and test, not commands the current binary already supports.
+The tested grammar and lifecycle operations are documented in [scoped sub-orchestrators](docs/scoped-coordinators.md).
 The CLI provisions the private home, concise charter, parent route and session in one recoverable operation; it must not require hand-editing a registry or manually copying projects before spawn.
 Ordinary task-scoped coordinators may finish their assignment; persistent coordinators remain registered and idle between assigned work without inventing audits, surveys or new tasks.
 Idle runtime sessions may yield capacity through a checkpoint/restart operation that preserves the domain, child state and pending messages.

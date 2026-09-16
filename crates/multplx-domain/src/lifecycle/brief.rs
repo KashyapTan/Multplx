@@ -149,6 +149,43 @@ fn daemon(root: &Path, state: &Path, id: &str, projects: &[String], no_projects:
     )
 }
 
+/// Build the concise charter used by the public coordinator spawn path.
+/// Unlike the legacy daemon scaffolder, every value is explicit and the body
+/// contains no placeholder that must be edited before launch.
+pub fn coordinator_charter(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    scope: &str,
+    projects: &[String],
+    idea_id: Option<&str>,
+    persistent: bool,
+) -> String {
+    let references = if projects.is_empty() {
+        format!(
+            "None. This is a project-less domain for idea `{}`. Bind an explicit project before implementation.",
+            idea_id.unwrap_or("unbound")
+        )
+    } else {
+        projects
+            .iter()
+            .map(|project| format!("- {project}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let lifetime = if persistent {
+        "This is a standing assignment. Remain registered and idle between assigned work without inventing new work."
+    } else {
+        "This assignment may finish when its bounded outcome and every retained child or pending outcome are reconciled."
+    };
+    format!(
+        "You are a sub-orchestrator with one bounded domain assignment.\n\n# Charter\nCoordinate the accepted domain outcome and return durable results to the parent.\n\n# Routing scope\n{scope}\n\n# Project references\n{references}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate project implementation, code fixes and test-code changes to sub-agents.\nOwn research synthesis, briefs, task coordination, integration planning and communication within this scope.\nReconcile recorded children and pending work on restart; an empty queue means idle.\nParent route: task `{id}`, status owner `{}`.\nPreserve correlation, task, attempt and accepted revision identities in every outcome.\nDo not replace original child evidence with a summary.\n{}\n{}\n\n# Lifetime\n{lifetime}\n\n# Definition of done\nReport assigned outcomes, failures, evidence pointers and unresolved human decisions through the validated parent channel.\nRetain child ownership and pending outcomes until delivered or transferred.\n\n<!-- mx-assignment role=sub-orchestrator persistent={persistent} output=coordination -->\n",
+        state.display(),
+        status_contract(root, state, id),
+        constraints(),
+    )
+}
+
 fn delivery(
     root: &Path,
     state: &Path,

@@ -220,6 +220,7 @@ fn family(path: &str) -> &'static str {
         | "mx-daemon-harness-reread-retry.test.sh"
         | "mx-daemon-harness-spawn-config.test.sh"
         | "mx-daemon-lifecycle-e2e.test.sh"
+        | "mx-coordinator-spawn.test.sh"
         | "mx-daemon-liveness.test.sh"
         | "mx-daemon-safety.test.sh"
         | "mx-daemon-sync.test.sh"

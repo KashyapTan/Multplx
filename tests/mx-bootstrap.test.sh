@@ -58,9 +58,12 @@ make_fake_system_sync_root() {
   mkdir -p "$fake_root/bin"
   cat > "$fake_root/bin/mx-system-sync.sh" <<'SH'
 #!/usr/bin/env bash
-[ -z "${MX_FAKE_SYSTEM_SYNC_STARTED_MARKER:-}" ] || : > "$MX_FAKE_SYSTEM_SYNC_STARTED_MARKER"
 printf '%s\n' 'alpha: synced'
 printf '%s\n' 'beta: skipped: no origin remote'
+# Publish readiness only after the partial-output evidence is durable. The
+# accelerated Rust clock waits for this marker, so a loaded runner cannot
+# exhaust logical time between process launch and the fixture's first writes.
+[ -z "${MX_FAKE_SYSTEM_SYNC_STARTED_MARKER:-}" ] || : > "$MX_FAKE_SYSTEM_SYNC_STARTED_MARKER"
 exec perl -e 'sleep 300'
 SH
   chmod +x "$fake_root/bin/mx-system-sync.sh"

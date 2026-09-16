@@ -83,8 +83,10 @@ exit 99
 SH
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-# tmux kill-window etc.: succeed silently.
-exit 0
+case "${1:-}" in
+  display-message) exit 1 ;;
+  *) exit 0 ;;
+esac
 SH
   # Default gh mock: no PR is associated with the branch, and viewing any PR
   # number fails. This keeps the landed-work check hermetic (never reaching the real
@@ -1206,7 +1208,17 @@ test_herdr_teardown_clears_escalation_marker() {
   refresh_fixture_endpoint "$case_dir"
   cat > "$case_dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case " $* " in
+  *" pane close "*) : > "$0.dead"; printf '{"result":{}}\n' ;;
+  *" pane get "*)
+    if [ -f "$0.dead" ]; then
+      printf '{"error":{"code":"pane_not_found"}}\n'
+    else
+      printf '{"result":{"pane":{"pane_id":"wG:pQ"}}}\n'
+    fi ;;
+  *" agent get "*) printf '{"error":{"code":"agent_not_found"}}\n' ;;
+  *) printf '{"result":{}}\n' ;;
+esac
 SH
   chmod +x "$case_dir/fakebin/herdr"
   marker="$case_dir/state/.herdr-escalated-default_wG_pQ"
@@ -1313,22 +1325,27 @@ test_herdr_projection_teardown_retires_journal_only_after_confirmed_close() {
 }
 
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed() {
-  local case_dir log closed restored
+  local case_dir log closed restored rc
   case_dir=$(make_case herdr-projection-unconfirmed-close)
   write_meta "$case_dir" local-only delivery
   configure_herdr_projection_teardown_case "$case_dir"
   log="$case_dir/herdr.log"; closed="$case_dir/closed"; restored="$case_dir/restored"; : > "$log"
 
+  set +e
   MX_FAKE_HERDR_LOG="$log" MX_FAKE_HERDR_CLOSED="$closed" MX_FAKE_HERDR_RESTORED="$restored" MX_FAKE_HERDR_CLOSE_FAIL=1 \
-    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "herdr-projection-unconfirmed-close: teardown should preserve best-effort endpoint semantics"
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "herdr-projection-unconfirmed-close: teardown must retain lifecycle state when endpoint absence is unproved"
   [ -e "$case_dir/state/task-x1.herdr-presentation" ] \
     || fail "unconfirmed task-pane close incorrectly retired the presentation journal"
+  [ -e "$case_dir/state/task-x1.meta" ] \
+    || fail "unconfirmed task-pane close incorrectly retired canonical metadata"
   assert_grep "close could not be confirmed" "$case_dir/stderr" \
-    "unconfirmed projected close did not explain why the journal was retained"
+    "unconfirmed projected close did not explain why lifecycle state was retained"
   assert_not_contains "$(cat "$log")" "workspace close" \
     "unconfirmed projected close must not escalate to workspace cleanup"
-  pass "herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed"
+  pass "herdr projection teardown fails closed, retains state, and attempts no workspace cleanup when exact-pane close is unconfirmed"
 }
 
 test_herdr_projection_teardown_refuses_without_session_lock_ownership() {

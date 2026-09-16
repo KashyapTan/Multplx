@@ -971,6 +971,43 @@ fn daemon_home_summary(home: &Path, generated: &str, backlog: &Value, tasks: &Va
         "no_active_work"
     };
     let endpoints_all=task_rows.iter().map(|task|json!({"id":task["id"],"state":task["current_state"]["state"],"source":task["current_state"]["source"],"endpoint":task["endpoint"]})).collect::<Vec<_>>();
+    let domains_all = task_rows
+        .iter()
+        .filter(|task| task.pointer("/coordination/role").and_then(Value::as_str) == Some("sub-orchestrator"))
+        .map(|task| json!({"id":task["id"],"coordination":task["coordination"],"endpoint":task["endpoint"]}))
+        .collect::<Vec<_>>();
+    let useful_tasks = task_rows
+        .iter()
+        .filter(|task| {
+            task.pointer("/coordination/role").and_then(Value::as_str) != Some("sub-orchestrator")
+        })
+        .count();
+    let sessions = task_rows
+        .iter()
+        .filter(|task| task.pointer("/endpoint/exists").and_then(Value::as_bool) == Some(true))
+        .count();
+    let worker_sessions = task_rows
+        .iter()
+        .filter(|task| {
+            task.pointer("/coordination/role").and_then(Value::as_str) != Some("sub-orchestrator")
+                && task.pointer("/endpoint/exists").and_then(Value::as_bool) == Some(true)
+        })
+        .count();
+    let coordinator_sessions = task_rows
+        .iter()
+        .filter(|task| {
+            task.pointer("/coordination/role").and_then(Value::as_str) == Some("sub-orchestrator")
+                && task.pointer("/endpoint/exists").and_then(Value::as_bool) == Some(true)
+        })
+        .count();
+    let attempts_known = task_rows
+        .iter()
+        .filter(|task| {
+            task.pointer("/coordination/attempt/id")
+                .and_then(Value::as_str)
+                .is_some()
+        })
+        .count();
     let child_n = env_usize("MX_SNAPSHOT_DAEMON_CHILDREN", 20);
     let queued_n = env_usize("MX_SNAPSHOT_DAEMON_QUEUED", 20);
     let decision_n = env_usize("MX_SNAPSHOT_DAEMON_DECISIONS", 20);
@@ -992,11 +1029,11 @@ fn daemon_home_summary(home: &Path, generated: &str, backlog: &Value, tasks: &Va
     } else {
         bounded(&landed_all, landed_n, "landed", &mut omitted)
     };
-    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":valid,"reason":reason,"invalidity":invalidity,"state":state,"active_children":active,"decisions_open":decisions,"holds":holds,"queued":queued,"landed":landed,"endpoints":endpoints,"counts":{"active_children":active_all.len(),"decisions_open":decisions_all.len(),"holds":holds_all.len(),"queued":queued_all.len(),"landed":landed_all.len(),"endpoints":endpoints_all.len()},"omitted":omitted})
+    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":valid,"reason":reason,"invalidity":invalidity,"state":state,"active_children":active,"decisions_open":decisions,"holds":holds,"queued":queued,"landed":landed,"endpoints":endpoints,"domains":domains_all,"counts":{"active_children":active_all.len(),"decisions_open":decisions_all.len(),"holds":holds_all.len(),"queued":queued_all.len(),"landed":landed_all.len(),"endpoints":endpoints_all.len(),"useful_tasks":useful_tasks,"sessions":sessions,"worker_sessions":worker_sessions,"coordinator_sessions":coordinator_sessions,"attempts_known":attempts_known,"coordinator_tasks":domains_all.len(),"tasks_total":task_rows.len()},"omitted":omitted})
 }
 
 fn daemon_summary_invalid(home: &Path, generated: &str, invalidity: &Value, reason: &str) -> Value {
-    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":false,"reason":reason,"invalidity":invalidity,"state":"unknown","active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"counts":{"active_children":0,"decisions_open":0,"holds":0,"queued":0,"landed":0,"endpoints":0},"omitted":[]})
+    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":false,"reason":reason,"invalidity":invalidity,"state":"unknown","active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null},"omitted":[]})
 }
 fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) -> Value {
     let inventory = inventory(&backlog, &tasks);
@@ -1005,8 +1042,203 @@ fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) ->
     let wake = wake_queue(paths);
     let (headroom, headroom_reason) = headroom(paths);
     let daemon_current = daemon_current(paths, generated, &tasks);
+    let domains = domain_projection(paths, &tasks, &daemon_current, generated);
     let daemon_landed = daemon_landed(&daemon_current);
-    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"vplan_reviews":vplans(paths),"later_feeds":later(paths),"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later(paths),"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+}
+
+fn domain_projection(
+    paths: &Paths,
+    tasks: &Value,
+    daemon_current: &Value,
+    generated: &str,
+) -> Value {
+    let task_rows = tasks.as_array().map_or(&[][..], Vec::as_slice);
+    let limit = env_usize("MX_SNAPSHOT_DOMAINS", 20);
+    let depth_limit = env_usize("MX_SNAPSHOT_DOMAIN_DEPTH", 8);
+    let budget = Duration::from_millis(env_usize("MX_SNAPSHOT_DOMAIN_BUDGET_MS", 3_000) as u64);
+    let started = Instant::now();
+    let cached = array(daemon_current, "records")
+        .iter()
+        .filter_map(|record| {
+            record["home"]
+                .as_str()
+                .map(|home| (home.to_owned(), record.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut queue = task_rows
+        .iter()
+        .filter(|task| {
+            task.pointer("/coordination/role").and_then(Value::as_str) == Some("sub-orchestrator")
+        })
+        .cloned()
+        .map(|task| (task, 0usize))
+        .collect::<VecDeque<_>>();
+    let mut records = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut omitted = 0usize;
+    while let Some((coordinator, depth)) = queue.pop_front() {
+        let id = coordinator["id"].as_str().unwrap_or("");
+        let owner_home = coordinator
+            .pointer("/coordination/owner_home")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let qualified =
+            multplx_domain::lifecycle::subagent_model::qualified_task_id(owner_home, id);
+        if !seen.insert(qualified.clone()) {
+            continue;
+        }
+        if records.len() >= limit {
+            omitted = omitted.saturating_add(1 + queue.len());
+            break;
+        }
+        let binding = &coordinator["coordination"]["domain"];
+        let runtime_home = coordinator["coordination"]["persistent_home"]
+            .as_str()
+            .or_else(|| coordinator["coordination"]["owner_home"].as_str());
+        let summary = runtime_home
+            .ok_or_else(|| "runtime home unavailable".to_owned())
+            .and_then(|home| {
+                if let Some(summary) = cached.get(home) {
+                    Ok(summary.clone())
+                } else if started.elapsed() >= budget {
+                    Err("domain observation budget exhausted".into())
+                } else {
+                    read_child_summary_with_timeout(
+                        paths,
+                        Path::new(home),
+                        generated,
+                        budget.saturating_sub(started.elapsed()),
+                    )
+                }
+            });
+        if depth < depth_limit
+            && let Ok(summary) = &summary
+        {
+            for nested in array(summary, "domains") {
+                queue.push_back((nested.clone(), depth + 1));
+            }
+        } else if depth >= depth_limit
+            && summary
+                .as_ref()
+                .is_ok_and(|value| !array(value, "domains").is_empty())
+        {
+            omitted =
+                omitted.saturating_add(array(summary.as_ref().expect("checked"), "domains").len());
+        }
+        let channel = runtime_home
+            .map(|home| {
+                if started.elapsed() >= budget {
+                    return json!({"available":false,"health":Value::Null,"reason":"domain observation budget exhausted"});
+                }
+                match multplx_domain::lifecycle::parent_channel::inspect(
+                    &Path::new(home).join("state"),
+                ) {
+                    Ok(health) => {
+                        json!({"available":true,"health":health,"reason":Value::Null})
+                    }
+                    Err(error) => {
+                        json!({"available":false,"health":Value::Null,"reason":error})
+                    }
+                }
+            })
+            .unwrap_or_else(|| {
+                json!({"available":false,"health":Value::Null,"reason":"runtime home unavailable"})
+            });
+        let count = |key: &str| {
+            summary.as_ref().ok().and_then(|summary| {
+                summary
+                    .pointer(&format!("/counts/{key}"))
+                    .and_then(Value::as_u64)
+            })
+        };
+        let channel_truncated = channel
+            .pointer("/health/scan_truncated")
+            .and_then(Value::as_bool)
+            == Some(true);
+        let undelivered = (!channel_truncated)
+            .then(|| {
+                channel
+                    .pointer("/health/pending_inbox")
+                    .and_then(Value::as_u64)
+                    .zip(
+                        channel
+                            .pointer("/health/pending_outbox")
+                            .and_then(Value::as_u64),
+                    )
+                    .map(|(inbox, outbox)| inbox.saturating_add(outbox))
+            })
+            .flatten();
+        let coordinator_session = coordinator
+            .pointer("/endpoint/exists")
+            .and_then(Value::as_bool)
+            .map(u64::from);
+        let partial = summary.as_ref().is_err()
+            || summary
+                .as_ref()
+                .is_ok_and(|summary| summary["valid"] != true)
+            || channel["available"] != true
+            || channel_truncated;
+        let observation_reason = summary
+            .as_ref()
+            .err()
+            .cloned()
+            .or_else(|| {
+                summary
+                    .as_ref()
+                    .ok()
+                    .and_then(|summary| summary["reason"].as_str().map(str::to_owned))
+            })
+            .or_else(|| channel_truncated.then(|| "parent-channel scan was truncated".into()));
+        let children = summary
+            .as_ref()
+            .ok()
+            .map(|summary| summary["endpoints"].clone())
+            .unwrap_or_else(|| json!([]));
+        records.push(json!({
+            "domain_id": binding["domain_id"],
+            "scope": binding["scope"],
+            "projects": binding["projects"],
+            "idea_id": binding["idea_id"],
+            "scope_revision": binding["scope_revision"],
+            "assignment_generation": binding["assignment_generation"],
+            "coordinator": {
+                "id": id,
+                "qualified_id": qualified,
+                "owner_home": coordinator["coordination"]["owner_home"],
+                "owner_state": coordinator["coordination"]["owner_state"],
+                "runtime_home": runtime_home,
+                "parent_id": coordinator["coordination"]["parent_id"],
+                "root_id": coordinator["coordination"]["root_id"],
+                "attempt": coordinator["coordination"]["attempt"],
+                "endpoint": coordinator["endpoint"]
+            },
+            "channel": channel,
+            "observation": {
+                "generated": generated,
+                "age_seconds": if summary.is_ok() { Some(0u64) } else { None },
+                "partial": partial,
+                "reason": observation_reason
+            },
+            "counts": {
+                "useful_tasks": count("useful_tasks"),
+                "worker_sessions": count("worker_sessions"),
+                "coordinator_sessions": count("coordinator_sessions").zip(coordinator_session).map(|(children, current)| children.saturating_add(current)),
+                "current_attempts_known": count("attempts_known"),
+                "attempts_unavailable": count("tasks_total").zip(count("attempts_known")).map(|(tasks, attempts)| tasks.saturating_sub(attempts)),
+                "undelivered_outcomes": undelivered
+            },
+            "children": children
+        }));
+    }
+    let total = records.len().saturating_add(omitted);
+    json!({
+        "records": records,
+        "total": total,
+        "shown": records.len(),
+        "truncated": omitted,
+        "complete": omitted == 0 && records.iter().all(|record| record.pointer("/observation/partial") == Some(&Value::Bool(false)))
+    })
 }
 
 fn native_observations(state: &Path) -> Value {
@@ -1251,6 +1483,20 @@ fn validate_home(paths: &Paths, id: &str, home: &Path) -> Result<PathBuf, String
 }
 
 fn read_child_summary(paths: &Paths, home: &Path, generated: &str) -> Result<Value, String> {
+    read_child_summary_with_timeout(
+        paths,
+        home,
+        generated,
+        env_duration("MX_SNAPSHOT_DAEMON_TIMEOUT", 8),
+    )
+}
+
+fn read_child_summary_with_timeout(
+    paths: &Paths,
+    home: &Path,
+    generated: &str,
+    timeout: Duration,
+) -> Result<Value, String> {
     let executable = std::env::current_exe().map_err(|_| "structured home snapshot failed")?;
     let mut command = Command::new(executable);
     command
@@ -1263,11 +1509,7 @@ fn read_child_summary(paths: &Paths, home: &Path, generated: &str) -> Result<Val
         .env("MX_PROJECTS_OVERRIDE", home.join("projects"))
         .env("MX_SNAPSHOT_NOW", generated);
     let limit = env_usize("MX_SNAPSHOT_DAEMON_MAX_BYTES", 262_144);
-    match run_bounded(
-        command,
-        env_duration("MX_SNAPSHOT_DAEMON_TIMEOUT", 8),
-        limit + 1,
-    ) {
+    match run_bounded(command, timeout, limit + 1) {
         TimedOutput::TimedOut => Err("structured home snapshot timed out".into()),
         TimedOutput::StartFailed => Err("structured home snapshot failed".into()),
         TimedOutput::Completed { status, .. } if status != 0 => {
@@ -1291,6 +1533,7 @@ fn read_child_summary(paths: &Paths, home: &Path, generated: &str) -> Result<Val
                     "queued",
                     "landed",
                     "endpoints",
+                    "domains",
                     "omitted",
                 ]
                 .iter()
@@ -1434,7 +1677,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
                 Err(error) => reason = Some(format!("invalid home: {error}")),
             }
         }
-        let empty_summary = json!({"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"counts":{"active_children":0,"decisions_open":0,"holds":0,"queued":0,"landed":0,"endpoints":0},"omitted":[]});
+        let empty_summary = json!({"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null},"omitted":[]});
         let summary = if reason.is_none() {
             match read_child_summary(paths, home.as_ref().unwrap(), generated) {
                 Ok(summary) => {
@@ -1463,7 +1706,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             } else {
                 "parent-event-fallback"
             };
-            records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":"unknown","reason":reason},"invalidity":Value::Null,"provenance":{"selected":selected,"structured_home":home,"parent_event_role":"fallback-only-not-current"},"freshness":{"status":if raw.is_empty(){"unknown"}else{"historical-event"},"observed_at":generated,"age_seconds":parent_event["age_seconds"]},"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"counts":empty_summary["counts"],"omitted":[],"parent_event":parent_event,"terminal_evidence":terminal_capture(&route.parent,&note,generated,false),"contradiction":false}));
+            records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":"unknown","reason":reason},"valid":false,"reason":reason,"invalidity":Value::Null,"provenance":{"selected":selected,"structured_home":home,"parent_event_role":"fallback-only-not-current"},"freshness":{"status":if raw.is_empty(){"unknown"}else{"historical-event"},"observed_at":generated,"age_seconds":parent_event["age_seconds"]},"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":empty_summary["counts"],"omitted":[],"parent_event":parent_event,"terminal_evidence":terminal_capture(&route.parent,&note,generated,false),"contradiction":false}));
             continue;
         }
         let summary_valid = summary["valid"] == true;
@@ -1478,7 +1721,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             .iter()
             .any(|row| row["verdict"] == "contradicts" && row["summary"] == note);
         let terminal = terminal_capture(&route.parent, &note, generated, compare_terminal);
-        records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":summary["state"],"reason":current_reason},"invalidity":summary["invalidity"],"provenance":{"selected":"structured-home","structured_home":home,"summary_valid":summary_valid,"trust":if summary_valid{"complete"}else{"partial-structured"},"parent_event_role":"historical-only"},"freshness":{"status":"fresh","observed_at":generated,"age_seconds":0},"active_children":summary["active_children"],"decisions_open":summary["decisions_open"],"holds":summary["holds"],"queued":summary["queued"],"landed":summary["landed"],"endpoints":summary["endpoints"],"counts":summary["counts"],"omitted":summary["omitted"],"parent_event":parent_event,"terminal_evidence":terminal,"contradiction":contradiction||terminal["contradiction"]==true}));
+        records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":summary["state"],"reason":current_reason},"valid":summary_valid,"reason":summary["reason"],"invalidity":summary["invalidity"],"provenance":{"selected":"structured-home","structured_home":home,"summary_valid":summary_valid,"trust":if summary_valid{"complete"}else{"partial-structured"},"parent_event_role":"historical-only"},"freshness":{"status":"fresh","observed_at":generated,"age_seconds":0},"active_children":summary["active_children"],"decisions_open":summary["decisions_open"],"holds":summary["holds"],"queued":summary["queued"],"landed":summary["landed"],"endpoints":summary["endpoints"],"domains":summary["domains"],"counts":summary["counts"],"omitted":summary["omitted"],"parent_event":parent_event,"terminal_evidence":terminal,"contradiction":contradiction||terminal["contradiction"]==true}));
     }
     let shown = records.len();
     json!({"registry":registry,"records":records,"total_registered":total_registered,"total":total,"shown":shown,"truncated":total-shown})
@@ -1916,5 +2159,175 @@ mod tests {
         assert_eq!(evidence["event_note_seen"], true);
         assert_eq!(evidence["contradiction"], true);
         assert!(evidence.get("content").is_none());
+    }
+
+    #[test]
+    fn domain_projection_reuses_direct_observations_and_keeps_task_session_counts_distinct() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let first = temp.path().join("first");
+        let nested = temp.path().join("nested");
+        for path in [
+            root.join("state"),
+            first.join("state"),
+            nested.join("state"),
+        ] {
+            fs::create_dir_all(path).unwrap();
+        }
+        let paths = Paths {
+            root: root.clone(),
+            home: root.clone(),
+            state: root.join("state"),
+            data: root.join("data"),
+            config: root.join("config"),
+            projects: root.join("projects"),
+            source_root: root.clone(),
+        };
+        let coordinator = |id: &str, owner: &Path, runtime: &Path, endpoint: bool| {
+            json!({
+                "id": id,
+                "coordination": {
+                    "role": "sub-orchestrator",
+                    "owner_home": owner,
+                    "owner_state": owner.join("state"),
+                    "persistent_home": runtime,
+                    "parent_id": "root",
+                    "root_id": format!("root-home:{}", root.display()),
+                    "attempt": {"id":format!("attempt-{id}"),"generation":1,"brief_revision":1},
+                    "domain": {"domain_id":format!("domain-{id}"),"scope":"bounded","projects":[],"idea_id":Value::Null,"scope_revision":1,"assignment_generation":1}
+                },
+                "endpoint": {"exists":endpoint}
+            })
+        };
+        let first_task = coordinator("first", &root, &first, true);
+        let nested_task = coordinator("nested", &first, &nested, false);
+        let daemon_current = json!({"records":[
+            {"home":first,"valid":true,"reason":Value::Null,"domains":[nested_task],"endpoints":[],"counts":{"useful_tasks":2,"worker_sessions":1,"coordinator_sessions":1,"attempts_known":3,"tasks_total":3}},
+            {"home":nested,"valid":true,"reason":Value::Null,"domains":[],"endpoints":[],"counts":{"useful_tasks":3,"worker_sessions":2,"coordinator_sessions":0,"attempts_known":3,"tasks_total":3}}
+        ]});
+        let projection = domain_projection(
+            &paths,
+            &json!([first_task]),
+            &daemon_current,
+            "2026-09-15T00:00:00Z",
+        );
+        assert_eq!(projection["total"], 2);
+        assert_eq!(projection["records"][0]["counts"]["useful_tasks"], 2);
+        assert_eq!(projection["records"][0]["counts"]["worker_sessions"], 1);
+        assert_eq!(
+            projection["records"][0]["counts"]["coordinator_sessions"],
+            2
+        );
+        assert_eq!(projection["records"][1]["counts"]["useful_tasks"], 3);
+        assert_eq!(projection["records"][1]["counts"]["worker_sessions"], 2);
+    }
+
+    #[test]
+    fn domain_projection_reports_unavailable_duplicate_and_bounded_lineage_truthfully() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        fs::create_dir_all(root.join("state")).unwrap();
+        let paths = Paths {
+            root: root.clone(),
+            home: root.clone(),
+            state: root.join("state"),
+            data: root.join("data"),
+            config: root.join("config"),
+            projects: root.join("projects"),
+            source_root: root.clone(),
+        };
+        let coordinator = |id: &str, owner: Option<&Path>, runtime: Option<&Path>| {
+            json!({
+                "id":id,
+                "coordination":{
+                    "role":"sub-orchestrator",
+                    "owner_home":owner,
+                    "persistent_home":runtime,
+                    "domain":{"domain_id":format!("domain-{id}"),"scope":"bounded"}
+                },
+                "endpoint":{"exists":false}
+            })
+        };
+
+        let unavailable = coordinator("unavailable", None, None);
+        let projection = domain_projection(
+            &paths,
+            &json!([unavailable.clone(), unavailable]),
+            &json!({"records":[]}),
+            "2026-09-15T00:00:00Z",
+        );
+        assert_eq!(
+            projection["total"], 1,
+            "duplicate canonical domain is suppressed"
+        );
+        assert_eq!(projection["records"][0]["observation"]["partial"], true);
+        assert_eq!(
+            projection["records"][0]["observation"]["reason"],
+            "runtime home unavailable"
+        );
+        assert_eq!(projection["records"][0]["channel"]["available"], false);
+        assert!(projection["records"][0]["counts"]["useful_tasks"].is_null());
+
+        let mut task_rows = Vec::new();
+        let mut summaries = Vec::new();
+        for index in 0..22 {
+            let runtime = temp.path().join(format!("runtime-{index}"));
+            fs::create_dir_all(runtime.join("state")).unwrap();
+            task_rows.push(coordinator(
+                &format!("coordinator-{index}"),
+                Some(&root),
+                Some(&runtime),
+            ));
+            summaries.push(json!({
+                "home":runtime,
+                "valid":true,
+                "domains":[],
+                "counts":{"useful_tasks":0,"worker_sessions":0,"coordinator_sessions":0,"attempts_known":0,"tasks_total":0}
+            }));
+        }
+        let bounded = domain_projection(
+            &paths,
+            &Value::Array(task_rows),
+            &json!({"records":summaries}),
+            "2026-09-15T00:00:00Z",
+        );
+        assert_eq!(bounded["records"].as_array().unwrap().len(), 20);
+        assert_eq!(bounded["truncated"], 2);
+        assert_eq!(bounded["complete"], false);
+
+        let mut chain = Vec::new();
+        let mut homes = Vec::new();
+        for index in 0..10 {
+            let home = temp.path().join(format!("chain-{index}"));
+            fs::create_dir_all(home.join("state")).unwrap();
+            homes.push(home);
+        }
+        for index in (0..10).rev() {
+            let nested = (index + 1 < homes.len())
+                .then(|| {
+                    coordinator(
+                        &format!("depth-{}", index + 1),
+                        Some(&root),
+                        Some(&homes[index + 1]),
+                    )
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
+            chain.push(json!({
+                "home":homes[index],
+                "valid":true,
+                "domains":nested,
+                "counts":{"useful_tasks":0,"worker_sessions":0,"coordinator_sessions":0,"attempts_known":0,"tasks_total":0}
+            }));
+        }
+        let deep = domain_projection(
+            &paths,
+            &json!([coordinator("depth-0", Some(&root), Some(&homes[0]))]),
+            &json!({"records":chain}),
+            "2026-09-15T00:00:00Z",
+        );
+        assert_eq!(deep["records"].as_array().unwrap().len(), 9);
+        assert_eq!(deep["truncated"], 1);
+        assert_eq!(deep["complete"], false);
     }
 }

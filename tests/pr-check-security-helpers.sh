@@ -565,7 +565,7 @@ test_valid_recording_and_merge_derivation() {
   rm -rf "$dir/wt"
   cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case "${1:-}" in display-message) exit 1 ;; *) exit 0 ;; esac
 SH
   chmod 0700 "$dir/fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
@@ -590,7 +590,7 @@ SH
     chmod 0600 "$dir/home/state/.pr-check-quarantine/!noncanonical.check.evidence"
     cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case "${1:-}" in display-message) exit 1 ;; *) exit 0 ;; esac
 SH
     chmod 0700 "$dir/fakebin/tmux"
     touch "$dir/home/state/.last-watcher-beat"
@@ -1797,7 +1797,7 @@ test_obligation_namespace_compatibility() {
     'mode=local-only'
   cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case "${1:-}" in display-message) exit 1 ;; *) exit 0 ;; esac
 SH
   chmod 0700 "$dir/fakebin/tmux"
   touch "$state/.last-watcher-beat"
@@ -2318,7 +2318,7 @@ test_teardown_removes_poll_artifacts() {
   chmod 0600 "$dir/home/state/.pr-check-quarantine/task-a.check.abc123"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case "${1:-}" in display-message) exit 1 ;; *) exit 0 ;; esac
 SH
   chmod +x "$fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
@@ -2520,8 +2520,61 @@ poll_artifact_snapshot() {
   done
 }
 
+merged_cycle_notifications_valid() {
+  local output=$1 state=$2 merged control notification merged_count=0 control_count=0
+  merged="check: $state/task-a.check.sh: merged"
+  control="check: $state/z-stop.check.sh: stop-cycle"
+  [ -f "$output" ] || return 1
+  while IFS= read -r notification || [ -n "$notification" ]; do
+    if [ "$notification" = "$merged" ]; then
+      merged_count=$((merged_count + 1))
+    elif [ "$notification" = "$control" ]; then
+      control_count=$((control_count + 1))
+    else
+      return 1
+    fi
+  done < "$output"
+  [ "$merged_count" -eq 1 ] && [ "$control_count" -le 1 ]
+}
+
+test_merged_cycle_notification_validation() {
+  local dir state output merged control
+  dir=$(make_case merged-cycle-notification-validation)
+  state="$dir/home/state"
+  output="$dir/notifications.out"
+  merged="check: $state/task-a.check.sh: merged"
+  control="check: $state/z-stop.check.sh: stop-cycle"
+
+  printf '%s\n' "$merged" > "$output"
+  merged_cycle_notifications_valid "$output" "$state" \
+    || fail "exact merged notification was rejected"
+  printf '%s\n%s\n' "$control" "$merged" > "$output"
+  merged_cycle_notifications_valid "$output" "$state" \
+    || fail "valid same-cycle control notification was rejected"
+  printf '%s\n%s\n' "$merged" "$control" > "$output"
+  merged_cycle_notifications_valid "$output" "$state" \
+    || fail "valid merged-then-control notification order was rejected"
+
+  printf '%s\n%s\n' "$merged" "$merged" > "$output"
+  ! merged_cycle_notifications_valid "$output" "$state" \
+    || fail "duplicate merged notifications were accepted"
+  printf '%s\n' "check: $state/foreign.check.sh: merged" > "$output"
+  ! merged_cycle_notifications_valid "$output" "$state" \
+    || fail "foreign notification was accepted"
+  printf '%s\n%s\n' "$merged" 'unexpected output' > "$output"
+  ! merged_cycle_notifications_valid "$output" "$state" \
+    || fail "unexpected notification output was accepted"
+  printf '%s\n%s\n%s\n' "$merged" "$control" "$control" > "$output"
+  ! merged_cycle_notifications_valid "$output" "$state" \
+    || fail "duplicate control notifications were accepted"
+  printf '%s\n' "$control" > "$output"
+  ! merged_cycle_notifications_valid "$output" "$state" \
+    || fail "control notification without a merged result was accepted"
+  pass "validated the exact first-cycle merged and optional control notification contract"
+}
+
 test_merged_poll_retires_once() {
-  local dir state rc first second meta_before
+  local dir state rc second meta_before
   dir=$(make_case merged-retirement-once)
   state="$dir/home/state"
   write_poll_meta "$state" task-a https://github.com/o/r/pull/1
@@ -2534,8 +2587,8 @@ test_merged_poll_retires_once() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "merged retirement watcher failed: $(cat "$dir/watch-1.err")"
-  first=$(cat "$dir/watch-1.out")
-  case "$first" in check:*task-a.check.sh:*merged) ;; *) fail "first merged notification was not preserved: $first" ;; esac
+  merged_cycle_notifications_valid "$dir/watch-1.out" "$state" \
+    || fail "first watcher cycle did not preserve exactly one merged notification with only the optional control result: $(cat "$dir/watch-1.out")"
   assert_poll_absent "$state" task-a
   [ "$(cat "$state/task-a.meta")" = "$meta_before" ] || fail "merged retirement changed canonical metadata"
 
@@ -2926,6 +2979,7 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_returned_custom_check_descendants_are_drained
     ;;
   retirement-teardown)
+    test_merged_cycle_notification_validation
     test_merged_poll_retires_once
     test_persistent_daemon_retirement_is_poll_only
     test_retirement_crash_recovery
@@ -2936,6 +2990,7 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     ;;
   all)
     test_parser_matrix
+    test_merged_cycle_notification_validation
     test_merged_poll_retires_once
     test_persistent_daemon_retirement_is_poll_only
     test_retirement_crash_recovery

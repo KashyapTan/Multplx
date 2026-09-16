@@ -152,6 +152,7 @@ pub fn reusable(state: &Path, correlation: &str, task_id: &str) -> bool {
             record_get(&record, "phase").as_str(),
             "awaiting_report" | "recovery_sending" | "recovery_sent"
         )
+        && binding_is_current(state, &record)
 }
 
 #[must_use]
@@ -193,7 +194,6 @@ pub fn create_bound(
         .map_err(|error| error.to_string())?;
     for id in [
         binding.message_id,
-        binding.parent_task_id,
         binding.recipient_task_id,
         binding.attempt_id,
     ]
@@ -203,6 +203,14 @@ pub fn create_bound(
         multplx_core::identifiers::TaskId::parse(id.to_owned())
             .map_err(|error| error.to_string())?;
     }
+    if let Some(parent) = binding.parent_task_id {
+        let root_home = parent.strip_prefix("root-home:").map(Path::new);
+        if multplx_core::identifiers::TaskId::parse(parent.to_owned()).is_err()
+            && root_home.is_none_or(|path| !path.is_absolute())
+        {
+            return Err("invalid pending reply parent identity".into());
+        }
+    }
     if binding.attempt_id.is_some() != binding.attempt_generation.is_some()
         || binding.attempt_generation == Some(0)
         || binding.brief_revision == Some(0)
@@ -211,6 +219,13 @@ pub fn create_bound(
             .is_some_and(|home| !home.is_absolute())
     {
         return Err("invalid pending reply identity binding".into());
+    }
+    if binding.attempt_id.is_some()
+        && (binding.parent_task_id.is_none()
+            || binding.recipient_task_id.is_none()
+            || binding.recipient_home.is_none())
+    {
+        return Err("canonical pending reply requires exact parent and recipient identity".into());
     }
     let dir = directory(state);
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
@@ -238,7 +253,7 @@ pub fn create_bound(
             .join(format!("{task_id}.status"))
     };
     let text = format!(
-        "schema={SCHEMA}\ncorr_id={correlation}\nmessage_id={}\nrequest_id={correlation}\ntask_id={task_id}\nparent_task_id={}\nrecipient_task_id={}\nparent_home={}\nrecipient_home={recipient_home}\nattempt_id={}\nattempt_generation={}\nbrief_revision={}\nparent_status={}\nparent_status_scan_signature=\nrequest_summary={}\ncreated_epoch={}\ndelivered_epoch=\nacknowledged_epoch=\nresponded_epoch=\ncompleted_epoch=\nphase=awaiting_report\nturn_seen_busy=0\nrequest_turn_completed_epoch=\nrecovery_attempted_epoch=\nrecovery_sender_pid=\nrecovery_sender_identity=\nrecovery_sent_epoch=\nrecovery_delivery_outcome=\nrecovery_turn_seen_busy=0\nrecovery_turn_completed_epoch=\nescalated_epoch=\nresolved_epoch=\nresolved_via=\nwrong_home_hits=0\nwrong_home_sightings=\nwrong_home_scan_signature=\ngrace_secs={}\n",
+        "schema={SCHEMA}\ncorr_id={correlation}\nmessage_id={}\nrequest_id={correlation}\ntask_id={task_id}\nparent_task_id={}\nrecipient_task_id={}\nparent_home={}\nrecipient_home={recipient_home}\nattempt_id={}\nattempt_generation={}\nbrief_revision={}\nparent_status={}\nparent_status_scan_signature=\nrequest_summary={}\ncreated_epoch={}\ndelivered_epoch=\nacknowledged_epoch=\nresponded_epoch=\ncompleted_epoch=\nphase=awaiting_report\nturn_seen_busy=0\nrequest_turn_completed_epoch=\nrecovery_attempted_epoch=\nrecovery_sender_pid=\nrecovery_sender_identity=\nrecovery_sent_epoch=\nrecovery_delivery_outcome=\nrecovery_turn_seen_busy=0\nrecovery_turn_completed_epoch=\nescalated_epoch=\nresolved_epoch=\nresolved_via=\nwrong_home_hits=0\nwrong_home_sightings=\nwrong_home_scan_signature=\nresponse_scan_cursor=\ngrace_secs={}\n",
         binding
             .message_id
             .map(str::to_owned)
@@ -364,6 +379,117 @@ fn resolving_line(path: &Path, correlation: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn canonical_response(
+    state: &Path,
+    record: &Path,
+    correlation: &str,
+) -> Option<crate::lifecycle::subagent_model::MessageEnvelope> {
+    let same_home = |actual: Option<&str>, expected: &str| {
+        let actual = actual.and_then(|path| fs::canonicalize(path).ok());
+        let expected = fs::canonicalize(expected).ok();
+        actual.is_some() && actual == expected
+    };
+    let expected_task = record_get(record, "recipient_task_id");
+    let expected_parent = record_get(record, "parent_task_id");
+    let expected_task_home = record_get(record, "recipient_home");
+    let expected_parent_home = record_get(record, "parent_home");
+    let expected_attempt = record_get(record, "attempt_id");
+    let expected_generation = record_get(record, "attempt_generation")
+        .parse::<u64>()
+        .ok()?;
+    let expected_revision = record_get(record, "brief_revision").parse::<u64>().ok()?;
+    let mut paths = fs::read_dir(state.join("message-outbox"))
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let cursor = record_get(record, "response_scan_cursor");
+    let split = paths.partition_point(|path| {
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| name <= cursor.as_str())
+    });
+    paths.rotate_left(split);
+    let mut last_name = None;
+    for path in paths.into_iter().take(4096) {
+        last_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(str::to_owned);
+        let Some(message_id) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Ok(envelope) = crate::operational_input::read_message_envelope(state, message_id)
+        else {
+            continue;
+        };
+        let attempt = envelope.attempt.as_ref();
+        let response_kind = matches!(
+            envelope.kind.as_str(),
+            "blocked"
+                | "needs-decision"
+                | "done"
+                | "failed"
+                | "resolved"
+                | "result"
+                | "completion"
+                | "evidence"
+                | "research-available"
+                | "implementation-ready"
+                | "pr-ready"
+                | "publication-failed"
+                | "evidence-changed"
+                | "human-decision"
+                | "human-merge"
+                | "final-disposition"
+        );
+        if envelope.schema_version == crate::lifecycle::subagent_model::SCHEMA_VERSION
+            && response_kind
+            && envelope.correlation_id == correlation
+            && envelope.task_id == expected_task
+            && same_home(envelope.task_home.as_deref(), &expected_task_home)
+            && same_home(envelope.parent_home.as_deref(), &expected_parent_home)
+            && envelope.parent_id.as_deref() == Some(expected_parent.as_str())
+            && envelope.sender == expected_task
+            && envelope.recipient == expected_parent
+            && attempt.map(|attempt| attempt.id.as_str()) == Some(expected_attempt.as_str())
+            && attempt.map(|attempt| attempt.generation) == Some(expected_generation)
+            && attempt.map(|attempt| attempt.brief_revision) == Some(expected_revision)
+            && envelope.brief_revision == Some(expected_revision)
+        {
+            return Some(envelope);
+        }
+    }
+    if let Some(last_name) = last_name {
+        let _ = record_set(record, "response_scan_cursor", &last_name);
+    }
+    None
+}
+
+fn binding_is_current(state: &Path, pending: &Path) -> bool {
+    let attempt_id = record_get(pending, "attempt_id");
+    if attempt_id.is_empty() {
+        return true;
+    }
+    let task_id = record_get(pending, "recipient_task_id");
+    let Ok(text) = fs::read_to_string(state.join(format!("{task_id}.meta"))) else {
+        return false;
+    };
+    let Ok(task) = crate::lifecycle::subagent_model::read_meta(&task_id, &text) else {
+        return false;
+    };
+    let expected_home = record_get(pending, "recipient_home");
+    task.owner_home.as_deref() == Some(expected_home.as_str())
+        && task.attempt.as_ref().map(|attempt| attempt.id.as_str()) == Some(attempt_id.as_str())
+        && task.attempt.as_ref().map(|attempt| attempt.generation)
+            == record_get(pending, "attempt_generation")
+                .parse::<u64>()
+                .ok()
+        && task.accepted_brief_revision == record_get(pending, "brief_revision").parse::<u64>().ok()
+}
+
 fn resolve_via(line: &str) -> &'static str {
     if ["data/", "report.md", "document", "pointer"]
         .iter()
@@ -399,9 +525,20 @@ fn try_resolve(record: &Path, correlation: &str) -> Result<bool, String> {
     if delivered.is_empty() && !marker.is_file() {
         return Ok(false);
     }
-    let status = PathBuf::from(record_get(record, "parent_status"));
-    let Some(line) = resolving_line(&status, correlation) else {
+    let canonical = !record_get(record, "attempt_id").is_empty();
+    let response = canonical
+        .then(|| canonical_response(state, record, correlation))
+        .flatten();
+    let line = if let Some(response) = response.as_ref() {
+        format!("{}: {}", response.kind, response.summary)
+    } else if canonical {
         return Ok(false);
+    } else {
+        let status = PathBuf::from(record_get(record, "parent_status"));
+        let Some(line) = resolving_line(&status, correlation) else {
+            return Ok(false);
+        };
+        line
     };
     let epoch = now().to_string();
     if delivered.is_empty() {
@@ -419,7 +556,30 @@ fn try_resolve(record: &Path, correlation: &str) -> Result<bool, String> {
     }
     record_set(record, "phase", "resolved")?;
     record_set(record, "resolved_epoch", &epoch)?;
-    record_set(record, "resolved_via", resolve_via(&line))?;
+    record_set(
+        record,
+        "resolved_via",
+        if canonical {
+            "envelope"
+        } else {
+            resolve_via(&line)
+        },
+    )?;
+    let request_message = record_get(record, "message_id");
+    if !request_message.is_empty()
+        && crate::operational_input::read_message_envelope(state, &request_message).is_ok()
+    {
+        let acknowledgement = if line_completes(&line) {
+            crate::lifecycle::subagent_model::Acknowledgement::Completed
+        } else {
+            crate::lifecycle::subagent_model::Acknowledgement::Answered
+        };
+        crate::operational_input::advance_message_envelope(
+            state,
+            &request_message,
+            acknowledgement,
+        )?;
+    }
     Ok(true)
 }
 
@@ -504,6 +664,14 @@ fn send_recovery(source_root: &Path, record: &Path, correlation: &str) -> Result
     {
         return Ok(());
     }
+    let state = record
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("invalid pending reply path")?;
+    if !binding_is_current(state, record) {
+        record_set(record, "phase", "stale_binding")?;
+        return maybe_escalate(record, correlation);
+    }
     let delivered = record_get(record, "delivered_epoch")
         .parse::<u64>()
         .map_err(|_| "invalid delivered epoch")?;
@@ -529,11 +697,16 @@ fn send_recovery(source_root: &Path, record: &Path, correlation: &str) -> Result
                 .arg(&message),
         )
     } else {
+        let parent_state = record
+            .parent()
+            .and_then(Path::parent)
+            .ok_or("invalid pending reply path")?;
         bounded_delivery(
             Command::new(source_root.join("bin/mx-send.sh"))
                 .arg(&task)
                 .arg(&message)
                 .env("MX_HOME", &parent_home)
+                .env("MX_STATE_OVERRIDE", parent_state)
                 .env("MX_PENDING_REPLY_EXISTING_CORR", correlation),
         )
     };
@@ -560,7 +733,7 @@ fn maybe_escalate(record: &Path, correlation: &str) -> Result<(), String> {
     let phase = record_get(record, "phase");
     let eligible = matches!(
         phase.as_str(),
-        "delivery_unknown" | "recovery_failed" | "recovery_unknown"
+        "delivery_unknown" | "recovery_failed" | "recovery_unknown" | "stale_binding"
     ) || (phase == "recovery_sent"
         && !record_get(record, "recovery_turn_completed_epoch").is_empty());
     if !eligible || try_resolve(record, correlation)? {
@@ -575,6 +748,9 @@ fn maybe_escalate(record: &Path, correlation: &str) -> Result<(), String> {
         ),
         "recovery_failed" | "recovery_unknown" => format!(
             "pending-reply-recovery-delivery-{outcome}: task={task} pending-reply-id={correlation} request={summary}"
+        ),
+        "stale_binding" => format!(
+            "pending-reply-stale-binding: task={task} pending-reply-id={correlation} request={summary}"
         ),
         _ => format!(
             "pending-reply-missed: task={task} pending-reply-id={correlation} request={summary}"
@@ -872,12 +1048,69 @@ mod tests {
         confirm_delivery(&state, &correlation).expect("delivered");
         acknowledge(&state, &correlation).expect("acknowledged");
         assert!(complete(&state, &correlation).is_err());
-        fs::write(
-            state.join("task.status"),
-            format!("blocked: corr={correlation} needs input\n"),
-        )
-        .expect("response");
+        let wrong_recipient = temp.path().join("other/recipient");
+        fs::create_dir_all(&wrong_recipient).expect("same basename recipient");
+        for (message_id, kind, task_home) in [
+            ("copied-request", "task-note", &recipient),
+            ("wrong-home-response", "blocked", &wrong_recipient),
+        ] {
+            crate::operational_input::persist_message_envelope(
+                &state,
+                &crate::lifecycle::subagent_model::MessageEnvelope {
+                    schema_version: crate::lifecycle::subagent_model::SCHEMA_VERSION,
+                    message_id: message_id.into(),
+                    task_id: "task".into(),
+                    task_home: Some(task_home.to_string_lossy().into_owned()),
+                    parent_home: Some(home.to_string_lossy().into_owned()),
+                    attempt: Some(crate::lifecycle::subagent_model::Attempt {
+                        id: "attempt-2".into(),
+                        generation: 2,
+                        brief_revision: 3,
+                    }),
+                    parent_id: Some("parent".into()),
+                    sender: "task".into(),
+                    recipient: "parent".into(),
+                    brief_revision: Some(3),
+                    kind: kind.into(),
+                    correlation_id: correlation.clone(),
+                    created_at: "2026-09-15T00:00:00Z".into(),
+                    summary: "must not settle".into(),
+                    artifact: None,
+                    acknowledgement: crate::lifecycle::subagent_model::Acknowledgement::Pending,
+                },
+            )
+            .expect("non-settling envelope");
+        }
         tick(&state, temp.path(), |_| "unknown");
+        assert!(record_get(&record, "responded_epoch").is_empty());
+        crate::operational_input::persist_message_envelope(
+            &state,
+            &crate::lifecycle::subagent_model::MessageEnvelope {
+                schema_version: crate::lifecycle::subagent_model::SCHEMA_VERSION,
+                message_id: "response-1".into(),
+                task_id: "task".into(),
+                task_home: Some(recipient.to_string_lossy().into_owned()),
+                parent_home: Some(home.to_string_lossy().into_owned()),
+                attempt: Some(crate::lifecycle::subagent_model::Attempt {
+                    id: "attempt-2".into(),
+                    generation: 2,
+                    brief_revision: 3,
+                }),
+                parent_id: Some("parent".into()),
+                sender: "task".into(),
+                recipient: "parent".into(),
+                brief_revision: Some(3),
+                kind: "blocked".into(),
+                correlation_id: correlation.clone(),
+                created_at: "2026-09-15T00:00:00Z".into(),
+                summary: "needs input".into(),
+                artifact: None,
+                acknowledgement: crate::lifecycle::subagent_model::Acknowledgement::Pending,
+            },
+        )
+        .expect("response envelope");
+        tick(&state, temp.path(), |_| "unknown");
+        assert_eq!(record_get(&record, "resolved_via"), "envelope");
         assert!(!record_get(&record, "responded_epoch").is_empty());
         assert!(record_get(&record, "completed_epoch").is_empty());
         complete(&state, &correlation).expect("explicit completion");
@@ -935,5 +1168,76 @@ mod tests {
         complete(&state, &correlation).expect("complete");
         complete(&state, &correlation).expect("idempotent complete");
         assert!(!record_get(&path(&state, &correlation), "completed_epoch").is_empty());
+    }
+
+    #[test]
+    fn stale_generation_escalates_without_reinjecting_into_replacement() {
+        use crate::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        fs::create_dir_all(&state).expect("state");
+        let root = format!("root-home:{}", home.display());
+        let mut task = TaskRecord::new(
+            "task".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            root.clone(),
+            root,
+            home.to_string_lossy().into_owned(),
+        );
+        task.owner_state = Some(state.to_string_lossy().into_owned());
+        task.parent_state = task.owner_state.clone();
+        let initial = task.attempt.clone().expect("attempt");
+        fs::write(
+            state.join("task.meta"),
+            write_meta("", &task).expect("metadata"),
+        )
+        .expect("write metadata");
+        let correlation = create_bound(
+            &home,
+            &state,
+            "task",
+            "request",
+            &ReplyBinding {
+                parent_task_id: Some("parent"),
+                recipient_task_id: Some("task"),
+                recipient_home: Some(&home),
+                attempt_id: Some(&initial.id),
+                attempt_generation: Some(initial.generation),
+                brief_revision: Some(initial.brief_revision),
+                ..ReplyBinding::default()
+            },
+        )
+        .expect("pending reply");
+        confirm_delivery(&state, &correlation).expect("delivery");
+        let pending = path(&state, &correlation);
+        record_set(&pending, "request_turn_completed_epoch", "1").expect("turn complete");
+        record_set(&pending, "grace_secs", "0").expect("grace");
+
+        task.prior_attempts
+            .push(task.attempt.take().expect("old attempt"));
+        task.attempt = Some(crate::lifecycle::subagent_model::Attempt {
+            id: "replacement".into(),
+            generation: 2,
+            brief_revision: 1,
+        });
+        fs::write(
+            state.join("task.meta"),
+            write_meta("", &task).expect("replacement metadata"),
+        )
+        .expect("write replacement");
+        send_recovery(temp.path(), &pending, &correlation).expect("bounded escalation");
+        assert_eq!(record_get(&pending, "phase"), "escalated");
+        assert!(record_get(&pending, "recovery_attempted_epoch").is_empty());
+        assert!(
+            fs::read_to_string(state.join("task.status"))
+                .expect("escalation")
+                .contains("pending-reply-stale-binding")
+        );
     }
 }

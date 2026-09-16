@@ -120,15 +120,63 @@ pub struct ApiHeadroom {
 #[derive(Clone, Debug, Serialize)]
 pub struct Headroom {
     model: &'static str,
+    accounting_scope: &'static str,
     capacity: u64,
     in_use: u64,
     available: u64,
     at_limit: bool,
+    worker_headroom: u64,
+    workers_in_use: u64,
+    coordinators_in_use: u64,
+    unknown_session_use: u64,
     local: LocalHeadroom,
     api: ApiHeadroom,
     candidates: BTreeMap<String, CandidateHeadroom>,
     #[serde(skip)]
     observed_active_receipts: BTreeSet<String>,
+}
+
+fn admission_classes(paths: &HeadroomPaths) -> Result<(u64, u64, u64)> {
+    let mut workers = 0u64;
+    let mut coordinators = 0u64;
+    let mut unknown = 0u64;
+    for receipt in receipts(paths)? {
+        if matches!(
+            receipt.state,
+            AdmissionState::Released | AdmissionState::Retryable
+        ) || receipt
+            .resources
+            .get("session")
+            .copied()
+            .unwrap_or_default()
+            == 0
+        {
+            continue;
+        }
+        let units = receipt
+            .resources
+            .get("session")
+            .copied()
+            .unwrap_or_default();
+        let role = fs::read_to_string(
+            receipt
+                .owner_state
+                .join(format!("{}.meta", receipt.task_id)),
+        )
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .find_map(|line| line.strip_prefix("canonical_model="))
+                .and_then(|model| serde_json::from_str::<Value>(model).ok())
+                .and_then(|model| model.get("role").and_then(Value::as_str).map(str::to_owned))
+        });
+        match role.as_deref() {
+            Some("sub-orchestrator") => coordinators = coordinators.saturating_add(units),
+            Some(_) => workers = workers.saturating_add(units),
+            None => unknown = unknown.saturating_add(units),
+        }
+    }
+    Ok((workers, coordinators, unknown))
 }
 
 impl Headroom {
@@ -548,6 +596,8 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
     let load_one = load_one(paths)?;
     let memory_available = memory_available(paths)?;
     let (in_use, harness_use, observed_active_receipts) = live_counts(paths)?;
+    let admission = admission_config(paths)?;
+    let (workers_in_use, coordinators_in_use, classified_unknown) = admission_classes(paths)?;
     let cpu_per_actor = std::env::var("MX_HEADROOM_CPU_PER_ACTOR")
         .ok()
         .map(|value| parse_positive_number(&value))
@@ -593,10 +643,17 @@ pub fn evaluate(paths: &HeadroomPaths) -> Result<Headroom> {
         .min(candidate_max.ok_or_else(|| message("configured dispatch candidates are empty"))?);
     Ok(Headroom {
         model: "local+api",
+        accounting_scope: "root-home-and-descendants",
         capacity: in_use + available,
         in_use,
         available,
         at_limit: available == 0,
+        worker_headroom: admission.worker_headroom,
+        workers_in_use,
+        coordinators_in_use,
+        unknown_session_use: in_use
+            .saturating_sub(workers_in_use.saturating_add(coordinators_in_use))
+            .max(classified_unknown),
         local: LocalHeadroom {
             cpu_count,
             load_one,
@@ -1021,10 +1078,17 @@ struct AdmissionConfig {
     aging_seconds: u64,
     #[serde(default)]
     resources: BTreeMap<String, u64>,
+    /// Session slots kept available to useful workers and parent recovery.
+    #[serde(default = "default_worker_headroom")]
+    worker_headroom: u64,
 }
 
 const fn default_aging_seconds() -> u64 {
     DEFAULT_AGING_SECONDS
+}
+
+const fn default_worker_headroom() -> u64 {
+    1
 }
 
 impl Default for AdmissionConfig {
@@ -1033,6 +1097,7 @@ impl Default for AdmissionConfig {
             version: 1,
             aging_seconds: DEFAULT_AGING_SECONDS,
             resources: BTreeMap::new(),
+            worker_headroom: default_worker_headroom(),
         }
     }
 }
@@ -1564,15 +1629,46 @@ fn resource_use(
     Ok(used)
 }
 
+fn is_coordinator(record: &QueueRecord) -> bool {
+    record
+        .canonical_model
+        .as_deref()
+        .and_then(|model| serde_json::from_str::<Value>(model).ok())
+        .and_then(|model| model.get("role").and_then(Value::as_str).map(str::to_owned))
+        .as_deref()
+        == Some("sub-orchestrator")
+}
+
+fn aged_coordinator_may_yield_worker_reserve(
+    record: &QueueRecord,
+    headroom: &Headroom,
+    now: u64,
+    aging_seconds: u64,
+) -> bool {
+    is_coordinator(record)
+        && headroom.coordinators_in_use == 0
+        && now.saturating_sub(record.enqueued_at) >= aging_seconds
+}
+
 fn fits(
     record: &QueueRecord,
     headroom: &Headroom,
     config: &AdmissionConfig,
     used: &BTreeMap<String, u64>,
+    allow_worker_headroom: bool,
 ) -> bool {
+    let coordinator = is_coordinator(record);
     record.resources.iter().all(|(resource, units)| {
         let capacity = if resource == "session" {
-            headroom.available
+            if coordinator && !allow_worker_headroom {
+                headroom.available.saturating_sub(
+                    config
+                        .worker_headroom
+                        .saturating_sub(headroom.workers_in_use),
+                )
+            } else {
+                headroom.available
+            }
         } else if let Some(harness) = resource.strip_prefix("harness:") {
             headroom
                 .candidates
@@ -1739,6 +1835,20 @@ fn admission_try_reserve_inner(
     }
     let headroom = evaluate(paths)?;
     let config = admission_config(paths)?;
+    admission_try_reserve_evaluated(paths, record, allow_reserved, &headroom, &config)
+}
+
+fn admission_try_reserve_evaluated(
+    paths: &HeadroomPaths,
+    record: &QueueRecord,
+    allow_reserved: bool,
+    headroom: &Headroom,
+    config: &AdmissionConfig,
+) -> Result<AdmissionDecision> {
+    validate_record(paths, record)?;
+    if !record.dependencies.iter().all(dependency_completed) {
+        return Ok(AdmissionDecision::Deferred);
+    }
     let _lock = acquire(paths)?;
     if let Some(existing) = read_receipt(paths, &record.request_id)? {
         let abandoned_reservation = existing.state == AdmissionState::Reserved
@@ -1754,13 +1864,44 @@ fn admission_try_reserve_inner(
         }
         return Ok(decision);
     }
-    if !fits(
-        record,
-        &headroom,
-        &config,
-        &resource_use(paths, &headroom.observed_active_receipts)?,
-    ) {
+    let used = resource_use(paths, &headroom.observed_active_receipts)?;
+    if !fits(record, headroom, config, &used, false) {
         return Ok(AdmissionDecision::Deferred);
+    }
+    if !allow_reserved {
+        let now = now_epoch();
+        let incoming_score = dispatch_score(record, now, config.aging_seconds);
+        for candidate in queue_records(paths)? {
+            if candidate.request_id == record.request_id {
+                continue;
+            }
+            let eligible = candidate.state == DispatchState::Queued
+                || read_receipt(paths, &candidate.request_id)?
+                    .is_some_and(|receipt| receipt.state == AdmissionState::Retryable);
+            let candidate_score = dispatch_score(&candidate, now, config.aging_seconds);
+            let candidate_precedes = candidate_score > incoming_score
+                || (candidate_score == incoming_score
+                    && (candidate.enqueued_at, &candidate.task_id)
+                        <= (record.enqueued_at, &record.task_id));
+            if eligible
+                && candidate_precedes
+                && candidate.dependencies.iter().all(dependency_completed)
+                && fits(
+                    &candidate,
+                    headroom,
+                    config,
+                    &used,
+                    aged_coordinator_may_yield_worker_reserve(
+                        &candidate,
+                        headroom,
+                        now,
+                        config.aging_seconds,
+                    ),
+                )
+            {
+                return Ok(AdmissionDecision::Deferred);
+            }
+        }
     }
     reserve(paths, record, now_epoch())?;
     Ok(AdmissionDecision::Granted)
@@ -1997,7 +2138,13 @@ pub fn queue_drain(paths: &HeadroomPaths) -> Result<String> {
                 .is_some_and(|receipt| receipt.state == AdmissionState::Retryable);
         if eligible
             && candidate.dependencies.iter().all(dependency_completed)
-            && fits(&candidate, &headroom, &config, &used)
+            && fits(
+                &candidate,
+                &headroom,
+                &config,
+                &used,
+                aged_coordinator_may_yield_worker_reserve(&candidate, &headroom, now, aging),
+            )
         {
             selected = Some(candidate);
             break;
@@ -2137,13 +2284,14 @@ mod tests {
         Headroom, HeadroomPaths, LocalHeadroom, QueueRecord, absolute_ps_identity,
         admission_config, admission_finish, admission_owner_identity, admission_reconcile_inactive,
         admission_release_execution, admission_resume_reserved, admission_retryable,
-        admission_try_reserve, configured_candidates, configured_capacity, dependency_completed,
-        dispatch_score, evaluate, existing_admission_decision, fits, live_counts_with_probe,
-        metadata_reconciled, metadata_value, parse_nonnegative_integer, parse_nonnegative_number,
-        parse_positive_number, profile_harnesses, queue_add, queue_cancel, queue_list,
-        queue_priority, queue_records, read_compact, read_receipt, reservation_owner_is_live,
-        reserve, resource_use, same_receipt_identity, valid_id, validate_dependency_graph,
-        validate_record, write_receipt,
+        admission_try_reserve, admission_try_reserve_evaluated,
+        aged_coordinator_may_yield_worker_reserve, configured_candidates, configured_capacity,
+        dependency_completed, dispatch_score, evaluate, existing_admission_decision, fits,
+        live_counts_with_probe, metadata_reconciled, metadata_value, now_epoch,
+        parse_nonnegative_integer, parse_nonnegative_number, parse_positive_number,
+        profile_harnesses, queue_add, queue_cancel, queue_list, queue_priority, queue_records,
+        read_compact, read_receipt, reservation_owner_is_live, reserve, resource_use,
+        same_receipt_identity, valid_id, validate_dependency_graph, validate_record, write_receipt,
     };
 
     fn paths(temp: &tempfile::TempDir) -> HeadroomPaths {
@@ -2194,10 +2342,15 @@ mod tests {
     fn synthetic_headroom(available: u64) -> Headroom {
         Headroom {
             model: "local+api",
+            accounting_scope: "root-home-and-descendants",
             capacity: available,
             in_use: 0,
             available,
             at_limit: available == 0,
+            worker_headroom: 1,
+            workers_in_use: 0,
+            coordinators_in_use: 0,
+            unknown_session_use: 0,
             local: LocalHeadroom {
                 cpu_count: 8.0,
                 load_one: 0.0,
@@ -2514,6 +2667,7 @@ mod tests {
             version: 1,
             aging_seconds: 10,
             resources: std::collections::BTreeMap::from([("gpu".into(), 2)]),
+            worker_headroom: 1,
         };
         let headroom = synthetic_headroom(1);
         let mut large = admission_record(&paths, "large", "large-task");
@@ -2522,14 +2676,127 @@ mod tests {
         let mut small = admission_record(&paths, "small", "small-task");
         small.resources.insert("gpu".into(), 1);
         let used = std::collections::BTreeMap::new();
-        assert!(!fits(&large, &headroom, &config, &used));
-        assert!(fits(&small, &headroom, &config, &used));
+        assert!(!fits(&large, &headroom, &config, &used, false));
+        assert!(fits(&small, &headroom, &config, &used, false));
         assert!(fits(
             &small,
             &synthetic_headroom(1),
             &AdmissionConfig::default(),
-            &used
+            &used,
+            false,
         ));
+    }
+
+    #[test]
+    fn coordinators_cannot_consume_reserved_worker_headroom() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let mut coordinator = admission_record(&paths, "coord", "coord-task");
+        coordinator.resources = BTreeMap::from([("session".into(), 2)]);
+        coordinator.canonical_model =
+            Some(r#"{"role":"sub-orchestrator","attempt":{"id":"attempt-1"}}"#.into());
+        let mut worker = coordinator.clone();
+        worker.request_id = "worker".into();
+        worker.task_id = "worker-task".into();
+        worker.canonical_model = Some(r#"{"role":"implementer"}"#.into());
+        let headroom = synthetic_headroom(2);
+        let used = BTreeMap::new();
+        assert!(!fits(
+            &coordinator,
+            &headroom,
+            &AdmissionConfig::default(),
+            &used,
+            false,
+        ));
+        assert!(fits(
+            &coordinator,
+            &headroom,
+            &AdmissionConfig::default(),
+            &used,
+            true,
+        ));
+        assert!(fits(
+            &worker,
+            &headroom,
+            &AdmissionConfig::default(),
+            &used,
+            false,
+        ));
+        let mut worker_active = synthetic_headroom(1);
+        worker_active.workers_in_use = 1;
+        coordinator.resources = BTreeMap::from([("session".into(), 1)]);
+        assert!(fits(
+            &coordinator,
+            &worker_active,
+            &AdmissionConfig::default(),
+            &used,
+            false,
+        ));
+
+        let configured = serde_json::from_str::<AdmissionConfig>(
+            r#"{"version":1,"aging_seconds":60,"worker_headroom":2,"resources":{}}"#,
+        )
+        .expect("configured reserve");
+        assert_eq!(configured.worker_headroom, 2);
+    }
+
+    #[test]
+    fn aged_domain_gets_bounded_progress_during_a_continuous_direct_worker_stream() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let mut coordinator = admission_record(&paths, "coord", "coord-task");
+        coordinator.canonical_model =
+            Some(r#"{"role":"sub-orchestrator","attempt":{"id":"attempt-1"}}"#.into());
+        coordinator.enqueued_at = 100;
+        let worker = admission_record(&paths, "worker", "worker-task");
+        let mut only_reserved_slot = synthetic_headroom(1);
+        assert!(!aged_coordinator_may_yield_worker_reserve(
+            &coordinator,
+            &only_reserved_slot,
+            109,
+            10,
+        ));
+        assert!(aged_coordinator_may_yield_worker_reserve(
+            &coordinator,
+            &only_reserved_slot,
+            110,
+            10,
+        ));
+        assert!(!aged_coordinator_may_yield_worker_reserve(
+            &worker,
+            &only_reserved_slot,
+            1_000,
+            10,
+        ));
+        only_reserved_slot.coordinators_in_use = 1;
+        assert!(!aged_coordinator_may_yield_worker_reserve(
+            &coordinator,
+            &only_reserved_slot,
+            1_000,
+            10,
+        ));
+
+        let mut queued = coordinator.clone();
+        queued.enqueued_at = now_epoch().saturating_sub(10);
+        queue_add(&paths, &queued).expect("queue aged coordinator");
+        let mut arriving_worker = worker;
+        arriving_worker.enqueued_at = now_epoch();
+        let config = AdmissionConfig {
+            aging_seconds: 1,
+            ..AdmissionConfig::default()
+        };
+        let available = synthetic_headroom(1);
+        assert_eq!(
+            admission_try_reserve_evaluated(&paths, &arriving_worker, false, &available, &config,)
+                .expect("fair immediate admission"),
+            AdmissionDecision::Deferred,
+            "an aged fitting coordinator must claim the next dispatch opportunity before a fresh worker"
+        );
+        assert!(
+            read_receipt(&paths, &arriving_worker.request_id)
+                .expect("worker admission receipt")
+                .is_none()
+        );
     }
 
     #[test]
@@ -2547,7 +2814,8 @@ mod tests {
             &second,
             &synthetic_headroom(1),
             &AdmissionConfig::default(),
-            &used
+            &used,
+            false,
         ));
         admission_finish(
             &paths,
@@ -3116,7 +3384,13 @@ mod tests {
             .expect("locked receipt recount");
         assert_eq!(used.get("session"), Some(&1));
         let next = admission_record(&paths, "next-request", "next");
-        assert!(!fits(&next, &snapshot, &AdmissionConfig::default(), &used,));
+        assert!(!fits(
+            &next,
+            &snapshot,
+            &AdmissionConfig::default(),
+            &used,
+            false,
+        ));
     }
 
     #[test]

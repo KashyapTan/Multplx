@@ -3122,7 +3122,17 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
     }
     if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
         eprintln!("watcher: cannot reconcile accepted report notifications: {error}");
-        return 1;
+    }
+    let parent_channel_limit = usize::try_from(environment_u64("MX_PARENT_CHANNEL_BATCH", 64))
+        .unwrap_or(64)
+        .clamp(1, 1024);
+    if let Err(error) =
+        multplx_domain::lifecycle::parent_channel::relay(&state, parent_channel_limit)
+    {
+        eprintln!("watcher: cannot reconcile this home's parent channel: {error}");
+    }
+    if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
+        eprintln!("watcher: accepted report notifications remain pending: {error}");
     }
     let rejected_retirements = recover_pr_poll_retirements(&state);
     if !rejected_retirements.is_empty() {
@@ -3209,6 +3219,22 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
         multplx_domain::lifecycle::pending_reply::tick(&state, source_root, |task| {
             pending_reply_observation(&state, task)
         });
+        if let Err(error) =
+            multplx_domain::lifecycle::parent_channel::relay(&state, parent_channel_limit)
+        {
+            let reason = format!("check: parent channel observation failed: {error}");
+            if !append_wake(
+                &state,
+                multplx_core::wake::WakeKind::Check,
+                "parent-channel-health",
+                &reason,
+            ) {
+                return 1;
+            }
+        }
+        if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
+            eprintln!("watcher: accepted report notifications remain pending: {error}");
+        }
         if file_age(&state.join(".last-check")) >= check_interval {
             let checks = authenticated_checks(&state, source_root);
             let rejected = checks

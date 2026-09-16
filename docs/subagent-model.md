@@ -30,7 +30,7 @@ Readers reject duplicate keys, unsupported versions and conflicting identities.
 | Record field group | Meaning |
 | --- | --- |
 | `task_id`, `owner_home`, `owner_state`, `parent_id`, `parent_home`, `parent_state`, `root_id` | Stable task and home-qualified ancestry, including explicit state-directory overrides |
-| `role`, `artifact`, `persistent`, `persistent_home` | Assignment, requested output and independent home lifetime |
+| `role`, `artifact`, `persistent`, `private_home`, `persistent_home` | Assignment, requested output, isolated coordination home and independent standing-assignment lifetime |
 | `attempt`, `prior_attempts`, `retained_executions` | Current generation and preserved superseded work |
 | `accepted_brief_revision`, `accepted_brief_digest`, `accepted_brief_path`, `briefs`, `assignments` | Accepted scope/evidence history and explicit responsibility changes |
 | `runtime` | Provider, nullable exportable session identity and endpoint |
@@ -147,4 +147,13 @@ A coordinator domain records its scope revision, assignment generation, root hom
 Project references do not form exclusive repository locks: separate domains may work in the same project.
 A task has one current owning coordinator and acyclic lineage.
 Transfer changes ownership explicitly while retaining task identity and historical assignments.
-Phase 05 owns coordinator provisioning and durable parent-channel composition using these identities.
+The [scoped coordinator reference](scoped-coordinators.md) describes Phase 05 provisioning and durable parent-channel composition using these identities.
+`private_home` is additive in schema version 2; an older persistent record still represents a private home when that field is absent.
+The coordinator task record remains authoritative, while delivery receipts and read-only domain projections reference it.
+
+The [parent-channel module](../crates/multplx-domain/src/lifecycle/parent_channel.rs) is the integration owner for Phase 06 delivery and Phase 08 workflow producers.
+Call `prepare_outcome` with the canonical `MessageEnvelope` while accepting the fact, retain its frozen `ParentOutcome` in the same transition evidence, and use `persist_prepared` for recoverable publication before notification.
+Recovery preserves that accepted identity even after the originating attempt is replaced; it must not reconstruct an old fact from the current attempt.
+`record_outcome` combines preparation and persistence for an already-accepted current event, while `prepare_report` selects the report states that belong in the parent channel.
+`bind_human_question` and `record_human_answer` preserve exact question, brief and optional workflow revision identity.
+`inspect` provides bounded channel health, and `relay` advances only the active home's owned work while preserving each foreign outcome's original envelope.

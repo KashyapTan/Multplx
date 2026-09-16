@@ -1,10 +1,10 @@
 {
   "kind": "resource-isolation-proof",
-  "started_at": "2026-09-15T13:01:25.940932Z",
-  "finished_at": "2026-09-15T13:09:17.793798Z",
+  "started_at": "2026-09-16T00:35:46.07694Z",
+  "finished_at": "2026-09-16T00:44:44.575987Z",
   "concurrency": 4,
   "repeats": 2,
-  "manifest_sha256": "afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f",
+  "manifest_sha256": "d00044b128e8837a4c70f77349e7d844f461a910cac44d0622f2d0e7baf7ef11",
   "resource_manifest": [
     {
       "path": "tests/mx-actor-state.test.sh",
@@ -200,6 +200,12 @@
     },
     {
       "path": "tests/mx-composer-lib.test.sh",
+      "resources": [
+        "none"
+      ]
+    },
+    {
+      "path": "tests/mx-coordinator-spawn.test.sh",
       "resources": [
         "none"
       ]
@@ -785,21 +791,21 @@
       ]
     }
   ],
-  "conflict_pairs": 647,
+  "conflict_pairs": 650,
   "rounds": [
     {
       "repeat": 1,
       "exit": 0,
       "runner_exit": 0,
-      "duration_ms": 236955,
-      "run_id": "mx-test-run-1789477522877-89795"
+      "duration_ms": 270188,
+      "run_id": "mx-test-run-1789519216244-84247"
     },
     {
       "repeat": 2,
       "exit": 0,
       "runner_exit": 0,
-      "duration_ms": 234846,
-      "run_id": "mx-test-run-1789477757714-14671"
+      "duration_ms": 268272,
+      "run_id": "mx-test-run-1789519484525-85361"
     }
   ],
   "scripts": [
@@ -810,7 +816,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4058,
+      "duration_ms": 3698,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -831,7 +837,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 1609,
+      "duration_ms": 1539,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -847,7 +853,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 2355,
+      "duration_ms": 2170,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -866,7 +872,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3147,
+      "duration_ms": 2934,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1020,7 +1026,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 30,
+      "duration_ms": 40,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1035,7 +1041,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7590,
+      "duration_ms": 7476,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1104,7 +1110,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 30225,
+      "duration_ms": 31098,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1239,7 +1245,7 @@
         "ok - mx_backend_herdr_wait_transition: a reader/subscribe failure falls back to polling (rc 2)",
         "ok - mx_backend_herdr_wait_transition: Bash 3.2-safe bad-ack path closes fd 9 and removes its FIFO",
         "ok - mx_backend_herdr_wait_transition: stock macOS Bash clean timeout closes fd 9 and returns 1",
-        "ok - mock Herdr launch: endpoint fault retains exact allocation and intent; duplicate retry is fenced",
+        "ok - mock Herdr launch: endpoint fault retains exact allocation; proven-absent exact retry recovers once",
         "ok - mock Herdr projection: fallback uses exact allocation; corrupt recovery retains work and prior identity",
         "ok - mock Herdr legacy home: restart keeps workspace and prior attempt; retirement retains unowned Git home",
         "ok - mock Herdr legacy runtime: exact fast-forward preserves charter and leaves source checkout unchanged",
@@ -1254,7 +1260,7 @@
       "resources": [
         "tmux-server"
       ],
-      "duration_ms": 682,
+      "duration_ms": 562,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1276,7 +1282,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 11225,
+      "duration_ms": 12151,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1317,7 +1323,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 739,
+      "duration_ms": 1107,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1342,7 +1348,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 657,
+      "duration_ms": 681,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1361,7 +1367,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1270,
+      "duration_ms": 1278,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1377,7 +1383,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 20370,
+      "duration_ms": 20268,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1411,7 +1417,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 504,
+      "duration_ms": 600,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1436,7 +1442,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4154,
+      "duration_ms": 4030,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1464,7 +1470,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6117,
+      "duration_ms": 5810,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1494,7 +1500,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1330,
+      "duration_ms": 1261,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1520,7 +1526,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 52,
+      "duration_ms": 56,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1537,18 +1543,42 @@
       "repeat": 1
     },
     {
+      "path": "tests/mx-coordinator-spawn.test.sh",
+      "family": "daemon",
+      "expected_gate_skip": "none",
+      "resources": [
+        "none"
+      ],
+      "duration_ms": 13768,
+      "exit": 0,
+      "gate_skip": false,
+      "assertions": [
+        "ok - named idea coordinator spawn publishes one canonical private-home assignment and adopts it on retry",
+        "ok - distinct scoped coordinators may borrow one canonical project without exclusivity",
+        "ok - stopped idea domain binds a canonical project and restarts at the revised generation",
+        "ok - queued coordinator replay preserves one request and one private home",
+        "ok - launch failure reports retained identity and exact request retry recovers it",
+        "ok - repeatable project options bind a standing domain without copying repositories",
+        "ok - unsupported provider fails before coordinator home and registry mutation",
+        "ok - named Herdr preflight supports the verified provider and refuses missing tooling before mutation",
+        "ok - coordinator settings inherit, human retries recover exactly, and prepare failures retain identity",
+        "ok - prelaunch publication failure retains and reports the frozen coordinator identity"
+      ],
+      "repeat": 1
+    },
+    {
       "path": "tests/mx-cursor-adapter.test.sh",
       "family": "pure-contract-unit",
       "expected_gate_skip": "none",
       "resources": [
         "none"
       ],
-      "duration_ms": 1568,
+      "duration_ms": 1579,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
         "ok - multplx cursor and cursor-agent prefer agent and enforce sandbox-on launch",
-        "ok - Cursor hooks translate shared guards, fail closed, and bound stop continuation",
+        "ok - Cursor hooks preserve supervision, allow native delegation, and bound stop continuation",
         "ok - Cursor actor profile, model effort, composer, and busy signatures are wired"
       ],
       "repeat": 1
@@ -1560,7 +1590,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 11577,
+      "duration_ms": 16245,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1579,6 +1609,7 @@
         "ok - C6 spawn: an explicit --effort overrides config/daemon-harness's effort token; the file's model token still applies",
         "ok - C7 spawn: an explicit --harness starts with clean model/effort defaults",
         "ok - C8 spawn: an explicit --harness still honors explicit model/effort flags",
+        "ok - spawned providers load task-bound native observation from the trusted runtime",
         "ok - C9 spawn: the harness fallback chain still resolves with no tokens; actor/scout launches are unaffected by this feature"
       ],
       "repeat": 1
@@ -1590,7 +1621,7 @@
       "resources": [
         "daemon-reread-process-signal"
       ],
-      "duration_ms": 53922,
+      "duration_ms": 53615,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1618,7 +1649,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 14643,
+      "duration_ms": 14910,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1642,7 +1673,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7416,
+      "duration_ms": 8468,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1663,7 +1694,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13446,
+      "duration_ms": 14809,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1691,7 +1722,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 37079,
+      "duration_ms": 46108,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1764,7 +1795,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13296,
+      "duration_ms": 13377,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1799,7 +1830,7 @@
       "resources": [
         "daemon-process-signal"
       ],
-      "duration_ms": 1473,
+      "duration_ms": 1496,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1814,7 +1845,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4992,
+      "duration_ms": 6252,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1838,7 +1869,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 64,
+      "duration_ms": 66,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1855,7 +1886,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 31478,
+      "duration_ms": 19473,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1870,7 +1901,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 27070,
+      "duration_ms": 29786,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1898,7 +1929,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2653,
+      "duration_ms": 3251,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1907,7 +1938,7 @@
         "ok - repeated at-limit drains never dispatch or drop intent",
         "ok - queue drains FIFO, at most one per cycle, exactly once",
         "ok - queue cancellation removes exactly the named parked request",
-        "ok - failed queue launch retains an exact crash-recovery record",
+        "ok - failed queue launch retains an exact crash-recovery record until endpoint reconciliation",
         "ok - queued launch pins canonical repository/assignment identity, keeps yolo inert and rejects conflicting or legacy-unknown relaunches"
       ],
       "repeat": 1
@@ -1919,7 +1950,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3337,
+      "duration_ms": 3432,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1938,7 +1969,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 961,
+      "duration_ms": 1024,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1958,7 +1989,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 189,
+      "duration_ms": 257,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1981,7 +2012,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 784,
+      "duration_ms": 870,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2000,7 +2031,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 218,
+      "duration_ms": 385,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2018,7 +2049,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1309,
+      "duration_ms": 1685,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2042,7 +2073,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 548,
+      "duration_ms": 543,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2063,7 +2094,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7628,
+      "duration_ms": 7475,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2084,7 +2115,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 4661,
+      "duration_ms": 3874,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2127,7 +2158,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 112,
+      "duration_ms": 106,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2146,7 +2177,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 184,
+      "duration_ms": 180,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2161,7 +2192,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 193,
+      "duration_ms": 194,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2181,7 +2212,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1494,
+      "duration_ms": 1313,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2200,7 +2231,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 12337,
+      "duration_ms": 12676,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2227,7 +2258,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1351,
+      "duration_ms": 1145,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2242,7 +2273,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6094,
+      "duration_ms": 5604,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2265,7 +2296,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 89,
+      "duration_ms": 93,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2280,7 +2311,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4487,
+      "duration_ms": 4331,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2295,7 +2326,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 3987,
+      "duration_ms": 4771,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2313,7 +2344,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 587,
+      "duration_ms": 536,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2333,7 +2364,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 10201,
+      "duration_ms": 9639,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2370,7 +2401,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 28,
+      "duration_ms": 25,
       "exit": 0,
       "gate_skip": true,
       "assertions": [],
@@ -2383,7 +2414,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 13217,
+      "duration_ms": 8129,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2414,7 +2445,7 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 21069,
+      "duration_ms": 22264,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2440,7 +2471,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 24287,
+      "duration_ms": 26140,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2460,10 +2491,11 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 21169,
+      "duration_ms": 23295,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
+        "ok - validated the exact first-cycle merged and optional control notification contract",
         "ok - validated merged polls notify once and retire before the next watcher cycle",
         "ok - merged poll retirement preserves every persistent daemon lifecycle artifact",
         "ok - queue, receipt, and every fixed-path removal crash point recover without loss or repeated execution",
@@ -2481,7 +2513,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2326,
+      "duration_ms": 2043,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2507,7 +2539,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7888,
+      "duration_ms": 7948,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2531,7 +2563,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 887,
+      "duration_ms": 900,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2557,7 +2589,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 128,
+      "duration_ms": 101,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2575,7 +2607,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 413,
+      "duration_ms": 453,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2596,7 +2628,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1870,
+      "duration_ms": 2668,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2615,7 +2647,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7498,
+      "duration_ms": 7629,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2637,7 +2669,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2658,
+      "duration_ms": 2669,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2659,7 +2691,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1092,
+      "duration_ms": 999,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2677,7 +2709,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2110,
+      "duration_ms": 2310,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2697,7 +2729,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5426,
+      "duration_ms": 6068,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2721,7 +2753,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9115,
+      "duration_ms": 8316,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2740,7 +2772,7 @@
       "resources": [
         "session-process-liveness"
       ],
-      "duration_ms": 13361,
+      "duration_ms": 12402,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2765,7 +2797,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 325,
+      "duration_ms": 306,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2786,7 +2818,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 2083,
+      "duration_ms": 1976,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2808,7 +2840,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 36,
+      "duration_ms": 129,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2824,7 +2856,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 232,
+      "duration_ms": 245,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2841,7 +2873,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 19526,
+      "duration_ms": 20867,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2873,7 +2905,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 34030,
+      "duration_ms": 37189,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2896,7 +2928,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6533,
+      "duration_ms": 6128,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2921,7 +2953,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4993,
+      "duration_ms": 4484,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2947,7 +2979,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 11230,
+      "duration_ms": 10352,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2980,7 +3012,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 40,
+      "duration_ms": 65,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2995,23 +3027,15 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1195,
+      "duration_ms": 158,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - tracked Claude settings do not land permissions.deny",
-        "ok - the guard independently denies every work-creating delegation tool by shape",
-        "ok - the guard denies delegation-shaped tools that no deny list knows about yet",
-        "ok - the guard leaves ordinary tools and observe-or-stop operations alone",
-        "ok - MCP tool names are never classified as harness delegation",
-        "ok - deny defers to intake classification and degrades gracefully without mx-scout.sh",
-        "ok - the single documented escape hatch releases the guard only on the exact opt-in value",
-        "ok - the guard is inert in an actor task worktree and in a non-Multplx repo",
-        "ok - a marked daemon home is guarded even though it is a linked worktree",
-        "ok - both stdin transports classify correctly and Claude's deny keeps stdout empty",
-        "ok - malformed, empty, and tool-name-less payloads fail open rather than blocking every tool call",
-        "ok - missing jq for stdin transport fails open rather than denying every tool call",
-        "ok - Claude wires the delegation guard, retains only non-status Bash seatbelts, and preserves the Stop guard"
+        "ok - native delegation tool shapes are allowed without an escape flag",
+        "ok - old hook transports remain harmless allowing no-ops",
+        "ok - retired entry keeps a bounded compatibility grammar",
+        "ok - Claude keeps supervision hooks and ships no delegation fence",
+        "ok - Claude and Pi native observers record lifecycle without becoming delegation fences"
       ],
       "repeat": 1
     },
@@ -3023,7 +3047,7 @@
         "daemon-process-signal",
         "watcher-process"
       ],
-      "duration_ms": 1542,
+      "duration_ms": 1549,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3038,7 +3062,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 344,
+      "duration_ms": 328,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3059,7 +3083,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 451,
+      "duration_ms": 384,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3079,7 +3103,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4331,
+      "duration_ms": 4139,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3110,7 +3134,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 22471,
+      "duration_ms": 22143,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3146,7 +3170,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 5690,
+      "duration_ms": 6247,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3166,7 +3190,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 70905,
+      "duration_ms": 68128,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3181,7 +3205,7 @@
         "ok - exact legacy override retains nonempty unlanded allocation content",
         "ok - herdr teardown removes pane-owned escalation dedupe state",
         "ok - herdr projection teardown retires its journal only after confirming the exact recorded pane is gone",
-        "ok - herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed",
+        "ok - herdr projection teardown fails closed, retains state, and attempts no workspace cleanup when exact-pane close is unconfirmed",
         "ok - projected teardown requires exact live session lock ownership before focus, endpoint, journal or allocation mutation",
         "ok - squash-merged + deleted-branch worktree (PR merged) is torn down (the fix)",
         "ok - squash-merged PR accepts a local HEAD that is an ancestor of the final PR head",
@@ -3215,11 +3239,11 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 580,
+      "duration_ms": 491,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - all 140 Plan-06 cases and named assertions map exactly once with explicit contract replacements",
+        "ok - all 142 maintained split cases and named assertions map exactly once with explicit contract changes",
         "ok - bounded condition wait observes completion without a fixed settle delay",
         "ok - bounded process cleanup escalates and reaps a TERM-resistant child",
         "ok - per-case timing preserves output and emits machine markers",
@@ -3234,7 +3258,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 163,
+      "duration_ms": 141,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3252,7 +3276,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1132,
+      "duration_ms": 1184,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3270,7 +3294,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 85,
+      "duration_ms": 74,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3289,7 +3313,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 10927,
+      "duration_ms": 8659,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3345,7 +3369,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7851,
+      "duration_ms": 8220,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3370,7 +3394,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1395,
+      "duration_ms": 1169,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3388,7 +3412,7 @@
       "resources": [
         "viz-port"
       ],
-      "duration_ms": 3315,
+      "duration_ms": 3400,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3406,7 +3430,7 @@
       "resources": [
         "vplan-port"
       ],
-      "duration_ms": 2771,
+      "duration_ms": 2766,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3425,7 +3449,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1518,
+      "duration_ms": 1554,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3440,7 +3464,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 12374,
+      "duration_ms": 20730,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3450,12 +3474,13 @@
         "ok - a not-provably-working stale wake is queued before its suppressor is advanced",
         "ok - registered custom check output is queued before cadence suppression",
         "ok - two atomic drains cannot consume the same records twice",
-        "ok - drain collapses obvious duplicate heartbeat and signal records",
+        "ok - same owner concurrent claims deliver once and require explicit disposition plus acknowledgement",
+        "ok - drain coalesces heartbeat noise and retains each critical signal transition",
         "ok - drain asserts watcher liveness: warns on a lapse, stays silent right after a fire",
         "ok - structural signal enrichment is separate, deduped, home-local, and tier-zero for other wakes",
         "ok - bounded reads and per-item/global caps fail open with explicit truncation and omission markers",
         "ok - slow annotation releases the append lock and a deleted status file fails open",
-        "ok - interruptions restore before commitment and never replay after raw commitment"
+        "ok - interruptions restore before commitment and replay an unhandled committed claim once"
       ],
       "repeat": 1
     },
@@ -3466,7 +3491,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 9529,
+      "duration_ms": 10402,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3487,7 +3512,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 76328,
+      "duration_ms": 89308,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3536,7 +3561,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 22186,
+      "duration_ms": 27308,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3564,6 +3589,9 @@
         "ok - arm starts+confirms a fresh watcher on a clean lock and self-heals a dead-pid lock (never healthy off a dead pid)",
         "ok - arm cleans child watcher and temp output on HUP",
         "ok - arm propagates an immediate watcher wake before confirmation",
+        "ok - individual bounded checks publish healthy partial results without a serial timeout chain",
+        "ok - per-check progress prevents persistent actionable results from starving later due checks",
+        "ok - escaped descendants cannot extend a completed check's observation deadline",
         "ok - arm attaches to a peer watcher after child stands down and surfaces a missing successor",
         "ok - arm reports FAILED and exits non-zero when no fresh watcher can be confirmed",
         "ok - cycle-exit ledger links a verified successor and remains size-capped",
@@ -3578,7 +3606,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 111,
+      "duration_ms": 107,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3598,7 +3626,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5877,
+      "duration_ms": 6629,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3623,7 +3651,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9661,
+      "duration_ms": 10305,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3642,7 +3670,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3792,
+      "duration_ms": 3675,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3663,7 +3691,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 1624,
+      "duration_ms": 1550,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3679,7 +3707,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 2373,
+      "duration_ms": 2089,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3698,7 +3726,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3033,
+      "duration_ms": 2967,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3852,7 +3880,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 37,
+      "duration_ms": 40,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3867,7 +3895,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6936,
+      "duration_ms": 7456,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3936,7 +3964,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 29638,
+      "duration_ms": 30606,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4071,7 +4099,7 @@
         "ok - mx_backend_herdr_wait_transition: a reader/subscribe failure falls back to polling (rc 2)",
         "ok - mx_backend_herdr_wait_transition: Bash 3.2-safe bad-ack path closes fd 9 and removes its FIFO",
         "ok - mx_backend_herdr_wait_transition: stock macOS Bash clean timeout closes fd 9 and returns 1",
-        "ok - mock Herdr launch: endpoint fault retains exact allocation and intent; duplicate retry is fenced",
+        "ok - mock Herdr launch: endpoint fault retains exact allocation; proven-absent exact retry recovers once",
         "ok - mock Herdr projection: fallback uses exact allocation; corrupt recovery retains work and prior identity",
         "ok - mock Herdr legacy home: restart keeps workspace and prior attempt; retirement retains unowned Git home",
         "ok - mock Herdr legacy runtime: exact fast-forward preserves charter and leaves source checkout unchanged",
@@ -4086,7 +4114,7 @@
       "resources": [
         "tmux-server"
       ],
-      "duration_ms": 654,
+      "duration_ms": 545,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4108,7 +4136,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 10806,
+      "duration_ms": 11220,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4149,7 +4177,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 598,
+      "duration_ms": 706,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4174,7 +4202,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 686,
+      "duration_ms": 905,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4193,7 +4221,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1164,
+      "duration_ms": 1169,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4209,7 +4237,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 20509,
+      "duration_ms": 20166,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4243,7 +4271,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 549,
+      "duration_ms": 534,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4268,7 +4296,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4095,
+      "duration_ms": 4058,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4296,7 +4324,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5772,
+      "duration_ms": 5564,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4326,7 +4354,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1281,
+      "duration_ms": 1185,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4352,7 +4380,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 59,
+      "duration_ms": 55,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4369,18 +4397,42 @@
       "repeat": 2
     },
     {
+      "path": "tests/mx-coordinator-spawn.test.sh",
+      "family": "daemon",
+      "expected_gate_skip": "none",
+      "resources": [
+        "none"
+      ],
+      "duration_ms": 13781,
+      "exit": 0,
+      "gate_skip": false,
+      "assertions": [
+        "ok - named idea coordinator spawn publishes one canonical private-home assignment and adopts it on retry",
+        "ok - distinct scoped coordinators may borrow one canonical project without exclusivity",
+        "ok - stopped idea domain binds a canonical project and restarts at the revised generation",
+        "ok - queued coordinator replay preserves one request and one private home",
+        "ok - launch failure reports retained identity and exact request retry recovers it",
+        "ok - repeatable project options bind a standing domain without copying repositories",
+        "ok - unsupported provider fails before coordinator home and registry mutation",
+        "ok - named Herdr preflight supports the verified provider and refuses missing tooling before mutation",
+        "ok - coordinator settings inherit, human retries recover exactly, and prepare failures retain identity",
+        "ok - prelaunch publication failure retains and reports the frozen coordinator identity"
+      ],
+      "repeat": 2
+    },
+    {
       "path": "tests/mx-cursor-adapter.test.sh",
       "family": "pure-contract-unit",
       "expected_gate_skip": "none",
       "resources": [
         "none"
       ],
-      "duration_ms": 1303,
+      "duration_ms": 1496,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
         "ok - multplx cursor and cursor-agent prefer agent and enforce sandbox-on launch",
-        "ok - Cursor hooks translate shared guards, fail closed, and bound stop continuation",
+        "ok - Cursor hooks preserve supervision, allow native delegation, and bound stop continuation",
         "ok - Cursor actor profile, model effort, composer, and busy signatures are wired"
       ],
       "repeat": 2
@@ -4392,7 +4444,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 11555,
+      "duration_ms": 16088,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4411,6 +4463,7 @@
         "ok - C6 spawn: an explicit --effort overrides config/daemon-harness's effort token; the file's model token still applies",
         "ok - C7 spawn: an explicit --harness starts with clean model/effort defaults",
         "ok - C8 spawn: an explicit --harness still honors explicit model/effort flags",
+        "ok - spawned providers load task-bound native observation from the trusted runtime",
         "ok - C9 spawn: the harness fallback chain still resolves with no tokens; actor/scout launches are unaffected by this feature"
       ],
       "repeat": 2
@@ -4422,7 +4475,7 @@
       "resources": [
         "daemon-reread-process-signal"
       ],
-      "duration_ms": 52450,
+      "duration_ms": 53115,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4450,7 +4503,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 14697,
+      "duration_ms": 14668,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4474,7 +4527,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7577,
+      "duration_ms": 8222,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4495,7 +4548,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13042,
+      "duration_ms": 13591,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4523,7 +4576,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 36774,
+      "duration_ms": 46341,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4596,7 +4649,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13379,
+      "duration_ms": 13196,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4631,7 +4684,7 @@
       "resources": [
         "daemon-process-signal"
       ],
-      "duration_ms": 1519,
+      "duration_ms": 1502,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4646,7 +4699,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5510,
+      "duration_ms": 4594,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4670,7 +4723,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 45,
+      "duration_ms": 83,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4687,7 +4740,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 31954,
+      "duration_ms": 19514,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4702,7 +4755,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 27150,
+      "duration_ms": 30093,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4730,7 +4783,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2691,
+      "duration_ms": 3190,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4739,7 +4792,7 @@
         "ok - repeated at-limit drains never dispatch or drop intent",
         "ok - queue drains FIFO, at most one per cycle, exactly once",
         "ok - queue cancellation removes exactly the named parked request",
-        "ok - failed queue launch retains an exact crash-recovery record",
+        "ok - failed queue launch retains an exact crash-recovery record until endpoint reconciliation",
         "ok - queued launch pins canonical repository/assignment identity, keeps yolo inert and rejects conflicting or legacy-unknown relaunches"
       ],
       "repeat": 2
@@ -4751,7 +4804,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3264,
+      "duration_ms": 3655,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4770,7 +4823,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 969,
+      "duration_ms": 956,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4790,7 +4843,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 189,
+      "duration_ms": 210,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4813,7 +4866,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 750,
+      "duration_ms": 850,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4832,7 +4885,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 224,
+      "duration_ms": 249,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4850,7 +4903,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1341,
+      "duration_ms": 1665,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4874,7 +4927,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 547,
+      "duration_ms": 531,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4895,7 +4948,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7760,
+      "duration_ms": 7197,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4916,7 +4969,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 3997,
+      "duration_ms": 4031,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4959,7 +5012,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 111,
+      "duration_ms": 103,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4978,7 +5031,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 198,
+      "duration_ms": 183,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4993,7 +5046,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 183,
+      "duration_ms": 185,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5013,7 +5066,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1183,
+      "duration_ms": 1370,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5032,7 +5085,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 12530,
+      "duration_ms": 13016,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5059,7 +5112,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1027,
+      "duration_ms": 920,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5074,7 +5127,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6630,
+      "duration_ms": 5564,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5097,7 +5150,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 99,
+      "duration_ms": 89,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5112,7 +5165,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4495,
+      "duration_ms": 4328,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5127,7 +5180,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 4097,
+      "duration_ms": 4766,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5145,7 +5198,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 598,
+      "duration_ms": 519,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5165,7 +5218,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9931,
+      "duration_ms": 9491,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5215,7 +5268,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 12531,
+      "duration_ms": 7781,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5246,7 +5299,7 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 21167,
+      "duration_ms": 21949,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5272,7 +5325,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 24661,
+      "duration_ms": 26198,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5292,10 +5345,11 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 19509,
+      "duration_ms": 23032,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
+        "ok - validated the exact first-cycle merged and optional control notification contract",
         "ok - validated merged polls notify once and retire before the next watcher cycle",
         "ok - merged poll retirement preserves every persistent daemon lifecycle artifact",
         "ok - queue, receipt, and every fixed-path removal crash point recover without loss or repeated execution",
@@ -5313,7 +5367,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2138,
+      "duration_ms": 1957,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5339,7 +5393,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7791,
+      "duration_ms": 7099,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5363,7 +5417,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 870,
+      "duration_ms": 932,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5389,7 +5443,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 114,
+      "duration_ms": 110,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5407,7 +5461,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 412,
+      "duration_ms": 487,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5428,7 +5482,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1823,
+      "duration_ms": 2810,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5447,7 +5501,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7519,
+      "duration_ms": 7607,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5469,7 +5523,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2389,
+      "duration_ms": 2419,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5491,7 +5545,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1075,
+      "duration_ms": 1094,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5509,7 +5563,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2047,
+      "duration_ms": 2150,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5529,7 +5583,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5471,
+      "duration_ms": 6071,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5553,7 +5607,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8793,
+      "duration_ms": 8941,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5572,7 +5626,7 @@
       "resources": [
         "session-process-liveness"
       ],
-      "duration_ms": 11540,
+      "duration_ms": 12240,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5597,7 +5651,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 332,
+      "duration_ms": 314,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5618,7 +5672,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 1952,
+      "duration_ms": 1984,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5640,7 +5694,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 45,
+      "duration_ms": 41,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5656,7 +5710,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 229,
+      "duration_ms": 249,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5673,7 +5727,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 19538,
+      "duration_ms": 20724,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5705,7 +5759,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 34275,
+      "duration_ms": 37190,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5728,7 +5782,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6908,
+      "duration_ms": 6263,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5753,7 +5807,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5050,
+      "duration_ms": 4359,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5779,7 +5833,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 11190,
+      "duration_ms": 10450,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5812,7 +5866,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 42,
+      "duration_ms": 41,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5827,23 +5881,15 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1218,
+      "duration_ms": 140,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - tracked Claude settings do not land permissions.deny",
-        "ok - the guard independently denies every work-creating delegation tool by shape",
-        "ok - the guard denies delegation-shaped tools that no deny list knows about yet",
-        "ok - the guard leaves ordinary tools and observe-or-stop operations alone",
-        "ok - MCP tool names are never classified as harness delegation",
-        "ok - deny defers to intake classification and degrades gracefully without mx-scout.sh",
-        "ok - the single documented escape hatch releases the guard only on the exact opt-in value",
-        "ok - the guard is inert in an actor task worktree and in a non-Multplx repo",
-        "ok - a marked daemon home is guarded even though it is a linked worktree",
-        "ok - both stdin transports classify correctly and Claude's deny keeps stdout empty",
-        "ok - malformed, empty, and tool-name-less payloads fail open rather than blocking every tool call",
-        "ok - missing jq for stdin transport fails open rather than denying every tool call",
-        "ok - Claude wires the delegation guard, retains only non-status Bash seatbelts, and preserves the Stop guard"
+        "ok - native delegation tool shapes are allowed without an escape flag",
+        "ok - old hook transports remain harmless allowing no-ops",
+        "ok - retired entry keeps a bounded compatibility grammar",
+        "ok - Claude keeps supervision hooks and ships no delegation fence",
+        "ok - Claude and Pi native observers record lifecycle without becoming delegation fences"
       ],
       "repeat": 2
     },
@@ -5855,7 +5901,7 @@
         "daemon-process-signal",
         "watcher-process"
       ],
-      "duration_ms": 1581,
+      "duration_ms": 1563,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5870,7 +5916,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 340,
+      "duration_ms": 332,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5891,7 +5937,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 439,
+      "duration_ms": 403,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5911,7 +5957,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4060,
+      "duration_ms": 3690,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5942,7 +5988,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 22738,
+      "duration_ms": 21590,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5978,7 +6024,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 5927,
+      "duration_ms": 6019,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5998,7 +6044,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 68441,
+      "duration_ms": 67929,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6013,7 +6059,7 @@
         "ok - exact legacy override retains nonempty unlanded allocation content",
         "ok - herdr teardown removes pane-owned escalation dedupe state",
         "ok - herdr projection teardown retires its journal only after confirming the exact recorded pane is gone",
-        "ok - herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed",
+        "ok - herdr projection teardown fails closed, retains state, and attempts no workspace cleanup when exact-pane close is unconfirmed",
         "ok - projected teardown requires exact live session lock ownership before focus, endpoint, journal or allocation mutation",
         "ok - squash-merged + deleted-branch worktree (PR merged) is torn down (the fix)",
         "ok - squash-merged PR accepts a local HEAD that is an ancestor of the final PR head",
@@ -6047,11 +6093,11 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 518,
+      "duration_ms": 496,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - all 140 Plan-06 cases and named assertions map exactly once with explicit contract replacements",
+        "ok - all 142 maintained split cases and named assertions map exactly once with explicit contract changes",
         "ok - bounded condition wait observes completion without a fixed settle delay",
         "ok - bounded process cleanup escalates and reaps a TERM-resistant child",
         "ok - per-case timing preserves output and emits machine markers",
@@ -6084,7 +6130,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1083,
+      "duration_ms": 1161,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6102,7 +6148,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 85,
+      "duration_ms": 83,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6121,7 +6167,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 11139,
+      "duration_ms": 8546,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6177,7 +6223,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7724,
+      "duration_ms": 8168,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6202,7 +6248,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1443,
+      "duration_ms": 1136,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6220,7 +6266,7 @@
       "resources": [
         "viz-port"
       ],
-      "duration_ms": 3319,
+      "duration_ms": 3281,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6238,7 +6284,7 @@
       "resources": [
         "vplan-port"
       ],
-      "duration_ms": 2845,
+      "duration_ms": 2805,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6257,7 +6303,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1527,
+      "duration_ms": 1572,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6272,7 +6318,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 12553,
+      "duration_ms": 19692,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6282,12 +6328,13 @@
         "ok - a not-provably-working stale wake is queued before its suppressor is advanced",
         "ok - registered custom check output is queued before cadence suppression",
         "ok - two atomic drains cannot consume the same records twice",
-        "ok - drain collapses obvious duplicate heartbeat and signal records",
+        "ok - same owner concurrent claims deliver once and require explicit disposition plus acknowledgement",
+        "ok - drain coalesces heartbeat noise and retains each critical signal transition",
         "ok - drain asserts watcher liveness: warns on a lapse, stays silent right after a fire",
         "ok - structural signal enrichment is separate, deduped, home-local, and tier-zero for other wakes",
         "ok - bounded reads and per-item/global caps fail open with explicit truncation and omission markers",
         "ok - slow annotation releases the append lock and a deleted status file fails open",
-        "ok - interruptions restore before commitment and never replay after raw commitment"
+        "ok - interruptions restore before commitment and replay an unhandled committed claim once"
       ],
       "repeat": 2
     },
@@ -6298,7 +6345,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 9428,
+      "duration_ms": 10381,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6319,7 +6366,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 75901,
+      "duration_ms": 89346,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6368,7 +6415,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 22527,
+      "duration_ms": 27267,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6396,6 +6443,9 @@
         "ok - arm starts+confirms a fresh watcher on a clean lock and self-heals a dead-pid lock (never healthy off a dead pid)",
         "ok - arm cleans child watcher and temp output on HUP",
         "ok - arm propagates an immediate watcher wake before confirmation",
+        "ok - individual bounded checks publish healthy partial results without a serial timeout chain",
+        "ok - per-check progress prevents persistent actionable results from starving later due checks",
+        "ok - escaped descendants cannot extend a completed check's observation deadline",
         "ok - arm attaches to a peer watcher after child stands down and surfaces a missing successor",
         "ok - arm reports FAILED and exits non-zero when no fresh watcher can be confirmed",
         "ok - cycle-exit ledger links a verified successor and remains size-capped",
@@ -6410,7 +6460,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 107,
+      "duration_ms": 119,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6430,7 +6480,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6060,
+      "duration_ms": 6677,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6455,7 +6505,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9721,
+      "duration_ms": 9963,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6469,9 +6519,9 @@
     }
   ],
   "summary": {
-    "candidates_per_round": 106,
+    "candidates_per_round": 107,
     "failed_rounds": 0,
-    "duration_ms": 471803,
+    "duration_ms": 538460,
     "leaks": 0,
     "known_failure_observations": 0
   }

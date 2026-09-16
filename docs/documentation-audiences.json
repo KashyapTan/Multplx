@@ -447,6 +447,14 @@
     {
       "path": "plans/lean_redesign/phase04-implementation.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase05-implementation.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/scoped-coordinators.md",
+      "audience": "maintainer-architecture"
     }
   ]
 }

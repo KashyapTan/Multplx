@@ -171,6 +171,8 @@ There is no shared learnings file by maintainer decision.
 
 ## Daemon routes (data/daemons.md)
 
+The [scoped coordinator command](scoped-coordinators.md) provisions a named domain and private home without manual route setup.
+The following registry grammar remains the compatibility surface for existing homes.
 Persistent daemon routes live locally in `data/daemons.md`.
 The existing parser accepts one route per line:
 
@@ -208,6 +210,7 @@ When it is unset, most scripts use the repo root as the home; when it is set, sc
 When `MX_HOME` is unset, it also behaves as the old whole-root override.
 `bin/mx-send.sh` is intentionally stricter than that general fallback: it requires `MX_HOME` to be set before resolving a target, so operator steers cannot silently resolve against the wrong home.
 `MX_STATE_OVERRIDE`, `MX_DATA_OVERRIDE`, `MX_PROJECTS_OVERRIDE`, and `MX_CONFIG_OVERRIDE` override individual operational directories for tests and specialized harness setup.
+Scoped parent routing accepts a root state override outside its home only while a live watcher lock proves the exact root home and process identity; accepted child facts remain queued when that proof is unavailable.
 For the herdr backend, `MX_HOME` also determines the workspace label used by the adapter.
 For the cmux backend, `MX_CONFIG_OVERRIDE` overrides where `config/cmux-socket-password` is read from, while `MX_HOME` determines the default config path and readable home prefix embedded in workspace titles.
 The full cmux home label also includes a short hash of the resolved `MX_ROOT` path, and there is no per-home container split.
@@ -306,12 +309,15 @@ A provider omitted from the configured snapshot has an opaque native limit: the 
 {
   "version": 1,
   "aging_seconds": 300,
+  "worker_headroom": 1,
   "resources": { "gpu": 2, "project:large-repo": 1 }
 }
 ```
 
 `version` must be `1`, `aging_seconds` and every capacity must be positive, and names may contain ASCII letters, digits, `.`, `_`, `-`, or `:`.
 Native `session` and `harness:*` capacities cannot be overridden.
+`worker_headroom` defaults to one shared session slot for workers; active workers count toward that reserve when admitting a coordinator.
+It is root-scoped, so creating another coordinator home does not multiply the available session budget.
 Each spawn requests one session, selected-harness, and bound-project unit.
 Repeat `--resource NAME=UNITS` to request additional configured resources, such as `--resource gpu=1`.
 Names must be distinct and units must be positive integers; explicit requests cannot use `session`, `harness:*`, or `project:*` names.

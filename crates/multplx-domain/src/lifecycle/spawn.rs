@@ -28,7 +28,11 @@ pub struct Request {
     pub kind: String,
     pub role: String,
     pub output: String,
+    /// Whether execution runs in a privately seeded home.
+    pub private_home: bool,
+    /// Whether the assignment remains registered while idle.
     pub persistent: bool,
+    pub domain: Option<super::subagent_model::DomainBinding>,
     pub binding: Option<super::subagent_model::TaskRecord>,
     pub mode: String,
     pub yolo: bool,
@@ -40,6 +44,220 @@ pub struct Request {
     pub single_checkout_record: Option<PathBuf>,
     pub single_checkout_base_head: Option<String>,
     pub single_checkout_base_branch: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoordinatorSpawn {
+    pub id: String,
+    pub projects: Vec<String>,
+    pub idea_id: Option<String>,
+    pub scope: String,
+    pub persistent: bool,
+    pub json: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreparedCoordinator {
+    pub home: PathBuf,
+    pub domain: super::subagent_model::DomainBinding,
+}
+
+/// Parse only the public coordinator-specific surface. Common launch options
+/// remain owned by the ordinary spawn parser.
+pub fn coordinator_spawn(args: &[OsString]) -> Result<Option<CoordinatorSpawn>, String> {
+    let enabled = args.iter().any(|arg| arg == "--sub-orchestrator");
+    if !enabled {
+        return Ok(None);
+    }
+    let mut positionals = Vec::new();
+    let mut projects = Vec::new();
+    let mut idea_id = None;
+    let mut scope = None;
+    let mut persistent = false;
+    let mut json = false;
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index]
+            .to_str()
+            .ok_or("spawn argument is not valid UTF-8")?;
+        match value {
+            "--sub-orchestrator" => {}
+            "--persistent" => persistent = true,
+            "--json" => json = true,
+            "--project" | "--idea" | "--scope" => {
+                let next = args
+                    .get(index + 1)
+                    .and_then(|arg| arg.to_str())
+                    .ok_or_else(|| format!("{value} requires a value"))?;
+                validate_record_value(value.trim_start_matches("--"), next)?;
+                match value {
+                    "--project" => projects.push(next.to_owned()),
+                    "--idea" => {
+                        if idea_id.replace(next.to_owned()).is_some() {
+                            return Err("duplicate --idea".into());
+                        }
+                    }
+                    _ => {
+                        if scope.replace(next.to_owned()).is_some() {
+                            return Err("duplicate --scope".into());
+                        }
+                    }
+                }
+                index += 1;
+            }
+            "--harness" | "--model" | "--effort" | "--backend" | "--request-id" | "--resource"
+            | "--authority-state" => index += 1,
+            "--role" | "--output" | "--daemon" | "--scout" | "--review" | "--mode" | "--yolo"
+            | "--single-checkout" | "--replace-attempt" => {
+                return Err(format!("{value} conflicts with --sub-orchestrator"));
+            }
+            value if value.starts_with("--") => {
+                return Err(format!("unsupported coordinator spawn option: {value}"));
+            }
+            _ => positionals.push(value.to_owned()),
+        }
+        index += 1;
+    }
+    if positionals.len() != 1 {
+        return Err("coordinator spawn requires exactly one id".into());
+    }
+    TaskId::parse(&positionals[0]).map_err(|_| "invalid coordinator id")?;
+    if projects.is_empty() == idea_id.is_none() {
+        return Err("coordinator spawn requires one or more --project values or one --idea".into());
+    }
+    if projects
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        != projects.len()
+    {
+        return Err("coordinator project list contains a duplicate".into());
+    }
+    let scope = scope.ok_or("coordinator spawn requires --scope")?;
+    if scope.trim().is_empty() {
+        return Err("coordinator scope cannot be blank".into());
+    }
+    Ok(Some(CoordinatorSpawn {
+        id: positionals.remove(0),
+        projects,
+        idea_id,
+        scope,
+        persistent,
+        json,
+    }))
+}
+
+/// Provision the private home and return the canonical domain binding. This
+/// operation is repeat-safe: an exact retry adopts the active home, while a
+/// changed charter or project set is refused for explicit scope revision.
+pub fn provision_coordinator(
+    context: &Context,
+    spec: &CoordinatorSpawn,
+) -> Result<PreparedCoordinator, String> {
+    let mut project_ids = Vec::new();
+    for selector in &spec.projects {
+        let binding = if Path::new(selector).exists() {
+            crate::project_registry::bind_project_at(
+                &context.home,
+                &context.data,
+                &context.projects,
+                Path::new(selector),
+            )?
+        } else {
+            crate::project_registry::resolve_checkout(&context.home, selector)?
+        };
+        crate::project_registry::validate_binding(&context.home, &binding)?;
+        project_ids.push(binding.project_id);
+    }
+    let existing_meta = context.state.join(format!("{}.meta", spec.id));
+    if existing_meta.is_file() {
+        let current = super::domain::read_coordinator(&context.state, &spec.id)?;
+        let domain = current.domain.as_ref().expect("validated coordinator");
+        if domain.scope != spec.scope
+            || domain.projects != project_ids
+            || current.persistent != spec.persistent
+            || (project_ids.is_empty() && domain.idea_id != spec.idea_id)
+        {
+            return Err("coordinator spawn conflicts with the current domain revision".into());
+        }
+        if !current.private_home {
+            return Err("coordinator task does not own a private home".into());
+        }
+        let allocation = super::home_seed::read_home_allocation(&context.data, &spec.id)?
+            .ok_or("coordinator home allocation is missing")?;
+        super::home_seed::verify_active_home(&allocation)?;
+        if current.persistent_home.as_deref().map(Path::new)
+            != Some(allocation.binding.path.as_path())
+        {
+            return Err("coordinator task and private-home ownership disagree".into());
+        }
+        return Ok(PreparedCoordinator {
+            home: allocation.binding.path,
+            domain: domain.clone(),
+        });
+    }
+    let charter = super::brief::coordinator_charter(
+        &context.root,
+        &context.state,
+        &spec.id,
+        &spec.scope,
+        &project_ids,
+        spec.idea_id.as_deref(),
+        spec.persistent,
+    );
+    let brief_path = context.data.join(&spec.id).join("brief.md");
+    fs::create_dir_all(brief_path.parent().expect("brief parent")).map_err(|e| e.to_string())?;
+    if brief_path.exists() {
+        let prior = fs::read_to_string(&brief_path).map_err(|e| e.to_string())?;
+        if prior != charter {
+            return Err("coordinator charter already exists with a different scope; use the scope update API".into());
+        }
+    } else {
+        atomic_replace(&brief_path, charter.as_bytes(), 0o600).map_err(|e| e.to_string())?;
+    }
+    let home_context = super::home_seed::Context {
+        root: context.root.clone(),
+        home: context.home.clone(),
+        data: context.data.clone(),
+        projects: context.projects.clone(),
+        state: context.state.clone(),
+    };
+    let mut seed_args = vec![OsString::from(&spec.id), OsString::from("-")];
+    if spec.projects.is_empty() {
+        seed_args.push(OsString::from("--no-projects"));
+    } else {
+        seed_args.extend(spec.projects.iter().map(OsString::from));
+    }
+    let output = super::home_seed::run(&seed_args, &home_context);
+    if output.status != 0 {
+        return Err(output
+            .stderr
+            .trim()
+            .trim_start_matches("error: ")
+            .to_owned());
+    }
+    let allocation = super::home_seed::read_home_allocation(&context.data, &spec.id)?
+        .ok_or("coordinator home allocation was not published")?;
+    super::home_seed::verify_active_home(&allocation)?;
+    Ok(PreparedCoordinator {
+        home: allocation.binding.path,
+        domain: super::subagent_model::DomainBinding {
+            domain_id: format!(
+                "domain-{}",
+                &crate::maintainer_override::sha256_text(&format!(
+                    "{}#{}",
+                    resolved(&context.home).display(),
+                    spec.id
+                ))[..24]
+            ),
+            coordinator_id: spec.id.clone(),
+            scope_revision: 1,
+            assignment_generation: 1,
+            projects: project_ids,
+            idea_id: spec.idea_id.clone(),
+            scope: spec.scope.clone(),
+        },
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -574,6 +792,8 @@ pub fn parse(
             role,
             output,
             persistent: false,
+            private_home: false,
+            domain: None,
             binding: None,
             backend,
             harness: harness.unwrap_or_else(|| default_harness.to_owned()),
@@ -689,6 +909,8 @@ pub fn parse(
         role,
         output,
         persistent: true,
+        private_home: true,
+        domain: None,
         binding: None,
         mode: "daemon".to_owned(),
         yolo: false,
@@ -722,7 +944,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
     } else {
         ArtifactKind::Implementation
     };
-    let brief = if request.persistent {
+    let brief = if request.private_home {
         request.home.join("data/charter.md")
     } else {
         context.data.join(&request.id).join("brief.md")
@@ -796,6 +1018,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         if record.role != role
             || record.artifact != artifact
             || record.persistent != request.persistent
+            || (record.private_home || record.persistent) != request.private_home
         {
             return Err(
                 "launch conflicts with recorded assignment; record reassignment first".into(),
@@ -811,7 +1034,9 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
     } else {
         let owner_home = path_record_value("owner home", &resolved(&context.home))?.to_owned();
         let default_root = format!("root-home:{owner_home}");
-        let (parent, parent_home, parent_state_path, root) = if let Ok(parent_id) =
+        let (parent, parent_home, parent_state_path, root, parent_domain_projects) = if let Ok(
+            parent_id,
+        ) =
             std::env::var("MX_TASK_ID")
         {
             TaskId::parse(&parent_id).map_err(|error| error.to_string())?;
@@ -853,11 +1078,14 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
             if parent_id == request.id && parent_home == owner_home {
                 return Err("self-parent launch cycle".into());
             }
+            let parent_domain_projects =
+                parent.domain.as_ref().map(|domain| domain.projects.clone());
             (
                 parent_id,
                 parent_home,
                 parent.owner_state.clone().ok_or("parent state missing")?,
                 parent.root_id.ok_or("parent root missing")?,
+                parent_domain_projects,
             )
         } else {
             (
@@ -865,6 +1093,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
                 owner_home.clone(),
                 resolved(&context.state).to_string_lossy().into_owned(),
                 default_root,
+                None,
             )
         };
         let mut record = TaskRecord::new(
@@ -880,7 +1109,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         record.owner_state = Some(resolved(&context.state).to_string_lossy().into_owned());
         record.parent_state = Some(parent_state_path);
         record.persistent_home = request
-            .persistent
+            .private_home
             .then(|| request.home.to_string_lossy().into_owned());
         record.accepted_brief_digest = Some(digest);
         record.accepted_brief_path = Some(
@@ -895,16 +1124,54 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         record.briefs[0]
             .source_artifacts
             .push(brief.to_string_lossy().into_owned());
-        if !request.persistent {
-            record.project = Some(crate::project_registry::bind_project_at(
-                &context.home,
-                &context.data,
-                &context.projects,
-                &request.project,
-            )?);
+        record.private_home = request.private_home;
+        if !request.private_home {
+            record.project = if artifact == ArtifactKind::Implementation
+                && let Some(allowed) = parent_domain_projects
+            {
+                // A coordinator home's catalog contains only its explicitly
+                // accepted domain references. Resolve there before invoking
+                // the mutating registration path so a refused implementation
+                // cannot silently add an unbound repository to that home.
+                let selector = request
+                    .project
+                    .to_str()
+                    .ok_or("implementation project path is not UTF-8")?;
+                let project = crate::project_registry::resolve_checkout(&context.home, selector)
+                    .map_err(|_| {
+                        "implementation project is outside the initiating coordinator domain; bind it before delegation"
+                    })?;
+                if !allowed.contains(&project.project_id) {
+                    return Err(
+                        "implementation project is outside the initiating coordinator domain; bind it before delegation"
+                            .into(),
+                    );
+                }
+                Some(project)
+            } else {
+                Some(crate::project_registry::bind_project_at(
+                    &context.home,
+                    &context.data,
+                    &context.projects,
+                    &request.project,
+                )?)
+            };
         }
         record
     };
+    if let Some(domain) = &request.domain {
+        if record
+            .domain
+            .as_ref()
+            .is_some_and(|current| current != domain)
+        {
+            return Err(
+                "launch conflicts with recorded domain binding; use the scope update API".into(),
+            );
+        }
+        record.domain = Some(domain.clone());
+        record.owning_coordinator = Some(domain.coordinator_id.clone());
+    }
     record.runtime.provider = request.backend.clone();
     record.validate()?;
     let root = record.root_id.clone().ok_or("root identity missing")?;
@@ -967,7 +1234,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         }
     }
     super::subagent_model::validate_lineage(&lineage, &[root])?;
-    if request.persistent
+    if request.private_home
         && let Some(allocation) =
             super::home_seed::read_home_allocation(&context.data, &request.id)?
     {
@@ -1092,6 +1359,7 @@ fn same_launch_identity(
         && left.role == right.role
         && left.artifact == right.artifact
         && left.persistent == right.persistent
+        && left.private_home == right.private_home
         && left.parent_id == right.parent_id
         && left.root_id == right.root_id
         && left.parent_home == right.parent_home
@@ -1268,6 +1536,123 @@ pub fn publish_meta(context: &Context, request: &Request, endpoint: &str) -> Res
     publish_meta_for_worktree(context, request, endpoint, &request.project)
 }
 
+/// Publish a coordinator's canonical domain/parent/home binding before any
+/// endpoint is created. Endpoint metadata is added by `publish_meta` only after
+/// the backend returns a concrete identity.
+pub fn publish_prelaunch_coordinator(context: &Context, request: &Request) -> Result<(), String> {
+    let binding = request.binding.as_ref().ok_or("spawn binding missing")?;
+    if binding.role != super::subagent_model::AssignmentRole::SubOrchestrator
+        || binding.domain.is_none()
+        || !request.private_home
+    {
+        return Err("prelaunch publication requires a scoped coordinator binding".into());
+    }
+    let intent = context.state.join(format!(".spawn-{}.intent", request.id));
+    let reserved: super::subagent_model::TaskRecord = serde_json::from_slice(
+        &multplx_core::filesystem::read_bounded_regular(&intent, 4 * 1024 * 1024)
+            .map_err(|e| format!("launch reservation missing: {e}"))?,
+    )
+    .map_err(|e| format!("invalid launch reservation: {e}"))?;
+    if &reserved != binding {
+        return Err("launch reservation identity changed before domain publication".into());
+    }
+    let brief = binding
+        .accepted_brief_path
+        .as_ref()
+        .map(PathBuf::from)
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| request.home.join("data/charter.md"));
+    let brief_bytes = fs::read(&brief).map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    if binding.accepted_brief_digest.as_deref()
+        != Some(format!("{:x}", Sha256::digest(&brief_bytes)).as_str())
+    {
+        return Err("accepted coordinator charter changed before publication".into());
+    }
+    let attempt = binding.attempt.as_ref().ok_or("launch attempt missing")?;
+    let meta_path = context.state.join(format!("{}.meta", request.id));
+    let before_meta = fs::read(&meta_path).ok();
+    let compatibility = format!(
+        "project={}\nharness={}\nkind=daemon\nmode=daemon\nyolo=off\nmodel={}\neffort={}\nhome={}\n",
+        request.project.display(),
+        request.harness,
+        request.model,
+        request.effort,
+        request.home.display()
+    );
+    let meta = super::subagent_model::write_meta(&compatibility, binding)?.into_bytes();
+    let operation = format!("domain-bind-{}", attempt.id);
+    if context
+        .state
+        .join(".transitions")
+        .join(format!("{operation}.json"))
+        .exists()
+        && before_meta.as_deref() != Some(meta.as_slice())
+    {
+        let writes = multplx_core::filesystem::read_transition_writes(&context.state, &operation)
+            .map_err(|e| e.to_string())?;
+        if writes.last().is_none_or(|write| write.after != meta) {
+            return Err(
+                "retained coordinator binding transition conflicts with launch identity".into(),
+            );
+        }
+        let current = before_meta
+            .as_deref()
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .and_then(|text| super::subagent_model::read_meta(&request.id, text).ok())
+            .ok_or("retained coordinator metadata is unreadable")?;
+        let archive = context.state.join(format!(
+            "brief-revisions/{}-{}.md",
+            request.id, attempt.brief_revision
+        ));
+        if !same_launch_identity(&current, binding)
+            || current.attempt != binding.attempt
+            || current.domain != binding.domain
+            || current.runtime.endpoint.is_some()
+            || fs::read(archive).ok().as_deref() != Some(brief_bytes.as_slice())
+        {
+            return Err("retained coordinator execution cannot be proven safe for retry".into());
+        }
+        // The earlier transition established this exact frozen binding. A
+        // failed endpoint attempt may only add its waiting disposition.
+        atomic_replace(&meta_path, &meta, 0o600).map_err(|e| e.to_string())?;
+    }
+    let before_meta = fs::read(&meta_path).ok();
+    if before_meta.as_deref() == Some(meta.as_slice()) {
+        return Ok(());
+    }
+    let archive = PathBuf::from(format!(
+        "brief-revisions/{}-{}.md",
+        request.id, attempt.brief_revision
+    ));
+    fs::create_dir_all(context.state.join("brief-revisions")).map_err(|e| e.to_string())?;
+    let before_brief = fs::read(context.state.join(&archive)).ok();
+    if before_brief
+        .as_ref()
+        .is_some_and(|prior| prior != &brief_bytes)
+    {
+        return Err("accepted coordinator charter archive conflicts".into());
+    }
+    multplx_core::filesystem::recoverable_transition(
+        &context.state,
+        &operation,
+        &[
+            multplx_core::filesystem::TransitionWrite {
+                path: archive,
+                before: before_brief,
+                after: brief_bytes,
+            },
+            multplx_core::filesystem::TransitionWrite {
+                path: format!("{}.meta", request.id).into(),
+                before: before_meta,
+                after: meta,
+            },
+        ],
+        None,
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// Return the private generated-config directory for one exact launch attempt.
 pub fn task_temp_path(_context: &Context, request: &Request) -> Result<PathBuf, String> {
     let Some(record) = request.binding.as_ref() else {
@@ -1333,7 +1718,7 @@ pub fn publish_meta_for_worktree(
                 &fs::read_to_string(prior_path).map_err(|error| error.to_string())?,
             )?;
             let expected_old = binding.prior_attempts.last().or(binding.attempt.as_ref());
-            if prior.attempt.as_ref() != expected_old
+            if (prior.attempt.as_ref() != expected_old && prior.attempt != binding.attempt)
                 || prior.accepted_brief_revision != binding.accepted_brief_revision
             {
                 return Err("task attempt or brief changed during external launch".into());
@@ -1410,7 +1795,7 @@ pub fn publish_meta_for_worktree(
     if let Some(binding) = &request.binding {
         use multplx_core::filesystem::{TransitionWrite, recoverable_transition};
         let attempt = binding.attempt.as_ref().ok_or("launch attempt missing")?;
-        let brief = if request.persistent {
+        let brief = if request.private_home {
             request.home.join("data/charter.md")
         } else {
             context.data.join(&request.id).join("brief.md")
@@ -1512,6 +1897,297 @@ mod tests {
         values.iter().map(OsString::from).collect()
     }
 
+    #[test]
+    fn named_coordinator_requires_one_explicit_domain_and_scope() {
+        assert!(
+            coordinator_spawn(&args(&["ordinary", "--project", "one"]))
+                .unwrap()
+                .is_none()
+        );
+        let parsed = coordinator_spawn(&args(&[
+            "coord",
+            "--sub-orchestrator",
+            "--project",
+            "one",
+            "--project",
+            "two",
+            "--scope",
+            "own release coordination",
+            "--persistent",
+            "--request-id",
+            "spawn-request",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.id, "coord");
+        assert_eq!(parsed.projects, ["one", "two"]);
+        assert!(parsed.persistent);
+        let idea = coordinator_spawn(&args(&[
+            "research",
+            "--sub-orchestrator",
+            "--idea",
+            "new-runtime",
+            "--scope",
+            "assess feasibility",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(idea.idea_id.as_deref(), Some("new-runtime"));
+        assert!(!idea.persistent);
+        for invalid in [
+            vec![
+                "coord",
+                "extra",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--scope",
+                "scope",
+            ],
+            vec!["coord", "--sub-orchestrator", "--scope", "scope"],
+            vec!["coord", "--sub-orchestrator", "--idea", "idea"],
+            vec![
+                "bad/id",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--scope",
+                "scope",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--idea",
+                "other",
+                "--scope",
+                "scope",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--scope",
+                "scope",
+                "--scope",
+                "other",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--project",
+                "same",
+                "--project",
+                "same",
+                "--scope",
+                "scope",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--scope",
+                "   ",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--scope",
+                "scope",
+                "--unknown",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--project",
+                "repo",
+                "--scope",
+                "scope",
+            ],
+            vec![
+                "coord",
+                "--sub-orchestrator",
+                "--idea",
+                "idea",
+                "--scope",
+                "scope",
+                "--role",
+                "reviewer",
+            ],
+        ] {
+            assert!(coordinator_spawn(&args(&invalid)).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn project_coordinator_recovery_requires_exact_private_home_authority() {
+        let temp = tempfile::tempdir().unwrap();
+        let spawn_context = context(temp.path());
+        fs::write(spawn_context.root.join("AGENTS.md"), "runtime contract\n").unwrap();
+        fs::create_dir_all(spawn_context.root.join("bin")).unwrap();
+        let project = temp.path().join("project");
+        fs::create_dir(&project).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&project)
+                .status()
+                .unwrap()
+                .success()
+        );
+        for arguments in [
+            ["config", "user.email", "test@example.invalid"],
+            ["config", "user.name", "Spawn Test"],
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .args(arguments)
+                    .current_dir(&project)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        fs::write(project.join("README.md"), "project\n").unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["add", "README.md"])
+                .current_dir(&project)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args(["commit", "-q", "-m", "initial"])
+                .current_dir(&project)
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        let spec = CoordinatorSpawn {
+            id: "project-coord".into(),
+            projects: vec![project.to_string_lossy().into_owned()],
+            idea_id: None,
+            scope: "coordinate the selected repository".into(),
+            persistent: true,
+            json: true,
+        };
+        let prepared = provision_coordinator(&spawn_context, &spec).unwrap();
+        assert_eq!(prepared.domain.projects.len(), 1);
+        assert_eq!(prepared.domain.idea_id, None);
+        assert!(
+            crate::project_registry::resolve_checkout(&prepared.home, &prepared.domain.projects[0])
+                .is_ok()
+        );
+
+        let owner = resolved(&spawn_context.home).to_string_lossy().into_owned();
+        let root = format!("root-home:{owner}");
+        let mut record = crate::lifecycle::subagent_model::TaskRecord::new(
+            spec.id.clone(),
+            crate::lifecycle::subagent_model::AssignmentRole::SubOrchestrator,
+            crate::lifecycle::subagent_model::ArtifactKind::Coordination,
+            spec.persistent,
+            root.clone(),
+            root,
+            owner,
+        );
+        record.owner_state = Some(
+            resolved(&spawn_context.state)
+                .to_string_lossy()
+                .into_owned(),
+        );
+        record.parent_state = record.owner_state.clone();
+        record.private_home = true;
+        record.persistent_home = Some(prepared.home.to_string_lossy().into_owned());
+        record.domain = Some(prepared.domain.clone());
+        record.owning_coordinator = Some(spec.id.clone());
+        let meta = |record: &crate::lifecycle::subagent_model::TaskRecord| {
+            crate::lifecycle::subagent_model::write_meta("kind=daemon\n", record).unwrap()
+        };
+        fs::write(
+            spawn_context.state.join("project-coord.meta"),
+            meta(&record),
+        )
+        .unwrap();
+        assert_eq!(
+            provision_coordinator(&spawn_context, &spec).unwrap(),
+            prepared
+        );
+
+        let mut wrong_home = record.clone();
+        wrong_home.persistent_home = Some(temp.path().join("wrong-home").to_string_lossy().into());
+        fs::write(
+            spawn_context.state.join("project-coord.meta"),
+            meta(&wrong_home),
+        )
+        .unwrap();
+        assert!(
+            provision_coordinator(&spawn_context, &spec)
+                .unwrap_err()
+                .contains("ownership disagree")
+        );
+
+        let mut not_private = record;
+        not_private.private_home = false;
+        fs::write(
+            spawn_context.state.join("project-coord.meta"),
+            meta(&not_private),
+        )
+        .unwrap();
+        assert!(
+            provision_coordinator(&spawn_context, &spec)
+                .unwrap_err()
+                .contains("does not own a private home")
+        );
+    }
+
+    #[test]
+    fn idea_coordinator_home_is_private_repeat_safe_and_home_qualified() {
+        let temp = tempfile::tempdir().unwrap();
+        let spawn_context = context(temp.path());
+        fs::write(spawn_context.root.join("AGENTS.md"), "runtime contract\n").unwrap();
+        fs::create_dir_all(spawn_context.root.join("bin")).unwrap();
+        let spec = CoordinatorSpawn {
+            id: "coord".into(),
+            projects: Vec::new(),
+            idea_id: Some("unbound-idea".into()),
+            scope: "research without selecting a repository".into(),
+            persistent: false,
+            json: false,
+        };
+        let first = provision_coordinator(&spawn_context, &spec).unwrap();
+        let second = provision_coordinator(&spawn_context, &spec).unwrap();
+        assert_eq!(first, second);
+        assert!(first.home.join("data/charter.md").is_file());
+        assert!(!first.home.starts_with(&spawn_context.home));
+        assert_eq!(first.domain.projects, Vec::<String>::new());
+        assert_eq!(first.domain.idea_id.as_deref(), Some("unbound-idea"));
+
+        let mut changed = spec.clone();
+        changed.scope = "silently changed".into();
+        assert!(
+            provision_coordinator(&spawn_context, &changed)
+                .unwrap_err()
+                .contains("different scope")
+        );
+
+        let other_temp = tempfile::tempdir().unwrap();
+        let other = context(other_temp.path());
+        fs::write(other.root.join("AGENTS.md"), "runtime contract\n").unwrap();
+        fs::create_dir_all(other.root.join("bin")).unwrap();
+        let other = provision_coordinator(&other, &spec).unwrap();
+        assert_ne!(first.domain.domain_id, other.domain.domain_id);
+    }
+
     fn bound_request(context: &Context) -> Request {
         let owner = fs::canonicalize(&context.home).expect("owner");
         let owner_text = owner.to_string_lossy().into_owned();
@@ -1533,7 +2209,9 @@ mod tests {
             kind: "delivery".into(),
             role: "implementer".into(),
             output: "implementation".into(),
+            private_home: false,
             persistent: false,
+            domain: None,
             binding: Some(binding),
             mode: "deep-review".into(),
             yolo: false,
@@ -1546,6 +2224,101 @@ mod tests {
             single_checkout_base_head: None,
             single_checkout_base_branch: None,
         }
+    }
+
+    #[test]
+    fn coordinator_binding_is_canonical_before_endpoint_identity_exists() {
+        use sha2::{Digest, Sha256};
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = context(temp.path());
+        let mut request = bound_request(&context);
+        request.kind = "daemon".into();
+        request.mode = "daemon".into();
+        request.role = "sub-orchestrator".into();
+        request.output = "report".into();
+        request.private_home = true;
+        request.project = request.home.clone();
+        let charter = request.home.join("data/charter.md");
+        fs::create_dir_all(charter.parent().unwrap()).unwrap();
+        fs::write(&charter, "accepted coordinator charter\n").unwrap();
+        let binding = request.binding.as_mut().unwrap();
+        binding.role = crate::lifecycle::subagent_model::AssignmentRole::SubOrchestrator;
+        binding.artifact = crate::lifecycle::subagent_model::ArtifactKind::Coordination;
+        binding.assignments[0].role = binding.role;
+        binding.private_home = true;
+        binding.persistent_home = Some(request.home.to_string_lossy().into_owned());
+        binding.accepted_brief_path = Some(charter.to_string_lossy().into_owned());
+        binding.accepted_brief_digest = Some(format!(
+            "{:x}",
+            Sha256::digest(b"accepted coordinator charter\n")
+        ));
+        binding.briefs[0].scope = "bounded".into();
+        let domain = crate::lifecycle::subagent_model::DomainBinding {
+            domain_id: "domain-home-qualified".into(),
+            coordinator_id: "task".into(),
+            scope_revision: 1,
+            assignment_generation: 1,
+            projects: Vec::new(),
+            idea_id: Some("idea".into()),
+            scope: "bounded".into(),
+        };
+        binding.domain = Some(domain.clone());
+        binding.owning_coordinator = Some("task".into());
+        binding.validate().unwrap();
+        request.domain = Some(domain);
+        fs::write(
+            context.state.join(".spawn-task.intent"),
+            serde_json::to_vec(binding).unwrap(),
+        )
+        .unwrap();
+
+        publish_prelaunch_coordinator(&context, &request).unwrap();
+        let meta = fs::read_to_string(context.state.join("task.meta")).unwrap();
+        let published = crate::lifecycle::subagent_model::read_meta("task", &meta).unwrap();
+        assert_eq!(published.domain, request.domain);
+        assert!(published.runtime.endpoint.is_none());
+        assert!(context.state.join("brief-revisions/task-1.md").is_file());
+        publish_prelaunch_coordinator(&context, &request).unwrap();
+
+        let mut changed_intent = request.binding.clone().unwrap();
+        changed_intent.runtime.provider = "herdr".into();
+        fs::write(
+            context.state.join(".spawn-task.intent"),
+            serde_json::to_vec(&changed_intent).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            publish_prelaunch_coordinator(&context, &request)
+                .unwrap_err()
+                .contains("reservation identity changed")
+        );
+        fs::write(
+            context.state.join(".spawn-task.intent"),
+            serde_json::to_vec(request.binding.as_ref().unwrap()).unwrap(),
+        )
+        .unwrap();
+
+        let mut changed_presentation = request.clone();
+        changed_presentation.model = "different-model".into();
+        assert!(
+            publish_prelaunch_coordinator(&context, &changed_presentation)
+                .unwrap_err()
+                .contains("transition conflicts")
+        );
+
+        let mut unsafe_current = published;
+        unsafe_current.runtime.endpoint = Some("still-live".into());
+        fs::write(
+            context.state.join("task.meta"),
+            crate::lifecycle::subagent_model::write_meta(&meta, &unsafe_current).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            publish_prelaunch_coordinator(&context, &request)
+                .unwrap_err()
+                .contains("cannot be proven safe")
+        );
     }
 
     #[test]
@@ -2332,7 +3105,9 @@ mod tests {
             kind: "delivery".into(),
             role: "implementer".into(),
             output: "implementation".into(),
+            private_home: false,
             persistent: false,
+            domain: None,
             binding: None,
             mode: "deep-review".into(),
             yolo: false,
@@ -2352,6 +3127,67 @@ mod tests {
     }
 
     #[test]
+    fn route_and_legacy_authority_parsers_reject_ambiguous_records() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let mut record = bound_request(&context).binding.unwrap();
+        record.owner_state = Some("relative-state".into());
+        assert!(
+            admission_context(&record)
+                .unwrap_err()
+                .contains("owner state is not absolute")
+        );
+
+        let registry = context.data.join("daemons.md");
+        fs::write(
+            &registry,
+            "- duplicate - live (home: /one)\n- duplicate - live (home: /two)\n",
+        )
+        .unwrap();
+        assert!(
+            registry_fields(&registry, "duplicate")
+                .unwrap_err()
+                .contains("duplicate persistent sub-agent registry identity")
+        );
+        fs::write(
+            &registry,
+            "- duplicate-field - live (home: /one; home: /two)\n",
+        )
+        .unwrap();
+        assert!(
+            registry_fields(&registry, "duplicate-field")
+                .unwrap_err()
+                .contains("duplicate persistent sub-agent registry field")
+        );
+
+        let resolution = crate::project_registry::Resolution {
+            mode: crate::project_registry::DeliveryMode::DeepReview,
+            yolo: false,
+            warning: None,
+        };
+        fs::write(
+            context.state.join("ambiguous.meta"),
+            "mode=deep-review\nmode=local-only\nyolo=off\n",
+        )
+        .unwrap();
+        assert!(
+            task_authority(&context.state, "ambiguous", &resolution, None, None)
+                .unwrap_err()
+                .contains("missing or duplicate mode")
+        );
+        fs::write(
+            context.state.join("invalid-yolo.meta"),
+            "mode=deep-review\nyolo=maybe\n",
+        )
+        .unwrap();
+        assert!(
+            task_authority(&context.state, "invalid-yolo", &resolution, None, None)
+                .unwrap_err()
+                .contains("invalid yolo")
+        );
+    }
+
+    #[test]
     fn launch_boundary_rejects_empty_control_and_non_utf8_record_values() {
         use std::os::unix::ffi::OsStringExt;
 
@@ -2363,7 +3199,9 @@ mod tests {
             kind: "delivery".into(),
             role: "implementer".into(),
             output: "implementation".into(),
+            private_home: false,
             persistent: false,
+            domain: None,
             binding: None,
             mode: "deep-review".into(),
             yolo: false,
@@ -2511,7 +3349,185 @@ mod tests {
                 &publication.project,
             )
             .expect_err("digest mismatch")
-            .contains("accepted brief changed")
+                .contains("accepted brief changed")
+        );
+    }
+
+    #[test]
+    fn prepare_binding_freezes_new_identity_and_refuses_existing_reinterpretation() {
+        use sha2::{Digest, Sha256};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let project = temp.path().join("project");
+        fs::create_dir(&project).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&project)
+                .status()
+                .unwrap()
+                .success()
+        );
+        for arguments in [
+            ["config", "user.email", "test@example.invalid"],
+            ["config", "user.name", "Binding Test"],
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .args(arguments)
+                    .current_dir(&project)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        fs::write(project.join("README.md"), "project\n").unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["add", "README.md"])
+                .current_dir(&project)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args(["commit", "-q", "-m", "initial"])
+                .current_dir(&project)
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        let mut request = bound_request(&context);
+        request.id = "fresh".into();
+        request.project = fs::canonicalize(&project).unwrap();
+        request.binding = None;
+        fs::create_dir_all(context.data.join("fresh")).unwrap();
+        fs::write(context.data.join("fresh/brief.md"), "accepted scope\n").unwrap();
+        prepare_binding(&context, &mut request).unwrap();
+        let frozen = request.binding.clone().expect("frozen binding");
+        assert_eq!(
+            frozen.project.as_ref().unwrap().canonical_path,
+            request.project
+        );
+        assert_eq!(
+            frozen.accepted_brief_digest.as_deref(),
+            Some(format!("{:x}", Sha256::digest(b"accepted scope\n")).as_str())
+        );
+
+        fs::write(
+            context.state.join("fresh.meta"),
+            crate::lifecycle::subagent_model::write_meta("kind=delivery\n", &frozen).unwrap(),
+        )
+        .unwrap();
+        let mut resumed = request.clone();
+        resumed.binding = None;
+        prepare_binding(&context, &mut resumed).unwrap();
+        assert_eq!(resumed.binding.as_ref(), Some(&frozen));
+
+        let mut wrong_owner = request.clone();
+        wrong_owner.binding.as_mut().unwrap().owner_state = Some(
+            temp.path()
+                .join("foreign-state")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        assert!(
+            prepare_binding(&context, &mut wrong_owner)
+                .unwrap_err()
+                .contains("owner home/state")
+        );
+
+        let mut reassigned = request.clone();
+        reassigned.role = "reviewer".into();
+        assert!(
+            prepare_binding(&context, &mut reassigned)
+                .unwrap_err()
+                .contains("recorded assignment")
+        );
+
+        let other = temp.path().join("other-project");
+        fs::create_dir(&other).unwrap();
+        let mut retargeted = request.clone();
+        retargeted.project = other;
+        assert!(
+            prepare_binding(&context, &mut retargeted)
+                .unwrap_err()
+                .contains("cannot retarget")
+        );
+
+        fs::write(context.data.join("fresh/brief.md"), "changed scope\n").unwrap();
+        let mut changed_brief = request;
+        assert!(
+            prepare_binding(&context, &mut changed_brief)
+                .unwrap_err()
+                .contains("accepted brief changed")
+        );
+    }
+
+    #[test]
+    fn metadata_publication_is_idempotent_and_detects_reservation_or_recovery_conflicts() {
+        use sha2::{Digest, Sha256};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = context(temp.path());
+        let mut request = bound_request(&context);
+        let brief = context.data.join("task/brief.md");
+        fs::create_dir_all(brief.parent().unwrap()).unwrap();
+        fs::write(&brief, "accepted publication\n").unwrap();
+        let binding = request.binding.as_mut().unwrap();
+        binding.accepted_brief_path = Some(brief.to_string_lossy().into_owned());
+        binding.accepted_brief_digest =
+            Some(format!("{:x}", Sha256::digest(b"accepted publication\n")));
+        binding.briefs[0].scope = "accepted publication".into();
+        let binding = binding.clone();
+        atomic_replace(
+            context.state.join(".spawn-task.intent"),
+            &serde_json::to_vec(&binding).unwrap(),
+            0o600,
+        )
+        .unwrap();
+
+        publish_meta_for_worktree(&context, &request, "session:task", &request.project).unwrap();
+        let first = fs::read(context.state.join("task.meta")).unwrap();
+        publish_meta_for_worktree(&context, &request, "session:task", &request.project).unwrap();
+        assert_eq!(fs::read(context.state.join("task.meta")).unwrap(), first);
+
+        assert!(
+            publish_meta_for_worktree(&context, &request, "session:replacement", &request.project,)
+                .unwrap_err()
+                .contains("recovery conflicts")
+        );
+
+        let mut changed_reservation = binding.clone();
+        changed_reservation.runtime.provider = "herdr".into();
+        atomic_replace(
+            context.state.join(".spawn-task.intent"),
+            &serde_json::to_vec(&changed_reservation).unwrap(),
+            0o600,
+        )
+        .unwrap();
+        assert!(
+            publish_meta_for_worktree(&context, &request, "session:task", &request.project)
+                .unwrap_err()
+                .contains("reservation identity")
+        );
+
+        atomic_replace(
+            context.state.join(".spawn-task.intent"),
+            &serde_json::to_vec(&binding).unwrap(),
+            0o600,
+        )
+        .unwrap();
+        let archive = context.state.join("brief-revisions/task-1.md");
+        fs::write(&archive, "foreign accepted bytes\n").unwrap();
+        fs::remove_file(context.state.join("task.meta")).unwrap();
+        assert!(
+            publish_meta_for_worktree(&context, &request, "session:task", &request.project)
+                .unwrap_err()
+                .contains("archive conflicts")
         );
     }
 }
