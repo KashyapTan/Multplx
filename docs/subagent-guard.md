@@ -2,13 +2,12 @@
 
 Multplx allows available native delegation tools in orchestrator and sub-agent sessions.
 
-`bin/mx-subagent-pretool-check.sh` remains temporarily as an allowing compatibility entry for older hook installations.
-
-It accepts the old `--tool` and `--claude` grammar, writes no decision output, and requires no escape environment variable.
-
-Tracked Claude settings no longer register that entry.
-
-Cursor pre-tool handling retains the watcher-arm and persistent-directory checks while allowing delegation-shaped tools.
+`bin/mx-subagent-pretool-check.sh` retains its compatible entry name and permits native delegation without an escape variable.
+It now checks supported shell commands for the human-only remote merge boundary.
+Help owns its `--tool`, `--command` and provider translation arguments.
+Local Git merge/rebase and task-branch pushes remain available.
+Tracked and generated provider hooks apply the same narrow policy alongside existing watcher and directory checks.
+This is an operational backstop, not a sandbox against arbitrary code or broad credentials; [delivery](delivery.md) explains independent remote enforcement.
 
 The restrictions that remain serve separate ownership boundaries.
 
@@ -64,7 +63,7 @@ The hook is dormant in this development checkout because root `AGENTS.md` is del
 Installed runtime and task worktrees resolve the trusted runtime source from `MX_RUST_SOURCE_ROOT` before using the working directory fallback.
 
 Spawned tasks receive that trusted source path explicitly.
-Launch construction adds observer-only Claude settings, inline Codex lifecycle hooks, the task-local Cursor plugin hooks and the Pi observer extension without replacing the provider's report transport.
+Launch construction adds Claude settings, inline Codex lifecycle and merge-check hooks, task-local Cursor hooks and the Pi extension without replacing the provider's report transport.
 Generated settings and MCP files live under a home-and-attempt-qualified private temp path, so equal task names in separate homes cannot overwrite one another.
 Tmux receives a short invocation of the private `tasktmp/launch.sh` file, preserving long environment and hook settings across shell startup.
 
@@ -92,4 +91,4 @@ Absence of observation never becomes a delegation prohibition.
 
 Live provider evidence must name the actual installed provider version and distinguish observed hook events from schema documentation or fixture results.
 
-The retired guard's dated A/B history remains in [guard verification](verification/guards.md#primary-session-delegation-guard), where it is explicitly marked superseded.
+The retired delegation policy's dated A/B history remains in [guard verification](verification/guards.md#primary-session-delegation-guard), where it is explicitly marked superseded.

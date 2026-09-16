@@ -2,6 +2,7 @@
 
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -786,24 +787,142 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
     }
 }
 
-const SUBAGENT_USAGE: &str = "Usage: mx-subagent-pretool-check.sh [--tool <tool-name>] [--claude]\n\nCompatibility no-op retained for old hook installations. Native delegation is allowed.\n";
+const SUBAGENT_USAGE: &str = "Usage: mx-subagent-pretool-check.sh [--tool <tool-name>] [--command <cmd>] [--claude]\n\nNative delegation is allowed. Bash commands are checked only for supported remote PR merge, auto-merge, merge-queue, and target-branch push forms; local git merge and rebase remain available.\n";
 
-/// Accept the retired delegation-guard grammar for old hook installations.
+fn git_line(directory: &Path, arguments: &[&str]) -> Option<String> {
+    let mut child = std::process::Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args(arguments)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_millis(250);
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    if !status.success() {
+        return None;
+    }
+    let mut output = String::new();
+    child.stdout.take()?.read_to_string(&mut output).ok()?;
+    let output = output.trim().to_owned();
+    (!output.is_empty() && !output.contains(['\n', '\r'])).then_some(output)
+}
+
+fn remote_merge_git_context(command: &str) -> (Vec<String>, Option<String>) {
+    let mut targets = vec!["main".to_owned(), "master".to_owned()];
+    let directory = multplx_core::command_policy::git_push_directory(command)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    if let Some(remote) = git_line(
+        &directory,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    ) && let Some(branch) = remote.strip_prefix("origin/")
+        && !targets.iter().any(|target| target == branch)
+    {
+        targets.push(branch.to_owned());
+    }
+    if let Ok(branch) = env::var("MX_PR_TARGET_BRANCH")
+        && !branch.is_empty()
+        && !targets.iter().any(|target| target == &branch)
+    {
+        targets.push(branch);
+    }
+    let state = env::var_os("MX_REPORT_STATE_OVERRIDE")
+        .or_else(|| env::var_os("MX_STATE_OVERRIDE"))
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("MX_HOME").map(|home| PathBuf::from(home).join("state")));
+    if let (Some(state), Ok(task)) = (state, env::var("MX_TASK_ID"))
+        && let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+            state.join(format!("{task}.ready-to-push")),
+            64 * 1024,
+        )
+        && let Ok(text) = String::from_utf8(bytes)
+        && let Some(base) = text.lines().find_map(|line| line.strip_prefix("base="))
+        && !base.is_empty()
+        && !base.contains(['\n', '\r'])
+        && !targets.iter().any(|target| target == base)
+    {
+        targets.push(base.to_owned());
+    }
+    let current = git_line(&directory, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    (targets, current)
+}
+
+fn pretool_denial(denial: &multplx_core::command_policy::Denial, claude: bool) -> CommandResult {
+    let detail = format!("[{}] {}", denial.code, denial.reason);
+    let stderr = format!(
+        "{}\n",
+        serde_json::to_string(&json!({
+            "hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},
+            "systemMessage":detail
+        }))
+        .unwrap_or_default()
+    );
+    let stdout = if claude {
+        String::new()
+    } else {
+        format!(
+            "{}\n",
+            serde_json::to_string(&json!({"decision":"deny","reason":detail})).unwrap_or_default()
+        )
+    };
+    CommandResult {
+        status: 2,
+        stdout,
+        stderr,
+    }
+}
+
+/// Preserve the retired delegation-hook grammar while applying the one
+/// retained product permission boundary to shell commands.
 #[must_use]
-pub fn subagent_guard(args: &[String], _payload: &str, _root: &Path) -> CommandResult {
+pub fn subagent_guard(args: &[String], payload: &str, _root: &Path) -> CommandResult {
+    let mut command = None;
+    let mut tool = None;
+    let mut claude = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--tool" => {
-                let Some(_) = args.get(index + 1) else {
+                let Some(value) = args.get(index + 1) else {
                     return CommandResult::error(2, "error: --tool requires a value\n");
                 };
+                tool = Some(value.clone());
                 index += 2;
             }
             value if value.starts_with("--tool=") => {
+                tool = Some(value[7..].to_owned());
+                index += 1;
+            }
+            "--command" => {
+                let Some(value) = args.get(index + 1) else {
+                    return CommandResult::error(2, "error: --command requires a value\n");
+                };
+                command = Some(value.clone());
+                index += 2;
+            }
+            value if value.starts_with("--command=") => {
+                command = Some(value[10..].to_owned());
                 index += 1;
             }
             "--claude" => {
+                claude = true;
                 index += 1;
             }
             "-h" | "--help" => return CommandResult::success(SUBAGENT_USAGE),
@@ -814,6 +933,39 @@ pub fn subagent_guard(args: &[String], _payload: &str, _root: &Path) -> CommandR
                 );
             }
         }
+    }
+    if command.is_none()
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(payload)
+    {
+        tool = tool.or_else(|| {
+            value
+                .get("toolName")
+                .or_else(|| value.get("tool_name"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+        command = value
+            .pointer("/toolInput/command")
+            .or_else(|| value.pointer("/tool_input/command"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+    }
+    if tool.as_deref().is_some_and(|name| {
+        !matches!(
+            name.to_ascii_lowercase().as_str(),
+            "bash" | "shell" | "terminal" | "exec_command" | "shell_command" | "run_terminal_cmd"
+        )
+    }) {
+        return CommandResult::success("");
+    }
+    let Some(command) = command.filter(|value| !value.is_empty()) else {
+        return CommandResult::success("");
+    };
+    let (targets, current) = remote_merge_git_context(&command);
+    if let Err(denial) =
+        multplx_core::command_policy::remote_pr_merge(&command, &targets, current.as_deref())
+    {
+        return pretool_denial(&denial, claude);
     }
     CommandResult::success("")
 }
@@ -1623,7 +1775,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_subagent_guard_is_an_allowing_compatibility_entry() {
+    fn subagent_guard_allows_delegation_and_blocks_only_remote_merge_actions() {
         let root = primary_fixture();
         let allowed = subagent_guard(
             &["--tool".into(), "FutureAgentDispatch".into()],
@@ -1661,6 +1813,44 @@ mod tests {
             subagent_guard(&[], r#"{"toolName":"Agent"}"#, root.path()).status,
             0
         );
+        for command in [
+            "git merge feature",
+            "git rebase main",
+            "git push origin HEAD:refs/heads/mx/task",
+            "gh pr create --fill",
+        ] {
+            assert_eq!(
+                subagent_guard(&["--command".into(), command.into()], "", root.path()).status,
+                0,
+                "{command}"
+            );
+        }
+        for command in [
+            "gh pr merge 9 --squash",
+            "gh api graphql -f 'query=mutation { enqueuePullRequest(input: {}) }'",
+            "git push origin HEAD:main",
+        ] {
+            let denied = subagent_guard(&["--command".into(), command.into()], "", root.path());
+            assert_eq!(denied.status, 2, "{command}");
+            assert!(denied.stderr.contains("permissionDecision"));
+        }
+        let claude = subagent_guard(
+            &["--claude".into()],
+            r#"{"tool_name":"Bash","tool_input":{"command":"gh pr merge 9 --auto"}}"#,
+            root.path(),
+        );
+        assert_eq!(claude.status, 2);
+        assert!(claude.stdout.is_empty());
+        assert!(claude.stderr.contains("remote-pr-merge"));
+        for tool in ["exec_command", "shell_command", "run_terminal_cmd"] {
+            let payload =
+                format!(r#"{{"tool_name":"{tool}","tool_input":{{"command":"gh pr merge 9"}}}}"#);
+            assert_eq!(
+                subagent_guard(&[], &payload, root.path()).status,
+                2,
+                "{tool}"
+            );
+        }
     }
 
     #[test]

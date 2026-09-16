@@ -20,8 +20,9 @@ Building from source additionally requires the stable Rust toolchain.
 Your runtime backend adds its own CLI requirement.
 tmux is the verified reference backend; Herdr and cmux are experimental, and Codex App is not selectable.
 
-You do not need to authenticate GitHub in the broker session for public repositories.
-Keep every write-capable GitHub credential outside the broker and all spawned agent sessions.
+Public repository reads do not require GitHub authentication.
+For branch publication, configure ordinary Git and official GitHub CLI authentication; spawned workers preserve that configuration.
+PR merging remains human-only.
 
 ## Install the global command
 
@@ -137,22 +138,20 @@ It asks for a decision when project identity, delivery posture, or another maint
 
 Project delivery modes are explicit:
 
-- `deep-review` runs the full local validation gate before creating an exact-SHA handoff.
-- `direct-PR` prepares a pending exact-SHA handoff from a clean local commit without running the full validation gate.
-- `local-only` stays on the machine and waits for the configured fast-forward merge authority.
+- Remote tasks publish their task branch and open or update a PR with actual verification evidence.
+- Deep-review is separate evidence, not a publication prerequisite; request the tool explicitly when wanted.
+- `local-only` stays on the machine and reports its branch and verification evidence; local integration follows the accepted task scope.
 
 The broker records project configuration under private gitignored `data/` rather than in the tracked template.
 [Configuration](configuration.md) owns the registry, home layout, harness, backend, and dispatch details.
 
 ## Private repositories and delivery
 
-If a private repository requires authenticated reads, `MX_AGENT_GH_TOKEN` may supply a remotely enforced read-only token to spawned agents.
-It must not grant contents-write or pull-request-write permission.
-
-For `deep-review` and `direct-PR` projects, remote delivery uses a separate maintainer shell or credentialed scheduler after local validation and approval.
-That context runs the remote-delivery operation of `bin/mx-deliver.sh`; agent sessions never run that operation or receive its credential.
-The [mode instructions](delivery.md#choose-and-complete-a-delivery-mode) cover selection, verification, approval, delivery, and local landing.
-Read [Least-privilege delivery](delivery.md) before configuring private-repository access or automatic delivery.
+Use the user's configured Git credential helper, SSH setup and official GitHub CLI authentication for the assigned repository.
+Keep credentials out of task records, briefs, logs and tracked files.
+Agents may push task branches and create or update PRs within the accepted scope without a separate approval or delivery shell.
+The [delivery instructions](delivery.md) cover repeat-safe publication, direct PR registration, current evidence and human-only merging.
+Command checks are operational backstops; independently enforced merge separation requires remote protection and identity controls.
 
 ## Verify the first run
 

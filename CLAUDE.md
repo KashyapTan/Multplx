@@ -11,6 +11,8 @@ Phase 04 supplies free delegation, canonical native observations, durable inbox/
 Its repository checks and live Codex CLI trial pass; the user deferred other provider live trials until after all phases, as recorded in the [Phase 04 evidence](plans/lean_redesign/phase04-implementation.md).
 Phase 05 supplies named project/idea coordinators, versioned domains, durable parent outcomes, retained-authority transfers, explicit lifecycle controls and descendant capacity.
 Its macOS/Linux checks, coverage gate, isolation proof and live Codex child-continuity evidence pass, as recorded in the [Phase 05 evidence](plans/lean_redesign/phase05-implementation.md).
+Phase 06 supplies ordinary agent authentication/publication, repeat-safe forge receipts, revision-bound delivery evidence and human-only merge backstops.
+Its macOS/Linux checks, unchanged coverage gate and live Codex publication/retry trial pass, with explicit authentication and provider limits in the [Phase 06 evidence](plans/lean_redesign/phase06-implementation.md).
 
 ## This checkout
 

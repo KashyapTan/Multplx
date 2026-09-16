@@ -35,6 +35,7 @@ Never append raw status-file lines.
 Claude uses Stop-owned auto-arm, Codex and Cursor use bounded checkpoints, and Pi uses its tracked watcher extension.
 Use one home-scoped monitoring owner; retain queue entries and reconcile current state after notifications.
 
-[The redesign](../../../porting.md#sub-agent-model-and-communication) permits native delegation, and the retired delegation-hook executable is now an allowing compatibility entry.
+[The redesign](../../../porting.md#sub-agent-model-and-communication) permits native delegation, and the compatible pre-tool executable allows delegation while checking supported remote merge commands.
+[Delivery](../../../docs/delivery.md) owns the human-only merge boundary and command-check limitations.
 Provider child events use `bin/mx-native-observe.sh`; current adapters record them as session-bound because an identifier alone does not prove resumability. Missing observation never becomes a reason to deny delegation.
 The named deep-review tool remains optional; its current headless adapter mechanics and unsupported combinations belong to `bin/mx-deep-review.sh --help` and [delivery documentation](../../../docs/delivery.md).

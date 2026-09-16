@@ -75,7 +75,8 @@ The stable mechanism and accepted non-goals remain in [cd-guard PreToolUse seatb
 
 This section is dated historical evidence for behavior retired by lean redesign Phase 04.
 
-The current runtime allows native delegation, does not register the guard, and retains its executable name only as an allowing compatibility entry.
+The Phase 04 runtime removed the delegation prohibition.
+Phase 06 reuses the compatible executable name for narrowly scoped remote-merge checks while continuing to allow native delegation; [Phase 06 evidence](../../plans/lean_redesign/phase06-implementation.md) owns those results.
 
 The live pass ran on 2026-07-22 with Claude Code 2.1.217 in fresh scratch repositories.
 The common launch command was:

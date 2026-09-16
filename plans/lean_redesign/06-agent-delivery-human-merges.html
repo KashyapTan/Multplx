@@ -73,13 +73,13 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 06 · Multplx</div>
 <h1>Agent Delivery, Human PR Merges</h1>
 <p class="subtitle">Let agents commit, push and open PRs directly, while retaining the single explicit product permission boundary at PR merging.</p>
-<div class="badges"><span class="badge phase">Phase 06 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 06 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · 2026-09-16</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. Implementation and assigned acceptance checks are complete; see the evidence below for platform and live-test limits.</p></div>
 <p><b>Dependencies:</b> 02, 04, 05. Credential cleanup can begin independently; publication integration requires Phase 04 action receipts.</p>
 <h2>Overview</h2>
-<p>Agent launch currently strips credentials and makes origin non-writable. The delivery implementation then refuses agent sessions and requires approved local handoffs. These are intentional removals; the useful identity, retry and PR-monitoring mechanisms should survive.</p>
+<p>Before this phase, agent launch stripped credentials and made origin non-writable, while delivery refused agent sessions and required approved local handoffs. Ordinary publication now preserves user authentication and revision-bound evidence, while identity, retry, PR monitoring and human-only merging remain explicit.</p>
 <h2>Owned source slice</h2>
 <table><tr><th>Current source</th><th>Responsibility</th></tr>
 <tr><td><a href="../../crates/multplx-cli/src/lib.rs"><code>crates/multplx-cli/src/lib.rs</code></a></td><td>Remove launch-time Git credential suppression and blocked push URL.</td></tr>
@@ -144,7 +144,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Credential access is being deliberately expanded for publication. The implementation must not imply that removing the agent-session check from deliver also authorizes removing it from pr-merge, or that a broadly privileged token intrinsically prevents remote merges.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<p>Status: complete. <a href="phase06-implementation.md">Implementation evidence</a> records the source boundary, all assigned changes, macOS/Linux checks, the unchanged 93% coverage gate, live Codex publication/retry evidence and explicit limits. Phase 07 is ready to begin; release activation remains with Phase 12.</p>
 <nav class="footer-nav"><a href="05-scoped-sub-orchestrators.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="07-opt-in-review-tools.html">Next →</a></nav>
 </main>
 </body>

@@ -1147,6 +1147,16 @@ where
         } else if let Some(worktree) = values.get("worktree").filter(|value| !value.is_empty())
             && Path::new(worktree).exists()
         {
+            let project = values
+                .get("project")
+                .ok_or("child metadata has no project")?;
+            validate_worktree_safety(
+                &child_context,
+                &child_id,
+                &values,
+                Path::new(worktree),
+                Path::new(project),
+            )?;
             return_allocation(&child_id, &values, Path::new(worktree))?;
         }
         remove_pr_artifacts(&state, &child_id)?;
@@ -2498,6 +2508,104 @@ mod tests {
         assert!(!parent.join("state/child-daemon.meta").exists());
         assert!(!parent.join("state/child-task.status").exists());
         assert!(parent.join("state/unrelated.txt").exists());
+    }
+
+    #[test]
+    fn recursive_cleanup_retains_dirty_current_allocation() {
+        use super::super::subagent_model::{ArtifactKind, AssignmentRole, TaskRecord, write_meta};
+        use super::super::worktree::{Acquire, Store};
+        use crate::project_registry::{CheckoutOwnership, register_project};
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let parent = fs::canonicalize(temp.path()).unwrap().join("parent-home");
+        seed_home(&parent, "parent");
+        for name in ["data", "state", "projects"] {
+            fs::create_dir_all(parent.join(name)).unwrap();
+        }
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(&source)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main", "--quiet"]);
+        fs::write(source.join("file"), "base").unwrap();
+        git(&["add", "file"]);
+        git(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "base",
+            "--quiet",
+        ]);
+        let project =
+            register_project(&parent, &source, None, CheckoutOwnership::UserOwned).unwrap();
+        let mut task = TaskRecord::new(
+            "child".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            format!("root-home:{}", context.home.display()),
+            format!("root-home:{}", context.home.display()),
+            parent.to_string_lossy().into_owned(),
+        );
+        task.owner_state = Some(parent.join("state").to_string_lossy().into_owned());
+        task.parent_state = Some(context.state.to_string_lossy().into_owned());
+        task.parent_home = Some(context.home.to_string_lossy().into_owned());
+        task.project = Some(project.clone());
+        let allocation = Store::new(&project)
+            .unwrap()
+            .acquire(
+                &Acquire {
+                    request_id: "child-request",
+                    owner_home: &parent,
+                    project: &project,
+                    task_id: "child",
+                    attempt_id: &task.attempt.as_ref().unwrap().id,
+                    persistent: false,
+                },
+                None,
+            )
+            .unwrap();
+        task.allocation = Some(allocation.binding.clone());
+        let worktree = PathBuf::from(&allocation.binding.path);
+        fs::write(worktree.join("dirty"), "uncommitted").unwrap();
+        let raw = format!(
+            "kind=delivery\nworktree={}\nproject={}\n",
+            worktree.display(),
+            project.canonical_path.display()
+        );
+        fs::write(
+            parent.join("state/child.meta"),
+            write_meta(&raw, &task).unwrap(),
+        )
+        .unwrap();
+
+        let error = cleanup_children(&context, &parent, &mut |_| Ok(())).unwrap_err();
+        assert!(error.contains("uncommitted changes"), "{error}");
+        assert!(worktree.is_dir());
+        assert!(parent.join("state/child.meta").is_file());
+        assert_eq!(
+            Store::new(&project)
+                .unwrap()
+                .inspect(&allocation.binding.allocation_id)
+                .unwrap()
+                .state,
+            super::super::worktree::State::Active
+        );
     }
 
     #[test]

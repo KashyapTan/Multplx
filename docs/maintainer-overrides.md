@@ -30,12 +30,14 @@ Never repair, copy, move, or hand-edit an authority record.
 
 ## Registered policy alternates
 
+`delivery.merge-red` is retired.
+Historical grants remain evidence and cannot authorize an agent PR merge; [delivery](delivery.md) owns the human-only merge boundary.
+
 | Boundary | Exact alternate |
 |---|---|
 | `workflow.skip-stage` | Skip only the bound run stage and preserve every other snapshotted stage. |
 | `workflow.reorder-stage` | Move only the bound stage before the bound target in the private run order. |
 | `validation.waive-gate` | Create a distinct exact-SHA waived delivery handoff without changing the failed gate. |
-| `delivery.merge-red` | Bind the PR URL, head SHA, and failed-check set, then use the credentialed admin merge path. |
 | `cleanup.discard-unlanded` | Inventory and discard only the bound task resources through teardown. |
 | `project.direct-write` | Run canonical argv from the named Git root and record before and after state for ordinary validation. |
 | `isolation.single-checkout` | Record lost isolation, reserve the exact checkout, and release it only during teardown. |
@@ -46,7 +48,8 @@ Never repair, copy, move, or hand-edit an authority record.
 | `authentication.login` | Produce an already-consumed exact interactive-login handoff and re-check authentication afterward. |
 
 The command runner first prints fresh bindings with `bin/mx-override-run.sh --print-bindings ... -- <argv>` and later accepts the granted request id with the same arguments.
-Authentication and credentialed delivery stay outside agent sessions, so `bin/mx-maintainer-override.sh handoff <request>` prints only an atomically consumed request and leaves its outcome `not-run` until the operator reports the real result.
+For an explicitly selected operator handoff, `bin/mx-maintainer-override.sh handoff <request>` prints only an atomically consumed request and leaves its outcome `not-run` until the operator reports the real result.
+Ordinary branch publication inherits user authentication and requires no override or handoff; none of these records grants agent merge authority.
 
 ## Factual boundaries
 

@@ -353,9 +353,9 @@ Safe worktree cleanup additionally requires a successful occupant observation wi
 The viz and vplan services are Rust-native and do not require Node.
 The [worktree lifecycle](worktrees.md) is built into the runtime; there is no worktree-provider installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
-The in-repo deep-review scripts supply local validation, while official gh covers read-only agent operations plus credentialed non-agent delivery.
+The in-repo deep-review scripts supply explicitly requested review evidence, while official gh supports ordinary branch and PR publication with user-configured authentication.
 Bootstrap does not require GitHub authentication in the broker session.
-The credential boundary and delivery-context setup are documented in [delivery.md](delivery.md).
+Authentication, repeat-safe publication and the human-only merge boundary are documented in [delivery.md](delivery.md).
 The in-repo vplan module covers rich-review operations and is self-checked with its vendored assets rather than probed as an external tool.
 Backlog mutations and dispatch capacity are owned by the repository's typed backlog and headroom modules behind their existing shell entry points.
 The per-backend delta is required only for the backend resolved from `MX_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
@@ -444,8 +444,8 @@ MX_MAINTAINER_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|r
 MX_CLASSIFY_PAUSED_VERB=paused     # read-side compatibility override for legacy status logs; validated actor writes use the closed `paused` state
 MX_TASK_ID=                        # spawn-managed task binding consumed by mx-report and mx-report-mcp; do not set globally
 MX_REPORT_STATE_OVERRIDE=          # spawn-managed parent status directory, distinct from a daemon's own operational MX_HOME/state
-MX_AGENT_GH_TOKEN=                 # optional remotely-enforced read-only token mapped into spawned agent GH_TOKEN; unset means no agent token
-MX_DELIVERY_GH_TOKEN=              # optional service token accepted only by mx-deliver.sh outside agent sessions
+MX_AGENT_GH_TOKEN=                 # retired launch override; configure ordinary GH_TOKEN/gh/SSH authentication instead
+MX_DELIVERY_GH_TOKEN=              # optional explicit publication token for mx-deliver.sh
 MX_DELIVERY_GH_CONFIG_DIR=         # optional absolute isolated gh config for mx-deliver.sh; mutually exclusive with MX_DELIVERY_GH_TOKEN
 MX_NUDGE=1                         # set to 0 to disable mx-report's best-effort watcher nudge without changing durable writes
 MX_NUDGE_DEBUG=0                   # set to 1 to print otherwise-silent watcher-nudge diagnostics from mx-report

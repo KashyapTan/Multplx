@@ -1,4 +1,5 @@
-//! Narrow, non-executing shell command policies for watcher ownership and cwd safety.
+//! Narrow, non-executing shell command policies for watcher ownership, cwd safety,
+//! and the human-only remote PR merge boundary.
 
 /// Stable policy refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -469,9 +470,294 @@ pub fn persistent_cd(command: &str) -> bool {
     })
 }
 
+fn command_nodes(command: &str) -> Vec<Vec<String>> {
+    let parsed = if command.contains("$'") || command.contains("$\"") {
+        syntax(&decode_quotes(command))
+    } else {
+        syntax(command)
+    };
+    if parsed.malformed {
+        return Vec::new();
+    }
+    let mut nodes = Vec::new();
+    let mut words = Vec::new();
+    for token in parsed.sequence {
+        match token {
+            ShellToken::Word(word) => words.push(word),
+            ShellToken::Operator(operator)
+                if matches!(
+                    operator.as_str(),
+                    ";" | "&&" | "||" | "newline" | "&" | "|" | "|&"
+                ) =>
+            {
+                if !words.is_empty() {
+                    nodes.push(std::mem::take(&mut words));
+                }
+            }
+            ShellToken::Operator(_) => {}
+        }
+    }
+    if !words.is_empty() {
+        nodes.push(words);
+    }
+    nodes
+}
+
+fn executable_index(words: &[String]) -> Option<usize> {
+    let mut index = 0;
+    while words
+        .get(index)
+        .is_some_and(|word| word.contains('=') && !word.starts_with('-'))
+    {
+        index += 1;
+    }
+    while words.get(index).is_some_and(|word| {
+        matches!(
+            word.rsplit('/').next().unwrap_or(word),
+            "command" | "builtin" | "exec" | "env" | "sudo" | "nohup" | "timeout" | "gtimeout"
+        )
+    }) {
+        let wrapper = words[index].rsplit('/').next().unwrap_or(&words[index]);
+        index += 1;
+        if matches!(wrapper, "timeout" | "gtimeout") {
+            index += usize::from(words.get(index).is_some());
+        }
+        while words.get(index).is_some_and(|word| {
+            word.starts_with('-') || (word.contains('=') && !word.starts_with('-'))
+        }) {
+            index += 1;
+        }
+    }
+    (index < words.len()).then_some(index)
+}
+
+fn gh_subcommand_index(words: &[String], gh: usize) -> usize {
+    let mut index = gh + 1;
+    while let Some(word) = words.get(index) {
+        if matches!(
+            word.as_str(),
+            "-R" | "--repo" | "--hostname" | "--config-dir"
+        ) {
+            index += 2;
+        } else if word.starts_with("--repo=")
+            || word.starts_with("--hostname=")
+            || word.starts_with("--config-dir=")
+        {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    index
+}
+
+/// Return the explicit working directory of a supported `git -C <path> push`
+/// form so the caller can resolve the real current and target branches there.
+#[must_use]
+pub fn git_push_directory(command: &str) -> Option<String> {
+    for words in command_nodes(command) {
+        let index = executable_index(&words)?;
+        if words[index].rsplit('/').next().unwrap_or(&words[index]) != "git" {
+            continue;
+        }
+        let mut cursor = index + 1;
+        let mut directory = None;
+        while let Some(word) = words.get(cursor) {
+            if word == "-C" {
+                directory = words.get(cursor + 1).cloned();
+                cursor += 2;
+            } else if word == "push" {
+                return directory;
+            } else if word.starts_with('-') {
+                cursor += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    None
+}
+
+fn explicit_target_push(
+    words: &[String],
+    git: usize,
+    target_branches: &[String],
+    current_branch: Option<&str>,
+) -> bool {
+    let Some(push) = words.get(git + 1..).and_then(|rest| {
+        rest.iter()
+            .position(|word| word == "push")
+            .map(|offset| git + 1 + offset)
+    }) else {
+        return false;
+    };
+    let targets = target_branches
+        .iter()
+        .map(|branch| branch.trim_start_matches("refs/heads/"))
+        .filter(|branch| !branch.is_empty())
+        .collect::<std::collections::BTreeSet<_>>();
+    let arguments = words.iter().skip(push + 1).collect::<Vec<_>>();
+    if arguments
+        .iter()
+        .any(|word| matches!(word.as_str(), "--all" | "--mirror"))
+    {
+        return true;
+    }
+    if current_branch.is_some_and(|branch| targets.contains(branch)) {
+        let positional = arguments
+            .iter()
+            .filter(|word| !word.starts_with('-'))
+            .count();
+        if positional <= 1 {
+            return true;
+        }
+    }
+    arguments.into_iter().any(|word| {
+        let candidate = word
+            .rsplit_once(':')
+            .map(|(_, destination)| destination)
+            .unwrap_or(word)
+            .trim_start_matches('+')
+            .trim_start_matches("refs/heads/");
+        targets.contains(candidate)
+    })
+}
+
+fn remote_pr_merge_node(
+    words: &[String],
+    target_branches: &[String],
+    current_branch: Option<&str>,
+) -> Result<(), Denial> {
+    let denial = |code, reason| Err(Denial { code, reason });
+    let Some(index) = executable_index(words) else {
+        return Ok(());
+    };
+    let executable = words[index].rsplit('/').next().unwrap_or(&words[index]);
+    let helper_invocation = executable == "mx-pr-merge.sh"
+        || (executable == "mx"
+            && words
+                .get(index + 1..index + 3)
+                .is_some_and(|args| matches!(args, [group, entry] if group == "review" && entry == "mx-pr-merge.sh")));
+    if helper_invocation
+        && !words
+            .iter()
+            .skip(index + 1)
+            .any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+    {
+        return denial(
+            "remote-pr-merge-helper",
+            "agents and automation must leave the human PR merge helper to a human shell",
+        );
+    }
+    if matches!(executable, "bash" | "sh" | "zsh" | "dash" | "ksh")
+        && let Some(shell_command) = words
+            .iter()
+            .skip(index + 1)
+            .zip(words.iter().skip(index + 2))
+            .find_map(|(flag, value)| matches!(flag.as_str(), "-c" | "-lc").then_some(value))
+        && remote_pr_merge(shell_command, target_branches, current_branch).is_err()
+    {
+        return denial(
+            "remote-pr-merge",
+            "agents must leave remote PR merging, auto-merge, merge queues, and target-branch landing to a human",
+        );
+    }
+    if executable == "gh" {
+        let args = &words[gh_subcommand_index(words, index)..];
+        if args.starts_with(&["pr".to_owned(), "merge".to_owned()])
+            && !args.iter().any(|arg| arg == "--help" || arg == "-h")
+        {
+            return denial(
+                "remote-pr-merge",
+                "agents must leave `gh pr merge` to a human",
+            );
+        }
+        if args.first().is_some_and(|arg| arg == "api") {
+            let joined = args.join(" ").to_ascii_lowercase();
+            let mutating_method = args.iter().any(|argument| {
+                matches!(
+                    argument.to_ascii_lowercase().as_str(),
+                    "-xput"
+                        | "-xpost"
+                        | "-xpatch"
+                        | "--method=put"
+                        | "--method=post"
+                        | "--method=patch"
+                )
+            }) || args.windows(2).any(|pair| {
+                matches!(pair[0].as_str(), "-X" | "--method")
+                    && matches!(
+                        pair[1].to_ascii_uppercase().as_str(),
+                        "PUT" | "POST" | "PATCH"
+                    )
+            });
+            if joined.contains("enablepullrequestautomerge")
+                || joined.contains("enqueuepullrequest")
+                || joined.contains("mergepullrequest")
+                || (joined.contains("/pulls/")
+                    && joined.contains("/merge")
+                    && (mutating_method
+                        || [" -f", " --field", " --raw-field"]
+                            .iter()
+                            .any(|needle| joined.contains(needle))))
+            {
+                return denial(
+                    "remote-pr-merge-api",
+                    "agents must not merge, enable auto-merge, or enqueue a PR through the forge API",
+                );
+            }
+        }
+    }
+    if matches!(executable, "glab" | "gitlab")
+            && words
+                .get(index + 1..index + 3)
+                .is_some_and(|args| matches!(args, [kind, action] if matches!(kind.as_str(), "mr" | "pr") && action == "merge"))
+        {
+            return denial(
+                "remote-pr-merge",
+                "agents must leave remote PR merging to a human",
+            );
+        }
+    if executable == "git" && explicit_target_push(words, index, target_branches, current_branch) {
+        return denial(
+            "remote-target-push",
+            "agents must push a task branch and leave landing on the remote target branch to a human",
+        );
+    }
+    Ok(())
+}
+
+/// Refuse supported remote PR merge, auto-merge, merge-queue, and explicit
+/// target-branch push forms while leaving local Git integration untouched.
+///
+/// This is a command-level operational backstop. It does not claim to be a
+/// sandbox against arbitrary programs or credentials.
+pub fn remote_pr_merge(
+    command: &str,
+    target_branches: &[String],
+    current_branch: Option<&str>,
+) -> Result<(), Denial> {
+    for words in command_nodes(command) {
+        remote_pr_merge_node(&words, target_branches, current_branch)?;
+    }
+    Ok(())
+}
+
+/// Apply the same boundary to an already parsed exact argv vector.
+pub fn remote_pr_merge_argv(
+    argv: &[String],
+    target_branches: &[String],
+    current_branch: Option<&str>,
+) -> Result<(), Denial> {
+    remote_pr_merge_node(argv, target_branches, current_branch)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{decode_quotes, persistent_cd, syntax, watcher_arm};
+    use super::{
+        decode_quotes, git_push_directory, persistent_cd, remote_pr_merge, remote_pr_merge_argv,
+        syntax, watcher_arm,
+    };
 
     #[test]
     fn representative_watcher_policy_matrix() {
@@ -506,6 +792,63 @@ mod tests {
             "cd foo | cat",
         ] {
             assert!(!persistent_cd(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn remote_merge_policy_is_narrow_and_covers_supported_mutations() {
+        let targets = ["main".to_owned(), "release/next".to_owned()];
+        for command in [
+            "gh pr merge 42 --squash",
+            "bin/mx-pr-merge.sh task https://github.com/o/r/pull/42",
+            "target/release/mx review mx-pr-merge.sh task https://github.com/o/r/pull/42",
+            "gh -R owner/repo pr merge 42 --squash",
+            "gh --hostname github.example pr merge 42 --squash",
+            "env GH_HOST=github.example gh pr merge 42 --auto",
+            "bash -lc 'gh pr merge 42 --merge'",
+            "gh api graphql -f 'query=mutation { enablePullRequestAutoMerge(input: {}) }'",
+            "gh api graphql -f 'query=mutation { enqueuePullRequest(input: {}) }'",
+            "gh api repos/o/r/pulls/42/merge -X PUT",
+            "gh api repos/o/r/pulls/42/merge -XPUT",
+            "gh api repos/o/r/pulls/42/merge --method=PUT",
+            "glab mr merge 42",
+            "git push origin HEAD:main",
+            "git push origin +HEAD:refs/heads/release/next",
+            "git push origin main",
+        ] {
+            assert!(
+                remote_pr_merge(command, &targets, Some("mx/task")).is_err(),
+                "{command}"
+            );
+        }
+        assert!(remote_pr_merge("git push origin", &targets, Some("main")).is_err());
+        assert!(
+            remote_pr_merge_argv(
+                &["gh".into(), "pr".into(), "merge".into(), "42".into()],
+                &targets,
+                Some("mx/task")
+            )
+            .is_err()
+        );
+        assert_eq!(
+            git_push_directory("git -C ../project push origin"),
+            Some("../project".to_owned())
+        );
+        for command in [
+            "git merge feature",
+            "git rebase main",
+            "git push origin HEAD:refs/heads/mx/task",
+            "gh pr create --fill",
+            "gh pr edit 42 --add-label ready",
+            "gh pr view 42 --json mergeStateStatus",
+            "gh pr merge --help",
+            "bin/mx-pr-merge.sh --help",
+            "printf '%s' 'gh pr merge 42'",
+        ] {
+            assert!(
+                remote_pr_merge(command, &targets, Some("mx/task")).is_ok(),
+                "{command}"
+            );
         }
     }
 

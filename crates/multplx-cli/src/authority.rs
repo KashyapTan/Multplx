@@ -648,6 +648,44 @@ fn override_action_state(
     }
 }
 
+fn override_merge_context(
+    boundary: &str,
+    target: &str,
+    task: &str,
+) -> (Vec<String>, Option<String>) {
+    let directory = if boundary == "project.direct-write" {
+        PathBuf::from(target)
+    } else {
+        std::env::current_dir().unwrap_or_default()
+    };
+    let mut targets = vec!["main".to_owned(), "master".to_owned()];
+    if let Some(remote) = git_line(
+        &directory,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    ) && let Some(branch) = remote.strip_prefix("origin/")
+        && !targets.iter().any(|target| target == branch)
+    {
+        targets.push(branch.to_owned());
+    }
+    if let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+        state_root().join(format!("{task}.ready-to-push")),
+        64 * 1024,
+    ) && let Ok(text) = String::from_utf8(bytes)
+        && let Some(base) = text.lines().find_map(|line| line.strip_prefix("base="))
+        && !base.is_empty()
+        && !targets.iter().any(|target| target == base)
+    {
+        targets.push(base.to_owned());
+    }
+    let current = git_line(&directory, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    (targets, current)
+}
+
 fn override_run(args: &[OsString]) -> i32 {
     let Some(values) = text_args(args) else {
         eprintln!("mx-override-run: arguments must be UTF-8");
@@ -709,6 +747,18 @@ fn override_run(args: &[OsString]) -> i32 {
         }
     };
     let digest = maintainer_override::sha256_text(&state);
+    let (target_branches, current_branch) = override_merge_context(&boundary, &target, &task);
+    if let Err(denial) = multplx_core::command_policy::remote_pr_merge_argv(
+        command,
+        &target_branches,
+        current_branch.as_deref(),
+    ) {
+        eprintln!(
+            "mx-override-run: [{}] {}; maintainer overrides cannot grant PR merge authority",
+            denial.code, denial.reason
+        );
+        return 3;
+    }
     let consequence = match boundary.as_str() {
         "project.direct-write" => "Run only the exact argv from the named checkout and report its resulting git-state digest for ordinary validation and delivery.".to_owned(),
         "dependency.install" => format!("Run only the exact installer argv and report success only if command {verify_command} is discoverable afterward."),

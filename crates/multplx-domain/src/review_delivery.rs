@@ -257,8 +257,111 @@ impl PollRegistration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Validation {
     Passed,
-    DirectPr { summary: String },
-    Waived { override_request: String },
+    DirectPr {
+        summary: String,
+    },
+    Waived {
+        override_request: String,
+    },
+    Reported {
+        summary: String,
+        checks: String,
+        limitations: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PublicationAuthority {
+    /// Ordinary agent publication. No Multplx approval is involved.
+    Ordinary,
+    /// Historical records that were explicitly approved before the lean port.
+    LegacyApproved,
+    /// Historical pending handoffs are readable but never authorize publication.
+    LegacyPending,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublicationStage {
+    Intent,
+    BranchPublished,
+    PrObserved,
+    Registered,
+    Complete,
+}
+
+/// Durable, retry-stable progress for one external publication operation.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PublicationOperation {
+    pub schema_version: u32,
+    pub operation_id: String,
+    pub task: String,
+    pub branch: String,
+    pub base: String,
+    pub commit: String,
+    pub attempt_id: Option<String>,
+    pub attempt_generation: Option<u64>,
+    pub brief_revision: Option<u64>,
+    pub pr_url: Option<String>,
+    pub stage: PublicationStage,
+}
+
+impl PublicationOperation {
+    #[must_use]
+    pub fn new(record: &DeliveryRecord) -> Self {
+        let generation = record.attempt_generation.unwrap_or_default();
+        let brief = record.brief_revision.unwrap_or_default();
+        let fingerprint = record.publication_fingerprint();
+        Self {
+            schema_version: 1,
+            operation_id: format!(
+                "publish-{}-g{generation}-r{brief}-{fingerprint}",
+                record.task
+            ),
+            task: record.task.to_string(),
+            branch: record.branch.clone(),
+            base: record.base.clone(),
+            commit: record.approved_sha.clone(),
+            attempt_id: record.attempt_id.clone(),
+            attempt_generation: record.attempt_generation,
+            brief_revision: record.brief_revision,
+            pr_url: None,
+            stage: PublicationStage::Intent,
+        }
+    }
+
+    pub fn validate_for(&self, record: &DeliveryRecord) -> Result<(), String> {
+        let expected = Self::new(record);
+        if self.schema_version != 1
+            || self.operation_id != expected.operation_id
+            || self.task != expected.task
+            || self.branch != expected.branch
+            || self.base != expected.base
+            || self.commit != expected.commit
+            || self.attempt_id != expected.attempt_id
+            || self.attempt_generation != expected.attempt_generation
+            || self.brief_revision != expected.brief_revision
+            || self
+                .pr_url
+                .as_deref()
+                .is_some_and(|url| PrIdentity::parse(url).is_err())
+        {
+            return Err("publication operation binding changed".to_owned());
+        }
+        Ok(())
+    }
+
+    pub fn parse(bytes: &[u8], record: &DeliveryRecord) -> Result<Self, String> {
+        let operation: Self =
+            serde_json::from_slice(bytes).map_err(|_| "publication operation is invalid")?;
+        operation.validate_for(record)?;
+        Ok(operation)
+    }
+
+    pub fn render(&self) -> Result<Vec<u8>, String> {
+        serde_json::to_vec_pretty(self).map_err(|error| error.to_string())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -269,9 +372,12 @@ pub struct DeliveryRecord {
     pub approved_sha: String,
     pub base: String,
     pub gate_run: PathBuf,
-    pub approval: String,
     pub title: String,
     pub validation: Validation,
+    pub publication: PublicationAuthority,
+    pub attempt_id: Option<String>,
+    pub attempt_generation: Option<u64>,
+    pub brief_revision: Option<u64>,
 }
 
 pub fn head_valid(value: &str) -> bool {
@@ -299,6 +405,49 @@ pub fn title_valid(value: &str) -> bool {
 }
 
 impl DeliveryRecord {
+    #[must_use]
+    pub fn publication_fingerprint(&self) -> String {
+        let mut hasher = Sha256::new();
+        for value in [
+            self.task.as_str(),
+            self.worktree.to_str().unwrap_or_default(),
+            &self.branch,
+            &self.approved_sha,
+            &self.base,
+            &self.title,
+            self.attempt_id.as_deref().unwrap_or_default(),
+        ] {
+            hasher.update(value.as_bytes());
+            hasher.update([0]);
+        }
+        hasher.update(self.attempt_generation.unwrap_or_default().to_le_bytes());
+        hasher.update(self.brief_revision.unwrap_or_default().to_le_bytes());
+        match &self.validation {
+            Validation::Passed => hasher.update(b"passed"),
+            Validation::DirectPr { summary } => {
+                hasher.update(b"direct-pr");
+                hasher.update(summary.as_bytes());
+            }
+            Validation::Waived { override_request } => {
+                hasher.update(b"waived");
+                hasher.update(override_request.as_bytes());
+            }
+            Validation::Reported {
+                summary,
+                checks,
+                limitations,
+            } => {
+                hasher.update(b"reported");
+                hasher.update(summary.as_bytes());
+                hasher.update([0]);
+                hasher.update(checks.as_bytes());
+                hasher.update([0]);
+                hasher.update(limitations.as_bytes());
+            }
+        }
+        format!("{:x}", hasher.finalize())[..32].to_owned()
+    }
+
     pub fn parse(bytes: &[u8], expected: &OperationalTaskId, state: &Path) -> Result<Self, String> {
         let text = std::str::from_utf8(bytes).map_err(|_| "delivery record is not UTF-8")?;
         let mut fields = BTreeMap::new();
@@ -346,6 +495,22 @@ impl DeliveryRecord {
             "validation",
             "summary",
         ];
+        let allowed_v4 = [
+            "version",
+            "task",
+            "worktree",
+            "branch",
+            "commit",
+            "base",
+            "title",
+            "validation",
+            "summary",
+            "checks",
+            "limitations",
+            "attempt_id",
+            "attempt_generation",
+            "brief_revision",
+        ];
         let version = fields.get("version").copied().ok_or("missing version")?;
         let allowed = if version == "1" {
             &allowed_v1[..]
@@ -353,6 +518,8 @@ impl DeliveryRecord {
             &allowed_v2[..]
         } else if version == "3" {
             &allowed_v3[..]
+        } else if version == "4" {
+            &allowed_v4[..]
         } else {
             return Err("unknown delivery record version".to_owned());
         };
@@ -371,7 +538,11 @@ impl DeliveryRecord {
         if branch != format!("mx/{task}") {
             return Err("delivery branch binding changed".to_owned());
         }
-        let approved_sha = fields["approved_sha"].to_owned();
+        let approved_sha = fields
+            .get("approved_sha")
+            .or_else(|| fields.get("commit"))
+            .ok_or("missing publication commit")?
+            .to_string();
         if !head_valid(&approved_sha) || !ref_valid(fields["base"]) || !title_valid(fields["title"])
         {
             return Err("delivery identifier is invalid".to_owned());
@@ -380,14 +551,39 @@ impl DeliveryRecord {
             .get("gate_run")
             .map(PathBuf::from)
             .unwrap_or_default();
-        if version != "3" && gate_run != state.join(format!("{task}.gate")) {
+        if matches!(version, "1" | "2") && gate_run != state.join(format!("{task}.gate")) {
             return Err("delivery gate binding changed".to_owned());
         }
-        if !matches!(fields["approval"], "pending" | "approved") {
-            return Err("delivery approval is invalid".to_owned());
-        }
+        let publication = if version == "4" {
+            PublicationAuthority::Ordinary
+        } else {
+            match fields["approval"] {
+                "pending" => PublicationAuthority::LegacyPending,
+                "approved" => PublicationAuthority::LegacyApproved,
+                _ => return Err("delivery approval is invalid".to_owned()),
+            }
+        };
         let validation = if version == "1" {
             Validation::Passed
+        } else if version == "4" {
+            let valid_evidence = |value: &str, maximum: usize| {
+                !value.is_empty()
+                    && value.len() <= maximum
+                    && !value.contains(['\r', '\n', '\t'])
+                    && !value.chars().any(|character| character.is_control())
+            };
+            if fields["validation"] != "reported"
+                || !valid_evidence(fields["summary"], 20_000)
+                || !valid_evidence(fields["checks"], 20_000)
+                || !valid_evidence(fields["limitations"], 20_000)
+            {
+                return Err("publication evidence is invalid".to_owned());
+            }
+            Validation::Reported {
+                summary: fields["summary"].to_owned(),
+                checks: fields["checks"].to_owned(),
+                limitations: fields["limitations"].to_owned(),
+            }
         } else if version == "3" {
             let summary = fields["summary"];
             if fields["validation"] != "direct-PR"
@@ -412,6 +608,22 @@ impl DeliveryRecord {
                 override_request: request.to_owned(),
             }
         };
+        let (attempt_id, attempt_generation, brief_revision) = if version == "4" {
+            let attempt_id = fields["attempt_id"];
+            let generation = fields["attempt_generation"]
+                .parse::<u64>()
+                .map_err(|_| "publication attempt identity is invalid")?;
+            let brief = fields["brief_revision"]
+                .parse::<u64>()
+                .map_err(|_| "publication brief identity is invalid")?;
+            if TaskId::parse(attempt_id).is_ok() && generation > 0 && brief > 0 {
+                (Some(attempt_id.to_owned()), Some(generation), Some(brief))
+            } else {
+                return Err("publication task identity is invalid".to_owned());
+            }
+        } else {
+            (None, None, None)
+        };
         Ok(Self {
             task,
             worktree,
@@ -419,9 +631,12 @@ impl DeliveryRecord {
             approved_sha,
             base: fields["base"].to_owned(),
             gate_run,
-            approval: fields["approval"].to_owned(),
             title: fields["title"].to_owned(),
             validation,
+            publication,
+            attempt_id,
+            attempt_generation,
+            brief_revision,
         })
     }
 }
@@ -554,15 +769,27 @@ pub fn sanitize_intent(input: &str) -> String {
     )
 }
 
+pub const AGENT_AMBIENCE_MARKERS: &[&str] = &[
+    "MX_TASK_ID",
+    "MX_ATTEMPT_ID",
+    "MX_ATTEMPT_GENERATION",
+    "MX_BRIEF_REVISION",
+    "MX_WORKFLOW_RUN",
+    "MX_WORKFLOW_RUN_ID",
+    "MX_WORKFLOW_HOME",
+    "MX_WORKFLOW_WORKTREE",
+    "CLAUDECODE",
+    "CODEX_THREAD_ID",
+    "PI_CODING_AGENT",
+    "DEEP_REVIEW_GATE",
+    "CURSOR_AGENT",
+    "CURSOR_SESSION_ID",
+];
+
 pub fn agent_ambience() -> bool {
-    [
-        "CLAUDECODE",
-        "CODEX_THREAD_ID",
-        "PI_CODING_AGENT",
-        "DEEP_REVIEW_GATE",
-    ]
-    .iter()
-    .any(|name| std::env::var_os(name).is_some())
+    AGENT_AMBIENCE_MARKERS
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
 }
 
 #[cfg(test)]
@@ -697,7 +924,23 @@ mod tests {
         assert!(DeliveryRecord::parse(&injected, &task, state).is_err());
         let pending =
             String::from_utf8_lossy(bytes).replace("approval=approved", "approval=pending");
-        assert!(DeliveryRecord::parse(pending.as_bytes(), &task, state).is_ok());
+        assert_eq!(
+            DeliveryRecord::parse(pending.as_bytes(), &task, state)
+                .expect("legacy pending remains readable")
+                .publication,
+            PublicationAuthority::LegacyPending
+        );
+
+        let ordinary = b"version=4\ntask=task-a\nworktree=/tmp/wt\nbranch=mx/task-a\ncommit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbase=main\ntitle=Safe title\nvalidation=reported\nsummary=Implemented the change\nchecks=passed: cargo test\nlimitations=none reported\nattempt_id=attempt-a\nattempt_generation=2\nbrief_revision=3\n";
+        let ordinary_record = DeliveryRecord::parse(ordinary, &task, state).expect("ordinary");
+        assert_eq!(ordinary_record.publication, PublicationAuthority::Ordinary);
+        assert_eq!(ordinary_record.attempt_id.as_deref(), Some("attempt-a"));
+        let operation = PublicationOperation::new(&ordinary_record);
+        assert_eq!(
+            PublicationOperation::parse(&operation.render().unwrap(), &ordinary_record).unwrap(),
+            operation
+        );
+        assert!(operation.operation_id.contains("-g2-r3-"));
 
         let waived = b"version=2\ntask=task-a\nworktree=/tmp/wt\nbranch=mx/task-a\napproved_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbase=main\ngate_run=/tmp/state/task-a.gate\napproval=approved\ntitle=Safe title\nvalidation=waived\noverride_request=request-a\n";
         assert!(matches!(
@@ -840,14 +1083,9 @@ mod tests {
         assert!(!output.contains("ghp_"));
         assert!(!output.contains("sk-abcdefgh"));
         assert!(output.contains("keep me"));
-        let expected_ambience = [
-            "CLAUDECODE",
-            "CODEX_THREAD_ID",
-            "PI_CODING_AGENT",
-            "DEEP_REVIEW_GATE",
-        ]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some());
+        let expected_ambience = AGENT_AMBIENCE_MARKERS
+            .iter()
+            .any(|name| std::env::var_os(name).is_some());
         assert_eq!(agent_ambience(), expected_ambience);
     }
 }

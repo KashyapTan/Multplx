@@ -69,7 +69,7 @@ export REAL_GIT_FOR_TEST
 #   $CASE/wt/           - a worktree of the project (the task worktree)
 # Echoes the case dir.
 make_case() {
-  local name=$1 case_dir fakebin
+  local name=$1 publication=${2:-local} case_dir fakebin
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
   mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
@@ -114,8 +114,24 @@ SH
   # Clone as the project; give it a `main` branch and an origin/HEAD.
   git clone -q "$case_dir/origin.git" "$case_dir/project"
   git -C "$case_dir/project" remote set-head origin main 2>/dev/null || true
+  if [ "$publication" = github ]; then
+    git -C "$case_dir/project" remote set-url origin https://github.com/example/repo.git
+    git -C "$case_dir/project" config \
+      "url.$case_dir/origin.git.insteadOf" https://github.com/example/repo.git
+    cat > "$fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -C ] && [ "${3:-}" = remote ] && [ "${4:-}" = get-url ] && [ "${5:-}" = origin ]; then
+  exec "$REAL_GIT_FOR_TEST" -C "$2" config --get remote.origin.url
+fi
+if [ "${1:-}" = remote ] && [ "${2:-}" = get-url ] && [ "${3:-}" = origin ]; then
+  exec "$REAL_GIT_FOR_TEST" config --get remote.origin.url
+fi
+exec "$REAL_GIT_FOR_TEST" "$@"
+SH
+    chmod +x "$fakebin/git"
+  fi
   # Add a worktree on a fresh task branch; that branch is where the actor commits.
-  MX_HOME="$case_dir" "$MX_RUST_BIN" worktree acquire "$case_dir/project" --request task-x1 --task task-x1 --attempt attempt-x1 --base "$(git -C "$case_dir/project" rev-parse HEAD)" > "$case_dir/allocation.json" || return 1
+  PATH="$fakebin:$PATH" MX_HOME="$case_dir" "$MX_RUST_BIN" worktree acquire "$case_dir/project" --request task-x1 --task task-x1 --attempt attempt-x1 --base "$(git -C "$case_dir/project" rev-parse HEAD)" > "$case_dir/allocation.json" || return 1
   ln -s "$(jq -r '.binding.path' "$case_dir/allocation.json")" "$case_dir/wt"
   git -C "$case_dir/wt" checkout -q -b mx/task-x1
 
@@ -127,14 +143,16 @@ SH
 
 # Write a meta file for the task. Args: case_dir mode kind
 write_meta() {
-  local case_dir=$1 mode=$2 kind=$3
+  local case_dir=$1 mode=$2 kind=$3 identity=${4:-canonical}
   mx_write_meta "$case_dir/state/task-x1.meta" \
     "window=mx-task-x1" \
     "worktree=$(cd "$case_dir/wt" && pwd -P)" \
     "project=$(cd "$case_dir/project" && pwd -P)" \
     "kind=$kind" \
     "mode=$mode"
-  mx_fixture_bind_allocation "$case_dir" task-x1 "$case_dir/allocation.json" || fail "canonical allocation fixture"
+  if [ "$identity" = canonical ]; then
+    mx_fixture_bind_allocation "$case_dir" task-x1 "$case_dir/allocation.json" || fail "canonical allocation fixture"
+  fi
 }
 
 # Commit something on the worktree's task branch. Args: case_dir [message]
@@ -191,6 +209,10 @@ case "\${1:-} \${2:-}" in
   "pr list") printf '%s\n' 7 ; exit 0 ;;
   "pr view")
     case " \$* " in
+      *"url,headRefName,baseRefName,state,isCrossRepository,headRefOid"*)
+        printf '{"url":"https://github.com/example/repo/pull/7","headRefName":"mx/task-x1","baseRefName":"main","state":"OPEN","isCrossRepository":false,"headRefOid":"%s"}\n' '$head'
+        exit 0
+        ;;
       *"state,headRefOid"*) printf '%s\t%s\n' 'MERGED' '$head' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
@@ -679,7 +701,7 @@ test_merged_pr_with_later_local_commit_refuses() {
 
 test_pr_check_does_not_refresh_stale_pr_head() {
   local case_dir rc pr_head new_head count
-  case_dir=$(make_case pr-check-stale)
+  case_dir=$(make_case pr-check-stale github)
   write_meta "$case_dir" deep-review delivery
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
@@ -698,7 +720,8 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   MX_HOME="$case_dir" \
   MX_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
+    "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null 2>&1 \
+    && fail "pr-check-stale: canonical registration accepted a moved local HEAD"
 
   count=$(grep -c '^pr_head=' "$case_dir/state/task-x1.meta" || true)
   expect_code 1 "$count" "pr-check-stale: stale rerun should not append a second pr_head"
@@ -712,13 +735,13 @@ test_pr_check_does_not_refresh_stale_pr_head() {
 
   expect_code 1 "$rc" "pr-check-stale: teardown should refuse after a later local commit"
   grep -q REFUSED "$case_dir/stderr" || fail "pr-check-stale: no REFUSED line in stderr"
-  pass "mx-pr-check does not refresh PR head after HEAD moves"
+  pass "mx-pr-check refuses stale canonical registration after HEAD moves"
 }
 
 test_pr_check_records_remote_head_when_local_lags() {
   local case_dir local_head pr_head
   case_dir=$(make_case pr-check-local-lags)
-  write_meta "$case_dir" deep-review delivery
+  write_meta "$case_dir" deep-review delivery legacy
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   pr_head=$(commit_tree_from_wt_head "$case_dir" "$local_head" "deep-review follow-up")

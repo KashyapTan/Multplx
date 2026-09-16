@@ -12,7 +12,7 @@ The dependency-ordered implementation plans are in [plans/lean_redesign](plans/l
 
 This is a planned product redesign, not a behavior-preserving language port.
 These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
-Phases 01-05 are implemented and verified; [Phase 05 evidence](plans/lean_redesign/phase05-implementation.md) records scoped coordination checks and live-test limits.
+Phases 01-06 are implemented and verified; [Phase 06 evidence](plans/lean_redesign/phase06-implementation.md) records ordinary publication, human-merge backstops, repository checks and live-test limits.
 Later phases and release activation remain planned.
 The original source baseline was commit `6360b040460a08c2d5b8bcfcbc5e64e6e024ab53`, inspected on 2026-09-11.
 This revision incorporates the user's 2026-09-14 notes and architecture review at commit `c09ede3d015799739354ff00e5b0e5e84845737e`.

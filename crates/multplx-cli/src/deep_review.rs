@@ -7,8 +7,8 @@ use std::process::Command;
 
 use multplx_core::filesystem::atomic_replace;
 use multplx_domain::review_delivery::{
-    DeliveryRecord, Finding, OperationalTaskId, finding_valid, head_valid, publish_private,
-    read_private, ref_valid, sanitize_intent, title_valid,
+    DeliveryRecord, Finding, OperationalTaskId, PublicationAuthority, finding_valid, head_valid,
+    publish_private, read_private, ref_valid, sanitize_intent, title_valid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -697,7 +697,7 @@ fn archive_passed_revision(context: &Context, record: &RunRecord) -> Result<(), 
             if receipt.approved_sha == record.approved_head {
                 if receipt.worktree != context.repo
                     || receipt.branch != context.branch
-                    || receipt.approval != "approved"
+                    || receipt.publication == PublicationAuthority::LegacyPending
                 {
                     return Err("prior delivery receipt binding changed".to_owned());
                 }
@@ -871,7 +871,7 @@ fn execute(context: &Context) -> Result<i32, String> {
                     None,
                 )?;
                 println!(
-                    "deep-review: passed at {}; delivery approval is pending",
+                    "deep-review: passed at {}; run mx-deliver.sh prepare explicitly to publish this revision",
                     head(context)?
                 );
                 return Ok(0);

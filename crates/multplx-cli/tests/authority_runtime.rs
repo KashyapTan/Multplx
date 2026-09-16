@@ -41,7 +41,13 @@ fn native_registry_and_digest_match_the_closed_contract() {
     ]));
     assert!(registry.status.success());
     let rows: serde_json::Value = serde_json::from_slice(&registry.stdout).expect("registry JSON");
-    assert_eq!(rows.as_array().expect("array").len(), 20);
+    assert_eq!(rows.as_array().expect("array").len(), 19);
+    assert!(
+        rows.as_array()
+            .expect("array")
+            .iter()
+            .all(|row| row["boundary_id"] != "delivery.merge-red")
+    );
     assert!(rows.as_array().expect("array").iter().any(|row| {
         row["boundary_id"] == "integrity.validation-state" && row["class"] == "integrity"
     }));
@@ -57,6 +63,91 @@ fn native_registry_and_digest_match_the_closed_contract() {
         String::from_utf8_lossy(&digest.stdout).trim(),
         maintainer_override::sha256_text("literal text")
     );
+}
+
+#[test]
+fn exact_command_overrides_cannot_mint_remote_merge_authority() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repository = temp.path().join("repo");
+    fs::create_dir(&repository).expect("repo");
+    assert!(
+        Command::new("git")
+            .arg("-C")
+            .arg(&repository)
+            .args(["init", "-q", "-b", "main"])
+            .status()
+            .expect("git init")
+            .success()
+    );
+    fs::write(repository.join("README.md"), "fixture\n").expect("fixture");
+    assert!(
+        Command::new("git")
+            .arg("-C")
+            .arg(&repository)
+            .args(["add", "README.md"])
+            .status()
+            .expect("git add")
+            .success()
+    );
+    assert!(
+        Command::new("git")
+            .arg("-C")
+            .arg(&repository)
+            .args([
+                "-c",
+                "user.name=Multplx Tests",
+                "-c",
+                "user.email=tests@example.invalid",
+                "commit",
+                "-qm",
+                "fixture",
+            ])
+            .status()
+            .expect("git commit")
+            .success()
+    );
+
+    let direct = run(mx().args([
+        "authority",
+        "mx-override-run.sh",
+        "--print-bindings",
+        "--boundary",
+        "project.direct-write",
+        "--task",
+        "task-1",
+        "--project",
+        "repo",
+        "--target",
+        repository.to_str().expect("path"),
+        "--",
+        "git",
+        "push",
+        "origin",
+        "HEAD:main",
+    ]));
+    assert_eq!(direct.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&direct.stderr).contains("cannot grant PR merge authority"));
+
+    let elevated = run(mx().args([
+        "authority",
+        "mx-override-run.sh",
+        "--print-bindings",
+        "--boundary",
+        "security.one-action-elevation",
+        "--task",
+        "task-1",
+        "--project",
+        "repo",
+        "--target",
+        "elevated-action",
+        "--",
+        "gh",
+        "pr",
+        "merge",
+        "7",
+    ]));
+    assert_eq!(elevated.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&elevated.stderr).contains("cannot grant PR merge authority"));
 }
 
 #[test]

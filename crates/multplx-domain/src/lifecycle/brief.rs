@@ -199,7 +199,7 @@ fn delivery(
     let destination = if selected_mode == DeliveryMode::LocalOnly {
         "The destination is **local-only**: deliver the scoped local branch and evidence without a remote push or PR."
     } else {
-        "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope."
+        "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope. Use `bin/mx-deliver.sh --help`, then `prepare` the exact commit with its checks and limitations; publication uses your ordinary Git and forge authentication."
     };
     format!(
         "You are {article} {role} sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
@@ -561,6 +561,7 @@ mod tests {
         assert!(direct.contains("mode=direct-PR"));
         let direct_body = fs::read_to_string(data.join("deliver/brief.md")).expect("brief");
         assert!(direct_body.contains("You may commit, push your task branch"));
+        assert!(direct_body.contains("bin/mx-deliver.sh --help"));
         assert!(direct_body.contains("Herdr lifecycle declaration - NOT ENABLED"));
 
         run(

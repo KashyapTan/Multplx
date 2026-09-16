@@ -55,7 +55,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `mx-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `mx-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
-| `mx-subagent-pretool-check.sh` | Allowing compatibility entry for retired delegation hooks (docs/subagent-guard.md) |
+| `mx-subagent-pretool-check.sh` | Allow native delegation and check supported remote merge commands (docs/subagent-guard.md) |
 | `mx-native-observe.sh` | Record attempt-bound provider child lifecycle evidence or an honest session-bound fallback |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `mx-home-seed.sh`        | Transactionally provision a daemon home and maintain `data/daemons.md`       |
@@ -67,12 +67,12 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `backends/herdr.sh`      | Experimental herdr session-provider adapter                                          |
 | `backends/cmux.sh`       | Experimental cmux session-provider adapter                                           |
 | `mx-config-push.sh`      | Push declared inherited local material to live daemons mid-session and send a pointer to the literal-content config reread when config changed |
-| `mx-deliver.sh`          | Enter the Rust review-delivery boundary to push one exact approved SHA and open its PR from a credentialed non-agent context |
+| `mx-deliver.sh`          | Publish a task branch and reconcile its canonical PR with ordinary authentication and durable receipts |
 | `mx-deliver-lib.sh`      | Preserve the sourced-function delivery-record and eligibility ABI for remaining callers |
 | `mx-deep-review.sh`      | Enter the Rust review-delivery boundary to run, resume, or answer the actor-owned validation gate |
 | `crates/multplx-cli/src/deep_review.rs` | Own schemas, trusted config parsing, prompt assembly, and harness adapters |
 | `mx-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`           |
-| `mx-merge-local.sh`      | Enter the Rust review-delivery boundary for an approved local-only fast-forward merge |
+| `mx-merge-local.sh`      | Integrate explicitly requested local-only work with clean fast-forward and checkout-ownership checks |
 | `mx-review-diff.sh`      | Enter the Rust review-delivery boundary for a bounded authoritative-base diff review |
 | `mx-marker-lib.sh`       | Compatibility entry point for the from-broker carrier owned by `mx-operational-input.sh` |
 | `mx-pending-reply-lib.sh` | Parent-owned daemon pending-reply expectations, recovery, and one-shot escalation |
@@ -106,7 +106,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-pr-poll.sh`          | Execute the byte-static validated GitHub merge poll through Rust                    |
 | `mx-pr-check-migrate.sh` | Enter the Rust review-delivery boundary for non-executing quarantine and canonical rebuild |
 | `mx-pr-check.sh`         | Enter the Rust boundary to record canonical PR metadata and arm a static merge poll |
-| `mx-pr-merge.sh`         | Enter the non-agent Rust boundary to record PR metadata and merge a canonical GitHub URL |
+| `mx-pr-merge.sh`         | Human-shell helper to record PR metadata and merge a canonical GitHub URL; refuses agent sessions |
 | `mx-promote.sh`          | Atomically promote a scout task in place to a protected delivery task through Rust  |
 | `mx-teardown.sh`         | Guarded teardown: release proven landed allocations, require completed scout deliverables, preserve retired home material |
 | `mx-harness.sh`          | Detect the running harness and resolve the actor or daemon harness, model, and effort |

@@ -75,8 +75,11 @@ SH
   cp "$fixture/bin/mx-arm-pretool-check.sh" "$fixture/bin/mx-cd-pretool-check.sh"
   cat >"$fixture/bin/mx-subagent-pretool-check.sh" <<'SH'
 #!/usr/bin/env bash
-printf 'retired delegation guard was invoked\n' >&2
-exit 9
+payload=$(cat)
+case "$payload" in
+  *'gh pr merge'*) printf 'remote PR merges are human-only\n' >&2; exit 2 ;;
+esac
+exit 0
 SH
   cat >"$fixture/bin/mx-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
@@ -97,6 +100,8 @@ test_cursor_hook_translation_and_bounds() {
   [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor preToolUse allow translation failed"
   output=$(printf '{"tool_name":"Task","tool_input":{}}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool)
   [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor native delegation tool was denied"
+  output=$(printf '{"tool_name":"Shell","tool_input":{"command":"gh pr merge 7"}}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool)
+  [ "$(printf '%s' "$output" | jq -r '.permission')" = deny ] || fail "Cursor remote merge guard denial was not translated"
   output=$(MX_STATE_OVERRIDE="$fixture/state" printf '{"agent_type":"generalPurpose","session_id":"parent-s"}' | "$fixture/bin/mx-cursor-hook.sh" subagent-start)
   [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor subagentStart was denied"
   output=$(printf '{"session_id":"s","loop_count":0}' | "$fixture/bin/mx-cursor-hook.sh" stop)

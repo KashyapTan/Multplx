@@ -4290,6 +4290,8 @@ fn run_spawn(args: &[OsString]) -> i32 {
         let report_server = source_root.join("bin/mx-report-mcp");
         let native_observer = source_root.join("bin/mx-native-observe.sh");
         let native_observer_word = launch_path_word(&native_observer)?;
+        let merge_guard = source_root.join("bin/mx-subagent-pretool-check.sh");
+        let merge_guard_word = launch_path_word(&merge_guard)?;
         let attempt = request
             .binding
             .as_ref()
@@ -4318,7 +4320,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error_value| error_value.to_string())?;
             multplx_core::filesystem::atomic_replace(
                 cursor_plugin.join("hooks/hooks.json"),
-                br#"{"version":1,"hooks":{"sessionStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh reconcile","failClosed":false}],"subagentStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh start","failClosed":false}],"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
+                br#"{"version":1,"hooks":{"sessionStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh reconcile","failClosed":false}],"preToolUse":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/merge-guard.sh","failClosed":true}],"subagentStart":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/observe.sh start","failClosed":false}],"stop":[{"command":"${CURSOR_PLUGIN_ROOT}/hooks/stop.sh","loop_limit":1}]}}"#,
                 0o600,
             )
             .map_err(|error_value| error_value.to_string())?;
@@ -4339,6 +4341,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 0o700,
             )
             .map_err(|error_value| error_value.to_string())?;
+            let guard = "#!/usr/bin/env bash\nset -eu\nexec \"$MX_RUST_SOURCE_ROOT/bin/mx-subagent-pretool-check.sh\"\n";
+            multplx_core::filesystem::atomic_replace(
+                cursor_plugin.join("hooks/merge-guard.sh"),
+                guard.as_bytes(),
+                0o700,
+            )
+            .map_err(|error_value| error_value.to_string())?;
         }
         let claude_observer_settings = task_tmp.join("native-observer-claude.json");
         if request.harness == "claude" {
@@ -4350,6 +4359,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             };
             let settings = serde_json::json!({"hooks":{
                 "SessionStart":[{"matcher":"startup|resume|clear","hooks":[{"type":"command","command":command("reconcile"),"timeout":5}]}],
+                "PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":format!("{merge_guard_word} --claude"),"timeout":10}]}],
                 "SubagentStart":[{"matcher":".*","hooks":[{"type":"command","command":command("start"),"async":true,"timeout":5}]}],
                 "SubagentStop":[{"matcher":".*","hooks":[{"type":"command","command":command("result"),"async":true,"timeout":5}]}]
             }});
@@ -4449,8 +4459,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
             );
             Ok(format!("-c {} ", launch_shell_word(&value)))
         };
+        let codex_merge_guard = format!(
+            "-c {} ",
+            launch_shell_word(&format!(
+                "hooks.PreToolUse=[{{matcher=\"Bash\",hooks=[{{type=\"command\",command={},timeout=10}}]}}]",
+                serde_json::to_string(&merge_guard_word).map_err(|error| error.to_string())?
+            ))
+        );
         let codex_native_hooks = format!(
-            "{}{}{}",
+            "{}{}{}{codex_merge_guard}",
             codex_observer("SessionStart", "reconcile")?,
             codex_observer("SubagentStart", "start")?,
             codex_observer("SubagentStop", "result")?
@@ -4465,7 +4482,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 launch_path_word(&claude_observer_settings)?
             ),
             "pi" => format!(
-                "{common_environment} pi {model}{}{}-e {} {brief_command}",
+                "{common_environment} pi {model}{}{}-e {} -e {} {brief_command}",
                 if request.effort != "default" {
                     format!("--thinking {} ", launch_shell_word(&request.effort))
                 } else {
@@ -4489,7 +4506,8 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 },
                 launch_path_word(
                     &source_root.join(".pi/extensions/mx-native-delegation-observe.ts")
-                )?
+                )?,
+                launch_path_word(&source_root.join(".pi/extensions/mx-remote-merge-guard.ts"))?
             ),
             "cursor" => {
                 let cursor_model = if request.model == "default" {
@@ -4516,12 +4534,6 @@ fn run_spawn(args: &[OsString]) -> i32 {
         } else {
             launch
         };
-        let launch = format!(
-            "env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN -u GH_CONFIG_DIR -u SSH_AUTH_SOCK -u MX_DELIVERY_GH_TOKEN -u MX_DELIVERY_GH_CONFIG_DIR GH_PROMPT_DISABLED=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0='' GIT_CONFIG_KEY_1=remote.origin.pushurl GIT_CONFIG_VALUE_1=/dev/null/multplx-agent-no-push GIT_SSH_COMMAND={} {launch}",
-            launch_shell_word(
-                "ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o IdentityFile=/dev/null"
-            )
-        );
         let tmux_launch = if target.backend() == BackendName::Tmux {
             write_tmux_launch_script(&task_tmp, &launch)?
         } else {
