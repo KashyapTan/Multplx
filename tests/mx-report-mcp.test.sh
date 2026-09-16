@@ -38,7 +38,8 @@ test_schema_matches_wrapper() {
         properties:{
           state:{type:"string",enum:["working","paused","blocked","needs-decision","done","failed","resolved"]},
           message:{type:"string",maxLength:300},
-          key:{type:"string",pattern:"^[A-Za-z0-9._-]+$"}
+          key:{type:"string",pattern:"^[A-Za-z0-9._-]+$",description:(.result.tools[0].inputSchema.properties.key.description)},
+          workflow_revision:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.workflow_revision.description)}
         },
         required:["state","message"],
         additionalProperties:false
@@ -58,7 +59,7 @@ test_valid_call_appends_and_stays_bound() {
   id=mcp-call-b2
   mkdir -p "$home/state"
   output=$(run_rpc "$home" "$id" \
-    '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"needs-decision","message":"choose API","key":"api-shape"}}}') \
+    '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"needs-decision","message":"choose API","key":"api-shape","workflow_revision":"flow-7"}}}') \
     || fail "valid tools/call exchange failed"
   printf '%s\n' "$output" | jq -e \
     'select(.id == 1) | (.result.isError // false) == false' >/dev/null \
@@ -77,10 +78,12 @@ test_schema_rejections_write_nothing() {
   mkdir -p "$home/state"
   output=$(run_rpc "$home" "$id" \
     '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"blocekd","message":"typo"}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"done","message":"extra","task_id":"another"}}}') \
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"done","message":"extra","task_id":"another"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"needs-decision","message":"missing key"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"report_status","arguments":{"state":"done","message":"wrong workflow","workflow_revision":"flow-7"}}}') \
     || fail "invalid tools/call exchange crashed the MCP server"
-  [ "$(printf '%s\n' "$output" | jq -s '[.[] | select(.error.code == -32602)] | length')" = 2 ] \
-    || fail "invalid state and extra property were not schema errors"
+  [ "$(printf '%s\n' "$output" | jq -s '[.[] | select(.error.code == -32602)] | length')" = 4 ] \
+    || fail "invalid state, extra property, missing decision key or misplaced workflow revision were not schema errors"
   assert_absent "$home/state/$id.status" \
     "schema-invalid calls created the bound status file"
   assert_absent "$home/state/another.status" \

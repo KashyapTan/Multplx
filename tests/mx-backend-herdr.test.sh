@@ -3054,12 +3054,17 @@ test_native_herdr_allocation_failure_and_recovery() (
   cp "$home/state/.spawn-retained.intent" "$dir/intent.saved"
   cp "$allocation" "$dir/allocation.saved"
   : > "$log"
-  if "$ROOT/bin/mx-spawn.sh" retained "$project" codex --backend herdr > "$dir/retry.out" 2>&1; then fail 'uncertain retry duplicated launch'; fi
-  grep -q 'interrupted launch intent' "$dir/retry.out" || fail 'retry did not fence uncertain launch'
-  cmp "$home/state/.spawn-retained.intent" "$dir/intent.saved" || fail 'retry rewrote intent'
-  cmp "$allocation" "$dir/allocation.saved" || fail 'retry advanced allocation'
-  if grep -q $'\x1fcreate' "$log"; then fail 'retry created a duplicate endpoint'; fi
-  pass 'mock Herdr launch: endpoint fault retains exact allocation and intent; duplicate retry is fenced'
+  "$ROOT/bin/mx-spawn.sh" retained "$project" codex --backend herdr > "$dir/retry.out" 2>&1 \
+    || fail "proven-absent exact retry did not recover: $(cat "$dir/retry.out")"
+  [ ! -e "$home/state/.spawn-retained.intent" ] || fail 'successful exact retry retained launch intent'
+  cmp "$allocation" "$dir/allocation.saved" || fail 'exact retry advanced the retained allocation'
+  [ "$(grep -c $'\x1fcreate' "$log")" -eq 1 ] || fail 'exact retry did not create exactly one replacement endpoint'
+  jq -e '.tabs|length == 1' "$state" >/dev/null || fail 'exact retry left duplicate Herdr endpoints'
+  jq -e --slurpfile frozen "$dir/intent.saved" '
+    .attempt == $frozen[0].attempt and .allocation == $frozen[0].allocation and .runtime.endpoint != null
+  ' < <(sed -n 's/^canonical_model=//p' "$home/state/retained.meta") >/dev/null \
+    || fail 'exact retry did not preserve its frozen attempt and allocation identity'
+  pass 'mock Herdr launch: endpoint fault retains exact allocation; proven-absent exact retry recovers once'
 
   # No parent workspace is visible, so the supported presentation opt-in must
   # fall back to one ordinary endpoint without changing the allocated cwd.

@@ -483,18 +483,20 @@ mod tests {
         let home = TempHome::new().expect("home");
         let ready = home.join("state/ready");
         let child_pid_path = home.join("state/child-pid");
+        let child_ready = home.join("state/child-ready");
         let mut command = Command::new("/bin/sh");
         command
             .args([
                 "-c",
-                // Publish readiness only after the group child exists. A
-                // builtin wait lets TERM interrupt immediately, and the trap
-                // reaps the child before reporting successful cleanup.
-                "trap 'wait \"$child\" 2>/dev/null; exit 0' TERM; sleep 60 & child=$!; printf '%s\\n' \"$child\" > \"$2\"; : > \"$1\"; wait \"$child\"",
+                // The child publishes readiness only after installing its own
+                // TERM handler, so group TERM cannot race its pre-exec
+                // inherited signal disposition. The parent then reaps it.
+                "trap 'wait \"$child\" 2>/dev/null; exit 0' TERM; /bin/sh -c 'trap \"exit 0\" TERM; : > \"$1\"; while :; do :; done' sh \"$3\" & child=$!; while [ ! -f \"$3\" ]; do :; done; printf '%s\\n' \"$child\" > \"$2\"; : > \"$1\"; wait \"$child\"",
                 "sh",
             ])
             .arg(&ready)
-            .arg(&child_pid_path);
+            .arg(&child_pid_path)
+            .arg(&child_ready);
         let mut fixture =
             ProcessFixture::spawn(&mut command, Duration::from_secs(5)).expect("spawn fixture");
         let deadline = std::time::Instant::now() + Duration::from_secs(5);

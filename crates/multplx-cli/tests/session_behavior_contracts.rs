@@ -31,6 +31,7 @@ fn native_session_behavior_contracts_run_through_the_instrumented_binary() {
         "tests/mx-workflow-lib.test.sh",
         "tests/mx-daemon.test.sh",
         "tests/mx-daemon-lifecycle-e2e.test.sh",
+        "tests/mx-coordinator-spawn.test.sh",
         "tests/mx-daemon-safety.test.sh",
         "tests/mx-report.test.sh",
         "tests/mx-actor-state.test.sh",

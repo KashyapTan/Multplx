@@ -16,7 +16,9 @@ The transferred contracts correspond to `mx-backend-hometag-lib.sh`, `mx-check-l
 The Rust modules use typed identifiers and records, bounded no-follow reads, durable same-directory replacement, single-write append, owner-directory locks, PID identity, injected clocks and process probes, and typed command transports.
 The Portion 10 `multplx-domain` authority layer owns typed decision identities, the closed maintainer-override registry and record transitions, constrained workflow parsing, immutable snapshots, and stage-order validation.
 The exact maintainer-override state machine plugs into the session-lock primitive through its existing authority trait.
-`multplx-domain` owns typed durable records and the task/daemon lifecycle state machines.
+`multplx-domain` owns typed durable records and the common task and private-home lifecycle.
+The [scoped coordinator reference](scoped-coordinators.md) describes domain assignments, canonical parent routes and mechanical outcome relay.
+Coordinator summaries supplement original task facts; each home retains its own inbox consumption boundary.
 Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
 Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue.

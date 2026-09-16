@@ -53,7 +53,9 @@ fn native_teardown_reports_owned_and_manual_backlog_follow_up() {
             "window=missing\nkind=delivery\nmode=deep-review\npr=https://example.invalid/pull/7\n",
         )
         .expect("meta");
-        let output = run(command(&home, &root, &fake).args(["teardown", "task"]));
+        let output = run(command(&home, &root, &fake)
+            .env("MX_TMUX_DEAD", "1")
+            .args(["teardown", "task"]));
         assert_success(&output);
         let text = String::from_utf8(output.stdout).expect("UTF-8");
         assert!(text.starts_with("teardown task complete"));

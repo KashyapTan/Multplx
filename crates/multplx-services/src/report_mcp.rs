@@ -23,7 +23,8 @@ fn tool_schema() -> Value {
             "properties":{
                 "state":{"type":"string","enum":REPORT_STATES},
                 "message":{"type":"string","maxLength":300},
-                "key":{"type":"string","pattern":"^[A-Za-z0-9._-]+$"}
+                "key":{"type":"string","pattern":"^[A-Za-z0-9._-]+$","description":"Required for needs-decision; becomes the stable human question id."},
+                "workflow_revision":{"type":"string","minLength":1,"maxLength":256,"description":"Optional workflow revision for a needs-decision question."}
             },
             "required":["state","message"],
             "additionalProperties":false
@@ -31,12 +32,21 @@ fn tool_schema() -> Value {
     })
 }
 
-fn validate(arguments: &Value) -> Result<(&str, &str, Option<&str>), &'static str> {
+struct ReportArguments<'a> {
+    state: &'a str,
+    message: &'a str,
+    key: Option<&'a str>,
+    workflow_revision: Option<&'a str>,
+}
+
+fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
     let object = arguments.as_object().ok_or("arguments must be an object")?;
-    if object
-        .keys()
-        .any(|key| !matches!(key.as_str(), "state" | "message" | "key"))
-    {
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "state" | "message" | "key" | "workflow_revision"
+        )
+    }) {
         return Err("arguments contain an unsupported property");
     }
     let state = object
@@ -69,7 +79,28 @@ fn validate(arguments: &Value) -> Result<(&str, &str, Option<&str>), &'static st
             })
             .ok_or("key may contain only A-Z, a-z, 0-9, dot, underscore, and dash")
     });
-    Ok((state, message, key.transpose()?))
+    let key = key.transpose()?;
+    if state == "needs-decision" && key.is_none() {
+        return Err("needs-decision requires a stable key");
+    }
+    let workflow_revision = object.get("workflow_revision").map(|value| {
+        value
+            .as_str()
+            .filter(|revision| {
+                !revision.is_empty() && revision.len() <= 256 && !revision.contains(['\r', '\n'])
+            })
+            .ok_or("workflow_revision must be a non-empty string of at most 256 bytes")
+    });
+    let workflow_revision = workflow_revision.transpose()?;
+    if state != "needs-decision" && workflow_revision.is_some() {
+        return Err("workflow_revision is valid only for needs-decision");
+    }
+    Ok(ReportArguments {
+        state,
+        message,
+        key,
+        workflow_revision,
+    })
 }
 
 fn handle(message: &Value, root: &Path) -> Option<Value> {
@@ -96,10 +127,16 @@ fn handle(message: &Value, root: &Path) -> Option<Value> {
                 return Some(error(id, -32602, "unknown tool"));
             }
             let arguments = message.pointer("/params/arguments").unwrap_or(&Value::Null);
-            let (state, text, key) = match validate(arguments) {
+            let arguments = match validate(arguments) {
                 Ok(values) => values,
                 Err(reason) => return Some(error(id, -32602, reason)),
             };
+            let ReportArguments {
+                state,
+                message: text,
+                key,
+                workflow_revision,
+            } = arguments;
             let task = match std::env::var("MX_TASK_ID") {
                 Ok(task) if !task.is_empty() => task,
                 _ => {
@@ -119,6 +156,9 @@ fn handle(message: &Value, root: &Path) -> Option<Value> {
             ];
             if let Some(key) = key {
                 args.extend(["--key".to_owned(), key.to_owned()]);
+            }
+            if let Some(revision) = workflow_revision {
+                args.extend(["--workflow-revision".to_owned(), revision.to_owned()]);
             }
             let result = report(&args, root);
             if result.status == 0 {
@@ -192,6 +232,11 @@ mod tests {
         assert!(validate(&json!({"state":"bogus","message":"ok"})).is_err());
         assert!(validate(&json!({"state":"done","message":"ok","extra":1})).is_err());
         assert!(validate(&json!({"state":"done","message":"x".repeat(301)})).is_err());
+        assert!(validate(&json!({"state":"needs-decision","message":"choose"})).is_err());
+        assert!(validate(&json!({"state":"needs-decision","message":"choose","key":"api","workflow_revision":"flow-2"})).is_ok());
+        assert!(
+            validate(&json!({"state":"done","message":"ok","workflow_revision":"flow-2"})).is_err()
+        );
     }
 
     #[test]

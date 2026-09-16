@@ -26,11 +26,42 @@ pub struct SystemSnapshot {
     pub headroom: Option<serde_json::Value>,
     #[serde(default)]
     pub headroom_reason: Option<String>,
+    #[serde(default)]
+    pub domains: DomainProjection,
     pub vplan_reviews: ArtifactFeed,
     pub later_feeds: LaterFeeds,
     pub daemon_current: DaemonCurrent,
     pub daemon_landed: DaemonLanded,
     pub daemon_guidance: DaemonGuidance,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct DomainProjection {
+    pub records: Vec<DomainRecord>,
+    pub total: u64,
+    pub shown: u64,
+    pub truncated: u64,
+    pub complete: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct DomainRecord {
+    #[serde(default)]
+    pub domain_id: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    pub projects: Vec<String>,
+    #[serde(default)]
+    pub idea_id: Option<String>,
+    #[serde(default)]
+    pub scope_revision: Option<u64>,
+    #[serde(default)]
+    pub assignment_generation: Option<u64>,
+    pub coordinator: serde_json::Value,
+    pub channel: serde_json::Value,
+    pub observation: serde_json::Value,
+    pub counts: serde_json::Value,
+    pub children: Vec<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -416,6 +447,45 @@ pub fn render_system_view(snapshot: &SystemSnapshot) -> String {
                 artifact(task),
                 task_path(task),
                 action(task)
+            ));
+        }
+    }
+    output.push_str("\n## Domains\n");
+    if snapshot.domains.records.is_empty() {
+        output.push_str("No scoped coordinator domains found.\n");
+    } else {
+        output.push_str("| Domain | Coordinator | Scope revision | Useful tasks | Coordinator sessions | Undelivered | Health |\n");
+        output.push_str("| --- | --- | --- | --- | --- | --- | --- |\n");
+        for domain in &snapshot.domains.records {
+            let count = |key: &str| domain.counts.get(key).and_then(serde_json::Value::as_u64);
+            output.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} |\n",
+                dash(domain.domain_id.as_deref()),
+                dash(
+                    domain
+                        .coordinator
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                ),
+                domain
+                    .scope_revision
+                    .map_or_else(|| "-".into(), |value| value.to_string()),
+                count("useful_tasks").map_or_else(|| "unknown".into(), |value| value.to_string()),
+                count("coordinator_sessions")
+                    .map_or_else(|| "unknown".into(), |value| value.to_string()),
+                count("undelivered_outcomes")
+                    .map_or_else(|| "unknown".into(), |value| value.to_string()),
+                if domain.observation.get("partial") == Some(&serde_json::Value::Bool(false)) {
+                    "current"
+                } else {
+                    "partial"
+                }
+            ));
+        }
+        if snapshot.domains.truncated > 0 {
+            output.push_str(&format!(
+                "\n{} additional domain(s) omitted by the snapshot bound.\n",
+                snapshot.domains.truncated
             ));
         }
     }

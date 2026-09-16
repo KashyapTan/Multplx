@@ -87,7 +87,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -95,6 +95,7 @@ struct ReportOptions {
     state: Option<String>,
     message: Option<String>,
     key: Option<String>,
+    workflow_revision: Option<String>,
     attempt_id: Option<String>,
     generation: Option<String>,
     brief_revision: Option<String>,
@@ -139,6 +140,9 @@ fn parse_report(args: &[String]) -> Result<ReportOptions, CommandResult> {
             "--message-id" => parsed.message_id = Some(value("--message-id", &mut index)?),
             "--artifact" => parsed.artifact = Some(value("--artifact", &mut index)?),
             "--key" => parsed.key = Some(value("--key", &mut index)?),
+            "--workflow-revision" => {
+                parsed.workflow_revision = Some(value("--workflow-revision", &mut index)?)
+            }
             "--list-states" => {
                 parsed.list = true;
                 index += 1;
@@ -323,6 +327,8 @@ pub fn reconcile_report_wakes(state: &Path) -> Result<usize, String> {
         .collect::<Vec<_>>();
     paths.sort();
     let mut reconciled = 0;
+    let mut failures = 0usize;
+    let mut first_error = None;
     for path in paths {
         let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024) else {
             continue;
@@ -334,9 +340,65 @@ pub fn reconcile_report_wakes(state: &Path) -> Result<usize, String> {
             continue;
         }
         let envelope: crate::lifecycle::subagent_model::MessageEnvelope =
-            serde_json::from_value(value["envelope"].clone()).map_err(|error| error.to_string())?;
-        publish_report_wake(state, &envelope)?;
-        reconciled += 1;
+            match serde_json::from_value(value["envelope"].clone()) {
+                Ok(envelope) => envelope,
+                Err(error) => {
+                    failures += 1;
+                    first_error.get_or_insert_with(|| {
+                        format!("{}: malformed retained envelope: {error}", path.display())
+                    });
+                    continue;
+                }
+            };
+        let mut repaired = true;
+        if let Some(frozen) = value.get("parent_outcome") {
+            match serde_json::from_value::<crate::lifecycle::parent_channel::ParentOutcome>(
+                frozen.clone(),
+            ) {
+                Ok(frozen) => {
+                    if let Err(error) =
+                        crate::lifecycle::parent_channel::persist_prepared(state, &frozen)
+                    {
+                        repaired = false;
+                        failures += 1;
+                        first_error.get_or_insert_with(|| {
+                            format!("{}: cannot repair parent outcome: {error}", path.display())
+                        });
+                    }
+                }
+                Err(error) => {
+                    repaired = false;
+                    failures += 1;
+                    first_error.get_or_insert_with(|| {
+                        format!(
+                            "{}: malformed retained parent outcome: {error}",
+                            path.display()
+                        )
+                    });
+                }
+            }
+        } else {
+            // Pre-Phase-05 accepted evidence has no frozen route.  Repair it
+            // when it is still current, but never reinterpret a historical
+            // event using a replacement generation.
+            let _ = crate::lifecycle::parent_channel::record_report(state, &envelope);
+        }
+        if let Err(error) = publish_report_wake(state, &envelope) {
+            repaired = false;
+            failures += 1;
+            first_error.get_or_insert_with(|| {
+                format!("{}: cannot repair report wake: {error}", path.display())
+            });
+        }
+        if repaired {
+            reconciled += 1;
+        }
+    }
+    if failures > 0 {
+        return Err(format!(
+            "{failures} accepted report repair operation(s) remain pending; first: {}",
+            first_error.unwrap_or_else(|| "unknown repair failure".to_owned())
+        ));
     }
     Ok(reconciled)
 }
@@ -353,6 +415,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             || parsed.state.is_some()
             || parsed.message.is_some()
             || parsed.key.is_some()
+            || parsed.workflow_revision.is_some()
             || parsed.attempt_id.is_some()
             || parsed.generation.is_some()
             || parsed.brief_revision.is_some()
@@ -402,6 +465,14 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 parsed.key.as_deref().unwrap_or_default()
             ),
         );
+    }
+    if parsed.workflow_revision.as_deref().is_some_and(|revision| {
+        revision.is_empty() || revision.len() > 256 || revision.contains(['\n', '\r'])
+    }) {
+        return usage_error("invalid --workflow-revision");
+    }
+    if state_name != "needs-decision" && parsed.workflow_revision.is_some() {
+        return usage_error("--workflow-revision is valid only for needs-decision");
     }
     let state = state_directory(root);
     let bound = match bound_task(&state) {
@@ -455,7 +526,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             Err(error) => return binding_error(&error),
         }
     };
-    if let Some(record) = canonical.filter(|record| !record.legacy_unknown) {
+    if let Some(mut record) = canonical.filter(|record| !record.legacy_unknown) {
         use crate::lifecycle::subagent_model::{
             Acknowledgement, Attempt, MessageEnvelope, SCHEMA_VERSION, new_identity,
         };
@@ -500,7 +571,36 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         };
         let validation = validate_report_home(&record, &state)
             .and_then(|()| envelope.validate_current(&record, bound.as_str(), &recipient));
-        let evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err()});
+        let mut prepared_outcome = if validation.is_ok() {
+            match crate::lifecycle::parent_channel::prepare_report(&state, &envelope) {
+                Ok(outcome) => outcome,
+                Err(error) => return binding_error(&error),
+            }
+        } else {
+            None
+        };
+        let decision = if validation.is_ok() && state_name == "needs-decision" {
+            let Some(question_id) = parsed.key.as_deref() else {
+                return usage_error("canonical needs-decision reports require --key");
+            };
+            match crate::lifecycle::parent_channel::bind_human_question(
+                &mut record,
+                question_id,
+                brief_revision.expect("validated canonical report has brief revision"),
+                parsed.workflow_revision.as_deref(),
+                &message,
+            ) {
+                Ok(decision) => Some(decision),
+                Err(error) => return binding_error(&error),
+            }
+        } else {
+            None
+        };
+        let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision});
+        if let Some(outcome) = &prepared_outcome {
+            evidence["parent_outcome"] =
+                serde_json::to_value(outcome).expect("parent outcome JSON");
+        }
         let evidence_dir = state.join("evidence");
         if let Err(error) = fs::create_dir_all(&evidence_dir) {
             return binding_error(&error.to_string());
@@ -519,12 +619,27 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             };
             let mut comparable = evidence.clone();
             comparable["envelope"]["created_at"] = old["envelope"]["created_at"].clone();
-            if comparable["envelope"] != old["envelope"] {
+            if old.get("parent_outcome").is_none() {
+                comparable
+                    .as_object_mut()
+                    .expect("evidence object")
+                    .remove("parent_outcome");
+            }
+            if comparable["envelope"] != old["envelope"]
+                || comparable["decision"] != old["decision"]
+            {
                 return binding_error("message identity reused with different evidence");
             }
             envelope = match serde_json::from_value(old["envelope"].clone()) {
                 Ok(envelope) => envelope,
                 Err(_) => return binding_error("corrupt retained evidence envelope"),
+            };
+            prepared_outcome = match old.get("parent_outcome") {
+                Some(value) => match serde_json::from_value(value.clone()) {
+                    Ok(outcome) => Some(outcome),
+                    Err(_) => return binding_error("corrupt retained parent outcome"),
+                },
+                None => None,
             };
             let prior_receipt = state
                 .join(".transitions")
@@ -538,6 +653,15 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
                 .is_some_and(|receipt| receipt["committed"] == true);
                 if complete {
+                    if let Some(outcome) = &prepared_outcome {
+                        if let Err(error) =
+                            crate::lifecycle::parent_channel::persist_prepared(&state, outcome)
+                        {
+                            return binding_error(&error);
+                        }
+                    } else {
+                        let _ = crate::lifecycle::parent_channel::record_report(&state, &envelope);
+                    }
                     if let Err(error) = publish_report_wake(&state, &envelope) {
                         return binding_error(&error);
                     }
@@ -560,6 +684,10 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             return binding_error(&format!("{error}; historical evidence retained"));
         }
         let status_path = state.join(format!("{}.status", task.as_str()));
+        let updated_meta = match crate::lifecycle::subagent_model::write_meta(&meta_text, &record) {
+            Ok(text) => text,
+            Err(error) => return binding_error(&error),
+        };
         let before =
             match multplx_core::filesystem::read_bounded_regular(&status_path, 16 * 1024 * 1024) {
                 Ok(bytes) => Some(bytes),
@@ -594,7 +722,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 multplx_core::filesystem::TransitionWrite {
                     path: format!("{}.meta", task.as_str()).into(),
                     before: Some(meta_text.as_bytes().to_vec()),
-                    after: meta_text.as_bytes().to_vec(),
+                    after: updated_meta.into_bytes(),
                 },
                 multplx_core::filesystem::TransitionWrite {
                     path: evidence_path
@@ -616,6 +744,13 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         };
         if let Err(error) = recoverable_transition_wait(&state, &operation, &writes) {
             return binding_error(&error.to_string());
+        }
+        if let Some(outcome) = &prepared_outcome
+            && let Err(error) = crate::lifecycle::parent_channel::persist_prepared(&state, outcome)
+        {
+            return binding_error(&format!(
+                "accepted report retained but parent outcome publication needs repair: {error}"
+            ));
         }
         if let Err(error) = publish_report_wake(&state, &envelope) {
             return binding_error(&error);
@@ -1332,7 +1467,15 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use super::{PretoolPolicy, REPORT_STATES, pretool_guard, report, subagent_guard};
+    use multplx_core::filesystem::atomic_replace;
+
+    use super::{
+        PretoolPolicy, REPORT_STATES, pretool_guard, reconcile_report_wakes, report, subagent_guard,
+    };
+    use crate::lifecycle::parent_channel::prepare_outcome;
+    use crate::lifecycle::subagent_model::{
+        Acknowledgement, ArtifactKind, AssignmentRole, MessageEnvelope, TaskRecord, write_meta,
+    };
 
     fn primary_fixture() -> tempfile::TempDir {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -1354,6 +1497,97 @@ mod tests {
         let result = report(&["--list-states".to_owned()], Path::new("/unused"));
         assert_eq!(result.status, 0);
         assert_eq!(result.stdout, format!("{}\n", REPORT_STATES.join("\n")));
+    }
+
+    #[test]
+    fn report_repair_isolates_bad_evidence_and_recovers_after_queue_capacity_frees() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        fs::create_dir_all(state.join("evidence")).unwrap();
+        fs::create_dir_all(state.join("parent-outbox")).unwrap();
+        let root_id = format!("root-home:{}", home.display());
+        let mut task = TaskRecord::new(
+            "repair-task".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            root_id.clone(),
+            root_id.clone(),
+            home.to_string_lossy().into_owned(),
+        );
+        task.owner_state = Some(state.to_string_lossy().into_owned());
+        task.parent_home = Some(home.to_string_lossy().into_owned());
+        task.parent_state = Some(state.to_string_lossy().into_owned());
+        atomic_replace(
+            state.join("repair-task.meta"),
+            write_meta("", &task).unwrap().as_bytes(),
+            0o600,
+        )
+        .unwrap();
+        let event = MessageEnvelope {
+            schema_version: crate::lifecycle::subagent_model::SCHEMA_VERSION,
+            message_id: "repair-after-capacity".into(),
+            task_id: task.task_id.clone(),
+            task_home: task.owner_home.clone(),
+            parent_home: task.parent_home.clone(),
+            attempt: task.attempt.clone(),
+            parent_id: task.parent_id.clone(),
+            sender: task.task_id.clone(),
+            recipient: root_id,
+            brief_revision: task.attempt.as_ref().map(|attempt| attempt.brief_revision),
+            kind: "failed".into(),
+            correlation_id: "repair-correlation".into(),
+            created_at: "2026-09-15T00:00:00Z".into(),
+            summary: "retained accepted outcome".into(),
+            artifact: Some("failure.txt".into()),
+            acknowledgement: Acknowledgement::Pending,
+        };
+        let outcome = prepare_outcome(&state, &event).unwrap();
+        atomic_replace(
+            state.join("evidence/000-malformed.json"),
+            br#"{"accepted":true,"envelope":{"bad":true}}"#,
+            0o600,
+        )
+        .unwrap();
+        atomic_replace(
+            state.join("evidence/001-repair.json"),
+            &serde_json::to_vec(&serde_json::json!({
+                "accepted": true,
+                "envelope": event,
+                "parent_outcome": outcome,
+            }))
+            .unwrap(),
+            0o600,
+        )
+        .unwrap();
+        for index in 0..4096 {
+            fs::write(
+                state.join(format!("parent-outbox/filler-{index:04}.json")),
+                b"{}",
+            )
+            .unwrap();
+        }
+
+        let error = reconcile_report_wakes(&state).unwrap_err();
+        assert!(error.contains("remain pending"));
+        assert!(
+            !state
+                .join("parent-outbox/repair-after-capacity.json")
+                .exists()
+        );
+        fs::remove_file(state.join("parent-outbox/filler-0000.json")).unwrap();
+        assert!(reconcile_report_wakes(&state).is_err());
+        assert!(
+            state
+                .join("parent-outbox/repair-after-capacity.json")
+                .is_file()
+        );
+        assert!(
+            state
+                .join("message-outbox/repair-after-capacity.json")
+                .is_file()
+        );
     }
 
     #[test]

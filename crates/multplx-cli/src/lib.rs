@@ -4,6 +4,7 @@ mod authority;
 mod bootstrap;
 mod deep_review;
 mod doctor;
+mod domain;
 mod launcher;
 mod project;
 mod review;
@@ -11,6 +12,7 @@ mod session_start;
 mod status_snapshot;
 mod supervision;
 mod system_snapshot;
+mod task_transfer;
 mod tooling;
 mod workflow_runtime;
 
@@ -41,6 +43,12 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect or revise a scoped coordinator domain.
+    #[command(disable_help_flag = true)]
+    Domain {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Inspect and revise canonical task/attempt/brief bindings.
     #[command(disable_help_flag = true)]
     TaskModel {
@@ -257,8 +265,14 @@ enum Command {
         args: Vec<OsString>,
     },
     /// Launch a sub-agent with an assignment role and optional persistent home.
-    #[command(hide = true, disable_help_flag = true)]
+    #[command(disable_help_flag = true)]
     Spawn {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Transfer one task between coordinator routes with generation fencing.
+    #[command(disable_help_flag = true)]
+    TaskTransfer {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -289,6 +303,12 @@ enum Command {
     /// Parent-owned pending-reply record primitives.
     #[command(hide = true, disable_help_flag = true)]
     PendingReply {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Inspect or relay this home's durable parent outcomes and record exact human answers.
+    #[command(disable_help_flag = true)]
+    ParentChannel {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -645,13 +665,32 @@ impl Cli {
                     }
                 }
             }
-            Command::Send { args } => run_send(&args),
+            Command::Send { args } => match routed_task_arguments(&args, 0) {
+                Ok((args, Some((home, state)))) => run_send_in_home(&args, home, state),
+                Ok((args, None)) => run_send(&args),
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    1
+                }
+            },
             Command::DaemonReport { args } => run_daemon_report(&args),
             Command::TaskModel { args } => {
-                let (_, home, _) = active_paths();
-                let state = std::env::var_os("MX_STATE_OVERRIDE")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| home.join("state"));
+                let (args, route) = match routed_task_arguments(&args, 1) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        eprintln!("error: {error}");
+                        return 1;
+                    }
+                };
+                let state = route.map_or_else(
+                    || {
+                        let (_, home, _) = active_paths();
+                        std::env::var_os("MX_STATE_OVERRIDE")
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| home.join("state"))
+                    },
+                    |(_, state)| state,
+                );
                 let args = args
                     .iter()
                     .map(|value| value.to_string_lossy().into_owned())
@@ -669,15 +708,30 @@ impl Cli {
             }
             Command::Project { args } => project::run(&args),
             Command::HomeSeed { args } => run_home_seed(&args),
+            Command::Domain { args } => domain::run(&args),
             Command::Spawn { args } => run_spawn(&args),
+            Command::TaskTransfer { args } => match routed_task_arguments(&args, 0) {
+                Ok((args, route)) => task_transfer::run(&args, route),
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    1
+                }
+            },
             Command::SuperviseDaemon { args } => {
                 let (root, home, _) = active_paths();
                 supervision::supervise_daemon(&args, &home, &runtime_root(&root))
             }
-            Command::Teardown { args } => run_teardown(&args),
+            Command::Teardown { args } => match routed_task_arguments(&args, 0) {
+                Ok((args, route)) => run_teardown_with_route(&args, route),
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    1
+                }
+            },
             Command::UpstreamDiff { args } => run_upstream_diff(&args),
             Command::FastForward { args } => run_fast_forward(&args),
             Command::PendingReply { args } => run_pending_reply(&args),
+            Command::ParentChannel { args } => run_parent_channel(&args),
             Command::Supervision { entry, args } => run_supervision(&entry, &args),
             Command::Session { entry, args } => run_session(&entry, &args),
             Command::ReportMcp => {
@@ -1689,6 +1743,14 @@ fn send_resolve(raw: &str, state: &Path) -> Result<SendResolution, String> {
 }
 
 fn run_send(args: &[OsString]) -> i32 {
+    const USAGE: &str = "Usage: mx send <task-id> <text...> [--authority-state <absolute-path>]\n       mx send <task-id> --key <key> [--authority-state <absolute-path>]\n\n--authority-state routes a transferred task through its retained canonical record after validating the current owning coordinator.\n";
+    if args
+        .iter()
+        .any(|value| matches!(value.to_str(), Some("-h" | "--help")))
+    {
+        print!("{USAGE}");
+        return 0;
+    }
     if multplx_core::gate_refuse::is_gate_agent(
         std::env::var_os("DEEP_REVIEW_GATE").is_some(),
         std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
@@ -1726,7 +1788,7 @@ fn run_send(args: &[OsString]) -> i32 {
 
 fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
     if args.len() < 2 {
-        eprintln!("usage: mx-send.sh <target> <text...>");
+        eprintln!("usage: mx send <task-id> <text...> [--authority-state <absolute-path>]");
         return 2;
     }
     let Some(raw) = args[0].to_str() else {
@@ -1752,7 +1814,7 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
     }
     if args.get(1).and_then(|value| value.to_str()) == Some("--key") {
         let Some(key) = args.get(2).and_then(|value| value.to_str()) else {
-            eprintln!("usage: mx-send.sh <target> --key <key>");
+            eprintln!("usage: mx send <task-id> --key <key> [--authority-state <absolute-path>]");
             return 2;
         };
         if send_key_to(&resolved.target, key).is_err() {
@@ -1810,7 +1872,7 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
             let binding = destination_record.as_ref().map(|record| {
                 multplx_domain::lifecycle::pending_reply::ReplyBinding {
                     message_id: None,
-                    parent_task_id: sender.as_deref(),
+                    parent_task_id: record.parent_id.as_deref(),
                     recipient_task_id: Some(&record.task_id),
                     recipient_home: record.owner_home.as_deref().map(Path::new),
                     attempt_id: record.attempt.as_ref().map(|attempt| attempt.id.as_str()),
@@ -1987,16 +2049,81 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
 fn run_daemon_report(args: &[OsString]) -> i32 {
     use std::fs::OpenOptions;
 
-    const USAGE: &str = "Usage:\n  mx-daemon-report.sh <status-file> <verb> <corr_id> <note...>\n  mx-daemon-report.sh --doc <status-file> <verb> <corr_id> <doc-path> <note...>\n";
+    const USAGE: &str = "Report a correlated result through the caller's validated parent route.\n\nUsage:\n  mx-daemon-report.sh <verb> <corr_id> <note...>\n  mx-daemon-report.sh --doc <verb> <corr_id> <doc-path> <note...>\n\nCanonical tasks resolve their status owner and parent from the task record. The historical <status-file> argument is accepted only when it exactly matches that owner; it grants no destination authority.\n";
+    if args
+        .iter()
+        .any(|value| matches!(value.to_str(), Some("-h" | "--help")))
+    {
+        print!("{USAGE}");
+        return 0;
+    }
     let doc_mode = args.first().and_then(|value| value.to_str()) == Some("--doc");
-    let offset = usize::from(doc_mode);
-    if args.len() < offset + 4 {
+    let base = usize::from(doc_mode);
+    let bound_id = std::env::var("MX_TASK_ID")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let canonical_source = if let Some(id) = bound_id.as_ref() {
+        let result = (|| -> Result<Option<(String, PathBuf)>, String> {
+            let state = std::env::var_os("MX_REPORT_STATE_OVERRIDE")
+                .or_else(|| std::env::var_os("MX_STATE_OVERRIDE"))
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("MX_HOME").map(|home| PathBuf::from(home).join("state"))
+                })
+                .ok_or("bound report has no state directory")?;
+            let text = fs::read_to_string(state.join(format!("{id}.meta")))
+                .map_err(|error| format!("cannot resolve bound report identity: {error}"))?;
+            let record = multplx_domain::lifecycle::subagent_model::read_meta(id, &text)
+                .map_err(|error| format!("invalid bound report identity: {error}"))?;
+            Ok((!record.legacy_unknown).then(|| (id.clone(), state)))
+        })();
+        match result {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    let (status, offset) = if let Some((id, state)) = &canonical_source {
+        let expected = state.join(format!("{id}.status"));
+        let supplied_status = args
+            .get(base)
+            .map(PathBuf::from)
+            .filter(|path| path.extension().and_then(OsStr::to_str) == Some("status"));
+        if let Some(supplied) = supplied_status {
+            let supplied_parent = supplied
+                .parent()
+                .and_then(|path| fs::canonicalize(path).ok());
+            let expected_parent = fs::canonicalize(state).ok();
+            if supplied.file_name() != expected.file_name()
+                || supplied_parent.is_none()
+                || supplied_parent != expected_parent
+            {
+                eprintln!(
+                    "error: supplied status path does not match the caller's validated task owner"
+                );
+                return 1;
+            }
+            (expected, base + 1)
+        } else {
+            (expected, base)
+        }
+    } else {
+        let Some(status) = args.get(base) else {
+            eprint!("{USAGE}");
+            return 2;
+        };
+        (PathBuf::from(status), base + 1)
+    };
+    if args.len() < offset + 3 {
         eprint!("{USAGE}");
         return 2;
     }
-    let status = PathBuf::from(&args[offset]);
-    let verb = args[offset + 1].to_string_lossy();
-    let raw_correlation = args[offset + 2].to_string_lossy();
+    let verb = args[offset].to_string_lossy();
+    let raw_correlation = args[offset + 1].to_string_lossy();
     let correlation = raw_correlation
         .strip_prefix("corr=")
         .unwrap_or(&raw_correlation);
@@ -2019,7 +2146,7 @@ fn run_daemon_report(args: &[OsString]) -> i32 {
         );
         return 1;
     }
-    let values: Vec<String> = args[offset + 3..]
+    let values: Vec<String> = args[offset + 2..]
         .iter()
         .map(|value| value.to_string_lossy().into_owned())
         .collect();
@@ -2088,6 +2215,9 @@ fn run_daemon_report(args: &[OsString]) -> i32 {
         ];
         if doc_mode {
             report_args.extend(["--artifact".into(), values[0].clone()]);
+        }
+        if verb == "needs-decision" {
+            report_args.extend(["--key".into(), correlation.into()]);
         }
         let result = multplx_domain::supervision::report(&report_args, &active_paths().0);
         print!("{}", result.stdout);
@@ -2589,6 +2719,123 @@ fn launch_environment(name: &str, value: &str) -> String {
     format!("{name}={}", launch_shell_word(value))
 }
 
+type RoutedTaskRoute = Option<(PathBuf, PathBuf)>;
+
+fn routed_task_arguments(
+    args: &[OsString],
+    task_index: usize,
+) -> Result<(Vec<OsString>, RoutedTaskRoute), String> {
+    let mut stripped = Vec::with_capacity(args.len());
+    let mut authority_state = None;
+    let mut index = 0usize;
+    while index < args.len() {
+        if args[index] == "--authority-state" {
+            let state = args
+                .get(index + 1)
+                .map(PathBuf::from)
+                .ok_or("--authority-state requires one absolute path")?;
+            if !state.is_absolute() || authority_state.replace(state).is_some() {
+                return Err("--authority-state requires one unique absolute path".into());
+            }
+            index += 2;
+        } else {
+            stripped.push(args[index].clone());
+            index += 1;
+        }
+    }
+    let Some(state) = authority_state else {
+        return Ok((stripped, None));
+    };
+    let task_id = stripped
+        .get(task_index)
+        .and_then(|value| value.to_str())
+        .ok_or("routed command requires a task id")?;
+    let (_, initiating_home, _) = active_paths();
+    let owner_home = validate_routed_spawn_authority(&state, &initiating_home, task_id)?;
+    let state = fs::canonicalize(state)
+        .map_err(|error| format!("cannot resolve routed authority state: {error}"))?;
+    Ok((stripped, Some((owner_home, state))))
+}
+
+fn validate_routed_spawn_authority(
+    authority_state: &Path,
+    initiating_home: &Path,
+    task_id: &str,
+) -> Result<PathBuf, String> {
+    use multplx_domain::lifecycle::subagent_model::{AssignmentRole, qualified_task_id, read_meta};
+
+    let authority_state = fs::canonicalize(authority_state)
+        .map_err(|error| format!("cannot resolve routed authority state: {error}"))?;
+    let initiating_home = fs::canonicalize(initiating_home)
+        .map_err(|error| format!("cannot resolve initiating coordinator home: {error}"))?;
+    let raw = fs::read_to_string(authority_state.join(format!("{task_id}.meta")))
+        .map_err(|error| format!("cannot read routed task authority: {error}"))?;
+    let task = read_meta(task_id, &raw)?;
+    let owner_home = PathBuf::from(
+        task.owner_home
+            .as_deref()
+            .ok_or("task owner home missing")?,
+    );
+    let owner_state = PathBuf::from(
+        task.owner_state
+            .as_deref()
+            .ok_or("task owner state missing")?,
+    );
+    if fs::canonicalize(&owner_state).ok().as_deref() != Some(authority_state.as_path()) {
+        return Err("routed authority state does not match the canonical task owner".into());
+    }
+    let route = task
+        .owning_coordinator
+        .as_deref()
+        .ok_or("task has no current owning coordinator route")?;
+    if let Some(root_home) = route.strip_prefix("root-home:") {
+        if fs::canonicalize(root_home).ok().as_deref() != Some(initiating_home.as_path()) {
+            return Err("routed spawn was not issued from the owning root home".into());
+        }
+    } else {
+        let parent_id = task.parent_id.as_deref().ok_or("task parent id missing")?;
+        if std::env::var("MX_TASK_ID")
+            .ok()
+            .is_some_and(|current| current != parent_id)
+        {
+            return Err("routed spawn caller task does not match the owning coordinator".into());
+        }
+        let parent_state = PathBuf::from(
+            task.parent_state
+                .as_deref()
+                .ok_or("task parent state missing")?,
+        );
+        let parent_raw = fs::read_to_string(parent_state.join(format!("{parent_id}.meta")))
+            .map_err(|error| format!("cannot read owning coordinator route: {error}"))?;
+        let parent = read_meta(parent_id, &parent_raw)?;
+        let parent_owner = PathBuf::from(
+            parent
+                .owner_home
+                .as_deref()
+                .ok_or("coordinator owner home missing")?,
+        );
+        let runtime_home = PathBuf::from(
+            parent
+                .persistent_home
+                .as_deref()
+                .ok_or("owning coordinator has no private runtime home")?,
+        );
+        let canonical = qualified_task_id(
+            parent_owner
+                .to_str()
+                .ok_or("coordinator owner home is not UTF-8")?,
+            parent_id,
+        );
+        if parent.role != AssignmentRole::SubOrchestrator
+            || canonical != route
+            || fs::canonicalize(runtime_home).ok().as_deref() != Some(initiating_home.as_path())
+        {
+            return Err("routed spawn was not issued from the owning coordinator home".into());
+        }
+    }
+    fs::canonicalize(owner_home).map_err(|error| format!("cannot resolve task owner home: {error}"))
+}
+
 fn launch_environment_block(
     home: &str,
     task_id: &str,
@@ -2609,11 +2856,44 @@ fn launch_environment_block(
     Ok(environment.join(" "))
 }
 
+fn print_coordinator_json(
+    spec: &multplx_domain::lifecycle::spawn::CoordinatorSpawn,
+    prepared: &multplx_domain::lifecycle::spawn::PreparedCoordinator,
+    request_id: &str,
+    disposition: &str,
+    endpoint: Option<&str>,
+    binding: Option<&multplx_domain::lifecycle::subagent_model::TaskRecord>,
+    error: Option<&str>,
+) {
+    let value = serde_json::json!({
+        "version": 1,
+        "status": if error.is_some() { "error" } else { "ok" },
+        "disposition": disposition,
+        "request_id": request_id,
+        "task_id": spec.id,
+        "coordinator_id": prepared.domain.coordinator_id,
+        "domain_id": prepared.domain.domain_id,
+        "home": prepared.home,
+        "endpoint": endpoint,
+        "parent_id": binding.and_then(|record| record.parent_id.as_deref()),
+        "root_id": binding.and_then(|record| record.root_id.as_deref()),
+        "attempt_id": binding.and_then(|record| record.attempt.as_ref()).map(|attempt| attempt.id.as_str()),
+        "assignment_generation": prepared.domain.assignment_generation,
+        "scope_revision": prepared.domain.scope_revision,
+        "persistent": spec.persistent,
+        "error": error,
+    });
+    println!(
+        "{}",
+        serde_json::to_string(&value).expect("coordinator result serializes")
+    );
+}
+
 fn run_spawn(args: &[OsString]) -> i32 {
     use multplx_backend::facade::{BackendName, KillOutcome, RuntimeBackend, TaskSpec};
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
         println!(
-            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer|sub-orchestrator] [--output report|implementation] [--persistent] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID]\nRoles describe the assignment; report and implementation outputs share delegation rights. --persistent launches an existing isolated home and accepts --role sub-orchestrator. --request-id makes an uncertain submission repeat-safe; reuse is accepted only for the same frozen task attempt. --resource requests a positive unit count from config/admission-capacity.json and is repeatable for distinct names. Phase 05 owns named coordinator creation. Canonical defaults: config/subagent-harness, subagent-dispatch.json and persistent-subagent-harness. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation; role/outcome changes require explicit recorded reassignment. Task files use TMPDIR and metadata tasktmp binds cleanup."
+            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer] [--output report|implementation] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID] [--authority-state ABSOLUTE_PATH]\n       mx spawn <id> --sub-orchestrator (--project PROJECT)... --scope TEXT [--persistent] [--json] [common options]\n       mx spawn <id> --sub-orchestrator --idea IDEA --scope TEXT [--persistent] [--json] [common options]\nThe named coordinator form transactionally provisions a private home and canonical parent/domain binding before endpoint launch. --project is repeatable; --idea starts repository-free research and requires an explicit later project binding before implementation. --persistent makes the domain a standing assignment; private-home ownership is independent. --request-id makes creation repeat-safe for the same frozen identity. --json emits one unambiguous result envelope on stdout. --authority-state resumes a transferred task from its retained canonical owner only after validating the caller's current coordinator route. --resource requests positive root-scoped capacity units. Roles describe assignments and do not restrict delegation. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation."
         );
         return 0;
     }
@@ -2647,6 +2927,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                         | "--yolo"
                         | "--role"
                         | "--output"
+                        | "--authority-state"
                 ) {
                     let Some(next) = args.get(index + 1) else {
                         eprintln!("error: {value} requires a value");
@@ -2688,6 +2969,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let mut parse_args = Vec::new();
     let mut single_checkout_request = None;
     let mut replacement_attempt = None;
+    let mut authority_state = None;
     let mut admission_request_id = None;
     let mut additional_resources = std::collections::BTreeMap::new();
     let mut index = 0_usize;
@@ -2702,6 +2984,18 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 return 1;
             };
             replacement_attempt = Some(attempt.to_owned());
+            index += 2;
+            continue;
+        }
+        if value == "--authority-state" {
+            let Some(state) = args.get(index + 1).map(PathBuf::from) else {
+                eprintln!("error: --authority-state requires an absolute canonical state path");
+                return 1;
+            };
+            if !state.is_absolute() || authority_state.replace(state).is_some() {
+                eprintln!("error: --authority-state must be one unique absolute path");
+                return 1;
+            }
             index += 2;
             continue;
         }
@@ -2774,23 +3068,41 @@ fn run_spawn(args: &[OsString]) -> i32 {
     }
     let (root, home, data) = active_paths();
     let logical_home = home.clone();
+    let routed_owner_home = match authority_state.as_ref() {
+        Some(authority) => {
+            let Some(task_id) = parse_args.first().and_then(|value| value.to_str()) else {
+                eprintln!("error: routed spawn requires one task id");
+                return 1;
+            };
+            match validate_routed_spawn_authority(authority, &home, task_id) {
+                Ok(owner) => Some(owner),
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    return 1;
+                }
+            }
+        }
+        None => None,
+    };
+    let owner_home = routed_owner_home.clone().unwrap_or_else(|| home.clone());
     let source_root = runtime_root(&root);
     let context = multplx_domain::lifecycle::spawn::Context {
         root: fs::canonicalize(&root).unwrap_or(root),
-        state: std::env::var_os("MX_STATE_OVERRIDE")
-            .map(PathBuf::from)
+        state: authority_state
+            .clone()
+            .or_else(|| std::env::var_os("MX_STATE_OVERRIDE").map(PathBuf::from))
             .and_then(|path| fs::canonicalize(&path).ok().or(Some(path)))
-            .unwrap_or_else(|| home.join("state")),
-        home: fs::canonicalize(&home).unwrap_or(home),
-        data: if data.as_os_str().is_empty() {
-            logical_home.join("data")
+            .unwrap_or_else(|| owner_home.join("state")),
+        home: fs::canonicalize(&owner_home).unwrap_or(owner_home.clone()),
+        data: if routed_owner_home.is_some() || data.as_os_str().is_empty() {
+            owner_home.join("data")
         } else {
             fs::canonicalize(&data).unwrap_or(data)
         },
         projects: std::env::var_os("MX_PROJECTS_OVERRIDE")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(|| logical_home.join("projects")),
+            .unwrap_or_else(|| owner_home.join("projects")),
     };
     if let Err(error_value) = fs::create_dir_all(&context.state) {
         eprintln!("error: cannot create state directory: {error_value}");
@@ -2798,7 +3110,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     }
     let config = std::env::var_os("MX_CONFIG_OVERRIDE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| context.home.join("config"));
+        .unwrap_or_else(|| logical_home.join("config"));
     let settings = multplx_backend::harness::HarnessConfig::new(config.clone());
     if let Err(error) = settings.validate_aliases() {
         eprintln!("error: {error}");
@@ -2811,6 +3123,90 @@ fn run_spawn(args: &[OsString]) -> i32 {
         if let Some(notice) = notice {
             eprintln!("{notice}");
         }
+    }
+    let coordinator_spec = match multplx_domain::lifecycle::spawn::coordinator_spawn(args) {
+        Ok(spec) => spec,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    };
+    let mut prepared_coordinator = None;
+    if let Some(spec) = coordinator_spec.as_ref() {
+        let option_value = |name: &str| {
+            parse_args.windows(2).find_map(|pair| {
+                (pair[0] == name)
+                    .then(|| pair[1].to_str().map(str::to_owned))
+                    .flatten()
+            })
+        };
+        let backend = option_value("--backend").unwrap_or_else(|| "tmux".into());
+        let harness = option_value("--harness")
+            .unwrap_or_else(|| settings.daemon(multplx_backend::harness::detect()));
+        if !matches!(backend.as_str(), "tmux" | "herdr") {
+            eprintln!("error: backend={backend} does not support private coordinator homes");
+            return 1;
+        }
+        if !matches!(harness.as_str(), "codex" | "claude" | "pi" | "cursor") {
+            eprintln!("error: no launch template for harness '{harness}'");
+            return 1;
+        }
+        let backend_preflight = match backend.as_str() {
+            "tmux" => multplx_backend::tmux::TmuxBackend::system()
+                .tool_check()
+                .and_then(|()| multplx_backend::tmux::TmuxBackend::system().version_check()),
+            "herdr" => {
+                let mut backend = multplx_backend::herdr::HerdrBackend::new(
+                    multplx_backend::command::SystemCommandRunner,
+                    std::env::var_os("MX_HERDR_BIN").unwrap_or_else(|| OsString::from("herdr")),
+                    std::env::var("HERDR_SESSION").unwrap_or_else(|_| "default".to_owned()),
+                    context.home.clone(),
+                );
+                backend.tool_check().and_then(|()| backend.version_check())
+            }
+            _ => unreachable!(),
+        };
+        if let Err(error) = backend_preflight {
+            eprintln!("error: coordinator backend preflight failed before home creation: {error}");
+            return 1;
+        }
+        let prepared = match multplx_domain::lifecycle::spawn::provision_coordinator(&context, spec)
+        {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+        let mut coordinator_args = vec![
+            OsString::from(&spec.id),
+            prepared.home.as_os_str().to_owned(),
+            OsString::from("--daemon"),
+            OsString::from("--role"),
+            OsString::from("sub-orchestrator"),
+        ];
+        coordinator_args.push(OsString::from("--harness"));
+        coordinator_args.push(OsString::from(&harness));
+        for name in ["--backend", "--model", "--effort"] {
+            if let Some(value) = option_value(name) {
+                coordinator_args.push(OsString::from(name));
+                coordinator_args.push(OsString::from(value));
+            }
+        }
+        if option_value("--model").is_none()
+            && let Some(model) = settings.daemon_model()
+        {
+            coordinator_args.push(OsString::from("--model"));
+            coordinator_args.push(OsString::from(model));
+        }
+        if option_value("--effort").is_none()
+            && let Some(effort) = settings.daemon_effort()
+        {
+            coordinator_args.push(OsString::from("--effort"));
+            coordinator_args.push(OsString::from(effort));
+        }
+        parse_args = coordinator_args;
+        prepared_coordinator = Some(prepared);
     }
     let default_harness = if args
         .iter()
@@ -2832,6 +3228,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
     };
     let mut request = request;
+    if let (Some(spec), Some(prepared)) = (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+    {
+        request.persistent = spec.persistent;
+        request.private_home = true;
+        request.domain = Some(prepared.domain.clone());
+    }
     // Serialize one task's complete spawn/replacement with ordinary and parent
     // teardown. This task-scoped guard may span Git/backend work; it never
     // blocks independent task IDs as a home-wide lock would. Acquire it before
@@ -2877,6 +3279,66 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     }
+    if let Some(expected_domain) = request.domain.as_ref() {
+        match multplx_domain::lifecycle::spawn::read_action(&context, &queued_request_id) {
+            Ok(Some(action))
+                if action.stage == multplx_domain::lifecycle::spawn::LaunchStage::Running =>
+            {
+                let current =
+                    fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+                        .ok()
+                        .and_then(|text| {
+                            multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &text)
+                                .ok()
+                        });
+                if action.task_id != request.id
+                    || action.binding.domain.as_ref() != Some(expected_domain)
+                    || current.as_ref().and_then(|record| record.domain.as_ref())
+                        != Some(expected_domain)
+                    || action.endpoint.is_none()
+                {
+                    eprintln!(
+                        "error: completed coordinator spawn receipt conflicts with current identity"
+                    );
+                    return 1;
+                }
+                if let (Some(spec), Some(prepared)) =
+                    (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+                    && spec.json
+                {
+                    print_coordinator_json(
+                        spec,
+                        prepared,
+                        &queued_request_id,
+                        "recovered",
+                        action.endpoint.as_deref(),
+                        Some(&action.binding),
+                        None,
+                    );
+                } else {
+                    println!(
+                        "spawned {} coordinator={} domain={} home={} parent={} root={} assignment_generation={} scope_revision={} persistent={} window={} recovered=true",
+                        request.id,
+                        expected_domain.coordinator_id,
+                        expected_domain.domain_id,
+                        request.home.display(),
+                        action.binding.parent_id.as_deref().unwrap_or("unknown"),
+                        action.binding.root_id.as_deref().unwrap_or("unknown"),
+                        expected_domain.assignment_generation,
+                        expected_domain.scope_revision,
+                        request.persistent,
+                        action.endpoint.as_deref().expect("checked endpoint")
+                    );
+                }
+                return 0;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    }
     if single_checkout_request.is_some() && request.kind != "delivery" {
         eprintln!("error: --single-checkout is supported only for one delivery task");
         return 1;
@@ -2914,7 +3376,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
     }
     explicit_harness |= spawn_positionals >= 3;
-    if request.persistent && !explicit_harness {
+    if request.private_home && !explicit_harness {
         if !explicit_model && let Some(model) = settings.daemon_model() {
             request.model = model;
         }
@@ -2929,7 +3391,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!(
             "error: no launch template for harness '{}'{}",
             request.harness,
-            if request.persistent {
+            if request.private_home {
                 " (check config/daemon-harness or the explicit selection)"
             } else {
                 ""
@@ -2941,7 +3403,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: {error_value}");
         return 1;
     }
-    if !request.persistent
+    if !request.private_home
         && (config.join("subagent-dispatch.json").is_file()
             || config.join("actor-dispatch.json").is_file())
         && !explicit_harness
@@ -3070,6 +3532,20 @@ fn run_spawn(args: &[OsString]) -> i32 {
         single_checkout_store = Some(store);
     }
     if let Err(error) = multplx_domain::lifecycle::spawn::prepare_binding(&context, &mut request) {
+        if let (Some(spec), Some(prepared)) =
+            (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+            && spec.json
+        {
+            print_coordinator_json(
+                spec,
+                prepared,
+                admission_request_id.as_deref().unwrap_or(&request.id),
+                "retained",
+                None,
+                request.binding.as_ref(),
+                Some(&error),
+            );
+        }
         eprintln!("error: {error}");
         return 1;
     }
@@ -3085,11 +3561,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 return 1;
             }
         };
-    let recovering_daemon = request.persistent
+    let recovering_daemon = request.private_home
         && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1")
         && context.state.join(format!("{}.meta", request.id)).is_file();
     let presentation_enabled = request.backend == "herdr"
-        && !request.persistent
+        && !request.private_home
         && config.join("herdr-presentation-spaces").is_file();
     let presentation_journal =
         multplx_backend::herdr_presentation::journal_path(&context.state, &request.id);
@@ -3098,6 +3574,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let starts_new_attempt =
         recovering_daemon || recovering_projection || replacement_attempt.is_some();
     let mut recovered_preallocation = false;
+    let mut recovered_failed_action = false;
     if !starts_new_attempt {
         let prior_action = match multplx_domain::lifecycle::spawn::read_action(
             &context,
@@ -3120,6 +3597,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 eprintln!("error: {error}");
                 return 1;
             }
+            recovered_failed_action = true;
             (admission_paths, admission_record) = match self::admission_record(
                 &request,
                 selected_admission_request,
@@ -3160,7 +3638,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     }
     let recovering_request = std::env::var("MX_SPAWN_RECOVERY_REQUEST").as_deref()
         == Ok(admission_record.request_id.as_str());
-    let resuming_request = recovering_request || recovered_preallocation;
+    let resuming_request = recovering_request || recovered_preallocation || recovered_failed_action;
     let retiring_admission = starts_new_attempt.then(|| {
         let binding = request.binding.as_ref().expect("prepared binding");
         (
@@ -3183,7 +3661,30 @@ fn run_spawn(args: &[OsString]) -> i32 {
             resuming_request,
         ) {
             Ok(Some(output)) => {
-                print!("{output}");
+                if let (Some(spec), Some(prepared)) =
+                    (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+                    && spec.json
+                {
+                    let disposition = if output.starts_with("queued:") {
+                        "queued"
+                    } else {
+                        "active"
+                    };
+                    print_coordinator_json(
+                        spec,
+                        prepared,
+                        &admission_record.request_id,
+                        disposition,
+                        request
+                            .binding
+                            .as_ref()
+                            .and_then(|record| record.runtime.endpoint.as_deref()),
+                        request.binding.as_ref(),
+                        None,
+                    );
+                } else {
+                    print!("{output}");
+                }
                 return 0;
             }
             Ok(None) => {}
@@ -3270,10 +3771,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
     if recovering_daemon || recovering_projection || replacement_attempt.is_some() {
         // This path starts a new process. Reconcile and stop the former endpoint
         // before assigning a replacement generation to the same persistent home.
-        if let Err(error) = isolate_prior_execution(
-            &context.state.join(format!("{}.meta", request.id)),
-            recovering_projection,
-        ) {
+        if request
+            .binding
+            .as_ref()
+            .is_some_and(|binding| binding.runtime.endpoint.is_some())
+            && let Err(error) = isolate_prior_execution(
+                &context.state.join(format!("{}.meta", request.id)),
+                recovering_projection,
+            )
+        {
             eprintln!("error: cannot isolate prior execution: {error}");
             return 1;
         }
@@ -3401,7 +3907,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     }
-    if request.persistent
+    if request.private_home
         && !recovering_daemon
         && request
             .binding
@@ -3435,7 +3941,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             );
         }
     }
-    let _inherit_lock = if request.persistent && !recovering_daemon {
+    let _inherit_lock = if request.private_home && !recovering_daemon {
         let inherit_lock = match multplx_domain::inheritance::acquire_inherit_lock(&request.home) {
             Ok(lock) => lock,
             Err(error_value) => {
@@ -3474,7 +3980,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         None
     };
     drop(_inherit_lock);
-    let actor_worktree = if request.persistent {
+    let actor_worktree = if request.private_home {
         request.home.clone()
     } else if request.single_checkout_override.is_some() {
         request.project.clone()
@@ -3549,7 +4055,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         }
     };
-    if !request.persistent
+    if !request.private_home
         && let Err(error) = verify_launch_worktree(&context, &request, &actor_worktree)
     {
         eprintln!("error: {error}");
@@ -3582,6 +4088,27 @@ fn run_spawn(args: &[OsString]) -> i32 {
             "error: spawn request {} has a recorded endpoint/action at stage {:?}; retained for reconciliation before retry",
             admission_record.request_id, launch_action.stage
         );
+        return 1;
+    }
+    if request.domain.is_some()
+        && let Err(error) =
+            multplx_domain::lifecycle::spawn::publish_prelaunch_coordinator(&context, &request)
+    {
+        if let (Some(spec), Some(prepared)) =
+            (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+            && spec.json
+        {
+            print_coordinator_json(
+                spec,
+                prepared,
+                &admission_record.request_id,
+                "retained",
+                None,
+                request.binding.as_ref(),
+                Some(&error),
+            );
+        }
+        eprintln!("error: canonical coordinator binding could not be published: {error}");
         return 1;
     }
     let mut created_target = None;
@@ -3749,7 +4276,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             multplx_core::filesystem::atomic_replace(&meta_path, meta.as_bytes(), 0o600)
                 .map_err(|error_value| error_value.to_string())?;
         }
-        let brief = if request.persistent {
+        let brief = if request.private_home {
             request.home.join("data/charter.md")
         } else {
             context.data.join(&request.id).join("brief.md")
@@ -3836,7 +4363,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error_value| error_value.to_string())?;
         }
         let mcp_config = task_tmp.join("report-mcp.json");
-        let report_home = if request.persistent {
+        let report_home = if request.private_home {
             request.home.clone()
         } else {
             logical_home.clone()
@@ -3944,7 +4471,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 } else {
                     String::new()
                 },
-                if request.persistent {
+                if request.private_home {
                     format!(
                         "-e {} -e {} ",
                         launch_path_word(
@@ -3982,7 +4509,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
             other => return Err(format!("unknown harness '{other}'")),
         };
-        let launch = if request.persistent {
+        let launch = if request.private_home {
             format!(
                 "MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= {launch}"
             )
@@ -4109,7 +4636,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         ) {
             eprintln!("{warning}");
         }
-        if request.persistent
+        if request.private_home
             && !multplx_domain::inheritance::discard_pending(
                 &request.home,
                 Some(&request.id),
@@ -4190,15 +4717,52 @@ fn run_spawn(args: &[OsString]) -> i32 {
                             .map(str::to_owned)
                     })
                     .unwrap_or_else(|| request.project.display().to_string());
-            println!(
-                "spawned {} harness={} kind={} mode={} yolo={} window={endpoint} worktree={}",
-                request.id,
-                request.harness,
-                request.kind,
-                request.mode,
-                if request.yolo { "on" } else { "off" },
-                reported_worktree
-            );
+            if let Some(domain) = request
+                .binding
+                .as_ref()
+                .and_then(|record| record.domain.as_ref())
+            {
+                let binding = request.binding.as_ref().expect("domain binding");
+                if let (Some(spec), Some(prepared)) =
+                    (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+                    && spec.json
+                {
+                    print_coordinator_json(
+                        spec,
+                        prepared,
+                        &admission_record.request_id,
+                        "running",
+                        Some(&endpoint),
+                        Some(binding),
+                        None,
+                    );
+                } else {
+                    println!(
+                        "spawned {} coordinator={} domain={} home={} parent={} root={} assignment_generation={} scope_revision={} persistent={} harness={} kind={} window={endpoint}",
+                        request.id,
+                        domain.coordinator_id,
+                        domain.domain_id,
+                        request.home.display(),
+                        binding.parent_id.as_deref().unwrap_or("unknown"),
+                        binding.root_id.as_deref().unwrap_or("unknown"),
+                        domain.assignment_generation,
+                        domain.scope_revision,
+                        request.persistent,
+                        request.harness,
+                        request.kind,
+                    );
+                }
+            } else {
+                println!(
+                    "spawned {} harness={} kind={} mode={} yolo={} window={endpoint} worktree={}",
+                    request.id,
+                    request.harness,
+                    request.kind,
+                    request.mode,
+                    if request.yolo { "on" } else { "off" },
+                    reported_worktree
+                );
+            }
             0
         }
         Err(error_value) => {
@@ -4321,13 +4885,36 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     "launch endpoint absence verified; exact allocation retained for retry",
                 );
             }
+            if let (Some(spec), Some(prepared)) =
+                (coordinator_spec.as_ref(), prepared_coordinator.as_ref())
+                && spec.json
+            {
+                print_coordinator_json(
+                    spec,
+                    prepared,
+                    &admission_record.request_id,
+                    "retained",
+                    created_target.as_ref().map(|target| target.endpoint()),
+                    request.binding.as_ref(),
+                    Some(&error_value),
+                );
+            }
             eprintln!("error: {error_value}");
             1
         }
     }
 }
 
+#[cfg(test)]
 fn run_teardown(args: &[OsString]) -> i32 {
+    run_teardown_with_route(args, None)
+}
+
+fn run_teardown_with_route(args: &[OsString], route: Option<(PathBuf, PathBuf)>) -> i32 {
+    if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
+        print!("{}", multplx_domain::lifecycle::teardown::USAGE);
+        return 0;
+    }
     if multplx_core::gate_refuse::is_gate_agent(
         std::env::var_os("DEEP_REVIEW_GATE").is_some(),
         std::env::var("MX_GATE_REFUSE_BYPASS").as_deref() == Ok("1"),
@@ -4335,12 +4922,22 @@ fn run_teardown(args: &[OsString]) -> i32 {
         eprintln!("{}", multplx_core::gate_refuse::REFUSAL_MESSAGE);
         return i32::from(multplx_core::gate_refuse::REFUSAL_EXIT);
     }
-    let (root, home, data) = active_paths();
+    let (root, active_home, active_data) = active_paths();
+    let (home, state, data) = route.map_or_else(
+        || {
+            let state = std::env::var_os("MX_STATE_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| active_home.join("state"));
+            (active_home, state, active_data)
+        },
+        |(home, state)| {
+            let data = home.join("data");
+            (home, state, data)
+        },
+    );
     let context = multplx_domain::lifecycle::teardown::Context {
         root,
-        state: std::env::var_os("MX_STATE_OVERRIDE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("state")),
+        state,
         home,
         data,
     };
@@ -4586,13 +5183,42 @@ fn isolate_prior_execution(meta: &Path, preserve_projection: bool) -> Result<(),
     }
 }
 
-fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
+pub(crate) fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
     use multplx_backend::facade::{
         BackendName, BackendTarget, KillOutcome, RuntimeBackend, backend_of_meta, target_of_meta,
     };
     if !meta.exists() {
         return Ok(());
     }
+    let admission = fs::read_to_string(meta)
+        .ok()
+        .and_then(|raw| {
+            let id = meta.file_stem()?.to_str()?;
+            multplx_domain::lifecycle::subagent_model::read_meta(id, &raw).ok()
+        })
+        .and_then(|record| {
+            let context = multplx_domain::lifecycle::spawn::admission_context(&record).ok()?;
+            Some((
+                multplx_backend::headroom::HeadroomPaths::for_root(&context.root_home),
+                record.task_id,
+                PathBuf::from(record.owner_state?),
+                record.attempt?.id,
+                record.runtime.endpoint?,
+            ))
+        });
+    let release_admission = || -> Result<(), String> {
+        if let Some((paths, task_id, owner_state, attempt_id, endpoint)) = &admission {
+            multplx_backend::headroom::admission_release_execution(
+                paths,
+                task_id,
+                owner_state,
+                attempt_id,
+                endpoint,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    };
     let backend = backend_of_meta(meta).map_err(|error_value| error_value.to_string())?;
     let Some(endpoint) = target_of_meta(meta).map_err(|error_value| error_value.to_string())?
     else {
@@ -4642,16 +5268,21 @@ fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
                 {
                     let _ = fs::remove_file(&journal);
                 } else {
-                    eprintln!(
-                        "warning: exact herdr task-pane close could not be confirmed for {id}; retaining the presentation journal and attempting no workspace cleanup"
-                    );
+                    return Err(format!(
+                        "exact herdr task-pane close could not be confirmed for {id}; retained the presentation journal"
+                    ));
                 }
                 let _ = multplx_backend::herdr::clear_transition(state, &endpoint);
-                return Ok(());
+                return release_admission();
             }
         }
     }
-    let target = BackendTarget::new(backend, endpoint, Some(format!("mx-{id}")))
+    let provider_endpoint = if backend == BackendName::Tmux && !endpoint.contains(':') {
+        format!("broker:{endpoint}")
+    } else {
+        endpoint.clone()
+    };
+    let target = BackendTarget::new(backend, provider_endpoint, Some(format!("mx-{id}")))
         .map_err(|error_value| error_value.to_string())?;
     let outcome = match backend {
         BackendName::Tmux => multplx_backend::tmux::TmuxBackend::system().kill_verified(&target),
@@ -4662,18 +5293,15 @@ fn kill_teardown_endpoint(meta: &Path) -> Result<(), String> {
         let _ = multplx_backend::herdr::clear_transition(state, target.endpoint());
     }
     match outcome {
-        KillOutcome::Gone => Ok(()),
+        KillOutcome::Gone => release_admission(),
         KillOutcome::StillPresent => Err(format!(
             "runtime endpoint {} is still present after teardown kill",
             target.endpoint()
         )),
-        KillOutcome::Unknown => {
-            eprintln!(
-                "warning: runtime endpoint {} post-kill state could not be verified",
-                target.endpoint()
-            );
-            Ok(())
-        }
+        KillOutcome::Unknown => Err(format!(
+            "runtime endpoint {} post-kill state could not be verified; retained lifecycle state",
+            target.endpoint()
+        )),
     }
 }
 
@@ -4750,6 +5378,112 @@ fn run_fast_forward(args: &[OsString]) -> i32 {
         _ => {
             eprintln!("error: invalid fast-forward operation or arguments");
             2
+        }
+    }
+}
+
+fn run_parent_channel(args: &[OsString]) -> i32 {
+    const USAGE: &str = "Inspect and advance this home's durable parent channel.\n\nUsage:\n  mx parent-channel inspect\n  mx parent-channel relay [--limit <count>]\n  mx parent-channel answer --task <id> --question <id> --brief-revision <n> [--workflow-revision <id>] --answer-id <id> --answer <one-line-text>\n\nRelay consumes only MX_HOME's own parent inbox/outbox and preserves each original outcome identity. Missing parent homes remain queued. Human answers update only the exact current question/revision; delayed answers are retained as historical evidence.\n";
+    let values = args
+        .iter()
+        .map(|value| value.to_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>();
+    let Some(values) = values else {
+        eprintln!("error: parent-channel arguments must be UTF-8");
+        return 2;
+    };
+    if values.is_empty()
+        || values
+            .iter()
+            .any(|value| matches!(value.as_str(), "-h" | "--help"))
+    {
+        print!("{USAGE}");
+        return 0;
+    }
+    let (_, home, _) = active_paths();
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    let result = match values[0].as_str() {
+        "inspect" if values.len() == 1 => {
+            multplx_domain::lifecycle::parent_channel::inspect(&state)
+                .and_then(|health| serde_json::to_string_pretty(&health).map_err(|e| e.to_string()))
+        }
+        "relay" => {
+            let limit = match values.as_slice() {
+                [_] => 64,
+                [_, flag, value] if flag == "--limit" => match value.parse::<usize>() {
+                    Ok(value @ 1..=1024) => value,
+                    _ => {
+                        eprintln!("error: --limit must be an integer from 1 through 1024");
+                        return 2;
+                    }
+                },
+                _ => {
+                    eprint!("{USAGE}");
+                    return 2;
+                }
+            };
+            multplx_domain::lifecycle::parent_channel::relay(&state, limit)
+                .and_then(|health| serde_json::to_string_pretty(&health).map_err(|e| e.to_string()))
+        }
+        "answer" => {
+            let mut task = None;
+            let mut question = None;
+            let mut brief_revision = None;
+            let mut workflow_revision = None;
+            let mut answer_id = None;
+            let mut answer = None;
+            let mut index = 1;
+            while index < values.len() {
+                let Some(value) = values.get(index + 1).cloned() else {
+                    eprintln!("error: {} requires a value", values[index]);
+                    return 2;
+                };
+                match values[index].as_str() {
+                    "--task" => task = Some(value),
+                    "--question" => question = Some(value),
+                    "--brief-revision" => brief_revision = value.parse::<u64>().ok(),
+                    "--workflow-revision" => workflow_revision = Some(value),
+                    "--answer-id" => answer_id = Some(value),
+                    "--answer" => answer = Some(value),
+                    option => {
+                        eprintln!("error: unknown parent-channel answer option '{option}'");
+                        return 2;
+                    }
+                }
+                index += 2;
+            }
+            let (Some(task), Some(question), Some(brief_revision), Some(answer_id), Some(answer)) =
+                (task, question, brief_revision, answer_id, answer)
+            else {
+                eprint!("{USAGE}");
+                return 2;
+            };
+            multplx_domain::lifecycle::parent_channel::record_human_answer(
+                &state,
+                &task,
+                &question,
+                brief_revision,
+                workflow_revision.as_deref(),
+                &answer_id,
+                &answer,
+            )
+            .and_then(|record| serde_json::to_string_pretty(&record).map_err(|e| e.to_string()))
+        }
+        _ => {
+            eprint!("{USAGE}");
+            return 2;
+        }
+    };
+    match result {
+        Ok(output) => {
+            println!("{output}");
+            0
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            1
         }
     }
 }
@@ -7547,6 +8281,246 @@ mod tests {
                 daemon.to_str().unwrap()
             ])),
             1
+        );
+    }
+
+    #[test]
+    fn routed_spawn_authority_accepts_only_the_recorded_successor_home() {
+        use multplx_domain::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, qualified_task_id, write_meta,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let root_home = temp.path().join("root");
+        let old_home = temp.path().join("old-owner");
+        let old_state = temp.path().join("old-authority");
+        let successor_home = temp.path().join("successor-runtime");
+        for home in [&root_home, &old_home, &successor_home] {
+            fs::create_dir_all(home.join("state")).unwrap();
+        }
+        fs::create_dir(&old_state).unwrap();
+        let mut successor = TaskRecord::new(
+            "successor".into(),
+            AssignmentRole::SubOrchestrator,
+            ArtifactKind::Coordination,
+            true,
+            "root".into(),
+            format!("root-home:{}", root_home.display()),
+            root_home.to_string_lossy().into_owned(),
+        );
+        successor.private_home = true;
+        successor.persistent_home = Some(successor_home.to_string_lossy().into_owned());
+        fs::write(
+            root_home.join("state/successor.meta"),
+            write_meta("kind=daemon\n", &successor).unwrap(),
+        )
+        .unwrap();
+        let mut task = TaskRecord::new(
+            "work".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "successor".into(),
+            format!("root-home:{}", root_home.display()),
+            old_home.to_string_lossy().into_owned(),
+        );
+        task.parent_home = Some(root_home.to_string_lossy().into_owned());
+        task.parent_state = Some(root_home.join("state").to_string_lossy().into_owned());
+        task.owner_state = Some(old_state.to_string_lossy().into_owned());
+        task.owning_coordinator = Some(qualified_task_id(root_home.to_str().unwrap(), "successor"));
+        fs::write(
+            old_state.join("work.meta"),
+            write_meta("kind=delivery\n", &task).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            validate_routed_spawn_authority(&old_state, &successor_home, "work").unwrap(),
+            fs::canonicalize(&old_home).unwrap()
+        );
+        assert!(
+            validate_routed_spawn_authority(&old_state, &root_home, "work")
+                .unwrap_err()
+                .contains("owning coordinator home")
+        );
+    }
+
+    #[test]
+    fn routed_argument_parser_requires_one_absolute_authority_and_task() {
+        let plain = args(&["send", "work", "hello"]);
+        assert_eq!(routed_task_arguments(&plain, 1).unwrap(), (plain, None));
+        assert!(
+            routed_task_arguments(&args(&["work", "--authority-state"]), 0)
+                .unwrap_err()
+                .contains("requires one absolute path")
+        );
+        assert!(
+            routed_task_arguments(&args(&["work", "--authority-state", "relative"]), 0)
+                .unwrap_err()
+                .contains("one unique absolute path")
+        );
+        assert!(
+            routed_task_arguments(
+                &args(&[
+                    "work",
+                    "--authority-state",
+                    "/tmp/one",
+                    "--authority-state",
+                    "/tmp/two",
+                ]),
+                0,
+            )
+            .unwrap_err()
+            .contains("one unique absolute path")
+        );
+        assert!(
+            routed_task_arguments(&args(&["--authority-state", "/tmp/state"]), 0)
+                .unwrap_err()
+                .contains("requires a task id")
+        );
+    }
+
+    #[test]
+    fn routed_authority_rejects_missing_stale_and_incomplete_routes() {
+        use multplx_domain::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, qualified_task_id, write_meta,
+        };
+
+        fn persist(path: &Path, record: &TaskRecord) {
+            let kind = if record.private_home || record.persistent {
+                "daemon"
+            } else if record.artifact == ArtifactKind::Report {
+                "scout"
+            } else {
+                "delivery"
+            };
+            fs::write(path, write_meta(&format!("kind={kind}\n"), record).unwrap()).unwrap();
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let owner = temp.path().join("owner");
+        let authority = temp.path().join("authority");
+        let coordinator_runtime = temp.path().join("coordinator-runtime");
+        for path in [&root, &owner, &authority, &coordinator_runtime] {
+            fs::create_dir_all(path).unwrap();
+        }
+        fs::create_dir_all(root.join("state")).unwrap();
+        assert!(
+            validate_routed_spawn_authority(&temp.path().join("missing"), &root, "work")
+                .unwrap_err()
+                .contains("cannot resolve routed")
+        );
+        assert!(
+            validate_routed_spawn_authority(&authority, &temp.path().join("missing"), "work")
+                .unwrap_err()
+                .contains("initiating coordinator")
+        );
+        assert!(
+            validate_routed_spawn_authority(&authority, &root, "work")
+                .unwrap_err()
+                .contains("cannot read routed")
+        );
+
+        let root_id = format!("root-home:{}", root.display());
+        let mut task = TaskRecord::new(
+            "work".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            root_id.clone(),
+            root_id.clone(),
+            owner.to_string_lossy().into_owned(),
+        );
+        task.owner_state = None;
+        persist(&authority.join("work.meta"), &task);
+        assert!(
+            validate_routed_spawn_authority(&authority, &root, "work")
+                .unwrap_err()
+                .contains("owner state missing")
+        );
+        task.owner_state = Some(
+            temp.path()
+                .join("other-state")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        persist(&authority.join("work.meta"), &task);
+        assert!(
+            validate_routed_spawn_authority(&authority, &root, "work")
+                .unwrap_err()
+                .contains("does not match")
+        );
+        task.owner_state = Some(authority.to_string_lossy().into_owned());
+        task.owning_coordinator = None;
+        persist(&authority.join("work.meta"), &task);
+        assert!(
+            validate_routed_spawn_authority(&authority, &root, "work")
+                .unwrap_err()
+                .contains("no current owning")
+        );
+
+        task.owning_coordinator = Some(root_id.clone());
+        persist(&authority.join("work.meta"), &task);
+        assert_eq!(
+            validate_routed_spawn_authority(&authority, &root, "work").unwrap(),
+            fs::canonicalize(&owner).unwrap()
+        );
+        assert!(
+            validate_routed_spawn_authority(&authority, &coordinator_runtime, "work")
+                .unwrap_err()
+                .contains("owning root home")
+        );
+
+        task.owning_coordinator = Some(qualified_task_id(root.to_str().unwrap(), "coordinator"));
+        task.parent_id = Some("coordinator".into());
+        task.parent_state = None;
+        persist(&authority.join("work.meta"), &task);
+        assert!(
+            validate_routed_spawn_authority(&authority, &coordinator_runtime, "work")
+                .unwrap_err()
+                .contains("parent state missing")
+        );
+        task.parent_state = Some(root.join("state").to_string_lossy().into_owned());
+        persist(&authority.join("work.meta"), &task);
+        assert!(
+            validate_routed_spawn_authority(&authority, &coordinator_runtime, "work")
+                .unwrap_err()
+                .contains("cannot read owning coordinator")
+        );
+
+        let mut coordinator = TaskRecord::new(
+            "coordinator".into(),
+            AssignmentRole::SubOrchestrator,
+            ArtifactKind::Coordination,
+            false,
+            root_id.clone(),
+            root_id,
+            root.to_string_lossy().into_owned(),
+        );
+        coordinator.owner_state = Some(root.join("state").to_string_lossy().into_owned());
+        persist(&root.join("state/coordinator.meta"), &coordinator);
+        assert!(
+            validate_routed_spawn_authority(&authority, &coordinator_runtime, "work")
+                .unwrap_err()
+                .contains("no private runtime home")
+        );
+
+        let mut worker = TaskRecord::new(
+            "coordinator".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            coordinator.parent_id.clone().unwrap(),
+            coordinator.root_id.clone().unwrap(),
+            coordinator.owner_home.clone().unwrap(),
+        );
+        worker.owner_state = coordinator.owner_state.clone();
+        worker.persistent_home = Some(coordinator_runtime.to_string_lossy().into_owned());
+        persist(&root.join("state/coordinator.meta"), &worker);
+        assert!(
+            validate_routed_spawn_authority(&authority, &coordinator_runtime, "work")
+                .unwrap_err()
+                .contains("owning coordinator home")
         );
     }
 

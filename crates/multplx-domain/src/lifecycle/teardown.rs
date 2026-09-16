@@ -16,13 +16,15 @@ use multplx_core::locks::DirectoryLock;
 use multplx_core::process::SystemProcessProbe;
 use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::home_seed::resolved;
 use super::worktree::{command_output, command_output_with};
 
-pub const USAGE: &str = "usage: mx-teardown.sh <task-id> [--override <request-id>]\n";
+pub const USAGE: &str = "usage: mx teardown <task-id> [--stop-coordinator|--checkpoint|--stop-subtree|--retire-home] [--authority-state <absolute-path>]\n       mx teardown <task-id> --override <request-id> [--authority-state <absolute-path>]\n\n--authority-state routes a transferred task through its retained canonical record after validating the current owning coordinator.\n--stop-coordinator and --checkpoint stop only the verified coordinator endpoint and retain its children and home.\n--stop-subtree stops verified endpoints in the owned descendant tree and retains every task, worktree, outcome and home.\n--retire-home removes an idle home only after child ownership and parent-channel outcomes are settled.\nThe legacy one-argument form is retained as an alias for --retire-home.\n";
 const JOURNAL_PREFIX: &str = ".teardown.transaction.";
 const MARKER: &str = ".mx-daemon-home";
+const CONTROL_PREFIX: &str = ".coordinator-control.";
 
 #[derive(Clone, Debug)]
 pub struct Context {
@@ -46,6 +48,46 @@ struct Journal {
     stage: String,
     #[serde(default)]
     home_allocation: Option<super::home_seed::HomeBinding>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ControlReceipt {
+    version: u32,
+    id: String,
+    operation: String,
+    stage: String,
+    coordinator_attempt: String,
+    coordinator_endpoint: Option<String>,
+    targets: Vec<ControlTarget>,
+    stopped: Vec<String>,
+    reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ControlTarget {
+    path: String,
+    task_id: String,
+    attempt_id: Option<String>,
+    generation: Option<u64>,
+    endpoint: Option<String>,
+}
+
+fn control_target(path: &Path) -> Result<ControlTarget, String> {
+    let task_id = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or("coordinator control target has an invalid task id")?
+        .to_owned();
+    let raw = String::from_utf8(read_regular(path, "coordinator control target")?)
+        .map_err(|_| "coordinator control target is not UTF-8")?;
+    let record = super::subagent_model::read_meta(&task_id, &raw)?;
+    Ok(ControlTarget {
+        path: path.to_string_lossy().into_owned(),
+        task_id,
+        attempt_id: record.attempt.as_ref().map(|attempt| attempt.id.clone()),
+        generation: record.attempt.as_ref().map(|attempt| attempt.generation),
+        endpoint: record.runtime.endpoint.clone(),
+    })
 }
 
 fn error(status: i32, message: impl Into<String>) -> Output {
@@ -1368,6 +1410,199 @@ fn publish(path: &Path, journal: &Journal) -> Result<(), String> {
     atomic_replace(path, &bytes, 0o600).map_err(|error_value| error_value.to_string())
 }
 
+fn publish_control(path: &Path, receipt: &ControlReceipt) -> Result<(), String> {
+    let mut bytes = serde_json::to_vec(receipt).map_err(|error| error.to_string())?;
+    bytes.push(b'\n');
+    atomic_replace(path, &bytes, 0o600).map_err(|error| error.to_string())
+}
+
+fn collect_stop_targets(
+    context: &Context,
+    home: &Path,
+    targets: &mut Vec<PathBuf>,
+    visited: &mut std::collections::BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    if targets.len() >= 1024 {
+        return Err("REFUSED: coordinator subtree exceeds the bounded lifecycle limit".into());
+    }
+    let state = require_owned_directory(&home.join("state"), "coordinator child state")?;
+    if !visited.insert(state.clone()) {
+        return Err("REFUSED: coordinator subtree contains a home cycle".into());
+    }
+    let mut entries = fs::read_dir(&state)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("meta") {
+            continue;
+        }
+        let id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or("child task metadata name is not valid UTF-8")?;
+        TaskId::parse(id).map_err(|_| "child task metadata has an invalid id")?;
+        let raw = String::from_utf8(read_regular(&path, "child task metadata")?)
+            .map_err(|_| "child task metadata is not UTF-8")?;
+        let record = super::subagent_model::read_meta(id, &raw)?;
+        if !record.legacy_unknown
+            && record.owner_state.as_deref().map(Path::new) != Some(state.as_path())
+        {
+            return Err("REFUSED: child task metadata is owned by another state directory".into());
+        }
+        if let Some(child_home) = record.persistent_home.as_deref() {
+            let child_home = validate_home(context, id, Path::new(child_home))?;
+            collect_stop_targets(context, &child_home, targets, visited)?;
+        }
+        targets.push(path);
+    }
+    Ok(())
+}
+
+fn coordinator_control<F>(
+    context: &Context,
+    id: &str,
+    meta: &Path,
+    record: &super::subagent_model::TaskRecord,
+    operation: &str,
+    kill: &mut F,
+) -> Result<String, String>
+where
+    F: FnMut(&Path) -> Result<(), String>,
+{
+    use super::subagent_model::AssignmentRole;
+
+    if record.role != AssignmentRole::SubOrchestrator {
+        return Err(
+            "REFUSED: lifecycle coordinator controls require a sub-orchestrator assignment".into(),
+        );
+    }
+    let coordinator_attempt = record
+        .attempt
+        .as_ref()
+        .ok_or("coordinator attempt identity is unavailable")?;
+    let coordinator_endpoint = record.runtime.endpoint.clone();
+    let execution_key = format!(
+        "{:x}",
+        Sha256::digest(
+            coordinator_endpoint
+                .as_deref()
+                .unwrap_or("absent")
+                .as_bytes()
+        )
+    );
+    let receipt_path = context.state.join(format!(
+        "{CONTROL_PREFIX}{id}.{operation}.{}.{}.json",
+        coordinator_attempt.id,
+        &execution_key[..16]
+    ));
+    let mut receipt = if receipt_path.exists() {
+        let bytes = read_regular(&receipt_path, "coordinator control receipt")?;
+        let receipt: ControlReceipt = serde_json::from_slice(&bytes)
+            .map_err(|_| "malformed coordinator control receipt; retained".to_owned())?;
+        if receipt.version != 1
+            || receipt.id != id
+            || receipt.operation != operation
+            || receipt.coordinator_attempt != coordinator_attempt.id
+            || receipt.coordinator_endpoint != coordinator_endpoint
+        {
+            return Err("coordinator control receipt identity mismatch; retained".into());
+        }
+        receipt
+    } else {
+        let mut targets = Vec::new();
+        if operation == "stop-subtree" {
+            let home = record
+                .persistent_home
+                .as_deref()
+                .ok_or("REFUSED: coordinator has no private home for subtree control")?;
+            let home = validate_home(context, id, Path::new(home))?;
+            collect_stop_targets(
+                context,
+                &home,
+                &mut targets,
+                &mut std::collections::BTreeSet::new(),
+            )?;
+        }
+        targets.push(meta.to_path_buf());
+        let targets = targets
+            .iter()
+            .map(|target| control_target(target))
+            .collect::<Result<Vec<_>, _>>()?;
+        let receipt = ControlReceipt {
+            version: 1,
+            id: id.to_owned(),
+            operation: operation.to_owned(),
+            stage: "prepared".into(),
+            coordinator_attempt: coordinator_attempt.id.clone(),
+            coordinator_endpoint,
+            targets,
+            stopped: Vec::new(),
+            reason: None,
+        };
+        publish_control(&receipt_path, &receipt)?;
+        receipt
+    };
+    if receipt.stage == "committed" {
+        return Ok(format!("coordinator {id} {operation} already complete\n"));
+    }
+    for target in receipt.targets.clone() {
+        if receipt.stopped.contains(&target.path) {
+            continue;
+        }
+        let path = PathBuf::from(&target.path);
+        let current = control_target(&path)?;
+        if current.task_id != target.task_id
+            || current.attempt_id != target.attempt_id
+            || current.generation != target.generation
+            || current.endpoint != target.endpoint
+        {
+            receipt.stage = "uncertain".into();
+            receipt.reason = Some("target execution changed after control intent".into());
+            publish_control(&receipt_path, &receipt)?;
+            return Err(
+                "coordinator control target changed after intent; replacement was not stopped"
+                    .into(),
+            );
+        }
+        if let Err(error) = kill(&path) {
+            receipt.stage = "uncertain".into();
+            receipt.reason = Some(error.clone());
+            publish_control(&receipt_path, &receipt)?;
+            return Err(format!(
+                "coordinator {operation} could not verify endpoint stop; state and outcomes retained: {error}"
+            ));
+        }
+        let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+        let mut stopped = super::subagent_model::read_meta(&target.task_id, &raw)?;
+        stopped.runtime.endpoint = None;
+        stopped.runtime.session_id = None;
+        stopped.schedule.state = super::subagent_model::WorkState::WaitingExternal;
+        stopped.schedule.waiting_condition = Some(format!(
+            "endpoint stopped by coordinator lifecycle operation {operation}; explicit restart required"
+        ));
+        let raw_without_stopped_endpoint = raw
+            .lines()
+            .filter(|line| !line.starts_with("window=") && !line.starts_with("session_id="))
+            .map(|line| format!("{line}\n"))
+            .collect::<String>();
+        let updated = super::subagent_model::write_meta(&raw_without_stopped_endpoint, &stopped)?;
+        atomic_replace(&path, updated.as_bytes(), 0o600).map_err(|error| error.to_string())?;
+        receipt.stopped.push(target.path);
+        receipt.stage = "stopping".into();
+        receipt.reason = None;
+        publish_control(&receipt_path, &receipt)?;
+    }
+    receipt.stage = "committed".into();
+    publish_control(&receipt_path, &receipt)?;
+    Ok(format!(
+        "coordinator {id} {operation} complete; retained {} task record(s)\n",
+        receipt.targets.len()
+    ))
+}
+
 fn injected(point: &str) -> Result<(), String> {
     if env::var("MX_TEARDOWN_CRASH_AFTER").as_deref() == Ok(point) {
         std::process::exit(96);
@@ -1491,8 +1726,22 @@ fn execute<F>(args: &[OsString], context: &Context, mut kill: F) -> Result<Strin
 where
     F: FnMut(&Path) -> Result<(), String>,
 {
-    let [raw_id] = args else {
-        return Err(USAGE.trim_end().to_owned());
+    let (raw_id, operation) = match args {
+        [raw_id] => (raw_id, "retire-home"),
+        [raw_id, flag]
+            if matches!(
+                flag.to_str(),
+                Some("--stop-coordinator" | "--checkpoint" | "--stop-subtree" | "--retire-home")
+            ) =>
+        {
+            (
+                raw_id,
+                flag.to_str()
+                    .expect("matched UTF-8")
+                    .trim_start_matches("--"),
+            )
+        }
+        _ => return Err(USAGE.trim_end().to_owned()),
     };
     let id = raw_id.to_str().ok_or("task id is not valid UTF-8")?;
     crate::review_delivery::OperationalTaskId::parse(id.to_owned())
@@ -1518,6 +1767,16 @@ where
             error_value
         }
     })?;
+    if matches!(
+        operation,
+        "stop-coordinator" | "checkpoint" | "stop-subtree"
+    ) {
+        let record = super::subagent_model::read_meta(
+            id,
+            &fs::read_to_string(&meta).map_err(|error| error.to_string())?,
+        )?;
+        return coordinator_control(context, id, &meta, &record, operation, &mut kill);
+    }
     if values.get("kind").map(String::as_str).unwrap_or("delivery") != "daemon" {
         let mut endpoint_stopped = false;
         validate_pr_artifacts(&context.state, id)?;
@@ -1564,6 +1823,12 @@ where
         .or_else(|| values.get("worktree"))
         .ok_or("daemon metadata has no home or worktree")?;
     let home = validate_home(context, id, Path::new(raw_home))?;
+    let pending_outcomes = super::parent_channel::pending_outcomes(&home.join("state"))?;
+    if pending_outcomes > 0 {
+        return Err(format!(
+            "REFUSED: coordinator {id} has {pending_outcomes} undelivered parent outcome(s); deliver or durably transfer them before retirement"
+        ));
+    }
     if let Some(child) = has_children(&home)? {
         return Err(format!(
             "REFUSED: daemon {id} still has in-flight work in {}. Found {}.",
@@ -1717,6 +1982,12 @@ where
             .or_else(|| values.get("worktree"))
             .ok_or("daemon metadata has no home")?;
         let home = validate_home(context, id, Path::new(raw_home))?;
+        let pending_outcomes = super::parent_channel::pending_outcomes(&home.join("state"))?;
+        if pending_outcomes > 0 {
+            return Err(format!(
+                "REFUSED: coordinator {id} has {pending_outcomes} undelivered parent outcome(s); override cannot discard them"
+            ));
+        }
         validate_pr_artifacts(&context.state, id)?;
         let _ = validate_children(context, &home)?;
         cleanup_children(context, &home, &mut kill)?;
@@ -1819,12 +2090,53 @@ mod tests {
         task.home_allocation = Some(token);
         fs::write(
             path,
-            format!(
-                "{raw}canonical_model={}\n",
-                serde_json::to_string(&task).unwrap()
-            ),
+            super::super::subagent_model::write_meta(&raw, &task).unwrap(),
         )
         .unwrap();
+    }
+
+    fn coordinator_record(
+        context: &Context,
+        id: &str,
+        home: &Path,
+        endpoint: &str,
+    ) -> super::super::subagent_model::TaskRecord {
+        use super::super::subagent_model::{ArtifactKind, AssignmentRole, TaskRecord, WorkState};
+
+        seed_home(home, id);
+        for name in ["data", "state", "config", "projects"] {
+            fs::create_dir_all(home.join(name)).unwrap();
+        }
+        let owner = fs::canonicalize(&context.home).unwrap();
+        let mut record = TaskRecord::new(
+            id.into(),
+            AssignmentRole::SubOrchestrator,
+            ArtifactKind::Report,
+            true,
+            "root".into(),
+            format!("root-home:{}", context.root.display()),
+            owner.to_string_lossy().into_owned(),
+        );
+        record.private_home = true;
+        record.persistent_home = Some(home.to_string_lossy().into_owned());
+        record.runtime.provider = "fixture".into();
+        record.runtime.endpoint = Some(endpoint.into());
+        record.schedule.state = WorkState::Running;
+        let raw = format!(
+            "kind=daemon\nhome={}\nwindow={endpoint}\nbackend=fixture\n",
+            home.display()
+        );
+        fs::write(
+            context.state.join(format!("{id}.meta")),
+            super::super::subagent_model::write_meta(&raw, &record).unwrap(),
+        )
+        .unwrap();
+        bind_private_home(context, id, home);
+        super::super::subagent_model::read_meta(
+            id,
+            &fs::read_to_string(context.state.join(format!("{id}.meta"))).unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -3369,5 +3681,349 @@ esac
             ]
         ));
         assert!(!listed_worktree(&context.root, &clone).unwrap());
+    }
+
+    #[test]
+    fn coordinator_stop_restart_stop_binds_each_execution_endpoint() {
+        use super::super::subagent_model::{WorkState, read_meta, write_meta};
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("coordinator-home");
+        coordinator_record(&context, "coord", &home, "endpoint-a");
+        fs::write(home.join("state/independent-child.meta"), "active-child\n").unwrap();
+        let meta = context.state.join("coord.meta");
+        let stopped = std::sync::Mutex::new(Vec::new());
+        let first = run(
+            &["coord".into(), "--stop-coordinator".into()],
+            &context,
+            |path| {
+                let record = read_meta("coord", &fs::read_to_string(path).unwrap()).unwrap();
+                stopped
+                    .lock()
+                    .unwrap()
+                    .push(record.runtime.endpoint.unwrap());
+                Ok(())
+            },
+        );
+        assert_eq!(first.status, 0, "{}", first.stderr);
+        let raw = fs::read_to_string(&meta).unwrap();
+        let mut record = read_meta("coord", &raw).unwrap();
+        assert!(record.runtime.endpoint.is_none());
+        assert_eq!(record.schedule.state, WorkState::WaitingExternal);
+
+        record.runtime.endpoint = Some("endpoint-b".into());
+        record.runtime.session_id = Some("session-b".into());
+        record.schedule.state = WorkState::Running;
+        record.schedule.waiting_condition = None;
+        let raw = raw
+            .lines()
+            .filter(|line| !line.starts_with("window="))
+            .map(|line| format!("{line}\n"))
+            .collect::<String>();
+        fs::write(&meta, write_meta(&raw, &record).unwrap()).unwrap();
+        let second = run(
+            &["coord".into(), "--stop-coordinator".into()],
+            &context,
+            |path| {
+                let record = read_meta("coord", &fs::read_to_string(path).unwrap()).unwrap();
+                stopped
+                    .lock()
+                    .unwrap()
+                    .push(record.runtime.endpoint.unwrap());
+                Ok(())
+            },
+        );
+        assert_eq!(second.status, 0, "{}", second.stderr);
+        assert_eq!(&*stopped.lock().unwrap(), &["endpoint-a", "endpoint-b"]);
+        assert_eq!(
+            fs::read_to_string(home.join("state/independent-child.meta")).unwrap(),
+            "active-child\n"
+        );
+        assert_eq!(
+            fs::read_dir(&context.state)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".coordinator-control.coord.stop-coordinator"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn subtree_control_never_kills_a_replacement_after_intent() {
+        use super::super::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, read_meta, write_meta,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("coordinator-home");
+        coordinator_record(&context, "coord", &home, "coordinator-old");
+        let owner = fs::canonicalize(&home).unwrap();
+        let mut child = TaskRecord::new(
+            "child".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "coord".into(),
+            format!("root-home:{}", context.root.display()),
+            owner.to_string_lossy().into_owned(),
+        );
+        child.runtime.provider = "fixture".into();
+        child.runtime.endpoint = Some("child-old".into());
+        let child_meta = home.join("state/child.meta");
+        fs::write(&child_meta, write_meta("kind=delivery\n", &child).unwrap()).unwrap();
+        let coordinator_meta = context.state.join("coord.meta");
+        let killed = std::sync::Mutex::new(Vec::new());
+        let result = run(
+            &["coord".into(), "--stop-subtree".into()],
+            &context,
+            |path| {
+                let id = path.file_stem().unwrap().to_str().unwrap();
+                let record = read_meta(id, &fs::read_to_string(path).unwrap()).unwrap();
+                killed
+                    .lock()
+                    .unwrap()
+                    .push(record.runtime.endpoint.clone().unwrap());
+                if id == "child" {
+                    let raw = fs::read_to_string(&coordinator_meta).unwrap();
+                    let mut replacement = read_meta("coord", &raw).unwrap();
+                    replacement.runtime.endpoint = Some("coordinator-new".into());
+                    let raw = raw
+                        .lines()
+                        .filter(|line| !line.starts_with("window="))
+                        .map(|line| format!("{line}\n"))
+                        .collect::<String>();
+                    fs::write(&coordinator_meta, write_meta(&raw, &replacement).unwrap()).unwrap();
+                }
+                Ok(())
+            },
+        );
+        assert_eq!(result.status, 1);
+        assert!(
+            result.stderr.contains("replacement was not stopped"),
+            "{}",
+            result.stderr
+        );
+        assert_eq!(&*killed.lock().unwrap(), &["child-old"]);
+        assert_eq!(
+            read_meta("coord", &fs::read_to_string(coordinator_meta).unwrap())
+                .unwrap()
+                .runtime
+                .endpoint
+                .as_deref(),
+            Some("coordinator-new")
+        );
+    }
+
+    #[test]
+    fn retirement_and_override_retain_home_when_parent_outcomes_are_unsettled() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("coordinator-home");
+        coordinator_record(&context, "coord", &home, "coordinator");
+        fs::create_dir_all(home.join("state/parent-outbox")).unwrap();
+        let pending = super::super::parent_channel::ParentOutcome {
+            schema_version: super::super::parent_channel::SCHEMA_VERSION,
+            event: super::super::subagent_model::MessageEnvelope {
+                schema_version: super::super::subagent_model::SCHEMA_VERSION,
+                message_id: "unsettled".into(),
+                task_id: "coord".into(),
+                task_home: Some(home.to_string_lossy().into_owned()),
+                parent_home: Some(context.home.to_string_lossy().into_owned()),
+                attempt: None,
+                parent_id: Some("root".into()),
+                sender: "coord".into(),
+                recipient: "root".into(),
+                brief_revision: Some(1),
+                kind: "done".into(),
+                correlation_id: "outcome-1".into(),
+                created_at: "2026-09-15T00:00:00Z".into(),
+                summary: "unfinished delivery".into(),
+                artifact: None,
+                acknowledgement: super::super::subagent_model::Acknowledgement::Pending,
+            },
+            route: super::super::parent_channel::RouteBinding {
+                sender_id: "coord".into(),
+                sender_home: home.to_string_lossy().into_owned(),
+                sender_state: home.join("state").to_string_lossy().into_owned(),
+                recipient_id: "root".into(),
+                recipient_home: context.home.to_string_lossy().into_owned(),
+                recipient_state: context.state.to_string_lossy().into_owned(),
+                root_id: format!("root-home:{}", context.root.display()),
+                attempt_id: "attempt-1".into(),
+                attempt_generation: 1,
+                brief_revision: 1,
+                scope_revision: Some(1),
+                assignment_generation: 1,
+                recipient_attempt_id: None,
+                recipient_attempt_generation: None,
+                recipient_scope_revision: None,
+                recipient_assignment_generation: None,
+                recipient_domain_id: None,
+            },
+            hops: Vec::new(),
+            route_repairs: Vec::new(),
+            created_epoch: 1,
+            delivery: super::super::parent_channel::DeliveryState::Pending,
+            delivered_epoch: None,
+        };
+        fs::write(
+            home.join("state/parent-outbox/unsettled.json"),
+            serde_json::to_vec(&pending).unwrap(),
+        )
+        .unwrap();
+
+        let ordinary = run(&["coord".into(), "--retire-home".into()], &context, |_| {
+            panic!("unsettled outcome must block endpoint teardown")
+        });
+        assert_eq!(ordinary.status, 1);
+        assert!(home.exists());
+        assert!(context.state.join("coord.meta").exists());
+
+        let override_result = run_override("coord", &context, |_| {
+            panic!("override must not discard unsettled parent outcome")
+        });
+        assert_eq!(override_result.status, 1);
+        assert!(home.join("state/parent-outbox/unsettled.json").exists());
+    }
+
+    #[test]
+    fn coordinator_control_receipt_recovers_exact_execution_and_rejects_tampering() {
+        use super::super::subagent_model::read_meta;
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("coordinator-home");
+        coordinator_record(&context, "coord", &home, "endpoint-a");
+        let meta = context.state.join("coord.meta");
+        let record = read_meta("coord", &fs::read_to_string(&meta).unwrap()).unwrap();
+        let first =
+            coordinator_control(&context, "coord", &meta, &record, "checkpoint", &mut |_| {
+                Err("provider observation unavailable".into())
+            })
+            .unwrap_err();
+        assert!(first.contains("could not verify endpoint stop"));
+        assert_eq!(
+            read_meta("coord", &fs::read_to_string(&meta).unwrap())
+                .unwrap()
+                .runtime
+                .endpoint
+                .as_deref(),
+            Some("endpoint-a")
+        );
+        let receipt = fs::read_dir(&context.state)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".coordinator-control.coord.checkpoint")
+            })
+            .unwrap();
+        let uncertain: ControlReceipt =
+            serde_json::from_slice(&fs::read(&receipt).unwrap()).unwrap();
+        assert_eq!(uncertain.stage, "uncertain");
+        assert_eq!(
+            uncertain.reason.as_deref(),
+            Some("provider observation unavailable")
+        );
+
+        let recovered =
+            coordinator_control(&context, "coord", &meta, &record, "checkpoint", &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        assert!(recovered.contains("checkpoint complete"));
+        let replay =
+            coordinator_control(&context, "coord", &meta, &record, "checkpoint", &mut |_| {
+                panic!("committed receipt must not stop twice")
+            })
+            .unwrap();
+        assert!(replay.contains("already complete"));
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("coordinator-home");
+        coordinator_record(&context, "coord", &home, "endpoint-b");
+        let meta = context.state.join("coord.meta");
+        let record = read_meta("coord", &fs::read_to_string(&meta).unwrap()).unwrap();
+        coordinator_control(
+            &context,
+            "coord",
+            &meta,
+            &record,
+            "stop-coordinator",
+            &mut |_| Err("retain receipt".into()),
+        )
+        .unwrap_err();
+        let receipt = fs::read_dir(&context.state)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".coordinator-control.coord.stop-coordinator")
+            })
+            .unwrap();
+        fs::write(&receipt, "not-json\n").unwrap();
+        assert!(
+            coordinator_control(
+                &context,
+                "coord",
+                &meta,
+                &record,
+                "stop-coordinator",
+                &mut |_| panic!("malformed receipt must fail before stop"),
+            )
+            .unwrap_err()
+            .contains("malformed coordinator control receipt")
+        );
+    }
+
+    #[test]
+    fn subtree_control_rejects_unreadable_and_foreign_child_authority_before_stopping() {
+        use super::super::subagent_model::{ArtifactKind, AssignmentRole, TaskRecord, write_meta};
+
+        let temp = tempfile::tempdir().unwrap();
+        let context = prepare_context(temp.path());
+        let home = temp.path().join("coordinator-home");
+        coordinator_record(&context, "coord", &home, "endpoint");
+        fs::write(home.join("state/child.meta"), [0xff]).unwrap();
+        let unreadable = run(&["coord".into(), "--stop-subtree".into()], &context, |_| {
+            panic!("unreadable child must fail before stop")
+        });
+        assert_eq!(unreadable.status, 1);
+        assert!(unreadable.stderr.contains("not UTF-8"));
+
+        fs::remove_file(home.join("state/child.meta")).unwrap();
+        let mut child = TaskRecord::new(
+            "child".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "coord".into(),
+            format!("root-home:{}", context.root.display()),
+            home.to_string_lossy().into_owned(),
+        );
+        child.owner_state = Some(context.state.to_string_lossy().into_owned());
+        fs::write(
+            home.join("state/child.meta"),
+            write_meta("kind=delivery\n", &child).unwrap(),
+        )
+        .unwrap();
+        let foreign = run(&["coord".into(), "--stop-subtree".into()], &context, |_| {
+            panic!("foreign child must fail before stop")
+        });
+        assert_eq!(foreign.status, 1);
+        assert!(foreign.stderr.contains("owned by another state directory"));
     }
 }

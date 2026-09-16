@@ -187,6 +187,10 @@ pub struct TaskRecord {
     pub role: AssignmentRole,
     pub artifact: ArtifactKind,
     pub persistent: bool,
+    /// The assignment owns an isolated operational home. This is independent
+    /// of whether it remains registered after its current bounded work ends.
+    #[serde(default)]
+    pub private_home: bool,
     pub parent_id: Option<String>,
     pub root_id: Option<String>,
     pub owner_home: Option<String>,
@@ -245,6 +249,7 @@ impl TaskRecord {
             role,
             artifact,
             persistent,
+            private_home: persistent,
             parent_id: Some(parent_id),
             root_id: Some(root_id),
             parent_home: Some(owner_home.clone()),
@@ -414,14 +419,14 @@ impl TaskRecord {
         }
 
         if let Some(home) = &self.home_allocation
-            && (!self.persistent
+            && (!(self.private_home || self.persistent)
                 || home.id != self.task_id
                 || home.generation == 0
                 || home.lease_id.is_empty()
                 || self.owner_home.as_deref().map(Path::new) != Some(home.owner_home.as_path())
                 || self.persistent_home.as_deref().map(Path::new) != Some(home.path.as_path()))
         {
-            return Err("private home allocation does not match persistent task ownership".into());
+            return Err("private home allocation does not match task ownership".into());
         }
         if let Some(allocation) = &self.allocation {
             if allocation.persistent != self.persistent
@@ -595,7 +600,7 @@ pub fn read_meta(task_id: &str, text: &str) -> Result<TaskRecord, String> {
         }
         record.validate()?;
         if let Some(kind) = fields.get("kind") {
-            let expected = if record.persistent {
+            let expected = if record.private_home || record.persistent {
                 "daemon"
             } else if record.artifact == ArtifactKind::Report {
                 "scout"
@@ -879,7 +884,20 @@ impl MessageEnvelope {
         );
         if !task_level
             && !crate::supervision::REPORT_STATES.contains(&self.kind.as_str())
-            && !matches!(self.kind.as_str(), "result" | "completion" | "evidence")
+            && !matches!(
+                self.kind.as_str(),
+                "result"
+                    | "completion"
+                    | "evidence"
+                    | "research-available"
+                    | "implementation-ready"
+                    | "pr-ready"
+                    | "publication-failed"
+                    | "evidence-changed"
+                    | "human-decision"
+                    | "human-merge"
+                    | "final-disposition"
+            )
         {
             return Err("unknown message kind".into());
         }
@@ -937,7 +955,7 @@ pub fn require_writer_version(state: &Path) -> Result<(), String> {
     }
 }
 
-pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id>\n       mx task-model validate\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>]\n\nReads and revisions use the existing task .meta authority. Revisions preserve historical briefs and attempts; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
+pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--authority-state <absolute-path>]\n       mx task-model validate\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nReads and revisions use the existing task .meta authority. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs and attempts; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
 
 fn record_state(record: &TaskRecord) -> Result<std::path::PathBuf, String> {
     let path = record
@@ -1209,7 +1227,7 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
         .filter(|line| !line.starts_with("kind="))
         .map(|line| format!("{line}\n"))
         .collect::<String>();
-    let kind = if record.persistent {
+    let kind = if record.private_home || record.persistent {
         "daemon"
     } else if artifact == ArtifactKind::Report {
         "scout"
@@ -1328,6 +1346,24 @@ mod tests {
         let mut value = serde_json::to_value(record).unwrap();
         value["unknown_field"] = true.into();
         assert!(read_meta("task", &format!("canonical_model={value}\n")).is_err());
+    }
+
+    #[test]
+    fn canonical_persistent_records_from_before_private_home_field_remain_readable() {
+        let mut record = task("persistent");
+        record.persistent = true;
+        record.private_home = true;
+        record.persistent_home = Some("/private/persistent".into());
+        let mut value = serde_json::to_value(&record).unwrap();
+        value.as_object_mut().unwrap().remove("private_home");
+        let decoded = read_meta(
+            "persistent",
+            &format!("schema_version=2\ncanonical_model={value}\n"),
+        )
+        .unwrap();
+        assert!(decoded.persistent);
+        assert!(!decoded.private_home);
+        decoded.validate().unwrap();
     }
     #[test]
     fn replacement_retains_old_execution_and_resume_requires_actual_identity() {

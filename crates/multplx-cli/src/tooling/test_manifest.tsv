@@ -30,6 +30,7 @@ tests/mx-claude-stop-autoarm.test.sh	none
 tests/mx-codex-continuity-live-e2e.test.sh	live-harness
 tests/mx-composer-ghost.test.sh	none
 tests/mx-composer-lib.test.sh	none
+tests/mx-coordinator-spawn.test.sh	none
 tests/mx-cursor-adapter.test.sh	none
 tests/mx-cursor-live-e2e.test.sh	live-harness
 tests/mx-daemon-harness-model-resolution.test.sh	none
