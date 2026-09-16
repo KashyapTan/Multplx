@@ -5,6 +5,7 @@
 Status: complete; assigned implementation and acceptance checks passed on 2026-09-16 (UTC).
 Work started on branch `codex/lean-redesign-phase-07` from clean merged prerequisite `c3f66e76b7eaf7323dc7837e02b4a90befc802c8`.
 The implementation revision is `14398800d66f295a6a366d01fd2c61bf6179699c`.
+CI follow-up revision `8bbbfbfdf792f063eeabdcf2219cce5cbeac8ce9` makes the publication fixture honor the injected instrumented runtime instead of requiring a separate release binary.
 The [phase plan](07-opt-in-review-tools.html) allocates this work and [porting.md](../../porting.md#accepted-architecture-contract) owns the shared contracts.
 
 Inspection confirmed the implemented Phase 02 task, attempt and brief identity, Phase 03 allocation ownership, Phase 05 parent outcomes and Phase 06 revision-bound delivery evidence before Phase 07 was changed.
@@ -67,6 +68,7 @@ The temporary Linux container and its intermediate image were removed after vali
 | `cargo build --release --workspace --locked` | Passed on macOS and Linux. |
 | `target/release/mx test-run --check-coverage` | Passed on both platforms with 129 fixtures, 108 accelerated, 11 serial and ten Herdr; this is fixture inventory rather than instrumented line coverage. |
 | `target/release/mx test-run --all --jobs auto` | Passed on macOS with 129 fixtures, zero failures, eight declared gate skips and 325,367 ms; passed on Linux with 129 fixtures, zero failures, 16 declared gate skips and 185,864 ms. |
+| CI-equivalent `cargo llvm-cov` 93 percent line gate | Passed after the injected-runtime fix with 93.22 percent line coverage across 63,754 lines and 4,323 missed lines. |
 | `target/release/mx doc-audience-check` | Passed after final status and evidence updates with 84 maintained surfaces and 435 local links. |
 | `git diff --check` | Passed before each commit. |
 
@@ -74,6 +76,8 @@ The first Linux run used the distribution Node 20 executable and failed only the
 Both fixtures passed individually and the complete 129-fixture suite passed after the container was corrected to the repository-supported Node 24.14.1 runtime.
 A process-reaping unit also demonstrated that a container without an init subreaper retains a killed zombie; the focused test and complete Rust suite passed under `tini -s`, matching a correctly initialized Linux runtime.
 Those environment-mismatch failures are not counted as passing evidence.
+The first PR coverage job exposed four publication-fixture helper calls that bypassed `MX_RUST_BIN` and attempted to execute a nonexistent release binary inside the instrumented-only job.
+The fixture now uses the established injected-runtime contract, passes with both release and explicitly injected debug binaries, and passes the exact CI coverage command and threshold.
 
 The macOS full suite exercised the installed Herdr integration where available.
 Its eight declared skips were unavailable or explicitly opt-in cmux/provider/Pi integration gates, while Linux additionally lacked Herdr.
