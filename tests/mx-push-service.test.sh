@@ -154,12 +154,12 @@ canonicalize_task() {
   $REAL_GIT -C "$case_dir/project" remote set-url origin "$remote_url"
   mv "$meta" "$meta.hold"
   binding=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/target/release/mx" project register "$case_dir/project") \
+    "$MX_RUST_BIN" project register "$case_dir/project") \
     || fail 'project fixture registration failed'
   mv "$meta.hold" "$meta"
   $REAL_GIT -C "$case_dir/project" remote set-url origin "$local_origin"
   model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/target/release/mx" task-model inspect task-x1) || fail 'legacy fixture inspect failed'
+    "$MX_RUST_BIN" task-model inspect task-x1) || fail 'legacy fixture inspect failed'
   root="root-home:$case_dir"
   model=$(printf '%s' "$model" | jq -c --argjson binding "$binding" \
     --arg home "$case_dir" --arg state "$case_dir/state" --arg root "$root" '
@@ -396,7 +396,7 @@ test_direct_registration_cannot_rewind_current_revision() {
   assert_grep 'differs from the current delivery revision' "$case_dir/err" \
     'stale direct registration refusal was unclear'
   model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/target/release/mx" task-model inspect task-x1) || fail 'stale registration inspect failed'
+    "$MX_RUST_BIN" task-model inspect task-x1) || fail 'stale registration inspect failed'
   [ "$(printf '%s' "$model" | jq -r '.delivery.current_commit')" = "$old_head" ] \
     || fail 'stale registration replaced current delivery revision'
   if printf '%s' "$model" | jq -e --arg head "$new_head" \
@@ -490,7 +490,7 @@ test_task_bound_origin_and_pr_repository_are_enforced() {
   $REAL_GIT -C "$case_dir/project" worktree add -q -b mx/foreign-allocation \
     "$case_dir/foreign-wt" main
   model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/target/release/mx" task-model inspect task-x1) || fail 'allocation fixture inspect failed'
+    "$MX_RUST_BIN" task-model inspect task-x1) || fail 'allocation fixture inspect failed'
   model=$(printf '%s' "$model" | jq -c --arg path "$case_dir/foreign-wt" '.allocation.path=$path')
   sed '/^canonical_model=/d' "$case_dir/state/task-x1.meta" > "$case_dir/meta"
   printf 'canonical_model=%s\n' "$model" >> "$case_dir/meta"
