@@ -99,6 +99,26 @@ cargo llvm-cov --locked --workspace --all-targets \
   --fail-under-lines 93
 ```
 
+### PR CI fixture correction
+
+The initial PR run [35042199323](https://github.com/KashyapTan/Multplx/actions/runs/35042199323) passed ten jobs, including Linux Rust and the unchanged line-coverage gate, but failed the macOS Rust job in `phase05_transfer`.
+The final routed transfer inherited the host `PATH` and omitted `MX_TMUX_STATE`, so endpoint reconciliation used host tmux for an endpoint created by the fixture's fake tmux.
+The correction supplies the same fake environment for launch and final transfer and asserts the fake endpoint's transition to stopped plus cleared canonical endpoint/session fields.
+Production endpoint verification, timeouts and CI gates are unchanged.
+These checks use a mocked tmux transport; they do not add live provider evidence.
+The prior combined-tree fingerprints identify the original validation snapshot, before this test-only correction.
+
+| Check | Result |
+| --- | --- |
+| `cargo test --locked -p multplx-cli --test phase05_transfer` | Passed: one test, zero failures. |
+| `for iteration in 1 2 3 4 5; do cargo test --locked -q -p multplx-cli --test phase05_transfer || exit 1; done` | Passed five of five repetitions before adding the explicit live-marker precondition. |
+| `cargo test --locked -p multplx-cli --test phase05_transfer -- --nocapture` | Passed after the final marker-precondition assertion: one test, zero failures. |
+| `cargo clippy --locked -p multplx-cli --test phase05_transfer -- -D warnings` | Passed. |
+| `cargo fmt --all -- --check` and `git diff --check` | Passed. |
+| `target/release/mx doc-audience-check` | Passed after this evidence update: 82 surfaces and 423 local links. |
+
+This follow-up records local validation; hosted validation is tracked by the [PR checks](https://github.com/KashyapTan/Multplx/pull/41/checks).
+
 ### Platform and live-test limits
 
 The macOS shell runner reported eight gated skips: the optional cmux smoke, authenticated Claude/Codex/Cursor/launcher/Pi live fixtures, the Pi/Herdr marker trial and the Pi typecheck because `tsc` was unavailable.

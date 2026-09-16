@@ -299,6 +299,7 @@ esac
         "{}",
         String::from_utf8_lossy(&spawned.stderr)
     );
+    assert!(!fake.join("dead").exists());
     let resumed = read_meta(
         "work",
         &fs::read_to_string(old.join("state/work.meta")).unwrap(),
@@ -347,6 +348,8 @@ esac
         ])
         .env("MX_HOME", &successor)
         .env("MX_ROOT_OVERRIDE", &root)
+        .env("MX_TMUX_STATE", &fake)
+        .env("PATH", &path)
         .output()
         .unwrap();
     assert!(
@@ -359,6 +362,9 @@ esac
         &fs::read_to_string(old.join("state/work.meta")).unwrap(),
     )
     .unwrap();
+    assert!(fake.join("dead").is_file());
+    assert!(returned.runtime.endpoint.is_none());
+    assert!(returned.runtime.session_id.is_none());
     assert_eq!(returned.attempt.as_ref().unwrap().generation, 4);
     assert_eq!(
         returned.owning_coordinator.as_deref(),
