@@ -255,7 +255,7 @@ fn encode_relative_path(path: &Path) -> Result<String> {
 fn inject_review_surface(html: &str, artifact: &Path, root: &Path, token: &str) -> Result<String> {
     let relative = artifact
         .strip_prefix(root)
-        .map_err(|_| ServiceError::new("artifact must be inside the Multplx root"))?;
+        .map_err(|_| ServiceError::new("artifact must be inside the selected project root"))?;
     let directory = relative.parent().unwrap_or_else(|| Path::new(""));
     let suffix = if directory.as_os_str().is_empty() {
         String::new()
@@ -329,17 +329,30 @@ struct ServerContext {
     artifact_directory: PathBuf,
     asset_directory: PathBuf,
     token: String,
+    expected_artifact_sha256: String,
     shutdown: Arc<std::sync::atomic::AtomicBool>,
     runtime: Mutex<Runtime>,
 }
 
 impl ServerContext {
+    fn read_review_artifact(&self) -> Result<String> {
+        let bytes = fs::read(&self.artifact)
+            .map_err(|error| ServiceError::new(format!("could not read artifact: {error}")))?;
+        if sha256_hex(&bytes) != self.expected_artifact_sha256 {
+            return Err(ServiceError::new(
+                "artifact changed after review start; stop and explicitly review the new revision",
+            ));
+        }
+        String::from_utf8(bytes)
+            .map_err(|error| ServiceError::new(format!("artifact is not valid UTF-8: {error}")))
+    }
+
     fn handle(&self, request: Request) -> (Response, bool) {
         self.runtime.lock().expect("runtime").last_request = Instant::now();
         let raw_path = request.target.split('?').next().unwrap_or("/");
         if request.method == "GET" && raw_path == "/" {
-            let result = fs::read_to_string(&self.artifact)
-                .map_err(|error| ServiceError::new(format!("could not read artifact: {error}")))
+            let result = self
+                .read_review_artifact()
                 .and_then(|html| {
                     inject_review_surface(&html, &self.artifact, &self.root, &self.token)
                 })
@@ -419,10 +432,10 @@ impl ServerContext {
     }
 
     fn resolve_asset(&self, raw_path: &str) -> Result<PathBuf> {
-        let lexical = match raw_path {
-            "/__vplan/sdk.js" => self.asset_directory.join("sdk.js"),
-            "/__vplan/sdk.css" => self.asset_directory.join("sdk.css"),
-            "/__vplan/mermaid.min.js" => self.asset_directory.join("mermaid.min.js"),
+        let (lexical, project_asset) = match raw_path {
+            "/__vplan/sdk.js" => (self.asset_directory.join("sdk.js"), false),
+            "/__vplan/sdk.css" => (self.asset_directory.join("sdk.css"), false),
+            "/__vplan/mermaid.min.js" => (self.asset_directory.join("mermaid.min.js"), false),
             value if value.starts_with("/__vplan/root/") => {
                 let suffix = &value["/__vplan/root/".len()..];
                 let mut relative = PathBuf::new();
@@ -434,16 +447,20 @@ impl ServerContext {
                         || decoded == ".."
                         || decoded.contains(['/', '\0'])
                     {
-                        return Err(ServiceError::new("asset path escapes the Multplx root"));
+                        return Err(ServiceError::new(
+                            "asset path escapes the selected project root",
+                        ));
                     }
                     relative.push(decoded);
                 }
-                self.root.join(relative)
+                (self.root.join(relative), true)
             }
             _ => return Err(ServiceError::new("not found")),
         };
-        if !is_within(&self.root, &lexical) {
-            return Err(ServiceError::new("asset path escapes the Multplx root"));
+        if project_asset && !is_within(&self.root, &lexical) {
+            return Err(ServiceError::new(
+                "asset path escapes the selected project root",
+            ));
         }
         let canonical = fs::canonicalize(&lexical).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
@@ -467,8 +484,7 @@ impl ServerContext {
         if std::env::var("MX_VPLAN_CONFIRM_KILL_POINT").as_deref() == Ok("before-write") {
             std::process::abort();
         }
-        let html = fs::read_to_string(&self.artifact)
-            .map_err(|error| ServiceError::new(format!("could not read artifact: {error}")))?;
+        let html = self.read_review_artifact()?;
         let (merged, comments) = merge_comment_block(&html, &incoming)?;
         if merged != html {
             let mode = fs::metadata(&self.artifact)
@@ -521,31 +537,48 @@ fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
 }
 
 pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
-    if args.len() != 7 || args.first().and_then(|value| value.to_str()) != Some("--serve") {
+    if args.len() != 9 || args.first().and_then(|value| value.to_str()) != Some("--serve") {
         return Err(ServiceError::usage(
-            "usage: mx services vplan-server --serve <artifact> <root> <run-record> <lock> <token> <first-port>",
+            "usage: mx services vplan-server --serve <artifact> <artifact-root> <asset-root> <run-record> <lock> <token> <artifact-sha256> <first-port>",
         ));
     }
     let artifact = canonical_file(Path::new(utf8_arg(args, 1, "artifact")?), "artifact")?;
-    let root = canonical_directory(Path::new(utf8_arg(args, 2, "root")?), "Multplx root")?;
+    let root = canonical_directory(
+        Path::new(utf8_arg(args, 2, "artifact root")?),
+        "artifact root",
+    )?;
+    let asset_root =
+        canonical_directory(Path::new(utf8_arg(args, 3, "asset root")?), "Multplx root")?;
     if !is_within(&root, &artifact) || artifact == root {
         return Err(ServiceError::new(
-            "artifact must be inside the Multplx root",
+            "artifact must be inside the selected project root",
         ));
     }
-    let run_record = PathBuf::from(utf8_arg(args, 3, "run record")?);
-    let lock = PathBuf::from(utf8_arg(args, 4, "service lock")?);
-    let token = utf8_arg(args, 5, "review token")?.to_owned();
+    let run_record = PathBuf::from(utf8_arg(args, 4, "run record")?);
+    let lock = PathBuf::from(utf8_arg(args, 5, "service lock")?);
+    let token = utf8_arg(args, 6, "review token")?.to_owned();
     if !valid_token(&token) {
         return Err(ServiceError::new("review token is invalid"));
     }
-    let first_port = utf8_arg(args, 6, "first port")?
+    let expected_artifact_sha256 = utf8_arg(args, 7, "artifact sha256")?.to_owned();
+    if expected_artifact_sha256.len() != 64
+        || !expected_artifact_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || sha256_hex(
+            &fs::read(&artifact)
+                .map_err(|error| ServiceError::new(format!("could not read artifact: {error}")))?,
+        ) != expected_artifact_sha256
+    {
+        return Err(ServiceError::new("artifact revision binding is invalid"));
+    }
+    let first_port = utf8_arg(args, 8, "first port")?
         .parse::<u16>()
         .ok()
         .filter(|port| *port >= 1 && *port <= 65_516)
         .ok_or_else(|| ServiceError::new("first port must be an integer from 1 through 65516"))?;
     let idle = Duration::from_secs(parse_integer_env("MX_VPLAN_IDLE_SECS", 1800, 1, 86_400)?);
-    let asset_directory = fs::canonicalize(root.join("share/vplan")).map_err(|error| {
+    let asset_directory = fs::canonicalize(asset_root.join("share/vplan")).map_err(|error| {
         ServiceError::new(format!("vplan asset directory is unavailable: {error}"))
     })?;
     let artifact_directory = fs::canonicalize(artifact.parent().expect("artifact parent"))
@@ -560,6 +593,7 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
         artifact_directory,
         asset_directory,
         token: token.clone(),
+        expected_artifact_sha256,
         shutdown: Arc::clone(&shutdown),
         runtime: Mutex::new(Runtime {
             last_request: Instant::now(),
@@ -593,13 +627,16 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
 }
 
 fn state_directory(root: &Path) -> PathBuf {
+    task_state_directory(root).join(".vplan")
+}
+
+fn task_state_directory(root: &Path) -> PathBuf {
     let home = std::env::var_os("MX_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| root.to_owned());
     std::env::var_os("MX_STATE_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("state"))
-        .join(".vplan")
 }
 
 fn artifact_record(state: &Path, artifact: &Path) -> Result<(PathBuf, PathBuf)> {
@@ -613,10 +650,130 @@ fn artifact_record(state: &Path, artifact: &Path) -> Result<(PathBuf, PathBuf)> 
     ))
 }
 
+#[derive(Clone, Debug, Default)]
+struct ReviewTarget {
+    task: Option<String>,
+    attempt: Option<String>,
+    brief_revision: Option<u64>,
+    project_id: Option<String>,
+    allocation_id: Option<String>,
+}
+
+fn parse_artifact_options(args: &[OsString]) -> Result<(String, Option<PathBuf>, ReviewTarget)> {
+    let artifact = utf8_arg(args, 1, "artifact path")?.to_owned();
+    let mut project_root = None;
+    let mut target = ReviewTarget::default();
+    let mut index = 2;
+    while index < args.len() {
+        let option = utf8_arg(args, index, "option")?;
+        let value = utf8_arg(args, index + 1, "option value")?.to_owned();
+        match option {
+            "--project-root" if project_root.is_none() => {
+                project_root = Some(PathBuf::from(value));
+            }
+            "--task" if target.task.is_none() => target.task = Some(value),
+            "--attempt" if target.attempt.is_none() => target.attempt = Some(value),
+            "--brief-revision" if target.brief_revision.is_none() => {
+                target.brief_revision = Some(
+                    value
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|revision| *revision > 0)
+                        .ok_or_else(|| {
+                            ServiceError::usage("--brief-revision requires a positive integer")
+                        })?,
+                );
+            }
+            _ => {
+                return Err(ServiceError::usage(format!(
+                    "invalid or duplicate option: {option}"
+                )));
+            }
+        }
+        index += 2;
+    }
+    for value in target.task.iter().chain(target.attempt.iter()) {
+        if value.is_empty()
+            || value.len() > 200
+            || value.chars().any(char::is_control)
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        {
+            return Err(ServiceError::usage("invalid task or attempt identity"));
+        }
+    }
+    if target.task.is_some() != target.brief_revision.is_some()
+        || (target.attempt.is_some() && target.task.is_none())
+    {
+        return Err(ServiceError::usage(
+            "--task and --brief-revision must be supplied together; --attempt requires --task",
+        ));
+    }
+    Ok((artifact, project_root, target))
+}
+
+fn bind_task_target(
+    asset_root: &Path,
+    artifact_root: &Path,
+    mut target: ReviewTarget,
+) -> Result<ReviewTarget> {
+    let Some(task_id) = target.task.as_deref() else {
+        return Ok(target);
+    };
+    let raw = fs::read_to_string(task_state_directory(asset_root).join(format!("{task_id}.meta")))
+        .map_err(|error| ServiceError::new(format!("could not read task binding: {error}")))?;
+    let task = multplx_domain::lifecycle::subagent_model::read_meta(task_id, &raw)
+        .map_err(ServiceError::new)?;
+    if task.legacy_unknown {
+        return Err(ServiceError::new(
+            "task-linked vplan review requires canonical task identity",
+        ));
+    }
+    let attempt = task
+        .attempt
+        .as_ref()
+        .ok_or_else(|| ServiceError::new("task attempt is unavailable"))?;
+    if task.accepted_brief_revision != target.brief_revision
+        || attempt.brief_revision != target.brief_revision.unwrap_or_default()
+        || target
+            .attempt
+            .as_deref()
+            .is_some_and(|value| value != attempt.id)
+    {
+        return Err(ServiceError::new(
+            "vplan target does not match the current attempt and accepted brief",
+        ));
+    }
+    let project = task
+        .project
+        .as_ref()
+        .ok_or_else(|| ServiceError::new("task project binding is unavailable"))?;
+    let allocation = task
+        .allocation
+        .as_ref()
+        .ok_or_else(|| ServiceError::new("task allocation binding is unavailable"))?;
+    let allocated_root = canonical_directory(Path::new(&allocation.path), "task allocation")?;
+    if allocated_root != artifact_root
+        || allocation.task_id != task_id
+        || allocation.attempt_id != attempt.id
+        || allocation.project_id != project.project_id
+        || allocation.checkout_id != project.checkout_id
+    {
+        return Err(ServiceError::new(
+            "vplan project root does not match the task's current allocation",
+        ));
+    }
+    target.attempt = Some(attempt.id.clone());
+    target.project_id = Some(project.project_id.clone());
+    target.allocation_id = Some(allocation.allocation_id.clone());
+    Ok(target)
+}
+
 fn assert_artifact_under_root(root: &Path, artifact: &Path) -> Result<()> {
     if artifact == root || !is_within(root, artifact) {
         return Err(ServiceError::new(format!(
-            "artifact must be inside the Multplx root: {}",
+            "artifact must be inside the selected project root: {}",
             artifact.display()
         )));
     }
@@ -638,7 +795,7 @@ fn comments_command(path: &Path) -> Result<i32> {
     Ok(0)
 }
 
-fn new_command(root: &Path, argument: &str) -> Result<i32> {
+fn new_command(asset_root: &Path, artifact_root: &Path, argument: &str) -> Result<i32> {
     let input = PathBuf::from(argument);
     let parent = input.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent).map_err(|error| {
@@ -651,14 +808,14 @@ fn new_command(root: &Path, argument: &str) -> Result<i32> {
         .file_name()
         .ok_or_else(|| ServiceError::new(format!("could not resolve destination: {argument}")))?;
     let destination = parent.join(base);
-    assert_artifact_under_root(root, &destination)?;
+    assert_artifact_under_root(artifact_root, &destination)?;
     if destination.exists() {
         return Err(ServiceError::new(format!(
             "refusing to overwrite existing artifact: {}",
             destination.display()
         )));
     }
-    let assets = root.join("share/vplan");
+    let assets = asset_root.join("share/vplan");
     let relative = pathdiff(&parent, &assets)?;
     let asset_base = relative
         .components()
@@ -714,14 +871,53 @@ fn pathdiff(from: &Path, to: &Path) -> Result<PathBuf> {
     Ok(relative)
 }
 
-fn review_command(root: &Path, artifact: &Path) -> Result<i32> {
-    let state = state_directory(root);
+fn review_command(
+    asset_root: &Path,
+    artifact_root: &Path,
+    artifact: &Path,
+    target: &ReviewTarget,
+) -> Result<i32> {
+    self_check(asset_root)?;
+    let state = state_directory(asset_root);
     ensure_private_directory(&state, "vplan state directory")?;
     let (record, lock) = artifact_record(&state, artifact)?;
     let _guard = acquire_lock(&lock)?;
     if record.exists() {
         let existing = record_map(&record)?;
-        if existing.get("artifact").map(Path::new) == Some(artifact) && record_live(&existing, None)
+        let current_hash = sha256_hex(
+            &fs::read(artifact)
+                .map_err(|error| ServiceError::new(format!("could not read artifact: {error}")))?,
+        );
+        let target_matches = existing.get("task").map(String::as_str).unwrap_or_default()
+            == target.task.as_deref().unwrap_or_default()
+            && existing
+                .get("attempt")
+                .map(String::as_str)
+                .unwrap_or_default()
+                == target.attempt.as_deref().unwrap_or_default()
+            && existing
+                .get("brief_revision")
+                .map(String::as_str)
+                .unwrap_or_default()
+                == target
+                    .brief_revision
+                    .map_or_else(String::new, |value| value.to_string())
+            && existing
+                .get("project_id")
+                .map(String::as_str)
+                .unwrap_or_default()
+                == target.project_id.as_deref().unwrap_or_default()
+            && existing
+                .get("allocation_id")
+                .map(String::as_str)
+                .unwrap_or_default()
+                == target.allocation_id.as_deref().unwrap_or_default();
+        if existing.get("artifact").map(Path::new) == Some(artifact)
+            && existing
+                .get("artifact_sha256")
+                .is_none_or(|value| value == &current_hash)
+            && target_matches
+            && record_live(&existing, None)
         {
             let port = existing
                 .get("port")
@@ -748,15 +944,21 @@ fn review_command(root: &Path, artifact: &Path) -> Result<i32> {
             )));
         }
     }
+    let artifact_sha256 = sha256_hex(
+        &fs::read(artifact)
+            .map_err(|error| ServiceError::new(format!("could not read artifact: {error}")))?,
+    );
     let token = random_token()?;
     let first_port = parse_port("MX_VPLAN_PORT", 4870)?;
     let service_args = vec![
         OsString::from("--serve"),
         artifact.as_os_str().to_owned(),
-        root.as_os_str().to_owned(),
+        artifact_root.as_os_str().to_owned(),
+        asset_root.as_os_str().to_owned(),
         record.as_os_str().to_owned(),
         lock.as_os_str().to_owned(),
         OsString::from(&token),
+        OsString::from(&artifact_sha256),
         OsString::from(first_port.to_string()),
     ];
     let started = start_service("vplan-server", &service_args)?;
@@ -765,8 +967,17 @@ fn review_command(root: &Path, artifact: &Path) -> Result<i32> {
         ServiceError::new("server started but its process identity could not be verified")
     })?;
     let bytes = format!(
-        "version=1\nartifact={}\nport={}\npid={}\npid_identity={}\ntoken={}\nstarted_at={}\n",
+        "version=2\nartifact={}\nartifact_root={}\nartifact_sha256={}\ntask={}\nattempt={}\nbrief_revision={}\nproject_id={}\nallocation_id={}\nport={}\npid={}\npid_identity={}\ntoken={}\nstarted_at={}\n",
         artifact.display(),
+        artifact_root.display(),
+        artifact_sha256,
+        target.task.as_deref().unwrap_or(""),
+        target.attempt.as_deref().unwrap_or(""),
+        target
+            .brief_revision
+            .map_or_else(String::new, |value| value.to_string()),
+        target.project_id.as_deref().unwrap_or(""),
+        target.allocation_id.as_deref().unwrap_or(""),
         started.port,
         pid,
         identity.marker,
@@ -785,8 +996,8 @@ fn review_command(root: &Path, artifact: &Path) -> Result<i32> {
     Ok(0)
 }
 
-fn stop_command(root: &Path, artifact: &Path) -> Result<i32> {
-    let state = state_directory(root);
+fn stop_command(asset_root: &Path, artifact: &Path) -> Result<i32> {
+    let state = state_directory(asset_root);
     ensure_private_directory(&state, "vplan state directory")?;
     let (record, lock) = artifact_record(&state, artifact)?;
     let guard = acquire_lock(&lock)?;
@@ -872,30 +1083,43 @@ fn self_check(root: &Path) -> Result<i32> {
 }
 
 pub(super) fn run_cli(args: &[OsString], source_root: &Path) -> Result<i32> {
-    let root = canonical_directory(source_root, "Multplx root")?;
+    let asset_root = canonical_directory(source_root, "Multplx root")?;
     match args.first().and_then(|value| value.to_str()) {
         Some("-h" | "--help") if args.len() == 1 => {
             print!("{VPLAN_HELP}");
             Ok(0)
         }
-        Some("--self-check") if args.len() == 1 => self_check(&root),
+        Some("--self-check") if args.len() == 1 => self_check(&asset_root),
         Some("--self-check") => Err(ServiceError::new("--self-check accepts no arguments")),
         Some(command @ ("new" | "review" | "comments" | "stop")) => {
-            if args.len() != 2 {
-                return Err(ServiceError::new(
-                    "expected exactly one artifact path (see --help)",
+            let (argument, selected_root, target) = parse_artifact_options(args)?;
+            if command != "review"
+                && (target.task.is_some()
+                    || target.attempt.is_some()
+                    || target.brief_revision.is_some())
+            {
+                return Err(ServiceError::usage(
+                    "task revision options apply only to review",
                 ));
             }
-            let argument = utf8_arg(args, 1, "artifact path")?;
+            let artifact_root = selected_root
+                .as_deref()
+                .map(|path| canonical_directory(path, "project root"))
+                .transpose()?
+                .unwrap_or_else(|| asset_root.clone());
             if command == "new" {
-                return new_command(&root, argument);
+                self_check(&asset_root)?;
+                return new_command(&asset_root, &artifact_root, &argument);
             }
-            let artifact = canonical_file(Path::new(argument), "artifact")?;
-            assert_artifact_under_root(&root, &artifact)?;
+            let artifact = canonical_file(Path::new(&argument), "artifact")?;
+            assert_artifact_under_root(&artifact_root, &artifact)?;
             match command {
-                "review" => review_command(&root, &artifact),
+                "review" => {
+                    let target = bind_task_target(&asset_root, &artifact_root, target)?;
+                    review_command(&asset_root, &artifact_root, &artifact, &target)
+                }
                 "comments" => comments_command(&artifact),
-                "stop" => stop_command(&root, &artifact),
+                "stop" => stop_command(&asset_root, &artifact),
                 _ => unreachable!(),
             }
         }
@@ -911,7 +1135,7 @@ mod tests {
     use super::{
         Comment, Runtime, ServerContext, assert_artifact_under_root, encode_relative_path,
         error_response, inject_review_surface, merge_comment_block, parse_comment_block,
-        parse_confirm_payload, pathdiff, self_check, serve_file, validate_comments,
+        parse_confirm_payload, pathdiff, self_check, serve_file, sha256_hex, validate_comments,
     };
     use crate::http::Request;
     use std::collections::BTreeMap;
@@ -1081,6 +1305,7 @@ mod tests {
             asset_directory: fs::canonicalize(temp.path().join("share/vplan")).expect("assets"),
             root: root.clone(),
             token: "a".repeat(64),
+            expected_artifact_sha256: sha256_hex(fs::read(&artifact).expect("artifact bytes")),
             shutdown: Arc::new(AtomicBool::new(false)),
             runtime: Mutex::new(Runtime {
                 last_request: Instant::now(),

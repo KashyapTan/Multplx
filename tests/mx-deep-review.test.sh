@@ -136,12 +136,13 @@ EOF
   assert_not_contains "$history" "ci" "local gate contains a CI step"
   [ "$(jq -r '.status' "$state/$id.gate/run.json")" = passed ] \
     || fail "gate did not reach passed"
-  assert_present "$state/$id.ready-to-push" "gate did not write delivery handoff"
-  assert_grep 'approval=pending' "$state/$id.ready-to-push" \
-    "gate bypassed delivery approval"
-  assert_grep "approved_sha=$(git -C "$repo" rev-parse HEAD)" \
-    "$state/$id.ready-to-push" "handoff did not pin exact HEAD"
-  pass "deep-review enforces local step order and ends at a pending exact-SHA handoff"
+  [ "$(jq -r '.version' "$state/$id.gate/run.json")" -eq 2 ] \
+    || fail "new review did not use the explicit-request schema"
+  [ ! -e "$state/$id.ready-to-push" ] \
+    || fail "optional review created a publication approval handoff"
+  assert_grep 'optional review evidence recorded independently of publication' "$case_dir/out" \
+    "review completion still described a delivery approval"
+  pass "deep-review enforces local step order without creating a publication gate"
 }
 
 test_intent_and_unknown_step_fail_closed() {
@@ -484,7 +485,7 @@ PYTHON
 test_structured_history_bound_fails_closed
 
 
-test_passed_revision_starts_full_gate_and_preserves_history() {
+test_passed_revision_starts_full_review_and_preserves_history() {
   local case_dir repo state id old_sha archive history calls
   IFS=$'\t' read -r case_dir repo state id <<EOF
 $(make_case revision)
@@ -492,18 +493,13 @@ EOF
   run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/first-out" 2>"$case_dir/first-err" || fail 'first revision gate failed'
   old_sha=$(git -C "$repo" rev-parse HEAD)
   cp "$state/$id.gate/run.json" "$case_dir/prior-run"
-  cp "$state/$id.ready-to-push" "$case_dir/prior-ready"
-  sed 's/approval=pending/approval=approved/' "$case_dir/prior-ready" > "$state/$id.delivered"
-  chmod 600 "$state/$id.delivered"
-  cp "$state/$id.delivered" "$case_dir/prior-delivered"
   printf 'raw retained transport evidence\n' > "$state/$id.gate/cmd-output/retained.log"
   git -C "$repo" commit -q --allow-empty -m 'CI correction'
   archive="$state/$id.gate-passed-$old_sha"
-  # A history collision must preserve both the completed run and pending handoff.
+  # A history collision must preserve the completed run.
   mkdir "$archive"
   if run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/collision-out" 2>"$case_dir/collision-err"; then fail 'history collision was overwritten'; fi
   cmp "$case_dir/prior-run" "$state/$id.gate/run.json" || fail 'collision mutated completed run'
-  cmp "$case_dir/prior-ready" "$state/$id.ready-to-push" || fail 'collision mutated handoff'
   rmdir "$archive"
   run_gate "$case_dir" "$repo" "$state" "$id" env >"$case_dir/next-out" 2>"$case_dir/next-err" || fail 'new revision full gate failed'
   history=$(jq -r '.history | join(" ")' "$state/$id.gate/run.json")
@@ -511,12 +507,62 @@ EOF
   calls=$(awk '{print $1}' "$case_dir/agent.log" | tr '\n' ' ')
   [ "$calls" = 'review test document review test document ' ] || fail "revision reused prior agent evidence: $calls"
   cmp "$case_dir/prior-run" "$archive/gate/run.json" || fail 'historical gate bytes changed'
-  cmp "$case_dir/prior-ready" "$archive/ready-to-push" || fail 'historical handoff bytes changed'
-  cmp "$case_dir/prior-delivered" "$archive/delivered" || fail 'historical receipt bytes changed'
-  cmp "$case_dir/prior-delivered" "$state/$id.delivered" || fail 'gate changed latest delivery receipt'
   assert_grep 'raw retained transport evidence' "$archive/gate/cmd-output/retained.log" 'raw evidence was lost'
-  assert_grep "approved_sha=$(git -C "$repo" rev-parse HEAD)" "$state/$id.ready-to-push" 'new handoff SHA mismatch'
-  assert_grep 'approval=pending' "$state/$id.ready-to-push" 'new revision inherited approval'
-  pass 'new revision after passed gate revalidates every stage and preserves exact prior evidence'
+  [ ! -e "$state/$id.ready-to-push" ] || fail 'new review revision created a publication handoff'
+  pass 'new revision after passed review revalidates every stage and preserves exact prior evidence'
 }
-test_passed_revision_starts_full_gate_and_preserves_history
+test_passed_revision_starts_full_review_and_preserves_history
+
+test_canonical_review_records_revision_bound_evidence() {
+  local case_dir="$TMP_ROOT/canonical" source="$TMP_ROOT/canonical/source"
+  local state="$case_dir/state" id=gate-canonical allocation repo base model
+  mkdir -p "$state" "$case_dir/data"
+  mx_git_init_commit "$source"
+  git -C "$source" branch -M main
+  write_config "$source"
+  git -C "$source" add .deep-review.yaml
+  git -C "$source" commit -qm 'trusted optional review config'
+  base=$(git -C "$source" rev-parse HEAD)
+  MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state" "$MX_RUST_BIN" worktree acquire \
+    "$source" --request "$id" --task "$id" --attempt "$id-attempt" --base "$base" \
+    >"$case_dir/allocation.json" || fail 'canonical review allocation failed'
+  allocation="$case_dir/allocation.json"
+  repo=$(jq -r '.binding.path' "$allocation")
+  git -C "$repo" checkout -qb "mx/$id"
+  printf '%s\n' 'canonical review change' >"$repo/change.txt"
+  git -C "$repo" add change.txt
+  git -C "$repo" commit -qm 'canonical review change'
+  mx_write_meta "$state/$id.meta" \
+    "window=mx-$id" "worktree=$repo" \
+    "project=$(jq -r '.project.canonical_path' "$allocation")" \
+    'kind=delivery' 'mode=direct-PR' 'harness=codex'
+  chmod 600 "$state/$id.meta"
+  mx_fixture_bind_allocation "$case_dir" "$id" "$allocation" \
+    || fail 'canonical review task binding failed'
+  make_fake_agent "$case_dir/fake-agent"
+  : >"$case_dir/agent.log"
+  run_gate "$case_dir" "$repo" "$state" "$id" env \
+    >"$case_dir/out" 2>"$case_dir/err" \
+    || fail "canonical deep-review run failed: $(cat "$case_dir/err")"
+  jq -e '
+    .version == 2 and .explicit_request == true and
+    .attempt_id != null and .attempt_generation == 1 and .brief_revision == 1 and
+    .project_id != null and .checkout_id != null and .allocation_id != null
+  ' "$state/$id.gate/run.json" >/dev/null \
+    || fail 'review run omitted canonical target identity'
+  model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state" "$MX_RUST_BIN" task-model inspect "$id") \
+    || fail 'canonical review evidence could not be read'
+  printf '%s' "$model" | jq -e '
+    .delivery.current_commit != null and
+    (.delivery.history | length) == 1 and
+    .delivery.history[0].attempt_id == .attempt.id and
+    .delivery.history[0].brief_revision == .accepted_brief_revision and
+    .delivery.history[0].commit == .delivery.current_commit and
+    .delivery.history[0].review.outcome == "passed" and
+    .delivery.history[0].outcome == "evidence-updated"
+  ' >/dev/null || fail 'review did not publish exact revision evidence'
+  [ ! -e "$state/$id.ready-to-push" ] \
+    || fail 'canonical review created a publication approval handoff'
+  pass 'deep-review binds canonical task evidence without controlling publication'
+}
+test_canonical_review_records_revision_bound_evidence

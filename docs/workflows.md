@@ -144,9 +144,10 @@ This preserves one escalation mechanism and one owner for maintainer decisions.
 ## Reference workflow
 
 `workflows/new-feature.workflow.md` is the version 1 proving definition.
-It composes interactive approach approval, a broker-authored specification, fresh actor implementation, deep-review, and credentialed delivery.
+It composes interactive approach approval, a broker-authored specification, fresh actor implementation, focused verification, and credentialed delivery.
+Deep-review and vplan run only when a user explicitly requests them or knowingly selects a definition that declares them.
 That selected definition retains its declared interactive stage; ordinary branch publication itself requires no separate delivery shell or Multplx approval.
-Phase 08 owns the general workflow redesign and legacy-run continuation; Phase 06 does not silently remove selected stages.
+Phase 08 owns the general workflow redesign and legacy-run continuation; Phase 07 removes only hidden optional-review invocation from the maintained examples.
 
 ## Upstream review workflow
 
@@ -154,7 +155,8 @@ Phase 08 owns the general workflow redesign and legacy-run continuation; Phase 0
 Its fetch stage delegates all network and path classification to `bin/mx-upstream-diff.sh`, and its triage stage may propose only `port`, `skip`, or `flag`.
 The maintainer reviews every classification before implementation.
 An empty approved-port list is valid and produces a port-result artifact without manufacturing a source commit.
-When ports exist, the actor reimplements them in Multplx vocabulary, reimplements their regression tests, and uses the ordinary deep-review and delivery path.
+When ports exist, the actor reimplements them in Multplx vocabulary, reimplements their regression tests, and uses focused verification plus ordinary delivery.
+An explicitly requested review remains available but is not an implicit publication stage.
 The approve-gated record stage occurs before the final advance command because version 1 command gates execute the command before requesting approval.
 The final command advances the review cursor only after the maintainer confirms that every approved fix and relevance-map update has landed.
 [`upstream.md`](upstream.md) owns the fork point, relevance map, review cursor, cadence, retirement state, and completed-review log.

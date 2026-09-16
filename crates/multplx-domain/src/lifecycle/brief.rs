@@ -640,7 +640,7 @@ mod tests {
             projects,
         };
         for (id, reference, project, expected) in [
-            ("self", root.to_str().unwrap(), &root, "deep-review"),
+            ("self", root.to_str().unwrap(), &root, "direct-PR"),
             ("clone-path", clone.to_str().unwrap(), &clone, "local-only"),
             ("clone-name", "Multplx", &clone, "local-only"),
         ] {
@@ -655,10 +655,10 @@ mod tests {
             assert!(output.contains(&format!("mode={}", launch.mode)));
             assert!(output.contains(if launch.yolo { "yolo=on" } else { "yolo=off" }));
             let body = fs::read_to_string(data.join(id).join("brief.md")).unwrap();
-            assert!(body.contains(if expected == "deep-review" {
-                "open or update its PR"
-            } else {
+            assert!(body.contains(if expected == "local-only" {
                 "**local-only**"
+            } else {
+                "open or update its PR"
             }));
         }
     }

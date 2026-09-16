@@ -7,7 +7,7 @@ Sourced library files preserve explicitly inventoried compatibility ABIs, but th
 Each row is one purpose clause only; the release command's `--help` output and named Rust module are authoritative for behavior, flags, and contracts.
 The native `mx project` and `mx task-model` commands expose the [versioned sub-agent and project owners](subagent-model.md) without adding shell adapters.
 If you have changed away from the Multplx home in an interactive shell, invoke these scripts by absolute path through the repo's `bin/` directory; the scripts self-locate internally after they start.
-The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#deep-review-gate-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; the Rust lifecycle command owns the exact refusal contract.
+The shared deep-review gate refusal for system lifecycle entrypoints is summarized in [architecture.md](architecture.md#optional-deep-review-authority-boundary), while `docs/sessionstart-nudge.md` covers the silent hook-nudge use; the Rust lifecycle command owns the exact refusal contract.
 
 | Script                   | Purpose                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------ |
@@ -69,9 +69,9 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-config-push.sh`      | Push declared inherited local material to live daemons mid-session and send a pointer to the literal-content config reread when config changed |
 | `mx-deliver.sh`          | Publish a task branch and reconcile its canonical PR with ordinary authentication and durable receipts |
 | `mx-deliver-lib.sh`      | Preserve the sourced-function delivery-record and eligibility ABI for remaining callers |
-| `mx-deep-review.sh`      | Enter the Rust review-delivery boundary to run, resume, or answer the actor-owned validation gate |
+| `mx-deep-review.sh`      | Explicitly run, resume, or answer the Rust-owned optional review pipeline and record revision-bound evidence |
 | `crates/multplx-cli/src/deep_review.rs` | Own schemas, trusted config parsing, prompt assembly, and harness adapters |
-| `mx-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`           |
+| `mx-project-mode.sh`     | Resolve a project's publication destination and legacy `+yolo` flag; legacy deep-review mode does not request a review run |
 | `mx-merge-local.sh`      | Integrate explicitly requested local-only work with clean fast-forward and checkout-ownership checks |
 | `mx-review-diff.sh`      | Enter the Rust review-delivery boundary for a bounded authoritative-base diff review |
 | `mx-marker-lib.sh`       | Compatibility entry point for the from-broker carrier owned by `mx-operational-input.sh` |

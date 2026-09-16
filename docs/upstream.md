@@ -84,7 +84,8 @@ The `flag` class is also deliberate for mixed files where path-only matching can
 Run `bin/mx-workflow.sh run upstream-sync --input "<cadence and date>"` on the maintainer's chosen monthly or quarterly cadence.
 An off-cadence run is appropriate when upstream announces a security or safety fix.
 The workflow fetches into its run artifact directory, produces a relevance-filtered report, obtains maintainer-reviewed triage, reimplements approved fixes as ordinary Multplx work, and advances the cursor only after final approval.
-It never merges, cherry-picks, applies patches, re-vendors upstream, or gives an upstream change a fast path around deep-review.
+It never merges, cherry-picks, applies patches, re-vendors upstream, or gives an upstream change a fast path around focused verification and the maintained delivery path.
+Deep-review remains available only when explicitly requested for that workflow run.
 Each relevant change receives exactly one final triage class: `port` or `skip`.
 Unresolved design questions and unmapped paths remain `flag` until the maintainer converts them to `port` or `skip`.
 

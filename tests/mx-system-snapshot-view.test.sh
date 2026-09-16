@@ -824,7 +824,9 @@ EOF
       and .dispatch_queue.records[1].profile.harness == null
       and .headroom == {model:"fixture",capacity:4,in_use:1,available:3,at_limit:false}
       and .headroom_reason == null
-      and .vplan_reviews.records == [{artifact:($home + "/data/task-a/plan.html"),port:4873,
+      and .vplan_reviews.records == [{artifact:($home + "/data/task-a/plan.html"),
+        artifact_root:null,artifact_sha256:null,task_id:null,attempt_id:null,
+        brief_revision:null,project_id:null,allocation_id:null,port:4873,
         started_at:"2026-07-31T16:00:00Z",pid_alive:true,url:"http://127.0.0.1:4873/"}]
       and (.backlog | type) == "object"
       and (.tasks | type) == "array"

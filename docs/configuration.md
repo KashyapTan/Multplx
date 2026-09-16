@@ -145,13 +145,14 @@ An absent file means `auto`: no platform has a built-in OS channel, so the durab
 A missing or failing channel logs and falls through to the next, never crashing the daemon.
 See [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) for active evidence and [`examples/wedge-alarm`](examples/wedge-alarm) for a copyable config.
 
-## Gate defaults (.deep-review.yaml)
+## Optional deep-review configuration (.deep-review.yaml)
 
-The tracked `.deep-review.yaml` is the project policy read by `bin/mx-deep-review.sh`.
+The tracked `.deep-review.yaml` is read only when `bin/mx-deep-review.sh` is explicitly invoked for that project.
+Its absence or invalidity does not affect startup, ordinary testing, delegation or delivery.
 The review, delivery, and PR-security command family executes through the Rust review-delivery boundary.
 Code-executing commands, the command-permission flag, project-settings suppression, and document instructions are loaded from the trusted default-branch copy.
 The reviewed branch may supply cosmetic fields, but its commands are inert unless the trusted copy explicitly sets `allow_repo_commands: true`.
-The Multplx default keeps repository commands empty, relies on the gate's focused fallback validation, and keeps evidence in private `state/<id>.gate/` records rather than the branch.
+The Multplx default keeps repository commands empty, relies on the optional pipeline's focused fallback validation, and keeps evidence in private `state/<id>.gate/` records rather than the branch.
 It must not set `commands.test` to a complete `tests/*.test.sh` walk or `bin/mx-test-run.sh --all`.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the Multplx-specific local test policy and entry points.
 Portable shard evidence and coverage rules are in [mx-test-portable-shards.md](mx-test-portable-shards.md); [herdr-backend.md](herdr-backend.md#destructive-lab-safety) owns the real-Herdr lane's isolation boundary, and [runtime-backends.md](verification/runtime-backends.md#herdr) owns active evidence.
@@ -192,7 +193,7 @@ A preexisting project-bearing charter is also refused until it is re-scaffolded 
 The reservation is held under the daemon id across normal restarts and interrupted seeding.
 Teardown retains uncertain Git-backed homes and archives new private homes using their exact recorded lease identity.
 Daemon routes also support local-only and remote-free projects without fabricating a publication remote.
-The deep-review gate is an in-repo script and requires no per-clone initialization during seeding.
+The optional deep-review command resolves configuration from the explicitly selected task project and requires no per-clone initialization during seeding.
 After creating a daemon, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <daemon-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-daemon homes.
 Set `MX_DAEMON_CHARTER` to seed from inline charter text when no filled charter brief exists; set `MX_DAEMON_SCOPE` when the routing scope should differ from the charter text.
 The seeded home's `data/charter.md` owns the standard daemon lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
@@ -356,7 +357,7 @@ This section is the single owner of that universal toolchain list; backend guide
 The in-repo deep-review scripts supply explicitly requested review evidence, while official gh supports ordinary branch and PR publication with user-configured authentication.
 Bootstrap does not require GitHub authentication in the broker session.
 Authentication, repeat-safe publication and the human-only merge boundary are documented in [delivery.md](delivery.md).
-The in-repo vplan module covers rich-review operations and is self-checked with its vendored assets rather than probed as an external tool.
+The in-repo vplan module covers explicitly requested rich-review operations and validates its vendored assets lazily when created, reviewed or explicitly self-checked.
 Backlog mutations and dispatch capacity are owned by the repository's typed backlog and headroom modules behind their existing shell entry points.
 The per-backend delta is required only for the backend resolved from `MX_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
 That delta is owned in code by `mx_backend_required_tools` in `bin/mx-backend.sh`: the resolved backend's own session-provider CLI (`tmux`, `herdr`, or `cmux`) plus the compatibility `jq` requirement for the JSON-emitting experimental adapters (`herdr`, `cmux`).
@@ -366,8 +367,9 @@ A Herdr or cmux home is therefore never told `tmux` is missing; every supported 
 Bootstrap validates canonical dispatch profiles and the legacy alias in the Rust owner; `jq` remains part of the current general toolchain.
 Bootstrap self-checks that `bin/mx-headroom.sh --json` succeeds and emits valid JSON.
 An unreadable local capacity signal or malformed configured API budget reports `HEADROOM_INVALID` and blocks dispatch.
-Bootstrap also self-checks `bin/mx-vplan.sh`, its Rust service boundary, seed template, review SDK, and pinned Mermaid hash without launching a review server.
-An incomplete or corrupt bundled review module reports `VPLAN_INVALID`.
+Bootstrap does not probe vplan or deep-review assets.
+An explicit `bin/mx-vplan.sh --self-check`, `new` or `review` validates the Rust service boundary, seed template, review SDK and pinned Mermaid hash.
+Doctor reports an optional-tool failure only when an active vplan run depends on invalid assets.
 The "Dispatch capacity" section owns configuration and queue behavior.
 Bootstrap also reports a `TANGLE:` line when `MX_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the system lock, the same line is advisory and omits the checkout command.

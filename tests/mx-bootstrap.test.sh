@@ -524,14 +524,13 @@ test_bootstrap_info_is_no_load_and_actionable_lines_trigger() {
   local reference="$ROOT/.agents/skills/subagent-recovery/SKILL.md"
   assert_grep 'Diagnostic owners' "$reference" 'recovery must route actionable diagnostics'
   assert_grep 'HEADROOM_INVALID' "$reference" 'capacity diagnostic owner missing'
-  assert_grep 'VPLAN_INVALID' "$reference" 'optional asset diagnostic owner missing'
   assert_grep 'Repair only the affected dependency or configuration' "$reference" 'diagnostics stop unrelated work'
   assert_absent "$ROOT/.agents/skills/bootstrap-diagnostics" 'obsolete bootstrap policy remains injected'
   pass 'bootstrap diagnostics retain operational repair references without a mandatory playbook'
 }
 
-test_vplan_self_check_failure_is_actionable() {
-  local case_dir fakebin broken out expected
+test_vplan_assets_are_not_a_bootstrap_dependency() {
+  local case_dir fakebin broken out
   case_dir="$TMP_ROOT/vplan-invalid"
   mkdir -p "$case_dir/home/config"
   printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
@@ -545,9 +544,8 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
     MX_VPLAN_SELF_CHECK_OVERRIDE="$broken" \
     "$ROOT/bin/mx-bootstrap.sh")
-  expected="VPLAN_INVALID: bundled mx-vplan.sh self-check failed"
-  [ "$out" = "$expected" ] || fail "broken vplan self-check should report '$expected', got: $out"
-  pass "bootstrap reports bundled vplan self-check failures"
+  [ -z "$out" ] || fail "broken optional vplan assets affected bootstrap: $out"
+  pass "bootstrap does not probe optional vplan assets"
 }
 
 test_actor_dispatch_active_rules_are_verbose_bootstrap_info() {
@@ -566,7 +564,7 @@ test_actor_dispatch_active_rules_are_verbose_bootstrap_info() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$case_dir/home" MX_ROOT_OVERRIDE="$case_dir/home" \
     MX_BOOTSTRAP_VERBOSE_FACTS=1 "$ROOT/bin/mx-bootstrap.sh")
 
-  expect=$'BOOTSTRAP_INFO: vplan self-check passed\nBOOTSTRAP_INFO: headroom self-check passed\nBOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
+  expect=$'BOOTSTRAP_INFO: headroom self-check passed\nBOOTSTRAP_INFO: actor dispatch active config/actor-dispatch.json\nBOOTSTRAP_INFO: actor dispatch rule: fresh news -> codex\nBOOTSTRAP_INFO: actor dispatch rule: big feature -> quota-balanced[claude/claude-sonnet-5/high, codex/gpt-5.5/high]\nBOOTSTRAP_INFO: actor dispatch rule: legacy feature -> quota-balanced[claude, codex]\nBOOTSTRAP_INFO: actor dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5/high, codex/gpt-5.5/high]'
   [ "$out" = "$expect" ] || fail "active dispatch verbose info block mismatch"$'\n'"expected: $expect"$'\n'"actual:   $out"
   pass "bootstrap surfaces active actor-dispatch rules only as verbose BOOTSTRAP_INFO"
 }
@@ -634,6 +632,6 @@ test_system_sync_timeout_is_computed_before_launch
 test_routine_bootstrap_confirmations_are_silent
 test_routine_bootstrap_contract_runs_under_system_bash
 test_bootstrap_info_is_no_load_and_actionable_lines_trigger
-test_vplan_self_check_failure_is_actionable
+test_vplan_assets_are_not_a_bootstrap_dependency
 test_actor_dispatch_active_rules_are_verbose_bootstrap_info
 test_actor_dispatch_validation

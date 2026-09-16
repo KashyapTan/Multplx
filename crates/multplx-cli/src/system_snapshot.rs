@@ -1968,7 +1968,20 @@ fn vplans(_paths: &Paths) -> Value {
             let fields=meta(&path);
             let port=fields.get("port").and_then(|v|v.parse::<u16>().ok());
             let alive=fields.get("pid").and_then(|v|v.parse::<u32>().ok()).zip(fields.get("pid_identity")).is_some_and(|(pid,identity)|process_identity(pid).as_deref()==Some(identity));
-            json!({"artifact":fields.get("artifact"),"port":port,"started_at":fields.get("started_at"),"pid_alive":alive,"url":port.map(|port|format!("http://127.0.0.1:{port}/"))})
+            json!({
+                "artifact": fields.get("artifact"),
+                "artifact_root": fields.get("artifact_root"),
+                "artifact_sha256": fields.get("artifact_sha256"),
+                "task_id": fields.get("task"),
+                "attempt_id": fields.get("attempt"),
+                "brief_revision": fields.get("brief_revision").and_then(|value| value.parse::<u64>().ok()),
+                "project_id": fields.get("project_id"),
+                "allocation_id": fields.get("allocation_id"),
+                "port": port,
+                "started_at": fields.get("started_at"),
+                "pid_alive": alive,
+                "url": port.map(|port|format!("http://127.0.0.1:{port}/"))
+            })
         }).collect::<Vec<_>>();
     records.sort_by(|a, b| {
         a["started_at"]

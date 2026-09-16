@@ -104,8 +104,9 @@ No operational component reads a journal, and an absent, malformed, torn, or unw
 
 ## Visual review artifacts
 
-vplan provides the broker's maintainer-facing review surface for plans, structured reports, comparisons, and other responses that benefit from visual hierarchy.
+vplan provides an explicitly requested maintainer-facing review surface for plans, structured reports, comparisons, and other responses that benefit from visual hierarchy.
 `bin/mx-vplan.sh review` starts one loopback-only Rust service, injects the vendored comment SDK into the served copy, and records the exact process identity under `state/.vplan/`.
+The run record binds the selected project root, artifact path and SHA-256, plus task, attempt and accepted brief revision when supplied.
 The maintainer queues element or text-anchored comments and confirms once.
 The server atomically merges those comments into an inert `#vplan-comments` JSON block in the artifact, removes its matching run record, and exits.
 The artifact is the feedback channel, so vplan adds no polling protocol, persistent service, or parallel completion policy.
@@ -202,11 +203,13 @@ Only a named non-default branch checked out in `MX_ROOT` is a worktree tangle.
 If another live session holds the system lock, both surfaces keep the alarm but switch to read-only wording with no repair command.
 Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show-toplevel` before creating `mx/<id>`, then stop with a blocked status if it landed in the primary checkout.
 
-## Deep-review gate authority boundary
+## Optional deep-review authority boundary
 
-Multplx's own deep-review gate normally runs agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary actor worktree isolation.
+An explicitly requested deep-review run may execute agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so its execution needs an authority boundary separate from ordinary actor worktree isolation.
 `bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
 Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
+New runs bind the canonical task attempt, accepted brief, project allocation and exact commit, then record review evidence without creating a publication approval handoff.
+Legacy runs without recorded explicit intent remain historical until the operator explicitly confirms continuation.
 The Rust lifecycle entry points for `mx-send.sh` and `mx-teardown.sh` retain their existing deep-review gate refusal when `DEEP_REVIEW_GATE` is present.
 Spawn no longer treats that marker as a blanket child-delegation prohibition; canonical task identity and explicit assignment still apply.
 A normal primary checkout or actor worktree has neither signal and remains unaffected.
@@ -219,7 +222,7 @@ The stable entry point selects the Rust authority runtime before any snapshot, r
 Rust parses and validates the constrained definition grammar without Node, models immutable run order and stage transitions as closed types, and rejects unsafe output traversal before execution.
 Repo-tracked definitions under `workflows/` declare stage order, executor type, deterministic contract, and approval gate.
 The engine snapshots a validated definition at launch and every resume reads only that snapshot, so a tracked edit cannot mutate an in-flight command boundary.
-Interactive approvals reuse durable decision holds, broker agent stages reuse the verified deep-review one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and publication retains ordinary authentication while PR merging remains human-only.
+Interactive approvals reuse durable decision holds, broker agent stages use an explicitly declared one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and publication retains ordinary authentication while PR merging remains human-only.
 Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-stage records, actual artifacts, actor state, git heads, command results, and decision holds.
 [`workflows.md`](workflows.md) owns the definition schema, state layout, lifecycle, and trust posture.
 The upstream-sync workflow composes that engine with a fetch-only private clone under the run artifact directory, and [`upstream.md`](upstream.md) owns its path map, review cursor, and retirement decision.

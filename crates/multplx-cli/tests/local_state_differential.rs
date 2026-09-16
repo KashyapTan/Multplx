@@ -109,7 +109,7 @@ fn project_mode_and_operational_codec_are_native() {
             assert_eq!(output.stdout, b"local-only on\n");
         } else {
             assert!(output.status.success());
-            assert_eq!(output.stdout, b"deep-review off\n");
+            assert_eq!(output.stdout, b"direct-PR off\n");
             assert!(String::from_utf8_lossy(&output.stderr).contains("defaulting"));
         }
     }

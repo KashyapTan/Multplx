@@ -241,6 +241,23 @@ test_each_check_classifies_its_fixture() {
   } >"$HOME_DIR/state/.vplan/stale.run"
   assert_check orphan-servers 2 'stale vplan record'
 
+  read_case "$(make_case active-vplan-assets)"
+  mkdir -p "$HOME_DIR/state/.vplan" "$ROOT_DIR/bin"
+  cat >"$ROOT_DIR/bin/mx-vplan.sh" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$ROOT_DIR/bin/mx-vplan.sh"
+  sleep 60 &
+  local vplan_pid=$!
+  {
+    printf '%s\n' 'version=2' "artifact=$CASE_DIR/plan.html" 'port=4870' \
+      "pid=$vplan_pid" 'pid_identity=fixture' 'token=fixture'
+  } >"$HOME_DIR/state/.vplan/active.run"
+  assert_check orphan-servers 2 'active vplan run has unavailable or invalid optional assets'
+  kill "$vplan_pid" 2>/dev/null || true
+  wait "$vplan_pid" 2>/dev/null || true
+
   read_case "$(make_case tools)"
   rm -f "$FAKEBIN_DIR/treehouse"
   assert_check tools 0 'required tools are present'

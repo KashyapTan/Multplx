@@ -1,4 +1,4 @@
-# Per-repository deep-review configuration.
+# Optional per-project deep-review configuration.
 #
 # Code-executing fields are read from the trusted default-branch copy.
 # A branch under review cannot alter them unless the trusted copy explicitly

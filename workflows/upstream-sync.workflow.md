@@ -82,8 +82,8 @@ Never merge, cherry-pick, apply an upstream patch, or restore a removed subsyste
 Reimplement the upstream regression test for every fix.
 Keep one local commit per approved upstream fix and cite the upstream commit in that commit message.
 Apply approved relevance-map updates in the same ordinary reviewed change.
-Run the focused tests and the normal deep-review gate for the exact local commits.
-Write {output} with every upstream commit, corresponding local commit, test result, deep-review result, and delivery state.
+Run focused tests for the exact local commits and any review tool explicitly requested for this workflow run.
+Write {output} with every upstream commit, corresponding local commit, test result, explicitly requested review result if any, and delivery state.
 Do not claim a fix landed merely because it exists in the actor worktree.
 
 ## record

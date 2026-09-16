@@ -72,7 +72,7 @@ impl Resolution {
 
 fn fallback(warning: String) -> Resolution {
     Resolution {
-        mode: DeliveryMode::DeepReview,
+        mode: DeliveryMode::DirectPr,
         yolo: false,
         warning: Some(warning),
     }
@@ -84,7 +84,7 @@ pub fn resolve(path: &Path, name: &str) -> Resolution {
         Ok(text) => text,
         Err(_) => {
             return fallback(format!(
-                "warn: no registry at {}; defaulting {name} to deep-review off",
+                "warn: no registry at {}; defaulting {name} to direct-PR off; review tools remain opt-in",
                 path.display()
             ));
         }
@@ -95,7 +95,7 @@ pub fn resolve(path: &Path, name: &str) -> Resolution {
         if fields.first() != Some(&"-") || fields.get(1) != Some(&name) {
             continue;
         }
-        let mut mode = "deep-review".to_owned();
+        let mut mode = "direct-PR".to_owned();
         let mut yolo = false;
         if fields.get(2).is_some_and(|field| field.starts_with('[')) {
             let mut bracket = Vec::new();
@@ -121,12 +121,12 @@ pub fn resolve(path: &Path, name: &str) -> Resolution {
     }
     let Some((raw_mode, yolo)) = parsed else {
         return fallback(format!(
-            "warn: project \"{name}\" not in registry; defaulting to deep-review off"
+            "warn: project \"{name}\" not in registry; defaulting to direct-PR off; review tools remain opt-in"
         ));
     };
     let Some(mode) = DeliveryMode::parse(&raw_mode) else {
         return fallback(format!(
-            "warn: unknown mode \"{raw_mode}\" for {name}; defaulting to deep-review off"
+            "warn: unknown mode \"{raw_mode}\" for {name}; defaulting to direct-PR off; review tools remain opt-in"
         ));
     };
     Resolution {
@@ -140,7 +140,7 @@ pub fn resolve(path: &Path, name: &str) -> Resolution {
 pub fn resolve_path(registry: &Path, projects: &Path, root: &Path, project: &Path) -> Resolution {
     if fs::canonicalize(root).ok().as_ref() == Some(&project.to_path_buf()) {
         return Resolution {
-            mode: DeliveryMode::DeepReview,
+            mode: DeliveryMode::DirectPr,
             yolo: false,
             warning: None,
         };
@@ -153,7 +153,7 @@ pub fn resolve_path(registry: &Path, projects: &Path, root: &Path, project: &Pat
         resolve(registry, name)
     } else {
         fallback(format!(
-            "warn: unregistered project path {}; defaulting to deep-review off",
+            "warn: unregistered project path {}; defaulting to direct-PR off; review tools remain opt-in",
             project.display()
         ))
     }
@@ -174,9 +174,9 @@ mod tests {
         .expect("registry");
         assert_eq!(resolve(&registry, "app").render(), "local-only on\n");
         assert_eq!(resolve(&registry, "app-extra").render(), "direct-PR off\n");
-        assert_eq!(resolve(&registry, "default").render(), "deep-review off\n");
+        assert_eq!(resolve(&registry, "default").render(), "direct-PR off\n");
         let bad = resolve(&registry, "bad");
-        assert_eq!(bad.render(), "deep-review off\n");
+        assert_eq!(bad.render(), "direct-PR off\n");
         assert!(bad.warning.expect("warning").contains("unknown mode"));
         assert!(resolve(&registry, "missing").warning.is_some());
         assert!(
