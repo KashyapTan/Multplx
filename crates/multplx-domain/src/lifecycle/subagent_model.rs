@@ -217,6 +217,8 @@ pub struct TaskRecord {
     pub domain: Option<DomainBinding>,
     pub owning_coordinator: Option<String>,
     pub transfers: Vec<OwnershipTransfer>,
+    #[serde(default)]
+    pub delivery: super::delivery_evidence::DeliveryFacts,
     pub legacy_unknown: bool,
 }
 
@@ -299,6 +301,7 @@ impl TaskRecord {
             domain: None,
             owning_coordinator: None,
             transfers: vec![],
+            delivery: super::delivery_evidence::DeliveryFacts::default(),
             legacy_unknown: false,
         }
     }
@@ -454,6 +457,7 @@ impl TaskRecord {
                 return Err("allocation requires selected project identity".into());
             }
         }
+        self.delivery.validate(self)?;
         Ok(())
     }
     /// Caller must reconcile and stop or isolate the old process before replacement.
@@ -488,6 +492,7 @@ impl TaskRecord {
         });
         self.runtime.session_id = None;
         self.runtime.endpoint = None;
+        self.delivery.current_commit = None;
         // Retention belongs to allocation owner. Never transfer the old lease.
         self.allocation = None;
         Ok(())
@@ -540,6 +545,7 @@ impl TaskRecord {
         if let Some(attempt) = &mut self.attempt {
             attempt.brief_revision = revision;
         }
+        self.delivery.current_commit = None;
         Ok(())
     }
     pub fn answer_decision(
@@ -955,7 +961,7 @@ pub fn require_writer_version(state: &Path) -> Result<(), String> {
     }
 }
 
-pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--authority-state <absolute-path>]\n       mx task-model validate\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nReads and revisions use the existing task .meta authority. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs and attempts; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
+pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--authority-state <absolute-path>]\n       mx task-model validate\n       mx task-model review-queue\n       mx task-model evidence <task-id> --request-file <json-path> [--authority-state <absolute-path>]\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nReads and revisions use the existing task .meta authority. evidence accepts the closed typed EvidenceRequest JSON contract for evidence-updated check, optional review and limitation facts. It cannot introduce or replace a canonical PR; verified publication and poll owners record publication and human-merge outcomes. review-queue returns current revision-bound PR evidence in dependency order; optional independent review is not a publication gate. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs, attempts, and delivery evidence; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
 
 fn record_state(record: &TaskRecord) -> Result<std::path::PathBuf, String> {
     let path = record
@@ -1078,6 +1084,49 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
             "validated {} task records (schema 2; legacy identities remain unknown)\n",
             local_count
         ));
+    }
+    if args == ["review-queue"] {
+        let mut records = load_records()?;
+        super::delivery_evidence::extend_review_records_from_outcomes(state, &mut records)?;
+        let queue = super::delivery_evidence::human_review_queue(&records)?;
+        return serde_json::to_string_pretty(&queue)
+            .map(|value| format!("{value}\n"))
+            .map_err(|error| error.to_string());
+    }
+    if args.first().map(String::as_str) == Some("evidence") {
+        if args.len() != 4 || args.get(2).map(String::as_str) != Some("--request-file") {
+            return Err(TASK_MODEL_USAGE.into());
+        }
+        let id = args.get(1).ok_or(TASK_MODEL_USAGE)?;
+        TaskId::parse(id).map_err(|error| error.to_string())?;
+        let request_path = args.get(3).ok_or(TASK_MODEL_USAGE)?;
+        let bytes = multplx_core::filesystem::read_bounded_regular(request_path, 1024 * 1024)
+            .map_err(|error| error.to_string())?;
+        let request: super::delivery_evidence::EvidenceRequest = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("invalid closed delivery evidence request: {error}"))?;
+        if request.outcome != super::delivery_evidence::DeliveryOutcome::EvidenceUpdated {
+            return Err(
+                "task-model evidence records reported checks/review only; publication and human merge outcomes require their verified runtime owners"
+                    .into(),
+            );
+        }
+        if let Some(pr_url) = request.pr_url.as_deref() {
+            let text = std::fs::read_to_string(state.join(format!("{id}.meta")))
+                .map_err(|error| error.to_string())?;
+            let current = read_meta(id, &text)?;
+            if !current
+                .current_delivery_evidence()
+                .is_some_and(|evidence| evidence.pr_url.as_deref() == Some(pr_url))
+            {
+                return Err(
+                    "reported evidence cannot introduce or replace canonical PR identity".into(),
+                );
+            }
+        }
+        let (_, evidence) = super::delivery_evidence::record(state, id, &request)?;
+        return serde_json::to_string_pretty(&evidence)
+            .map(|value| format!("{value}\n"))
+            .map_err(|error| error.to_string());
     }
     let id = args.get(1).ok_or(TASK_MODEL_USAGE)?;
     TaskId::parse(id).map_err(|e| e.to_string())?;
@@ -1690,6 +1739,89 @@ mod tests {
             command(&args, &child_state)
                 .unwrap_err()
                 .contains("owner home/state")
+        );
+    }
+
+    #[test]
+    fn evidence_cli_accepts_typed_reports_but_not_publication_or_merge_claims() {
+        use super::super::delivery_evidence::{
+            CheckOutcome, DeliveryCheck, DeliveryOutcome, EvidenceRequest,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        let root = format!("root-home:{}", home.display());
+        let mut record = TaskRecord::new(
+            "task".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            root.clone(),
+            root,
+            home.to_string_lossy().into_owned(),
+        );
+        record.briefs[0].scope = "implementation".into();
+        std::fs::write(
+            state.join("task.meta"),
+            write_meta("kind=delivery\n", &record).unwrap(),
+        )
+        .unwrap();
+        let attempt = record.attempt.as_ref().unwrap();
+        let mut request = EvidenceRequest {
+            evidence_id: "reported".into(),
+            attempt_id: attempt.id.clone(),
+            attempt_generation: attempt.generation,
+            brief_revision: attempt.brief_revision,
+            commit: "a".repeat(40),
+            checks: vec![DeliveryCheck {
+                name: "cargo test".into(),
+                outcome: CheckOutcome::Passed,
+                summary: "passed".into(),
+                artifact: None,
+            }],
+            review: None,
+            limitations: vec!["live forge not exercised".into()],
+            pr_url: None,
+            outcome: DeliveryOutcome::EvidenceUpdated,
+            observed_at: "2026-09-15T12:00:00Z".into(),
+            mark_current: true,
+            expected_current_commit: None,
+        };
+        let request_path = temp.path().join("evidence.json");
+        std::fs::write(&request_path, serde_json::to_vec(&request).unwrap()).unwrap();
+        let args = [
+            "evidence".into(),
+            "task".into(),
+            "--request-file".into(),
+            request_path.to_string_lossy().into_owned(),
+        ];
+        assert!(command(&args, &state).unwrap().contains("evidence-updated"));
+        assert!(
+            command(&["review-queue".into()], &state)
+                .unwrap()
+                .contains("[]")
+        );
+
+        request.evidence_id = "fabricated-publish".into();
+        request.outcome = DeliveryOutcome::Published;
+        request.pr_url = Some("https://github.com/example/project/pull/1".into());
+        request.expected_current_commit = Some("a".repeat(40));
+        std::fs::write(&request_path, serde_json::to_vec(&request).unwrap()).unwrap();
+        assert!(
+            command(&args, &state)
+                .unwrap_err()
+                .contains("verified runtime owners")
+        );
+
+        request.evidence_id = "fabricated-pr".into();
+        request.outcome = DeliveryOutcome::EvidenceUpdated;
+        std::fs::write(&request_path, serde_json::to_vec(&request).unwrap()).unwrap();
+        assert!(
+            command(&args, &state)
+                .unwrap_err()
+                .contains("cannot introduce or replace canonical PR")
         );
     }
 }

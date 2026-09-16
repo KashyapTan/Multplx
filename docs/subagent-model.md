@@ -36,6 +36,7 @@ Readers reject duplicate keys, unsupported versions and conflicting identities.
 | `runtime` | Provider, nullable exportable session identity and endpoint |
 | `schedule` | Priority, dependencies, runnable/waiting state and revision-bound human decisions |
 | `project`, `allocation`, `home_allocation`, `domain`, `owning_coordinator`, `transfers` | Task-local routing and resource/domain ownership |
+| `delivery` | Current commit and immutable revision-bound checks, optional review, publication and human-merge history |
 | `legacy_unknown` | Historical records whose execution identity cannot be proven |
 
 `mx task-model inspect <task-id>` prints the normalized record without converting the source.
@@ -61,6 +62,29 @@ Accepted brief bytes are archived by revision, so a later source-file edit does 
 
 The existing `mx-system-snapshot.v1` wrapper includes version 2 `coordination` records and explicit `coordination_error` values on task rows.
 The typed snapshot consumer shares that record definition; later UI phases consume it without owning state.
+
+## Delivery evidence and human review
+
+`mx task-model evidence <task-id> --request-file <JSON-path>` records evidence through the canonical task owner.
+`mx task-model review-queue` returns dependency-ordered PR outcomes with priority, checks, limitations and revision freshness.
+`mx task-model inspect <task-id>` retains the full evidence history, including superseded commits and scopes.
+
+The closed request schema is owned by [`EvidenceRequest`](../crates/multplx-domain/src/lifecycle/delivery_evidence.rs).
+It binds a stable `evidence_id`, exact `attempt_id`, `attempt_generation`, `brief_revision`, `commit` and RFC3339 `observed_at` to the recorded result.
+`checks` contains named results (`passed`, `failed`, `not-run` or `unknown`), summaries and optional artifact pointers.
+`review` is optional independent evidence, not an implicit mandatory review or publication approval.
+`limitations` and optional `pr_url` preserve what the result actually establishes.
+The stored `outcome` distinguishes `evidence-updated`, `published`, `publication-failed` and `human-merged`.
+The public evidence command accepts only `evidence-updated` and cannot introduce another PR identity; verified publication and poll owners record the other outcomes.
+Current evidence uses `mark_current` and the optimistic `expected_current_commit` token; read-only historical observations cannot replace the current revision.
+Use a new evidence identity for a new observation and the same identity and facts for a retry.
+Never hand-edit the embedded metadata JSON.
+
+A subsequent attempt, accepted brief or implementation commit makes earlier evidence historical.
+A branch push or PR creation does not establish passing checks, completed independent review or human merge.
+The queue reports unresolved dependencies and stale revisions instead of making them ready.
+Durable parent outcomes carry accepted delivery facts without requiring a coordinator summary.
+[Delivery](delivery.md) owns publication, authentication and human-only merge usage.
 
 ## Reports and recovery
 

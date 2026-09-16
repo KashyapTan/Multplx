@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Compatibility entry point for ordinary agent publication.
+# Run `bin/mx-deliver.sh --help` for the Rust-owned contract and retry behavior.
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

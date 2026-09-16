@@ -1,6 +1,7 @@
 # Review, delivery, and PR-security verification
 
-This record covers Rust-port Portion 11 on 2026-08-12.
+This historical record covers Rust-port Portion 11 on 2026-08-12.
+Its approval and credential-suppression assertions are superseded by [Lean Phase 06 evidence](../../plans/lean_redesign/phase06-implementation.md); the original results below remain historical evidence.
 
 Production review and delivery have one implementation: the Rust multicall boundary.
 No environment variable can redirect an operation to shell.

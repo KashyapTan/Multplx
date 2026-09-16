@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use multplx_core::filesystem::atomic_replace;
 use multplx_core::locks::DirectoryLock;
@@ -970,6 +972,80 @@ enum CommandFailure {
     Exit,
 }
 
+fn workflow_git_value(directory: &Path, arguments: &[&str]) -> Option<String> {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args(arguments)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_millis(250);
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    if !status.success() {
+        return None;
+    }
+    let mut output = String::new();
+    child.stdout.take()?.read_to_string(&mut output).ok()?;
+    let output = output.trim().to_owned();
+    (!output.is_empty() && !output.contains(['\n', '\r'])).then_some(output)
+}
+
+fn workflow_merge_context(
+    command: &str,
+    worktree: &Path,
+    state: &Path,
+    task: &str,
+) -> (Vec<String>, Option<String>) {
+    let directory = multplx_core::command_policy::git_push_directory(command)
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                worktree.join(path)
+            }
+        })
+        .unwrap_or_else(|| worktree.to_path_buf());
+    let mut targets = vec!["main".to_owned(), "master".to_owned()];
+    if let Some(remote) = workflow_git_value(
+        &directory,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    ) && let Some(branch) = remote.strip_prefix("origin/")
+        && !targets.iter().any(|target| target == branch)
+    {
+        targets.push(branch.to_owned());
+    }
+    if let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+        state.join(format!("{task}.ready-to-push")),
+        64 * 1024,
+    ) && let Ok(text) = String::from_utf8(bytes)
+        && let Some(base) = text.lines().find_map(|line| line.strip_prefix("base="))
+        && !base.is_empty()
+        && !targets.iter().any(|target| target == base)
+    {
+        targets.push(base.to_owned());
+    }
+    let current = workflow_git_value(&directory, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    (targets, current)
+}
+
 fn execute_command(
     directory: &Path,
     definition: &Definition,
@@ -998,9 +1074,29 @@ fn execute_command(
         .join(format!("{}.stderr", stage.id));
     let record_path = directory.join("stages").join(format!("{}.json", stage.id));
     write_json(&record_path, &json!({"id": stage.id, "status": "running", "started_at": now(), "command": command, "cwd": worktree, "stdout": stdout, "stderr": stderr})).map_err(|_| CommandFailure::Exit)?;
+    let task = last_actor_task(directory, definition).unwrap_or_else(|| run_id.to_owned());
+    let workflow_state = Path::new(run["home"].as_str().unwrap_or_default()).join("state");
+    let (targets, current) = workflow_merge_context(&command, &worktree, &workflow_state, &task);
+    if let Err(denial) =
+        multplx_core::command_policy::remote_pr_merge(&command, &targets, current.as_deref())
+    {
+        fs::write(&stdout, b"").map_err(|_| CommandFailure::Exit)?;
+        fs::write(
+            &stderr,
+            format!(
+                "workflow remote merge guard: [{}] {}\n",
+                denial.code, denial.reason
+            ),
+        )
+        .map_err(|_| CommandFailure::Exit)?;
+        let mut record = read_json(&record_path).map_err(|_| CommandFailure::Exit)?;
+        record["finished_at"] = Value::String(now());
+        record["exit_code"] = Value::from(3);
+        write_json(&record_path, &record).map_err(|_| CommandFailure::Exit)?;
+        return Err(CommandFailure::Exit);
+    }
     let stdout_file = fs::File::create(&stdout).map_err(|_| CommandFailure::Exit)?;
     let stderr_file = fs::File::create(&stderr).map_err(|_| CommandFailure::Exit)?;
-    let task = last_actor_task(directory, definition).unwrap_or_else(|| run_id.to_owned());
     let status = Command::new("bash")
         .args(["-lc", &command])
         .current_dir(&worktree)

@@ -251,23 +251,15 @@ test_registry_maps_to_canonical_publication_without_implicit_review() {
       [ "$(jq -r '.projects[0].review' "$HOME_DIR/data/projects.json")" = null ] || fail 'legacy registry implicitly selected deep review'
       [ "$(jq -r '.projects[0].checkouts[0].ownership' "$HOME_DIR/data/projects.json")" = user-owned ] || fail 'symlinked legacy project was silently claimed as managed'
       if [ "$mode" = local-only ]; then
-        # The local merge must pass the mode precondition and report the missing mx branch.
-        MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1
-        assert_grep "branch mx/$id does not exist" "$HOME_DIR/merge.out" 'local landing incorrectly refused selected mode'
-        git -C "$WT_DIR" switch -qc "mx/$id"
-        cp "$HOME_DIR/state/$id.meta" "$HOME_DIR/original.meta"
-        mkdir "$WT_DIR/subdir"
-        sed "s|^worktree=.*|worktree=$WT_DIR/subdir|" "$HOME_DIR/original.meta" > "$HOME_DIR/state/$id.meta"
-        if MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1; then fail 'local landing accepted a worktree subdirectory'; fi
-        assert_grep 'recorded clean worktree' "$HOME_DIR/merge.out" 'subdirectory refusal missing'
-        cp "$HOME_DIR/original.meta" "$HOME_DIR/state/$id.meta"
-        printf 'pending\n' > "$WT_DIR/change"
-        if MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1; then fail 'local landing accepted a dirty actor'; fi
-        assert_grep 'recorded clean worktree' "$HOME_DIR/merge.out" 'dirty actor refusal missing'
-        git -C "$WT_DIR" add change
-        git -C "$WT_DIR" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'local change'
-        MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1 || fail "clean local landing refused: $(cat "$HOME_DIR/merge.out")"
-        [ "$(git -C "$PROJ_DIR" rev-parse HEAD)" = "$(git -C "$WT_DIR" rev-parse HEAD)" ] || fail 'local landing did not fast-forward'
+        before_head=$(git -C "$PROJ_DIR" rev-parse HEAD)
+        printf 'borrowed source sentinel\n' > "$PROJ_DIR/borrowed-sentinel"
+        before_status=$(git -C "$PROJ_DIR" status --porcelain)
+        if MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/mx-merge-local.sh" "$id" > "$HOME_DIR/merge.out" 2>&1; then
+          fail 'local landing mutated a user-owned checkout'
+        fi
+        assert_grep 'user-owned' "$HOME_DIR/merge.out" 'user-owned local outcome refusal missing'
+        [ "$(git -C "$PROJ_DIR" rev-parse HEAD)" = "$before_head" ] || fail 'user-owned source branch moved'
+        [ "$(git -C "$PROJ_DIR" status --porcelain)" = "$before_status" ] || fail 'user-owned source index or files changed'
       fi
     done
   done

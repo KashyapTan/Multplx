@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Human-only pull-request merge helper; agent and automation sessions are refused.
+# Run `bin/mx-pr-merge.sh --help` for supported arguments.
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

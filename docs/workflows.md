@@ -145,7 +145,8 @@ This preserves one escalation mechanism and one owner for maintainer decisions.
 
 `workflows/new-feature.workflow.md` is the version 1 proving definition.
 It composes interactive approach approval, a broker-authored specification, fresh actor implementation, deep-review, and credentialed delivery.
-The delivery stage remains interactive because remote writes must run from a maintainer shell or separately credentialed scheduler outside every agent session.
+That selected definition retains its declared interactive stage; ordinary branch publication itself requires no separate delivery shell or Multplx approval.
+Phase 08 owns the general workflow redesign and legacy-run continuation; Phase 06 does not silently remove selected stages.
 
 ## Upstream review workflow
 

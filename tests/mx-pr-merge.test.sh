@@ -184,14 +184,14 @@ test_agent_ambience_refuses_before_merge() {
   : > "$case_dir/gh.log"
 
   set +e
-  CODEX_THREAD_ID= \
+  MX_TASK_ID=task-x1 \
     run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/22 \
     > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
   expect_code 3 "$rc" "agent ambience must refuse remote merge"
-  assert_grep 'must run outside every broker, actor, daemon, and gate session' \
+  assert_grep 'PR merge commands are human-only and refuse agent, gate, and automation sessions' \
     "$case_dir/stderr" "merge ambience refusal was unclear"
   [ ! -s "$case_dir/gh.log" ] || fail "agent ambience reached gh pr merge"
   pass "mx-pr-merge refuses agent-session ambience before remote access"
@@ -319,60 +319,22 @@ test_parses_pr_url_for_gh_axi() {
   pass "mx-pr-merge parses a GitHub PR URL into gh number and --repo arguments"
 }
 
-test_exact_red_merge_override_is_single_use() {
-  local case_dir bindings request operation target state_digest record rc
-  case_dir=$(make_case red-override)
+test_merge_override_routes_are_retired() {
+  local case_dir rc
+  case_dir=$(make_case retired-override)
   mkdir -p "$case_dir/wt"
-  cat >"$case_dir/fakebin/gh" <<'SH'
-#!/usr/bin/env bash
-sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-case "${1:-} ${2:-}" in
-  "pr view")
-    case " $* " in
-      *statusCheckRollup*)
-        printf '%s\n' '{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[{"name":"required-test","conclusion":"FAILURE"}]}'
-        ;;
-      *' headRefOid '*) printf '%s\n' "$sha" ;;
-    esac
-    ;;
-  "pr merge") printf '%s\n' "$*" >>"$MX_TEST_GH_LOG" ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/gh"
+  add_gh_mocks "$case_dir" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   : >"$case_dir/gh.log"
-  bindings=$(run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/41 \
-    --print-override-bindings) || fail "red-override: binding inspection failed"
-  operation=$(printf '%s' "$bindings" | jq -r '.operation')
-  target=$(printf '%s' "$bindings" | jq -r '.target')
-  state_digest=$(printf '%s' "$bindings" | jq -r '.expected_state_digest')
-  request=$(MX_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/mx-maintainer-override.sh" request \
-    --boundary delivery.merge-red --task task-x1 --project repo --operation "$operation" \
-    --target "$target" --expected-state "$state_digest" \
-    --consequence "Merge the exact PR head despite the recorded failed check set; record the merge as maintainer-directed.") \
-    || fail "red-override: request creation failed"
-  MX_STATE_OVERRIDE="$case_dir/state"
-  export MX_STATE_OVERRIDE
-  # shellcheck source=bin/mx-maintainer-override-lib.sh
-  . "$ROOT/bin/mx-maintainer-override-lib.sh"
-  mx_override_require_primary_lock() { return 0; }
-  mx_override_grant "$request" "Grant delivery.merge-red for $operation on $target only." \
-    || fail "red-override: exact grant failed"
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/41 --override "$request" \
-    >/dev/null 2>"$case_dir/stderr" || fail "red-override: exact red merge failed"
-  grep -qxF 'pr merge 41 --repo example/repo --squash --admin' "$case_dir/gh.log" \
-    || fail "red-override: maintainer-directed merge omitted exact --admin command"
-  record="$case_dir/state/maintainer-overrides/consumed/$request.json"
-  [ "$(jq -r '.outcome' "$record")" = succeeded ] || fail "red-override: outcome is not truthful"
-  jq -e '.boundary_id == "delivery.merge-red" and (.target_identity | contains("@aaaaaaaa"))' "$record" >/dev/null \
-    || fail "red-override: grant did not bind the exact PR head"
   set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/41 --override "$request" \
-    >/dev/null 2>/dev/null
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/41 \
+    --override obsolete-request >"$case_dir/stdout" 2>"$case_dir/stderr"
   rc=$?
   set -e
-  [ "$rc" -ne 0 ] || fail "red-override: consumed merge grant replayed"
-  pass "red PR merge binds exact SHA and failed checks, records maintainer direction, and cannot replay"
+  expect_code 1 "$rc" "retired merge override route must refuse"
+  assert_grep 'merge override routes are retired' "$case_dir/stderr" \
+    "retired merge override refusal was unclear"
+  [ ! -s "$case_dir/gh.log" ] || fail "retired merge override reached gh"
+  pass "agent-consumable merge override routes are retired"
 }
 
 test_records_pr_and_head_before_merging
@@ -386,4 +348,4 @@ test_repo_override_args_refuse_before_recording
 test_explicit_merge_method_not_overridden
 test_method_equals_merge_method_not_overridden
 test_parses_pr_url_for_gh_axi
-test_exact_red_merge_override_is_single_use
+test_merge_override_routes_are_retired

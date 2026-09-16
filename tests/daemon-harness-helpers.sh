@@ -703,23 +703,32 @@ test_spawn_injects_native_observer_configuration() {
         assert_contains "$launch" "hooks.SubagentStart" "Codex launch omitted its native start hook"
         assert_contains "$launch" "hooks.SubagentStop" "Codex launch omitted its native result hook"
         assert_contains "$launch" "hooks.SessionStart" "Codex launch omitted restart reconciliation"
+        assert_contains "$launch" "hooks.PreToolUse" "Codex launch omitted its remote merge guard"
+        assert_contains "$launch" "mx-subagent-pretool-check.sh" "Codex merge guard does not use the trusted runtime"
         ;;
       claude)
         assert_contains "$launch" "--settings" "Claude launch omitted observer-only settings"
-        jq -e '.hooks.SubagentStart and .hooks.SubagentStop and .hooks.SessionStart' \
+        jq -e '.hooks.SubagentStart and .hooks.SubagentStop and .hooks.SessionStart and
+          (.hooks.PreToolUse[0].matcher == "Bash") and
+          (.hooks.PreToolUse[0].hooks[0].command | contains("mx-subagent-pretool-check.sh"))' \
           "$task_tmp/native-observer-claude.json" >/dev/null \
-          || fail "Claude generated observer settings lack lifecycle hooks"
+          || fail "Claude generated settings lack lifecycle hooks or the remote merge guard"
         ;;
       cursor)
         assert_contains "$launch" "--trust --plugin-dir" \
           "Cursor launch did not load the task-local observer plugin"
-        jq -e '.hooks.subagentStart[0].failClosed == false and .hooks.sessionStart[0].failClosed == false' \
+        jq -e '.hooks.subagentStart[0].failClosed == false and
+          .hooks.sessionStart[0].failClosed == false and
+          .hooks.preToolUse[0].failClosed == true and
+          (.hooks.preToolUse[0].command | contains("merge-guard.sh"))' \
           "$task_tmp/cursor-turnend-plugin/hooks/hooks.json" >/dev/null \
-          || fail "Cursor task-local plugin lacks fail-open native observation"
+          || fail "Cursor task-local plugin lacks observation or the fail-closed merge guard"
         ;;
       pi)
         assert_contains "$launch" ".pi/extensions/mx-native-delegation-observe.ts" \
           "Pi launch omitted its tool lifecycle observer extension"
+        assert_contains "$launch" ".pi/extensions/mx-remote-merge-guard.ts" \
+          "Pi launch omitted its remote merge guard extension"
         ;;
     esac
   done

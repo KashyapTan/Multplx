@@ -54,7 +54,7 @@ pub struct Boundary {
     pub alternate: &'static str,
 }
 
-pub const REGISTRY: [Boundary; 20] = [
+pub const REGISTRY: [Boundary; 19] = [
     Boundary {
         id: "workflow.skip-stage",
         class: BoundaryClass::Policy,
@@ -69,11 +69,6 @@ pub const REGISTRY: [Boundary; 20] = [
         id: "validation.waive-gate",
         class: BoundaryClass::Policy,
         alternate: "bin/mx-deep-review.sh",
-    },
-    Boundary {
-        id: "delivery.merge-red",
-        class: BoundaryClass::Policy,
-        alternate: "bin/mx-pr-merge.sh",
     },
     Boundary {
         id: "cleanup.discard-unlanded",
@@ -984,7 +979,8 @@ mod tests {
 
     #[test]
     fn registry_keeps_factual_boundaries_non_consumable() {
-        assert_eq!(REGISTRY.len(), 20);
+        assert_eq!(REGISTRY.len(), 19);
+        assert!(boundary("delivery.merge-red").is_none());
         assert_eq!(
             boundary("integrity.validation-state")
                 .expect("integrity")

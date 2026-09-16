@@ -253,6 +253,9 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
         return 2;
     }
     let mut command = Command::new(real);
+    // Deliberately inherit the caller's Git, forge, and SSH authentication.
+    // The launcher adds only Multplx routing variables and never serializes
+    // credential values into its state or command-line arguments.
     command
         .current_dir(&root)
         .env("MX_ROOT_OVERRIDE", &root)

@@ -598,6 +598,45 @@ EOF
   pass "workflow skip and reorder consume distinct exact grants and preserve other stages"
 }
 
+test_headless_command_stage_refuses_remote_merge() {
+  local definition="$REPO_FIXTURE/workflows/merge-boundary.workflow.md" run=merge-boundary-run fakebin
+  definition="$REPO_FIXTURE/workflows/merge-boundary.workflow.md"
+  fakebin="$TMP_ROOT/merge-boundary-bin"
+  mkdir -p "$fakebin"
+  cat >"$fakebin/gh" <<SH
+#!/usr/bin/env bash
+touch "$TMP_ROOT/headless-merge-ran"
+exit 0
+SH
+  chmod +x "$fakebin/gh"
+  cat >"$definition" <<'EOF'
+---
+workflow_version: 1
+name: merge-boundary
+description: Exercise the human-only merge boundary in headless command stages.
+stages:
+  - id: merge
+    title: Merge remotely
+    type: command
+    gate: auto
+    run: gh pr merge 7 --squash
+---
+
+## merge
+
+This stage must be refused before command execution.
+EOF
+  track_definition merge-boundary.workflow.md
+  PATH="$fakebin:$PATH" workflow_cli run merge-boundary --input boundary --id "$run" >/dev/null \
+    || fail "merge-boundary workflow did not record its guarded failure"
+  [ ! -e "$TMP_ROOT/headless-merge-ran" ] || fail "headless workflow executed gh pr merge"
+  assert_file_contains "$HOME_FIXTURE/state/$run.workflow/commands/merge.stderr" \
+    '[remote-pr-merge]' "headless merge refusal omitted its stable reason"
+  [ "$(jq -r '.exit_code' "$HOME_FIXTURE/state/$run.workflow/stages/merge.json")" = 3 ] \
+    || fail "headless merge refusal did not record its synthetic exit code"
+  pass "headless workflow command stages refuse remote PR merges before execution"
+}
+
 test_order_contract_approval_and_restart
 test_passed_command_requires_captured_zero_exit
 test_concurrent_reconcile_is_refused
@@ -608,4 +647,5 @@ test_actor_fresh_session_and_local_commit_contract
 test_auto_agent_does_not_advance_without_artifact
 test_reference_workflow_end_to_end
 test_abort_and_run_id_reuse_refusal
+test_headless_command_stage_refuses_remote_merge
 test_exact_workflow_skip_and_reorder

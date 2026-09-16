@@ -649,6 +649,80 @@ pub fn validate_binding(home: &Path, binding: &ProjectBinding) -> Result<(), Str
     verify_location(binding)
 }
 
+fn github_project(remote: &str) -> Option<String> {
+    let public = public_remote(remote)?;
+    let path = if let Some(rest) = public.strip_prefix("git@github.com:") {
+        rest
+    } else {
+        let (_, rest) = public.split_once("://")?;
+        let (authority, path) = rest.split_once('/')?;
+        let host = authority.rsplit('@').next()?;
+        if host != "github.com" {
+            return None;
+        }
+        path
+    };
+    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = path.split('/');
+    let owner = parts.next()?;
+    let repository = parts.next()?;
+    if parts.next().is_some()
+        || owner.is_empty()
+        || repository.is_empty()
+        || !owner
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        || !repository
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return None;
+    }
+    Some(format!("{owner}/{repository}"))
+}
+
+/// Validate the exact task-bound repository and forge before publication.
+/// Worktrees may have a different checkout identity, but they must share the
+/// immutable common Git identity and registered canonical GitHub remote.
+pub fn validate_publication_location(
+    home: &Path,
+    project: &ProjectBinding,
+    worktree: &Path,
+) -> Result<String, String> {
+    validate_binding(home, project)?;
+    let observed = inspect_checkout(worktree)
+        .map_err(|error| format!("publication worktree is unavailable: {error}"))?;
+    if observed.common_git_identity != project.common_git_identity
+        || observed.common_git_dir != project.common_git_dir
+        || observed.project_id != project.project_id
+    {
+        return Err("publication worktree belongs to another task project".into());
+    }
+    let catalog = read_catalog(home)?;
+    let registered = catalog
+        .projects
+        .iter()
+        .find(|candidate| candidate.project_id == project.project_id)
+        .ok_or("unknown task project identity")?;
+    if registered.publication != PublicationDestination::PullRequest {
+        return Err("task project is remote-free; pull-request publication unavailable".into());
+    }
+    let registered_remote = registered
+        .remote
+        .as_deref()
+        .ok_or("task project has no safe registered publication remote")?;
+    let registered_project = github_project(registered_remote)
+        .ok_or("task-bound remote is not a supported GitHub repository")?;
+    let actual_remote = git_value(worktree, &["remote", "get-url", "origin"])
+        .map_err(|_| "publication worktree has no origin remote")?;
+    let actual_project = github_project(&actual_remote)
+        .ok_or("publication origin is not a supported GitHub repository")?;
+    if actual_project != registered_project {
+        return Err("publication origin differs from task-bound registered forge".into());
+    }
+    Ok(registered_project)
+}
+
 /// Validate a durable resource's source identity even when its home registry is
 /// unavailable. This does not register, adopt or change checkout ownership.
 pub fn verify_location(binding: &ProjectBinding) -> Result<(), String> {
@@ -890,6 +964,102 @@ mod identity_tests {
                 "-m",
                 "base",
             ],
+        );
+    }
+
+    #[test]
+    fn publication_location_is_task_project_and_registered_forge_bound() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let source = temp.path().join("source");
+        repo(&source);
+        git(
+            &source,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/project.git",
+            ],
+        );
+        let binding = register_project(&home, &source, None, CheckoutOwnership::UserOwned).unwrap();
+        assert_eq!(
+            validate_publication_location(&home, &binding, &source).unwrap(),
+            "example/project"
+        );
+
+        git(
+            &source,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "git@github.com:other/project.git",
+            ],
+        );
+        assert!(
+            validate_publication_location(&home, &binding, &source)
+                .unwrap_err()
+                .contains("differs from task-bound")
+        );
+        git(
+            &source,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "ssh://git@github.com/example/project.git",
+            ],
+        );
+        assert_eq!(
+            validate_publication_location(&home, &binding, &source).unwrap(),
+            "example/project"
+        );
+
+        let foreign = temp.path().join("foreign");
+        repo(&foreign);
+        git(
+            &foreign,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/project.git",
+            ],
+        );
+        assert!(
+            validate_publication_location(&home, &binding, &foreign)
+                .unwrap_err()
+                .contains("another task project")
+        );
+
+        let local = temp.path().join("local");
+        repo(&local);
+        let local_binding =
+            register_project(&home, &local, None, CheckoutOwnership::UserOwned).unwrap();
+        assert!(
+            validate_publication_location(&home, &local_binding, &local)
+                .unwrap_err()
+                .contains("remote-free")
+        );
+
+        let unsupported = temp.path().join("unsupported");
+        repo(&unsupported);
+        git(
+            &unsupported,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://gitlab.example/example/project.git",
+            ],
+        );
+        let unsupported_binding =
+            register_project(&home, &unsupported, None, CheckoutOwnership::UserOwned).unwrap();
+        assert!(
+            validate_publication_location(&home, &unsupported_binding, &unsupported)
+                .unwrap_err()
+                .contains("not a supported GitHub")
         );
     }
 

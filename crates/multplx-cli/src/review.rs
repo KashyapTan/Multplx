@@ -14,9 +14,11 @@ use multplx_core::process::{
 };
 use multplx_domain::maintainer_override::{Binding, OverrideStore};
 use multplx_domain::review_delivery::{
-    DeliveryRecord, FileIdentity, OperationalTaskId, PollRegistration, PrIdentity, Validation,
-    agent_ambience, head_valid, publish_private, read_private, ref_valid, title_valid,
+    DeliveryRecord, FileIdentity, OperationalTaskId, PollRegistration, PrIdentity,
+    PublicationAuthority, PublicationOperation, PublicationStage, Validation, agent_ambience,
+    head_valid, publish_private, read_private, ref_valid, title_valid,
 };
+use sha2::{Digest, Sha256};
 
 const ENTRIES: &[&str] = &[
     "mx-check-register.sh",
@@ -162,9 +164,50 @@ fn merge_local(args: &[OsString]) -> i32 {
     let mode = meta_value(&text, "mode", false).unwrap_or_default();
     if mode != "local-only" {
         eprintln!(
-            "error: task {id} is mode={mode}, not local-only; merge PR tasks with bin/mx-pr-merge.sh <id> <PR url> after approval"
+            "error: task {id} is mode={mode}, not local-only; PR merges are human-executed actions"
         );
         return 1;
+    }
+    let worktree = PathBuf::from(meta_value(&text, "worktree", false).unwrap_or_default());
+    let task = match multplx_domain::lifecycle::subagent_model::read_meta(id, &text) {
+        Ok(task) => task,
+        Err(error) => {
+            eprintln!("error: invalid task binding: {error}");
+            return 1;
+        }
+    };
+    if !task.legacy_unknown {
+        let Some(binding) = task.project.as_ref() else {
+            eprintln!("error: canonical local task has no immutable project binding");
+            return 1;
+        };
+        if binding.ownership == multplx_domain::project_registry::CheckoutOwnership::UserOwned {
+            eprintln!(
+                "error: task-bound source checkout is user-owned; retained {id} on mx/{id} for human local integration"
+            );
+            return 1;
+        }
+        let Some(allocation) = task.allocation.as_ref() else {
+            eprintln!("error: managed local task has no exact allocation binding");
+            return 1;
+        };
+        let common_dir = command_line("git", &worktree, &["rev-parse", "--git-common-dir"])
+            .map(PathBuf::from)
+            .and_then(|path| {
+                if path.is_absolute() {
+                    fs::canonicalize(path).ok()
+                } else {
+                    fs::canonicalize(worktree.join(path)).ok()
+                }
+            });
+        if fs::canonicalize(&project).ok() != fs::canonicalize(&binding.canonical_path).ok()
+            || fs::canonicalize(&worktree).ok()
+                != fs::canonicalize(Path::new(&allocation.path)).ok()
+            || common_dir != fs::canonicalize(&binding.common_git_dir).ok()
+        {
+            eprintln!("error: local landing task project or allocation binding changed");
+            return 1;
+        }
     }
     let branch = format!("mx/{id}");
     if !command_success(
@@ -183,7 +226,6 @@ fn merge_local(args: &[OsString]) -> i32 {
         );
         return 1;
     }
-    let worktree = PathBuf::from(meta_value(&text, "worktree", false).unwrap_or_default());
     let recorded_root = fs::canonicalize(&worktree).ok();
     let git_root = command_line("git", &worktree, &["rev-parse", "--show-toplevel"])
         .and_then(|root| fs::canonicalize(root).ok());
@@ -597,7 +639,7 @@ fn validation_waive(args: &[OsString]) -> i32 {
         &format!("maintainer-waived delivery handoff created for exact SHA {sha}"),
     );
     println!(
-        "validation-waive: waived, not passed, for {id} at {sha}; delivery approval is pending"
+        "validation-waive: waived, not passed, for {id} at {sha}; run mx-deliver.sh prepare explicitly to publish this revision"
     );
     0
 }
@@ -637,7 +679,7 @@ fn pr_check(args: &[OsString]) -> i32 {
         || meta_metadata.file_type().is_symlink()
         || meta_metadata.nlink() != 1
         || meta_metadata.dev() != state_meta.dev()
-        || meta_metadata.len() > 64 * 1024
+        || meta_metadata.len() > 4 * 1024 * 1024
     {
         eprintln!("error: task metadata is unavailable");
         return 1;
@@ -662,7 +704,61 @@ fn pr_check(args: &[OsString]) -> i32 {
 
     let meta_text = String::from_utf8_lossy(&meta_bytes);
     let worktree = meta_value(&meta_text, "worktree", true).unwrap_or_default();
-    let pr_head = if !worktree.is_empty() && Path::new(&worktree).is_dir() {
+    let canonical_project =
+        match task_publication_project_from_text(&task, Path::new(&worktree), &meta_text) {
+            Ok(Some(project)) if project != identity.project_path() => {
+                eprintln!("error: PR repository differs from the task-bound publication project");
+                return 1;
+            }
+            Ok(project) => project,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+    let pr_head = if canonical_project.is_some() {
+        let Some(local_head) = command_line("git", Path::new(&worktree), &["rev-parse", "HEAD"])
+        else {
+            eprintln!("error: task publication head is unavailable");
+            return 1;
+        };
+        let Some(base) = default_branch(Path::new(&worktree)) else {
+            eprintln!("error: task publication base is unavailable");
+            return 1;
+        };
+        let credentials = match delivery_credentials() {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        };
+        let mut command = delivery_command("gh", &credentials);
+        command.current_dir(&worktree).args([
+            "pr",
+            "view",
+            &identity.url,
+            "--json",
+            "url,headRefName,baseRefName,state,isCrossRepository,headRefOid",
+        ]);
+        let value = delivery_output(command)
+            .ok()
+            .filter(|output| output.success)
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok());
+        let valid = value.as_ref().is_some_and(|value| {
+            value["url"].as_str() == Some(identity.url.as_str())
+                && value["headRefName"].as_str() == Some(format!("mx/{task}").as_str())
+                && value["baseRefName"].as_str() == Some(base.as_str())
+                && value["state"].as_str() == Some("OPEN")
+                && value["isCrossRepository"].as_bool() == Some(false)
+                && value["headRefOid"].as_str() == Some(local_head.as_str())
+        });
+        if !valid {
+            eprintln!("error: PR branch, base, repository, or head differs from the task binding");
+            return 1;
+        }
+        Some(local_head)
+    } else if !worktree.is_empty() && Path::new(&worktree).is_dir() {
         Command::new("gh")
             .current_dir(&worktree)
             .args([
@@ -768,7 +864,7 @@ fn pr_check(args: &[OsString]) -> i32 {
         .map(str::to_owned)
         .collect::<Vec<_>>();
     updated.push(format!("pr={}", identity.url));
-    if let Some(head) = pr_head {
+    if let Some(ref head) = pr_head {
         updated.push(format!("pr_head={head}"));
     }
     let bytes = format!("{}\n", updated.join("\n"));
@@ -819,6 +915,17 @@ fn pr_check(args: &[OsString]) -> i32 {
             let _ = fs::remove_file(path);
         }
         eprintln!("error: could not publish PR poll");
+        return 1;
+    }
+    if let Some(commit) = pr_head.as_deref()
+        && let Err(error) = record_direct_pr_publication_evidence(
+            &state,
+            task.as_str(),
+            commit,
+            identity.url.as_str(),
+        )
+    {
+        eprintln!("error: canonical PR publication evidence could not be recorded: {error}");
         return 1;
     }
     println!("armed: state/{task}.check.sh");
@@ -1717,38 +1824,137 @@ fn delivery_command(
     credentials: &DeliveryCredentials,
 ) -> Command {
     let mut command = Command::new(program);
-    for key in [
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "GH_ENTERPRISE_TOKEN",
-        "GITHUB_ENTERPRISE_TOKEN",
-        "GH_CONFIG_DIR",
-        "MX_AGENT_GH_TOKEN",
-        "MX_DELIVERY_GH_TOKEN",
-        "MX_DELIVERY_GH_CONFIG_DIR",
-        "CLAUDECODE",
-        "CODEX_THREAD_ID",
-        "PI_CODING_AGENT",
-        "DEEP_REVIEW_GATE",
-    ] {
-        command.env_remove(key);
-    }
     match credentials {
         DeliveryCredentials::Default => {}
         DeliveryCredentials::Token(token) => {
+            for key in [
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "GH_ENTERPRISE_TOKEN",
+                "GITHUB_ENTERPRISE_TOKEN",
+                "GH_CONFIG_DIR",
+            ] {
+                command.env_remove(key);
+            }
             command.env("GH_TOKEN", token);
         }
         DeliveryCredentials::Config(path) => {
+            for key in [
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "GH_ENTERPRISE_TOKEN",
+                "GITHUB_ENTERPRISE_TOKEN",
+                "GH_CONFIG_DIR",
+            ] {
+                command.env_remove(key);
+            }
             command.env("GH_CONFIG_DIR", path);
         }
     }
+    command.env("GH_PROMPT_DISABLED", "1");
     command
+}
+
+#[derive(Clone, Debug)]
+struct DeliveryOutput {
+    success: bool,
+    stdout: Vec<u8>,
+}
+
+fn delivery_output(mut command: Command) -> Result<DeliveryOutput, String> {
+    let timeout = std::env::var("MX_DELIVERY_COMMAND_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(120);
+    match crate::supervision::run_bounded_command_result(
+        &mut command,
+        Duration::from_secs(timeout),
+        None,
+        None,
+        false,
+    ) {
+        crate::supervision::BoundedCommandResult::Completed { success, output } => {
+            Ok(DeliveryOutput {
+                success,
+                stdout: output.into_bytes(),
+            })
+        }
+        crate::supervision::BoundedCommandResult::SpawnFailed(error) => {
+            Err(format!("could not start publication command: {error}"))
+        }
+        crate::supervision::BoundedCommandResult::Interrupted => {
+            Err("publication command was interrupted".to_owned())
+        }
+        crate::supervision::BoundedCommandResult::TimedOut => Err(format!(
+            "publication command exceeded its {timeout}-second bound"
+        )),
+    }
+}
+
+fn delivery_status(command: Command) -> Result<bool, String> {
+    delivery_output(command).map(|output| output.success)
 }
 
 fn private_metadata_text(state: &Path, path: &Path) -> Option<String> {
     let state_meta = fs::symlink_metadata(state).ok()?;
     let file = read_private(path, 0o600, state_meta.dev()).ok()?;
     String::from_utf8(file.bytes).ok()
+}
+
+fn task_publication_project(
+    state: &Path,
+    task: &OperationalTaskId,
+    worktree: &Path,
+) -> Result<Option<String>, String> {
+    let text = private_metadata_text(state, &state.join(format!("{task}.meta")))
+        .ok_or("private task metadata unavailable")?;
+    task_publication_project_from_text(task, worktree, &text)
+}
+
+fn task_publication_project_from_text(
+    task: &OperationalTaskId,
+    worktree: &Path,
+    text: &str,
+) -> Result<Option<String>, String> {
+    if !text
+        .lines()
+        .any(|line| line.starts_with("canonical_model="))
+    {
+        return Ok(None);
+    }
+    let record = multplx_domain::lifecycle::subagent_model::read_meta(task.as_str(), text)?;
+    if record.legacy_unknown {
+        return Ok(None);
+    }
+    let project = record
+        .project
+        .as_ref()
+        .ok_or("canonical publication task has no immutable project binding")?;
+    let allocation = record
+        .allocation
+        .as_ref()
+        .ok_or("canonical publication task has no current allocation binding")?;
+    if fs::canonicalize(worktree).ok() != fs::canonicalize(Path::new(&allocation.path)).ok() {
+        return Err("publication worktree differs from the current task allocation".to_owned());
+    }
+    let mut ancestry = Command::new("git");
+    ancestry.current_dir(worktree).args([
+        "merge-base",
+        "--is-ancestor",
+        &project.starting_revision,
+        "HEAD",
+    ]);
+    if !delivery_status(ancestry).is_ok_and(|success| success) {
+        return Err("publication head is unrelated to the task starting revision".to_owned());
+    }
+    let home = record
+        .owner_home
+        .as_deref()
+        .map(Path::new)
+        .ok_or("canonical publication task has no owner home")?;
+    multplx_domain::project_registry::validate_publication_location(home, project, worktree)
+        .map(Some)
 }
 
 fn delivery_gate(
@@ -1762,6 +1968,22 @@ fn delivery_gate(
             "Full validation gate not run".to_owned(),
             format!(
                 "## Summary\n\n{summary}\n\n## Validation\n\ndirect-PR: full validation gate not run. Explicit approval binds exact SHA {}.\n",
+                record.approved_sha
+            ),
+        ));
+    }
+    if let Validation::Reported {
+        summary,
+        checks,
+        limitations,
+    } = &record.validation
+    {
+        return Ok((
+            summary.clone(),
+            "reported".to_owned(),
+            limitations.clone(),
+            format!(
+                "## Summary\n\n{summary}\n\n## Checks\n\n{checks}\n\n## Limitations\n\n{limitations}\n\nPublished commit: `{}`.\n",
                 record.approved_sha
             ),
         ));
@@ -1797,6 +2019,7 @@ fn delivery_gate(
     }
     let body = match &record.validation {
         Validation::DirectPr { .. } => unreachable!("handled before gate read"),
+        Validation::Reported { .. } => unreachable!("handled before gate read"),
         Validation::Passed => {
             if value.get("status").and_then(serde_json::Value::as_str) != Some("passed") {
                 return Err("gate did not pass".to_owned());
@@ -1860,8 +2083,12 @@ fn mark_delivery_stale(
 }
 
 fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String, (bool, String)> {
-    if record.approval != "approved" {
-        return Err((false, "pending explicit approval".to_owned()));
+    if record.publication == PublicationAuthority::LegacyPending {
+        return Err((
+            false,
+            "a legacy pending handoff; run prepare explicitly to create an ordinary publication request"
+                .to_owned(),
+        ));
     }
     let meta = state.join(format!("{}.meta", record.task));
     let matches_meta = private_metadata_text(state, &meta).is_some_and(|text| {
@@ -1887,6 +2114,35 @@ fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String,
             true,
             "task metadata no longer binds the recorded worktree".to_owned(),
         ));
+    }
+    if let (Some(attempt_id), Some(generation), Some(brief_revision)) = (
+        record.attempt_id.as_deref(),
+        record.attempt_generation,
+        record.brief_revision,
+    ) {
+        let Some(text) = private_metadata_text(state, &meta) else {
+            return Err((true, "task metadata became unavailable".to_owned()));
+        };
+        let current =
+            multplx_domain::lifecycle::subagent_model::read_meta(record.task.as_str(), &text).ok();
+        if current
+            .as_ref()
+            .and_then(|task| task.attempt.as_ref())
+            .is_none_or(|attempt| {
+                attempt.id != attempt_id
+                    || attempt.generation != generation
+                    || attempt.brief_revision != brief_revision
+            })
+            || current
+                .as_ref()
+                .and_then(|task| task.accepted_brief_revision)
+                != Some(brief_revision)
+        {
+            return Err((
+                true,
+                "publication evidence belongs to a stale attempt or accepted brief".to_owned(),
+            ));
+        }
     }
     let stale = |message: &str| Err((true, message.to_owned()));
     if !record.worktree.is_dir() {
@@ -1948,17 +2204,26 @@ fn preserve_delivery_receipt(
         .dev();
     let prior = read_private(&path, 0o600, device)?;
     let previous = DeliveryRecord::parse(&prior.bytes, &record.task, state)?;
-    if previous.approval != "approved"
+    if previous.publication == PublicationAuthority::LegacyPending
         || previous.worktree != record.worktree
         || previous.branch != record.branch
         || previous.base != record.base
     {
         return Err("prior delivery receipt binding changed".to_owned());
     }
-    let archive = state.join(format!(
-        "{}.delivered-{}",
-        record.task, previous.approved_sha
-    ));
+    let archive = if previous.publication == PublicationAuthority::Ordinary {
+        state.join(format!(
+            "{}.delivered-{}-{}",
+            record.task,
+            previous.approved_sha,
+            previous.publication_fingerprint()
+        ))
+    } else {
+        state.join(format!(
+            "{}.delivered-{}",
+            record.task, previous.approved_sha
+        ))
+    };
     match fs::symlink_metadata(&archive) {
         Ok(_) => {
             if read_private(&archive, 0o600, device)?.bytes != prior.bytes {
@@ -1992,39 +2257,446 @@ fn existing_delivery_pr(
     record: &DeliveryRecord,
     credentials: &DeliveryCredentials,
     prior: bool,
+    expected_project: Option<&str>,
+    authoritative: Option<&PrIdentity>,
 ) -> Result<Option<PrIdentity>, String> {
     let meta = private_metadata_text(state, &state.join(format!("{}.meta", record.task)))
         .ok_or("private task metadata unavailable")?;
-    if !meta.lines().any(|line| line.starts_with("pr=")) && !prior {
-        return Ok(None);
+    let recorded = if let Some(identity) = authoritative {
+        Some(identity.clone())
+    } else if meta.lines().any(|line| line.starts_with("pr=")) {
+        Some(multplx_domain::review_delivery::metadata_pr(
+            meta.as_bytes(),
+        )?)
+    } else {
+        None
+    };
+    // Query before create, including when no local PR record exists. This is
+    // the reconciliation point for a PR created before its local receipt.
+    let mut command = delivery_command("gh", credentials);
+    command.current_dir(&record.worktree).args([
+        "pr",
+        "list",
+        "--head",
+        &record.branch,
+        "--state",
+        "all",
+        "--limit",
+        "2",
+        "--json",
+        "url,headRefName,baseRefName,state,isCrossRepository",
+    ]);
+    let output = delivery_output(command)?;
+    if !output.success {
+        return Err("PR absence could not be verified".to_owned());
     }
-    let identity = multplx_domain::review_delivery::metadata_pr(meta.as_bytes())?;
-    // Resolve by branch in this repository, then compare the durable canonical URL.
-    let output = delivery_command("gh", credentials)
-        .current_dir(&record.worktree)
-        .args([
-            "pr",
-            "view",
-            &record.branch,
-            "--json",
-            "url,headRefName,baseRefName,state,isCrossRepository",
-        ])
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err("existing PR could not be verified".to_owned());
-    }
-    let value: serde_json::Value =
+    let values: Vec<serde_json::Value> =
         serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
-    if value["url"].as_str() != Some(&identity.url)
+    if values.is_empty() {
+        return if recorded.is_some() || prior {
+            Err("recorded PR is absent from the task repository".to_owned())
+        } else {
+            Ok(None)
+        };
+    }
+    let mut open = values
+        .iter()
+        .filter(|value| value["state"].as_str() == Some("OPEN"));
+    let Some(value) = open.next() else {
+        return Err(
+            "the branch already has a non-open PR; refusing to create a duplicate".to_owned(),
+        );
+    };
+    if open.next().is_some() {
+        return Err("the branch has multiple open PR identities".to_owned());
+    }
+    let identity = PrIdentity::parse(value["url"].as_str().unwrap_or_default())?;
+    if expected_project.is_some_and(|project| project != identity.project_path()) {
+        return Err("PR repository differs from the task-bound publication project".to_owned());
+    }
+    if recorded
+        .as_ref()
+        .is_some_and(|recorded| recorded != &identity)
         || value["headRefName"].as_str() != Some(&record.branch)
         || value["baseRefName"].as_str() != Some(&record.base)
-        || value["state"].as_str() != Some("OPEN")
         || value["isCrossRepository"].as_bool() != Some(false)
     {
-        return Err("existing PR identity, branch, base, or open state changed".to_owned());
+        return Err("existing PR identity, branch, base, or repository changed".to_owned());
     }
     Ok(Some(identity))
+}
+
+fn remote_branch_at_commit(record: &DeliveryRecord, credentials: &DeliveryCredentials) -> bool {
+    let reference = format!("refs/heads/{}", record.branch);
+    let mut command = delivery_command("git", credentials);
+    command
+        .current_dir(&record.worktree)
+        .args(["ls-remote", "--heads", "origin", &reference]);
+    delivery_output(command)
+        .ok()
+        .filter(|output| output.success)
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                let (commit, found) = line.split_once(char::is_whitespace)?;
+                (found.trim() == reference).then_some(commit.to_owned())
+            })
+        })
+        .as_deref()
+        == Some(&record.approved_sha)
+}
+
+fn publication_operation_path(state: &Path, record: &DeliveryRecord) -> PathBuf {
+    state.join(format!(
+        "{}.publication-g{}-r{}-{}",
+        record.task,
+        record.attempt_generation.unwrap_or_default(),
+        record.brief_revision.unwrap_or_default(),
+        record.publication_fingerprint()
+    ))
+}
+
+fn publication_operation_lock(state: &Path, record: &DeliveryRecord) -> PathBuf {
+    state.join(format!(
+        ".{}.publication-{}.lock",
+        record.task,
+        record.publication_fingerprint()
+    ))
+}
+
+fn publication_operation(
+    state: &Path,
+    record: &DeliveryRecord,
+) -> Result<PublicationOperation, String> {
+    let _lock = DirectoryLock::acquire_wait(
+        publication_operation_lock(state, record),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    let path = publication_operation_path(state, record);
+    let state_meta = fs::symlink_metadata(state).map_err(|error| error.to_string())?;
+    match read_private(&path, 0o600, state_meta.dev()) {
+        Ok(file) => PublicationOperation::parse(&file.bytes, record),
+        Err(_) if fs::symlink_metadata(&path).is_err() => {
+            let operation = PublicationOperation::new(record);
+            publish_private(&path, &operation.render()?)?;
+            Ok(operation)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn advance_publication_operation(
+    state: &Path,
+    record: &DeliveryRecord,
+    expected: &PublicationOperation,
+    stage: PublicationStage,
+    pr_url: Option<&str>,
+) -> Result<PublicationOperation, String> {
+    let _lock = DirectoryLock::acquire_wait(
+        publication_operation_lock(state, record),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    let path = publication_operation_path(state, record);
+    let state_meta = fs::symlink_metadata(state).map_err(|error| error.to_string())?;
+    let current = read_private(&path, 0o600, state_meta.dev())?;
+    let mut operation = PublicationOperation::parse(&current.bytes, record)?;
+    if operation.stage >= stage {
+        if pr_url.is_some_and(|url| {
+            operation
+                .pr_url
+                .as_deref()
+                .is_some_and(|saved| saved != url)
+        }) {
+            return Err("publication operation PR identity changed".to_owned());
+        }
+        return Ok(operation);
+    }
+    if operation != *expected {
+        return Err("publication operation changed during reconciliation".to_owned());
+    }
+    operation.stage = stage;
+    if let Some(url) = pr_url {
+        let identity = PrIdentity::parse(url)?;
+        if operation
+            .pr_url
+            .as_ref()
+            .is_some_and(|existing| existing != &identity.url)
+        {
+            return Err("publication operation PR identity changed".to_owned());
+        }
+        operation.pr_url = Some(identity.url);
+    }
+    publish_private(&path, &operation.render()?)?;
+    Ok(operation)
+}
+
+fn evidence_check(value: &str) -> multplx_domain::lifecycle::delivery_evidence::DeliveryCheck {
+    use multplx_domain::lifecycle::delivery_evidence::{CheckOutcome, DeliveryCheck};
+    let (outcome, summary) = [
+        ("passed:", CheckOutcome::Passed),
+        ("failed:", CheckOutcome::Failed),
+        ("not-run:", CheckOutcome::NotRun),
+        ("unknown:", CheckOutcome::Unknown),
+    ]
+    .into_iter()
+    .find_map(|(prefix, outcome)| {
+        value
+            .strip_prefix(prefix)
+            .map(|summary| (outcome, summary.trim()))
+    })
+    .unwrap_or((CheckOutcome::Unknown, value));
+    DeliveryCheck {
+        name: "reported validation".to_owned(),
+        outcome,
+        summary: if summary.is_empty() {
+            "no details reported".to_owned()
+        } else {
+            summary.to_owned()
+        },
+        artifact: None,
+    }
+}
+
+fn record_publication_evidence(
+    state: &Path,
+    record: &DeliveryRecord,
+    outcome: multplx_domain::lifecycle::delivery_evidence::DeliveryOutcome,
+    pr_url: Option<&str>,
+) -> Result<(), String> {
+    use multplx_domain::lifecycle::delivery_evidence::{DeliveryOutcome, EvidenceRequest};
+    let (Some(attempt_id), Some(attempt_generation), Some(brief_revision)) = (
+        record.attempt_id.clone(),
+        record.attempt_generation,
+        record.brief_revision,
+    ) else {
+        // Historical approved receipts remain deliverable for migration, but
+        // cannot manufacture canonical attempt-bound evidence.
+        return Ok(());
+    };
+    let meta_path = state.join(format!("{}.meta", record.task));
+    let text = fs::read_to_string(&meta_path).map_err(|error| error.to_string())?;
+    let task = multplx_domain::lifecycle::subagent_model::read_meta(record.task.as_str(), &text)?;
+    if outcome == DeliveryOutcome::Published {
+        let pr_url = pr_url.ok_or("published evidence requires a canonical PR URL")?;
+        return record_published_evidence_for_task(
+            state,
+            record.task.as_str(),
+            &task,
+            &record.approved_sha,
+            pr_url,
+        );
+    }
+    let kind = match outcome {
+        DeliveryOutcome::EvidenceUpdated => "evidence",
+        DeliveryOutcome::Published => unreachable!("published handled above"),
+        DeliveryOutcome::PublicationFailed => "failed",
+        DeliveryOutcome::HumanMerged => "merged",
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(record.task.as_str().as_bytes());
+    hasher.update([0]);
+    hasher.update(attempt_id.as_bytes());
+    hasher.update(attempt_generation.to_le_bytes());
+    hasher.update(brief_revision.to_le_bytes());
+    hasher.update(kind.as_bytes());
+    hasher.update(record.approved_sha.as_bytes());
+    hasher.update(record.publication_fingerprint().as_bytes());
+    if let Some(url) = pr_url {
+        hasher.update(url.as_bytes());
+    }
+    let fingerprint = format!("{:x}", hasher.finalize());
+    let evidence_id = format!("{kind}-{}", &fingerprint[..32]);
+    let existing = task
+        .delivery
+        .history
+        .iter()
+        .find(|evidence| evidence.evidence_id == evidence_id);
+    let (checks, limitations) = match &record.validation {
+        Validation::Reported {
+            checks,
+            limitations,
+            ..
+        } => (
+            vec![evidence_check(checks)],
+            if limitations == "none reported" {
+                Vec::new()
+            } else {
+                vec![limitations.clone()]
+            },
+        ),
+        _ => (Vec::new(), Vec::new()),
+    };
+    let observed_at = existing
+        .map(|evidence| evidence.observed_at.clone())
+        .unwrap_or_else(|| {
+            time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("RFC3339 formatting")
+        });
+    let request = EvidenceRequest {
+        evidence_id,
+        attempt_id,
+        attempt_generation,
+        brief_revision,
+        commit: record.approved_sha.clone(),
+        checks,
+        review: None,
+        limitations,
+        pr_url: pr_url.map(str::to_owned),
+        outcome,
+        observed_at,
+        mark_current: true,
+        expected_current_commit: task.delivery.current_commit.clone(),
+    };
+    let (_task, _evidence) = multplx_domain::lifecycle::delivery_evidence::record(
+        state,
+        record.task.as_str(),
+        &request,
+    )?;
+    Ok(())
+}
+
+fn record_direct_pr_publication_evidence(
+    state: &Path,
+    task_id: &str,
+    commit: &str,
+    pr_url: &str,
+) -> Result<(), String> {
+    let text = fs::read_to_string(state.join(format!("{task_id}.meta")))
+        .map_err(|error| error.to_string())?;
+    if !text
+        .lines()
+        .any(|line| line.starts_with("canonical_model="))
+    {
+        return Ok(());
+    }
+    let task = multplx_domain::lifecycle::subagent_model::read_meta(task_id, &text)?;
+    if task.legacy_unknown {
+        return Ok(());
+    }
+    record_published_evidence_for_task(state, task_id, &task, commit, pr_url)
+}
+
+fn record_published_evidence_for_task(
+    state: &Path,
+    task_id: &str,
+    task: &multplx_domain::lifecycle::subagent_model::TaskRecord,
+    commit: &str,
+    pr_url: &str,
+) -> Result<(), String> {
+    use multplx_domain::lifecycle::delivery_evidence::{DeliveryOutcome, EvidenceRequest};
+    let attempt = task.attempt.as_ref().ok_or("task attempt missing")?;
+    let brief_revision = task
+        .accepted_brief_revision
+        .ok_or("task accepted brief revision missing")?;
+    if task
+        .delivery
+        .current_commit
+        .as_deref()
+        .is_some_and(|current| current != commit)
+    {
+        return Err("PR commit differs from the current delivery revision".to_owned());
+    }
+    let current = task.current_delivery_evidence().filter(|evidence| {
+        evidence.attempt_id == attempt.id
+            && evidence.attempt_generation == attempt.generation
+            && evidence.brief_revision == brief_revision
+            && evidence.commit == commit
+    });
+    let mut hasher = Sha256::new();
+    for value in [task_id, attempt.id.as_str(), commit, pr_url] {
+        hasher.update(value.as_bytes());
+        hasher.update([0]);
+    }
+    hasher.update(attempt.generation.to_le_bytes());
+    hasher.update(brief_revision.to_le_bytes());
+    let fingerprint = format!("{:x}", hasher.finalize());
+    let evidence_id = format!("published-{}", &fingerprint[..32]);
+    let existing = task
+        .delivery
+        .history
+        .iter()
+        .find(|evidence| evidence.evidence_id == evidence_id);
+    let observed_at = existing
+        .map(|evidence| evidence.observed_at.clone())
+        .unwrap_or_else(|| {
+            time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("RFC3339 formatting")
+        });
+    let request = EvidenceRequest {
+        evidence_id,
+        attempt_id: attempt.id.clone(),
+        attempt_generation: attempt.generation,
+        brief_revision,
+        commit: commit.to_owned(),
+        checks: current
+            .as_ref()
+            .map_or_else(Vec::new, |evidence| evidence.checks.clone()),
+        review: current
+            .as_ref()
+            .and_then(|evidence| evidence.review.clone()),
+        limitations: current.map_or_else(Vec::new, |evidence| evidence.limitations),
+        pr_url: Some(pr_url.to_owned()),
+        outcome: DeliveryOutcome::Published,
+        observed_at,
+        mark_current: true,
+        expected_current_commit: task.delivery.current_commit.clone(),
+    };
+    multplx_domain::lifecycle::delivery_evidence::record(state, task_id, &request)?;
+    Ok(())
+}
+
+fn reconcile_completed_publication(
+    state: &Path,
+    task: &OperationalTaskId,
+    record: &DeliveryRecord,
+    receipt: &multplx_domain::review_delivery::SecureFile,
+    operation: &PublicationOperation,
+    credentials: &DeliveryCredentials,
+) -> Result<(), String> {
+    if operation.stage != PublicationStage::Complete {
+        return Err("retained publication operation is incomplete".to_owned());
+    }
+    let recorded_url = operation
+        .pr_url
+        .as_deref()
+        .ok_or("completed publication operation has no PR identity")?;
+    delivery_eligibility(state, record).map_err(|(_, reason)| reason)?;
+    let expected_project = task_publication_project(state, task, &record.worktree)?;
+    if !remote_branch_at_commit(record, credentials) {
+        return Err("published branch no longer identifies the recorded commit".to_owned());
+    }
+    let recorded_identity = PrIdentity::parse(recorded_url)?;
+    let observed = existing_delivery_pr(
+        state,
+        record,
+        credentials,
+        true,
+        expected_project.as_deref(),
+        Some(&recorded_identity),
+    )?
+    .ok_or("recorded PR is no longer observable")?;
+    if observed.url != recorded_url {
+        return Err("completed publication PR identity changed".to_owned());
+    }
+    let _lock = DirectoryLock::acquire_wait(
+        state.join(format!(".{task}.delivery-prepare.lock")),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    if state.join(format!("{task}.ready-to-push")).exists()
+        || !delivery_record_unchanged(&state.join(format!("{task}.delivered")), receipt)
+    {
+        return Err("publication state changed during completed retry reconciliation".to_owned());
+    }
+    println!("delivery: {task} already published at {recorded_url}");
+    Ok(())
 }
 
 fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32 {
@@ -2032,7 +2704,7 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         eprintln!("error: invalid delivery request");
         return 2;
     };
-    let Ok(_lock) = DirectoryLock::acquire_wait(
+    let Ok(lock) = DirectoryLock::acquire_wait(
         state.join(format!(".{task}.delivery-prepare.lock")),
         &SystemProcessProbe::default(),
         Duration::from_secs(5),
@@ -2042,8 +2714,28 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
     };
     let path = state.join(format!("{task}.ready-to-push"));
     if fs::symlink_metadata(&path).is_err() {
-        eprintln!("delivery: no ready record for {task}");
-        return 1;
+        let delivered = state.join(format!("{task}.delivered"));
+        let result = fs::symlink_metadata(state)
+            .map_err(|error| error.to_string())
+            .and_then(|state_meta| {
+                let receipt = read_private(&delivered, 0o600, state_meta.dev())?;
+                let record = DeliveryRecord::parse(&receipt.bytes, &task, state)?;
+                let operation = publication_operation(state, &record)?;
+                drop(lock);
+                reconcile_completed_publication(
+                    state,
+                    &task,
+                    &record,
+                    &receipt,
+                    &operation,
+                    credentials,
+                )
+            });
+        if let Err(error) = result {
+            eprintln!("delivery: no ready record for {task}; completed retry unavailable: {error}");
+            return 1;
+        }
+        return 0;
     }
     let Ok(state_meta) = fs::symlink_metadata(state) else {
         eprintln!("delivery: refused malformed or unsafe record for {task}");
@@ -2081,13 +2773,65 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
             return 1;
         }
     };
-    let existing_pr = match existing_delivery_pr(state, &record, credentials, prior.is_some()) {
-        Ok(identity) => identity,
+    let mut operation = match publication_operation(state, &record) {
+        Ok(operation) => operation,
         Err(error) => {
-            eprintln!("delivery: {error}");
+            eprintln!("delivery: publication intent could not be reserved: {error}");
             return 1;
         }
     };
+    drop(lock);
+
+    let publication_failed = |detail: &str, pr_url: Option<&str>| {
+        use multplx_domain::lifecycle::delivery_evidence::DeliveryOutcome;
+        if let Err(error) =
+            record_publication_evidence(state, &record, DeliveryOutcome::PublicationFailed, pr_url)
+        {
+            eprintln!("delivery: {detail}; failure evidence needs repair: {error}");
+        } else {
+            eprintln!("delivery: {detail}");
+        }
+    };
+    let expected_project = match task_publication_project(state, &task, &record.worktree) {
+        Ok(project) => project,
+        Err(error) => {
+            publication_failed(&error, operation.pr_url.as_deref());
+            return 1;
+        }
+    };
+    let mut existing_pr = match existing_delivery_pr(
+        state,
+        &record,
+        credentials,
+        prior.is_some(),
+        expected_project.as_deref(),
+        None,
+    ) {
+        Ok(identity) => identity,
+        Err(error) => {
+            publication_failed(&error, operation.pr_url.as_deref());
+            return 1;
+        }
+    };
+    if let Some(saved) = operation.pr_url.as_deref() {
+        match existing_pr.as_ref() {
+            Some(identity) if identity.url == saved => {}
+            Some(_) => {
+                publication_failed(
+                    "forge PR identity differs from the durable publication receipt",
+                    Some(saved),
+                );
+                return 1;
+            }
+            None => {
+                publication_failed(
+                    "durably observed PR is absent from the task repository",
+                    Some(saved),
+                );
+                return 1;
+            }
+        }
+    }
     if !delivery_record_unchanged(&path, &file)
         || prior.as_ref().is_some_and(|previous| {
             !delivery_record_unchanged(&state.join(format!("{task}.delivered")), previous)
@@ -2098,72 +2842,129 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         );
         return 1;
     }
-    if !delivery_command("git", credentials)
-        .arg("-C")
-        .arg(&record.worktree)
-        .args([
-            "push",
-            "origin",
-            &format!("{}:refs/heads/{}", record.approved_sha, record.branch),
-        ])
-        .status()
-        .is_ok_and(|status| status.success())
+    let mut push = delivery_command("git", credentials);
+    push.arg("-C").arg(&record.worktree).args([
+        "push",
+        "origin",
+        &format!("{}:refs/heads/{}", record.approved_sha, record.branch),
+    ]);
+    if !remote_branch_at_commit(&record, credentials)
+        && !delivery_status(push).is_ok_and(|success| success)
     {
-        eprintln!("delivery: push failed for {task}");
+        publication_failed(
+            &format!("push failed for {task}"),
+            operation.pr_url.as_deref(),
+        );
         return 1;
     }
-    let output = if let Some(identity) = existing_pr {
-        let result = delivery_command("gh", credentials)
-            .current_dir(&record.worktree)
-            .args([
-                "pr",
-                "edit",
-                &identity.url,
-                "--title",
-                &record.title,
-                "--body",
-                &body,
-            ])
-            .status();
-        if !result.is_ok_and(|status| status.success()) {
-            eprintln!("delivery: existing PR content update failed for {task}");
+    operation = match advance_publication_operation(
+        state,
+        &record,
+        &operation,
+        PublicationStage::BranchPublished,
+        None,
+    ) {
+        Ok(operation) => operation,
+        Err(error) => {
+            publication_failed(
+                &format!("branch published but receipt update failed: {error}"),
+                operation.pr_url.as_deref(),
+            );
             return 1;
         }
-        Some(identity.url.into_bytes())
-    } else {
-        let create = delivery_command("gh", credentials)
-            .current_dir(&record.worktree)
-            .args([
-                "pr",
-                "create",
-                "--base",
-                &record.base,
-                "--head",
-                &record.branch,
-                "--title",
-                &record.title,
-                "--body",
-                &body,
-            ])
-            .output();
-        match create {
-            Ok(output) if output.status.success() => Some(output.stdout),
-            _ => delivery_command("gh", credentials)
-                .current_dir(&record.worktree)
-                .args(["pr", "view", &record.branch, "--json", "url", "-q", ".url"])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| output.stdout),
-        }
     };
-    let Some(url) = output
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| text.lines().next_back().map(str::to_owned))
-        .filter(|url| PrIdentity::parse(url).is_ok())
-    else {
-        eprintln!("delivery: PR creation failed for {task}");
+
+    // Reconcile once more after the branch is visible. Another retry may have
+    // created the PR before its local registration was durable.
+    if existing_pr.is_none() {
+        existing_pr = match existing_delivery_pr(
+            state,
+            &record,
+            credentials,
+            false,
+            expected_project.as_deref(),
+            None,
+        ) {
+            Ok(identity) => identity,
+            Err(error) => {
+                publication_failed(&error, operation.pr_url.as_deref());
+                return 1;
+            }
+        };
+    }
+    if existing_pr.is_none() {
+        let mut create_command = delivery_command("gh", credentials);
+        create_command.current_dir(&record.worktree).args([
+            "pr",
+            "create",
+            "--base",
+            &record.base,
+            "--head",
+            &record.branch,
+            "--title",
+            &record.title,
+            "--body",
+            &body,
+        ]);
+        let _ = delivery_output(create_command);
+        existing_pr = match existing_delivery_pr(
+            state,
+            &record,
+            credentials,
+            false,
+            expected_project.as_deref(),
+            None,
+        ) {
+            Ok(identity) => identity,
+            Err(error) => {
+                publication_failed(
+                    &format!("PR creation could not be reconciled: {error}"),
+                    operation.pr_url.as_deref(),
+                );
+                return 1;
+            }
+        };
+    }
+    let Some(identity) = existing_pr else {
+        publication_failed(
+            &format!("PR creation failed for {task}"),
+            operation.pr_url.as_deref(),
+        );
         return 1;
+    };
+    let mut edit = delivery_command("gh", credentials);
+    edit.current_dir(&record.worktree).args([
+        "pr",
+        "edit",
+        &identity.url,
+        "--title",
+        &record.title,
+        "--body",
+        &body,
+    ]);
+    if !delivery_status(edit).is_ok_and(|success| success) {
+        publication_failed(
+            &format!("existing PR content update failed for {task}"),
+            operation.pr_url.as_deref(),
+        );
+        return 1;
+    }
+    let url = identity.url;
+    operation = match advance_publication_operation(
+        state,
+        &record,
+        &operation,
+        PublicationStage::PrObserved,
+        Some(&url),
+    ) {
+        Ok(operation) => operation,
+        Err(error) => {
+            publication_failed(
+                &format!("PR observed but receipt update failed: {error}"),
+                Some(&url),
+            );
+            return 1;
+        }
     };
     let Ok(binary) = std::env::current_exe() else {
         return 1;
@@ -2174,11 +2975,54 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         .env("MX_MULTICALL_EXPLICIT", "1")
         .env("MX_STATE_OVERRIDE", state)
         .env("MX_RUST_SOURCE_ROOT", source_root());
-    if !check.status().is_ok_and(|status| status.success()) {
-        eprintln!("delivery: PR state recording failed for {task}");
+    if !delivery_status(check).is_ok_and(|success| success) {
+        publication_failed(&format!("PR state recording failed for {task}"), Some(&url));
         return 1;
     }
+    operation = match advance_publication_operation(
+        state,
+        &record,
+        &operation,
+        PublicationStage::Registered,
+        Some(&url),
+    ) {
+        Ok(operation) => operation,
+        Err(error) => {
+            publication_failed(
+                &format!("PR registered but receipt update failed: {error}"),
+                Some(&url),
+            );
+            return 1;
+        }
+    };
+    if let Err(error) = record_publication_evidence(
+        state,
+        &record,
+        multplx_domain::lifecycle::delivery_evidence::DeliveryOutcome::Published,
+        Some(&url),
+    ) {
+        eprintln!("delivery: PR registered but canonical outcome needs repair: {error}");
+        return 1;
+    }
+    let Ok(_commit_lock) = DirectoryLock::acquire_wait(
+        state.join(format!(".{task}.delivery-prepare.lock")),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    ) else {
+        eprintln!("delivery: PR registered but local completion is busy");
+        return 1;
+    };
     let destination = state.join(format!("{task}.delivered"));
+    if let Err(error) = advance_publication_operation(
+        state,
+        &record,
+        &operation,
+        PublicationStage::Complete,
+        Some(&url),
+    ) {
+        eprintln!("delivery: completed publication needs receipt repair: {error}");
+        return 1;
+    }
     if !delivery_record_unchanged(&path, &file)
         || match &prior {
             Some(previous) => !delivery_record_unchanged(&destination, previous),
@@ -2196,26 +3040,44 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
 }
 
 fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
-    let prepare = values.first() == Some(&"prepare");
-    if (prepare && values.len() != 6)
-        || (!prepare && values.len() != 4)
-        || values.get(2) != Some(&"--sha")
-        || (prepare && values.get(4) != Some(&"--summary"))
-    {
-        return Err("use mx-deliver.sh --help for prepare/approve syntax".to_owned());
+    if values.first() == Some(&"approve") {
+        return Err(
+            "approve is retired; ordinary publication has no Multplx approval step".to_owned(),
+        );
+    }
+    if values.first() != Some(&"prepare") || values.len() < 6 {
+        return Err("use mx-deliver.sh --help for prepare syntax".to_owned());
     }
     let task = OperationalTaskId::parse(values[1])?;
-    let sha = values[3];
+    let mut sha = None;
+    let mut summary = None;
+    let mut checks = None;
+    let mut limitations = None;
+    let mut index = 2;
+    while index < values.len() {
+        let target = match values[index] {
+            "--sha" => &mut sha,
+            "--summary" => &mut summary,
+            "--checks" => &mut checks,
+            "--limitations" => &mut limitations,
+            _ => return Err("use mx-deliver.sh --help for prepare syntax".to_owned()),
+        };
+        let Some(value) = values.get(index + 1).copied() else {
+            return Err("publication option is missing its value".to_owned());
+        };
+        if target.replace(value).is_some() {
+            return Err("publication option was repeated".to_owned());
+        }
+        index += 2;
+    }
+    let sha = sha.ok_or("--sha is required")?;
+    let summary = summary.ok_or("--summary is required")?;
+    let checks = checks.unwrap_or("not reported");
+    let limitations = limitations.unwrap_or("none reported");
     if !head_valid(sha) {
         return Err("a full exact commit SHA is required".to_owned());
     }
-    if !prepare
-        && (std::env::var_os("MX_TASK_ID").is_some()
-            || std::env::var_os("DEEP_REVIEW_GATE").is_some())
-    {
-        return Err("task workers and gate sessions cannot approve their own delivery".to_owned());
-    }
-    if prepare && std::env::var("MX_TASK_ID").is_ok_and(|id| id != task.as_str()) {
+    if std::env::var("MX_TASK_ID").is_ok_and(|id| id != task.as_str()) {
         return Err("prepare belongs to the initiating task".to_owned());
     }
     let state = state_root();
@@ -2230,52 +3092,67 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
         Duration::from_secs(5),
     )
     .map_err(|error| error.to_string())?;
-    if prepare {
-        if fs::symlink_metadata(&path).is_ok() {
+    let meta = private_metadata_text(&state, &state.join(format!("{task}.meta")))
+        .ok_or("private task metadata unavailable")?;
+    let worktree = PathBuf::from(meta_value(&meta, "worktree", false).ok_or("missing worktree")?);
+    let base = default_branch(&worktree).ok_or("cannot resolve base branch")?;
+    let title = command_line("git", &worktree, &["log", "-1", "--format=%s"])
+        .ok_or("cannot read commit title")?;
+    let model = multplx_domain::lifecycle::subagent_model::read_meta(task.as_str(), &meta).ok();
+    let (attempt_id, attempt_generation, brief_revision) = model
+        .as_ref()
+        .filter(|record| !record.legacy_unknown)
+        .and_then(|record| {
+            record.attempt.as_ref().map(|attempt| {
+                (
+                    attempt.id.as_str(),
+                    attempt.generation,
+                    attempt.brief_revision,
+                )
+            })
+        })
+        .unwrap_or(("legacy-unknown", 0, 0));
+    let text = format!(
+        "version=4\ntask={task}\nworktree={}\nbranch=mx/{task}\ncommit={sha}\nbase={base}\ntitle={title}\nvalidation=reported\nsummary={summary}\nchecks={checks}\nlimitations={limitations}\nattempt_id={attempt_id}\nattempt_generation={attempt_generation}\nbrief_revision={brief_revision}\n",
+        worktree.display()
+    );
+    let record = DeliveryRecord::parse(text.as_bytes(), &task, &state)?;
+    delivery_eligibility(&state, &record).map_err(|(_, error)| error)?;
+    if let Ok(metadata) = fs::symlink_metadata(&state)
+        && let Ok(existing) = read_private(&path, 0o600, metadata.dev())
+    {
+        if existing.bytes == text.as_bytes() {
+            record_publication_evidence(
+                &state,
+                &record,
+                multplx_domain::lifecycle::delivery_evidence::DeliveryOutcome::EvidenceUpdated,
+                None,
+            )?;
+            println!("publication: {task} already prepared at {sha}");
+            return Ok(());
+        }
+        let old = DeliveryRecord::parse(&existing.bytes, &task, &state)?;
+        if !matches!(
+            old.publication,
+            PublicationAuthority::LegacyPending | PublicationAuthority::Ordinary
+        ) || old.worktree != record.worktree
+            || old.branch != record.branch
+            || old.base != record.base
+            || old.approved_sha != record.approved_sha
+        {
             return Err(
-                "a handoff already exists; preserve its approval and reconcile it first".to_owned(),
+                "a different publication request already exists; reconcile it first".to_owned(),
             );
         }
-        let meta = private_metadata_text(&state, &state.join(format!("{task}.meta")))
-            .ok_or("private task metadata unavailable")?;
-        let worktree =
-            PathBuf::from(meta_value(&meta, "worktree", false).ok_or("missing worktree")?);
-        let base = default_branch(&worktree).ok_or("cannot resolve base branch")?;
-        let title = command_line("git", &worktree, &["log", "-1", "--format=%s"])
-            .ok_or("cannot read commit title")?;
-        let summary = values[5];
-        let text = format!(
-            "version=3\ntask={task}\nworktree={}\nbranch=mx/{task}\napproved_sha={sha}\nbase={base}\napproval=approved\ntitle={title}\nvalidation=direct-PR\nsummary={summary}\n",
-            worktree.display()
-        );
-        let record = DeliveryRecord::parse(text.as_bytes(), &task, &state)?;
-        delivery_eligibility(&state, &record).map_err(|(_, error)| error)?;
-        publish_private(
-            &path,
-            text.replace("\napproval=approved\n", "\napproval=pending\n")
-                .as_bytes(),
-        )?;
-        println!("delivery: {task} direct-PR handoff pending explicit approval at {sha}");
-    } else {
-        let metadata = fs::symlink_metadata(&state).map_err(|error| error.to_string())?;
-        let file = read_private(&path, 0o600, metadata.dev())?;
-        let mut record = DeliveryRecord::parse(&file.bytes, &task, &state)?;
-        if record.approved_sha != sha {
-            return Err("approval SHA does not match handoff".to_owned());
-        }
-        record.approval = "approved".to_owned();
-        delivery_eligibility(&state, &record).map_err(|(_, error)| error)?;
-        if !delivery_record_unchanged(&path, &file) {
-            return Err("handoff changed during approval".to_owned());
-        }
-        let text = String::from_utf8(file.bytes).map_err(|error| error.to_string())?;
-        publish_private(
-            &path,
-            text.replace("\napproval=pending\n", "\napproval=approved\n")
-                .as_bytes(),
-        )?;
-        println!("delivery: {task} approved at {sha}");
     }
+    publish_private(&path, text.as_bytes())?;
+    record_publication_evidence(
+        &state,
+        &record,
+        multplx_domain::lifecycle::delivery_evidence::DeliveryOutcome::EvidenceUpdated,
+        None,
+    )?;
+    println!("publication: {task} ready at {sha}; no approval step is required");
     Ok(())
 }
 
@@ -2295,7 +3172,7 @@ fn deliver(args: &[OsString]) -> i32 {
     }
     if matches!(values.as_slice(), ["-h" | "--help"]) {
         print!(
-            "Deliver one or all approved local branches from outside every agent session.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary>\n       mx-deliver.sh approve <task-id> --sha <full-SHA>\n\nprepare creates a pending gate-free handoff only for mode=direct-PR delivery tasks.\napprove is a local operation for the accepted approval authority; task workers and gates are refused. It rechecks the exact clean commit for every mode. Remote delivery remains non-agent only.\nExisting PR revisions verify the recorded open PR and branch/base before push and update its title/body. Prior approved receipts are preserved byte-for-byte at state/<id>.delivered-<SHA>; unsafe or conflicting history refuses delivery before push.\n"
+            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>]\n\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base before updating its title and body. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
         );
         return 0;
     }
@@ -2315,12 +3192,6 @@ fn deliver(args: &[OsString]) -> i32 {
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         eprintln!("error: delivery state directory is unavailable");
         return 1;
-    }
-    if agent_ambience() {
-        eprintln!(
-            "error: credentialed delivery must run outside every broker, actor, daemon, and gate session"
-        );
-        return 3;
     }
     let credentials = match delivery_credentials() {
         Ok(credentials) => credentials,
@@ -2388,69 +3259,17 @@ fn normalized_merge_args(values: &[&str]) -> Result<Vec<String>, String> {
     Ok(output)
 }
 
-fn merge_state(identity: &PrIdentity) -> Result<(String, String), String> {
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "view",
-            &identity.number,
-            "--repo",
-            &identity.project_path(),
-            "--json",
-            "headRefOid,statusCheckRollup",
-        ])
-        .output()
-        .map_err(|_| "could not inspect exact PR head and check set")?;
-    if !output.status.success() {
-        return Err("could not inspect exact PR head and check set".to_owned());
-    }
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "could not inspect exact PR head and check set")?;
-    let sha = value
-        .get("headRefOid")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| head_valid(value))
-        .ok_or("could not inspect exact PR head and check set")?;
-    let mut failed = value
-        .get("statusCheckRollup")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|check| {
-            let state = ["conclusion", "state", "status"]
-                .into_iter()
-                .find_map(|key| check.get(key).and_then(serde_json::Value::as_str))
-                .unwrap_or_default();
-            let normalized = state.to_ascii_uppercase();
-            matches!(
-                normalized.as_str(),
-                "FAILURE" | "FAILED" | "ERROR" | "CANCELLED" | "TIMED_OUT"
-            )
-            .then(|| {
-                let name = ["name", "context", "workflowName"]
-                    .into_iter()
-                    .find_map(|key| check.get(key).and_then(serde_json::Value::as_str))
-                    .unwrap_or("unknown");
-                (name.to_owned(), state.to_owned())
-            })
-        })
-        .collect::<Vec<_>>();
-    failed.sort();
-    let state = serde_json::json!({
-        "sha": sha,
-        "failed_checks": failed.into_iter().map(|(name, state)| serde_json::json!({"name": name, "state": state})).collect::<Vec<_>>()
-    });
-    Ok((
-        serde_json::to_string(&state).map_err(|error| error.to_string())?,
-        sha.to_owned(),
-    ))
-}
-
 fn pr_merge(args: &[OsString]) -> i32 {
     let Some(values) = text_args(args) else {
         eprintln!("error: invalid PR merge request");
         return 2;
     };
+    if matches!(values.as_slice(), ["-h" | "--help"]) {
+        print!(
+            "Merge a registered pull request from a human-controlled shell.\n\nUsage: mx-pr-merge.sh <task-id> <canonical-PR-url> [--] [gh-pr-merge-options]\n\nThis helper refuses agent, gate, and automation sessions. Merge overrides, auto-merge, merge queue submission, and repository overrides are unsupported. Ordinary agents may publish branches and open or update PRs with mx-deliver.sh.\n"
+        );
+        return 0;
+    }
     if values.len() < 2 {
         eprintln!("error: invalid PR merge request");
         return 2;
@@ -2466,31 +3285,17 @@ fn pr_merge(args: &[OsString]) -> i32 {
     };
     if agent_ambience() {
         eprintln!(
-            "error: credentialed delivery must run outside every broker, actor, daemon, and gate session"
+            "error: PR merge commands are human-only and refuse agent, gate, and automation sessions"
         );
         return 3;
     }
     let mut index = 2;
-    let mut override_id = None;
-    let mut print_bindings = false;
-    match values.get(index).copied() {
-        Some("--override") => {
-            let Some(value) = values
-                .get(index + 1)
-                .copied()
-                .filter(|value| !value.is_empty())
-            else {
-                eprintln!("error: --override requires a request id");
-                return 2;
-            };
-            override_id = Some(value);
-            index += 2;
-        }
-        Some("--print-override-bindings") => {
-            print_bindings = true;
-            index += 1;
-        }
-        _ => {}
+    if matches!(
+        values.get(index),
+        Some(&"--override" | &"--print-override-bindings")
+    ) {
+        eprintln!("error: merge override routes are retired; PR merges are human-executed actions");
+        return 1;
     }
     if values.get(index) == Some(&"--") {
         index += 1;
@@ -2517,71 +3322,6 @@ fn pr_merge(args: &[OsString]) -> i32 {
     }
     merge_args.extend(normalized);
 
-    let binding_document = if print_bindings || override_id.is_some() {
-        let state = match merge_state(&identity) {
-            Ok(value) => value,
-            Err(error) => {
-                eprintln!("error: {error}");
-                return 1;
-            }
-        };
-        if serde_json::from_str::<serde_json::Value>(&state.0)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("failed_checks")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-            })
-            .is_none_or(|checks| checks.is_empty())
-        {
-            eprintln!(
-                "error: PR check failure is not a red-check set; use the concrete capability or integrity recovery path"
-            );
-            return 1;
-        }
-        let mut operation_args = vec!["gh".to_owned()];
-        operation_args.extend(merge_args.clone());
-        if !operation_args.iter().any(|value| value == "--admin") {
-            operation_args.push("--admin".to_owned());
-        }
-        let operation = serde_json::to_string(&operation_args).expect("operation JSON");
-        let target = format!("{}@{}", identity.url, state.1);
-        let project = identity
-            .repository
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
-                    character
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>();
-        Some((
-            serde_json::json!({
-                "boundary": "delivery.merge-red",
-                "task": task.as_str(),
-                "project": project,
-                "operation": operation,
-                "target": target,
-                "expected_state_digest": multplx_domain::maintainer_override::sha256_text(&state.0),
-                "consequence": "Merge the exact PR head despite the recorded failed check set; record the merge as maintainer-directed.",
-                "state": serde_json::from_str::<serde_json::Value>(&state.0).expect("state JSON")
-            }),
-            operation_args,
-        ))
-    } else {
-        None
-    };
-    if print_bindings {
-        println!(
-            "{}",
-            serde_json::to_string(binding_document.as_ref().map(|value| &value.0).unwrap())
-                .expect("binding JSON")
-        );
-        return 0;
-    }
     let meta = state_root().join(format!("{task}.meta"));
     if !fs::symlink_metadata(&meta)
         .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
@@ -2594,46 +3334,6 @@ fn pr_merge(args: &[OsString]) -> i32 {
             "error: PR metadata and poll could not be established; no merge authority can change that capability result"
         );
         return 1;
-    }
-    if let Some(request) = override_id {
-        let Some((document, operation_args)) = binding_document else {
-            return 1;
-        };
-        let field = |name: &str| {
-            document
-                .get(name)
-                .and_then(serde_json::Value::as_str)
-                .unwrap()
-        };
-        let binding = Binding {
-            boundary: field("boundary"),
-            task: field("task"),
-            project: field("project"),
-            operation: field("operation"),
-            target: field("target"),
-            expected_state_digest: field("expected_state_digest"),
-        };
-        let store = OverrideStore::new(&state_root());
-        if store.consume(request, &binding).is_err() {
-            return 1;
-        }
-        let status = Command::new(&operation_args[0])
-            .args(&operation_args[1..])
-            .status()
-            .ok()
-            .and_then(|status| status.code())
-            .unwrap_or(1);
-        let succeeded = status == 0;
-        let detail = if succeeded {
-            format!(
-                "maintainer-directed merge completed for {} with recorded failed checks",
-                field("target")
-            )
-        } else {
-            format!("maintainer-directed merge command failed with status {status}")
-        };
-        let _ = store.result(request, succeeded, &detail);
-        return status;
     }
     Command::new("gh")
         .args(&merge_args)

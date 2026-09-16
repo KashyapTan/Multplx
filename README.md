@@ -30,7 +30,7 @@ The global `multplx` command activates that distribution from any directory, aft
 - **Parallel isolation** - actors work independently in built-in Git worktree allocations instead of sharing a checkout.
 - **Durable supervision** - validated status events, a wake queue, and harness-specific turn-end guards keep work observable without an idle model loop.
 - **Explicit authority** - product, architecture, destructive, security-sensitive, and merge decisions remain with the maintainer unless a narrowly configured routine policy applies.
-- **Safe delivery** - every agent session stops at local commits; a separate credentialed context pushes only an approved exact SHA.
+- **Agent delivery, human merges** - implementers commit, push task branches and open or update PRs; humans perform PR merges.
 - **Restart-proof operation** - disk state and runtime endpoints let a new broker session reconcile work already under way.
 
 ## Core Features
@@ -38,7 +38,7 @@ The global `multplx` command activates that distribution from any directory, aft
 - A broker coordinates independent actors and optional persistent daemons through the model described in [Architecture](docs/architecture.md).
 - Every delivery or scout task receives an isolated worktree and a visible endpoint on the tmux reference backend or an experimental Herdr or cmux backend.
 - Event-driven supervision combines validated reporting, durable wakes, current-state reconciliation, and guarded turn boundaries without making an append-only status log the source of truth.
-- Three explicit delivery modes - `deep-review`, `direct-PR`, and `local-only` - preserve the same no-agent-credentials boundary described in [Delivery](docs/delivery.md).
+- Branch publication uses ordinary authentication and revision-bound evidence as described in [Delivery](docs/delivery.md); local-only tasks stay local and review evidence remains separate.
 - Declarative [workflows](docs/workflows.md) compose maintainer decisions, broker and actor stages, deterministic commands, review, and delivery from immutable run snapshots.
 - [vplan](docs/vplan.md) provides annotated HTML reviews, while [mx-viz](docs/viz.md) renders a disposable read-only system view.
 - [mx-doctor](docs/doctor.md), [task journals](docs/journal-events.md), and timelines expose health and history without becoming control-flow authorities.
@@ -77,7 +77,7 @@ Then make a concrete request in chat:
 Add my project from https://github.com/example/project, then investigate the flaky login test.
 ```
 
-Continue with [Getting Started](docs/getting-started.md) for managed installation, shell activation, backend selection, project intake, first-run checks, and the separate delivery credential setup.
+Continue with [Getting Started](docs/getting-started.md) for managed installation, shell activation, backend selection, project intake, first-run checks, and ordinary Git/forge authentication.
 
 ## Built-in skills
 
@@ -113,12 +113,10 @@ flowchart TB
     W3 --> T
     T -->|Scout| Q[Standalone report and decision completion]
     T -->|Delivery| L{Delivery mode}
-    L -->|local-only| F[Approved local fast-forward]
-    L -->|deep-review| G[Approved exact-SHA handoff]
-    L -->|direct-PR| I[Approved gate-free exact-SHA handoff]
-    I --> X
-    G --> X[Credentialed delivery context]
+    L -->|local-only| F[Local branch and evidence]
+    L -->|remote| X[Agent publishes task branch and evidence]
     X --> R[GitHub pull request]
+    R --> H[Human reviews and merges]
 ```
 
 Actors never become ranked subordinates of the broker.
@@ -132,7 +130,7 @@ They are autonomous agents with a different workflow scope, coordinated through 
 | [Getting started](docs/getting-started.md) | A safe first run from clone through project intake |
 | [Architecture](docs/architecture.md) | Actors, daemons, supervision, state, and ownership boundaries |
 | [Configuration](docs/configuration.md) | `MX_HOME`, harnesses, dispatch, toolchain, and local settings |
-| [Delivery](docs/delivery.md) | Local validation, exact-SHA handoff, and credential separation |
+| [Delivery](docs/delivery.md) | Branch publication, current evidence, and human-only PR merges |
 | [tmux](docs/tmux-backend.md), [Herdr](docs/herdr-backend.md), [cmux](docs/cmux-backend.md) | Reference and experimental runtime setup |
 | [Operations](docs/doctor.md) | Health checks and recovery entry points |
 | [Contributing](CONTRIBUTING.md) | Development workflow, conventions, and tests |

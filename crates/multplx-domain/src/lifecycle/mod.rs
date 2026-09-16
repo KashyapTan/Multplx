@@ -1,6 +1,7 @@
 //! Task and daemon lifecycle state, transactions, and filesystem helpers.
 
 pub mod brief;
+pub mod delivery_evidence;
 pub mod domain;
 pub mod ensure_agents;
 pub mod fast_forward;

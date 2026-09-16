@@ -845,7 +845,7 @@ enum AuthenticatedCheck {
     Rejected(std::path::PathBuf),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PrPollSnapshot {
     registration: multplx_domain::review_delivery::PollRegistration,
     registration_identity: multplx_domain::review_delivery::FileIdentity,
@@ -1141,7 +1141,11 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
             {
                 return 1;
             }
-            for guard in ["mx-arm-pretool-check.sh", "mx-cd-pretool-check.sh"] {
+            for guard in [
+                "mx-arm-pretool-check.sh",
+                "mx-cd-pretool-check.sh",
+                "mx-subagent-pretool-check.sh",
+            ] {
                 match command_payload(&bin.join(guard), &[], payload) {
                     Ok((2, output)) => {
                         cursor_deny(output.trim_end());
@@ -2206,7 +2210,7 @@ fn run_bounded_command(
 }
 
 #[derive(Debug, Eq, PartialEq)]
-enum BoundedCommandResult {
+pub(crate) enum BoundedCommandResult {
     Completed { success: bool, output: String },
     SpawnFailed(String),
     Interrupted,
@@ -2222,7 +2226,7 @@ impl BoundedCommandResult {
     }
 }
 
-fn run_bounded_command_result(
+pub(crate) fn run_bounded_command_result(
     command: &mut Command,
     timeout: Duration,
     shutdown: Option<&std::sync::atomic::AtomicBool>,
@@ -2607,6 +2611,162 @@ fn retire_pr_poll(state: &Path, snapshot: &PrPollSnapshot) -> Result<(), String>
         retirement.render().as_bytes(),
     )?;
     recover_pr_poll_retirement(state, &receipt_path)
+}
+
+/// Bind a merged forge observation to the exact current task revision before
+/// retiring the read-only poll. Legacy registrations remain readable and use
+/// their existing retirement receipt without manufacturing canonical facts.
+fn merged_pr_head(
+    identity: &multplx_domain::review_delivery::PrIdentity,
+) -> Result<String, String> {
+    let mut command = Command::new("gh");
+    command.args(["pr", "view", &identity.url, "--json", "state,headRefOid"]);
+    let output = match run_bounded_command_result(
+        &mut command,
+        Duration::from_secs(environment_u64("MX_CHECK_TIMEOUT", 30)),
+        None,
+        None,
+        false,
+    ) {
+        BoundedCommandResult::Completed {
+            success: true,
+            output,
+        } => output,
+        BoundedCommandResult::Completed { .. }
+        | BoundedCommandResult::SpawnFailed(_)
+        | BoundedCommandResult::Interrupted
+        | BoundedCommandResult::TimedOut => {
+            return Err("merged PR head observation failed".into());
+        }
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(&output).map_err(|_| "merged PR head observation is invalid")?;
+    if value["state"].as_str() != Some("MERGED") {
+        return Err("PR is no longer observed merged".into());
+    }
+    let head = value["headRefOid"]
+        .as_str()
+        .filter(|head| multplx_domain::review_delivery::head_valid(head))
+        .ok_or("merged PR head observation is invalid")?;
+    Ok(head.to_owned())
+}
+
+fn record_human_merge_evidence(state: &Path, snapshot: &PrPollSnapshot) -> Result<bool, String> {
+    record_human_merge_evidence_with_head(state, snapshot, None)
+}
+
+fn record_human_merge_evidence_with_head(
+    state: &Path,
+    snapshot: &PrPollSnapshot,
+    observed_head: Option<&str>,
+) -> Result<bool, String> {
+    use multplx_domain::lifecycle::delivery_evidence::{DeliveryOutcome, EvidenceRequest};
+    use sha2::{Digest, Sha256};
+
+    let task_id = snapshot.registration.task.as_str();
+    let meta = state.join(format!("{task_id}.meta"));
+    let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(&meta, 4 * 1024 * 1024) else {
+        return Ok(false);
+    };
+    let text = String::from_utf8(bytes).map_err(|_| "task metadata is not UTF-8")?;
+    if !text
+        .lines()
+        .any(|line| line.starts_with("canonical_model="))
+    {
+        return Ok(false);
+    }
+    let task = multplx_domain::lifecycle::subagent_model::read_meta(task_id, &text)?;
+    if task.legacy_unknown {
+        return Ok(false);
+    }
+    if task.delivery.current_commit.is_none() && task.delivery.history.is_empty() {
+        return Ok(false);
+    }
+    let merged_head = match observed_head {
+        Some(head) => head.to_owned(),
+        None => merged_pr_head(&snapshot.registration.identity)?,
+    };
+    if !multplx_domain::review_delivery::head_valid(&merged_head) {
+        return Err("merged PR head observation is invalid".into());
+    }
+    let identity = snapshot.registration.identity.url.as_str();
+    let source = task
+        .delivery
+        .history
+        .iter()
+        .rev()
+        .find(|evidence| {
+            evidence.commit == merged_head
+                && evidence.pr_url.as_deref() == Some(identity)
+                && matches!(
+                    evidence.outcome,
+                    DeliveryOutcome::Published | DeliveryOutcome::HumanMerged
+                )
+        })
+        .ok_or("merged PR head has no matching published delivery revision")?;
+    let revision = task
+        .delivery_evidence_for_revision(
+            &source.attempt_id,
+            source.attempt_generation,
+            source.brief_revision,
+            &merged_head,
+        )
+        .ok_or("merged PR revision evidence is unavailable")?;
+    if revision.pr_url.as_deref() != Some(identity) {
+        return Err("merged PR identity differs from revision delivery evidence".into());
+    }
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(
+            format!(
+                "{task_id}\n{}\n{}\n{}\n{}\n{}",
+                source.attempt_id,
+                source.attempt_generation,
+                source.brief_revision,
+                revision.commit,
+                revision.pr_url.as_deref().unwrap_or("")
+            )
+            .as_bytes()
+        )
+    );
+    let evidence_id = format!("merge-{}", &digest[..32]);
+    let existing = task
+        .delivery
+        .history
+        .iter()
+        .find(|evidence| evidence.evidence_id == evidence_id);
+    let observed_at = existing.map_or_else(
+        || {
+            time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(|error| error.to_string())
+        },
+        |evidence| Ok(evidence.observed_at.clone()),
+    )?;
+    let is_current = task.delivery.current_commit.as_deref() == Some(merged_head.as_str())
+        && task.attempt.as_ref().is_some_and(|attempt| {
+            attempt.id == source.attempt_id
+                && attempt.generation == source.attempt_generation
+                && attempt.brief_revision == source.brief_revision
+        })
+        && task.accepted_brief_revision == Some(source.brief_revision);
+    let request = EvidenceRequest {
+        evidence_id,
+        attempt_id: source.attempt_id.clone(),
+        attempt_generation: source.attempt_generation,
+        brief_revision: source.brief_revision,
+        commit: revision.commit.clone(),
+        checks: revision.checks.clone(),
+        review: revision.review.clone(),
+        limitations: revision.limitations.clone(),
+        pr_url: revision.pr_url.clone(),
+        outcome: DeliveryOutcome::HumanMerged,
+        observed_at,
+        mark_current: is_current,
+        expected_current_commit: task.delivery.current_commit.clone(),
+    };
+    multplx_domain::lifecycle::delivery_evidence::record(state, task_id, &request)?;
+    Ok(true)
 }
 
 fn recover_pr_poll_retirement(state: &Path, receipt_path: &Path) -> Result<(), String> {
@@ -3319,6 +3479,15 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                         };
                         let reason =
                             format!("check: {}: {}", check_path.display(), output.trim_end());
+                        if output.trim() == "merged"
+                            && let Some(snapshot) = retirement.as_ref()
+                            && let Err(error) = record_human_merge_evidence(&state, snapshot)
+                        {
+                            eprintln!(
+                                "supervision: merged PR evidence retained for retry: {error}"
+                            );
+                            return 1;
+                        }
                         if !append_wake(
                             &state,
                             multplx_core::wake::WakeKind::Check,
@@ -4529,8 +4698,281 @@ mod tests {
         ActorAbsorbClass, AuthenticatedCheck, BoundedCommandResult, CheckBatchOutcome, CycleRecord,
         PrPollSnapshot, append_cycle_record, authenticated_checks, coalesce_signals,
         event_failure_state, parse_actor_absorb_class, publish_signal_markers,
+        record_human_merge_evidence, record_human_merge_evidence_with_head,
         run_bounded_command_result, run_check_batch, scan_signals,
     };
+
+    #[test]
+    fn merged_poll_records_exact_current_revision_before_retirement() {
+        use multplx_core::identifiers::Sha256Digest;
+        use multplx_domain::lifecycle::delivery_evidence::{
+            CheckOutcome, DeliveryCheck, DeliveryOutcome, EvidenceRequest,
+        };
+        use multplx_domain::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+        use multplx_domain::review_delivery::{
+            FileIdentity, OperationalTaskId, PollRegistration, PrIdentity,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        fs::create_dir_all(&state).unwrap();
+        let root = format!("root-home:{}", home.display());
+        let mut task = TaskRecord::new(
+            "worker".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            root.clone(),
+            root,
+            home.to_string_lossy().into_owned(),
+        );
+        task.briefs[0].scope = "publish".into();
+        fs::write(
+            state.join("worker.meta"),
+            write_meta("kind=delivery\n", &task).unwrap(),
+        )
+        .unwrap();
+        let attempt = task.attempt.as_ref().unwrap();
+        let request = EvidenceRequest {
+            evidence_id: "published".into(),
+            attempt_id: attempt.id.clone(),
+            attempt_generation: attempt.generation,
+            brief_revision: attempt.brief_revision,
+            commit: "a".repeat(40),
+            checks: vec![DeliveryCheck {
+                name: "cargo test".into(),
+                outcome: CheckOutcome::Passed,
+                summary: "passed".into(),
+                artifact: None,
+            }],
+            review: None,
+            limitations: vec![],
+            pr_url: Some("https://github.com/example/project/pull/1".into()),
+            outcome: DeliveryOutcome::Published,
+            observed_at: "2026-09-15T12:00:00Z".into(),
+            mark_current: true,
+            expected_current_commit: None,
+        };
+        multplx_domain::lifecycle::delivery_evidence::record(&state, "worker", &request).unwrap();
+        let hash = Sha256Digest::parse("0".repeat(64)).unwrap();
+        let snapshot = PrPollSnapshot {
+            registration: PollRegistration {
+                task: OperationalTaskId::parse("worker").unwrap(),
+                identity: PrIdentity::parse("https://github.com/example/project/pull/1").unwrap(),
+                data_hash: hash.clone(),
+                template_hash: hash.clone(),
+                data_identity: FileIdentity {
+                    device: 1,
+                    inode: 2,
+                },
+                check_identity: FileIdentity {
+                    device: 1,
+                    inode: 3,
+                },
+            },
+            registration_identity: FileIdentity {
+                device: 1,
+                inode: 4,
+            },
+            registration_digest: hash,
+        };
+        let merged_head = "a".repeat(40);
+        assert!(
+            record_human_merge_evidence_with_head(&state, &snapshot, Some(&merged_head)).unwrap()
+        );
+        let first_merge = fs::read_to_string(state.join("worker.meta")).unwrap();
+        let first_merge =
+            multplx_domain::lifecycle::subagent_model::read_meta("worker", &first_merge)
+                .unwrap()
+                .delivery
+                .history
+                .into_iter()
+                .find(|evidence| evidence.outcome == DeliveryOutcome::HumanMerged)
+                .unwrap();
+        assert!(
+            record_human_merge_evidence_with_head(&state, &snapshot, Some(&merged_head)).unwrap()
+        );
+        let text = fs::read_to_string(state.join("worker.meta")).unwrap();
+        let repeated =
+            multplx_domain::lifecycle::subagent_model::read_meta("worker", &text).unwrap();
+        let current = repeated.current_delivery_evidence().unwrap();
+        assert_eq!(current.outcome, DeliveryOutcome::HumanMerged);
+        assert_eq!(current.commit, "a".repeat(40));
+        assert_eq!(
+            repeated
+                .delivery
+                .history
+                .iter()
+                .filter(|evidence| evidence.outcome == DeliveryOutcome::HumanMerged)
+                .count(),
+            1
+        );
+        assert_eq!(
+            repeated
+                .delivery
+                .history
+                .iter()
+                .find(|evidence| evidence.outcome == DeliveryOutcome::HumanMerged)
+                .unwrap()
+                .observed_at,
+            first_merge.observed_at
+        );
+        assert_eq!(
+            fs::read_dir(state.join("parent-outbox")).unwrap().count(),
+            2
+        );
+
+        let mut wrong = snapshot.clone();
+        wrong.registration.identity =
+            PrIdentity::parse("https://github.com/example/project/pull/2").unwrap();
+        assert!(
+            record_human_merge_evidence_with_head(&state, &wrong, Some(&merged_head))
+                .unwrap_err()
+                .contains("no matching published")
+        );
+
+        let mut newer = TaskRecord::new(
+            "newer".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            format!("root-home:{}", home.display()),
+            format!("root-home:{}", home.display()),
+            home.to_string_lossy().into_owned(),
+        );
+        newer.briefs[0].scope = "publish newer".into();
+        fs::write(
+            state.join("newer.meta"),
+            write_meta("kind=delivery\n", &newer).unwrap(),
+        )
+        .unwrap();
+        let newer_attempt = newer.attempt.as_ref().unwrap();
+        let published_old = EvidenceRequest {
+            evidence_id: "published-old".into(),
+            attempt_id: newer_attempt.id.clone(),
+            attempt_generation: newer_attempt.generation,
+            brief_revision: newer_attempt.brief_revision,
+            commit: "b".repeat(40),
+            checks: vec![],
+            review: None,
+            limitations: vec![],
+            pr_url: Some("https://github.com/example/project/pull/2".into()),
+            outcome: DeliveryOutcome::Published,
+            observed_at: "2026-09-15T12:00:00Z".into(),
+            mark_current: true,
+            expected_current_commit: None,
+        };
+        multplx_domain::lifecycle::delivery_evidence::record(&state, "newer", &published_old)
+            .unwrap();
+        let unpublished_new = EvidenceRequest {
+            evidence_id: "unpublished-new".into(),
+            commit: "c".repeat(40),
+            outcome: DeliveryOutcome::EvidenceUpdated,
+            observed_at: "2026-09-15T13:00:00Z".into(),
+            expected_current_commit: Some("b".repeat(40)),
+            ..published_old
+        };
+        multplx_domain::lifecycle::delivery_evidence::record(&state, "newer", &unpublished_new)
+            .unwrap();
+        let newer_snapshot = PrPollSnapshot {
+            registration: PollRegistration {
+                task: OperationalTaskId::parse("newer").unwrap(),
+                identity: PrIdentity::parse("https://github.com/example/project/pull/2").unwrap(),
+                data_hash: snapshot.registration.data_hash.clone(),
+                template_hash: snapshot.registration.template_hash.clone(),
+                data_identity: snapshot.registration.data_identity.clone(),
+                check_identity: snapshot.registration.check_identity.clone(),
+            },
+            registration_identity: snapshot.registration_identity.clone(),
+            registration_digest: snapshot.registration_digest.clone(),
+        };
+        assert!(
+            record_human_merge_evidence_with_head(&state, &newer_snapshot, Some(&"b".repeat(40)),)
+                .unwrap()
+        );
+        let text = fs::read_to_string(state.join("newer.meta")).unwrap();
+        let newer = multplx_domain::lifecycle::subagent_model::read_meta("newer", &text).unwrap();
+        let current = newer.current_delivery_evidence().unwrap();
+        assert_eq!(current.commit, "c".repeat(40));
+        assert_ne!(current.outcome, DeliveryOutcome::HumanMerged);
+        assert!(newer.delivery.history.iter().any(|evidence| {
+            evidence.commit == "b".repeat(40) && evidence.outcome == DeliveryOutcome::HumanMerged
+        }));
+
+        let mut prephase = TaskRecord::new(
+            "prephase".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            format!("root-home:{}", home.display()),
+            format!("root-home:{}", home.display()),
+            home.to_string_lossy().into_owned(),
+        );
+        prephase.briefs[0].scope = "legacy publication".into();
+        fs::write(
+            state.join("prephase.meta"),
+            write_meta("kind=delivery\n", &prephase).unwrap(),
+        )
+        .unwrap();
+        let prephase_snapshot = PrPollSnapshot {
+            registration: PollRegistration {
+                task: OperationalTaskId::parse("prephase").unwrap(),
+                identity: PrIdentity::parse("https://github.com/example/project/pull/3").unwrap(),
+                data_hash: snapshot.registration.data_hash.clone(),
+                template_hash: snapshot.registration.template_hash.clone(),
+                data_identity: snapshot.registration.data_identity.clone(),
+                check_identity: snapshot.registration.check_identity.clone(),
+            },
+            registration_identity: snapshot.registration_identity.clone(),
+            registration_digest: snapshot.registration_digest.clone(),
+        };
+        assert!(
+            !record_human_merge_evidence_with_head(
+                &state,
+                &prephase_snapshot,
+                Some(&"d".repeat(40)),
+            )
+            .unwrap()
+        );
+
+        prephase.delivery.current_commit = Some("d".repeat(40));
+        fs::write(
+            state.join("prephase.meta"),
+            write_meta("kind=delivery\n", &prephase).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            record_human_merge_evidence_with_head(
+                &state,
+                &prephase_snapshot,
+                Some(&"d".repeat(40)),
+            )
+            .unwrap_err()
+            .contains("no matching published")
+        );
+
+        fs::write(
+            state.join("legacy.meta"),
+            "window=one\nwindow=two\nworktree=/tmp/legacy\npr=https://github.com/example/project/pull/3\n",
+        )
+        .unwrap();
+        let legacy_snapshot = PrPollSnapshot {
+            registration: PollRegistration {
+                task: OperationalTaskId::parse("legacy").unwrap(),
+                identity: PrIdentity::parse("https://github.com/example/project/pull/3").unwrap(),
+                data_hash: snapshot.registration.data_hash.clone(),
+                template_hash: snapshot.registration.template_hash.clone(),
+                data_identity: snapshot.registration.data_identity.clone(),
+                check_identity: snapshot.registration.check_identity.clone(),
+            },
+            registration_identity: snapshot.registration_identity.clone(),
+            registration_digest: snapshot.registration_digest.clone(),
+        };
+        assert!(!record_human_merge_evidence(&state, &legacy_snapshot).unwrap());
+    }
 
     #[test]
     fn bounded_commands_report_completion_failure_timeout_and_interrupt() {

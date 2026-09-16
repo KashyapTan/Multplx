@@ -219,7 +219,7 @@ The stable entry point selects the Rust authority runtime before any snapshot, r
 Rust parses and validates the constrained definition grammar without Node, models immutable run order and stage transitions as closed types, and rejects unsafe output traversal before execution.
 Repo-tracked definitions under `workflows/` declare stage order, executor type, deterministic contract, and approval gate.
 The engine snapshots a validated definition at launch and every resume reads only that snapshot, so a tracked edit cannot mutate an in-flight command boundary.
-Interactive approvals reuse durable decision holds, broker agent stages reuse the verified deep-review one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and delivery remains outside agent credential context.
+Interactive approvals reuse durable decision holds, broker agent stages reuse the verified deep-review one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and publication retains ordinary authentication while PR merging remains human-only.
 Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-stage records, actual artifacts, actor state, git heads, command results, and decision holds.
 [`workflows.md`](workflows.md) owns the definition schema, state layout, lifecycle, and trust posture.
 The upstream-sync workflow composes that engine with a fetch-only private clone under the run artifact directory, and [`upstream.md`](upstream.md) owns its path map, review cursor, and retirement decision.
@@ -282,17 +282,16 @@ The `data/daemons.md` line contract is owned by the [route schema](configuration
 
 `data/projects.json` records canonical project and checkout identity, ownership and publication destination; `data/projects.md` remains the legacy mode reader.
 Historical `+yolo` values grant no merge authority, and legacy deep-review mode does not select a new review run implicitly.
-PR-based modes stop agent work at a clean local commit.
-The `deep-review` mode records an approved SHA through its gate for non-agent remote delivery.
-The `direct-PR` mode uses the owned gate-free preparation and explicit approval path described in [delivery.md](delivery.md#choose-and-complete-a-delivery-mode).
-`local-only` projects stay local until broker performs an approved fast-forward merge.
+Implementers publish task branches and open or update PRs with ordinary authentication.
+Optional review evidence and actual checks remain bound to their exact commit and accepted scope; publication does not imply readiness or a merge.
+`local-only` projects retain their local outcome without inventing a remote.
 When a selected delivery path calls for a diff, the Rust-default `bin/mx-review-diff.sh` boundary refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 The gate persists private restart-safe state under `state/<id>.gate/`, including its sanitized intent, run record, findings, harness session ids, and command output.
 It never stores validation evidence in the project branch.
-Validated `deep-review` remote delivery is owned by the non-agent Rust review-delivery command boundary entered through `bin/mx-deliver.sh` and described in [delivery.md](delivery.md).
-It consumes the private restart-safe handoff, re-verifies its gate and approved SHA, pushes that exact object, opens the PR, and records the URL through `bin/mx-pr-check.sh`.
-PR-based task merges run from the same non-agent credential context through `bin/mx-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/mx-pr-check.sh` before calling official `gh pr merge`.
-The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; any URL on a host other than github.com is refused as a validation error.
+Repeat-safe publication is owned by the Rust command boundary entered through `bin/mx-deliver.sh` and described in [delivery.md](delivery.md).
+It reconciles the task branch and canonical PR before retrying uncertain actions, and records directly opened PRs through the same PR owner.
+PR merges belong to humans; `bin/mx-pr-merge.sh` is a human-shell helper and refuses known agent sessions.
+It accepts only canonical GitHub PR identity and does not expose standing, yolo, merge-red, auto-merge or merge-queue authority to agents.
 `multplx-domain::review_delivery` owns canonical GitHub identity reconstruction, exact SHA and ref validation, closed delivery and poll schemas, no-follow private-file reads, and the inert intent sanitizer.
 Fixed shell filenames remain available where existing homes or host integrations require a pathname, and they delegate to the Rust command boundary.
 Teardown is fail-closed for delivery worktrees: dirty or uncertain work stays retained, committed work must be landed, and the exact allocation token must pass safe release and prune checks.

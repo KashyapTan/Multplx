@@ -67,7 +67,6 @@ mx_override_registry() {
 workflow.skip-stage	policy	bin/mx-workflow.sh
 workflow.reorder-stage	policy	bin/mx-workflow.sh
 validation.waive-gate	policy	bin/mx-deep-review.sh
-delivery.merge-red	policy	bin/mx-pr-merge.sh
 cleanup.discard-unlanded	policy	bin/mx-teardown.sh
 project.direct-write	policy	bin/mx-override-run.sh
 isolation.single-checkout	policy	bin/mx-spawn.sh

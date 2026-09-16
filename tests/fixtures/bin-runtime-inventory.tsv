@@ -66,7 +66,7 @@ bin/mx-session-start.sh	minimal-adapter	Stable session-start command name.
 bin/mx-sessionstart-nudge.sh	minimal-adapter	Stable fail-open session-start hook command name.
 bin/mx-spawn.sh	minimal-adapter	Stable task-spawn command name.
 bin/mx-status-snapshot.sh	minimal-adapter	Stable status-snapshot command name.
-bin/mx-subagent-pretool-check.sh	minimal-adapter	Stable fail-open delegation compatibility command name.
+bin/mx-subagent-pretool-check.sh	minimal-adapter	Stable native-delegation-compatible remote merge guard command name.
 bin/mx-supervise-daemon.sh	minimal-adapter	Stable away-mode supervisor command name.
 bin/mx-supervision-instructions.sh	minimal-adapter	Stable supervision instruction command name.
 bin/mx-supervisor-target-lib.sh	sourced-shell-abi	Daemon and supervision callers source the target-discovery ABI.

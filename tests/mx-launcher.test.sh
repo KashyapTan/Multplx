@@ -60,6 +60,12 @@ printf '%s\n' "${MX_BACKEND-unset}" >"$record/backend"
 printf '%s\n' "${TMUX-unset}" >"$record/tmux"
 printf '%s\n' "${HERDR_ENV-unset}" >"$record/herdr"
 printf '%s\n' "${CMUX_WORKSPACE_ID-unset}" >"$record/cmux"
+printf '%s\n' "${GH_TOKEN-unset}" >"$record/gh-token"
+printf '%s\n' "${GH_CONFIG_DIR-unset}" >"$record/gh-config-dir"
+printf '%s\n' "${SSH_AUTH_SOCK-unset}" >"$record/ssh-auth-sock"
+printf '%s\n' "${GIT_CONFIG_COUNT-unset}" >"$record/git-config-count"
+printf '%s\n' "${GIT_CONFIG_KEY_0-unset}" >"$record/git-config-key-0"
+printf '%s\n' "${GIT_CONFIG_VALUE_0-unset}" >"$record/git-config-value-0"
 printf '%s\n' "$#" >"$record/argc"
 i=0
 for arg in "$@"; do
@@ -289,6 +295,9 @@ test_harness_cwd_arguments_environment_and_backend() {
   (
     cd "$caller" || exit 1
     PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
+      GH_TOKEN='credential-sentinel' GH_CONFIG_DIR="$case_dir/gh-config" \
+      SSH_AUTH_SOCK="$case_dir/ssh-agent.sock" GIT_CONFIG_COUNT=1 \
+      GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=sentinel-helper \
       TMUX='tmux bytes ;$' HERDR_ENV=1 CMUX_WORKSPACE_ID='cmux bytes' \
       "$case_dir/bin/multplx" --backend herdr codex \
         'space arg' '*?[glob]' $'line one\nline two'
@@ -301,6 +310,14 @@ test_harness_cwd_arguments_environment_and_backend() {
   [ "$(cat "$record/tmux")" = 'tmux bytes ;$' ] || fail "TMUX bytes changed"
   [ "$(cat "$record/herdr")" = 1 ] || fail "HERDR_ENV changed"
   [ "$(cat "$record/cmux")" = 'cmux bytes' ] || fail "cmux identifier changed"
+  [ "$(cat "$record/gh-token")" = 'credential-sentinel' ] || fail "primary harness launch removed GH_TOKEN"
+  [ "$(cat "$record/gh-config-dir")" = "$case_dir/gh-config" ] || fail "primary harness launch changed GH_CONFIG_DIR"
+  [ "$(cat "$record/ssh-auth-sock")" = "$case_dir/ssh-agent.sock" ] || fail "primary harness launch removed SSH_AUTH_SOCK"
+  [ "$(cat "$record/git-config-count")" = 1 ] || fail "primary harness launch changed Git credential configuration"
+  [ "$(cat "$record/git-config-key-0")" = credential.helper ] \
+    || fail "primary harness launch changed the Git credential helper key"
+  [ "$(cat "$record/git-config-value-0")" = sentinel-helper ] \
+    || fail "primary harness launch changed the Git credential helper value"
   [ "$(cat "$record/argc")" = 3 ] || fail "argument count changed"
   [ "$(cat "$record/arg.0")" = 'space arg' ] || fail "space argument changed"
   [ "$(cat "$record/arg.1")" = '*?[glob]' ] || fail "glob argument changed"

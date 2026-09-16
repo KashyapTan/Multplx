@@ -149,11 +149,11 @@ test_atomic_consume_replay_and_result() {
 
 test_changed_binding_stales_grant() {
   local request operation target
-  operation='merge exact red PR'
-  target='https://github.com/acme/repo/pull/7@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-  request=$(request_one delivery.merge-red "$operation" "$target")
+  operation='skip workflow stage test in run release'
+  target='release#test'
+  request=$(request_one workflow.skip-stage "$operation" "$target")
   grant_one "$request" || fail "could not grant stale fixture"
-  if mx_override_consume "$request" delivery.merge-red task-18 multplx "$operation" "$target" \
+  if mx_override_consume "$request" workflow.skip-stage task-18 multplx "$operation" "$target" \
       "$(digest changed-state)" >/dev/null 2>&1; then
     fail "changed expected state consumed a grant"
   fi
@@ -205,14 +205,35 @@ test_registry_policy_requests_are_distinct() {
   done <<EOF
 $(mx_override_registry)
 EOF
-  [ "$count" -ge 12 ] || fail "policy registry is unexpectedly incomplete"
+  [ "$count" -ge 11 ] || fail "policy registry is unexpectedly incomplete"
+  if mx_override_boundary_lookup delivery.merge-red >/dev/null 2>&1; then
+    fail "retired merge-red boundary remains agent-consumable"
+  fi
   pass "every registered policy boundary receives a distinct exact request"
 }
 
 test_exact_command_alternates_and_capability_verification() {
-  local repo bindings request failed_request install_bin installed install_request elevated elevation_request
+  local repo bindings request failed_request install_bin installed install_request elevated elevation_request rc
   repo=$TMP_ROOT/direct-project
   mx_git_init_commit "$repo"
+  set +e
+  "$ROOT/bin/mx-override-run.sh" --print-bindings \
+    --boundary project.direct-write --task no-merge --project direct-project --target "$repo" \
+    -- git push origin HEAD:main >"$TMP_ROOT/direct-merge.out" 2>"$TMP_ROOT/direct-merge.err"
+  rc=$?
+  set -e
+  expect_code 3 "$rc" "direct-write must not mint target-branch push authority"
+  assert_grep 'cannot grant PR merge authority' "$TMP_ROOT/direct-merge.err" \
+    "direct-write merge refusal was unclear"
+  set +e
+  "$ROOT/bin/mx-override-run.sh" --print-bindings \
+    --boundary security.one-action-elevation --task no-merge --project direct-project \
+    --target elevated-action -- gh pr merge 7 >"$TMP_ROOT/elevated-merge.out" 2>"$TMP_ROOT/elevated-merge.err"
+  rc=$?
+  set -e
+  expect_code 3 "$rc" "one-action elevation must not mint PR merge authority"
+  assert_grep 'cannot grant PR merge authority' "$TMP_ROOT/elevated-merge.err" \
+    "one-action merge refusal was unclear"
   bindings=$("$ROOT/bin/mx-override-run.sh" --print-bindings \
     --boundary project.direct-write --task direct-18 --project direct-project --target "$repo" \
     -- touch controlled.txt) || fail "direct-write binding failed"
