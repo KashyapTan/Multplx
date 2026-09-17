@@ -105,12 +105,49 @@ impl DecisionInventory {
 pub struct ResolutionIdentity {
     pub decision_digest: String,
     pub routed_to: Vec<String>,
+    pub target: Option<DecisionTarget>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecisionTarget {
+    pub task_id: String,
+    pub brief_revision: u64,
+    pub workflow_revision: String,
+    pub question: String,
+}
+
+impl DecisionTarget {
+    pub fn validate(&self) -> Result<(), DecisionError> {
+        DecisionKey::parse(self.task_id.clone())?;
+        if self.brief_revision == 0
+            || self.workflow_revision.is_empty()
+            || self.workflow_revision.len() > 512
+            || self.question.is_empty()
+            || self.question.len() > 8192
+            || [&self.task_id, &self.workflow_revision, &self.question]
+                .into_iter()
+                .any(|value| value.contains(['\r', '\n', '\0']))
+        {
+            return Err(DecisionError(
+                "invalid revision-bound decision target".to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl ResolutionIdentity {
     pub fn new(
         decision: &[u8],
         routed_to: impl IntoIterator<Item = String>,
+    ) -> Result<Self, DecisionError> {
+        Self::new_bound(decision, routed_to, None)
+    }
+
+    pub fn new_bound(
+        decision: &[u8],
+        routed_to: impl IntoIterator<Item = String>,
+        target: Option<DecisionTarget>,
     ) -> Result<Self, DecisionError> {
         if decision.is_empty() {
             return Err(DecisionError("decision must not be empty".to_owned()));
@@ -129,9 +166,13 @@ impl ResolutionIdentity {
                 "at least one routed task is required".to_owned(),
             ));
         }
+        if let Some(target) = &target {
+            target.validate()?;
+        }
         Ok(Self {
             decision_digest: format!("{:x}", Sha256::digest(decision)),
             routed_to,
+            target,
         })
     }
 
@@ -185,5 +226,15 @@ mod tests {
         .expect("changed");
         assert!(original.accepts_retry(&changed).is_err());
         assert!(ResolutionIdentity::new(&vec![b'x'; 8193], ["task-a".to_owned()]).is_err());
+        let target = DecisionTarget {
+            task_id: "task-a".into(),
+            brief_revision: 2,
+            workflow_revision: "workflow-2".into(),
+            question: "Choose A or B?".into(),
+        };
+        let bound =
+            ResolutionIdentity::new_bound(b"A", ["task-a".to_owned()], Some(target.clone()))
+                .unwrap();
+        assert_eq!(bound.target, Some(target));
     }
 }

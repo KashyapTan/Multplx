@@ -10,7 +10,7 @@ metadata:
 
 Read [`docs/workflows.md`](../../../docs/workflows.md), the current schema owner.
 Use the supplied purpose, ordered stages, inputs, outputs and interaction points; clarify only genuinely missing requirements.
-Write declarative `workflows/<name>.workflow.md` using supported fields and one stage body per declared stage.
+Write schema-version-2 declarative `workflows/<name>.workflow.md` using supported fields and one stage body per declared stage.
 Never generate a per-workflow script or duplicate the engine state machine.
 Keep input data out of shell command interpolation.
 
@@ -19,4 +19,6 @@ Show the ordered stages, command effects and explicit interaction points before 
 Preserve selected `fresh_session` requirements and all declared stage outputs.
 Do not add deep-review, vplan, approval or credentialed delivery merely because an old template contains them.
 Implementation stages belong to sub-agents; discussion, research and planning may use the orchestrator context.
-Phase 08 updates legacy executor names and headless coupling; do not invent unsupported schema fields.
+Use `orchestrator-context` or `sub-agent-session` placement and a descriptive assignment.
+Do not add an interview, research stage or reviewer when the requested process does not need one.
+Legacy `broker` and `actor` tokens are read only from version 1 definitions and must not appear in new workflows.

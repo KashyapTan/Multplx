@@ -1,5 +1,6 @@
 //! Command-line dispatch for the Multplx Rust runtime.
 
+mod agent_transport;
 mod authority;
 mod bootstrap;
 mod deep_review;

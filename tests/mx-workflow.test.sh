@@ -37,6 +37,12 @@ workflow_cli() {
     "$ROOT/bin/mx-workflow.sh" "$@"
 }
 
+mx_cli() {
+  MX_ROOT_OVERRIDE="$REPO_FIXTURE" MX_HOME="$HOME_FIXTURE" \
+    MX_STATE_OVERRIDE="$HOME_FIXTURE/state" MX_DATA_OVERRIDE="$HOME_FIXTURE/data" \
+    "$ROOT/target/release/mx" "$@"
+}
+
 track_definition() {
   git -C "$REPO_FIXTURE" add "workflows/$1"
   git -C "$REPO_FIXTURE" -c user.name='Multplx Tests' \
@@ -98,11 +104,21 @@ EOF
   assert_eq "passed" "$(jq -r '.status' "$HOME_FIXTURE/state/$run.workflow/stages/produce.json")" \
     "first stage did not pass"
   [ ! -e "$HOME_FIXTURE/data/order-finished" ] || fail "later command ran before approval"
+  output=$(workflow_cli skip "$run" finish --override unused 2>&1) \
+    && fail "plan change was accepted while a human decision was open"
+  assert_contains "$output" 'cannot revise a workflow plan while a human decision is open' \
+    "open-decision plan-change refusal was unclear"
   mkdir -p "$HOME_FIXTURE/data/$run"
   printf approved >"$HOME_FIXTURE/data/$run/approved.md"
   resolve_stage "$run" approve
   output=$(workflow_cli resume "$run") || fail "resume after approval failed"
   assert_contains "$output" "status: completed" "workflow did not complete after resume"
+  assert_eq "$run" "$(jq -r '.task_id' "$HOME_FIXTURE/state/$run.workflow/decisions/approve.json")" \
+    "decision record lost its task binding"
+  assert_eq "1" "$(jq -r '.brief_revision' "$HOME_FIXTURE/state/$run.workflow/decisions/approve.json")" \
+    "decision record lost its accepted brief revision"
+  assert_contains "$(jq -r '.workflow_revision' "$HOME_FIXTURE/state/$run.workflow/decisions/approve.json")" \
+    ':plan-1' "decision record lost its workflow plan revision"
   assert_file_contains "$HOME_FIXTURE/data/order-finished" "finished" \
     "final command did not execute"
   pass "stage order, output contract, approval gate, and restart resume are enforced"
@@ -329,8 +345,8 @@ EOF
     "$(jq -r '.session_id' "$HOME_FIXTURE/state/$run.workflow/stages/spec.json")" \
     "broker stage session identity was not recorded"
   [ "$task_id" != "broker-session" ] || fail "fresh actor reused the broker session"
-  assert_grep 'You are a sub-agent assigned to a selected Multplx workflow stage' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper lost assignment identity'
-  assert_grep 'You may delegate within that scope' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper prohibits delegation'
+  assert_grep 'You are the implementer assigned to one selected Multplx workflow stage' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper lost assignment identity'
+  assert_grep 'You may delegate within this stage' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper prohibits delegation'
   assert_grep 'Only humans merge PRs' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper lost human merge boundary'
   assert_no_grep 'invoke credentialed delivery' "$HOME_FIXTURE/data/$task_id/brief.md" 'workflow wrapper retained delivery ceremony'
   assert_grep "$HOME_FIXTURE/data/$run/spec.md" "$HOME_FIXTURE/data/$task_id/brief.md" 'original stage artifact pointer lost'
@@ -476,19 +492,18 @@ EOF
   git -C "$worktree" add reference-change.txt
   git -C "$worktree" -c user.name='Multplx Tests' \
     -c user.email='tests@example.invalid' commit -qm 'reference implementation'
+  printf 'commit: %s\nchecks: fixture passed\nlimitations: none\ndelivery: local branch\n' \
+    "$(git -C "$worktree" rev-parse HEAD)" >"$HOME_FIXTURE/data/$run/implementation.md"
 
   output=$(WF_FAKE_ACTOR_STATE=done \
     MX_WORKFLOW_ACTOR_STATE_COMMAND="$fake_state" workflow_cli resume "$run") \
-    || fail "reference delivery stage failed"
-  assert_contains "$output" "current_stage: deliver" \
-    "reference delivery did not park"
+    || fail "reference implementation completion failed"
   [ ! -e "$HOME_FIXTURE/state/$run.workflow/stages/review.json" ] \
     || fail "general-purpose workflow retained an implicit review stage"
-  printf 'delivered\n' >"$HOME_FIXTURE/state/$run.delivered"
-  resolve_stage "$run" deliver
-  output=$(workflow_cli resume "$run") || fail "reference delivery resume failed"
   assert_contains "$output" "status: completed" "reference workflow did not complete"
-  pass "shipped new-feature workflow completes without implicit review tooling"
+  [ ! -e "$HOME_FIXTURE/state/$run.workflow/stages/deliver.json" ] \
+    || fail "general-purpose workflow retained a separate delivery approval stage"
+  pass "shipped new-feature workflow completes with direct agent delivery and no implicit review tooling"
 }
 
 test_abort_and_run_id_reuse_refusal() {
@@ -563,7 +578,7 @@ EOF
   track_definition exceptions.workflow.md
 
   run=workflow-skip-run
-  workflow_cli run exceptions --input exact --id "$run" >/dev/null || fail "workflow skip fixture did not launch"
+  workflow_cli run exceptions --input exact --id "$run" --depends failure-run >/dev/null || fail "workflow skip fixture did not launch"
   bindings=$(MX_HOME="$HOME_FIXTURE" MX_STATE_OVERRIDE="$HOME_FIXTURE/state" \
     "$ROOT/bin/mx-override-bindings.sh" workflow-skip "$run" second) || fail "workflow skip bindings failed"
   request=$(grant_workflow_binding "$bindings") || fail "workflow skip grant failed"
@@ -576,7 +591,7 @@ EOF
   fi
 
   run=workflow-reorder-run
-  workflow_cli run exceptions --input exact --id "$run" >/dev/null || fail "workflow reorder fixture did not launch"
+  workflow_cli run exceptions --input exact --id "$run" --depends failure-run >/dev/null || fail "workflow reorder fixture did not launch"
   bindings=$(MX_HOME="$HOME_FIXTURE" MX_STATE_OVERRIDE="$HOME_FIXTURE/state" \
     "$ROOT/bin/mx-override-bindings.sh" workflow-reorder "$run" third second) || fail "workflow reorder bindings failed"
   request=$(grant_workflow_binding "$bindings") || fail "workflow reorder grant failed"
@@ -628,6 +643,213 @@ EOF
   pass "headless workflow command stages refuse remote PR merges before execution"
 }
 
+test_project_bound_dependencies_and_revision_decisions() {
+  local blocking="$REPO_FIXTURE/workflows/blocking.workflow.md"
+  local simple="$REPO_FIXTURE/workflows/simple.workflow.md"
+  local repo_a="$TMP_ROOT/repo-a" repo_b="$TMP_ROOT/repo-b" repo_c="$TMP_ROOT/repo-c"
+  local output answer="$TMP_ROOT/stale.answer" binding_a binding_b binding_c
+  for repo in "$repo_a" "$repo_b" "$repo_c"; do
+    mkdir -p "$repo"
+    mx_git_init_commit "$repo"
+  done
+  cat >"$blocking" <<'EOF'
+---
+workflow_version: 2
+name: blocking
+description: Wait for one explicit decision.
+stages:
+  - id: choose
+    title: Choose the target
+    type: interactive
+    gate: approve
+    output: data/{run}/choice.md
+  - id: finish
+    title: Finish after the decision
+    type: command
+    gate: auto
+    run: printf finished > "$MX_WORKFLOW_HOME/data/{run}.done"
+---
+
+## choose
+
+Choose the target for {input} and write {output}.
+
+## finish
+
+Finish after the exact decision target is resolved.
+EOF
+  cat >"$simple" <<'EOF'
+---
+workflow_version: 2
+name: simple
+description: Finish one independent project-bound run.
+stages:
+  - id: finish
+    title: Finish
+    type: command
+    gate: auto
+    run: printf finished > "$MX_WORKFLOW_HOME/data/{run}.done"
+---
+
+## finish
+
+Finish this project-bound run.
+EOF
+  git -C "$REPO_FIXTURE" add workflows/blocking.workflow.md workflows/simple.workflow.md
+  git -C "$REPO_FIXTURE" -c user.name='Multplx Tests' \
+    -c user.email='tests@example.invalid' commit -qm 'add dependency workflows'
+
+  binding_a=$(mx_cli project register "$repo_a" --alias workflow-a) \
+    || fail "repo A registration failed"
+  binding_b=$(mx_cli project register "$repo_b" --alias workflow-b) \
+    || fail "repo B registration failed"
+  binding_c=$(mx_cli project register "$repo_c" --alias workflow-c) \
+    || fail "repo C registration failed"
+  printf 'Original research for repo A.\n' >"$TMP_ROOT/repo-a-research.md"
+  mx_cli request submit --batch one-chat-batch --request request-a --task repo-a-run \
+    --client terminal-client --project "$(jq -r '.project_id' <<<"$binding_a")" \
+    --checkout "$(jq -r '.checkout_id' <<<"$binding_a")" \
+    --start "$(jq -r '.starting_revision' <<<"$binding_a")" --brief 3 \
+    --scope choice --artifact "$TMP_ROOT/repo-a-research.md" >/dev/null \
+    || fail "repo A routed request failed"
+  mx_cli request submit --batch one-chat-batch --request request-b --task repo-b-run \
+    --client terminal-client --project "$(jq -r '.project_id' <<<"$binding_b")" \
+    --checkout "$(jq -r '.checkout_id' <<<"$binding_b")" \
+    --start "$(jq -r '.starting_revision' <<<"$binding_b")" --brief 2 \
+    --scope dependent --depends repo-a-run >/dev/null \
+    || fail "repo B routed request failed"
+  mx_cli request submit --batch one-chat-batch --request request-c --task repo-c-run \
+    --client terminal-client --project "$(jq -r '.project_id' <<<"$binding_c")" \
+    --checkout "$(jq -r '.checkout_id' <<<"$binding_c")" \
+    --start "$(jq -r '.starting_revision' <<<"$binding_c")" --brief 1 \
+    --scope independent >/dev/null || fail "repo C routed request failed"
+
+  output=$(workflow_cli run blocking --request request-a --id wrong-task 2>&1) \
+    && fail "routed workflow accepted a conflicting task identity"
+  assert_contains "$output" 'conflicts with the routed request task identity' \
+    "routed task conflict was unclear"
+  workflow_cli run blocking --request request-a >/dev/null \
+    || fail "blocking project workflow did not launch"
+  output=$(workflow_cli run simple --request request-b) \
+    || fail "dependent project workflow did not launch"
+  assert_contains "$output" 'waiting on workflow dependencies: repo-a-run' \
+    "dependent run did not remain waiting"
+  [ ! -e "$HOME_FIXTURE/data/repo-b-run.done" ] || fail "dependent run executed early"
+  output=$(workflow_cli run simple --request request-c) \
+    || fail "independent project workflow did not complete"
+  assert_contains "$output" 'status: completed' "independent project was stalled"
+  assert_eq "3" "$(for run in repo-a-run repo-b-run repo-c-run; do jq -r '.project.project_id' "$HOME_FIXTURE/state/$run.workflow/run.json"; done | sort -u | wc -l | tr -d ' ')" \
+    "workflow project bindings leaked across repositories"
+  assert_eq "one-chat-batch" \
+    "$(jq -r '.request_correlation.batch_id' "$HOME_FIXTURE/state/repo-a-run.workflow/run.json")" \
+    "workflow lost the one-chat batch correlation"
+  assert_eq "3" \
+    "$(jq -r '.accepted_brief_revision' "$HOME_FIXTURE/state/repo-a-run.workflow/run.json")" \
+    "workflow did not retain the routed accepted brief"
+  assert_file_contains "$HOME_FIXTURE/state/repo-a-run.workflow/prompts/choose.md" \
+    "$TMP_ROOT/repo-a-research.md" "workflow did not pass the original context pointer"
+
+  mkdir -p "$HOME_FIXTURE/data/repo-a-run"
+  printf 'A\n' >"$HOME_FIXTURE/data/repo-a-run/choice.md"
+  printf 'A\n' >"$answer"
+  output=$(MX_ROOT_OVERRIDE="$REPO_FIXTURE" MX_HOME="$HOME_FIXTURE" \
+    MX_STATE_OVERRIDE="$HOME_FIXTURE/state" MX_DATA_OVERRIDE="$HOME_FIXTURE/data" \
+    "$ROOT/bin/mx-decision-hold.sh" resolve repo-a-run choose \
+      --decision-file "$answer" --routed-to repo-a-run \
+      --task repo-a-run --brief-revision 1 --workflow-revision wrong 2>&1) \
+    && fail "stale workflow decision target was accepted"
+  assert_contains "$output" 'stale decision target' "stale decision refusal was unclear"
+  resolve_stage repo-a-run choose
+  workflow_cli resume repo-a-run >/dev/null || fail "blocking workflow did not complete"
+  output=$(workflow_cli resume repo-b-run) || fail "dependent workflow did not release"
+  assert_contains "$output" 'status: completed' "completed dependency did not release its run"
+
+  output=$(workflow_cli run simple --input cycle --id self-cycle --repo "$repo_a" \
+    --depends self-cycle 2>&1) && fail "self dependency was accepted"
+  assert_contains "$output" 'cannot include self' "dependency-cycle refusal was unclear"
+  pass "project-bound workflows isolate repositories, decisions and dependency scheduling"
+}
+
+test_scoped_coordinator_stage_waits_for_declared_output() {
+  local definition="$REPO_FIXTURE/workflows/coordinator.workflow.md" run=coordinator-run
+  local fake_spawn="$TMP_ROOT/coordinator-spawn" fake_state="$TMP_ROOT/coordinator-state" output
+  cat >"$definition" <<'EOF'
+---
+workflow_version: 2
+name: coordinator
+description: Preserve order around one bounded coordinator stage.
+stages:
+  - id: prepare
+    title: Prepare
+    type: command
+    gate: auto
+    output: data/{run}/prepare.md
+    run: mkdir -p "$(dirname {output})"; printf prepared > {output}
+  - id: coordinate
+    title: Coordinate bounded implementation
+    type: agent
+    executor: sub-agent-session
+    assignment: sub-orchestrator
+    fresh_session: true
+    brief_from: [prepare]
+    gate: auto
+    output: data/{run}/coordinated.md
+  - id: finish
+    title: Finish after coordination
+    type: command
+    gate: auto
+    run: printf finished > "$MX_WORKFLOW_HOME/data/{run}.finished"
+---
+
+## prepare
+
+Prepare the exact input.
+
+## coordinate
+
+Delegate two bounded child checks and synthesize their evidence in {output}.
+
+## finish
+
+Run only after the coordinator's declared output exists.
+EOF
+  track_definition coordinator.workflow.md
+  cat >"$fake_spawn" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >"$WF_COORDINATOR_ARGS"
+id=$1
+mkdir -p "$WF_FAKE_HOME/state"
+printf 'project=%s\nharness=fake\nkind=daemon\n' "$2" >"$WF_FAKE_HOME/state/$id.meta"
+EOF
+  cat >"$fake_state" <<'EOF'
+#!/usr/bin/env bash
+printf 'state: %s · source: status-log · fixture\n' "${WF_FAKE_ACTOR_STATE:-working}"
+EOF
+  chmod +x "$fake_spawn" "$fake_state"
+  output=$(WF_FAKE_HOME="$HOME_FIXTURE" WF_COORDINATOR_ARGS="$TMP_ROOT/coordinator.args" \
+    MX_WORKFLOW_SPAWN_COMMAND="$fake_spawn" MX_WORKFLOW_ACTOR_STATE_COMMAND="$fake_state" \
+    workflow_cli run coordinator --input 'coordinate it' --id "$run") \
+    || fail "coordinator workflow did not launch"
+  assert_contains "$output" 'current_stage: coordinate' "coordinator stage did not wait"
+  assert_contains "$(cat "$TMP_ROOT/coordinator.args")" '--sub-orchestrator' \
+    "coordinator stage did not use the scoped coordinator launch form"
+  mkdir -p "$HOME_FIXTURE/data/$run/children"
+  printf ready >"$HOME_FIXTURE/data/$run/children/one.md"
+  printf ready >"$HOME_FIXTURE/data/$run/children/two.md"
+  output=$(WF_FAKE_ACTOR_STATE=done MX_WORKFLOW_ACTOR_STATE_COMMAND="$fake_state" \
+    workflow_cli resume "$run" 2>&1) \
+    && fail "child readiness advanced a coordinator without its declared output"
+  assert_contains "$output" 'reported done before its contract was met' \
+    "coordinator false-done refusal was unclear"
+  [ ! -e "$HOME_FIXTURE/data/$run.finished" ] || fail "later stage ran before coordination output"
+  printf 'children: one, two\nchecks: passed\n' >"$HOME_FIXTURE/data/$run/coordinated.md"
+  output=$(WF_FAKE_ACTOR_STATE=done MX_WORKFLOW_ACTOR_STATE_COMMAND="$fake_state" \
+    workflow_cli resume "$run") || fail "coordinator workflow did not resume"
+  assert_contains "$output" 'status: completed' "coordinator workflow did not reach stage three"
+  pass "scoped coordinator stages retain one owner and wait for declared child synthesis"
+}
+
 test_order_contract_approval_and_restart
 test_passed_command_requires_captured_zero_exit
 test_concurrent_reconcile_is_refused
@@ -640,3 +862,5 @@ test_reference_workflow_end_to_end
 test_abort_and_run_id_reuse_refusal
 test_headless_command_stage_refuses_remote_merge
 test_exact_workflow_skip_and_reorder
+test_project_bound_dependencies_and_revision_decisions
+test_scoped_coordinator_stage_waits_for_declared_output

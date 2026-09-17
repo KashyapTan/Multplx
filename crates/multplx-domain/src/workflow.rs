@@ -1,7 +1,7 @@
 //! Constrained workflow definitions, immutable snapshots, and typed run order.
 //!
-//! The parser intentionally accepts only the version-1 grammar documented in
-//! `docs/workflows.md`; it is not a general YAML parser.
+//! The parser accepts the version-2 grammar plus the version-1 executor aliases
+//! documented in `docs/workflows.md`; it is not a general YAML parser.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -31,6 +31,8 @@ pub struct Stage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub executor: Option<Executor>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignment: Option<Assignment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fresh_session: Option<bool>,
     pub brief_from: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,10 +58,21 @@ pub enum Gate {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum Executor {
-    Broker,
-    Actor,
+    #[serde(alias = "broker")]
+    OrchestratorContext,
+    #[serde(alias = "actor")]
+    SubAgentSession,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Assignment {
+    Researcher,
+    Implementer,
+    Reviewer,
+    SubOrchestrator,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -284,6 +297,7 @@ pub fn parse_text(text: &str) -> Result<Definition> {
         "output",
         "executor",
         "fresh_session",
+        "assignment",
         "brief_from",
         "contract",
         "run",
@@ -425,15 +439,15 @@ pub fn parse_text(text: &str) -> Result<Definition> {
         )));
     }
 
-    match top.get("workflow_version") {
-        Some(Scalar::Integer(1)) => {}
+    let workflow_version = match top.get("workflow_version") {
+        Some(Scalar::Integer(value @ (1 | 2))) => *value as u32,
         Some(Scalar::Integer(value)) => {
             return Err(WorkflowError::new(format!(
                 "unsupported workflow_version '{value}'"
             )));
         }
         _ => return Err(WorkflowError::new("unsupported workflow_version ''")),
-    }
+    };
     let name = text_field(&top, "name", "name")?;
     slug(&name, "name")?;
     let description = text_field(&top, "description", "description")?;
@@ -584,6 +598,7 @@ pub fn parse_text(text: &str) -> Result<Definition> {
             )));
         }
         let mut executor = None;
+        let mut assignment = None;
         let mut fresh_session = None;
         let mut run = None;
         match kind {
@@ -593,7 +608,7 @@ pub fn parse_text(text: &str) -> Result<Definition> {
                         "interactive stage {id} must use gate approve"
                     )));
                 }
-                for field in ["executor", "fresh_session", "contract", "run"] {
+                for field in ["executor", "assignment", "fresh_session", "contract", "run"] {
                     if raw.fields.contains_key(field) {
                         return Err(WorkflowError::new(format!(
                             "interactive stage {id} cannot set {field}"
@@ -607,34 +622,90 @@ pub fn parse_text(text: &str) -> Result<Definition> {
                 }
             }
             StageType::Agent => {
-                executor =
-                    match optional_text(&raw.fields, "executor", &format!("stage {id} executor"))?
-                        .as_deref()
-                    {
-                        Some("broker") => Some(Executor::Broker),
-                        Some("actor") => Some(Executor::Actor),
-                        _ => {
-                            return Err(WorkflowError::new(format!(
-                                "agent stage {id} requires executor broker or actor"
-                            )));
-                        }
-                    };
+                let raw_executor =
+                    optional_text(&raw.fields, "executor", &format!("stage {id} executor"))?;
+                executor = match (workflow_version, raw_executor.as_deref()) {
+                    (1, Some("broker")) | (2, Some("orchestrator-context")) => {
+                        Some(Executor::OrchestratorContext)
+                    }
+                    (1, Some("actor")) | (2, Some("sub-agent-session")) => {
+                        Some(Executor::SubAgentSession)
+                    }
+                    (1, _) => {
+                        return Err(WorkflowError::new(format!(
+                            "agent stage {id} requires legacy executor broker or actor"
+                        )));
+                    }
+                    (2, _) => {
+                        return Err(WorkflowError::new(format!(
+                            "agent stage {id} requires executor orchestrator-context or sub-agent-session"
+                        )));
+                    }
+                    _ => unreachable!(),
+                };
+                assignment = match optional_text(
+                    &raw.fields,
+                    "assignment",
+                    &format!("stage {id} assignment"),
+                )?
+                .as_deref()
+                {
+                    None if workflow_version == 1 => None,
+                    None if executor == Some(Executor::OrchestratorContext) => {
+                        Some(Assignment::Researcher)
+                    }
+                    None => Some(Assignment::Implementer),
+                    Some("researcher") => Some(Assignment::Researcher),
+                    Some("implementer") => Some(Assignment::Implementer),
+                    Some("reviewer") => Some(Assignment::Reviewer),
+                    Some("sub-orchestrator") => Some(Assignment::SubOrchestrator),
+                    Some(other) => {
+                        return Err(WorkflowError::new(format!(
+                            "stage {id} has unknown assignment '{other}'"
+                        )));
+                    }
+                };
+                if assignment == Some(Assignment::Implementer)
+                    && executor != Some(Executor::SubAgentSession)
+                {
+                    return Err(WorkflowError::new(format!(
+                        "implementation stage {id} must use executor sub-agent-session"
+                    )));
+                }
+                if assignment == Some(Assignment::SubOrchestrator)
+                    && executor != Some(Executor::SubAgentSession)
+                {
+                    return Err(WorkflowError::new(format!(
+                        "sub-orchestrator stage {id} must use executor sub-agent-session"
+                    )));
+                }
+                if assignment == Some(Assignment::SubOrchestrator)
+                    && contract == Some(Contract::LocalCommits)
+                {
+                    return Err(WorkflowError::new(format!(
+                        "sub-orchestrator stage {id} cannot use local-commits"
+                    )));
+                }
                 if raw.fields.contains_key("run") {
                     return Err(WorkflowError::new(format!(
                         "agent stage {id} cannot set run"
                     )));
                 }
-                if executor == Some(Executor::Broker) && raw.fields.contains_key("fresh_session") {
+                if executor == Some(Executor::OrchestratorContext)
+                    && raw.fields.contains_key("fresh_session")
+                {
                     return Err(WorkflowError::new(format!(
-                        "broker stage {id} cannot set fresh_session"
+                        "orchestrator-context stage {id} cannot set fresh_session"
                     )));
                 }
-                if executor == Some(Executor::Broker) && contract == Some(Contract::LocalCommits) {
+                if executor == Some(Executor::OrchestratorContext)
+                    && contract == Some(Contract::LocalCommits)
+                {
                     return Err(WorkflowError::new(format!(
-                        "broker stage {id} cannot use local-commits"
+                        "orchestrator-context stage {id} cannot use local-commits"
                     )));
                 }
-                if executor == Some(Executor::Actor) {
+                if executor == Some(Executor::SubAgentSession) {
                     fresh_session = match raw.fields.get("fresh_session") {
                         None => Some(false),
                         Some(Scalar::Bool(value)) => Some(*value),
@@ -652,7 +723,7 @@ pub fn parse_text(text: &str) -> Result<Definition> {
                     "run",
                     &format!("command stage {id} run"),
                 )?);
-                for field in ["executor", "fresh_session"] {
+                for field in ["executor", "assignment", "fresh_session"] {
                     if raw.fields.contains_key(field) {
                         return Err(WorkflowError::new(format!(
                             "command stage {id} cannot set {field}"
@@ -672,11 +743,12 @@ pub fn parse_text(text: &str) -> Result<Definition> {
                 )?;
                 if contract == Some(Contract::LocalCommits)
                     && !prior.iter().any(|stage| {
-                        stage.kind == StageType::Agent && stage.executor == Some(Executor::Actor)
+                        stage.kind == StageType::Agent
+                            && stage.executor == Some(Executor::SubAgentSession)
                     })
                 {
                     return Err(WorkflowError::new(format!(
-                        "command stage {id} local-commits requires a prior actor stage"
+                        "command stage {id} local-commits requires a prior sub-agent stage"
                     )));
                 }
             }
@@ -694,6 +766,7 @@ pub fn parse_text(text: &str) -> Result<Definition> {
             gate,
             output,
             executor,
+            assignment,
             fresh_session,
             brief_from,
             contract,
@@ -709,7 +782,7 @@ pub fn parse_text(text: &str) -> Result<Definition> {
         )));
     }
     Ok(Definition {
-        workflow_version: 1,
+        workflow_version,
         name,
         description,
         stages: normalized,
@@ -987,7 +1060,7 @@ mod tests {
             "type: command\n    run: printf {input}",
         );
         assert!(parse_text(&unsafe_command).is_err());
-        assert!(parse_text(&VALID.replace("workflow_version: 1", "workflow_version: 2")).is_err());
+        assert!(parse_text(&VALID.replace("workflow_version: 1", "workflow_version: 3")).is_err());
     }
 
     #[test]
@@ -1192,7 +1265,7 @@ mod tests {
         );
         assert_invalid(
             one_stage("    type: agent\n    gate: approve\n", "Work."),
-            "requires executor broker or actor",
+            "requires legacy executor broker or actor",
         );
         assert_invalid(
             one_stage(
@@ -1256,7 +1329,7 @@ mod tests {
                 "    type: command\n    gate: auto\n    contract: local-commits\n    run: printf ok\n",
                 "Run.",
             ),
-            "requires a prior actor stage",
+            "requires a prior sub-agent stage",
         );
         assert_invalid(
             one_stage(

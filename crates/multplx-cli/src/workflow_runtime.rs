@@ -12,12 +12,12 @@ use multplx_core::process::SystemProcessProbe;
 use multplx_domain::backlog::{AddRequest, BacklogStore};
 use multplx_domain::maintainer_override::{Binding, OverrideStore};
 use multplx_domain::workflow::{
-    self, Contract, Definition, Executor, Gate, RunState, Stage, StageStatus, StageType,
+    self, Assignment, Contract, Definition, Executor, Gate, RunState, Stage, StageStatus, StageType,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-const USAGE: &str = "Usage:\n  mx-workflow.sh validate <definition.workflow.md>\n  mx-workflow.sh run <name|definition.workflow.md> --input <text> [--id <run-id>] [--repo <project-root>]\n  mx-workflow.sh status <run-id>\n  mx-workflow.sh resume <run-id>\n  mx-workflow.sh abort <run-id>\n  mx-workflow.sh skip <run-id> <stage-id> --override <request-id>\n  mx-workflow.sh reorder <run-id> <stage-id> --before <stage-id> --override <request-id>\n  mx-workflow.sh dry-run <name|definition.workflow.md> [--input <text>]\n";
+const USAGE: &str = "Usage:\n  mx-workflow.sh validate <definition.workflow.md>\n  mx-workflow.sh run <name|definition.workflow.md> [--input <text> | --request <request-id>] [--id <run-id>] [--project <project-id|checkout-id|alias|path> | --repo <legacy-project-root>] [--depends <run-id>]...\n  mx-workflow.sh status <run-id>\n  mx-workflow.sh resume <run-id>\n  mx-workflow.sh abort <run-id>\n  mx-workflow.sh skip <run-id> <stage-id> --override <request-id>\n  mx-workflow.sh reorder <run-id> <stage-id> --before <stage-id> --override <request-id>\n  mx-workflow.sh dry-run <name|definition.workflow.md> [--input <text>]\n\nSchema v2 placements are orchestrator-context and sub-agent-session. Version 1 broker/actor definitions remain readable as legacy placement aliases. Implementation and sub-orchestrator assignments require a sub-agent session. A routed --request supplies the exact task, batch, project, checkout, brief, scope, context and dependencies; conflicting overrides are rejected. Dependencies must name existing workflow runs and only completed dependencies release a run. Skip and reorder are explicit versioned plan changes; no stage is silently omitted. Orchestrator-context execution requires an explicit MX_WORKFLOW_AGENT_COMMAND file-backed adapter.\n";
 
 pub(crate) fn run(args: &[OsString]) -> i32 {
     let Some(values) = args
@@ -124,6 +124,85 @@ fn safe_slug(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
+fn validate_dependencies(id: &str, dependencies: &[String]) -> Result<(), String> {
+    let mut unique = std::collections::BTreeSet::new();
+    for dependency in dependencies {
+        if !safe_slug(dependency) || dependency == id || !unique.insert(dependency) {
+            return Err(
+                "workflow dependencies must be unique existing run ids and cannot include self"
+                    .to_owned(),
+            );
+        }
+        run_directory(dependency)?;
+    }
+    let mut stack = dependencies.to_vec();
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(dependency) = stack.pop() {
+        if dependency == id {
+            return Err("cyclic workflow dependencies are not allowed".to_owned());
+        }
+        if !visited.insert(dependency.clone()) {
+            continue;
+        }
+        let record = read_json(&run_directory(&dependency)?.join("run.json"))?;
+        if let Some(children) = record["dependencies"].as_array() {
+            for child in children {
+                let child = child
+                    .as_str()
+                    .ok_or("workflow dependency record is invalid")?;
+                if !safe_slug(child) {
+                    return Err("workflow dependency record is invalid".to_owned());
+                }
+                stack.push(child.to_owned());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dependencies_ready(directory: &Path) -> Result<bool, String> {
+    let record = read_json(&directory.join("run.json"))?;
+    let dependencies = record["dependencies"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let run = record["run"].as_str().unwrap_or_default();
+    let mut waiting = Vec::new();
+    for dependency in dependencies {
+        let dependency = dependency
+            .as_str()
+            .ok_or("workflow dependency record is invalid")?;
+        let dependency_record = read_json(&run_directory(dependency)?.join("run.json"))?;
+        if dependency_record["status"].as_str() != Some("completed") {
+            waiting.push(dependency.to_owned());
+            continue;
+        }
+        let backlog = data_root().join("backlog.md");
+        if backlog.is_file() {
+            let store = BacklogStore::new(backlog);
+            if store
+                .snapshot(run)
+                .is_ok_and(|item| item.blockers.iter().any(|item| item == dependency))
+            {
+                store
+                    .unblock(run, dependency)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    if waiting.is_empty() {
+        Ok(true)
+    } else {
+        set_run_state(
+            directory,
+            "waiting",
+            "",
+            &format!("waiting on workflow dependencies: {}", waiting.join(", ")),
+        )?;
+        Ok(false)
+    }
+}
+
 fn now() -> String {
     let now = time::OffsetDateTime::now_utc();
     format!(
@@ -195,9 +274,16 @@ fn dry_run(values: &[String]) -> Result<(), String> {
             Gate::Auto => "auto",
         };
         let executor = match stage.executor {
-            Some(Executor::Broker) => "broker",
-            Some(Executor::Actor) => "actor",
+            Some(Executor::OrchestratorContext) => "orchestrator-context",
+            Some(Executor::SubAgentSession) => "sub-agent-session",
             None => "-",
+        };
+        let assignment = match stage.assignment {
+            Some(Assignment::Researcher) => "researcher",
+            Some(Assignment::Implementer) => "implementer",
+            Some(Assignment::Reviewer) => "reviewer",
+            Some(Assignment::SubOrchestrator) => "sub-orchestrator",
+            None => "legacy-default",
         };
         let output = stage
             .output
@@ -205,7 +291,7 @@ fn dry_run(values: &[String]) -> Result<(), String> {
             .map(|value| workflow::substitute(value, "dry-run", &input, ""))
             .unwrap_or_else(|| "-".to_owned());
         println!(
-            "{} | type={kind} | gate={gate} | executor={executor} | output={output}",
+            "{} | type={kind} | gate={gate} | executor={executor} | assignment={assignment} | output={output}",
             stage.id
         );
     }
@@ -218,7 +304,10 @@ fn launch(values: &[String]) -> Result<(), String> {
     };
     let mut input = None;
     let mut id = None;
-    let mut repo = std::env::current_dir().map_err(|error| error.to_string())?;
+    let mut project = None;
+    let mut legacy_repo = None;
+    let mut request_id = None;
+    let mut dependencies = Vec::new();
     let mut index = 1;
     while index < values.len() {
         let value = values
@@ -227,36 +316,101 @@ fn launch(values: &[String]) -> Result<(), String> {
         match values[index].as_str() {
             "--input" => input = Some(value.clone()),
             "--id" => id = Some(value.clone()),
-            "--repo" => repo = PathBuf::from(value),
+            "--project" => project = Some(value.clone()),
+            "--repo" => legacy_repo = Some(PathBuf::from(value)),
+            "--request" => request_id = Some(value.clone()),
+            "--depends" => dependencies.push(value.clone()),
             _ => return Err(format!("unknown argument: {}", values[index])),
         }
         index += 2;
     }
-    let input = input
-        .filter(|value| !value.is_empty())
-        .ok_or("--input is required and must not be empty")?;
     let path = definition_path(requested)?;
     let definition = workflow::parse(&path).map_err(|error| error.to_string())?;
     verify_tracked(&path)?;
-    repo = repo
-        .canonicalize()
-        .map_err(|_| format!("repo is unavailable: {}", repo.display()))?;
-    if git_line(&repo, &["rev-parse", "--show-toplevel"]).is_none() {
-        return Err(format!("repo is not a git worktree: {}", repo.display()));
+    if project.is_some() && legacy_repo.is_some() {
+        return Err("choose --project or --repo, not both".to_owned());
     }
-    let id = id.unwrap_or_else(|| {
-        std::env::var("MX_WORKFLOW_RUN_ID").unwrap_or_else(|_| {
-            format!(
-                "{}-{}-{:04x}",
-                definition.name,
-                now().replace(['-', ':', 'T', 'Z'], ""),
-                std::process::id() % 65536
-            )
+    let routed_request = request_id
+        .as_deref()
+        .map(|request| {
+            multplx_domain::operational_input::RequestStore::new(state_root(), home_root())
+                .get(request)
+                .map_err(|error| format!("routed workflow request is unavailable: {error}"))
         })
-    });
+        .transpose()?;
+    let selected = if let Some(selector) = project {
+        multplx_domain::project_registry::resolve_checkout(&home_root(), &selector)?
+    } else {
+        match (legacy_repo, routed_request.as_ref()) {
+            (Some(repo), _) => multplx_domain::project_registry::register_project(
+                &home_root(),
+                &repo,
+                None,
+                multplx_domain::project_registry::CheckoutOwnership::UserOwned,
+            )?,
+            (None, Some(request)) => multplx_domain::project_registry::resolve_checkout(
+                &home_root(),
+                &request.checkout_id,
+            )?,
+            (None, None) => multplx_domain::project_registry::register_project(
+                &home_root(),
+                &std::env::current_dir().map_err(|error| error.to_string())?,
+                None,
+                multplx_domain::project_registry::CheckoutOwnership::UserOwned,
+            )?,
+        }
+    };
+    if let Some(request) = &routed_request
+        && (request.project_id != selected.project_id
+            || request.checkout_id != selected.checkout_id
+            || request.starting_revision != selected.starting_revision)
+    {
+        return Err(
+            "routed workflow request does not match the selected project, checkout or starting revision"
+                .to_owned(),
+        );
+    }
+    let input = match (
+        input.filter(|value| !value.is_empty()),
+        routed_request.as_ref(),
+    ) {
+        (Some(input), Some(request)) if input != request.scope => {
+            return Err("--input conflicts with the routed request scope".to_owned());
+        }
+        (Some(input), _) => input,
+        (None, Some(request)) => request.scope.clone(),
+        (None, None) => return Err("--input or --request is required".to_owned()),
+    };
+    let repo = selected.canonical_path.clone();
+    let id = if let Some(request) = &routed_request {
+        if id.as_deref().is_some_and(|id| id != request.task_id) {
+            return Err("--id conflicts with the routed request task identity".to_owned());
+        }
+        request.task_id.clone()
+    } else {
+        id.unwrap_or_else(|| {
+            std::env::var("MX_WORKFLOW_RUN_ID").unwrap_or_else(|_| {
+                format!(
+                    "{}-{}-{:04x}",
+                    definition.name,
+                    now().replace(['-', ':', 'T', 'Z'], ""),
+                    std::process::id() % 65536
+                )
+            })
+        })
+    };
     if !safe_slug(&id) {
         return Err("run id must be a privacy-safe slug".to_owned());
     }
+    if let Some(request) = &routed_request {
+        if !dependencies.is_empty() && dependencies != request.dependencies {
+            return Err("--depends conflicts with routed request dependencies".to_owned());
+        }
+        if dependencies.is_empty() {
+            dependencies = request.dependencies.clone();
+        }
+    }
+    validate_dependencies(&id, &dependencies)?;
     fs::create_dir_all(state_root()).map_err(|error| error.to_string())?;
     fs::create_dir_all(data_root()).map_err(|error| error.to_string())?;
     let directory = state_root().join(format!("{id}.workflow"));
@@ -270,12 +424,33 @@ fn launch(values: &[String]) -> Result<(), String> {
         "{:x}",
         Sha256::digest(fs::read(&path).map_err(|error| error.to_string())?)
     );
+    let backlog_project = selected.project_id.clone();
+    let request_correlation = routed_request.as_ref().map(|request| {
+        json!({
+            "batch_id": request.batch_id,
+            "request_id": request.request_id,
+            "task_id": request.task_id,
+            "client_id": request.client_id,
+            "parent_task_id": request.parent_task_id,
+            "brief_revision": request.brief_revision,
+            "context_artifact": request.context_artifact,
+        })
+    });
+    let accepted_brief_revision = routed_request
+        .as_ref()
+        .map_or(1, |request| request.brief_revision);
     let record = json!({
         "version": 1,
         "run": id,
         "workflow": definition.name,
         "definition_path": path,
         "definition_sha256": digest,
+        "workflow_revision": digest,
+        "plan_revision": 1,
+        "accepted_brief_revision": accepted_brief_revision,
+        "request_correlation": request_correlation,
+        "dependencies": dependencies,
+        "project": selected,
         "repo": repo,
         "home": home_root().canonicalize().map_err(|error| error.to_string())?,
         "status": "running",
@@ -285,7 +460,7 @@ fn launch(values: &[String]) -> Result<(), String> {
         "updated_at": timestamp,
     });
     write_json(&directory.join("run.json"), &record)?;
-    register_backlog(&id, &definition)?;
+    register_backlog(&id, &definition, &backlog_project, &dependencies)?;
     println!("launched: {id}");
     let reconcile_result = reconcile_locked(&directory);
     render_status(&directory)?;
@@ -326,7 +501,12 @@ fn verify_tracked(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn register_backlog(id: &str, definition: &Definition) -> Result<(), String> {
+fn register_backlog(
+    id: &str,
+    definition: &Definition,
+    project: &str,
+    dependencies: &[String],
+) -> Result<(), String> {
     let path = data_root().join("backlog.md");
     if !path.is_file() {
         return Ok(());
@@ -339,11 +519,11 @@ fn register_backlog(id: &str, definition: &Definition) -> Result<(), String> {
         .add(&AddRequest {
             id,
             title: &format!("Workflow {}: {}", definition.name, definition.description),
-            repo: "broker",
+            repo: project,
             kind: "delivery",
             body: "",
             start: true,
-            blockers: &[],
+            blockers: dependencies,
         })
         .map_err(|error| error.to_string())
 }
@@ -513,6 +693,14 @@ fn output_path(directory: &Path, stage: &Stage) -> Result<Option<PathBuf>, Strin
 
 fn contract_check(directory: &Path, stage: &Stage) -> Result<(), String> {
     let record_path = directory.join("stages").join(format!("{}.json", stage.id));
+    if stage.kind == StageType::Agent
+        && stage.executor == Some(Executor::SubAgentSession)
+        && record_path.is_file()
+    {
+        let run = read_json(&directory.join("run.json"))?;
+        let record = read_json(&record_path)?;
+        verify_stage_task_binding(&run, stage, &record)?;
+    }
     if stage.kind == StageType::Command {
         let record = read_json(&record_path)?;
         let stdout = directory
@@ -541,14 +729,14 @@ fn contract_check(directory: &Path, stage: &Stage) -> Result<(), String> {
         let worktree = Path::new(record["worktree"].as_str().unwrap_or_default());
         let fork = record["fork_sha"].as_str().unwrap_or_default();
         let head = git_line(worktree, &["rev-parse", "--verify", "HEAD"])
-            .ok_or("actor local-commit contract is unmet")?;
+            .ok_or("sub-agent local-commit contract is unmet")?;
         let branch = git_line(worktree, &["symbolic-ref", "--quiet", "--short", "HEAD"])
-            .ok_or("actor local-commit contract is unmet")?;
+            .ok_or("sub-agent local-commit contract is unmet")?;
         if branch != format!("mx/{task}")
             || head == fork
             || !git_success(worktree, &["merge-base", "--is-ancestor", fork, &head])
         {
-            return Err("actor local-commit contract is unmet".to_owned());
+            return Err("sub-agent local-commit contract is unmet".to_owned());
         }
     }
     Ok(())
@@ -571,6 +759,20 @@ fn prompt_file(
         stage.title,
         workflow::substitute(&stage.body, run, &input, &output)
     );
+    if let Some(correlation) = run_record.get("request_correlation")
+        && !correlation.is_null()
+    {
+        body.push_str(&format!(
+            "\n## Accepted request\n\nBatch: `{}`\n\nRequest: `{}`\n\nTask: `{}`\n\nAccepted brief revision: `{}`\n",
+            correlation["batch_id"].as_str().unwrap_or_default(),
+            correlation["request_id"].as_str().unwrap_or_default(),
+            correlation["task_id"].as_str().unwrap_or_default(),
+            correlation["brief_revision"].as_u64().unwrap_or(1),
+        ));
+        if let Some(artifact) = correlation["context_artifact"].as_str() {
+            body.push_str(&format!("\nOriginal context artifact: `{artifact}`\n"));
+        }
+    }
     for source in &stage.brief_from {
         let source_stage = definition
             .stages
@@ -604,6 +806,9 @@ fn reconcile(directory: &Path) -> Result<(), String> {
         _ => {}
     }
     let definition = verify_snapshot(directory)?;
+    if !dependencies_ready(directory)? {
+        return Ok(());
+    }
     let order = stage_order(directory, &definition)?;
     for id in order {
         let definition = verify_snapshot(directory)?;
@@ -661,39 +866,39 @@ fn reconcile(directory: &Path) -> Result<(), String> {
                 }
             }
             StageType::Agent => {
-                if stage.executor == Some(Executor::Broker) {
+                if stage.executor == Some(Executor::OrchestratorContext) {
                     if !matches!(status, StageStatus::Done | StageStatus::WaitingApproval) {
-                        execute_broker(directory, &definition, stage)?;
+                        execute_orchestrator_context(directory, &definition, stage)?;
                     }
                 } else {
                     match status {
                         StageStatus::Pending => {
-                            execute_actor(directory, &definition, stage)?;
+                            execute_subagent(directory, &definition, stage)?;
                             set_run_state(
                                 directory,
                                 "waiting",
                                 &id,
-                                "actor stage is still running",
+                                "sub-agent stage is still running",
                             )?;
                             return Ok(());
                         }
                         StageStatus::WaitingAgent
                         | StageStatus::Done
                         | StageStatus::WaitingApproval => {
-                            if !reconcile_actor(directory, stage)? {
+                            if !reconcile_subagent(directory, stage)? {
                                 set_run_state(
                                     directory,
                                     "waiting",
                                     &id,
-                                    "actor stage is still running",
+                                    "sub-agent stage is still running",
                                 )?;
                                 return Ok(());
                             }
                         }
-                        StageStatus::Failed => return Err("actor reported failure".to_owned()),
+                        StageStatus::Failed => return Err("sub-agent reported failure".to_owned()),
                         _ => {
                             return Err(format!(
-                                "stage {id} has an incomplete actor launch record"
+                                "stage {id} has an incomplete sub-agent launch record"
                             ));
                         }
                     }
@@ -782,7 +987,11 @@ fn reconcile(directory: &Path) -> Result<(), String> {
     set_run_state(directory, "completed", "", "workflow completed")
 }
 
-fn execute_broker(directory: &Path, definition: &Definition, stage: &Stage) -> Result<(), String> {
+fn execute_orchestrator_context(
+    directory: &Path,
+    definition: &Definition,
+    stage: &Stage,
+) -> Result<(), String> {
     let prompt = prompt_file(directory, definition, stage)?;
     let schema = directory.join("schemas/agent-result.json");
     let output = directory.join("agents").join(format!("{}.json", stage.id));
@@ -796,19 +1005,12 @@ fn execute_broker(directory: &Path, definition: &Definition, stage: &Stage) -> R
     )?;
     let command = std::env::var_os("MX_WORKFLOW_AGENT_COMMAND")
         .ok_or("headless workflow agent adapter is unavailable")?;
-    let status = Command::new(command)
-        .args(["--session", "new", "--schema"])
-        .arg(&schema)
-        .arg("--prompt")
-        .arg(&prompt)
-        .arg("--output")
-        .arg(&output)
-        .arg("--session-out")
-        .arg(&session)
-        .status()
-        .map_err(|error| error.to_string())?;
+    let status =
+        crate::agent_transport::structured_command(command, &schema, &prompt, &output, &session)
+            .status()
+            .map_err(|error| error.to_string())?;
     if !status.success() {
-        return Err("broker agent stage failed".to_owned());
+        return Err("orchestrator-context agent stage failed".to_owned());
     }
     let result = read_json(&output)?;
     let keys = result
@@ -839,11 +1041,15 @@ fn execute_broker(directory: &Path, definition: &Definition, stage: &Stage) -> R
     if state == "done" {
         Ok(())
     } else {
-        Err("broker agent stage failed".to_owned())
+        Err("orchestrator-context agent stage failed".to_owned())
     }
 }
 
-fn execute_actor(directory: &Path, definition: &Definition, stage: &Stage) -> Result<(), String> {
+fn execute_subagent(
+    directory: &Path,
+    definition: &Definition,
+    stage: &Stage,
+) -> Result<(), String> {
     let run = read_json(&directory.join("run.json"))?;
     let run_id = run["run"].as_str().unwrap_or_default();
     let used = definition
@@ -875,9 +1081,29 @@ fn execute_actor(directory: &Path, definition: &Definition, stage: &Stage) -> Re
         .join(&task)
         .join("brief.md");
     fs::create_dir_all(brief.parent().expect("brief parent")).map_err(|error| error.to_string())?;
+    let assignment = stage.assignment.unwrap_or(Assignment::Implementer);
+    let assignment_name = match assignment {
+        Assignment::Researcher => "researcher",
+        Assignment::Implementer => "implementer",
+        Assignment::Reviewer => "reviewer",
+        Assignment::SubOrchestrator => "sub-orchestrator",
+    };
+    let workspace_rule = if assignment == Assignment::SubOrchestrator {
+        "Delegate implementation and test-code changes to bounded children. Keep one stage owner, route human questions through the parent channel, and do not treat a child summary as stage completion."
+    } else {
+        "Verify that `pwd -P` and `git rev-parse --show-toplevel` identify the exact isolated allocation supplied by Multplx rather than its primary checkout. Stop and report `blocked` if isolation is not genuine. Work only in that allocation, except for the stage's explicitly declared output path and validated status command."
+    };
     let text = format!(
-        "You are a sub-agent assigned to a selected Multplx workflow stage.\n\n# Stage charter\n\n{}\n\n# Workflow execution rules\n\nVerify that `pwd -P` and `git rev-parse --show-toplevel` identify the isolated worktree supplied by Multplx rather than its primary checkout.\nStop and report `blocked` if isolation is not genuine.\nCreate the local task branch with `git checkout -b mx/{task}` before editing.\nWork only in that isolated worktree, except for the stage's explicitly declared output path and the validated status command below.\nFollow this stage's accepted scope, outputs and explicit interaction points.\nYou may delegate within that scope and deliver a branch or PR when the selected stage calls for it.\nOnly humans merge PRs; never merge, enable auto-merge, enqueue a merge or push the PR result to the remote target branch.\nDeep-review and vplan require explicit task or disclosed workflow selection.\nReport completion through the validated status path:\n\n`{}/bin/mx-report --id {task} --state done --message \"workflow stage complete at {{full commit SHA}}\"`\n",
+        "You are the {assignment_name} assigned to one selected Multplx workflow stage.\n\n# Stage charter\n\n{}\n\n# Workflow execution rules\n\nRun: `{run_id}`.\nWorkflow revision: `{}`.\nPlan revision: `{}`.\nAccepted workflow brief revision: `{}`.\nProject: `{}`.\nCheckout: `{}`.\nStarting revision: `{}`.\n{workspace_rule}\nFollow only this stage's accepted scope, outputs and explicit interaction points. Later workflow stages remain out of scope.\nYou may delegate within this stage; the stage remains active until its declared contract is met.\nOnly humans merge PRs; never merge, enable auto-merge, enqueue a merge or push the PR result to the remote target branch.\nDeep-review and vplan run only when this stage explicitly declares them.\nReport completion through the validated status path:\n\n`{}/bin/mx-report --id {task} --state done --message \"workflow stage complete at {{full commit SHA}}\"`\n",
         fs::read_to_string(&prompt).unwrap_or_default(),
+        run["workflow_revision"].as_str().unwrap_or_default(),
+        run["plan_revision"].as_u64().unwrap_or(1),
+        run["accepted_brief_revision"].as_u64().unwrap_or(1),
+        run["project"]["project_id"].as_str().unwrap_or_default(),
+        run["project"]["checkout_id"].as_str().unwrap_or_default(),
+        run["project"]["starting_revision"]
+            .as_str()
+            .unwrap_or_default(),
         runtime_root().display()
     );
     atomic_replace(&brief, text.as_bytes(), 0o600).map_err(|error| error.to_string())?;
@@ -885,47 +1111,187 @@ fn execute_actor(directory: &Path, definition: &Definition, stage: &Stage) -> Re
         &directory.join("stages").join(format!("{}.json", stage.id)),
         &json!({"id": stage.id, "status": "running", "started_at": now(), "task_id": task, "brief": brief}),
     )?;
-    let status = if let Some(command) = std::env::var_os("MX_WORKFLOW_SPAWN_COMMAND") {
-        Command::new(command)
-            .args([&task])
-            .arg(run["repo"].as_str().unwrap_or_default())
-            .status()
+    let injected_spawn = std::env::var_os("MX_WORKFLOW_SPAWN_COMMAND");
+    let status = if let Some(command) = injected_spawn.as_ref() {
+        let mut command = Command::new(command);
+        command.args([&task, run["repo"].as_str().unwrap_or_default()]);
+        if assignment == Assignment::SubOrchestrator {
+            command.args([
+                "--sub-orchestrator",
+                "--scope",
+                &format!("Workflow {run_id} stage {}", stage.id),
+            ]);
+        } else {
+            command.args(["--role", assignment_name]);
+        }
+        command.status()
     } else {
         let mut command = Command::new(runtime_root().join("bin/mx-spawn.sh"));
-        command.args([&task, run["repo"].as_str().unwrap_or_default()]);
-        if let Some(harness) = std::env::var_os("MX_WORKFLOW_ACTOR_HARNESS") {
+        if assignment == Assignment::SubOrchestrator {
+            command.args([
+                &task,
+                "--sub-orchestrator",
+                "--project",
+                run["repo"].as_str().unwrap_or_default(),
+                "--scope",
+                &format!(
+                    "Workflow {run_id} stage {} at plan revision {}",
+                    stage.id,
+                    run["plan_revision"].as_u64().unwrap_or(1)
+                ),
+                "--request-id",
+                &format!("workflow-{run_id}-{}", stage.id),
+                "--json",
+            ]);
+        } else {
+            command.args([&task, run["repo"].as_str().unwrap_or_default()]);
+            command.args(["--role", assignment_name]);
+            command.args([
+                "--output",
+                if assignment == Assignment::Implementer {
+                    "implementation"
+                } else {
+                    "report"
+                },
+            ]);
+        }
+        if let Some(harness) = std::env::var_os("MX_WORKFLOW_SUBAGENT_HARNESS")
+            .or_else(|| std::env::var_os("MX_WORKFLOW_ACTOR_HARNESS"))
+        {
             command.arg("--harness").arg(harness);
         }
         command.status()
     }
     .map_err(|error| error.to_string())?;
     if !status.success() {
-        return Err("actor launch failed".to_owned());
+        return Err("sub-agent launch failed".to_owned());
     }
     let meta = Path::new(run["home"].as_str().unwrap_or_default())
         .join("state")
         .join(format!("{task}.meta"));
-    let worktree = metadata_value(&meta, "worktree");
-    if !Path::new(&worktree).is_dir() {
-        return Err(format!("actor stage {} has no worktree", stage.id));
-    }
-    let fork = git_line(Path::new(&worktree), &["rev-parse", "--verify", "HEAD"])
-        .ok_or("actor fork SHA is unavailable")?;
+    let (task_binding, worktree, fork) = match read_canonical_task(&meta, &task) {
+        Ok(record) if !record.legacy_unknown => canonical_stage_binding(&run, stage, &record)?,
+        Ok(_) | Err(_) if injected_spawn.is_some() => {
+            let worktree = metadata_value(&meta, "worktree");
+            if assignment != Assignment::SubOrchestrator && !Path::new(&worktree).is_dir() {
+                return Err(format!("sub-agent stage {} has no worktree", stage.id));
+            }
+            let fork = if worktree.is_empty() {
+                String::new()
+            } else {
+                git_line(Path::new(&worktree), &["rev-parse", "--verify", "HEAD"])
+                    .ok_or("sub-agent fork SHA is unavailable")?
+            };
+            (json!({"mocked": true, "task_id": task}), worktree, fork)
+        }
+        Ok(_) => return Err(
+            "workflow stage task metadata is legacy and has no exact attempt or allocation binding"
+                .to_owned(),
+        ),
+        Err(error) => return Err(error),
+    };
     write_json(
         &directory.join("stages").join(format!("{}.json", stage.id)),
         &json!({
             "id": stage.id, "status": "waiting-agent", "started_at": now(), "task_id": task,
-            "brief": brief, "worktree": worktree, "fork_sha": fork
+            "brief": brief, "worktree": worktree, "fork_sha": fork,
+            "task_binding": task_binding, "fresh_session": stage.fresh_session.unwrap_or(false),
+            "assignment": assignment_name
         }),
     )
 }
 
-fn reconcile_actor(directory: &Path, stage: &Stage) -> Result<bool, String> {
+fn read_canonical_task(
+    meta: &Path,
+    task: &str,
+) -> Result<multplx_domain::lifecycle::subagent_model::TaskRecord, String> {
+    let text = fs::read_to_string(meta)
+        .map_err(|error| format!("canonical stage task metadata is unavailable: {error}"))?;
+    multplx_domain::lifecycle::subagent_model::read_meta(task, &text)
+        .map_err(|error| format!("canonical stage task metadata is invalid: {error}"))
+}
+
+fn canonical_stage_binding(
+    run: &Value,
+    stage: &Stage,
+    record: &multplx_domain::lifecycle::subagent_model::TaskRecord,
+) -> Result<(Value, String, String), String> {
+    let attempt = record
+        .attempt
+        .as_ref()
+        .ok_or("workflow stage task has no current attempt")?;
+    let project = record
+        .project
+        .as_ref()
+        .ok_or("workflow stage task has no project binding")?;
+    if run.get("project").is_some() {
+        if project.project_id != run["project"]["project_id"].as_str().unwrap_or_default()
+            || project.checkout_id != run["project"]["checkout_id"].as_str().unwrap_or_default()
+            || project.starting_revision
+                != run["project"]["starting_revision"]
+                    .as_str()
+                    .unwrap_or_default()
+        {
+            return Err(
+                "workflow stage task belongs to a different project, checkout or starting revision"
+                    .to_owned(),
+            );
+        }
+    } else if fs::canonicalize(run["repo"].as_str().unwrap_or_default()).ok()
+        != fs::canonicalize(&project.canonical_path).ok()
+    {
+        return Err("legacy workflow stage task belongs to a different project path".to_owned());
+    }
+    let (allocation, worktree, fork) = if stage.assignment == Some(Assignment::SubOrchestrator) {
+        if record.domain.is_none()
+            || record.role
+                != multplx_domain::lifecycle::subagent_model::AssignmentRole::SubOrchestrator
+        {
+            return Err("workflow coordinator stage has no bounded coordinator domain".to_owned());
+        }
+        (Value::Null, String::new(), String::new())
+    } else {
+        let allocation = record
+            .allocation
+            .as_ref()
+            .ok_or("workflow stage task has no durable allocation")?;
+        if allocation.task_id != record.task_id
+            || allocation.attempt_id != attempt.id
+            || allocation.project_id != project.project_id
+            || allocation.checkout_id != project.checkout_id
+            || allocation.base_revision != project.starting_revision
+            || !Path::new(&allocation.path).is_dir()
+        {
+            return Err("workflow stage allocation is stale or foreign".to_owned());
+        }
+        (
+            serde_json::to_value(allocation).map_err(|error| error.to_string())?,
+            allocation.path.clone(),
+            allocation.base_revision.clone(),
+        )
+    };
+    Ok((
+        json!({
+            "task_id": record.task_id,
+            "attempt": attempt,
+            "accepted_brief_revision": record.accepted_brief_revision,
+            "project": project,
+            "allocation": allocation,
+            "domain": record.domain,
+            "owner_home": record.owner_home,
+        }),
+        worktree,
+        fork,
+    ))
+}
+
+fn reconcile_subagent(directory: &Path, stage: &Stage) -> Result<bool, String> {
     let record_path = directory.join("stages").join(format!("{}.json", stage.id));
     let mut record = read_json(&record_path)?;
     let task = record["task_id"].as_str().unwrap_or_default();
     let run = read_json(&directory.join("run.json"))?;
-    let output = if let Some(command) = std::env::var_os("MX_WORKFLOW_ACTOR_STATE_COMMAND") {
+    verify_stage_task_binding(&run, stage, &record)?;
+    let output = if let Some(command) = subagent_state_command() {
         Command::new(command).arg(task).output()
     } else {
         Command::new(runtime_root().join("bin/mx-actor-state.sh"))
@@ -947,7 +1313,7 @@ fn reconcile_actor(directory: &Path, stage: &Stage) -> Result<bool, String> {
         "done" => {
             contract_check(directory, stage).map_err(|_| {
                 format!(
-                    "actor stage {} reported done before its contract was met",
+                    "sub-agent stage {} reported done before its contract was met",
                     stage.id
                 )
             })?;
@@ -960,10 +1326,44 @@ fn reconcile_actor(directory: &Path, stage: &Stage) -> Result<bool, String> {
             record["status"] = Value::String("failed".to_owned());
             record["finished_at"] = Value::String(now());
             write_json(&record_path, &record)?;
-            Err("actor reported failure".to_owned())
+            Err("sub-agent reported failure".to_owned())
         }
         _ => Ok(false),
     }
+}
+
+fn verify_stage_task_binding(
+    run: &Value,
+    stage: &Stage,
+    stage_record: &Value,
+) -> Result<(), String> {
+    if stage_record["task_binding"]["mocked"].as_bool() == Some(true) {
+        if subagent_state_command().is_some() {
+            return Ok(());
+        }
+        return Err(
+            "mocked workflow stage binding is unavailable outside an injected test runtime"
+                .to_owned(),
+        );
+    }
+    let task = stage_record["task_id"]
+        .as_str()
+        .ok_or("workflow stage task identity is missing")?;
+    let meta = Path::new(run["home"].as_str().unwrap_or_default())
+        .join("state")
+        .join(format!("{task}.meta"));
+    let current = read_canonical_task(&meta, task)?;
+    let (binding, worktree, fork) = canonical_stage_binding(run, stage, &current)?;
+    let legacy_record = stage_record.get("task_binding").is_none();
+    if (!legacy_record && binding != stage_record["task_binding"])
+        || worktree != stage_record["worktree"].as_str().unwrap_or_default()
+        || fork != stage_record["fork_sha"].as_str().unwrap_or_default()
+    {
+        return Err(
+            "workflow stage task, attempt, brief, project or allocation binding changed".to_owned(),
+        );
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1064,7 +1464,7 @@ fn execute_command(
         "",
         &output_shell,
     );
-    let worktree = last_actor_worktree(directory, definition)
+    let worktree = last_subagent_worktree(directory, definition)
         .unwrap_or_else(|| PathBuf::from(run["repo"].as_str().unwrap_or_default()));
     let stdout = directory
         .join("commands")
@@ -1074,7 +1474,7 @@ fn execute_command(
         .join(format!("{}.stderr", stage.id));
     let record_path = directory.join("stages").join(format!("{}.json", stage.id));
     write_json(&record_path, &json!({"id": stage.id, "status": "running", "started_at": now(), "command": command, "cwd": worktree, "stdout": stdout, "stderr": stderr})).map_err(|_| CommandFailure::Exit)?;
-    let task = last_actor_task(directory, definition).unwrap_or_else(|| run_id.to_owned());
+    let task = last_subagent_task(directory, definition).unwrap_or_else(|| run_id.to_owned());
     let workflow_state = Path::new(run["home"].as_str().unwrap_or_default()).join("state");
     let (targets, current) = workflow_merge_context(&command, &worktree, &workflow_state, &task);
     if let Err(denial) =
@@ -1117,7 +1517,7 @@ fn execute_command(
         write_json(&record_path, &record).map_err(|_| CommandFailure::Exit)?;
         return Ok(());
     }
-    if !task.is_empty() && actor_waiting(&run, &task) {
+    if !task.is_empty() && subagent_waiting(&run, &task) {
         record["status"] = Value::String("waiting-external".to_owned());
         write_json(&record_path, &record).map_err(|_| CommandFailure::Exit)?;
         Err(CommandFailure::External)
@@ -1128,8 +1528,13 @@ fn execute_command(
     }
 }
 
-fn actor_waiting(run: &Value, task: &str) -> bool {
-    let output = if let Some(command) = std::env::var_os("MX_WORKFLOW_ACTOR_STATE_COMMAND") {
+fn subagent_state_command() -> Option<OsString> {
+    std::env::var_os("MX_WORKFLOW_SUBAGENT_STATE_COMMAND")
+        .or_else(|| std::env::var_os("MX_WORKFLOW_ACTOR_STATE_COMMAND"))
+}
+
+fn subagent_waiting(run: &Value, task: &str) -> bool {
+    let output = if let Some(command) = subagent_state_command() {
         Command::new(command).arg(task).output()
     } else {
         Command::new(runtime_root().join("bin/mx-actor-state.sh"))
@@ -1147,12 +1552,16 @@ fn actor_waiting(run: &Value, task: &str) -> bool {
         })
 }
 
-fn last_actor_worktree(directory: &Path, definition: &Definition) -> Option<PathBuf> {
+fn last_subagent_worktree(directory: &Path, definition: &Definition) -> Option<PathBuf> {
     definition
         .stages
         .iter()
         .rev()
-        .filter(|stage| stage.kind == StageType::Agent && stage.executor == Some(Executor::Actor))
+        .filter(|stage| {
+            stage.kind == StageType::Agent
+                && stage.executor == Some(Executor::SubAgentSession)
+                && stage.assignment != Some(Assignment::SubOrchestrator)
+        })
         .find_map(|stage| {
             let record =
                 read_json(&directory.join("stages").join(format!("{}.json", stage.id))).ok()?;
@@ -1161,12 +1570,16 @@ fn last_actor_worktree(directory: &Path, definition: &Definition) -> Option<Path
         })
 }
 
-fn last_actor_task(directory: &Path, definition: &Definition) -> Option<String> {
+fn last_subagent_task(directory: &Path, definition: &Definition) -> Option<String> {
     definition
         .stages
         .iter()
         .rev()
-        .filter(|stage| stage.kind == StageType::Agent && stage.executor == Some(Executor::Actor))
+        .filter(|stage| {
+            stage.kind == StageType::Agent
+                && stage.executor == Some(Executor::SubAgentSession)
+                && stage.assignment != Some(Assignment::SubOrchestrator)
+        })
         .find_map(|stage| {
             read_json(&directory.join("stages").join(format!("{}.json", stage.id))).ok()?["task_id"]
                 .as_str()
@@ -1204,6 +1617,18 @@ fn create_hold(directory: &Path, key: &str, title: &str, reason: &str) -> Result
     let run = read_json(&directory.join("run.json"))?;
     let run_id = run["run"].as_str().unwrap_or_default();
     let home = Path::new(run["home"].as_str().unwrap_or_default());
+    let workflow_revision = format!(
+        "{}:plan-{}",
+        run["workflow_revision"]
+            .as_str()
+            .or_else(|| run["definition_sha256"].as_str())
+            .unwrap_or_default(),
+        run["plan_revision"].as_u64().unwrap_or(1)
+    );
+    let brief_revision = run["accepted_brief_revision"]
+        .as_u64()
+        .unwrap_or(1)
+        .to_string();
     let output = Command::new(std::env::current_exe().map_err(|error| error.to_string())?)
         .args([
             "authority",
@@ -1216,7 +1641,15 @@ fn create_hold(directory: &Path, key: &str, title: &str, reason: &str) -> Result
             "--reason",
             reason,
             "--repo",
-            "broker",
+            run["project"]["project_id"].as_str().unwrap_or("workflow"),
+            "--task",
+            run_id,
+            "--brief-revision",
+            &brief_revision,
+            "--workflow-revision",
+            &workflow_revision,
+            "--question",
+            title,
         ])
         .env("MX_HOME", home)
         .env("MX_STATE_OVERRIDE", home.join("state"))
@@ -1237,12 +1670,85 @@ fn create_hold(directory: &Path, key: &str, title: &str, reason: &str) -> Result
     Ok(())
 }
 
+fn record_resolved_decision(directory: &Path, stage: &Stage) -> Result<(), String> {
+    let run = read_json(&directory.join("run.json"))?;
+    let run_id = run["run"].as_str().unwrap_or_default();
+    let hold_id = format!("{run_id}-decision-{}", stage.id);
+    let backlog = Path::new(run["home"].as_str().unwrap_or_default()).join("data/backlog.md");
+    let item = BacklogStore::new(backlog)
+        .snapshot(&hold_id)
+        .map_err(|error| error.to_string())?;
+    let field = |label: &str| {
+        item.body
+            .lines()
+            .find_map(|line| line.strip_prefix(label))
+            .map(str::to_owned)
+    };
+    let expected_workflow = format!(
+        "{}:plan-{}",
+        run["workflow_revision"]
+            .as_str()
+            .or_else(|| run["definition_sha256"].as_str())
+            .unwrap_or_default(),
+        run["plan_revision"].as_u64().unwrap_or(1)
+    );
+    if field("Target task: ").as_deref() != Some(run_id)
+        || field("Target brief revision: ").and_then(|value| value.parse::<u64>().ok())
+            != Some(run["accepted_brief_revision"].as_u64().unwrap_or(1))
+        || field("Target workflow revision: ").as_deref() != Some(&expected_workflow)
+        || field("Question: ").as_deref() != Some(stage.title.as_str())
+    {
+        return Err("resolved decision belongs to a stale workflow target".to_owned());
+    }
+    let answer = item
+        .body
+        .split_once("\n\nMaintainer decision:\n")
+        .and_then(|(_, rest)| {
+            rest.split_once("\n\nRouted work:")
+                .map(|(answer, _)| answer)
+        })
+        .filter(|answer| !answer.trim().is_empty())
+        .ok_or("resolved workflow decision has no durable answer")?;
+    let record = json!({
+        "decision_id": hold_id,
+        "task_id": run_id,
+        "brief_revision": run["accepted_brief_revision"],
+        "workflow_revision": expected_workflow,
+        "stage": stage.id,
+        "question": stage.title,
+        "answer": answer,
+        "resolved_at": now(),
+    });
+    let decisions = directory.join("decisions");
+    fs::create_dir_all(&decisions).map_err(|error| error.to_string())?;
+    let path = decisions.join(format!("{}.json", stage.id));
+    if path.is_file() {
+        let existing = read_json(&path)?;
+        for key in [
+            "decision_id",
+            "task_id",
+            "brief_revision",
+            "workflow_revision",
+            "stage",
+            "question",
+            "answer",
+        ] {
+            if existing[key] != record[key] {
+                return Err("workflow decision retry conflicts with its durable answer".to_owned());
+            }
+        }
+        return Ok(());
+    }
+    write_json(&path, &record)
+}
+
 fn gate_stage(directory: &Path, stage: &Stage) -> Result<bool, String> {
     if stage.gate != Gate::Approve {
         return Ok(true);
     }
     match hold_state(directory, &stage.id)? {
         HoldState::Resolved => {
+            record_resolved_decision(directory, stage)?;
             contract_check(directory, stage)?;
             Ok(true)
         }
@@ -1251,7 +1757,7 @@ fn gate_stage(directory: &Path, stage: &Stage) -> Result<bool, String> {
             create_hold(
                 directory,
                 &stage.id,
-                &format!("Approve workflow stage {}", stage.id),
+                &stage.title,
                 &format!("workflow stage {} awaits approval", stage.id),
             )?;
             let path = directory.join("stages").join(format!("{}.json", stage.id));
@@ -1286,6 +1792,14 @@ fn attach_command_failure(directory: &Path, stage: &Stage) -> Result<(), String>
     let record = read_json(&directory.join("stages").join(format!("{}.json", stage.id)))?;
     let stdout = record["stdout"].as_str().unwrap_or_default();
     let stderr = record["stderr"].as_str().unwrap_or_default();
+    let workflow_revision = format!(
+        "{}:plan-{}",
+        run["workflow_revision"]
+            .as_str()
+            .or_else(|| run["definition_sha256"].as_str())
+            .unwrap_or_default(),
+        run["plan_revision"].as_u64().unwrap_or(1)
+    );
     let tail = |path: &str| {
         fs::read_to_string(path)
             .unwrap_or_default()
@@ -1299,7 +1813,9 @@ fn attach_command_failure(directory: &Path, stage: &Stage) -> Result<(), String>
             .join("\n")
     };
     let body = format!(
-        "Origin: {run_id}\nDecision key: {}-failure\nState: awaiting maintainer decision.\nCommand exit: {}\nCaptured stdout: {stdout}\nCaptured stderr: {stderr}\n\nStdout tail:\n{}\n\nStderr tail:\n{}",
+        "Origin: {run_id}\nDecision key: {}-failure\nState: awaiting maintainer decision.\nTarget task: {run_id}\nTarget brief revision: {}\nTarget workflow revision: {workflow_revision}\nQuestion: Workflow command {} failed\nCommand exit: {}\nCaptured stdout: {stdout}\nCaptured stderr: {stderr}\n\nStdout tail:\n{}\n\nStderr tail:\n{}",
+        stage.id,
+        run["accepted_brief_revision"].as_u64().unwrap_or(1),
         stage.id,
         record["exit_code"],
         if tail(stdout).is_empty() {
@@ -1345,6 +1861,40 @@ fn render_status(directory: &Path) -> Result<(), String> {
     println!("run: {}", run["run"].as_str().unwrap_or_default());
     println!("workflow: {}", run["workflow"].as_str().unwrap_or_default());
     println!("status: {}", run["status"].as_str().unwrap_or_default());
+    println!(
+        "plan_revision: {}",
+        run["plan_revision"].as_u64().unwrap_or(1)
+    );
+    if let Some(project) = run.get("project") {
+        println!(
+            "project: {} checkout={} start={}",
+            project["project_id"].as_str().unwrap_or_default(),
+            project["checkout_id"].as_str().unwrap_or_default(),
+            project["starting_revision"].as_str().unwrap_or_default()
+        );
+    }
+    if let Some(dependencies) = run["dependencies"].as_array()
+        && !dependencies.is_empty()
+    {
+        println!(
+            "dependencies: {}",
+            dependencies
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
+    if let Some(correlation) = run.get("request_correlation")
+        && !correlation.is_null()
+    {
+        println!(
+            "request: {} batch={} brief={}",
+            correlation["request_id"].as_str().unwrap_or_default(),
+            correlation["batch_id"].as_str().unwrap_or_default(),
+            correlation["brief_revision"].as_u64().unwrap_or(1)
+        );
+    }
     println!(
         "current_stage: {}",
         run["current_stage"].as_str().unwrap_or("-")
@@ -1432,6 +1982,59 @@ fn consume_override(
         .map_err(|error| error.to_string())
 }
 
+fn record_plan_change(
+    directory: &Path,
+    operation: &str,
+    stage: &str,
+    before: Option<&str>,
+    request: &str,
+) -> Result<(), String> {
+    let mut run = read_json(&directory.join("run.json"))?;
+    let previous = run["plan_revision"].as_u64().unwrap_or(1);
+    let revision = previous
+        .checked_add(1)
+        .ok_or("workflow plan revision exhausted")?;
+    let path = directory.join("plan-history.json");
+    let mut history = if path.is_file() {
+        read_json(&path)?
+            .as_array()
+            .cloned()
+            .ok_or("workflow plan history is invalid")?
+    } else {
+        Vec::new()
+    };
+    history.push(json!({
+        "revision": revision,
+        "previous_revision": previous,
+        "operation": operation,
+        "stage": stage,
+        "before_stage": before,
+        "request_id": request,
+        "recorded_at": now(),
+    }));
+    write_json(&path, &Value::Array(history))?;
+    run["plan_revision"] = Value::from(revision);
+    run["updated_at"] = Value::String(now());
+    write_json(&directory.join("run.json"), &run)
+}
+
+fn ensure_plan_change_is_current(directory: &Path, definition: &Definition) -> Result<(), String> {
+    if definition.stages.iter().any(|stage| {
+        stage_status(directory, &stage.id).is_ok_and(|status| {
+            matches!(
+                status,
+                StageStatus::WaitingApproval | StageStatus::WaitingFailure
+            )
+        })
+    }) {
+        return Err(
+            "cannot revise a workflow plan while a human decision is open; resolve it or abort and start a new run"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
 fn skip(values: &[String]) -> Result<(), String> {
     let [run, stage, flag, request] = values else {
         return Err("invalid skip arguments".to_owned());
@@ -1448,6 +2051,7 @@ fn skip(values: &[String]) -> Result<(), String> {
     {
         return Err(format!("workflow stage not found: {stage}"));
     }
+    ensure_plan_change_is_current(&directory, &definition)?;
     let status = stage_status(&directory, stage)?;
     if status != StageStatus::Pending {
         return Err(format!(
@@ -1460,6 +2064,7 @@ fn skip(values: &[String]) -> Result<(), String> {
         &directory.join("stages").join(format!("{stage}.json")),
         &json!({"id": stage, "status": "skipped", "exception": "maintainer-directed", "override_request": request, "skipped_at": now()}),
     )?;
+    record_plan_change(&directory, "skip", stage, None, request)?;
     let _ = OverrideStore::new(&state_root()).result(
         request,
         true,
@@ -1479,6 +2084,7 @@ fn reorder(values: &[String]) -> Result<(), String> {
     }
     let directory = run_directory(run)?;
     let definition = definition(&directory)?;
+    ensure_plan_change_is_current(&directory, &definition)?;
     let order = stage_order(&directory, &definition)?;
     let statuses = stage_statuses(&directory, &definition)?;
     let mut state =
@@ -1504,6 +2110,7 @@ fn reorder(values: &[String]) -> Result<(), String> {
         &directory.join("stage-order.json"),
         &serde_json::to_value(order).map_err(|error| error.to_string())?,
     )?;
+    record_plan_change(&directory, "reorder", stage, Some(before), request)?;
     let _ = OverrideStore::new(&state_root()).result(
         request,
         true,

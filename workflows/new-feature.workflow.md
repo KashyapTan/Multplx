@@ -1,7 +1,7 @@
 ---
-workflow_version: 1
+workflow_version: 2
 name: new-feature
-description: Agree on an approach, write a spec, implement it in a fresh sub-agent, and deliver it.
+description: Agree on an approach, write a spec, and implement it in a fresh sub-agent.
 stages:
   - id: ideate
     title: Agree on the approach
@@ -11,23 +11,21 @@ stages:
   - id: spec
     title: Write the implementation spec
     type: agent
-    executor: broker
+    executor: orchestrator-context
+    assignment: researcher
     brief_from: [ideate]
     gate: approve
     output: data/{run}/spec.md
   - id: implement
     title: Implement end to end
     type: agent
-    executor: actor
+    executor: sub-agent-session
+    assignment: implementer
     fresh_session: true
     brief_from: [spec]
     gate: auto
+    output: data/{run}/implementation.md
     contract: local-commits
-  - id: deliver
-    title: Confirm the selected delivery outcome
-    type: interactive
-    gate: approve
-    output: state/{run}.delivered
 ---
 
 ## ideate
@@ -52,10 +50,7 @@ Write the specification to {output}.
 Read the inherited specification fully before changing code.
 Implement it end to end in the isolated worktree and commit every intended change locally.
 Treat a required departure from the specification as a maintainer decision instead of silently improvising.
-
-## deliver
-
-Review the implementation evidence and choose the intended local or pull-request outcome for {run}.
-Deep-review and vplan run only if they were explicitly requested for this workflow run.
-Ordinary implementers may publish a branch or open and update a PR without a review-tool approval.
-The stage contract is met only when the selected outcome has written {output}.
+You may delegate bounded work inside this stage, but later stages remain out of scope.
+Ordinary publication is part of the implementation outcome when the accepted brief calls for it and needs no review-tool approval.
+Never merge a PR or enable auto-merge.
+Write {output} with the exact commit, checks, limitations and delivery state.

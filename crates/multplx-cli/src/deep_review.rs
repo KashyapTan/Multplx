@@ -1633,18 +1633,11 @@ fn agent_oneshot(
     session: &Path,
 ) -> Result<(), String> {
     if let Some(agent) = std::env::var_os("MX_DEEP_REVIEW_AGENT") {
-        let status = Command::new(agent)
-            .env("DEEP_REVIEW_GATE", "1")
-            .args(["--session", "new", "--schema"])
-            .arg(schema)
-            .arg("--prompt")
-            .arg(prompt)
-            .arg("--output")
-            .arg(output)
-            .arg("--session-out")
-            .arg(session)
-            .bounded_agent_status()
-            .map_err(|error| error.to_string())?;
+        let status =
+            crate::agent_transport::structured_command(agent, schema, prompt, output, session)
+                .env("DEEP_REVIEW_GATE", "1")
+                .bounded_agent_status()
+                .map_err(|error| error.to_string())?;
         return status
             .success()
             .then_some(())
