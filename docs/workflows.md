@@ -90,6 +90,30 @@ New definitions use version 2 and the current vocabulary.
 The request supplies the exact batch, task ID, project, checkout, starting revision, accepted brief, scope, dependency IDs and optional original context artifact.
 Conflicting `--id`, `--input`, `--project` or `--depends` values fail before a run snapshot is created, so one conversation can launch separately tracked repository workflows without losing correlation.
 
+## Internal delegation without stage bypass
+
+Before version 2, a build stage selected one `actor` executor and exposed no bounded way for that stage owner to coordinate children.
+The next stage still depended on the build contract, but the placement name incorrectly implied a privilege class.
+
+After version 2, the same selected process can make the delegation boundary explicit:
+
+```yaml
+- id: build
+  type: agent
+  executor: sub-agent-session
+  assignment: sub-orchestrator
+  fresh_session: true
+  gate: auto
+  output: data/{run}/integrated.md
+- id: verify
+  type: command
+  gate: auto
+  run: ./scripts/verify-integrated-change
+```
+
+The `build` owner may delegate bounded API, UI and integration checks, but `build` remains the current stage until `integrated.md` exists and its canonical task binding is current.
+Child readiness, a coordinator summary or work that belongs to `verify` cannot mark `build` complete or run `verify` early.
+
 A `command` stage runs as a plain subprocess with captured stdout and stderr.
 Exit status zero is ground truth and is an implicit deterministic contract.
 The engine runs it in the most recent implementation sub-agent allocation when one exists, otherwise in the launch repository.
