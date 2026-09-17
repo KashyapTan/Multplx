@@ -1,10 +1,10 @@
 {
   "kind": "resource-isolation-proof",
-  "started_at": "2026-09-16T00:35:46.07694Z",
-  "finished_at": "2026-09-16T00:44:44.575987Z",
+  "started_at": "2026-09-17T03:10:11.35743Z",
+  "finished_at": "2026-09-17T03:19:25.277586Z",
   "concurrency": 4,
   "repeats": 2,
-  "manifest_sha256": "d00044b128e8837a4c70f77349e7d844f461a910cac44d0622f2d0e7baf7ef11",
+  "manifest_sha256": "cd0877f1fbab85d7627fa221fd65283b04c6d99dcdf235fc20541ac8abd85b08",
   "resource_manifest": [
     {
       "path": "tests/mx-actor-state.test.sh",
@@ -604,6 +604,12 @@
       ]
     },
     {
+      "path": "tests/mx-state-migration.test.sh",
+      "resources": [
+        "none"
+      ]
+    },
+    {
       "path": "tests/mx-status-snapshot-catchup-forge.test.sh",
       "resources": [
         "none"
@@ -791,21 +797,21 @@
       ]
     }
   ],
-  "conflict_pairs": 650,
+  "conflict_pairs": 653,
   "rounds": [
     {
       "repeat": 1,
       "exit": 0,
       "runner_exit": 0,
-      "duration_ms": 270188,
-      "run_id": "mx-test-run-1789519216244-84247"
+      "duration_ms": 278765,
+      "run_id": "mx-test-run-1789614890114-96768"
     },
     {
       "repeat": 2,
       "exit": 0,
       "runner_exit": 0,
-      "duration_ms": 268272,
-      "run_id": "mx-test-run-1789519484525-85361"
+      "duration_ms": 275106,
+      "run_id": "mx-test-run-1789615165221-3291"
     }
   ],
   "scripts": [
@@ -816,7 +822,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3698,
+      "duration_ms": 3663,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -837,7 +843,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 1539,
+      "duration_ms": 1662,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -853,7 +859,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 2170,
+      "duration_ms": 2254,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -872,7 +878,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2934,
+      "duration_ms": 3038,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1026,7 +1032,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 40,
+      "duration_ms": 39,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1041,7 +1047,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7476,
+      "duration_ms": 7423,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1110,7 +1116,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 31098,
+      "duration_ms": 30992,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1260,7 +1266,7 @@
       "resources": [
         "tmux-server"
       ],
-      "duration_ms": 562,
+      "duration_ms": 725,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1282,7 +1288,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 12151,
+      "duration_ms": 11378,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1323,7 +1329,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1107,
+      "duration_ms": 618,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1348,7 +1354,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 681,
+      "duration_ms": 851,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1367,7 +1373,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1278,
+      "duration_ms": 1279,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1383,7 +1389,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 20268,
+      "duration_ms": 19775,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1404,7 +1410,7 @@
         "ok - bootstrap keeps routine backlog, harness, dispatch, and already-live liveness confirmations silent",
         "ok - bootstrap routine contract runs under system /bin/bash",
         "ok - bootstrap diagnostics retain operational repair references without a mandatory playbook",
-        "ok - bootstrap reports bundled vplan self-check failures",
+        "ok - bootstrap does not probe optional vplan assets",
         "ok - bootstrap surfaces active actor-dispatch rules only as verbose BOOTSTRAP_INFO",
         "ok - bootstrap validates actor-dispatch.json and reports malformed or unverified configs"
       ],
@@ -1417,7 +1423,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 600,
+      "duration_ms": 666,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1442,7 +1448,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4030,
+      "duration_ms": 4176,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1470,7 +1476,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5810,
+      "duration_ms": 5644,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1500,7 +1506,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1261,
+      "duration_ms": 1332,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1526,7 +1532,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 56,
+      "duration_ms": 68,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1549,7 +1555,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 13768,
+      "duration_ms": 14050,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1573,7 +1579,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1579,
+      "duration_ms": 1453,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1590,7 +1596,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 16245,
+      "duration_ms": 16608,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1621,7 +1627,7 @@
       "resources": [
         "daemon-reread-process-signal"
       ],
-      "duration_ms": 53615,
+      "duration_ms": 53498,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1649,7 +1655,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 14910,
+      "duration_ms": 14812,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1673,7 +1679,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8468,
+      "duration_ms": 8561,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1694,7 +1700,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 14809,
+      "duration_ms": 14111,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1722,7 +1728,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 46108,
+      "duration_ms": 50554,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1795,7 +1801,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13377,
+      "duration_ms": 13557,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1830,7 +1836,7 @@
       "resources": [
         "daemon-process-signal"
       ],
-      "duration_ms": 1496,
+      "duration_ms": 1411,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1845,7 +1851,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6252,
+      "duration_ms": 3718,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1869,7 +1875,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 66,
+      "duration_ms": 43,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1886,7 +1892,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 19473,
+      "duration_ms": 20144,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1901,11 +1907,11 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 29786,
+      "duration_ms": 32780,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - deep-review enforces local step order and ends at a pending exact-SHA handoff",
+        "ok - deep-review enforces local step order without creating a publication gate",
         "ok - deep-review requires explicit intent and rejects unknown persisted steps",
         "ok - deep-review requires the initiating actor binding and persists terminal failures",
         "ok - deep-review uses captured subprocess evidence and real exits for configured tests",
@@ -1918,7 +1924,8 @@
         "ok - proven missing trusted configuration retains optional defaults",
         "ok - round prompts retain findings and decisions without ingesting raw transport events",
         "ok - oversized structured history fails closed without dropping accepted decisions",
-        "ok - new revision after passed gate revalidates every stage and preserves exact prior evidence"
+        "ok - new revision after passed review revalidates every stage and preserves exact prior evidence",
+        "ok - deep-review binds canonical task evidence without controlling publication"
       ],
       "repeat": 1
     },
@@ -1929,7 +1936,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3251,
+      "duration_ms": 3246,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1950,7 +1957,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3432,
+      "duration_ms": 4235,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1969,7 +1976,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1024,
+      "duration_ms": 1057,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -1989,7 +1996,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 257,
+      "duration_ms": 251,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2012,7 +2019,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 870,
+      "duration_ms": 882,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2031,7 +2038,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 385,
+      "duration_ms": 266,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2049,7 +2056,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1685,
+      "duration_ms": 1559,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2073,7 +2080,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 543,
+      "duration_ms": 665,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2094,7 +2101,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7475,
+      "duration_ms": 7258,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2115,7 +2122,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 3874,
+      "duration_ms": 4349,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2158,7 +2165,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 106,
+      "duration_ms": 122,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2177,7 +2184,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 180,
+      "duration_ms": 250,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2192,7 +2199,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 194,
+      "duration_ms": 198,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2212,7 +2219,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1313,
+      "duration_ms": 1627,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2231,7 +2238,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 12676,
+      "duration_ms": 13124,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2258,7 +2265,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1145,
+      "duration_ms": 1127,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2273,7 +2280,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5604,
+      "duration_ms": 5445,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2296,7 +2303,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 93,
+      "duration_ms": 89,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2311,7 +2318,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4331,
+      "duration_ms": 4902,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2326,7 +2333,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 4771,
+      "duration_ms": 4773,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2344,7 +2351,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 536,
+      "duration_ms": 599,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2364,7 +2371,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9639,
+      "duration_ms": 9618,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2401,7 +2408,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 25,
+      "duration_ms": 30,
       "exit": 0,
       "gate_skip": true,
       "assertions": [],
@@ -2414,7 +2421,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 8129,
+      "duration_ms": 8180,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2445,7 +2452,7 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 22264,
+      "duration_ms": 22672,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2471,7 +2478,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 26140,
+      "duration_ms": 26533,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2491,7 +2498,7 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 23295,
+      "duration_ms": 23513,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2513,7 +2520,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2043,
+      "duration_ms": 1571,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2528,7 +2535,7 @@
         "ok - mx-pr-merge does not add default --squash when the caller passes an explicit merge method",
         "ok - mx-pr-merge normalizes legacy --method=<value> onto the official gh flag",
         "ok - mx-pr-merge parses a GitHub PR URL into gh number and --repo arguments",
-        "ok - red PR merge binds exact SHA and failed checks, records maintainer direction, and cannot replay"
+        "ok - agent-consumable merge override routes are retired"
       ],
       "repeat": 1
     },
@@ -2539,19 +2546,24 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7948,
+      "duration_ms": 49132,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - mx-deliver pushes only approved records",
-        "ok - mx-deliver pins the approved SHA, records the PR, sanitizes credentials, and is idempotent",
+        "ok - mx-deliver never promotes legacy pending records",
+        "ok - mx-deliver pins the exact SHA, registers one PR, scopes an explicit credential override, and is idempotent",
         "ok - mx-deliver refuses and marks a branch that moved after validation",
-        "ok - mx-deliver refuses agent-session ambience before remote access",
+        "ok - mx-deliver allows agent publication with ordinary inherited authentication",
         "ok - mx-deliver parses records as inert closed-schema data",
-        "ok - spawn-shaped agent environments cannot push origin or authenticate gh",
         "ok - one exact validation SHA is waived without ever being recorded as passed",
-        "ok - direct-PR prepares, approves and delivers exact local SHA without gate or waiver",
+        "ok - ordinary agent publication records exact revision evidence without approval",
+        "ok - direct PR registration cannot rewind newer revision-bound evidence",
+        "ok - local outcome retains a dirty user-owned checkout and task branch for human integration",
+        "ok - concurrent task-bound publications keep distinct repositories and outcomes isolated",
         "ok - direct-PR rechecks an approved worktree and refuses stale material before transport",
+        "ok - publication remains bound to the task project, origin, and PR repository",
+        "ok - publication head must descend from the immutable task starting revision",
+        "ok - PR-created retries converge on one canonical PR and reject changed receipt identity",
         "ok - existing PR revisions preserve receipts and refuse unsafe history or changed PR identity before push"
       ],
       "repeat": 1
@@ -2563,7 +2575,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 900,
+      "duration_ms": 902,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2589,7 +2601,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 101,
+      "duration_ms": 169,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2607,7 +2619,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 453,
+      "duration_ms": 550,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2628,7 +2640,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2668,
+      "duration_ms": 2446,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2647,7 +2659,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7629,
+      "duration_ms": 7726,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2669,7 +2681,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2669,
+      "duration_ms": 2621,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2691,7 +2703,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 999,
+      "duration_ms": 1370,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2709,7 +2721,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2310,
+      "duration_ms": 2137,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2729,7 +2741,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6068,
+      "duration_ms": 6220,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2753,7 +2765,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8316,
+      "duration_ms": 8909,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2772,7 +2784,7 @@
       "resources": [
         "session-process-liveness"
       ],
-      "duration_ms": 12402,
+      "duration_ms": 12319,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2797,7 +2809,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 306,
+      "duration_ms": 316,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2818,7 +2830,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 1976,
+      "duration_ms": 2010,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2840,7 +2852,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 129,
+      "duration_ms": 37,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2856,7 +2868,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 245,
+      "duration_ms": 214,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2873,7 +2885,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 20867,
+      "duration_ms": 20838,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2905,7 +2917,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 37189,
+      "duration_ms": 37489,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2922,13 +2934,37 @@
       "repeat": 1
     },
     {
+      "path": "tests/mx-state-migration.test.sh",
+      "family": "pure-contract-unit",
+      "expected_gate_skip": "none",
+      "resources": [
+        "none"
+      ],
+      "duration_ms": 3848,
+      "exit": 0,
+      "gate_skip": false,
+      "assertions": [
+        "ok - migration inspect is read-only and reports owned conversions",
+        "ok - apply is repeat-safe and preserves queue, reply, workflow and unknown identity evidence",
+        "ok - restart summary reports bounded canonical identities without transcript replay",
+        "ok - matching rollback restores converted files while retaining evidence",
+        "ok - every home transition boundary resumes without losing durable queue state",
+        "ok - conflicting aliases block without partial publication",
+        "ok - coordinator mapping requires an exact legacy persistent task",
+        "ok - unsafe session lock is rejected before migration publication",
+        "ok - legacy worktree transfer fences occupants, resumes after interruption and leaves foreign pool state untouched",
+        "ok - persistent legacy worktree gains matching worktree and home lease receipts"
+      ],
+      "repeat": 1
+    },
+    {
       "path": "tests/mx-status-snapshot-catchup-forge.test.sh",
       "family": "snapshot-catchup",
       "expected_gate_skip": "optional-binary",
       "resources": [
         "none"
       ],
-      "duration_ms": 6128,
+      "duration_ms": 6188,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2953,7 +2989,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4484,
+      "duration_ms": 4627,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -2979,7 +3015,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 10352,
+      "duration_ms": 10718,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3012,7 +3048,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 65,
+      "duration_ms": 27,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3027,14 +3063,15 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 158,
+      "duration_ms": 482,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
         "ok - native delegation tool shapes are allowed without an escape flag",
-        "ok - old hook transports remain harmless allowing no-ops",
-        "ok - retired entry keeps a bounded compatibility grammar",
-        "ok - Claude keeps supervision hooks and ships no delegation fence",
+        "ok - hook stdin transports allow delegation and refuse remote PR merge actions",
+        "ok - merge guard keeps a bounded compatibility grammar",
+        "ok - Claude keeps supervision hooks and applies the merge guard only to Bash",
+        "ok - supported remote merge forms are refused while local integration and branch publication remain available",
         "ok - Claude and Pi native observers record lifecycle without becoming delegation fences"
       ],
       "repeat": 1
@@ -3047,7 +3084,7 @@
         "daemon-process-signal",
         "watcher-process"
       ],
-      "duration_ms": 1549,
+      "duration_ms": 1596,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3062,7 +3099,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 328,
+      "duration_ms": 344,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3083,7 +3120,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 384,
+      "duration_ms": 403,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3103,7 +3140,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4139,
+      "duration_ms": 3902,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3134,7 +3171,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 22143,
+      "duration_ms": 22570,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3170,7 +3207,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 6247,
+      "duration_ms": 6234,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3190,7 +3227,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 68128,
+      "duration_ms": 70605,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3212,7 +3249,7 @@
         "ok - teardown discovers a merged PR by branch name and tears down when no pr= was ever recorded",
         "ok - squash-merged PR accepts replayed unpushed local patches contained in the PR head",
         "ok - merged PR does not allow teardown after a later local commit",
-        "ok - mx-pr-check does not refresh PR head after HEAD moves",
+        "ok - mx-pr-check refuses stale canonical registration after HEAD moves",
         "ok - mx-pr-check records the remote PR head when the local worktree lags",
         "ok - worktree whose content already landed in the default branch is torn down (content fallback)",
         "ok - content fallback refreshes origin default before comparing trees",
@@ -3239,7 +3276,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 491,
+      "duration_ms": 531,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3258,7 +3295,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 141,
+      "duration_ms": 162,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3276,7 +3313,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1184,
+      "duration_ms": 1132,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3294,7 +3331,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 74,
+      "duration_ms": 82,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3313,7 +3350,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 8659,
+      "duration_ms": 8713,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3369,7 +3406,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8220,
+      "duration_ms": 8756,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3394,7 +3431,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1169,
+      "duration_ms": 1279,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3412,7 +3449,7 @@
       "resources": [
         "viz-port"
       ],
-      "duration_ms": 3400,
+      "duration_ms": 3191,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3430,7 +3467,7 @@
       "resources": [
         "vplan-port"
       ],
-      "duration_ms": 2766,
+      "duration_ms": 2819,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3449,7 +3486,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1554,
+      "duration_ms": 1594,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3464,7 +3501,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 20730,
+      "duration_ms": 22684,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3491,7 +3528,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 10402,
+      "duration_ms": 10556,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3512,7 +3549,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 89308,
+      "duration_ms": 90256,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3561,7 +3598,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 27308,
+      "duration_ms": 27457,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3606,12 +3643,13 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 107,
+      "duration_ms": 152,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
         "ok - valid workflow normalizes and fixed substitutions resolve",
         "ok - version and stage enums are closed",
+        "ok - version 2 uses current placements and version 1 maps legacy executor tokens",
         "ok - automatic agent stages require deterministic contracts",
         "ok - body ids match and launch input cannot become shell code",
         "ok - output contracts cannot escape the Multplx home through symlinks",
@@ -3626,7 +3664,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6629,
+      "duration_ms": 12026,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3638,9 +3676,12 @@
         "ok - nonzero command exit parks with captured deterministic evidence",
         "ok - fresh actor gets a distinct task session and advances only after a local commit",
         "ok - automatic agent gates do not advance on model self-report alone",
-        "ok - shipped new-feature workflow completes end to end through local adapters",
+        "ok - shipped new-feature workflow completes with direct agent delivery and no implicit review tooling",
         "ok - abort is permanent and run identities cannot be reused",
-        "ok - workflow skip and reorder consume distinct exact grants and preserve other stages"
+        "ok - headless workflow command stages refuse remote PR merges before execution",
+        "ok - workflow skip and reorder consume distinct exact grants and preserve other stages",
+        "ok - project-bound workflows isolate repositories, decisions and dependency scheduling",
+        "ok - scoped coordinator stages retain one owner and wait for declared child synthesis"
       ],
       "repeat": 1
     },
@@ -3651,7 +3692,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 10305,
+      "duration_ms": 10917,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3670,7 +3711,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3675,
+      "duration_ms": 3854,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3691,7 +3732,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 1550,
+      "duration_ms": 1637,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3707,7 +3748,7 @@
         "afk-watcher-process",
         "watcher-process"
       ],
-      "duration_ms": 2089,
+      "duration_ms": 2121,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3726,7 +3767,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2967,
+      "duration_ms": 2991,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3895,7 +3936,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7456,
+      "duration_ms": 7395,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -3964,7 +4005,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 30606,
+      "duration_ms": 31468,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4114,7 +4155,7 @@
       "resources": [
         "tmux-server"
       ],
-      "duration_ms": 545,
+      "duration_ms": 654,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4136,7 +4177,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 11220,
+      "duration_ms": 11815,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4177,7 +4218,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 706,
+      "duration_ms": 527,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4202,7 +4243,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 905,
+      "duration_ms": 746,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4221,7 +4262,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1169,
+      "duration_ms": 1368,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4237,7 +4278,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 20166,
+      "duration_ms": 19966,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4258,7 +4299,7 @@
         "ok - bootstrap keeps routine backlog, harness, dispatch, and already-live liveness confirmations silent",
         "ok - bootstrap routine contract runs under system /bin/bash",
         "ok - bootstrap diagnostics retain operational repair references without a mandatory playbook",
-        "ok - bootstrap reports bundled vplan self-check failures",
+        "ok - bootstrap does not probe optional vplan assets",
         "ok - bootstrap surfaces active actor-dispatch rules only as verbose BOOTSTRAP_INFO",
         "ok - bootstrap validates actor-dispatch.json and reports malformed or unverified configs"
       ],
@@ -4271,7 +4312,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 534,
+      "duration_ms": 671,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4296,7 +4337,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4058,
+      "duration_ms": 4273,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4324,7 +4365,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5564,
+      "duration_ms": 5696,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4354,7 +4395,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1185,
+      "duration_ms": 1258,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4403,7 +4444,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 13781,
+      "duration_ms": 14242,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4427,7 +4468,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1496,
+      "duration_ms": 1593,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4444,7 +4485,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 16088,
+      "duration_ms": 16386,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4475,7 +4516,7 @@
       "resources": [
         "daemon-reread-process-signal"
       ],
-      "duration_ms": 53115,
+      "duration_ms": 53513,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4503,7 +4544,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 14668,
+      "duration_ms": 14953,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4527,7 +4568,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8222,
+      "duration_ms": 8429,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4548,7 +4589,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13591,
+      "duration_ms": 13729,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4576,7 +4617,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 46341,
+      "duration_ms": 50570,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4649,7 +4690,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 13196,
+      "duration_ms": 13557,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4684,7 +4725,7 @@
       "resources": [
         "daemon-process-signal"
       ],
-      "duration_ms": 1502,
+      "duration_ms": 1508,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4699,7 +4740,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4594,
+      "duration_ms": 3554,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4723,7 +4764,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 83,
+      "duration_ms": 45,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4740,7 +4781,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 19514,
+      "duration_ms": 19699,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4755,11 +4796,11 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 30093,
+      "duration_ms": 33167,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - deep-review enforces local step order and ends at a pending exact-SHA handoff",
+        "ok - deep-review enforces local step order without creating a publication gate",
         "ok - deep-review requires explicit intent and rejects unknown persisted steps",
         "ok - deep-review requires the initiating actor binding and persists terminal failures",
         "ok - deep-review uses captured subprocess evidence and real exits for configured tests",
@@ -4772,7 +4813,8 @@
         "ok - proven missing trusted configuration retains optional defaults",
         "ok - round prompts retain findings and decisions without ingesting raw transport events",
         "ok - oversized structured history fails closed without dropping accepted decisions",
-        "ok - new revision after passed gate revalidates every stage and preserves exact prior evidence"
+        "ok - new revision after passed review revalidates every stage and preserves exact prior evidence",
+        "ok - deep-review binds canonical task evidence without controlling publication"
       ],
       "repeat": 2
     },
@@ -4783,7 +4825,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3190,
+      "duration_ms": 3217,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4804,7 +4846,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3655,
+      "duration_ms": 4477,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4823,7 +4865,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 956,
+      "duration_ms": 1072,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4843,7 +4885,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 210,
+      "duration_ms": 214,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4866,7 +4908,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 850,
+      "duration_ms": 901,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4885,7 +4927,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 249,
+      "duration_ms": 215,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4903,7 +4945,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1665,
+      "duration_ms": 1551,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4927,7 +4969,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 531,
+      "duration_ms": 620,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4948,7 +4990,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7197,
+      "duration_ms": 7510,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -4969,7 +5011,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 4031,
+      "duration_ms": 4121,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5012,7 +5054,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 103,
+      "duration_ms": 112,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5031,7 +5073,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 183,
+      "duration_ms": 210,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5046,7 +5088,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 185,
+      "duration_ms": 206,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5066,7 +5108,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1370,
+      "duration_ms": 1428,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5085,7 +5127,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 13016,
+      "duration_ms": 13459,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5112,7 +5154,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 920,
+      "duration_ms": 1178,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5127,7 +5169,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 5564,
+      "duration_ms": 5496,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5165,7 +5207,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4328,
+      "duration_ms": 5026,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5180,7 +5222,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 4766,
+      "duration_ms": 4782,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5198,7 +5240,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 519,
+      "duration_ms": 555,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5218,7 +5260,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9491,
+      "duration_ms": 9737,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5255,7 +5297,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 25,
+      "duration_ms": 27,
       "exit": 0,
       "gate_skip": true,
       "assertions": [],
@@ -5268,7 +5310,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 7781,
+      "duration_ms": 7834,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5299,7 +5341,7 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 21949,
+      "duration_ms": 22237,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5325,7 +5367,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 26198,
+      "duration_ms": 26474,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5345,7 +5387,7 @@
         "pr-security-process",
         "watcher-process"
       ],
-      "duration_ms": 23032,
+      "duration_ms": 23614,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5367,7 +5409,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1957,
+      "duration_ms": 1565,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5382,7 +5424,7 @@
         "ok - mx-pr-merge does not add default --squash when the caller passes an explicit merge method",
         "ok - mx-pr-merge normalizes legacy --method=<value> onto the official gh flag",
         "ok - mx-pr-merge parses a GitHub PR URL into gh number and --repo arguments",
-        "ok - red PR merge binds exact SHA and failed checks, records maintainer direction, and cannot replay"
+        "ok - agent-consumable merge override routes are retired"
       ],
       "repeat": 2
     },
@@ -5393,19 +5435,24 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7099,
+      "duration_ms": 50217,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
-        "ok - mx-deliver pushes only approved records",
-        "ok - mx-deliver pins the approved SHA, records the PR, sanitizes credentials, and is idempotent",
+        "ok - mx-deliver never promotes legacy pending records",
+        "ok - mx-deliver pins the exact SHA, registers one PR, scopes an explicit credential override, and is idempotent",
         "ok - mx-deliver refuses and marks a branch that moved after validation",
-        "ok - mx-deliver refuses agent-session ambience before remote access",
+        "ok - mx-deliver allows agent publication with ordinary inherited authentication",
         "ok - mx-deliver parses records as inert closed-schema data",
-        "ok - spawn-shaped agent environments cannot push origin or authenticate gh",
         "ok - one exact validation SHA is waived without ever being recorded as passed",
-        "ok - direct-PR prepares, approves and delivers exact local SHA without gate or waiver",
+        "ok - ordinary agent publication records exact revision evidence without approval",
+        "ok - direct PR registration cannot rewind newer revision-bound evidence",
+        "ok - local outcome retains a dirty user-owned checkout and task branch for human integration",
+        "ok - concurrent task-bound publications keep distinct repositories and outcomes isolated",
         "ok - direct-PR rechecks an approved worktree and refuses stale material before transport",
+        "ok - publication remains bound to the task project, origin, and PR repository",
+        "ok - publication head must descend from the immutable task starting revision",
+        "ok - PR-created retries converge on one canonical PR and reject changed receipt identity",
         "ok - existing PR revisions preserve receipts and refuse unsafe history or changed PR identity before push"
       ],
       "repeat": 2
@@ -5417,7 +5464,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 932,
+      "duration_ms": 877,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5443,7 +5490,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 110,
+      "duration_ms": 133,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5461,7 +5508,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 487,
+      "duration_ms": 476,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5482,7 +5529,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2810,
+      "duration_ms": 2438,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5501,7 +5548,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 7607,
+      "duration_ms": 7772,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5523,7 +5570,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2419,
+      "duration_ms": 2643,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5545,7 +5592,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1094,
+      "duration_ms": 1436,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5563,7 +5610,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 2150,
+      "duration_ms": 2214,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5583,7 +5630,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6071,
+      "duration_ms": 6211,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5607,7 +5654,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8941,
+      "duration_ms": 7480,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5626,7 +5673,7 @@
       "resources": [
         "session-process-liveness"
       ],
-      "duration_ms": 12240,
+      "duration_ms": 12437,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5651,7 +5698,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 314,
+      "duration_ms": 321,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5672,7 +5719,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 1984,
+      "duration_ms": 2004,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5694,7 +5741,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 41,
+      "duration_ms": 45,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5710,7 +5757,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 249,
+      "duration_ms": 222,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5727,7 +5774,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 20724,
+      "duration_ms": 20636,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5759,7 +5806,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 37190,
+      "duration_ms": 37739,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5776,13 +5823,37 @@
       "repeat": 2
     },
     {
+      "path": "tests/mx-state-migration.test.sh",
+      "family": "pure-contract-unit",
+      "expected_gate_skip": "none",
+      "resources": [
+        "none"
+      ],
+      "duration_ms": 3897,
+      "exit": 0,
+      "gate_skip": false,
+      "assertions": [
+        "ok - migration inspect is read-only and reports owned conversions",
+        "ok - apply is repeat-safe and preserves queue, reply, workflow and unknown identity evidence",
+        "ok - restart summary reports bounded canonical identities without transcript replay",
+        "ok - matching rollback restores converted files while retaining evidence",
+        "ok - every home transition boundary resumes without losing durable queue state",
+        "ok - conflicting aliases block without partial publication",
+        "ok - coordinator mapping requires an exact legacy persistent task",
+        "ok - unsafe session lock is rejected before migration publication",
+        "ok - legacy worktree transfer fences occupants, resumes after interruption and leaves foreign pool state untouched",
+        "ok - persistent legacy worktree gains matching worktree and home lease receipts"
+      ],
+      "repeat": 2
+    },
+    {
       "path": "tests/mx-status-snapshot-catchup-forge.test.sh",
       "family": "snapshot-catchup",
       "expected_gate_skip": "optional-binary",
       "resources": [
         "none"
       ],
-      "duration_ms": 6263,
+      "duration_ms": 6043,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5807,7 +5878,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 4359,
+      "duration_ms": 4487,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5833,7 +5904,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 10450,
+      "duration_ms": 10526,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5866,7 +5937,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 41,
+      "duration_ms": 30,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5881,14 +5952,15 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 140,
+      "duration_ms": 458,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
         "ok - native delegation tool shapes are allowed without an escape flag",
-        "ok - old hook transports remain harmless allowing no-ops",
-        "ok - retired entry keeps a bounded compatibility grammar",
-        "ok - Claude keeps supervision hooks and ships no delegation fence",
+        "ok - hook stdin transports allow delegation and refuse remote PR merge actions",
+        "ok - merge guard keeps a bounded compatibility grammar",
+        "ok - Claude keeps supervision hooks and applies the merge guard only to Bash",
+        "ok - supported remote merge forms are refused while local integration and branch publication remain available",
         "ok - Claude and Pi native observers record lifecycle without becoming delegation fences"
       ],
       "repeat": 2
@@ -5901,7 +5973,7 @@
         "daemon-process-signal",
         "watcher-process"
       ],
-      "duration_ms": 1563,
+      "duration_ms": 1593,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5916,7 +5988,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 332,
+      "duration_ms": 347,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5937,7 +6009,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 403,
+      "duration_ms": 406,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5957,7 +6029,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 3690,
+      "duration_ms": 3793,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -5988,7 +6060,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 21590,
+      "duration_ms": 21588,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6024,7 +6096,7 @@
       "resources": [
         "bootstrap-process-signal"
       ],
-      "duration_ms": 6019,
+      "duration_ms": 6304,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6044,7 +6116,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 67929,
+      "duration_ms": 69925,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6066,7 +6138,7 @@
         "ok - teardown discovers a merged PR by branch name and tears down when no pr= was ever recorded",
         "ok - squash-merged PR accepts replayed unpushed local patches contained in the PR head",
         "ok - merged PR does not allow teardown after a later local commit",
-        "ok - mx-pr-check does not refresh PR head after HEAD moves",
+        "ok - mx-pr-check refuses stale canonical registration after HEAD moves",
         "ok - mx-pr-check records the remote PR head when the local worktree lags",
         "ok - worktree whose content already landed in the default branch is torn down (content fallback)",
         "ok - content fallback refreshes origin default before comparing trees",
@@ -6093,7 +6165,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 496,
+      "duration_ms": 523,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6112,7 +6184,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 160,
+      "duration_ms": 144,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6130,7 +6202,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1161,
+      "duration_ms": 1163,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6148,7 +6220,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 83,
+      "duration_ms": 81,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6167,7 +6239,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 8546,
+      "duration_ms": 8543,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6223,7 +6295,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 8168,
+      "duration_ms": 8487,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6248,7 +6320,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 1136,
+      "duration_ms": 1240,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6266,7 +6338,7 @@
       "resources": [
         "viz-port"
       ],
-      "duration_ms": 3281,
+      "duration_ms": 3357,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6284,7 +6356,7 @@
       "resources": [
         "vplan-port"
       ],
-      "duration_ms": 2805,
+      "duration_ms": 2865,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6303,7 +6375,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 1572,
+      "duration_ms": 1525,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6318,7 +6390,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 19692,
+      "duration_ms": 21037,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6345,7 +6417,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 10381,
+      "duration_ms": 10475,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6366,7 +6438,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 89346,
+      "duration_ms": 89633,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6415,7 +6487,7 @@
       "resources": [
         "watcher-process"
       ],
-      "duration_ms": 27267,
+      "duration_ms": 27200,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6460,12 +6532,13 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 119,
+      "duration_ms": 147,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
         "ok - valid workflow normalizes and fixed substitutions resolve",
         "ok - version and stage enums are closed",
+        "ok - version 2 uses current placements and version 1 maps legacy executor tokens",
         "ok - automatic agent stages require deterministic contracts",
         "ok - body ids match and launch input cannot become shell code",
         "ok - output contracts cannot escape the Multplx home through symlinks",
@@ -6480,7 +6553,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 6677,
+      "duration_ms": 11691,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6492,9 +6565,12 @@
         "ok - nonzero command exit parks with captured deterministic evidence",
         "ok - fresh actor gets a distinct task session and advances only after a local commit",
         "ok - automatic agent gates do not advance on model self-report alone",
-        "ok - shipped new-feature workflow completes end to end through local adapters",
+        "ok - shipped new-feature workflow completes with direct agent delivery and no implicit review tooling",
         "ok - abort is permanent and run identities cannot be reused",
-        "ok - workflow skip and reorder consume distinct exact grants and preserve other stages"
+        "ok - headless workflow command stages refuse remote PR merges before execution",
+        "ok - workflow skip and reorder consume distinct exact grants and preserve other stages",
+        "ok - project-bound workflows isolate repositories, decisions and dependency scheduling",
+        "ok - scoped coordinator stages retain one owner and wait for declared child synthesis"
       ],
       "repeat": 2
     },
@@ -6505,7 +6581,7 @@
       "resources": [
         "none"
       ],
-      "duration_ms": 9963,
+      "duration_ms": 10754,
       "exit": 0,
       "gate_skip": false,
       "assertions": [
@@ -6519,9 +6595,9 @@
     }
   ],
   "summary": {
-    "candidates_per_round": 107,
+    "candidates_per_round": 108,
     "failed_rounds": 0,
-    "duration_ms": 538460,
+    "duration_ms": 553872,
     "leaks": 0,
     "known_failure_observations": 0
   }

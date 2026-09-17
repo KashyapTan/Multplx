@@ -17,6 +17,8 @@ Phase 07 makes deep-review and vplan explicit, lazy, project-scoped and revision
 Its focused integration checks and complete macOS/Linux release suites pass, with mocked and live boundaries recorded in the [Phase 07 evidence](plans/lean_redesign/phase07-implementation.md).
 Phase 08 supplies versioned workflow placement, ordered autonomous stages, exact allocation recovery, revision-bound decisions, dependency scheduling and one-chat multi-repository request correlation.
 Its macOS release suite and Linux changed-surface checks pass, with mock and live boundaries recorded in the [Phase 08 evidence](plans/lean_redesign/phase08-implementation.md).
+Phase 09 supplies explicit inspect/apply/rollback home migration, exact private backups, compact restart projections and recoverable transfer of legacy Git worktrees and persistent homes.
+Its complete macOS release checks, Linux changed-surface checks, isolated-home fixtures and real local Git/process transfer evidence pass, with private-home and live-service limits recorded in the [Phase 09 evidence](plans/lean_redesign/phase09-implementation.md).
 
 ## This checkout
 

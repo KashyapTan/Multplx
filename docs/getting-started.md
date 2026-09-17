@@ -37,6 +37,7 @@ bin/mx-launcher-install.sh
 
 This existing-checkout mode preserves every current file under `data/`, `state/`, `config/`, and `projects/` in place.
 It creates any missing private top-level directories but does not move or rewrite their contents.
+Before starting the new runtime against an existing operational home, stop its writers and follow the [operational-home migration](state-migration.md) inspect/apply procedure.
 
 For a hidden managed runtime and a separate persistent home, use managed mode instead:
 

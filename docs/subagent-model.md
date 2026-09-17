@@ -120,11 +120,11 @@ An interrupted launch retains its intent and refuses another external launch; Ph
 | `data/daemons.md`, `.mx-daemon-home` | Existing persistent home ownership, parent routes and restart facts |
 | `data/projects.md` | Legacy project configuration and managed-clone evidence |
 
-Aliases remain supported through the explicit Phase 09 migration and Phase 12 cutover checks.
+Aliases remain supported through the Phase 12 cutover checks.
 The compatibility window does not permit two incompatible writers in the same home.
 Historical records, message correlation IDs, journals, leases and unfinished artifacts are retained.
-Phase 09 owns inspect/apply migration, quiescence, backups and rollback of real operational homes.
-Development schema tests and read conversions do not constitute that home-level migration.
+[`mx migrate`](state-migration.md) owns inspect/apply migration, quiescence, private backups, compact restart summaries and matching rollback of operational homes.
+Legacy task conversions remain `legacy_unknown` until an exact attempt and accepted brief are reconciled.
 
 ## Project and checkout routing
 

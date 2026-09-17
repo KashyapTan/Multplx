@@ -97,6 +97,7 @@ tests/mx-spawn-batch.test.sh	none
 tests/mx-spawn-dispatch-profile.test.sh	none
 tests/mx-spawn-worktree-settle.test.sh	none
 tests/mx-supervise-daemon-native.test.sh	daemon-process-signal,watcher-process
+tests/mx-state-migration.test.sh	none
 tests/mx-status-snapshot-catchup-forge.test.sh	none
 tests/mx-status-snapshot-landed-bounds.test.sh	none
 tests/mx-status-snapshot-projection-reconciliation.test.sh	none

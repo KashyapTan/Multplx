@@ -6,6 +6,7 @@ pub mod domain;
 pub mod ensure_agents;
 pub mod fast_forward;
 pub mod home_seed;
+pub mod migration;
 pub mod parent_channel;
 pub mod pending_reply;
 pub mod spawn;

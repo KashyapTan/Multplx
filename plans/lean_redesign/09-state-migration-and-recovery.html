@@ -65,7 +65,7 @@ tr:nth-child(even) td{background:var(--surface)}
 @media (max-width:760px){.flow,.cards{grid-template-columns:1fr 1fr}}
 @media (max-width:640px){.wrap{padding:0 18px}header.hero{padding-top:36px}h1{font-size:28px}table{display:block;overflow-x:auto}.footer-nav{flex-wrap:wrap}.flow,.cards{grid-template-columns:1fr}}
 
-a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yellow)}
+a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--green)}
 </style>
 </head>
 <body>
@@ -73,10 +73,10 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 09 · Multplx</div>
 <h1>Migrate Homes Without Losing Work</h1>
 <p class="subtitle">Apply the new names and lifecycle model to existing homes while preserving locks, queued work, replies, worktree leases and recovery evidence.</p>
-<div class="badges"><span class="badge phase">Phase 09 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 09 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · migration and recovery verified · 2026-09-16</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<div class="callout ok"><div class="label">Implemented and verified</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract and <a href="phase09-implementation.md">the Phase 09 evidence</a> for the exact migration behavior, checks, evidence boundaries and remaining release work.</p></div>
 <p><b>Dependencies:</b> 02-08.</p>
 <h2>Overview</h2>
 <p>The old vocabulary lives in private configuration, marker files, backend labels, pending replies, workflow snapshots and publication records. Migration must preserve identity and unfinished work without replaying old policy or silently changing an in-flight process.</p>
@@ -152,7 +152,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>Private state is not available for this planning task and must not be inferred from historical examples. Prove migration on fixtures and copies before using it on a real home; preserve unavailable or ambiguous records for targeted reconciliation.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<p>Status: complete. <a href="phase09-implementation.md">The implementation evidence</a> records the explicit CLI, exact backup and rollback contract, durable-record preservation, compact recovery, real Git worktree and persistent-home transfer, fault injection, complete repository checks and the private-home/live-service limits. Release activation and alias retirement remain Phase 12 work.</p>
 <nav class="footer-nav"><a href="08-workflows-with-agent-freedom.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="10-mx-viz-and-scale.html">Next →</a></nav>
 </main>
 </body>

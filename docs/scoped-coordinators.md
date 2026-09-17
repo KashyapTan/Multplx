@@ -117,7 +117,8 @@ Unknown native-provider consumption remains unavailable telemetry rather than an
 
 Legacy home routes and `.mx-daemon-home` remain compatibility surfaces during the migration window.
 A coordinating charter is evidence of responsibility; persistence alone is not evidence of a coordinator role.
-Phase 09 must preserve the original charter, child routes, correlations, leases and inherited settings, and retain ambiguous scope or parentage for reconciliation.
+[`mx migrate inspect/apply --coordinator TASK`](state-migration.md#inspect-and-apply) maps only an explicitly selected legacy persistent task after the operator verifies its recorded coordinating responsibility.
+Migration preserves the original charter, child routes, correlations, leases and inherited settings, and retains ambiguous scope or parentage for reconciliation.
 These development interfaces do not migrate real homes automatically.
 
 Phase 06 connects publication, PR evidence and human-merge observations to the outcome channel.

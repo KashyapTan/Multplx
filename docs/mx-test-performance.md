@@ -117,6 +117,7 @@ The accepted proof table is updated only from complete runner JSON artifacts.
 | Plan-06 serial boundary | 2026-07-29 UTC | 96 scripts, 3,127,519 ms, 1 known branch-topology failure, 9 expected skips |
 | Plan-6.5 split assertion map | 2026-07-29 UTC | 140 cases mapped exactly once |
 | Resource isolation proof | 2026-08-03 UTC | 100 portable candidates x 2 rounds, 518,489 ms, 0 failed rounds, 0 leaks, 503 conflict pairs |
+| Lean Phase-09 resource isolation proof | 2026-09-16 EDT | 108 portable candidates x 2 rounds, 553,872 ms, 0 failed rounds, 0 leaks, 653 conflict pairs |
 | Lean Phase-05 resource isolation proof | 2026-09-15 EDT | 107 portable candidates x 2 rounds, 538,460 ms, 0 failed rounds, 0 leaks, 650 conflict pairs |
 | Lean Phase-03 resource isolation proof | 2026-09-15 EDT | 106 portable candidates x 2 rounds, 471,803 ms, 0 failed rounds, 0 leaks, 647 conflict pairs |
 | Plan-13 resource isolation proof | 2026-08-13 EDT | 105 portable candidates x 2 rounds, 665,226 ms, 0 failed rounds, 0 leaks |
@@ -143,10 +144,15 @@ It reports 106 portable candidates across two rounds, 471,803 ms, no failed roun
 Its manifest SHA-256 is `afee0940e7b2037ad8116df2c48422d674100574ce9fa547c2a7c9c09a100c0f`, with 647 declared conflict pairs.
 [Phase 03 evidence](../plans/lean_redesign/phase03-implementation.md) owns the changed lifecycle validation and costs; this update does not claim a new three-run performance or serial-parity baseline.
 
-The current 129-script resource proof was regenerated for lean Phase 05 with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase05-closeout-isolation-proof.json` and its verified JSON atomically copied into the archive.
+The historical 129-script resource proof was regenerated for lean Phase 05 with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase05-closeout-isolation-proof.json` and its verified JSON atomically copied into the archive.
 It reports 107 portable candidates across two rounds, 538,460 ms, no failed rounds, no leaks and no known-failure exceptions.
 Its resource manifest SHA-256 is `d00044b128e8837a4c70f77349e7d844f461a910cac44d0622f2d0e7baf7ef11`, with 650 declared conflict pairs.
 [Phase 05 evidence](../plans/lean_redesign/phase05-implementation.md) owns coordinator behavior validation; this resource-proof refresh does not establish a new three-run performance or serial-parity baseline.
+
+The current 130-script resource proof was regenerated for lean Phase 09 with `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase09-isolation-proof.json` and its verified JSON copied into the archive.
+It reports 108 portable candidates across two rounds, 553,872 ms, no failed rounds, no leaks and no known-failure exceptions.
+Its resource manifest SHA-256 is `cd0877f1fbab85d7627fa221fd65283b04c6d99dcdf235fc20541ac8abd85b08`, with 653 declared conflict pairs.
+[Phase 09 evidence](../plans/lean_redesign/phase09-implementation.md) owns migration validation; this resource-proof refresh does not establish a new three-run performance or serial-parity baseline.
 
 CI evidence cannot be manufactured locally.
 The three-main-branch-run critical-path target is evaluated after merge from uploaded timing artifacts.

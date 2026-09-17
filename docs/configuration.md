@@ -17,6 +17,7 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 `config/` holds local gitignored operating choices, and `projects/` holds the legacy managed project clones; the lean local-checkout model is owned by [A9](../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat).
 
 `multplx-domain::lifecycle::spawn` owns base task metadata, while the runtime-backend section below owns backend-specific fields and selector interpretation.
+[`mx migrate`](state-migration.md) owns the versioned home marker, canonical alias conversion, private backup and rollback evidence.
 The [sub-agent model](subagent-model.md) owns the versioned task/attempt/brief and project/checkout contracts, including legacy mappings and the migration boundary.
 The producing Rust review helpers own the fields they append, `multplx-core::classification` owns status-event vocabulary, and the Rust actor-state backend owns current-state reconciliation.
 Wake, watcher, and away-mode state mechanics remain with the Rust supervision runtime and their reference sections rather than being duplicated into one exhaustive state tree here.
