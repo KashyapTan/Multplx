@@ -1,7 +1,7 @@
 ---
 workflow_version: 1
 name: new-feature
-description: Agree on an approach, write a spec, implement it in a fresh actor, validate it, and deliver it.
+description: Agree on an approach, write a spec, implement it in a fresh sub-agent, and deliver it.
 stages:
   - id: ideate
     title: Agree on the approach
@@ -23,13 +23,8 @@ stages:
     brief_from: [spec]
     gate: auto
     contract: local-commits
-  - id: review
-    title: Run deep-review
-    type: command
-    gate: auto
-    run: bash "$MX_WORKFLOW_HOME/bin/mx-deep-review.sh" {run} --intent-file "$MX_WORKFLOW_HOME/data/{run}/spec.md"
   - id: deliver
-    title: Approve and perform credentialed delivery
+    title: Confirm the selected delivery outcome
     type: interactive
     gate: approve
     output: state/{run}.delivered
@@ -58,14 +53,9 @@ Read the inherited specification fully before changing code.
 Implement it end to end in the isolated worktree and commit every intended change locally.
 Treat a required departure from the specification as a maintainer decision instead of silently improvising.
 
-## review
-
-Run the existing deep-review gate with the approved specification as authoritative intent.
-The gate owns its own finding, decision, retry, and validated-handoff lifecycle.
-
 ## deliver
 
-Review the exact validated handoff for {run}.
-If delivery is approved, record that approval through the existing delivery contract and run `bin/mx-deliver.sh {run}` from a maintainer shell or the credentialed scheduler.
-Do not ask the broker or an actor to perform the remote write.
-The stage contract is met only when the service has written {output}.
+Review the implementation evidence and choose the intended local or pull-request outcome for {run}.
+Deep-review and vplan run only if they were explicitly requested for this workflow run.
+Ordinary implementers may publish a branch or open and update a PR without a review-tool approval.
+The stage contract is met only when the selected outcome has written {output}.

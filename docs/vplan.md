@@ -1,6 +1,8 @@
 # vplan review artifacts
 
-vplan is Multplx's in-repo, one-shot HTML review surface.
+vplan is Multplx's optional, one-shot HTML review surface.
+Run it only when the user explicitly requests vplan or knowingly selects a workflow that clearly includes it.
+Creating or receiving an HTML plan does not start vplan.
 The broker authors an ordinary HTML artifact, serves it only on loopback with an injected comment overlay, and the maintainer confirms a queue of comments.
 Confirmation writes an inert JSON block into the artifact and ends the server.
 There is no persistent daemon, polling protocol, remote hosting, or external runtime asset fetch.
@@ -13,28 +15,31 @@ This page owns the command lifecycle, port behavior, comment format, run-record 
 Create a task-linked artifact from the vendored seed:
 
 ```sh
-bin/mx-vplan.sh new data/<id>/plan.html
+bin/mx-vplan.sh new data/<id>/plan.html --project-root /path/to/project
 ```
 
 Start or rediscover its review URL:
 
 ```sh
-bin/mx-vplan.sh review data/<id>/plan.html
+bin/mx-vplan.sh review data/<id>/plan.html --project-root /path/to/project \
+  --task <id> --brief-revision <revision> [--attempt <attempt-id>]
 ```
 
 Print the persisted comments as formatted JSON:
 
 ```sh
-bin/mx-vplan.sh comments data/<id>/plan.html
+bin/mx-vplan.sh comments data/<id>/plan.html --project-root /path/to/project
 ```
 
 End a live review without saving a new queue:
 
 ```sh
-bin/mx-vplan.sh stop data/<id>/plan.html
+bin/mx-vplan.sh stop data/<id>/plan.html --project-root /path/to/project
 ```
 
-The artifact must be inside the Multplx root.
+The artifact must be inside the selected project root.
+When `--task` is supplied, the CLI requires that root to be the canonical task's current allocation, verifies the accepted brief revision, and derives the current attempt when `--attempt` is omitted.
+Standalone artifacts may omit task options, but still bind their selected project root and exact bytes.
 `new` refuses to overwrite an existing file and rewrites only the seed's Mermaid path so the copied artifact continues to load the vendored renderer by a relative path when opened directly.
 `review` returns an already-live identity-matched session's URL instead of starting a duplicate.
 `comments` returns `[]` when the artifact has no persisted review block and refuses malformed or duplicate blocks.
@@ -51,7 +56,7 @@ Failure to bind the whole range is a hard error that names the range and leaves 
 The printed review URL is `http://127.0.0.1:<bound-port>/`.
 The server injects the comment SDK, its stylesheet, a per-review token, and the relative-asset base into the served bytes.
 It does not write those injected tags to the artifact.
-Static requests are limited to the artifact's directory and `share/vplan/` under the Multplx root.
+Static requests are limited to the artifact's directory inside the selected project root and `share/vplan/` under the installed Multplx root.
 The response policy blocks remote script, style, image, font, frame, and connection origins.
 
 `MX_VPLAN_IDLE_SECS` controls the inactivity timeout and defaults to 1800 seconds.
@@ -114,12 +119,21 @@ The broker marks an addressed comment by changing only its `resolved` value to `
 ## Run-record contract
 
 Each artifact has one private record at `state/.vplan/<sha256-of-canonical-artifact-path>.run`.
+The active record binds the canonical artifact path, selected project root, SHA-256 of the bytes presented for review and optional canonical task/attempt/brief/project/allocation identity.
+If the artifact changes while the service is live, display and confirmation fail until the caller stops the run and explicitly reviews the new revision.
 The CLI publishes the record atomically with mode `0600` after the server has bound successfully.
 The record contains one `key=value` field per line:
 
 ```text
-version=1
+version=2
 artifact=/canonical/path/to/data/<id>/plan.html
+artifact_root=/canonical/path/to/project
+artifact_sha256=<sha256-of-reviewed-bytes>
+task=<task-id-or-empty>
+attempt=<current-attempt-id-or-empty>
+brief_revision=<accepted-revision-or-empty>
+project_id=<canonical-project-id-or-empty>
+allocation_id=<current-allocation-id-or-empty>
 port=4870
 pid=12345
 pid_identity=<portable process identity>
@@ -144,10 +158,13 @@ The broker must not edit the file until confirmation, `stop`, or idle timeout en
 Atomic replacement prevents partial-file corruption, while this no-edit rule prevents comments from being attached to content the maintainer did not review.
 
 Ending a vplan review completes no task or decision by itself.
-Every unresolved maintainer decision found in the artifact or its comments must follow `decision-hold-lifecycle` before the originating review or investigation is treated as complete.
+Comments do not amend an accepted brief automatically, and feedback for a superseded artifact remains historical.
+Route a real unresolved question through the task's revision-bound decision owner when the selected workflow or task needs an answer.
 
 ## Vendored assets
 
 `share/vplan/manifest.json` records the Mermaid version, npm source archive, npm integrity, and SHA-256 of `share/vplan/mermaid.min.js`.
-`bin/mx-vplan.sh --self-check` verifies the Rust service boundary, required assets, template reference, and pinned Mermaid hash without launching a server.
-Session-start bootstrap runs that self-check and reports `VPLAN_INVALID` when the bundled module is incomplete or corrupt.
+`bin/mx-vplan.sh --self-check` explicitly verifies the Rust service boundary, required assets, template reference and pinned Mermaid hash without launching a server.
+`new` and `review` run the same check lazily.
+Missing assets do not affect startup, delegation, delivery or projects that are not using vplan.
+Doctor reports invalid assets only when an active vplan run depends on them.

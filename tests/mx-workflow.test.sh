@@ -444,16 +444,11 @@ EOF
 #!/usr/bin/env bash
 printf 'state: %s · source: status-log · fixture\n' "${WF_FAKE_ACTOR_STATE:-working}"
 EOF
-  cat >"$fake_review" <<'EOF'
+cat >"$fake_review" <<'EOF'
 #!/usr/bin/env bash
 set -eu
-id=$1
-shift
-[ "${1:-}" = --intent-file ]
-[ -s "${2:-}" ]
-[ "$(git symbolic-ref --quiet --short HEAD)" = "mx/$id" ]
-printf 'ready\n' >"$MX_WORKFLOW_HOME/state/$id.ready-to-push"
-printf 'reference deep-review passed\n'
+printf 'unexpected implicit deep-review invocation\n' >&2
+exit 97
 EOF
   chmod +x "$fake_agent" "$fake_spawn" "$fake_state" "$fake_review"
 
@@ -484,20 +479,16 @@ EOF
 
   output=$(WF_FAKE_ACTOR_STATE=done \
     MX_WORKFLOW_ACTOR_STATE_COMMAND="$fake_state" workflow_cli resume "$run") \
-    || fail "reference review stage failed"
+    || fail "reference delivery stage failed"
   assert_contains "$output" "current_stage: deliver" \
-    "reference delivery did not park: $(cat "$HOME_FIXTURE/state/$run.workflow/commands/review.stderr" 2>/dev/null)"
-  assert_file_contains \
-    "$HOME_FIXTURE/state/$run.workflow/commands/review.stdout" \
-    "reference deep-review passed" "reference review command did not run"
+    "reference delivery did not park"
+  [ ! -e "$HOME_FIXTURE/state/$run.workflow/stages/review.json" ] \
+    || fail "general-purpose workflow retained an implicit review stage"
   printf 'delivered\n' >"$HOME_FIXTURE/state/$run.delivered"
   resolve_stage "$run" deliver
   output=$(workflow_cli resume "$run") || fail "reference delivery resume failed"
   assert_contains "$output" "status: completed" "reference workflow did not complete"
-  assert_eq "passed" \
-    "$(jq -r '.status' "$HOME_FIXTURE/state/$run.workflow/stages/review.json")" \
-    "reference deep-review stage did not pass"
-  pass "shipped new-feature workflow completes end to end through local adapters"
+  pass "shipped new-feature workflow completes without implicit review tooling"
 }
 
 test_abort_and_run_id_reuse_refusal() {

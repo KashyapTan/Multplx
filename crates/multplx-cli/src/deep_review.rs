@@ -6,14 +6,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use multplx_core::filesystem::atomic_replace;
+use multplx_domain::lifecycle::delivery_evidence::{
+    DeliveryOutcome, DeliveryReview, EvidenceRequest, ReviewOutcome,
+};
 use multplx_domain::review_delivery::{
     DeliveryRecord, Finding, OperationalTaskId, PublicationAuthority, finding_valid, head_valid,
-    publish_private, read_private, ref_valid, sanitize_intent, title_valid,
+    publish_private, read_private, ref_valid, sanitize_intent,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const USAGE: &str = "Bounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\nRound history includes only owned structured findings/decisions, capped at 262144 bytes; excess fails closed with retained evidence. Raw transport events remain on disk.\nA changed HEAD after a passed gate requires explicit intent and a clean worktree, preserves the completed gate under state/<id>.gate-passed-<SHA>/gate, and starts all stages anew. Failed or parked runs do not receive new round budgets. Matching prior handoff/receipt bytes are retained beside that historical gate.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>] [--title <pull-request-title>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
+const USAGE: &str = "Run the optional deep-review pipeline for one explicitly selected task revision.\nThis command is never required for ordinary testing, branch publication or PR creation.\n\nBounds: commands default to 300 seconds; headless calls default to 1800 seconds.\nPositive MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS and MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS override these deadlines.\nRounds default to 5 (MX_DEEP_REVIEW_MAX_ROUNDS); structured attempts default to 2 (DR_MAX_AGENT_ATTEMPTS, then MX_DEEP_REVIEW_MAX_AGENT_ATTEMPTS).\nTimeout fails the invocation and kills its owned process group; no automatic waiver.\nRound history includes only owned structured findings/decisions, capped at 262144 bytes; excess fails closed with retained evidence. Raw transport events remain on disk.\nA changed HEAD after a passed review requires explicit intent and a clean worktree, preserves the completed review under state/<id>.gate-passed-<SHA>/gate, and starts all stages anew. Failed or parked runs do not receive new round budgets. Legacy approval handoffs remain historical and are never created by a new run.\n\nUsage:\n  mx-deep-review.sh <task-id> (--intent <text> | --intent-file <path>) [--base <branch>]\n  mx-deep-review.sh respond <task-id> --decision <key> --answer <text>\n";
 const STEPS: [&str; 6] = ["intent", "rebase", "review", "test", "document", "lint"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -37,6 +40,32 @@ struct RunRecord {
     summary: String,
     risk_level: String,
     risk_rationale: String,
+    #[serde(default)]
+    explicit_request: bool,
+    #[serde(default)]
+    attempt_id: Option<String>,
+    #[serde(default)]
+    attempt_generation: Option<u64>,
+    #[serde(default)]
+    brief_revision: Option<u64>,
+    #[serde(default)]
+    project_id: Option<String>,
+    #[serde(default)]
+    checkout_id: Option<String>,
+    #[serde(default)]
+    allocation_id: Option<String>,
+    #[serde(default)]
+    completed_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReviewBinding {
+    attempt_id: String,
+    attempt_generation: u64,
+    brief_revision: u64,
+    project_id: String,
+    checkout_id: String,
+    allocation_id: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -84,10 +113,10 @@ struct Context {
     branch: String,
     gate: PathBuf,
     run_file: PathBuf,
-    title: String,
     config: Config,
     max_rounds: u32,
     max_attempts: u32,
+    binding: Option<ReviewBinding>,
 }
 
 pub(crate) fn run(args: &[OsString]) -> i32 {
@@ -165,6 +194,27 @@ fn now() -> String {
     )
 }
 
+fn evidence_summary(record: &RunRecord) -> String {
+    let mut value = format!(
+        "{} Risk: {} - {}",
+        record.summary, record.risk_level, record.risk_rationale
+    )
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ");
+    if value.len() > 20_000 {
+        let boundary = value
+            .char_indices()
+            .map(|(index, _)| index)
+            .take_while(|index| *index <= 19_990)
+            .last()
+            .unwrap_or(0);
+        value.truncate(boundary);
+        value.push_str(" [truncated]");
+    }
+    value
+}
+
 fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let mut bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
@@ -179,7 +229,7 @@ fn read_run(path: &Path) -> Result<RunRecord, String> {
     serde_json::from_slice(&fs::read(path).map_err(|error| error.to_string())?)
         .map_err(|_| "invalid or unknown step in run record".to_owned())
         .and_then(|record: RunRecord| {
-            if record.version == 1
+            if matches!(record.version, 1 | 2)
                 && matches!(
                     record.status.as_str(),
                     "running" | "parked" | "passed" | "failed"
@@ -226,6 +276,67 @@ fn ownership(id: &str, state: &Path, repo: &Path) -> bool {
             .ok()
             .as_ref()
             == repo.canonicalize().ok().as_ref()
+}
+
+fn review_binding(id: &str, state: &Path, repo: &Path) -> Result<Option<ReviewBinding>, String> {
+    let path = state.join(format!("{id}.meta"));
+    let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let task = multplx_domain::lifecycle::subagent_model::read_meta(id, &text)?;
+    if task.legacy_unknown {
+        return Ok(None);
+    }
+    let attempt = task.attempt.as_ref().ok_or("task attempt is unavailable")?;
+    let brief_revision = task
+        .accepted_brief_revision
+        .ok_or("accepted brief revision is unavailable")?;
+    if attempt.brief_revision != brief_revision {
+        return Err("task attempt and accepted brief revision disagree".to_owned());
+    }
+    let project = task
+        .project
+        .as_ref()
+        .ok_or("task project binding is unavailable")?;
+    let allocation = task
+        .allocation
+        .as_ref()
+        .ok_or("task allocation binding is unavailable")?;
+    if allocation.task_id != id
+        || allocation.attempt_id != attempt.id
+        || allocation.project_id != project.project_id
+        || allocation.checkout_id != project.checkout_id
+        || PathBuf::from(&allocation.path).canonicalize().ok().as_ref()
+            != repo.canonicalize().ok().as_ref()
+    {
+        return Err("task review target does not match its current allocation".to_owned());
+    }
+    Ok(Some(ReviewBinding {
+        attempt_id: attempt.id.clone(),
+        attempt_generation: attempt.generation,
+        brief_revision,
+        project_id: project.project_id.clone(),
+        checkout_id: project.checkout_id.clone(),
+        allocation_id: allocation.allocation_id.clone(),
+    }))
+}
+
+fn record_binding(record: &mut RunRecord, binding: Option<&ReviewBinding>) {
+    record.attempt_id = binding.map(|value| value.attempt_id.clone());
+    record.attempt_generation = binding.map(|value| value.attempt_generation);
+    record.brief_revision = binding.map(|value| value.brief_revision);
+    record.project_id = binding.map(|value| value.project_id.clone());
+    record.checkout_id = binding.map(|value| value.checkout_id.clone());
+    record.allocation_id = binding.map(|value| value.allocation_id.clone());
+}
+
+fn run_binding(record: &RunRecord) -> Option<ReviewBinding> {
+    Some(ReviewBinding {
+        attempt_id: record.attempt_id.clone()?,
+        attempt_generation: record.attempt_generation?,
+        brief_revision: record.brief_revision?,
+        project_id: record.project_id.clone()?,
+        checkout_id: record.checkout_id.clone()?,
+        allocation_id: record.allocation_id.clone()?,
+    })
 }
 
 fn default_branch(repo: &Path) -> Option<String> {
@@ -433,7 +544,6 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
     let mut intent = None;
     let mut intent_file = None;
     let mut base = None;
-    let mut title = String::new();
     let mut index = 1;
     while index < values.len() {
         if matches!(values[index].as_str(), "-h" | "--help") {
@@ -448,7 +558,6 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             "--intent" => intent = Some(value),
             "--intent-file" => intent_file = Some(value),
             "--base" => base = Some(value),
-            "--title" => title = value,
             _ => {
                 eprint!("{USAGE}");
                 return Ok(2);
@@ -496,6 +605,9 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
         }
         intent = Some(fs::read_to_string(path).map_err(|error| error.to_string())?);
     }
+    let explicit_intent = intent
+        .as_deref()
+        .is_some_and(|text| !sanitize_intent(text).is_empty());
     trace("resolve base");
     let default = base
         .or_else(|| default_branch(&repo))
@@ -505,6 +617,7 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
     }
     trace("load config");
     let config = load_config(&repo, &default)?;
+    let binding = review_binding(id, &state, &repo)?;
     let context = Context {
         id: id.clone(),
         root: root(),
@@ -514,7 +627,6 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
         branch,
         gate,
         run_file,
-        title,
         config,
         max_rounds: std::env::var("MX_DEEP_REVIEW_MAX_ROUNDS")
             .ok()
@@ -527,14 +639,32 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             .and_then(|value| value.parse().ok())
             .filter(|value| *value >= 1)
             .unwrap_or(2),
+        binding,
     };
     if context.run_file.exists() {
-        let record = read_run(&context.run_file)?;
+        let mut record = read_run(&context.run_file)?;
         if record.task != context.id
             || record.worktree != context.repo.to_string_lossy()
             || record.branch != context.branch
         {
             return Err("run task/worktree/branch binding changed".to_owned());
+        }
+        if record.version == 1 {
+            if !explicit_intent {
+                return Err(
+                    "legacy review intent is unknown; rerun with explicit --intent or --intent-file to continue this retained run"
+                        .to_owned(),
+                );
+            }
+            record.version = 2;
+            record.explicit_request = true;
+            record_binding(&mut record, context.binding.as_ref());
+            write_run(&context, &record)?;
+        } else if !record.explicit_request || run_binding(&record) != context.binding {
+            return Err(
+                "review evidence belongs to a stale task attempt, accepted brief, project or allocation"
+                    .to_owned(),
+            );
         }
         if record.status == "passed" && record.approved_head != head(&context)? {
             if intent
@@ -580,7 +710,7 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
         write_run(
             &context,
             &RunRecord {
-                version: 1,
+                version: 2,
                 task: id.clone(),
                 worktree: context.repo.to_string_lossy().into_owned(),
                 branch: context.branch.clone(),
@@ -598,6 +728,29 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
                 summary: "Validation has not completed.".to_owned(),
                 risk_level: "high".to_owned(),
                 risk_rationale: "Validation has not completed.".to_owned(),
+                explicit_request: true,
+                attempt_id: context
+                    .binding
+                    .as_ref()
+                    .map(|value| value.attempt_id.clone()),
+                attempt_generation: context
+                    .binding
+                    .as_ref()
+                    .map(|value| value.attempt_generation),
+                brief_revision: context.binding.as_ref().map(|value| value.brief_revision),
+                project_id: context
+                    .binding
+                    .as_ref()
+                    .map(|value| value.project_id.clone()),
+                checkout_id: context
+                    .binding
+                    .as_ref()
+                    .map(|value| value.checkout_id.clone()),
+                allocation_id: context
+                    .binding
+                    .as_ref()
+                    .map(|value| value.allocation_id.clone()),
+                completed_at: None,
             },
         )?;
     } else {
@@ -608,6 +761,12 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
         if record.worktree != context.repo.to_string_lossy() {
             return Err("run worktree binding changed".to_owned());
         }
+        if run_binding(&record) != context.binding {
+            return Err(
+                "review evidence belongs to a stale task attempt, accepted brief, project or allocation"
+                    .to_owned(),
+            );
+        }
         let current = head(&context)?;
         if record.status == "parked" {
             return Err(
@@ -615,7 +774,6 @@ fn run_gate(values: &[String]) -> Result<i32, String> {
             );
         }
         if record.approved_head != current {
-            let _ = fs::remove_file(context.state.join(format!("{}.ready-to-push", context.id)));
             record.approved_head = current.clone();
             record.status = "running".to_owned();
             record
@@ -863,7 +1021,7 @@ fn execute(context: &Context) -> Result<i32, String> {
                 if !git_status(&context.repo)?.is_empty() {
                     return Err("validation ended with a dirty worktree".to_owned());
                 }
-                write_delivery(context)?;
+                write_review_evidence(context)?;
                 report(
                     context,
                     "done",
@@ -871,7 +1029,7 @@ fn execute(context: &Context) -> Result<i32, String> {
                     None,
                 )?;
                 println!(
-                    "deep-review: passed at {}; run mx-deliver.sh prepare explicitly to publish this revision",
+                    "deep-review: passed at {}; optional review evidence recorded independently of publication",
                     head(context)?
                 );
                 return Ok(0);
@@ -1550,6 +1708,16 @@ fn report(context: &Context, state: &str, message: &str, key: Option<&str>) -> R
     if let Some(key) = key {
         command.args(["--key", key]);
     }
+    if let Some(binding) = &context.binding {
+        command.args([
+            "--attempt-id",
+            &binding.attempt_id,
+            "--generation",
+            &binding.attempt_generation.to_string(),
+            "--brief-revision",
+            &binding.brief_revision.to_string(),
+        ]);
+    }
     let status = command
         .bounded_status()
         .map_err(|error| error.to_string())?;
@@ -1559,42 +1727,54 @@ fn report(context: &Context, state: &str, message: &str, key: Option<&str>) -> R
         .ok_or("validated status report failed".to_owned())
 }
 
-fn write_delivery(context: &Context) -> Result<(), String> {
+fn write_review_evidence(context: &Context) -> Result<(), String> {
     let mut record = read_run(&context.run_file)?;
     let approved = head(context)?;
-    let title = if !context.title.is_empty() {
-        context.title.clone()
-    } else {
-        git_line(
-            &context.repo,
-            &[
-                "log",
-                "--reverse",
-                "--format=%s",
-                &format!("{}..HEAD", record.default_branch),
-            ],
-        )
-        .and_then(|value| value.lines().next().map(ToOwned::to_owned))
-        .or_else(|| git_line(&context.repo, &["log", "-1", "--format=%s"]))
-        .unwrap_or_default()
-    };
-    if !title_valid(&title) {
-        return Err("generated delivery title is invalid".to_owned());
+    if record.completed_at.is_none() {
+        record.completed_at = Some(now());
+        write_run(context, &record)?;
     }
-    let text = format!(
-        "version=1\ntask={}\nworktree={}\nbranch={}\napproved_sha={approved}\nbase={}\ngate_run={}\napproval=pending\ntitle={title}\n",
-        context.id,
-        context.repo.display(),
-        context.branch,
-        record.default_branch,
-        context.gate.display()
-    );
-    atomic_replace(
-        context.state.join(format!("{}.ready-to-push", context.id)),
-        text.as_bytes(),
-        0o600,
-    )
-    .map_err(|error| error.to_string())?;
+    if let Some(binding) = &context.binding {
+        let current = review_binding(&context.id, &context.state, &context.repo)?
+            .ok_or("canonical review target became unavailable")?;
+        if &current != binding {
+            return Err(
+                "review evidence belongs to a stale task attempt, accepted brief, project or allocation"
+                    .to_owned(),
+            );
+        }
+        let text = fs::read_to_string(context.state.join(format!("{}.meta", context.id)))
+            .map_err(|error| error.to_string())?;
+        let task = multplx_domain::lifecycle::subagent_model::read_meta(&context.id, &text)?;
+        let review = DeliveryReview {
+            outcome: ReviewOutcome::Passed,
+            summary: evidence_summary(&record),
+            artifact: Some(format!("state/{}.gate/run.json", context.id)),
+        };
+        let request = EvidenceRequest {
+            evidence_id: format!("deep-review-{}", &approved[..32]),
+            attempt_id: binding.attempt_id.clone(),
+            attempt_generation: binding.attempt_generation,
+            brief_revision: binding.brief_revision,
+            commit: approved.clone(),
+            checks: Vec::new(),
+            review: Some(review),
+            limitations: Vec::new(),
+            pr_url: None,
+            outcome: DeliveryOutcome::EvidenceUpdated,
+            observed_at: record
+                .completed_at
+                .clone()
+                .ok_or("review completion timestamp is unavailable")?,
+            mark_current: true,
+            expected_current_commit: task.delivery.current_commit.clone(),
+        };
+        multplx_domain::lifecycle::delivery_evidence::record(
+            &context.state,
+            &context.id,
+            &request,
+        )?;
+    }
     record.status = "passed".to_owned();
     record.approved_head = approved;
     record.pending_decision_key = None;
@@ -1638,6 +1818,19 @@ fn respond(values: &[String]) -> Result<(), String> {
     if !ownership(id, &state, &repo) {
         return Err(format!("only the initiating actor may respond for {id}"));
     }
+    if record.version == 1 {
+        return Err(
+            "legacy review intent is unknown; rerun with explicit --intent or --intent-file before responding"
+                .to_owned(),
+        );
+    }
+    let binding = review_binding(id, &state, &repo)?;
+    if run_binding(&record) != binding {
+        return Err(
+            "review decision belongs to a stale task attempt, accepted brief, project or allocation"
+                .to_owned(),
+        );
+    }
     if record.status != "parked" {
         return Err("run is not parked".to_owned());
     }
@@ -1661,10 +1854,10 @@ fn respond(values: &[String]) -> Result<(), String> {
         branch: record.branch.clone(),
         gate,
         run_file,
-        title: String::new(),
         config: Config::default(),
         max_rounds: 5,
         max_attempts: 2,
+        binding,
     };
     report(
         &context,

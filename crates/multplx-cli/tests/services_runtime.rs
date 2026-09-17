@@ -10,6 +10,9 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use multplx_domain::lifecycle::subagent_model::{
+    AllocationBinding, ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+};
 use rustix::process::{Pid, Signal, kill_process_group};
 
 fn root() -> PathBuf {
@@ -234,6 +237,56 @@ fn artifact(path: &Path) {
     .expect("artifact");
 }
 
+fn bind_vplan_task(home: &Path, project: &Path) {
+    fs::create_dir_all(home.join("data")).expect("home data");
+    fs::create_dir_all(home.join("projects")).expect("home projects");
+    for args in [
+        vec!["init", "--quiet", "-b", "main"],
+        vec!["config", "user.name", "Vplan Fixture"],
+        vec!["config", "user.email", "vplan@example.test"],
+        vec!["add", "plan.html"],
+        vec!["commit", "--quiet", "-m", "artifact"],
+    ] {
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(project)
+                .args(args)
+                .status()
+                .expect("git fixture")
+                .success()
+        );
+    }
+    let binding =
+        multplx_domain::project_registry::bind_project(home, project).expect("project binding");
+    let mut task = TaskRecord::new(
+        "plan-task".into(),
+        AssignmentRole::Researcher,
+        ArtifactKind::Report,
+        false,
+        "orchestrator".into(),
+        "orchestrator".into(),
+        home.to_string_lossy().into_owned(),
+    );
+    let attempt = task.attempt.as_ref().expect("attempt").id.clone();
+    task.project = Some(binding.clone());
+    task.allocation = Some(AllocationBinding {
+        allocation_id: "allocation-vplan".into(),
+        lease_id: "lease-vplan".into(),
+        generation: 1,
+        project_id: binding.project_id,
+        checkout_id: binding.checkout_id,
+        common_git_identity: binding.common_git_identity,
+        path: project.to_string_lossy().into_owned(),
+        base_revision: binding.starting_revision,
+        task_id: "plan-task".into(),
+        attempt_id: attempt,
+        persistent: false,
+    });
+    let meta = write_meta("", &task).expect("task metadata");
+    fs::write(home.join("state/plan-task.meta"), meta).expect("write task metadata");
+}
+
 #[test]
 fn viz_native_lifecycle_routes_cache_and_security_are_complete() {
     let root = root();
@@ -400,6 +453,25 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
     fs::create_dir(home.path().join("state")).expect("state");
     let file = artifacts.path().join("plan.html");
     artifact(&file);
+    bind_vplan_task(home.path(), artifacts.path());
+    let stale = run(
+        &root,
+        home.path(),
+        &[
+            "services",
+            "mx-vplan.sh",
+            "review",
+            file.to_str().expect("path"),
+            "--project-root",
+            artifacts.path().to_str().expect("project root"),
+            "--task",
+            "plan-task",
+            "--brief-revision",
+            "2",
+        ],
+    );
+    assert!(!stale.status.success());
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("current attempt and accepted brief"));
     let port = free_port();
     let mut review = command(
         &root,
@@ -409,6 +481,12 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
             "mx-vplan.sh",
             "review",
             file.to_str().expect("path"),
+            "--project-root",
+            artifacts.path().to_str().expect("project root"),
+            "--task",
+            "plan-task",
+            "--brief-revision",
+            "1",
         ],
     );
     review
@@ -421,8 +499,20 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
     let state = home.path().join("state/.vplan");
     let run_record = vplan_record(&state);
     let values = record(&run_record);
+    assert_eq!(values["version"], "2");
+    assert_eq!(values["task"], "plan-task");
+    assert!(!values["attempt"].is_empty());
+    assert_eq!(values["brief_revision"], "1");
+    assert!(!values["project_id"].is_empty());
+    assert_eq!(values["allocation_id"], "allocation-vplan");
+    assert_eq!(
+        values["artifact_root"],
+        artifacts.path().display().to_string()
+    );
+    assert_eq!(values["artifact_sha256"].len(), 64);
     let token = values["token"].clone();
-    assert_eq!(get(port, "/").0, 200);
+    let (root_status, _, root_body) = get(port, "/");
+    assert_eq!(root_status, 200, "{}", String::from_utf8_lossy(&root_body));
     assert_eq!(get(port, "/__vplan/sdk.js").0, 200);
     assert_eq!(get(port, "/__vplan/sdk.css").0, 200);
     assert_eq!(get(port, "/__vplan/mermaid.min.js").0, 200);
@@ -460,12 +550,52 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
             "mx-vplan.sh",
             "comments",
             file.to_str().expect("path"),
+            "--project-root",
+            artifacts.path().to_str().expect("project root"),
         ],
     ));
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&comments).unwrap()[0]["id"],
         "c1"
     );
+
+    let changed = artifacts.path().join("changed.html");
+    artifact(&changed);
+    let changed_port = free_port();
+    let mut changed_review = command(
+        &root,
+        home.path(),
+        &[
+            "services",
+            "mx-vplan.sh",
+            "review",
+            changed.to_str().expect("changed path"),
+            "--project-root",
+            artifacts.path().to_str().expect("project root"),
+        ],
+    );
+    changed_review
+        .env("MX_VPLAN_PORT", changed_port.to_string())
+        .env("MX_VPLAN_IDLE_SECS", "30");
+    assert_success(&changed_review.output().expect("changed review"));
+    fs::write(
+        &changed,
+        "<html><head></head><body>replacement</body></html>",
+    )
+    .expect("change reviewed artifact");
+    assert_eq!(get(changed_port, "/").0, 400);
+    assert_success(&run(
+        &root,
+        home.path(),
+        &[
+            "services",
+            "mx-vplan.sh",
+            "stop",
+            changed.to_str().expect("changed path"),
+            "--project-root",
+            artifacts.path().to_str().expect("project root"),
+        ],
+    ));
 
     let malformed = artifacts.path().join("malformed.html");
     fs::write(
@@ -495,6 +625,8 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
             "mx-vplan.sh",
             "new",
             new_file.to_str().expect("path"),
+            "--project-root",
+            artifacts.path().to_str().expect("project root"),
         ],
     ));
     assert_eq!(created, new_file.display().to_string());
@@ -506,7 +638,9 @@ fn vplan_native_round_trip_assets_validation_and_fault_recovery_are_complete() {
                 "services",
                 "mx-vplan.sh",
                 "new",
-                new_file.to_str().expect("path")
+                new_file.to_str().expect("path"),
+                "--project-root",
+                artifacts.path().to_str().expect("project root")
             ],
         )
         .status

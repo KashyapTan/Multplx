@@ -119,30 +119,7 @@ fn tool_diagnostics(paths: &Paths, output: &mut String) {
     }
 }
 
-fn run_quiet(path: &Path, args: &[&str]) -> bool {
-    Command::new(path)
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
 fn self_checks(paths: &Paths, output: &mut String, verbose: bool) {
-    let vplan_override = std::env::var_os("MX_VPLAN_SELF_CHECK_OVERRIDE").map(PathBuf::from);
-    self_checks_with_vplan(paths, output, verbose, vplan_override.as_deref());
-}
-
-fn self_checks_with_vplan(
-    paths: &Paths,
-    output: &mut String,
-    verbose: bool,
-    vplan_override: Option<&Path>,
-) {
-    let vplan = vplan_override
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| paths.source_root.join("bin/mx-vplan.sh"));
-    let vplan_valid = run_quiet(&vplan, &["--self-check"]);
     let headroom = Command::new(paths.source_root.join("bin/mx-headroom.sh"))
         .arg("--json")
         .env("MX_HEADROOM_IGNORE_DISPATCH_CONFIG", "1")
@@ -163,20 +140,10 @@ fn self_checks_with_vplan(
             .iter()
             .all(|key| value.get(key).is_some())
         });
-    append_self_check_results(output, verbose, vplan_valid, headroom_valid);
+    append_self_check_results(output, verbose, headroom_valid);
 }
 
-fn append_self_check_results(
-    output: &mut String,
-    verbose: bool,
-    vplan_valid: bool,
-    headroom_valid: bool,
-) {
-    if !vplan_valid {
-        output.push_str("VPLAN_INVALID: bundled mx-vplan.sh self-check failed\n");
-    } else if verbose {
-        output.push_str("BOOTSTRAP_INFO: vplan self-check passed\n");
-    }
+fn append_self_check_results(output: &mut String, verbose: bool, headroom_valid: bool) {
     if !headroom_valid {
         output.push_str("HEADROOM_INVALID: bundled mx-headroom.sh self-check failed\n");
     } else if verbose {
@@ -1316,18 +1283,14 @@ mod tests {
     }
 
     #[test]
-    fn quiet_checks_and_self_checks_report_pass_and_failure() {
+    fn required_self_checks_report_pass_and_failure() {
         let mut output = String::new();
-        append_self_check_results(&mut output, true, true, true);
-        assert!(output.contains("vplan self-check passed"));
+        append_self_check_results(&mut output, true, true);
         assert!(output.contains("headroom self-check passed"));
 
         output.clear();
-        append_self_check_results(&mut output, false, false, false);
-        assert!(output.contains("VPLAN_INVALID"));
+        append_self_check_results(&mut output, false, false);
         assert!(output.contains("HEADROOM_INVALID"));
-        assert!(run_quiet(Path::new("/bin/sh"), &["-c", "exit 0"]));
-        assert!(!run_quiet(Path::new("/bin/sh"), &["-c", "exit 1"]));
     }
 
     #[test]
@@ -1591,7 +1554,6 @@ mod tests {
         assert_eq!(status, 0);
         assert!(stderr.is_empty());
         assert!(stdout.contains("BACKEND_INVALID: invalid-backend"));
-        assert!(stdout.contains("VPLAN_INVALID"));
         assert!(stdout.contains("HEADROOM_INVALID"));
     }
 

@@ -187,7 +187,7 @@ fn gate_observation(
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     });
-    let schema_valid = version == Some(1)
+    let schema_valid = matches!(version, Some(1 | 2))
         && task.is_some_and(|value| !value.is_empty())
         && recorded_worktree.is_some_and(|value| !value.is_empty())
         && branch.is_some_and(|value| !value.is_empty())
@@ -205,6 +205,65 @@ fn gate_observation(
         || recorded_worktree != worktree.to_str()
     {
         return GateObservation::Invalid;
+    }
+    if version == Some(2) {
+        if object.get("explicit_request").and_then(Value::as_bool) != Some(true) {
+            return GateObservation::Invalid;
+        }
+        let attempt_id = string("attempt_id");
+        let attempt_generation = object.get("attempt_generation").and_then(Value::as_u64);
+        let brief_revision = object.get("brief_revision").and_then(Value::as_u64);
+        let project_id = string("project_id");
+        let checkout_id = string("checkout_id");
+        let allocation_id = string("allocation_id");
+        let bound = [attempt_id, project_id, checkout_id, allocation_id]
+            .iter()
+            .any(|value| value.is_some())
+            || attempt_generation.is_some()
+            || brief_revision.is_some();
+        if bound {
+            let Ok(text) = fs::read_to_string(
+                request
+                    .state
+                    .join(format!("{}.meta", request.task.as_str())),
+            ) else {
+                return GateObservation::Unattributed;
+            };
+            let canonical = text
+                .lines()
+                .filter_map(|line| line.strip_prefix("canonical_model="))
+                .collect::<Vec<_>>();
+            let [canonical] = canonical.as_slice() else {
+                return GateObservation::Invalid;
+            };
+            let Ok(canonical) = serde_json::from_str::<Value>(canonical) else {
+                return GateObservation::Invalid;
+            };
+            if attempt_id != canonical.pointer("/attempt/id").and_then(Value::as_str)
+                || attempt_generation
+                    != canonical
+                        .pointer("/attempt/generation")
+                        .and_then(Value::as_u64)
+                || brief_revision
+                    != canonical
+                        .get("accepted_brief_revision")
+                        .and_then(Value::as_u64)
+                || project_id
+                    != canonical
+                        .pointer("/project/project_id")
+                        .and_then(Value::as_str)
+                || checkout_id
+                    != canonical
+                        .pointer("/project/checkout_id")
+                        .and_then(Value::as_str)
+                || allocation_id
+                    != canonical
+                        .pointer("/allocation/allocation_id")
+                        .and_then(Value::as_str)
+            {
+                return GateObservation::Unattributed;
+            }
+        }
     }
     let Some(current_branch) = git_read(
         runner,

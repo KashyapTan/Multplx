@@ -2757,7 +2757,7 @@ mod tests {
             "codex",
         )
         .unwrap();
-        assert_eq!((&*own.mode, own.yolo), ("deep-review", false));
+        assert_eq!((&*own.mode, own.yolo), ("direct-PR", false));
         let own = parse(
             &args(&[
                 "task",

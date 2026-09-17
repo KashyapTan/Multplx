@@ -68,7 +68,7 @@ test_mx_home_parameterization() {
   out=$(MX_HOME="$home_one" "$ROOT/bin/mx-project-mode.sh" app)
   [ "$out" = "local-only on" ] || fail "mx-project-mode did not read projects.md from MX_HOME"
   out=$(MX_HOME="$home_two" "$ROOT/bin/mx-project-mode.sh" app 2>/dev/null)
-  [ "$out" = "deep-review off" ] || fail "mx-project-mode did not isolate missing registry by home"
+  [ "$out" = "direct-PR off" ] || fail "mx-project-mode did not isolate missing registry by home"
 
   MX_HOME="$home_one" "$ROOT/bin/mx-brief.sh" task-a app >/dev/null || fail "brief scaffold failed under MX_HOME"
   brief="$home_one/data/task-a/brief.md"

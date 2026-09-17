@@ -118,7 +118,7 @@ test_same_named_self_repo() {
   mkdir -p "$home/data" "$home/projects/Multplx" "$source"
   printf '%s\n' '- Multplx [local-only +yolo] - unrelated clone' > "$home/data/projects.md"
   output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" self "$source") || fail 'self brief refused'
-  assert_contains "$output" 'mode=deep-review, yolo=off' 'self brief inherited clone authority'
+  assert_contains "$output" 'mode=direct-PR, yolo=off' 'self brief did not use the ordinary publication default'
   assert_grep 'open or update its PR' "$home/data/self/brief.md" 'self completion instructions use wrong mode'
   output=$(MX_HOME="$home" MX_ROOT_OVERRIDE="$source" "$ROOT/bin/mx-brief.sh" clone "$home/projects/Multplx") || fail 'clone brief refused'
   assert_contains "$output" 'mode=local-only, yolo=off' 'clone authority lost'

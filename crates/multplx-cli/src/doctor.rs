@@ -511,10 +511,14 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
             }
         }
         "orphan-servers" => {
-            let bad = fs::read_dir(paths.state.join(".vplan"))
+            let records = fs::read_dir(paths.state.join(".vplan"))
                 .into_iter()
                 .flatten()
                 .flatten()
+                .filter(|entry| entry.path().extension().is_some_and(|value| value == "run"))
+                .collect::<Vec<_>>();
+            let bad = records
+                .iter()
                 .filter_map(|e| fs::read_to_string(e.path()).ok())
                 .any(|raw| !alive(&meta(&raw, "pid")));
             if bad {
@@ -523,6 +527,21 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                     "FAIL",
                     "stale vplan record has no live matching identity",
                     Some("use bin/mx-vplan.sh stop <file>".into()),
+                    false,
+                )
+            } else if !records.is_empty()
+                && !Command::new(paths.root.join("bin/mx-vplan.sh"))
+                    .arg("--self-check")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            {
+                finding(
+                    name,
+                    "FAIL",
+                    "an active vplan run has unavailable or invalid optional assets",
+                    Some("repair the vplan assets for this active run or stop that run".into()),
                     false,
                 )
             } else {

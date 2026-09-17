@@ -1,6 +1,7 @@
 # Authoring vplan artifacts
 
-Use a vplan artifact when a plan, comparison, diagram, table, report, code review, or other structured response is easier to understand visually than as prose.
+After vplan has been explicitly requested, use its artifact when a plan, comparison, diagram, table, report, code review, or other structured response is easier to understand visually than as prose.
+An HTML request by itself is not a vplan request.
 Use plain chat for a yes-or-no decision.
 Task-linked artifacts live at `data/<id>/plan.html` and start from `bin/mx-vplan.sh new data/<id>/plan.html`.
 That stable command is Rust-backed by default; this authoring contract and the frozen browser assets are unchanged by the runtime port.
@@ -14,15 +15,15 @@ It adapts the visual hierarchy, overflow, design selection, and seven playbook r
 ## Workflow
 
 1. Verify the current-state claims against the codebase, product, or source material before writing the artifact.
-2. Create the artifact from the seed template with `bin/mx-vplan.sh new data/<id>/plan.html`.
+2. Create the artifact from the seed template with `bin/mx-vplan.sh new data/<id>/plan.html --project-root <project-root>`.
 3. Choose every applicable playbook below before shaping the page because one artifact often combines a plan, comparison, table, and diagram.
 4. Replace the seed content with a self-contained explanation whose first screen makes the goal and review target obvious.
 5. Use relative paths for local images, CSS, fonts, and scripts, and never use root-relative or external asset URLs.
 6. Inspect the file directly and through the review server at narrow and wide widths before asking the maintainer to review it.
-7. Serve it with `bin/mx-vplan.sh review data/<id>/plan.html` and do not edit it while its run record exists.
+7. Serve it with `bin/mx-vplan.sh review data/<id>/plan.html --project-root <project-root>` and add task/brief identity when the artifact belongs to an accepted task revision.
 8. After confirmation, read the persisted feedback with `bin/mx-vplan.sh comments data/<id>/plan.html`, update the plan, and set addressed comments to `"resolved": true` in the JSON block rather than deleting them.
 9. Re-serve for another round when the changed structure benefits from visual confirmation.
-10. Before treating the review as complete, follow `decision-hold-lifecycle` for every unresolved maintainer decision the review exposed.
+10. Route any genuine unresolved question to the task's revision-bound decision owner without treating comments as an automatic scope change.
 
 ## Design direction
 

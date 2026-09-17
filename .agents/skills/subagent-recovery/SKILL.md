@@ -25,7 +25,7 @@ Repair only the affected dependency or configuration; report unavailable capabil
 | --- | --- |
 | MISSING / MISSING_MANUAL | Printed dependency information and `bin/mx-bootstrap.sh --help`; install only within the requested task scope. |
 | BACKEND_INVALID / ACTOR_DISPATCH / HEADROOM_INVALID | Validated backend, dispatch and capacity configuration in command help. |
-| VPLAN_INVALID | Optional vplan assets; [Phase 07](../../../plans/lean_redesign/07-opt-in-review-tools.html) removes startup coupling. |
+| Active vplan asset failure | Repair or stop only the explicitly requested vplan run; unrelated work continues. |
 | TANGLE / SYSTEM_SYNC | Recorded Git state and `bin/mx-system-sync.sh --help`; retain dirty, diverged or unlanded work. |
 | PR_CHECK_MIGRATION | Named migration outcome and `bin/mx-pr-check.sh --help`; quarantined polls stay unexecuted. |
 | DAEMON_SYNC / DAEMON_LIVENESS / NUDGE_DAEMONS | Recorded home, pending instruction delivery and persistent-home operations. |

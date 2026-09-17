@@ -39,7 +39,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 | `dispatch-queue-age` | `WARN` when a valid parked request under `state/.dispatch-queue/` exceeds the configured age, and `FAIL` when a request is malformed. |
 | `gate-runs` | `OK` for terminal runs or nonterminal runs backed by a live task, and `FAIL` for malformed or unowned nonterminal gate records. |
 | `workflow-runs` | `OK` for terminal runs, intentional waits, live actor stages, or a running reconcile owner, and `FAIL` for malformed or abandoned nonterminal records. |
-| `orphan-servers` | `FAIL` when a vplan or future visualization run record lacks its identity-matched process or a reserved loopback port has an unrecorded listener. |
+| `orphan-servers` | `FAIL` when a vplan or future visualization run record lacks its identity-matched process, an active vplan depends on invalid assets, or a reserved loopback port has an unrecorded listener. Optional assets are not checked when no run is active. |
 | `tools` | `FAIL` when a universal or selected-backend tool is absent or the backend is invalid. |
 | `primary-tangle` | `FAIL` when the primary checkout is on a named non-default branch, using the same shared tangle probe as bootstrap. |
 | `compat-symlinks` | `OK` when retired compatibility paths are absent or resolve, and `WARN` when a configured path dangles or is not a symlink. |
@@ -67,3 +67,4 @@ A second `--fix` on the repaired state makes no further filesystem changes.
 
 Bootstrap and doctor share tool and primary-tangle logic through `bin/mx-probe-lib.sh`.
 Bootstrap retains its session-start diagnostics and mutation gates, while doctor provides a separate on-demand read-only report.
+Neither path requires deep-review or vplan for ordinary work, and bootstrap never probes their assets.

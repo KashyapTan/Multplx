@@ -100,12 +100,14 @@ See [worktree ownership](worktrees.md) for release, retention and explicit prune
 The canonical project and task records separate remote publication from local-only outcomes.
 Legacy mode values remain compatibility input; they cannot require approval for ordinary branch publication or grant merge authority.
 A clearly selected workflow retains every declared output and explicit interaction point.
-Phase 07 owns optional-tool defaults and Phase 08 owns the workflow redesign; this delivery change does not silently rewrite recorded workflows.
+Optional review tools are explicit and revision-bound, while Phase 08 owns the broader workflow redesign; recorded workflow stages remain binding.
 Use command help for the exact publication grammar and the task owner for current revision evidence.
 
 ## Review execution bounds
 
-`bin/mx-deep-review.sh --help` owns the supported round, attempt, and wall-clock overrides.
+`bin/mx-deep-review.sh --help` owns the supported round, attempt and wall-clock overrides for an explicitly requested run.
+The run records optional review evidence against the current task attempt, accepted brief, project allocation and commit.
+It does not create a publication approval or make ordinary delivery depend on a review result.
 Each configured command defaults to 300 seconds and each headless invocation to 1800 seconds; positive `MX_DEEP_REVIEW_COMMAND_TIMEOUT_SECONDS` and `MX_DEEP_REVIEW_AGENT_TIMEOUT_SECONDS` override them independently.
 Round and structured-output attempt limits remain separate count bounds, not a global task deadline.
 Subsequent prompts include only owned structured findings and decision history, capped at 262144 bytes; excess fails closed with a pointer to the retained evidence.
