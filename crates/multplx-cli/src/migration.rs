@@ -151,3 +151,158 @@ pub fn run(args: &[OsString]) -> i32 {
 fn json(value: impl serde::Serialize) -> Result<String, String> {
     serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn parser_covers_every_action_and_option() {
+        let args = words(&[
+            "inspect",
+            "--home",
+            "/tmp/home",
+            "--operation",
+            "upgrade",
+            "--coordinator",
+            "alpha",
+            "--coordinator",
+            "beta",
+        ]);
+        let (action, options) = parse(&args).unwrap();
+        assert_eq!(action, "inspect");
+        assert_eq!(options.home, Some(PathBuf::from("/tmp/home")));
+        assert_eq!(options.operation.as_deref(), Some("upgrade"));
+        assert_eq!(options.coordinators.len(), 2);
+
+        let args = words(&["summary", "--limit", "37", "--home", "/tmp/home"]);
+        let (action, options) = parse(&args).unwrap();
+        assert_eq!(action, "summary");
+        assert_eq!(options.limit, Some(37));
+
+        let args = words(&[
+            "relocate-worktree",
+            "--metadata",
+            "/tmp/treehouse.json",
+            "--path",
+            "/tmp/legacy",
+            "--project",
+            "project",
+            "--task",
+            "task",
+            "--request",
+            "request",
+            "--home",
+            "/tmp/home",
+        ]);
+        let (action, options) = parse(&args).unwrap();
+        assert_eq!(action, "relocate-worktree");
+        assert_eq!(options.metadata, Some(PathBuf::from("/tmp/treehouse.json")));
+        assert_eq!(options.path, Some(PathBuf::from("/tmp/legacy")));
+        assert_eq!(options.project.as_deref(), Some("project"));
+        assert_eq!(options.task.as_deref(), Some("task"));
+        assert_eq!(options.request.as_deref(), Some("request"));
+
+        assert_eq!(parse(&words(&["apply"])).unwrap().0, "apply");
+        assert_eq!(
+            parse(&words(&["rollback", "--operation", "upgrade"]))
+                .unwrap()
+                .0,
+            "rollback"
+        );
+    }
+
+    #[test]
+    fn parser_rejects_incomplete_ambiguous_and_out_of_range_requests() {
+        for args in [
+            vec![],
+            words(&["unknown"]),
+            words(&["rollback"]),
+            words(&["summary", "--limit", "0"]),
+            words(&["summary", "--limit", "10001"]),
+            words(&["summary", "--limit", "not-a-number"]),
+            words(&["inspect", "--coordinator", "same", "--coordinator", "same"]),
+            words(&["inspect", "--home"]),
+            words(&["inspect", "--unexpected", "value"]),
+            words(&["relocate-worktree", "--metadata", "/tmp/treehouse.json"]),
+        ] {
+            assert!(parse(&args).is_err(), "accepted {args:?}");
+        }
+    }
+
+    #[test]
+    fn public_boundary_covers_help_usage_summary_and_inspection() {
+        assert_eq!(run(&[]), 0);
+        assert_eq!(run(&words(&["--help"])), 0);
+        assert_eq!(run(&words(&["unknown"])), 2);
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        std::fs::create_dir_all(home.join("state")).unwrap();
+        std::fs::create_dir_all(home.join("data")).unwrap();
+        std::fs::create_dir_all(home.join("config")).unwrap();
+        let home = home.to_string_lossy();
+        assert_eq!(
+            run(&words(&[
+                "summary",
+                "--home",
+                home.as_ref(),
+                "--limit",
+                "1",
+            ])),
+            0
+        );
+        assert_eq!(
+            run(&words(&[
+                "inspect",
+                "--home",
+                home.as_ref(),
+                "--operation",
+                "cli-test",
+            ])),
+            0
+        );
+        assert_eq!(
+            run(&words(&[
+                "apply",
+                "--home",
+                home.as_ref(),
+                "--operation",
+                "cli-test",
+            ])),
+            0
+        );
+        assert_eq!(
+            run(&words(&[
+                "rollback",
+                "--home",
+                home.as_ref(),
+                "--operation",
+                "cli-test",
+            ])),
+            0
+        );
+        assert_eq!(
+            run(&words(&[
+                "relocate-worktree",
+                "--home",
+                home.as_ref(),
+                "--metadata",
+                "/missing/treehouse.json",
+                "--path",
+                "/missing/worktree",
+                "--project",
+                "project",
+                "--task",
+                "task",
+                "--request",
+                "request",
+            ])),
+            1
+        );
+    }
+}

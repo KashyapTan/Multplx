@@ -57,6 +57,7 @@ The disposable Linux copy excluded `firstmate/`, the host `.git` directory and t
 | `cargo fmt --all -- --check` | Passed on macOS and Linux. |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed. |
 | `cargo test --workspace --locked` | Passed across the complete workspace with zero failures. |
+| `cargo llvm-cov --locked --workspace --all-targets --ignore-filename-regex '(multplx-cli/src/(authority\|deep_review\|launcher\|review\|supervision\|workflow_runtime)\.rs\|multplx-cli/src/tooling/(documentation\|runner)\.rs\|multplx-domain/src/lifecycle/(home_seed\|upstream_diff)\.rs\|herdr_(cleanup\|presentation\|tools)\.rs)' --fail-under-lines 93` | Passed at 93.01% line coverage after adding direct parser, CLI dispatch, migration recovery and real-Git relocation tests. |
 | `cargo build --release --workspace --locked` | Passed on macOS and Linux. |
 | `target/release/mx test-run --check-coverage` | Passed with 130 fixtures: 109 accelerated, 11 serial and ten Herdr. |
 | `target/release/mx test-isolation-proof --jobs 4 --repeats 2 --json /private/tmp/mx-phase09-isolation-proof.json` | Passed 108 portable candidates per round, two rounds, 553,872 ms, zero failed rounds, zero leaks and zero known-failure observations; the 130-resource archive has manifest SHA-256 `cd0877f1fbab85d7627fa221fd65283b04c6d99dcdf235fc20541ac8abd85b08` and 653 conflict pairs. |
@@ -65,7 +66,7 @@ The disposable Linux copy excluded `firstmate/`, the host `.git` directory and t
 | `target/release/mx shadow-diagnostic` | Reported ready. |
 | `git diff --check` | Passed. |
 
-The test-run coverage command verifies fixture inventory and classification rather than source-line coverage.
+The `cargo llvm-cov` result is the CI-equivalent source-line gate; the test-run coverage command verifies fixture inventory and classification rather than source-line coverage.
 Mocked state adapters establish deterministic recovery semantics, while the focused relocation fixture is real local Git and process-liveness evidence.
 The first aggregate correctly rejected the stale 129-resource isolation archive after the Phase 09 fixture was added.
 After the two-round proof archive refresh, a second aggregate observed one load-sensitive real-Herdr focus-order failure outside the changed surface; that exact fixture passed all 22 assertions alone in 162,776 ms, and the complete third aggregate passed.

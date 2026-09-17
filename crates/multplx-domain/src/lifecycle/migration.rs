@@ -1119,6 +1119,40 @@ pub fn relocate_worktree(
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::process::Command;
+
+    fn home_fixture(root: &Path) -> PathBuf {
+        let home = root.join("home");
+        for directory in ["state", "config", "data", "projects"] {
+            fs::create_dir_all(home.join(directory)).unwrap();
+        }
+        fs::canonicalize(home).unwrap()
+    }
+
+    fn git(path: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    fn repository(root: &Path) -> PathBuf {
+        let repository = root.join("repository");
+        fs::create_dir(&repository).unwrap();
+        git(&repository, &["init", "-b", "main"]);
+        git(&repository, &["config", "user.name", "Migration Test"]);
+        git(
+            &repository,
+            &["config", "user.email", "migration@example.invalid"],
+        );
+        fs::write(repository.join("tracked"), "base\n").unwrap();
+        git(&repository, &["add", "tracked"]);
+        git(&repository, &["commit", "-m", "base"]);
+        fs::canonicalize(repository).unwrap()
+    }
 
     #[test]
     fn inspect_is_read_only_apply_repeats_and_rollback_restores_exact_bytes() {
@@ -1189,6 +1223,267 @@ mod tests {
         assert_eq!(summary.tasks.len(), 7);
         assert_eq!(summary.omitted, 13);
         assert!(summary.tasks.iter().all(|task| task.legacy_unknown));
+    }
+
+    #[test]
+    fn planning_maps_projects_aliases_and_only_explicit_persistent_coordinators() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let home = home_fixture(&root);
+        let managed = home.join("projects/managed");
+        fs::create_dir(&managed).unwrap();
+        git(&managed, &["init", "-b", "main"]);
+        git(&managed, &["config", "user.name", "Migration Test"]);
+        git(
+            &managed,
+            &["config", "user.email", "migration@example.invalid"],
+        );
+        fs::write(managed.join("tracked"), "base\n").unwrap();
+        git(&managed, &["add", "tracked"]);
+        git(&managed, &["commit", "-m", "base"]);
+        fs::write(home.join("data/projects.md"), "- managed /legacy/path\n").unwrap();
+        fs::write(home.join("data/daemons.md"), "- coordinator\n").unwrap();
+        fs::write(home.join(".mx-daemon-home"), "coordinator\n").unwrap();
+        fs::write(home.join("config/actor-harness"), "codex high\n").unwrap();
+        fs::write(home.join("config/daemon-harness"), "claude medium\n").unwrap();
+        fs::write(home.join("config/actor-dispatch.json"), "{}\n").unwrap();
+        fs::write(
+            home.join("state/coordinator.meta"),
+            "kind=daemon\nbackend=tmux\nhome=/legacy/coordinator\n",
+        )
+        .unwrap();
+        fs::write(
+            home.join("state/worker.meta"),
+            "kind=delivery\nbackend=tmux\n",
+        )
+        .unwrap();
+        let coordinators = BTreeSet::from(["coordinator".to_owned()]);
+
+        let before = walk(&home);
+        let report = inspect(&home, "mapped", &coordinators).unwrap();
+        assert_eq!(report.state, HomeState::Legacy);
+        assert_eq!(report.tasks, 2);
+        assert_eq!(report.legacy_tasks, 2);
+        assert_eq!(report.projects, 1);
+        assert!(report.retained.iter().any(|item| item.contains("routes")));
+        assert_eq!(walk(&home), before);
+
+        apply(&home, "mapped", &coordinators).unwrap();
+        for path in [
+            "config/subagent-harness",
+            "config/persistent-subagent-harness",
+            "config/subagent-dispatch.json",
+            "data/projects.json",
+        ] {
+            assert!(home.join(path).is_file(), "missing {path}");
+        }
+        let text = fs::read_to_string(home.join("state/coordinator.meta")).unwrap();
+        let record = subagent_model::read_meta("coordinator", &text).unwrap();
+        assert_eq!(record.role, AssignmentRole::SubOrchestrator);
+        assert_eq!(record.artifact, ArtifactKind::Coordination);
+        assert!(record.legacy_unknown);
+    }
+
+    #[test]
+    fn malformed_newer_and_ambiguous_inputs_fail_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let home = home_fixture(&root);
+        assert!(inspect(&home, "../unsafe", &BTreeSet::new()).is_err());
+        assert!(rollback(&home, "missing").is_err());
+
+        fs::write(home.join("state/bad.meta"), [0xff, 0xfe]).unwrap();
+        let report = inspect(&home, "blocked", &BTreeSet::new()).unwrap();
+        assert_eq!(report.state, HomeState::Blocked);
+        assert!(report.blockers.iter().any(|item| item.contains("UTF-8")));
+        fs::remove_file(home.join("state/bad.meta")).unwrap();
+
+        fs::write(home.join("data/projects.md"), "- same x\n- same y\n").unwrap();
+        let report = inspect(&home, "projects", &BTreeSet::new()).unwrap();
+        assert_eq!(report.state, HomeState::Blocked);
+        fs::remove_file(home.join("data/projects.md")).unwrap();
+
+        let report = inspect(&home, "coordinator", &BTreeSet::from(["absent".to_owned()])).unwrap();
+        assert_eq!(report.state, HomeState::Blocked);
+        assert!(report.blockers.iter().any(|item| item.contains("absent")));
+
+        fs::write(
+            home.join(MARKER),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": 99,
+                "task_writer_version": 2,
+                "operation_id": "future",
+                "runtime_version": "future",
+                "applied_at": "future",
+                "backup_manifest": "future"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let report = inspect(&home, "future", &BTreeSet::new()).unwrap();
+        assert_eq!(report.state, HomeState::Blocked);
+        assert!(apply(&home, "future", &BTreeSet::new()).is_err());
+    }
+
+    #[test]
+    fn summaries_and_rollback_refuse_incomplete_or_changed_state() {
+        let missing = restart_summary(Path::new("/definitely/missing/multplx-home"), 20);
+        assert!(!missing.available);
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let home = home_fixture(&root);
+        fs::write(home.join("state/bad.meta"), "not-metadata\n").unwrap();
+        let summary = restart_summary(&home, 20);
+        assert!(!summary.available);
+        assert!(summary.reason.unwrap().contains("bad"));
+        fs::remove_file(home.join("state/bad.meta")).unwrap();
+
+        fs::write(home.join("config/actor-harness"), "codex\n").unwrap();
+        apply(&home, "changed", &BTreeSet::new()).unwrap();
+        fs::write(home.join("config/subagent-harness"), "user edit\n").unwrap();
+        let error = rollback(&home, "changed").unwrap_err();
+        assert!(error.contains("changed after migration"));
+    }
+
+    #[test]
+    fn relocation_moves_real_git_worktrees_and_publishes_persistent_receipts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let home = home_fixture(&root);
+        apply(&home, "worktrees", &BTreeSet::new()).unwrap();
+        let repository = repository(&root);
+        let project = project_registry::register_project(
+            &home,
+            &repository,
+            Some("project"),
+            CheckoutOwnership::UserOwned,
+        )
+        .unwrap();
+
+        let ordinary = root.join("legacy-ordinary");
+        let persistent = root.join("legacy-persistent");
+        git(
+            &repository,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                ordinary.to_str().unwrap(),
+                "HEAD",
+            ],
+        );
+        git(
+            &repository,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                persistent.to_str().unwrap(),
+                "HEAD",
+            ],
+        );
+        let ordinary = fs::canonicalize(ordinary).unwrap();
+        let persistent = fs::canonicalize(persistent).unwrap();
+        let metadata = root.join("treehouse.json");
+        fs::write(
+            &metadata,
+            serde_json::to_vec(&serde_json::json!({
+                "worktrees": [
+                    {"path": ordinary, "leased": true, "lease_holder": "ordinary"},
+                    {"path": persistent, "leased": true, "lease_holder": "persistent"},
+                    {"path": root.join("foreign"), "leased": true, "lease_holder": "foreign"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        for (task_id, path, is_persistent) in [
+            ("ordinary", ordinary.as_path(), false),
+            ("persistent", persistent.as_path(), true),
+        ] {
+            let mut record = subagent_model::TaskRecord::new(
+                task_id.into(),
+                AssignmentRole::Implementer,
+                ArtifactKind::Implementation,
+                is_persistent,
+                "orchestrator".into(),
+                "orchestrator".into(),
+                home.to_string_lossy().into_owned(),
+            );
+            record.project = Some(project.clone());
+            record.briefs[0].scope = format!("migrate {task_id}");
+            if is_persistent {
+                record.persistent_home = Some(path.to_string_lossy().into_owned());
+            }
+            let kind = if is_persistent { "daemon" } else { "delivery" };
+            let mut compatibility =
+                format!("kind={kind}\nbackend=tmux\nworktree={}\n", path.display());
+            if is_persistent {
+                compatibility.push_str(&format!("home={}\n", path.display()));
+            }
+            fs::write(
+                home.join("state").join(format!("{task_id}.meta")),
+                subagent_model::write_meta(&compatibility, &record).unwrap(),
+            )
+            .unwrap();
+        }
+
+        assert!(
+            relocate_worktree(
+                &home,
+                &metadata,
+                Path::new("relative"),
+                "project",
+                "ordinary",
+                "bad-request",
+            )
+            .is_err()
+        );
+        let ordinary_mapping = relocate_worktree(
+            &home,
+            &metadata,
+            &ordinary,
+            "project",
+            "ordinary",
+            "ordinary-request",
+        )
+        .unwrap();
+        assert!(!ordinary.exists());
+        assert!(ordinary_mapping.new_path.is_dir());
+        assert_eq!(
+            relocate_worktree(
+                &home,
+                &metadata,
+                &ordinary,
+                "project",
+                "ordinary",
+                "ordinary-request",
+            )
+            .unwrap()
+            .new_path,
+            ordinary_mapping.new_path
+        );
+
+        let persistent_mapping = relocate_worktree(
+            &home,
+            &metadata,
+            &persistent,
+            "project",
+            "persistent",
+            "persistent-request",
+        )
+        .unwrap();
+        let receipt =
+            super::super::home_seed::read_home_allocation(&home.join("data"), "persistent")
+                .unwrap()
+                .unwrap();
+        assert_eq!(receipt.binding.path, persistent_mapping.new_path);
+        assert_eq!(
+            receipt.git_allocation.unwrap().binding,
+            persistent_mapping.allocation.binding
+        );
     }
 
     fn walk(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
