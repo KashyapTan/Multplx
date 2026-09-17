@@ -1,7 +1,7 @@
 # Decision hold lifecycle mechanism
 
 The mandatory agent completion procedure was retired in lean Phase 01.
-The legacy `complete`/`verify` commands and teardown checks below remain implemented until the Phase 08/09 runtime transition; they are compatibility behavior, not fresh task instructions.
+The legacy `complete`/`verify` commands and teardown checks below remain compatibility behavior, not fresh task instructions.
 This document records the deterministic mechanism, structured surfaces, and privacy-safe regression evidence.
 
 ## Mechanism
@@ -14,6 +14,8 @@ It never reads report bodies, review artifacts, terminal output, or chat.
 The `hold` subcommand maps an originating work id and stable decision key to `<origin-id>-decision-<decision-key>`.
 It creates a Multplx kind `maintainer` backlog item when absent and invokes the library's hold operation on every retry.
 It rejects an identity collision, a changed title, and attempts to reopen an already resolved identity.
+Workflow decisions additionally bind the task id, accepted brief revision, workflow definition/plan revision and exact question.
+All target fields are supplied together, retained in the final resolution and compared on retry.
 
 The `complete` subcommand unions the reviewed keys into `decision_keys=` and appends `decisions_reviewed=1` while originating task metadata is live.
 A post-teardown visual review can complete against the surviving report and durable holds without recreating volatile task metadata.
@@ -28,6 +30,7 @@ The `--force` path remains the explicit maintainer-approved discard escape hatch
 The `resolve` subcommand requires a decision file and at least one existing dependent task whose structured `blocked-by` edge points to the hold.
 It records the decision digest and routed task identities as a retry identity in the hold body, clears each dependency edge through the backlog library, and marks the hold Done only after those writes succeed.
 An exact retry can finish a partial routing operation, while a changed decision or routed-task set is rejected.
+When `resolve` supplies a workflow target, a delayed answer for another task, brief or workflow revision is rejected before any dependency edge changes.
 A failed intermediate step leaves the hold open.
 
 ## Structured read surfaces

@@ -15,7 +15,10 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
-const SUPERVISION_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+// A hook can briefly queue behind another hook that is itself waiting for the
+// shared transition lock. Keep that bounded wait tolerant of two-hop
+// contention without turning a persistently held lock into a long stall.
+const SUPERVISION_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn recoverable_transition_wait(
     state: &Path,

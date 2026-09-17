@@ -1,5 +1,5 @@
 ---
-workflow_version: 1
+workflow_version: 2
 name: upstream-sync
 description: Review upstream changes, reimplement approved fixes, and record the completed review.
 stages:
@@ -12,7 +12,8 @@ stages:
   - id: triage
     title: Classify every upstream change
     type: agent
-    executor: broker
+    executor: orchestrator-context
+    assignment: researcher
     brief_from: [fetch]
     gate: auto
     output: data/{run}/triage.md
@@ -24,7 +25,8 @@ stages:
   - id: port
     title: Reimplement the approved fixes
     type: agent
-    executor: actor
+    executor: sub-agent-session
+    assignment: implementer
     fresh_session: true
     brief_from: [fetch, review]
     gate: auto
@@ -84,7 +86,7 @@ Keep one local commit per approved upstream fix and cite the upstream commit in 
 Apply approved relevance-map updates in the same ordinary reviewed change.
 Run focused tests for the exact local commits and any review tool explicitly requested for this workflow run.
 Write {output} with every upstream commit, corresponding local commit, test result, explicitly requested review result if any, and delivery state.
-Do not claim a fix landed merely because it exists in the actor worktree.
+Do not claim a fix landed merely because it exists in the sub-agent worktree.
 
 ## record
 

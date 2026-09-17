@@ -922,7 +922,7 @@ fn decision_hold_command(args: &[OsString]) -> i32 {
     }
 }
 
-const DECISION_HOLD_USAGE: &str = "Usage:\n  mx-decision-hold.sh id <origin-id> <decision-key>\n  mx-decision-hold.sh hold <origin-id> <decision-key> --title <title> --reason <reason> [--repo <repo>]\n  mx-decision-hold.sh complete <origin-id> (--none | <decision-key>...)\n  mx-decision-hold.sh verify <origin-id>\n  mx-decision-hold.sh resolve <origin-id> <decision-key> --decision-file <path> --routed-to <task-id> [--routed-to <task-id>...]\n";
+const DECISION_HOLD_USAGE: &str = "Usage:\n  mx-decision-hold.sh id <origin-id> <decision-key>\n  mx-decision-hold.sh hold <origin-id> <decision-key> --title <title> --reason <reason> [--repo <repo>] [--task <task-id> --brief-revision <n> --workflow-revision <id> --question <text>]\n  mx-decision-hold.sh complete <origin-id> (--none | <decision-key>...)\n  mx-decision-hold.sh verify <origin-id>\n  mx-decision-hold.sh resolve <origin-id> <decision-key> --decision-file <path> --routed-to <task-id> [--routed-to <task-id>...] [--task <task-id> --brief-revision <n> --workflow-revision <id>]\n\nThe optional target fields are one indivisible revision binding. A resolved answer retains that target, and a supplied target on resolve must match it exactly.\n";
 
 fn data_root() -> PathBuf {
     std::env::var_os("MX_DATA_OVERRIDE")
@@ -1036,6 +1036,37 @@ fn active_hold(
     Ok(item)
 }
 
+fn decision_target(
+    body: &str,
+) -> Result<Option<multplx_domain::decision_hold::DecisionTarget>, String> {
+    let field = |label: &str| {
+        body.lines()
+            .find_map(|line| line.strip_prefix(label))
+            .map(str::to_owned)
+    };
+    let task_id = field("Target task: ");
+    let brief_revision = field("Target brief revision: ");
+    let workflow_revision = field("Target workflow revision: ");
+    let question = field("Question: ");
+    if [&task_id, &brief_revision, &workflow_revision, &question]
+        .iter()
+        .all(|value| value.is_none())
+    {
+        return Ok(None);
+    }
+    let target = multplx_domain::decision_hold::DecisionTarget {
+        task_id: task_id.ok_or("decision target is incomplete")?,
+        brief_revision: brief_revision
+            .ok_or("decision target is incomplete")?
+            .parse::<u64>()
+            .map_err(|_| "decision target brief revision is invalid")?,
+        workflow_revision: workflow_revision.ok_or("decision target is incomplete")?,
+        question: question.ok_or("decision target is incomplete")?,
+    };
+    target.validate().map_err(|error| error.to_string())?;
+    Ok(Some(target))
+}
+
 fn decision_hold(values: &[String]) -> Result<String, String> {
     if values.len() < 2 {
         return Err("hold requires origin-id and decision-key".to_owned());
@@ -1046,6 +1077,10 @@ fn decision_hold(values: &[String]) -> Result<String, String> {
     let mut title = None;
     let mut reason = None;
     let mut repo = None;
+    let mut target_task = None;
+    let mut target_brief = None;
+    let mut target_workflow = None;
+    let mut question = None;
     let mut index = 2;
     while index < values.len() {
         let value = values
@@ -1056,6 +1091,10 @@ fn decision_hold(values: &[String]) -> Result<String, String> {
             "--title" => title = Some(value),
             "--reason" => reason = Some(value),
             "--repo" => repo = Some(value),
+            "--task" => target_task = Some(value),
+            "--brief-revision" => target_brief = Some(value),
+            "--workflow-revision" => target_workflow = Some(value),
+            "--question" => question = Some(value),
             _ => return Err(format!("unknown argument: {}", values[index])),
         }
         index += 2;
@@ -1067,6 +1106,26 @@ fn decision_hold(values: &[String]) -> Result<String, String> {
     if reason.contains(['(', ')']) {
         return Err("reason must not contain parentheses (backlog hold contract)".to_owned());
     }
+    let target =
+        match (target_task, target_brief, target_workflow, question) {
+            (None, None, None, None) => None,
+            (Some(task_id), Some(brief), Some(workflow_revision), Some(question)) => {
+                let target = multplx_domain::decision_hold::DecisionTarget {
+                    task_id,
+                    brief_revision: brief
+                        .parse::<u64>()
+                        .map_err(|_| "brief-revision must be positive")?,
+                    workflow_revision,
+                    question,
+                };
+                target.validate().map_err(|error| error.to_string())?;
+                Some(target)
+            }
+            _ => return Err(
+                "task, brief-revision, workflow-revision and question must be supplied together"
+                    .to_owned(),
+            ),
+        };
     let store = backlog_store()?;
     if !origin_exists(&store, origin) {
         return Err(format!(
@@ -1091,6 +1150,11 @@ fn decision_hold(values: &[String]) -> Result<String, String> {
                     "existing maintainer hold {id} has a different title"
                 ));
             }
+            if decision_target(&item.body)? != target {
+                return Err(format!(
+                    "existing maintainer hold {id} has a different decision target"
+                ));
+            }
         }
         Err(_) => {
             let repo = repo.unwrap_or_else(|| {
@@ -1103,13 +1167,22 @@ fn decision_hold(values: &[String]) -> Result<String, String> {
                     .to_owned()
             });
             one_line("repo", &repo)?;
+            let target_text = target.as_ref().map_or_else(String::new, |target| {
+                format!(
+                    "\nTarget task: {}\nTarget brief revision: {}\nTarget workflow revision: {}\nQuestion: {}",
+                    target.task_id,
+                    target.brief_revision,
+                    target.workflow_revision,
+                    target.question
+                )
+            });
             store
                 .add(&multplx_domain::backlog::AddRequest {
                     id: &id,
                     title: &title,
                     repo: &repo,
                     kind: "maintainer",
-                    body: &format!("Origin: {origin}\nDecision key: {key}\nState: awaiting maintainer decision."),
+                    body: &format!("Origin: {origin}\nDecision key: {key}\nState: awaiting maintainer decision.{target_text}"),
                     start: false,
                     blockers: &[],
                 })
@@ -1355,7 +1428,34 @@ fn resolution_identity(
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .collect(),
+        target: decision_target(body)?,
     })
+}
+
+fn verify_expected_target(
+    recorded: Option<&multplx_domain::decision_hold::DecisionTarget>,
+    task: Option<&str>,
+    brief: Option<&str>,
+    workflow: Option<&str>,
+) -> Result<(), String> {
+    match (task, brief, workflow) {
+        (None, None, None) => Ok(()),
+        (Some(task), Some(brief), Some(workflow)) => {
+            let brief = brief
+                .parse::<u64>()
+                .map_err(|_| "brief-revision must be positive")?;
+            if recorded.is_some_and(|target| {
+                target.task_id == task
+                    && target.brief_revision == brief
+                    && target.workflow_revision == workflow
+            }) {
+                Ok(())
+            } else {
+                Err("stale decision target".to_owned())
+            }
+        }
+        _ => Err("task, brief-revision and workflow-revision must be supplied together".to_owned()),
+    }
 }
 
 fn decision_resolve(values: &[String]) -> Result<String, String> {
@@ -1367,6 +1467,9 @@ fn decision_resolve(values: &[String]) -> Result<String, String> {
     let id = decision_identity(origin, key)?;
     let mut decision_file = None;
     let mut routed = Vec::new();
+    let mut expected_task = None;
+    let mut expected_brief = None;
+    let mut expected_workflow = None;
     let mut index = 2;
     while index < values.len() {
         let value = values
@@ -1383,14 +1486,15 @@ fn decision_resolve(values: &[String]) -> Result<String, String> {
                 }
                 routed.push(value);
             }
+            "--task" => expected_task = Some(value),
+            "--brief-revision" => expected_brief = Some(value),
+            "--workflow-revision" => expected_workflow = Some(value),
             _ => return Err(format!("unknown argument: {}", values[index])),
         }
         index += 2;
     }
     let path = decision_file.ok_or("--decision-file is required")?;
     let decision = fs::read(&path).map_err(|_| format!("decision file does not exist: {path}"))?;
-    let candidate = multplx_domain::decision_hold::ResolutionIdentity::new(&decision, routed)
-        .map_err(|error| error.to_string())?;
     let store = backlog_store()?;
     if let Ok(item) = store.snapshot(&id)
         && item.state == "done"
@@ -1400,13 +1504,22 @@ fn decision_resolve(values: &[String]) -> Result<String, String> {
             .contains("Resolution recorded by mx-decision-hold.")
         && item.body.contains("Routed work:")
     {
-        resolution_identity(&item.body)?
-            .accepts_retry(&candidate)
-            .map_err(|_| {
-                format!(
-                    "maintainer hold {id} records a different maintainer decision or routed work"
-                )
-            })?;
+        let recorded = resolution_identity(&item.body)?;
+        verify_expected_target(
+            recorded.target.as_ref(),
+            expected_task.as_deref(),
+            expected_brief.as_deref(),
+            expected_workflow.as_deref(),
+        )?;
+        let candidate = multplx_domain::decision_hold::ResolutionIdentity::new_bound(
+            &decision,
+            routed,
+            recorded.target.clone(),
+        )
+        .map_err(|error| error.to_string())?;
+        recorded.accepts_retry(&candidate).map_err(|_| {
+            format!("maintainer hold {id} records a different maintainer decision or routed work")
+        })?;
         decision_journal(
             origin,
             multplx_core::journal::JournalEvent::HoldResolved,
@@ -1415,6 +1528,19 @@ fn decision_resolve(values: &[String]) -> Result<String, String> {
         return Ok(format!("resolved: {id}"));
     }
     let hold = active_hold(&store, &id)?;
+    let target = decision_target(&hold.body)?;
+    verify_expected_target(
+        target.as_ref(),
+        expected_task.as_deref(),
+        expected_brief.as_deref(),
+        expected_workflow.as_deref(),
+    )?;
+    let candidate = multplx_domain::decision_hold::ResolutionIdentity::new_bound(
+        &decision,
+        routed,
+        target.clone(),
+    )
+    .map_err(|error| error.to_string())?;
     let previously_recorded = hold
         .body
         .contains("Resolution recorded by mx-decision-hold.");
@@ -1444,9 +1570,13 @@ fn decision_resolve(values: &[String]) -> Result<String, String> {
     }
     let decision_text = String::from_utf8_lossy(&decision);
     let mut body = format!(
-        "Resolution recorded by mx-decision-hold.\nDecision digest: {}\nRouted identities: {}\n\nMaintainer decision:\n{}\n\nRouted work:\n",
+        "Resolution recorded by mx-decision-hold.\nDecision digest: {}\nRouted identities: {}{}\n\nMaintainer decision:\n{}\n\nRouted work:\n",
         candidate.decision_digest,
         candidate.routed_to.join(","),
+        target.as_ref().map_or_else(String::new, |target| format!(
+            "\nTarget task: {}\nTarget brief revision: {}\nTarget workflow revision: {}\nQuestion: {}",
+            target.task_id, target.brief_revision, target.workflow_revision, target.question
+        )),
         decision_text.trim_end_matches(['\r', '\n'])
     );
     for task in &candidate.routed_to {

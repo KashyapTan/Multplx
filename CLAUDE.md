@@ -15,6 +15,8 @@ Phase 06 supplies ordinary agent authentication/publication, repeat-safe forge r
 Its macOS/Linux checks, unchanged coverage gate and live Codex publication/retry trial pass, with explicit authentication and provider limits in the [Phase 06 evidence](plans/lean_redesign/phase06-implementation.md).
 Phase 07 makes deep-review and vplan explicit, lazy, project-scoped and revision-bound without publication authority.
 Its focused integration checks and complete macOS/Linux release suites pass, with mocked and live boundaries recorded in the [Phase 07 evidence](plans/lean_redesign/phase07-implementation.md).
+Phase 08 supplies versioned workflow placement, ordered autonomous stages, exact allocation recovery, revision-bound decisions, dependency scheduling and one-chat multi-repository request correlation.
+Its macOS release suite and Linux changed-surface checks pass, with mock and live boundaries recorded in the [Phase 08 evidence](plans/lean_redesign/phase08-implementation.md).
 
 ## This checkout
 

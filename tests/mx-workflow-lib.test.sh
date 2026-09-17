@@ -29,7 +29,7 @@ assert_file_contains() {
 }
 
 write_definition() {
-  local file=$1 version=${2:-1} type=${3:-agent} gate=${4:-auto} contract=${5:-output}
+  local file=$1 version=${2:-2} type=${3:-agent} gate=${4:-auto} contract=${5:-output}
   cat >"$file" <<EOF
 ---
 workflow_version: $version
@@ -39,7 +39,7 @@ stages:
   - id: make
     title: Make output
     type: $type
-    executor: broker
+    executor: sub-agent-session
     gate: $gate
     output: data/{run}/result.md
     contract: $contract
@@ -74,7 +74,7 @@ test_valid_definition_and_substitution() {
 
 test_closed_enums_and_version() {
   local file="$TMP_ROOT/invalid.workflow"
-  write_definition "$file" 2 agent auto output
+  write_definition "$file" 3 agent auto output
   expect_invalid "$file" "unsupported workflow_version"
   write_definition "$file" 1 mystery auto output
   expect_invalid "$file" "unknown type"
@@ -83,6 +83,22 @@ test_closed_enums_and_version() {
   write_definition "$file" 1 agent auto network-proof
   expect_invalid "$file" "unknown contract"
   pass "version and stage enums are closed"
+}
+
+test_versioned_executor_vocabulary() {
+  local file="$TMP_ROOT/versioned.workflow" json
+  write_definition "$file" 2
+  json=$(wf_definition_json "$file") || fail "version 2 placement was rejected"
+  assert_eq "sub-agent-session" "$(printf '%s\n' "$json" | jq -r '.stages[0].executor')" \
+    "version 2 placement changed"
+  sed 's/workflow_version: 2/workflow_version: 1/; s/executor: sub-agent-session/executor: actor/' \
+    "$file" >"$TMP_ROOT/legacy.workflow"
+  json=$(wf_definition_json "$TMP_ROOT/legacy.workflow") || fail "legacy actor placement was rejected"
+  assert_eq "sub-agent-session" "$(printf '%s\n' "$json" | jq -r '.stages[0].executor')" \
+    "legacy actor was not mapped to the current placement"
+  sed 's/executor: sub-agent-session/executor: actor/' "$file" >"$TMP_ROOT/bad-v2.workflow"
+  expect_invalid "$TMP_ROOT/bad-v2.workflow" "requires executor orchestrator-context or sub-agent-session"
+  pass "version 2 uses current placements and version 1 maps legacy executor tokens"
 }
 
 test_auto_requires_contract() {
@@ -222,6 +238,7 @@ test_create_workflow_golden_output() {
 
 test_valid_definition_and_substitution
 test_closed_enums_and_version
+test_versioned_executor_vocabulary
 test_auto_requires_contract
 test_stage_body_and_command_trust_validation
 test_output_path_rejects_symlink_escape

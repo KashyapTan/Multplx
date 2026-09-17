@@ -1,5 +1,5 @@
 ---
-workflow_version: 1
+workflow_version: 2
 name: support-fix
 description: Agree on a reproduction, implement a fix, and run the focused check.
 stages:
@@ -11,7 +11,8 @@ stages:
   - id: implement
     title: Implement the fix
     type: agent
-    executor: actor
+    executor: sub-agent-session
+    assignment: implementer
     fresh_session: true
     brief_from: [reproduce]
     gate: auto
