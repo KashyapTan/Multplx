@@ -40,7 +40,7 @@ workflow_cli() {
 mx_cli() {
   MX_ROOT_OVERRIDE="$REPO_FIXTURE" MX_HOME="$HOME_FIXTURE" \
     MX_STATE_OVERRIDE="$HOME_FIXTURE/state" MX_DATA_OVERRIDE="$HOME_FIXTURE/data" \
-    "$ROOT/target/release/mx" "$@"
+    "${MX_RUST_BIN:-$ROOT/target/release/mx}" "$@"
 }
 
 track_definition() {
