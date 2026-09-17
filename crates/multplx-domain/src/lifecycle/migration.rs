@@ -1347,6 +1347,208 @@ mod tests {
     }
 
     #[test]
+    fn helper_validation_rejects_unsafe_and_ambiguous_inputs() {
+        assert!(!valid_operation(""));
+        assert!(!valid_operation(&"a".repeat(129)));
+        assert!(!valid_operation("."));
+        assert!(!valid_operation("two words"));
+        assert!(valid_operation("safe.operation_1"));
+        assert!(!relative_safe(Path::new("")));
+        assert!(!relative_safe(Path::new("/absolute")));
+        assert!(!relative_safe(Path::new("a/../b")));
+        assert!(relative_safe(Path::new("state/task.meta")));
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let regular = root.join("regular");
+        fs::write(&regular, "data").unwrap();
+        assert!(home(&regular).unwrap_err().contains("real directory"));
+        assert!(existing(&root).is_err());
+        assert!(task_paths(&root.join("missing")).unwrap().is_empty());
+        assert!(task_paths(&regular).is_err());
+        assert!(
+            legacy_project_names(&root.join("missing-projects"))
+                .unwrap()
+                .is_empty()
+        );
+
+        let projects = root.join("projects.md");
+        fs::write(&projects, "heading\n-\n").unwrap();
+        assert!(
+            legacy_project_names(&projects)
+                .unwrap_err()
+                .contains("malformed")
+        );
+        fs::write(&projects, "- ../unsafe /checkout\n").unwrap();
+        assert!(
+            legacy_project_names(&projects)
+                .unwrap_err()
+                .contains("unsafe")
+        );
+        fs::write(&projects, [0xff, 0xfe]).unwrap();
+        assert!(
+            legacy_project_names(&projects)
+                .unwrap_err()
+                .contains("UTF-8")
+        );
+
+        let fixture = home_fixture(&root);
+        fs::write(fixture.join(MARKER), "not json").unwrap();
+        assert!(marker(&fixture).unwrap_err().contains("invalid"));
+        fs::write(
+            fixture.join(MARKER),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": MIGRATION_SCHEMA,
+                "task_writer_version": 1,
+                "operation_id": "old",
+                "runtime_version": env!("CARGO_PKG_VERSION"),
+                "applied_at": "2026-09-17T00:00:00Z",
+                "backup_manifest": "state/backup.json"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(marker(&fixture).unwrap_err().contains("unsupported"));
+    }
+
+    #[test]
+    fn planning_reports_retained_and_unsafe_home_shapes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let home = home_fixture(&root);
+        fs::write(home.join("data/projects.md"), "ignored\n- missing /old\n").unwrap();
+        fs::write(home.join("state/.task-writer-version"), "future\n").unwrap();
+        let mut current = subagent_model::TaskRecord::new(
+            "current".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "parent".into(),
+            "root".into(),
+            home.to_string_lossy().into_owned(),
+        );
+        current.briefs[0].scope = "already current".into();
+        fs::write(
+            home.join("state/current.meta"),
+            subagent_model::write_meta("kind=delivery\n", &current).unwrap(),
+        )
+        .unwrap();
+        let report = inspect(&home, "unsafe-shapes", &BTreeSet::new()).unwrap();
+        assert_eq!(report.state, HomeState::Blocked);
+        assert_eq!(report.tasks, 1);
+        assert_eq!(report.legacy_tasks, 0);
+        assert!(report.retained.iter().any(|item| item.contains("missing")));
+        assert!(
+            report
+                .blockers
+                .iter()
+                .any(|item| item.contains("writer version"))
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            fs::remove_file(home.join("state/.task-writer-version")).unwrap();
+            symlink(regular_file(&root), home.join("state/.lock")).unwrap();
+            let report = inspect(&home, "unsafe-lock", &BTreeSet::new()).unwrap();
+            assert!(report.blockers.iter().any(|item| item.contains("symlink")));
+            assert!(
+                apply(&home, "unsafe-lock", &BTreeSet::new())
+                    .unwrap_err()
+                    .contains("symlink")
+            );
+        }
+    }
+
+    #[test]
+    fn restart_summary_projects_current_task_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let home = home_fixture(&root);
+        let mut record = subagent_model::TaskRecord::new(
+            "current".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "parent".into(),
+            "root".into(),
+            home.to_string_lossy().into_owned(),
+        );
+        record.briefs[0].scope = "finish migration recovery".into();
+        record.accepted_brief_path = Some("state/brief-current.json".into());
+        record.schedule.dependencies = vec!["dependency".into()];
+        record
+            .schedule
+            .decisions
+            .push(subagent_model::HumanDecision {
+                id: "open-question".into(),
+                task_id: "current".into(),
+                brief_revision: 1,
+                workflow_revision: None,
+                question: "Which recovery source?".into(),
+                answer: None,
+            });
+        record
+            .schedule
+            .decisions
+            .push(subagent_model::HumanDecision {
+                id: "answered-question".into(),
+                task_id: "current".into(),
+                brief_revision: 1,
+                workflow_revision: None,
+                question: "Keep the backup?".into(),
+                answer: Some("yes".into()),
+            });
+        let attempt = record.attempt.as_ref().unwrap().clone();
+        record
+            .delivery
+            .history
+            .push(super::super::delivery_evidence::DeliveryEvidence {
+                evidence_id: "migration-evidence".into(),
+                attempt_id: attempt.id,
+                attempt_generation: attempt.generation,
+                brief_revision: attempt.brief_revision,
+                commit: "a".repeat(40),
+                accepted_scope: "finish migration recovery".into(),
+                checks: Vec::new(),
+                review: None,
+                limitations: Vec::new(),
+                pr_url: Some("https://github.com/example/project/pull/1".into()),
+                outcome: super::super::delivery_evidence::DeliveryOutcome::Published,
+                observed_at: "2026-09-17T00:00:00Z".into(),
+            });
+        fs::write(
+            home.join("state/current.meta"),
+            subagent_model::write_meta("kind=delivery\n", &record).unwrap(),
+        )
+        .unwrap();
+
+        let summary = restart_summary(&home, 10);
+        assert!(summary.available);
+        assert_eq!(summary.omitted, 0);
+        let task = &summary.tasks[0];
+        assert_eq!(task.objective.as_deref(), Some("finish migration recovery"));
+        assert_eq!(task.dependencies, ["dependency"]);
+        assert_eq!(task.open_questions, ["Which recovery source?"]);
+        assert_eq!(
+            task.evidence,
+            [
+                "state/brief-current.json",
+                "https://github.com/example/project/pull/1"
+            ]
+        );
+        assert_eq!(task.attempt_generation, Some(1));
+        assert!(!task.legacy_unknown);
+    }
+
+    fn regular_file(root: &Path) -> PathBuf {
+        let path = root.join("lock-target");
+        fs::write(&path, "lock").unwrap();
+        path
+    }
+
+    #[test]
     fn relocation_moves_real_git_worktrees_and_publishes_persistent_receipts() {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path()).unwrap();
