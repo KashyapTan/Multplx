@@ -160,7 +160,10 @@ test_identity_mismatch_never_signals_decoy() {
 
 test_opt_out_uses_natural_poll() {
   local home="$TMP_ROOT/disabled" id=nudge-disabled-d4 output="$TMP_ROOT/disabled-watch" pid
-  start_watcher "$home" 3 "$output"
+  # The poll timer starts before the watcher publishes readiness. Leave enough
+  # room for a load-delayed startup so this assertion measures the nudge path,
+  # not whether the already-running natural timer happened to expire.
+  start_watcher "$home" 8 "$output"
   pid=$WATCHER_PID
   wait_for_watcher "$home" "$pid" || fail "opt-out watcher did not publish a healthy lock"
   sleep 0.3
@@ -173,7 +176,7 @@ test_opt_out_uses_natural_poll() {
   [ ! -s "$home/state/.wake-queue" ] \
     || fail "MX_NUDGE=0 enqueued a wake before the natural poll"
 
-  wait_for_queue "$home" 50 || fail "natural poll did not pick up an opt-out status event"
+  wait_for_queue "$home" 100 || fail "natural poll did not pick up an opt-out status event"
   wait "$pid" || fail "natural-poll watcher did not exit cleanly"
   [ "$(cat "$home/state/$id.status")" = "blocked: poll fallback" ] \
     || fail "MX_NUDGE=0 changed the durable status line"
