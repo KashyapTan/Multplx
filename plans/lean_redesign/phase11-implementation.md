@@ -184,3 +184,17 @@ Follow-up validation passed:
 
 The original full coverage measurement and performance artifacts above describe the pre-follow-up build; the follow-up does not claim a new complete coverage measurement or remote green run.
 The user will monitor the new CI run after this fix is pushed.
+
+## PR 47 second CI follow-up
+
+[Run 35369297490](https://github.com/KashyapTan/Multplx/actions/runs/35369297490) passed the Linux Rust lane and every behavior lane after the launcher fix.
+Two checks remained: the macOS production-boundary suite hit a Viz shell-fixture race, and the coverage job was canceled at its 15-minute job limit.
+Coverage setup consumed 80 seconds; the instrumented command then ran for 13 minutes 51 seconds before cancellation during the shared lifecycle contracts, after the Phase 11 instrumented contracts and subsequent suites had passed.
+The coverage job now allows 30 minutes, consistent with the prior complete local run duration and still bounded.
+The coverage command, tests, exclusions and 93 percent threshold are unchanged; the repository CI invariant checks the new cap.
+The Viz shell fixture captures the failed conditional response before validating the twelve concurrent responses and metrics, so assertion subprocesses cannot consume its retry window.
+Fixed cache-expiry and retry sleeps are replaced by observable-state predicates.
+The original 200 ms refresh interval, 500 ms command deadline, two-second failure wait, exact reader counts and failed-response assertions remain unchanged.
+Eight consecutive focused Viz suite runs passed; shell syntax, ShellCheck, workflow YAML parsing, documentation classification and whitespace checks passed.
+The updated CI contract suite also passed, with the coverage command and threshold preserved.
+The second follow-up will be pushed for the user to monitor; it does not claim a completed new remote coverage result.
