@@ -154,8 +154,33 @@ Other-provider live trials retain the previously recorded deferral; no new provi
 Codex Desktop remains a host-tool integration, not a shell-callable backend.
 Unsupported attachment reports the recorded conversation route; provider transcript resume remains provider-dependent.
 
-These are local macOS and containerized Linux results; the modified GitHub Actions workflow has not been run remotely in this task.
+The initial acceptance results above are local macOS and containerized Linux results.
+The subsequent remote CI run and its follow-up fixes are recorded below.
 Public release publication/download, deployment into a real operational home and the combined live-model 1/5/10/20 workload remain Phase 12 cutover work.
 The checkout's prohibition on Multplx session start remains respected.
 No assigned Phase 11 implementation or required repository check remains unresolved.
 Phase 12 is ready to begin with the provider deferral, public release, real-home activation and combined live-workload boundaries above.
+
+## PR 47 CI follow-up
+
+The first remote run, [35354230611](https://github.com/KashyapTan/Multplx/actions/runs/35354230611), exposed two timing issues that the initial local runs had not reproduced.
+The Linux Rust, both parallel behavior lanes and coverage job encountered an empty `/proc/<pid>/cmdline` while identifying a newly spawned launcher gate process.
+The launcher now retries the strict identity read for at most one second while its FIFO remains closed, refuses persistent uncertainty, and reaps failed children.
+The macOS Rust lane exposed a visualization fixture whose 20 ms cache lifetime allowed a legitimate third refresh before its assertion.
+That fixture now explicitly ages the initial cache and retry timestamp without depending on a short sleep.
+CI also explicitly installs the test tools used by the fixtures, including ripgrep, tmux, Python and zsh; missing ripgrep had caused static assertions to be bypassed in the earlier log.
+The coverage threshold and exclusion expression are unchanged.
+
+Follow-up validation passed:
+
+- `cargo test --locked --workspace`: 768 macOS tests and 770 Linux tests, zero failures.
+- `cargo build --release --workspace --locked`: passed on macOS and Linux.
+- `CARGO_TARGET_DIR=/tmp/mx-phase11-ci-coverage cargo llvm-cov --locked -p multplx-cli --test dispatch_runtime --no-report`: all nine instrumented dispatch tests passed.
+- Backend launcher identity tests: 11 passed on each platform, including injected transient recovery, persistent failure and early exit.
+- `target/release/mx test-run tests/mx-cursor-adapter.test.sh tests/mx-launcher-shell.test.sh tests/mx-launcher.test.sh tests/mx-release-package.test.sh tests/mx-launcher-connection.test.sh tests/mx-viz.test.sh --jobs auto`: six passed, zero gates, 35,794 ms on macOS.
+- The four Linux launcher/package suites passed, followed by 50 rapid Cursor and 25 rapid Codex launch repetitions with synthetic harnesses.
+- The corrected visualization test passed 40 repetitions; all eight visualization unit tests passed.
+- Formatting, all-target/all-feature Clippy, workflow YAML parsing, documentation classification and whitespace checks passed.
+
+The original full coverage measurement and performance artifacts above describe the pre-follow-up build; the follow-up does not claim a new complete coverage measurement or remote green run.
+The user will monitor the new CI run after this fix is pushed.

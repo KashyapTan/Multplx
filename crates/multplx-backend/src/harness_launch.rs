@@ -276,6 +276,45 @@ fn lifetime(identity: ProcessIdentity) -> LifetimeIdentity {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum LaunchedIdentityError {
+    Exited(i32),
+    Unidentified(String),
+}
+
+fn identify_launched_process<P, F>(
+    pid: u32,
+    processes: &P,
+    timeout: Duration,
+    retry_delay: Duration,
+    mut exit_code: F,
+) -> Result<ProcessIdentity, LaunchedIdentityError>
+where
+    P: ProcessProbe,
+    F: FnMut() -> std::io::Result<Option<i32>>,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        match processes.identity(pid) {
+            Ok(identity) => return Ok(identity),
+            Err(identity_failure) => match exit_code() {
+                Ok(Some(code)) => return Err(LaunchedIdentityError::Exited(code)),
+                Ok(None) if Instant::now() < deadline => thread::sleep(retry_delay),
+                Ok(None) => {
+                    return Err(LaunchedIdentityError::Unidentified(
+                        identity_failure.to_string(),
+                    ));
+                }
+                Err(observe_failure) => {
+                    return Err(LaunchedIdentityError::Unidentified(format!(
+                        "{identity_failure}; child observation failed: {observe_failure}"
+                    )));
+                }
+            },
+        }
+    }
+}
+
 /// Read-only state presented by the workspace launcher.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConversationState {
@@ -778,9 +817,23 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
         }
     };
     let processes = SystemProcessProbe::default();
-    let child_identity = match processes.identity(child.id()) {
+    // Linux briefly exposes an empty /proc/<pid>/cmdline while a freshly spawned
+    // process crosses exec. Keep the FIFO closed while retrying so the exact
+    // pre-exec lifetime is recorded before the harness is allowed to run.
+    let child_identity = match identify_launched_process(
+        child.id(),
+        &processes,
+        Duration::from_secs(1),
+        Duration::from_millis(2),
+        || {
+            child
+                .try_wait()
+                .map(|status| status.map(|value| value.code().unwrap_or(1)))
+        },
+    ) {
         Ok(identity) => lifetime(identity),
-        Err(failure) => {
+        Err(LaunchedIdentityError::Exited(code)) => return code,
+        Err(LaunchedIdentityError::Unidentified(failure)) => {
             let _ = child.kill();
             let _ = child.wait();
             error(format_args!(
@@ -891,18 +944,21 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::collections::HashMap;
     use std::ffi::OsString;
     use std::path::Path;
+    use std::time::Duration;
 
     use multplx_core::error::{CoreError, Result as CoreResult};
     use multplx_core::process::{AncestryRow, ProcessIdentity, ProcessProbe, SystemProcessProbe};
 
     use super::{
-        ConnectionRecord, ConversationState, LaunchReservation, ReservationState,
-        ancestor_contains, attach_live, canonical_directory, connection_path, conversation_state,
-        cursor_args_safe, lifetime, remember_harness, remembered_harness, reservation_path,
-        reservation_state, same_file, update_connection_owner, validate_home, validate_root,
+        ConnectionRecord, ConversationState, LaunchReservation, LaunchedIdentityError,
+        ReservationState, ancestor_contains, attach_live, canonical_directory, connection_path,
+        conversation_state, cursor_args_safe, identify_launched_process, lifetime,
+        remember_harness, remembered_harness, reservation_path, reservation_state, same_file,
+        update_connection_owner, validate_home, validate_root,
     };
 
     struct FixtureProbe {
@@ -940,6 +996,77 @@ mod tests {
                     value: pid.to_string(),
                 })
         }
+    }
+
+    struct LaunchIdentityProbe {
+        attempts: Cell<usize>,
+        failures_before_success: usize,
+    }
+
+    impl ProcessProbe for LaunchIdentityProbe {
+        fn is_alive(&self, _pid: u32) -> bool {
+            true
+        }
+
+        fn identity(&self, pid: u32) -> CoreResult<ProcessIdentity> {
+            let attempt = self.attempts.get();
+            self.attempts.set(attempt + 1);
+            if attempt < self.failures_before_success {
+                return Err(CoreError::MalformedRecord {
+                    kind: "Linux process command line",
+                    reason: "empty or oversized command line",
+                });
+            }
+            Ok(ProcessIdentity {
+                pid,
+                marker: "linux-starttime=700 cmdline-hex=6d78".to_owned(),
+            })
+        }
+
+        fn ancestry_row(&self, _pid: u32) -> CoreResult<AncestryRow> {
+            unreachable!("launch identity retry does not inspect ancestry")
+        }
+    }
+
+    #[test]
+    fn launched_identity_retries_transient_reads_but_preserves_failure_and_exit() {
+        let transient = LaunchIdentityProbe {
+            attempts: Cell::new(0),
+            failures_before_success: 2,
+        };
+        let identity = identify_launched_process(
+            42,
+            &transient,
+            Duration::from_secs(1),
+            Duration::ZERO,
+            || Ok(None),
+        )
+        .expect("transient process identity");
+        assert_eq!(identity.pid, 42);
+        assert_eq!(transient.attempts.get(), 3);
+
+        let permanent = LaunchIdentityProbe {
+            attempts: Cell::new(0),
+            failures_before_success: usize::MAX,
+        };
+        assert!(matches!(
+            identify_launched_process(43, &permanent, Duration::ZERO, Duration::ZERO, || Ok(None)),
+            Err(LaunchedIdentityError::Unidentified(message))
+                if message.contains("empty or oversized command line")
+        ));
+        assert_eq!(permanent.attempts.get(), 1);
+
+        let exited = LaunchIdentityProbe {
+            attempts: Cell::new(0),
+            failures_before_success: usize::MAX,
+        };
+        assert_eq!(
+            identify_launched_process(44, &exited, Duration::from_secs(1), Duration::ZERO, || Ok(
+                Some(17)
+            ),),
+            Err(LaunchedIdentityError::Exited(17))
+        );
+        assert_eq!(exited.attempts.get(), 1);
     }
 
     #[test]
