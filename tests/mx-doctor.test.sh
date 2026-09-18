@@ -153,7 +153,7 @@ test_clean_fixture_and_exit_zero() {
   local output="$CASE_DIR/doctor.out" status
   run_doctor_capture "$output" status
   expect_code 0 "$status" "clean doctor sweep"
-  assert_grep 'summary: 14 OK · 0 WARN · 0 FAIL          exit 0' "$output" \
+  assert_grep 'summary: 15 OK · 0 WARN · 0 FAIL          exit 0' "$output" \
     "clean sweep summary mismatch"
   pass "clean fixture reports every check OK and exits zero"
 }
@@ -355,8 +355,8 @@ test_exit_codes_and_json_contract() {
   jq -e '
     .schema == "mx-doctor.v1" and
     .worst_severity == "OK" and .exit_code == 0 and
-    .summary == {"ok":14,"warn":0,"fail":0} and
-    (.findings | length) == 14
+    .summary == {"ok":15,"warn":0,"fail":0} and
+    (.findings | length) == 15
   ' "$json" >/dev/null || fail "clean JSON contract mismatch"
 
   read_case "$(make_case json-warn)"

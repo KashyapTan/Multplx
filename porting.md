@@ -12,8 +12,8 @@ The dependency-ordered implementation plans are in [plans/lean_redesign](plans/l
 
 This is a planned product redesign, not a behavior-preserving language port.
 These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
-Phases 01-08 are implemented and verified; [Phase 08 evidence](plans/lean_redesign/phase08-implementation.md) records ordered autonomous workflows, exact request and allocation binding, repository checks and integration limits.
-Phases 09-12 and release activation remain planned.
+Phases 01-09 are implemented and verified; [Phase 09 evidence](plans/lean_redesign/phase09-implementation.md) records recoverable existing-home migration, compact restart state, exact legacy Git and persistent-home transfer, repository checks and integration limits.
+Phases 10-12 and release activation remain planned.
 The original source baseline was commit `6360b040460a08c2d5b8bcfcbc5e64e6e024ab53`, inspected on 2026-09-11.
 This revision incorporates the user's 2026-09-14 notes and architecture review at commit `c09ede3d015799739354ff00e5b0e5e84845737e`.
 The objective is high-quality progress on 10-20 concurrent tasks through one human-facing orchestrator, measured by completed useful work and human attention rather than agent count.

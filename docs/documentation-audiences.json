@@ -437,6 +437,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/state-migration.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/worktrees.md",
       "audience": "maintainer-architecture"
     },
@@ -466,6 +470,10 @@
     },
     {
       "path": "plans/lean_redesign/phase08-implementation.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase09-implementation.md",
       "audience": "maintainer-verification"
     }
   ]

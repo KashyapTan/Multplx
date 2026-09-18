@@ -11,6 +11,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Architecture](architecture.md) explains the maintainer, broker, actor, daemon, worktree, supervision, and delivery model.
 - [Configuration](configuration.md) owns `MX_HOME`, local settings, harness selection, dispatch profiles, capacity, and the universal toolchain.
 - [Sub-agent records](subagent-model.md) explains task, attempt, accepted brief, project and checkout identity and the lean compatibility boundary.
+- [Operational-home migration](state-migration.md) explains inspect, apply, rollback, compact restart context and exact legacy worktree transfer.
 - [Delivery](delivery.md) explains branch publication, revision-bound evidence and human-only PR merges.
 
 ## Operate Multplx

@@ -182,6 +182,7 @@ fn family(path: &str) -> &'static str {
         | "mx-send-popup-settle.test.sh"
         | "mx-send-settle.test.sh"
         | "mx-stow-contract.test.sh"
+        | "mx-state-migration.test.sh"
         | "mx-subagent-pretool-check.test.sh"
         | "mx-supervision-instructions.test.sh"
         | "mx-tmux-submit-busy.test.sh"

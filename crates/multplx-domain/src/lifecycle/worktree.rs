@@ -808,6 +808,137 @@ impl Store {
         Ok(allocation)
     }
 
+    /// Move one explicitly recorded legacy Git worktree into the internal
+    /// allocation namespace. The caller owns source-metadata validation and
+    /// reference publication; this method owns the Git move and new lease.
+    pub fn relocate_legacy(
+        &self,
+        request: &Acquire<'_>,
+        legacy: &LegacyAllocation,
+        fault: Option<Fault>,
+    ) -> Result<Allocation> {
+        if request.request_id.is_empty()
+            || request.task_id.is_empty()
+            || request.attempt_id.is_empty()
+            || *request.project != self.project
+            || !legacy.path.is_absolute()
+        {
+            return Err(
+                "legacy relocation requires exact request, task, attempt and project identity"
+                    .into(),
+            );
+        }
+        let owner_home = fs::canonicalize(request.owner_home).map_err(|e| e.to_string())?;
+        let _operation = self.operation()?;
+        let id = self
+            .find_request(&owner_home, request.request_id)?
+            .map(|allocation| allocation.binding.allocation_id)
+            .unwrap_or_else(|| key(&format!("{}:{}", owner_home.display(), request.request_id)));
+        let record_path = self.record_path(&id)?;
+        let mut allocation = if fs::symlink_metadata(&record_path).is_ok() {
+            let current = self.inspect(&id)?;
+            if current.request_id != request.request_id
+                || current.owner_home != owner_home
+                || current.project != *request.project
+                || current.binding.task_id != request.task_id
+                || current.binding.attempt_id != request.attempt_id
+                || current.binding.persistent != request.persistent
+            {
+                return Err("legacy relocation request conflicts with recorded allocation".into());
+            }
+            if current.state == State::Active {
+                self.verify_worktree(&current, false)?;
+                return Ok(current);
+            }
+            if current.state != State::Reserved {
+                return Err("legacy relocation is retained in a non-resumable disposition".into());
+            }
+            current
+        } else {
+            let destination = self.paths.join(&id);
+            if fs::symlink_metadata(&destination).is_ok()
+                || self.inventory()?.contains(&destination)
+            {
+                return Err("legacy relocation destination is already occupied; retained".into());
+            }
+            let allocation = Allocation {
+                version: 1,
+                request_id: request.request_id.into(),
+                owner_home,
+                project: request.project.clone(),
+                state: State::Reserved,
+                reason: Some(format!(
+                    "legacy worktree relocation from {} with unknown historical acquisition lease",
+                    legacy.path.display()
+                )),
+                rebind_from: None,
+                directory_identity: None,
+                binding: AllocationBinding {
+                    allocation_id: id.clone(),
+                    lease_id: key(&format!("legacy:{id}:{:?}", std::time::SystemTime::now())),
+                    generation: 1,
+                    project_id: request.project.project_id.clone(),
+                    checkout_id: request.project.checkout_id.clone(),
+                    common_git_identity: request.project.common_git_identity.clone(),
+                    path: text(&destination)?.into(),
+                    base_revision: request.project.starting_revision.clone(),
+                    task_id: request.task_id.into(),
+                    attempt_id: request.attempt_id.into(),
+                    persistent: request.persistent,
+                },
+            };
+            self.save(&allocation)?;
+            allocation
+        };
+        crash_boundary("legacy-reservation");
+        if fault == Some(Fault::AfterReservation) {
+            return Err("injected after legacy relocation reservation".into());
+        }
+        let destination = Path::new(&allocation.binding.path);
+        let inventory = self.inventory()?;
+        if legacy.path.exists() {
+            let source = fs::canonicalize(&legacy.path).map_err(|e| e.to_string())?;
+            let top = fs::canonicalize(git(&source, &["rev-parse", "--show-toplevel"])?)
+                .map_err(|e| e.to_string())?;
+            let common = fs::canonicalize(git(
+                &source,
+                &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            )?)
+            .map_err(|e| e.to_string())?;
+            if source != legacy.path
+                || top != source
+                || common != self.project.common_git_dir
+                || !inventory.contains(&source)
+            {
+                return Err(
+                    "legacy worktree identity does not match the selected project; retained".into(),
+                );
+            }
+            occupants(&source)?;
+            if destination.exists() || inventory.contains(&destination.to_path_buf()) {
+                return Err("both legacy source and relocation destination exist; retained".into());
+            }
+            git(
+                &self.project.canonical_path,
+                &["worktree", "move", "--", text(&source)?, text(destination)?],
+            )?;
+        } else if !destination.exists() || !inventory.contains(&destination.to_path_buf()) {
+            return Err(
+                "legacy source disappeared before a Git move could be reconciled; retained".into(),
+            );
+        }
+        crash_boundary("legacy-git");
+        if fault == Some(Fault::AfterGit) {
+            return Err("injected after legacy Git move".into());
+        }
+        self.verify_worktree(&allocation, false)?;
+        let metadata = fs::symlink_metadata(destination).map_err(|e| e.to_string())?;
+        allocation.directory_identity = Some((metadata.dev(), metadata.ino()));
+        allocation.state = State::Active;
+        self.save(&allocation)?;
+        Ok(allocation)
+    }
+
     /// Transfer the same retained progress to the next attempt. The previous
     /// full token is retained only as a receipt for idempotent handoff retries;
     /// it never authorizes release, prune, retain or another handoff.

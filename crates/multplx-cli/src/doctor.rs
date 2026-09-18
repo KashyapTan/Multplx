@@ -38,6 +38,7 @@ const CHECKS: &[(&str, &str)] = &[
     ("tools", "tools & environment"),
     ("primary-tangle", "tools & environment"),
     ("compat-symlinks", "tools & environment"),
+    ("home-migration", "tools & environment"),
 ];
 
 fn finding(
@@ -300,6 +301,67 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                     None,
                     false,
                 )
+            }
+        }
+        "home-migration" => {
+            let marker = paths.state.join(".home-schema-version");
+            match multplx_core::filesystem::read_bounded_regular(&marker, 64 * 1024) {
+                Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    Ok(value)
+                        if value.get("schema_version").and_then(|value| value.as_u64())
+                            == Some(1)
+                            && value
+                                .get("task_writer_version")
+                                .and_then(|value| value.as_u64())
+                                == Some(2) =>
+                    {
+                        finding(name, "OK", "operational home schema is current", None, false)
+                    }
+                    _ => finding(
+                        name,
+                        "FAIL",
+                        "operational home migration marker is incompatible or corrupt",
+                        Some("run `mx migrate inspect` with the matching runtime; do not start an older writer".into()),
+                        false,
+                    ),
+                },
+                Err(multplx_core::error::CoreError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    let has_legacy_state = metas(paths).into_iter().next().is_some()
+                        || paths.data.join("projects.md").is_file()
+                        || [
+                            "actor-harness",
+                            "daemon-harness",
+                            "actor-dispatch.json",
+                        ]
+                        .iter()
+                        .any(|name| paths.state.parent().is_some_and(|home| home.join("config").join(name).is_file()));
+                    if has_legacy_state {
+                        finding(
+                            name,
+                            "WARN",
+                            "operational home is unversioned",
+                            Some("run `mx migrate inspect`, then apply only after its blockers are resolved".into()),
+                            false,
+                        )
+                    } else {
+                        finding(
+                            name,
+                            "OK",
+                            "empty operational home has no migration input",
+                            None,
+                            false,
+                        )
+                    }
+                }
+                Err(error) => finding(
+                    name,
+                    "FAIL",
+                    format!("operational home migration marker is unavailable: {error}"),
+                    Some("inspect the marker and keep writers stopped".into()),
+                    false,
+                ),
             }
         }
         "dangling-pids" => {

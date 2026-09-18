@@ -7,6 +7,7 @@ mod deep_review;
 mod doctor;
 mod domain;
 mod launcher;
+mod migration;
 mod project;
 mod review;
 mod session_start;
@@ -59,6 +60,12 @@ enum Command {
     /// Register and inspect stable local project and checkout identities.
     #[command(disable_help_flag = true)]
     Project {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Inspect, apply, roll back, or summarize an operational-home migration.
+    #[command(disable_help_flag = true)]
+    Migrate {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -708,6 +715,7 @@ impl Cli {
                 }
             }
             Command::Project { args } => project::run(&args),
+            Command::Migrate { args } => migration::run(&args),
             Command::HomeSeed { args } => run_home_seed(&args),
             Command::Domain { args } => domain::run(&args),
             Command::Spawn { args } => run_spawn(&args),

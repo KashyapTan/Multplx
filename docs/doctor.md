@@ -43,6 +43,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 | `tools` | `FAIL` when a universal or selected-backend tool is absent or the backend is invalid. |
 | `primary-tangle` | `FAIL` when the primary checkout is on a named non-default branch, using the same shared tangle probe as bootstrap. |
 | `compat-symlinks` | `OK` when retired compatibility paths are absent or resolve, and `WARN` when a configured path dangles or is not a symlink. |
+| `home-migration` | `OK` for the supported lean home and task-writer versions, `WARN` for an unversioned home, and `FAIL` for an incompatible, corrupt or unreadable marker. |
 
 The tools check intentionally verifies the `gh` executable but does not require an authenticated GitHub session.
 The agent environment remains uncredentialed by default, and credentialed delivery stays outside agent context.
@@ -68,3 +69,4 @@ A second `--fix` on the repaired state makes no further filesystem changes.
 Bootstrap and doctor share tool and primary-tangle logic through `bin/mx-probe-lib.sh`.
 Bootstrap retains its session-start diagnostics and mutation gates, while doctor provides a separate on-demand read-only report.
 Neither path requires deep-review or vplan for ordinary work, and bootstrap never probes their assets.
+The home migration finding is read-only and points to [`mx migrate inspect`](state-migration.md); doctor never applies or rolls back a migration.

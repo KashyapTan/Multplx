@@ -102,8 +102,8 @@ A missing leased observation remains unknown (`null`), rather than becoming proo
 Unknown metadata versions, duplicate paths, missing recorded entries and corrupt records refuse interpretation.
 No read executes the external provider, scans its global pools or adopts a worktree.
 
-Phase 09 owns executable transfer: prove ownership, quiesce old endpoints and wrapper shells, persist a relocation intent, move a verified resource out of the external pool using Git, and update each reference through its owner.
-The relocation intent carries source digest, old/new paths, common Git identity, process-quiescence evidence, reference receipts and progress.
-Its structural validator rejects malformed or inconsistent receipts; Phase 09 must still prove live ownership, wrapper shutdown and reference completion before executing any transfer.
+[`mx migrate relocate-worktree`](state-migration.md#legacy-worktree-transfer) owns executable transfer after exact task, attempt, project, path and quiescence proof.
+The internal allocation reservation is durable before the Git move, and the completed mapping carries the source digest, historical lease uncertainty, old/new paths and new allocation receipt.
+The executable transfer rejects malformed or inconsistent ownership and leaves the source metadata plus foreign pool entries untouched.
 Unsupported moves and uncertain ownership retain the original work and its evidence.
 The [research record](../plans/lean_redesign/treehouse-replacement-assessment.md) links the pinned upstream schema and explains the transfer risk.
