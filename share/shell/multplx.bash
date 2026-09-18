@@ -77,3 +77,9 @@ case ${TERM:-} in
     [ -t 1 ] && printf '\033]0;multplx\007'
     ;;
 esac
+
+_multplx_complete() {
+  local current=${COMP_WORDS[COMP_CWORD]}
+  COMPREPLY=( $(compgen -W 'workspace chat project projects task domain spawn launcher-install shell doctor update paths claude codex cursor pi --backend --plain --help --version' -- "$current") )
+}
+complete -F _multplx_complete multplx

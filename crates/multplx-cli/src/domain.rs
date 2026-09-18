@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-const HELP: &str = "Usage: mx domain inspect <coordinator-id>\n       mx domain revise <coordinator-id> --expected-revision N --scope TEXT --reason TEXT [(--project PROJECT)...|--idea IDEA]\n       mx domain bind-project <coordinator-id> --expected-revision N --project PROJECT --reason TEXT\n\nScope and project changes require a stopped/reconciled coordinator. Revisions fence the prior assignment generation, update the accepted charter and preserve task identity and history. Project selectors resolve through the canonical project registry.\n";
+const HELP: &str = "Usage: mx domain inspect <coordinator-id>\n       mx domain revise <coordinator-id> --expected-revision N --scope TEXT --reason TEXT [(--project PROJECT)...|--idea IDEA]\n       mx domain bind-project <coordinator-id> --expected-revision N --project PROJECT --reason TEXT\n       mx task --domain <coordinator-id> --project PROJECT [OPTIONS] TEXT\n\nScope and project changes require a stopped/reconciled coordinator. Revisions fence the prior assignment generation, update the accepted charter and preserve task identity and history. Project selectors resolve through the canonical project registry. Explicit task routing accepts only a project already recorded in that coordinator's domain and delivers to its private durable inbox; selecting a project alone keeps the main orchestrator route.\n";
 
 fn active_home() -> PathBuf {
     std::env::var_os("MX_HOME")

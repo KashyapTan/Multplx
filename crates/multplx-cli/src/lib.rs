@@ -14,9 +14,11 @@ mod session_start;
 mod status_snapshot;
 mod supervision;
 mod system_snapshot;
+mod task;
 mod task_transfer;
 mod tooling;
 mod workflow_runtime;
+mod workspace_tui;
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -60,6 +62,12 @@ enum Command {
     /// Register and inspect stable local project and checkout identities.
     #[command(disable_help_flag = true)]
     Project {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Submit a project-bound request to the existing orchestrator conversation.
+    #[command(disable_help_flag = true)]
+    Task {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -715,6 +723,7 @@ impl Cli {
                 }
             }
             Command::Project { args } => project::run(&args),
+            Command::Task { args } => task::run(&args),
             Command::Migrate { args } => migration::run(&args),
             Command::HomeSeed { args } => run_home_seed(&args),
             Command::Domain { args } => domain::run(&args),

@@ -11,6 +11,7 @@ pub mod inheritance;
 pub mod lifecycle;
 pub mod maintainer_override;
 pub mod operational_input;
+pub mod project_discovery;
 pub mod project_registry;
 pub mod review_delivery;
 pub mod session;

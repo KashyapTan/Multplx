@@ -23,6 +23,9 @@ Its complete macOS release checks, Linux changed-surface checks, isolated-home f
 Phase 10 supplies canonical task portfolios, bounded observations and responsive read-only MX Viz with exact evidence links.
 Its macOS/Linux checks, unchanged coverage gate, browser acceptance and recorded service/baseline measurements pass, with mock and live boundaries recorded in the [Phase 10 evidence](plans/lean_redesign/phase10-implementation.md).
 
+Phase 11 supplies global workspace entry, bounded project discovery, durable multi-repository task intake, a shared terminal workspace and verified runtime packages.
+Its macOS/Linux checks, unchanged coverage gate and isolation proof pass, with synthetic harness, executable-probe and release boundaries recorded in the [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md).
+
 ## This checkout
 
 The user deliberately renamed the root operating contract to [AGENTS_E.md](AGENTS_E.md) to prevent automatic injection.

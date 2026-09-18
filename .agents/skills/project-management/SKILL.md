@@ -15,11 +15,14 @@ Keep each repository's instructions with its task; do not load every discovered 
 Discovery and registration do not authorize changes to a borrowed checkout or its removal.
 Remote-free repositories can support local tasks.
 
-`mx project --help` describes explicit local registration, exact selector resolution, listing and metadata-only forgetting.
+`mx project --help` and `multplx projects --help` describe local registration, exact resolution, discovery configuration, location repair and metadata-only forgetting.
 `mx project register PATH --alias NAME` remembers a user-owned checkout without changing its files.
 `bin/mx-project-mode.sh --help` retains the legacy flat-registry compatibility view.
 `bin/mx-brief.sh --help` accepts project references for scaffolding.
-The [sub-agent model](../../../docs/subagent-model.md) owns project/checkout identity and frozen task bindings; Phase 11 implements discovery and workspace entry.
+The [sub-agent model](../../../docs/subagent-model.md) owns project/checkout identity and frozen task bindings.
+The [workspace guide](../../../docs/workspace-entry.md) describes launch from any directory, terminal entry and one-chat connection.
+`multplx task --help` owns durable terminal intake and retry identity; a receipt does not imply implementation has started.
+`multplx shell` retains explicit shell activation.
 Do not treat legacy mode or yolo values as a request for a review tool, a project-intake interview or merge authority.
 Use a URL for intentional cloning when no selected local checkout supplies the work.
 A request to unregister a borrowed repository does not authorize deleting its files.

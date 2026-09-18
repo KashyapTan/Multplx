@@ -171,6 +171,7 @@ fn family(path: &str) -> &'static str {
         | "mx-doctor.test.sh"
         | "mx-journal.test.sh"
         | "mx-launcher.test.sh"
+        | "mx-release-package.test.sh"
         | "mx-launcher-shell.test.sh"
         | "mx-timeline.test.sh"
         | "mx-report.test.sh"
@@ -191,6 +192,7 @@ fn family(path: &str) -> &'static str {
         | "mx-vplan.test.sh"
         | "mx-workflow-lib.test.sh"
         | "mx-workflow.test.sh"
+        | "mx-workspace-discovery.test.sh"
         | "mx-upstream-diff.test.sh"
         | "mx-test-run.test.sh"
         | "mx-test-isolation-proof.test.sh"
@@ -246,6 +248,7 @@ fn family(path: &str) -> &'static str {
         "mx-backend-herdr.test.sh"
         | "mx-backend-tmux-smoke.test.sh"
         | "mx-backend.test.sh"
+        | "mx-launcher-connection.test.sh"
         | "mx-dispatch-queue.test.sh"
         | "mx-herdr-session-cleanup.test.sh"
         | "mx-send-strict.test.sh"
@@ -2393,6 +2396,10 @@ mod tests {
         assert_eq!(
             family("tests/mx-backend-herdr-smoke.test.sh"),
             "real-herdr-gated"
+        );
+        assert_eq!(
+            family("tests/mx-launcher-connection.test.sh"),
+            "backend-dispatch"
         );
     }
 

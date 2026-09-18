@@ -9,6 +9,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 
 - [Getting Started](getting-started.md) takes a new operator from installation to a safe first broker request.
 - [Architecture](architecture.md) explains the maintainer, broker, actor, daemon, worktree, supervision, and delivery model.
+- [Workspace entry and local projects](workspace-entry.md) covers one chat, optional discovery, local reuse, terminal intake and connection limits.
 - [Configuration](configuration.md) owns `MX_HOME`, local settings, harness selection, dispatch profiles, capacity, and the universal toolchain.
 - [Sub-agent records](subagent-model.md) explains task, attempt, accepted brief, project and checkout identity and the lean compatibility boundary.
 - [Operational-home migration](state-migration.md) explains inspect, apply, rollback, compact restart context and exact legacy worktree transfer.

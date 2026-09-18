@@ -7,6 +7,7 @@ set -u
 
 mx_test_tmproot_into TMP_ROOT mx-launcher-shell
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
+RUST_BINARY=${MX_RUST_BIN:-$ROOT/target/release/mx}
 RUNTIME="$TMP_ROOT/runtime"
 mkdir -p "$RUNTIME/bin" "$RUNTIME/.agents/skills" "$RUNTIME/share/shell/shims" \
   "$RUNTIME/config" "$RUNTIME/data" "$RUNTIME/projects" "$RUNTIME/state" "$RUNTIME/target/release"
@@ -14,7 +15,7 @@ for file in mx-launcher.sh mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx
   mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
   cp "$ROOT/bin/$file" "$RUNTIME/bin/$file"
 done
-cp "$ROOT/target/release/mx" "$RUNTIME/target/release/mx"
+cp "$RUST_BINARY" "$RUNTIME/target/release/mx"
 cp "$ROOT/share/shell/multplx.bash" "$RUNTIME/share/shell/multplx.bash"
 cp "$ROOT/share/shell/multplx.zsh" "$RUNTIME/share/shell/multplx.zsh"
 cp "$ROOT/share/shell/shims/"* "$RUNTIME/share/shell/shims/"
@@ -157,7 +158,7 @@ SH
       'exit' \
     | HOME="$home" TERM=dumb SHELL=/bin/bash MX_LAUNCH_SHELL=/bin/bash \
       PATH="$goodbin:/usr/bin:/bin" MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$RUNTIME" \
-      "$RUNTIME/bin/mx-launcher.sh" 2>/dev/null)
+      "$RUNTIME/bin/mx-launcher.sh" shell 2>/dev/null)
   assert_contains "$output" "SHELL_CWD=$caller" "activated shell did not retain caller cwd"
   assert_contains "$output" 'ACTIVE=1' "activated shell marker environment missing"
   assert_contains "$output" "HARNESS_CWD=$RUNTIME" "activated harness did not use runtime root"

@@ -42,6 +42,32 @@ jobs:
         run: cargo test --locked --workspace
       - name: Build release workspace
         run: cargo build --release --workspace --locked
+      - name: Build and verify platform release package
+        run: |
+          set -eu
+          package="$RUNNER_TEMP/multplx-${{ runner.os }}-${{ runner.arch }}"
+          bin/mx-release-package.sh "$package" target/release/mx
+          case "${{ runner.os }}" in
+            macOS) (cd "$RUNNER_TEMP" && shasum -a 256 -c "$(basename "$package").tar.gz.sha256") ;;
+            Linux) (cd "$RUNNER_TEMP" && sha256sum -c "$(basename "$package").tar.gz.sha256") ;;
+          esac
+          target/release/mx launcher-install --package "$package" \
+            --bin-dir "$RUNNER_TEMP/package-install/bin" \
+            --config-dir "$RUNNER_TEMP/package-install/config" \
+            --data-dir "$RUNNER_TEMP/package-install/data"
+          "$RUNNER_TEMP/package-install/bin/multplx" paths
+          target/release/mx launcher-install --uninstall \
+            --bin-dir "$RUNNER_TEMP/package-install/bin" \
+            --config-dir "$RUNNER_TEMP/package-install/config" \
+            --data-dir "$RUNNER_TEMP/package-install/data"
+      - name: Upload platform release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: multplx-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.tar.gz
+            ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.tar.gz.sha256
+          if-no-files-found: error
       - name: Exercise production Rust command boundaries
         run: target/release/mx test-run --family pure-contract-unit --jobs auto
 
@@ -65,8 +91,8 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
-      - name: Install Git worktree occupant observer
-        run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install coverage runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y lsof tmux python3
       - name: Enforce workspace line coverage
         # Behavior lanes own the named process-driven CLI modules, home seeding,
         # upstream review, and the three OS-lifecycle Herdr modules.

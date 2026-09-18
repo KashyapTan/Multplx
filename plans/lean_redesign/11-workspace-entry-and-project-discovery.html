@@ -66,7 +66,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 11 · Multplx</div>
 <h1>Workspace Entry and Project Discovery</h1>
 <p class="subtitle">Launch from anywhere, reuse local repositories and enter the same orchestrator conversation.</p>
-<div class="badges"><span class="badge phase">Phase 11 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Planned · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 11 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · scoped acceptance · 2026-09-18</span></div>
 </div></header><main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p><a href="../../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat">A9 in porting.md</a> owns the accepted workspace contract. This phase implements that contract; it does not create a per-repository orchestrator or replace the existing harness conversation.</p></div>
 <p><b>Dependencies:</b> 02, 04, 09, 10. Project identity is implemented in Phase 02. Discovery, packaging and TUI design can begin against those contracts earlier; final integration requires migration, durable request routing and the shared projection.</p>
@@ -131,6 +131,6 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>A project selector alone does not fix flat-clone assumptions, root-bound harness startup or live-owner refusal. Use the shared Phase 02 identity and Phase 04 inbox before exposing commands that promise local reuse and one-chat continuity. Do not claim every provider supports terminal attachment.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this phase has not changed the runtime. Record change/revision references, exact verification results, actual installation/connection coverage and remaining acceptance items here. Link supporting task or PR evidence and mark complete only after required checks pass.</p>
+<p>Status: implemented and verified on <code>lean-phase11-workspace-entry</code>, not yet merged. <a href="phase11-implementation.md">Implementation evidence</a> records global entry, bounded discovery, durable intake, the terminal workspace and verified packages, with passing macOS/Linux checks, 93.19% line coverage and isolation proof. Synthetic harness checks and real executable probes are distinguished; live-provider and release-cutover boundaries remain explicit for Phase 12.</p>
 <nav class="footer-nav"><a href="10-mx-viz-and-scale.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="12-documentation-validation-cutover.html">Next →</a></nav>
 </main></body></html>

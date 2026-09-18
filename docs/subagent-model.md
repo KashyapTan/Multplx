@@ -142,7 +142,7 @@ The default ownership is `user-owned`; `--managed` explicitly declares a Multplx
 `mx project list` prints the version 2 filesystem catalog at `data/projects.json`.
 `mx project resolve SELECTOR` returns the selected project/checkout/base binding or an ambiguity error with candidate paths.
 `mx project forget CHECKOUT_ID` removes one remembered location.
-These commands register explicit choices; recursive discovery and workspace entry remain Phase 11 work.
+These commands register explicit choices; [workspace entry](workspace-entry.md) adds optional recursive discovery, terminal selection and durable intake through the same owners.
 
 ```sh
 mx project register /work/customer-api --alias customer-api

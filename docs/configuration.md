@@ -29,33 +29,39 @@ The dormant contract retains ownership and reconciliation requirements without a
 
 ## Global launcher paths and activation
 
-The global launcher gives one persistent multi-project control plane two explicit path identities.
-`MX_ROOT_OVERRIDE` names the plain tracked checkout that supplies `AGENTS.md`, harness configuration, skills, extensions, workflows, documentation, and scripts in an operational release.
-`MX_HOME` names the persistent operational home whose `config/`, `data/`, `projects/`, and `state/` directories retain all private configuration, registries, clones, artifacts, queues, reports, and runtime state.
-The launcher canonicalizes and validates both paths on every command and rejects a linked task worktree as the code root.
-A managed code root must remain clean, while an adopted checkout remains available for ordinary development edits whether it shares or separates its operational home.
+The global launcher keeps three path identities separate.
+`MX_ROOT_OVERRIDE` names the installed runtime assets or an adopted source checkout.
+`MX_HOME` names the persistent operational home whose `config/`, `data/`, `projects/` and `state/` directories retain configuration, registries, artifacts, queues and task records.
+Optional discovery roots name directories to search for local projects; the caller's working directory does not select a new home or become an implicit recursive search root.
+The [workspace entry guide](workspace-entry.md) owns local checkout selection, durable intake and terminal navigation.
 
-The installer stores one literal absolute path per file at `${XDG_CONFIG_HOME:-$HOME/.config}/multplx/root` and `home`.
-Those files are parsed as data and are never sourced or evaluated as shell code.
-The stable bootstrap lives at `${XDG_BIN_HOME:-$HOME/.local/bin}/multplx`; managed runtime and home defaults live below `${XDG_DATA_HOME:-$HOME/.local/share}/multplx/`.
-The managed installer records `multplx.managed=true` in the runtime clone's local Git configuration, so launcher cleanliness checks apply only to installer-owned runtimes and never conflate an adopted checkout with a separately selected home.
-Custom directories are available through the installer's help and are recorded into the bootstrap atomically.
+The installer stores literal absolute paths under `${XDG_CONFIG_HOME:-$HOME/.config}/multplx`.
+These records are data, never shell code.
+The global command lives at `${XDG_BIN_HOME:-$HOME/.local/bin}/multplx`, and managed runtime assets and the separate home default below `${XDG_DATA_HOME:-$HOME/.local/share}/multplx/`.
+Package installation validates version-matched assets and binary checksums without a source checkout or Rust build.
+Source installation remains available; linked task worktrees cannot masquerade as the runtime source checkout, and managed source checkouts retain their cleanliness checks.
+[Getting started](getting-started.md) and `multplx launcher-install --help` describe installation, transactional upgrade and data-preserving uninstall.
 
-Activation sets `MULTPLX_ACTIVE=1`, `MX_ROOT_OVERRIDE`, and `MX_HOME`, captures the real Claude, Codex, Cursor, and Pi paths before adding shims, and then replaces the launcher with the user's interactive shell.
-Bash and Zsh source the user's ordinary interactive rc once before re-prepending the harness shims and composing one static prompt/title marker.
-Other tested POSIX shells retain the environment and shims with a one-line banner, while unsupported shells refuse explicitly.
-Nested activation refuses rather than stacking prompt, path, or environment layers.
-The prompt marker is presentation only: it runs no command, reads no file or state, opens no socket, and does not indicate lock ownership.
+Bare `multplx` opens the terminal workspace.
+`multplx chat` enters the remembered supported harness, and `multplx chat codex` explicitly selects Codex CLI.
+The existing `multplx claude|codex|cursor|pi` forms remain available.
+The launcher captures caller context before the harness enters its trusted runtime directory.
+A valid caller repository may be suggested for the next request, but this never changes existing tasks or imports that repository's instructions into unrelated tasks.
 
-Typing `claude`, `codex`, `agent`, `cursor-agent`, or `pi` in the activated shell executes the captured real binary from the code root in a child process.
-The activated shell and its caller stay in their original directory.
-The harness shim performs only the existing read-only lock-status preflight; `bin/mx-lock.sh` remains the lock authority, while `multplx-cli::session_start` owns startup and the stable `bin/mx-session-start.sh` name is only its transport adapter.
-A known different live harness holder refuses before the real binary starts, while stale or uncertain state remains for session start to adjudicate conservatively.
+`multplx shell` explicitly activates an ordinary child shell.
+Activation sets `MULTPLX_ACTIVE=1`, `MX_ROOT_OVERRIDE` and `MX_HOME`, captures real harness executable paths and prepends the shell shims.
+Bash and Zsh source the user's ordinary rc once and display a static marker; nested activation refuses.
+The marker reads no state and does not claim that the orchestrator is running.
+The activated shell stays in the caller's directory, while a harness child starts in the validated runtime context.
+Exit restores the parent environment unchanged.
 
-The launcher does not infer a project from the caller's directory and never imports or registers it automatically.
-Broker harness, worker harness/model/effort, runtime backend, and request project remain independent selection axes.
-Ambient `TMUX`, Herdr, and cmux identifiers pass through unchanged unless the user supplies the launcher's session-scoped backend selector.
-[Launcher verification](verification/launcher.md) holds current shell, harness, path, lock, and performance evidence.
+One live owner remains authoritative across launchers and project selection.
+A supported recorded endpoint permits connection; otherwise the launcher shows the existing conversation route and durable task submission remains available.
+An unavailable attachment never authorizes a second owner.
+Recovery preserves runtime state without claiming unsupported transcript restoration.
+Harness, worker model/effort, backend and request project remain independent choices.
+Ambient tmux, Herdr and cmux identifiers pass through unless explicitly overridden by the launcher's backend option.
+[Launcher verification](verification/launcher.md) records deterministic, terminal and real-provider evidence separately.
 
 ## Pi Calm preference (config/calm)
 

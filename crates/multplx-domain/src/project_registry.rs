@@ -319,7 +319,7 @@ fn git_value(path: &Path, args: &[&str]) -> Result<String, String> {
         .to_owned())
 }
 
-fn inspect_checkout(path: &Path) -> Result<ProjectBinding, String> {
+pub(crate) fn inspect_checkout(path: &Path) -> Result<ProjectBinding, String> {
     let selected = fs::canonicalize(path).map_err(|e| {
         format!(
             "checkout unavailable at {}: {e}; repair its recorded location",
@@ -349,6 +349,38 @@ fn inspect_checkout(path: &Path) -> Result<ProjectBinding, String> {
         starting_revision,
         ownership: CheckoutOwnership::UserOwned,
     })
+}
+
+/// Report whether tracked or untracked working changes are present without
+/// refreshing the index or changing checkout state.
+pub fn has_working_changes(path: &Path) -> Result<bool, String> {
+    Ok(!git_value(
+        path,
+        &[
+            "-c",
+            "core.fsmonitor=false",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=normal",
+            "--ignore-submodules=all",
+        ],
+    )?
+    .is_empty())
+}
+
+/// Resolve a user-named commit without changing HEAD, the index or files.
+pub fn resolve_starting_revision(path: &Path, revision: &str) -> Result<String, String> {
+    if revision.trim().is_empty()
+        || revision.starts_with('-')
+        || revision.chars().any(char::is_control)
+    {
+        return Err("starting revision must name a commit".into());
+    }
+    git_value(
+        path,
+        &["rev-parse", "--verify", &format!("{revision}^{{commit}}")],
+    )
+    .map_err(|error| format!("starting revision {revision:?} is unavailable: {error}"))
 }
 
 /// Read and structurally validate canonical identities, without probing or mutating checkout files.
@@ -454,6 +486,13 @@ pub fn register_project_at(
     .map_err(|e| e.to_string())?;
     fs::create_dir_all(home.join("state")).map_err(|e| e.to_string())?;
     crate::lifecycle::subagent_model::require_writer_version(&home.join("state"))?;
+    let revalidated = inspect_checkout(&observed.canonical_path)?;
+    if revalidated.checkout_id != observed.checkout_id
+        || revalidated.checkout_identity != observed.checkout_identity
+        || revalidated.common_git_identity != observed.common_git_identity
+    {
+        return Err("repair target changed during location repair; retry".into());
+    }
     let mut catalog = read_catalog(home)?;
     // Revalidate filesystem identity under the publication lock without holding it across Git commands.
     if identity(&observed.canonical_path)? != observed.checkout_identity
@@ -850,6 +889,80 @@ pub fn unregister_checkout(home: &Path, checkout_id: &str) -> Result<(), String>
     .map_err(|e| e.to_string())
 }
 
+/// Repair a moved checkout location only when its filesystem and common Git
+/// identities still match the remembered checkout. A copy or replacement is a
+/// different checkout and must be registered separately.
+pub fn repair_checkout(
+    home: &Path,
+    checkout_id: &str,
+    new_path: &Path,
+) -> Result<ProjectBinding, String> {
+    let observed = inspect_checkout(new_path)?;
+    let data = home.join("data");
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        data.join(".projects.lock"),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|e| e.to_string())?;
+    fs::create_dir_all(home.join("state")).map_err(|e| e.to_string())?;
+    crate::lifecycle::subagent_model::require_writer_version(&home.join("state"))?;
+    let mut catalog = read_catalog(home)?;
+    let (project_index, checkout_index) = catalog
+        .projects
+        .iter()
+        .enumerate()
+        .find_map(|(project_index, project)| {
+            project
+                .checkouts
+                .iter()
+                .position(|checkout| checkout.checkout_id == checkout_id)
+                .map(|checkout_index| (project_index, checkout_index))
+        })
+        .ok_or("unknown checkout identity")?;
+    let recorded_project_identity = catalog.projects[project_index].common_git_identity.clone();
+    let recorded_checkout_identity = catalog.projects[project_index].checkouts[checkout_index]
+        .checkout_identity
+        .clone();
+    let recorded_checkout_id = catalog.projects[project_index].checkouts[checkout_index]
+        .checkout_id
+        .clone();
+    if recorded_project_identity != observed.common_git_identity
+        || recorded_checkout_identity != observed.checkout_identity
+        || observed.checkout_id != recorded_checkout_id
+    {
+        return Err(
+            "repair target is a different or replaced checkout; register it separately".into(),
+        );
+    }
+    if catalog
+        .projects
+        .iter()
+        .flat_map(|project| &project.checkouts)
+        .any(|candidate| {
+            candidate.checkout_id != checkout_id
+                && candidate.canonical_path == observed.canonical_path
+        })
+    {
+        return Err("repair target is already registered to another checkout".into());
+    }
+    let checkout = &mut catalog.projects[project_index].checkouts[checkout_index];
+    checkout.canonical_path.clone_from(&observed.canonical_path);
+    checkout.common_git_dir.clone_from(&observed.common_git_dir);
+    let ownership = checkout.ownership;
+    catalog.validate()?;
+    multplx_core::filesystem::atomic_replace(
+        data.join("projects.json"),
+        &serde_json::to_vec_pretty(&catalog).map_err(|e| e.to_string())?,
+        0o600,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(ProjectBinding {
+        ownership,
+        ..observed
+    })
+}
+
 fn binding_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or_default()
@@ -968,6 +1081,162 @@ mod identity_tests {
                 "base",
             ],
         );
+    }
+
+    fn catalog_record(path: &Path) -> ProjectRecord {
+        ProjectRecord {
+            project_id: "project-one".into(),
+            display_name: "one".into(),
+            aliases: vec!["alias-one".into()],
+            common_git_identity: "repository-one".into(),
+            remote: None,
+            publication: PublicationDestination::Local,
+            review: None,
+            checkouts: vec![CheckoutRecord {
+                checkout_id: "checkout-one".into(),
+                canonical_path: path.to_owned(),
+                checkout_identity: "checkout-identity-one".into(),
+                common_git_dir: path.join(".git"),
+                ownership: CheckoutOwnership::UserOwned,
+            }],
+        }
+    }
+
+    #[test]
+    fn registry_validation_and_remote_parsing_reject_ambiguous_identity_inputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().canonicalize().unwrap();
+        let valid = catalog_record(&path);
+        assert!(
+            ProjectCatalog {
+                schema_version: PROJECT_SCHEMA_VERSION,
+                projects: vec![valid.clone()],
+            }
+            .validate()
+            .is_ok()
+        );
+
+        let mut wrong_version = ProjectCatalog::default();
+        wrong_version.schema_version += 1;
+        assert_eq!(
+            wrong_version.validate().unwrap_err(),
+            "unsupported project registry version"
+        );
+
+        let mut empty_project = valid.clone();
+        empty_project.project_id.clear();
+        assert!(
+            ProjectCatalog {
+                schema_version: PROJECT_SCHEMA_VERSION,
+                projects: vec![empty_project],
+            }
+            .validate()
+            .unwrap_err()
+            .contains("project identity")
+        );
+
+        let mut duplicate_alias = valid.clone();
+        duplicate_alias.aliases.push("alias-one".into());
+        assert!(
+            ProjectCatalog {
+                schema_version: PROJECT_SCHEMA_VERSION,
+                projects: vec![duplicate_alias],
+            }
+            .validate()
+            .unwrap_err()
+            .contains("project alias")
+        );
+
+        let mut relative_checkout = valid.clone();
+        relative_checkout.checkouts[0].canonical_path = std::path::PathBuf::from("relative");
+        assert!(
+            ProjectCatalog {
+                schema_version: PROJECT_SCHEMA_VERSION,
+                projects: vec![relative_checkout],
+            }
+            .validate()
+            .unwrap_err()
+            .contains("checkout identity")
+        );
+
+        let mut second = valid.clone();
+        second.project_id = "project-two".into();
+        second.display_name = "two".into();
+        second.aliases.clear();
+        second.checkouts[0].checkout_id = "checkout-two".into();
+        second.checkouts[0].canonical_path = path.join("two");
+        assert!(
+            ProjectCatalog {
+                schema_version: PROJECT_SCHEMA_VERSION,
+                projects: vec![valid.clone(), second],
+            }
+            .validate()
+            .unwrap_err()
+            .contains("project identity")
+        );
+
+        assert_eq!(
+            github_project("git@github.com:owner/repository.git").as_deref(),
+            Some("owner/repository")
+        );
+        assert_eq!(
+            github_project("https://github.com/owner/repository/").as_deref(),
+            Some("owner/repository")
+        );
+        for remote in [
+            "https://example.com/owner/repository.git",
+            "https://github.com/owner/repository/extra",
+            "https://github.com/bad owner/repository",
+            "https://github.com/owner/bad repository",
+            "https://user:secret@github.com/owner/repository.git",
+            "ssh://root@github.com/owner/repository.git",
+            "owner@example.com:repository",
+            "https://github.com/owner/repository.git?token=secret",
+        ] {
+            assert_eq!(github_project(remote), None, "remote {remote:?}");
+        }
+        assert_eq!(
+            public_remote("ssh://git@github.com/owner/repository.git").as_deref(),
+            Some("ssh://git@github.com/owner/repository.git")
+        );
+    }
+
+    #[test]
+    fn revision_and_registration_inputs_fail_before_mutating_the_registry() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let source = temp.path().join("source");
+        repo(&source);
+
+        for revision in ["", "   ", "--all", "bad\nrevision"] {
+            assert_eq!(
+                resolve_starting_revision(&source, revision).unwrap_err(),
+                "starting revision must name a commit"
+            );
+        }
+        assert!(
+            resolve_starting_revision(&source, "missing-revision")
+                .unwrap_err()
+                .contains("is unavailable")
+        );
+        assert_eq!(
+            register_project(&home, &source, Some("  "), CheckoutOwnership::UserOwned,)
+                .unwrap_err(),
+            "project alias must not be empty"
+        );
+        assert_eq!(read_catalog(&home).unwrap(), ProjectCatalog::default());
+
+        let binding =
+            register_project(&home, &source, Some("source"), CheckoutOwnership::UserOwned).unwrap();
+        let mut invalid_revision = binding.clone();
+        invalid_revision.starting_revision = "short".into();
+        assert_eq!(
+            verify_location(&invalid_revision).unwrap_err(),
+            "starting revision must be a full commit identity"
+        );
+        let mut missing_revision = binding;
+        missing_revision.starting_revision = "0".repeat(40);
+        assert!(verify_location(&missing_revision).is_err());
     }
 
     #[test]
@@ -1341,6 +1610,72 @@ mod identity_tests {
         fs::create_dir(&empty).unwrap();
         git(&empty, &["init", "--quiet"]);
         assert!(bind_project(&home, &empty).unwrap_err().contains("unborn"));
+    }
+
+    #[test]
+    fn moved_location_repairs_only_the_same_checkout_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let original = temp.path().join("original");
+        let moved = temp.path().join("moved");
+        repo(&original);
+        let binding =
+            register_project(&home, &original, Some("app"), CheckoutOwnership::UserOwned).unwrap();
+        fs::rename(&original, &moved).unwrap();
+        assert!(
+            resolve_checkout(&home, "app")
+                .unwrap_err()
+                .contains("unavailable")
+        );
+        let repaired = repair_checkout(&home, &binding.checkout_id, &moved).unwrap();
+        assert_eq!(repaired.checkout_id, binding.checkout_id);
+        assert_eq!(
+            resolve_checkout(&home, "app").unwrap().canonical_path,
+            fs::canonicalize(&moved).unwrap()
+        );
+
+        let copy = temp.path().join("copy");
+        repo(&copy);
+        assert!(
+            repair_checkout(&home, &binding.checkout_id, &copy)
+                .unwrap_err()
+                .contains("different or replaced")
+        );
+    }
+
+    #[test]
+    fn working_change_probe_excludes_changes_and_disables_configured_fsmonitor() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let checkout = temp.path().join("checkout");
+        repo(&checkout);
+        let marker = temp.path().join("fsmonitor-ran");
+        let monitor = temp.path().join("monitor.sh");
+        fs::write(
+            &monitor,
+            format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&monitor).unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&monitor, permissions).unwrap();
+        git(
+            &checkout,
+            &["config", "core.fsmonitor", monitor.to_str().unwrap()],
+        );
+        fs::write(checkout.join("local-change"), "not committed\n").unwrap();
+
+        assert!(has_working_changes(&checkout).unwrap());
+        assert!(
+            !marker.exists(),
+            "configured fsmonitor executed during intake"
+        );
+        assert_eq!(
+            resolve_starting_revision(&checkout, "HEAD").unwrap(),
+            git(&checkout, &["rev-parse", "HEAD"])
+        );
+        assert!(checkout.join("local-change").is_file());
     }
 }
 

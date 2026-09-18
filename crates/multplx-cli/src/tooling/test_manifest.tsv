@@ -61,7 +61,9 @@ tests/mx-instruction-owners.test.sh	none
 tests/mx-journal.test.sh	none
 tests/mx-launcher-live-e2e.test.sh	live-harness
 tests/mx-launcher-shell.test.sh	none
+tests/mx-launcher-connection.test.sh	tmux-server
 tests/mx-launcher.test.sh	none
+tests/mx-release-package.test.sh	none
 tests/mx-lock-override.test.sh	none
 tests/mx-maintainer-override.test.sh	none
 tests/mx-maintainer-translation-contract.test.sh	none
@@ -122,6 +124,7 @@ tests/mx-viz.test.sh	viz-port
 tests/mx-vplan.test.sh	vplan-port
 tests/mx-workflow-lib.test.sh	none
 tests/mx-workflow.test.sh	none
+tests/mx-workspace-discovery.test.sh	none
 tests/mx-wake-daemon-lifecycle-e2e.test.sh	watcher-process
 tests/mx-wake-queue.test.sh	watcher-process
 tests/mx-watch-checkpoint.test.sh	watcher-process

@@ -6,6 +6,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 INSTALLER=$ROOT/bin/mx-launcher-install.sh
+RUST_BINARY=${MX_RUST_BIN:-$ROOT/target/release/mx}
 mx_test_tmproot_into TMP_ROOT mx-launcher
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 
@@ -18,7 +19,7 @@ make_runtime() {
     mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
     cp "$ROOT/bin/$source_file" "$target/bin/$source_file"
   done
-  cp "$ROOT/target/release/mx" "$target/target/release/mx"
+  cp "$RUST_BINARY" "$target/target/release/mx"
   cp "$ROOT/share/shell/multplx.bash" "$target/share/shell/multplx.bash"
   cp "$ROOT/share/shell/multplx.zsh" "$target/share/shell/multplx.zsh"
   cp "$ROOT/share/shell/shims/claude" "$target/share/shell/shims/claude"
@@ -56,6 +57,7 @@ mkdir -p "$record"
 pwd -P >"$record/cwd"
 printf '%s\n' "${MX_ROOT_OVERRIDE:-}" >"$record/root"
 printf '%s\n' "${MX_HOME:-}" >"$record/home"
+printf '%s\n' "${MX_CALLER_CWD:-}" >"$record/caller"
 printf '%s\n' "${MX_BACKEND-unset}" >"$record/backend"
 printf '%s\n' "${TMUX-unset}" >"$record/tmux"
 printf '%s\n' "${HERDR_ENV-unset}" >"$record/herdr"
@@ -189,7 +191,7 @@ test_verified_artifact_upgrade_and_broken_download_recovery() {
   local broken_case="$TMP_ROOT/artifact-broken" artifact checksum bad_checksum status before
   make_runtime "$root"
   artifact="$TMP_ROOT/multplx-release-artifact"
-  cp "$ROOT/target/release/mx" "$artifact"
+  cp "$RUST_BINARY" "$artifact"
   chmod +x "$artifact"
   checksum=$(shasum -a 256 "$artifact" | awk '{print $1}')
   case "$checksum" in
@@ -306,6 +308,8 @@ test_harness_cwd_arguments_environment_and_backend() {
   [ "$(cat "$record/cwd")" = "$root" ] || fail "harness did not start at code root"
   [ "$(cat "$record/root")" = "$root" ] || fail "harness root environment mismatch"
   [ "$(cat "$record/home")" = "$root" ] || fail "harness home environment mismatch"
+  [ "$(cat "$record/caller")" = "$caller" ] || fail "launcher did not preserve caller context"
+  [ "$(cat "$root/config/primary-harness")" = codex ] || fail "launcher did not remember the selected harness"
   [ "$(cat "$record/backend")" = herdr ] || fail "explicit backend did not win"
   [ "$(cat "$record/tmux")" = 'tmux bytes ;$' ] || fail "TMUX bytes changed"
   [ "$(cat "$record/herdr")" = 1 ] || fail "HERDR_ENV changed"
@@ -322,6 +326,13 @@ test_harness_cwd_arguments_environment_and_backend() {
   [ "$(cat "$record/arg.0")" = 'space arg' ] || fail "space argument changed"
   [ "$(cat "$record/arg.1")" = '*?[glob]' ] || fail "glob argument changed"
   [ "$(cat "$record/arg.2")" = $'line one\nline two' ] || fail "newline argument changed"
+
+  rm -rf "$record"
+  (cd "$caller" && PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
+    "$case_dir/bin/multplx" chat >/dev/null) \
+    || fail "remembered chat launch failed"
+  [ "$(cat "$record/caller")" = "$caller" ] || fail "remembered chat lost caller context"
+  [ "$(cat "$record/argc")" = 0 ] || fail "remembered chat changed arguments"
 
   rm -rf "$record"
   PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
@@ -345,6 +356,23 @@ test_harness_cwd_arguments_environment_and_backend() {
     "$case_dir/bin/multplx" claude >/dev/null 2>&1; then status=0; else status=$?; fi
   [ "$status" -eq 127 ] || fail "missing harness returned $status, expected 127"
   pass "harness launch preserves cwd, argv, environment, and backend independence"
+}
+
+test_workspace_default_and_explicit_shell_grammar() {
+  local root="$TMP_ROOT/workspace-root" case_dir="$TMP_ROOT/workspace-case" caller output
+  make_runtime "$root"
+  install_fixture "$case_dir" "$root"
+  caller="$case_dir/unrelated"
+  mkdir -p "$caller"
+  output=$(cd "$caller" && COLUMNS=240 LINES=20 "$case_dir/bin/multplx") \
+    || fail "bare workspace launch failed"
+  assert_contains "$output" 'Multplx workspace' "bare launch did not open workspace"
+  assert_contains "$output" "Context: $caller" "workspace omitted caller context"
+  assert_contains "$output" 'No known projects' "empty workspace state missing"
+  output=$("$case_dir/bin/multplx" --help)
+  assert_contains "$output" 'multplx PATH|ALIAS' "workspace selector grammar missing"
+  assert_contains "$output" 'multplx chat' "chat grammar missing"
+  pass "bare launch is a caller-aware workspace and shell mode remains explicit"
 }
 
 test_live_lock_refusal_and_stale_permission() {
@@ -464,7 +492,7 @@ test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
   make_runtime "$root"
   install_fixture "$case_dir" "$root"
   old_hash=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
-  cp "$ROOT/target/release/mx" "$artifact"
+  cp "$RUST_BINARY" "$artifact"
   printf '\0generation-two\0' >>"$artifact"
   chmod +x "$artifact"
   checksum=$(shasum -a 256 "$artifact" | awk '{print $1}')
@@ -567,6 +595,7 @@ test_verified_artifact_upgrade_and_broken_download_recovery
 test_plan13_adapters_are_exec_only
 test_managed_clone_and_linked_worktree_refusal
 test_harness_cwd_arguments_environment_and_backend
+test_workspace_default_and_explicit_shell_grammar
 test_live_lock_refusal_and_stale_permission
 test_operator_delegation_and_nested_refusal
 test_registration_conflict_mode_and_uninstall_preflight
@@ -631,7 +660,7 @@ test_explicit_root_does_not_require_repository_cwd() {
   (
     cd "$case_dir/cwd" || exit 1
     env -u MX_RUST_SOURCE_ROOT -u MX_LAUNCHER_DEFAULT_ROOT GIT_CEILING_DIRECTORIES="$case_dir" \
-      "$ROOT/target/release/mx" launcher-install --root "$root" --home "$root" \
+      "$RUST_BINARY" launcher-install --root "$root" --home "$root" \
       --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data"
   ) > "$case_dir/out" 2> "$case_dir/err" || fail "explicit root still requires repository cwd: $(cat "$case_dir/err")"
   assert_grep "$root" "$case_dir/config/root" 'explicit root changed'
