@@ -311,6 +311,23 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     );
     let daemon_total = daemon_rows.len();
     let mut model = json!({"schema":"mx-catchup.v1","home":home_label,"generated":now,"prs":if include_prs{"checked"}else{"not_requested (run: /catchup include PRs)"},"in_flight":take(in_flight,"--all-in-flight",bound("MX_STATUS_IN_FLIGHT",20)),"daemons":take(daemon_rows,"--all-daemons",bound("MX_STATUS_DAEMONS",20)),"decisions_open":take(decisions,"--all-decisions",bound("MX_STATUS_DECISIONS",20)),"landed":landed,"gates":take(gates,"--all-queued",bound("MX_STATUS_GATES",20)),"reports":take(reports,"--all-reports",bound("MX_STATUS_REPORTS",20)),"recorded_prs":take(recorded,"--all-recorded-prs",bound("MX_STATUS_RECORDED_PRS",20)),"omitted":[{"surface":"live PR discovery + checks","reveal":"--include-prs"}]});
+    let portfolio = root.get("portfolio").cloned().unwrap_or(Value::Null);
+    model["portfolio"] = if portfolio.is_object() {
+        json!({
+            "schema":portfolio["schema"],
+            "freshness":portfolio["freshness"],
+            "counts":portfolio["counts"],
+            "tasks":portfolio["tasks"].as_array().map(|tasks| tasks.iter().map(|task| json!({
+                "key":task["key"],"id":task["id"],"title":task["title"],"state":task["state"],
+                "project":task.pointer("/project/id"),"role":task["role"],"attempt":task["attempt"],
+                "workflow":{"id":task.pointer("/workflow/id"),"current_stage":task.pointer("/workflow/current_stage")},
+                "dependencies":task["dependencies"],"decisions":task["decisions"],
+                "review":task.pointer("/evidence/review_queue"),"freshness":task["freshness"]
+            })).collect::<Vec<_>>()).unwrap_or_default()
+        })
+    } else {
+        Value::Null
+    };
     let selected_fields = fields.split(',').map(str::trim).collect::<BTreeSet<_>>();
     let omitted = model["omitted"].as_array_mut().unwrap();
     for (field, surface, reveal) in [
@@ -487,8 +504,10 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             "mx-status-snapshot: projection failed\n".into(),
         );
     }
-    let encoded = serde_json::to_string_pretty(&model).unwrap();
     if json_output {
+        // JSON and TOON render the same bounded task-first restart projection.
+        // The full canonical detail remains available from mx-system-snapshot.
+        let encoded = serde_json::to_string_pretty(&model).unwrap();
         (0, format!("{encoded}\n"), String::new())
     } else if std::env::var("MX_STATUS_TEST_FAIL_PHASE").as_deref() == Ok("toon") {
         (
@@ -851,5 +870,5 @@ fn toon_quote(value: &str) -> String {
     }
 }
 fn usage() -> String {
-    "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-daemons] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n".into()
+    "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-daemons] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n\nJSON and default output share the same bounded task-first portfolio summary. Use mx-system-snapshot.sh --json for the full canonical portfolio detail.\n".into()
 }

@@ -61,7 +61,16 @@ Superseded attempts, allocation references and evidence remain historical record
 Accepted brief bytes are archived by revision, so a later source-file edit does not silently change the next launch.
 
 The existing `mx-system-snapshot.v1` wrapper includes version 2 `coordination` records and explicit `coordination_error` values on task rows.
-The typed snapshot consumer shares that record definition; later UI phases consume it without owning state.
+Its `portfolio` member is the typed `mx-portfolio.v1` read model shared by JSON status, workspace clients and MX Viz.
+`mx-status-snapshot.sh` renders one bounded restart summary of that portfolio in both JSON and TOON; `mx-system-snapshot.sh --json` retains the full canonical detail.
+Portfolio tasks use `owner_home#task:<id>` as the stable cross-home key and keep task count separate from current or retained sessions and prior attempts.
+They expose project and checkout identity, lineage, role, accepted brief, workflow stage, dependencies, decisions, revision-bound delivery evidence, allocation observations and latest meaningful change without becoming another state owner.
+`native_observations` retains provider starts, results and interruptions with nullable child identity; known provider children are deduplicated into session counts while observations without child identity do not inflate them.
+The only freshness status values are `fresh`, `partial`, `stale` and `unknown`; unavailable task or provider facts remain null with a reason instead of becoming idle, complete or passing.
+Decision waiting time comes from the accepted `needs-decision` evidence envelope when that durable owner record is available; older or bounded-away evidence leaves it unknown.
+Child-home task rows and domain observations are bounded, and omitted rows remain visible through counts and partial-state markers.
+Domain coordinators expose `validated_home` only after the recorded runtime home passes daemon-home identity and containment validation.
+MX Viz uses that field to authorize exact nested-home evidence links.
 
 ## Delivery evidence and human review
 

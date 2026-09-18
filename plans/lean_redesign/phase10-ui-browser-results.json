@@ -1,0 +1,160 @@
+{
+  "schema": "mx-viz-browser-evidence.v1",
+  "recorded_at": "2026-09-17T22:21:22-04:00",
+  "machine": {
+    "os": "Darwin 25.6.0 arm64",
+    "cpu": "Apple M5 Pro",
+    "memory_bytes": 25769803776
+  },
+  "runtime": {
+    "mx": "0.1.0 release build",
+    "service": "Rust viz-server",
+    "browser": "Chromium 153.0.8010.12",
+    "playwright": "1.63.0 temporary install outside repository",
+    "poll_ms": 2500,
+    "refresh_seconds": 2
+  },
+  "fixture": {
+    "generator": "tests/fixtures/viz/portfolio.mjs",
+    "scales": [
+      0,
+      1,
+      5,
+      10,
+      20
+    ],
+    "mixed_roles": [
+      "researcher",
+      "implementer",
+      "reviewer",
+      "sub-orchestrator"
+    ],
+    "boundary": "Deterministic canonical-schema mocks served through the real Rust service; accepted-brief proof used an isolated archived Markdown file and canonical owner/path. No live provider or human merge was simulated."
+  },
+  "layout": {
+    "wide": {
+      "viewport": "1440x900",
+      "workspace_columns": 2,
+      "side_position": "sticky"
+    },
+    "narrow": {
+      "viewport": "390x844",
+      "workspace_columns": 1,
+      "side_position": "static"
+    },
+    "horizontal_overflow_at_all_scales": false,
+    "screenshots_generated_for_each_scale_and_layout": true
+  },
+  "interaction": {
+    "meaningful_update_preserved_search": true,
+    "meaningful_update_preserved_focus": true,
+    "meaningful_update_preserved_expansion": true,
+    "qualified_deep_link_preserved": true,
+    "arrow_down_moved_to_next_task": true,
+    "console_or_page_errors": 0
+  },
+  "initial_twenty_task_interaction_after_data_ms": {
+    "samples": 20,
+    "cache": "warm shared service cache",
+    "p50": 15.873,
+    "p95": 19.555,
+    "max": 19.591,
+    "target": 2000,
+    "passed": true
+  },
+  "two_tab_seven_second_sample": {
+    "state_requests": 6,
+    "refresh_attempts": 3,
+    "refresh_successes": 3,
+    "max_refresh_ms": 148,
+    "interpretation": "Viewer requests increased while refresh work remained bounded by the shared service cache."
+  },
+  "isolated_real_collector": {
+    "generator": "tests/fixtures/viz/real-portfolio-home.sh",
+    "tasks": 20,
+    "records": 20,
+    "sessions": 0,
+    "rendered": true,
+    "interpretation": "The real collector preserved unavailable session identity instead of inventing sessions."
+  },
+  "boundary_exception": {
+    "event": "One default-home snapshot was accidentally read during validation.",
+    "disposition": "The transient JSON was deleted, no screenshot or content was retained, no operational state was mutated, and the result is excluded from acceptance evidence.",
+    "replacement": "The isolated real-portfolio-home collector result above is the canonical integration check."
+  },
+  "browser_acceptance": {
+    "scale_task_rows": {
+      "0_wide": 0,
+      "0_narrow": 0,
+      "1_wide": 1,
+      "1_narrow": 1,
+      "5_wide": 6,
+      "5_narrow": 6,
+      "10_wide": 12,
+      "10_narrow": 12,
+      "20_wide": 23,
+      "20_narrow": 23
+    },
+    "canonical_archived_brief": {
+      "source_url": "/artifact/ref/5dfe62665e1d0992dd489431bf1e005f38a5daab4666b5dc8dc5444db528a615",
+      "previewed": true,
+      "scriptless": true
+    },
+    "project_filters": {
+      "projects": [
+        {
+          "id": "alpha",
+          "display_name": "Console",
+          "path": "/work/console",
+          "records": 8
+        },
+        {
+          "id": "beta",
+          "display_name": "Console",
+          "path": "/work/labs/console",
+          "records": 8
+        },
+        {
+          "id": "gamma",
+          "display_name": "Runtime",
+          "path": "/work/org/platform/runtime",
+          "records": 7
+        }
+      ],
+      "duplicate_display_paths_distinct": true,
+      "distinct_repository_depths": [
+        2,
+        3,
+        4
+      ],
+      "bindings_restored_after_clear": true
+    },
+    "parallel_filters": {
+      "role": "implementer",
+      "state": "working",
+      "priority": "p20",
+      "exact_bindings": true
+    },
+    "nonoverlapping_poll": {
+      "maximum_simultaneous_state_requests": 1,
+      "completed_state_requests": 1
+    },
+    "hidden_poll": {
+      "method": "injected document.hidden state",
+      "scheduled_delay_ms": 15000
+    },
+    "unchanged_age": {
+      "status": 304,
+      "before_ms": 26,
+      "after_ms": 160,
+      "advanced": true
+    },
+    "failed_refresh": {
+      "status": 304,
+      "cache": "stale",
+      "refresh": "failed",
+      "error_header_present": true,
+      "browser_banner_visible": true
+    }
+  }
+}

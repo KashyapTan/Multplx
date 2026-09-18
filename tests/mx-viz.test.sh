@@ -53,9 +53,8 @@ make_home() {
 
 write_snapshot_fixture() {
   local file=$1 marker=$2 data_root=$3
-  jq -n --arg marker "$marker" --arg data "$data_root" '
-    {schema:"mx-system-snapshot.v1",generated:"2026-07-31T12:00:00Z",
-     marker:$marker,roots:{data:$data},tasks:[],scout_reports:[],
+  node "$ROOT/tests/fixtures/viz/portfolio.mjs" 0 | jq --arg marker "$marker" --arg data "$data_root" '
+    . + {marker:$marker,roots:{data:$data},tasks:[],scout_reports:[],
      backlog:{records:[]},main_inventory:{valid:true},daemon_current:{records:[]},
      watcher:{alive:true,stale:false,identity_verified:true,afk:false,beacon_age_secs:1},
      wake_queue:{depth:0,oldest_age_secs:null},
@@ -71,11 +70,13 @@ write_snapshot_fixture() {
 make_readers() {
   local dir=$1
   mkdir -p "$dir"
-  cat >"$dir/snapshot.sh" <<'SH'
+cat >"$dir/snapshot.sh" <<'SH'
 #!/usr/bin/env bash
 count=0
 [ ! -f "$MX_VIZ_COUNT_FILE" ] || count=$(cat "$MX_VIZ_COUNT_FILE")
 printf '%s\n' "$((count + 1))" >"$MX_VIZ_COUNT_FILE"
+[ ! -f "$MX_VIZ_DELAY_FILE" ] || sleep "$(cat "$MX_VIZ_DELAY_FILE")"
+[ ! -f "$MX_VIZ_FAIL_FILE" ] || { printf '%s\n' 'fixture refresh failed' >&2; exit 9; }
 cat "$MX_VIZ_FIXTURE"
 SH
 cat >"$dir/doctor.sh" <<'SH'
@@ -90,14 +91,26 @@ SH
   chmod +x "$dir/snapshot.sh" "$dir/doctor.sh" "$dir/timeline.sh"
 }
 
+make_real_snapshot_reader() {
+  local dir=$1
+  make_readers "$dir"
+  cat >"$dir/snapshot.sh" <<SH
+#!/usr/bin/env sh
+exec "$ROOT/bin/mx-system-snapshot.sh" "\$@"
+SH
+  chmod +x "$dir/snapshot.sh"
+}
+
 start_viz() {
-  local home=$1 port=$2 idle=${3:-60} refresh=${4:-0.2} readers=$5
+  local home=$1 port=$2 idle=${3:-60} refresh=${4:-0.2} readers=$5 timeout=${6:-2000}
   MX_HOME="$home" MX_VIZ_PORT="$port" MX_VIZ_IDLE_SECS="$idle" \
     MX_VIZ_POLL_MS=77 MX_VIZ_REFRESH_SECS="$refresh" \
+    MX_VIZ_COMMAND_TIMEOUT_MS="$timeout" \
     MX_VIZ_SNAPSHOT_BIN="$readers/snapshot.sh" \
     MX_VIZ_DOCTOR_BIN="$readers/doctor.sh" \
     MX_VIZ_TIMELINE_BIN="$readers/timeline.sh" \
     MX_VIZ_FIXTURE="$home/snapshot.json" MX_VIZ_COUNT_FILE="$home/snapshot.count" \
+    MX_VIZ_DELAY_FILE="$home/snapshot.delay" MX_VIZ_FAIL_FILE="$home/snapshot.fail" \
     "$CLI" serve
 }
 
@@ -225,6 +238,14 @@ etag_changed() {
   ! grep -F "ETag: $old" "$headers" >/dev/null
 }
 
+refresh_failed() {
+  curl -fsS "$1" | jq -e '.refresh.state == "failed" and .metrics.refresh_failures == 1' >/dev/null
+}
+
+refresh_succeeded_twice() {
+  curl -fsS "$1" | jq -e '.refresh.state == "idle" and .metrics.refresh_successes == 2' >/dev/null
+}
+
 test_lifecycle_cache_and_read_only_contract() {
   local home readers url record pid port before after body headers etag status raw_hash expected_hash mode url2 test_port
   home="$TMP_ROOT/lifecycle"
@@ -249,39 +270,35 @@ test_lifecycle_cache_and_read_only_contract() {
   mx_test_wait_until 3000 "dashboard HTTP readiness" wait_http "$url" || fail "dashboard was unreachable"
 
   grep -F 'content="77"' <(curl -fsS "$url") >/dev/null || fail "serve did not inject the configured poll interval"
-  grep -F 'Maintainer → broker → workers' <(curl -fsS "$url") >/dev/null || fail "dashboard tree shell was not served"
+  grep -F 'Task portfolio' <(curl -fsS "$url") >/dev/null || fail "dashboard portfolio shell was not served"
   curl -fsS "${url}assets/app.js" | grep -F 'If-None-Match' >/dev/null || fail "polling client lacks conditional requests"
-  grep -F '${headroom.in_use}/${headroom.capacity}' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "dashboard no longer renders the compact used/capacity headroom ratio"
-  ! grep -F '${headroom.available} free' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "dashboard retained redundant free-headroom text"
-  ! grep -F 'Fork watch' "$ROOT/share/viz/index.html" >/dev/null \
-    || fail "dashboard retained the fork-watch panel"
+  grep -F 'pollInFlight' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard lost non-overlapping client polling"
+  grep -F 'document.hidden ? hiddenPollMs : pollMs' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard lost hidden-tab polling backoff"
+  grep -F 'task.key || task.id' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard deep links do not prefer home-qualified task identity"
+  grep -F 'ArrowDown' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard lost keyboard task navigation"
+  grep -F 'Tasks are counted once' "$ROOT/share/viz/index.html" >/dev/null \
+    || fail "dashboard no longer distinguishes tasks from sessions and attempts"
   ! grep -REn 'https?://' "$ROOT/share/viz" >/dev/null || fail "dashboard assets contain an external dependency"
   ! grep -REn 'data-approve|btn-approve|Spawn actor|Raise a decision|Pause simulation' "$ROOT/share/viz" >/dev/null \
     || fail "dashboard assets retained demo or decision-write controls"
   grep -F 'Viewer only · respond through the ordinary Multplx workflow' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "decision drawer does not state its read-only boundary"
-  grep -F 'formatLocalTime(record.ts, { seconds: true })' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "timeline timestamps are not localized for the browser"
   grep -F 'hour12: true' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "dashboard timestamps no longer force the requested 12-hour clock"
-  ! grep -F 'JSON.stringify(record.detail)' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "timeline still renders raw JSON detail"
-  grep -F 'function humanizeEvent(event)' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "timeline event labels are not humanized"
-  grep -F 'function reconcileActors(tasks)' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "actor polling still lacks keyed DOM reconciliation"
-  ! sed -n '/function reconcileActors(tasks)/,/^}/p' "$ROOT/share/viz/app.js" | grep -F 'clear(row)' >/dev/null \
-    || fail "actor reconciliation still destroys the full row on every poll"
   grep -F 'if (!inside) dialog.close();' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "detail dialog does not close from a backdrop click"
   grep -F 'frame.setAttribute("sandbox", "")' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "rendered HTML artifacts are not isolated in a scriptless sandbox"
   grep -F 'function renderMarkdown(source)' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "Markdown artifacts do not have an in-page renderer"
-  grep -F 'function renderGateRuns(target, records)' "$ROOT/share/viz/app.js" >/dev/null \
-    || fail "deep-review gates still use the sparse generic renderer"
+  grep -F 'artifact.source_path === source' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "canonical evidence pointers are not joined to exact artifact routes"
+  grep -F 'X-Multplx-Observation-Age-Ms' "$ROOT/share/viz/app.js" >/dev/null \
+    || fail "dashboard does not keep age separate from meaningful content changes"
 
   headers="$home/headers"
   body="$home/body.json"
@@ -333,6 +350,206 @@ NODE
   after=$(state_digest "$home/state")
   [ "$after" = "$before" ] || fail "serve, poll, doctor, timeline, or stop mutated operational state"
   pass "viz lifecycle is singleton, loopback-only, cached, conditional, byte-preserving, and operationally read-only"
+}
+
+test_single_flight_stale_service_and_bounded_refresh() {
+  local home readers url pid test_port header output meta i etag failed_headers failed_body status
+  local -a callers=()
+  home="$TMP_ROOT/single-flight"
+  readers="$TMP_ROOT/readers-single-flight"
+  make_home "$home"
+  make_readers "$readers"
+  write_snapshot_fixture "$home/snapshot.json" alpha "$home/data"
+  test_port=$((PORT_BASE + 20))
+  url=$(start_viz "$home" "$test_port" 60 0.2 "$readers" 500) \
+    || fail "single-flight dashboard did not start"
+  pid=$(record_value "$home/state/.viz/server.run" pid)
+  track_pid "$pid"
+  curl -fsS -D "$home/initial.headers" -o "$home/initial.json" "${url}api/state" \
+    || fail "initial snapshot refresh failed: $(cat "$home/initial.json" 2>/dev/null)"
+  etag=$(awk 'tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}' "$home/initial.headers")
+  [ -n "$etag" ] || fail "initial snapshot response omitted ETag"
+  [ "$(cat "$home/snapshot.count")" = 1 ] || fail "initial cache launched more than one reader"
+
+  sleep 0.25
+  printf '%s\n' 1 >"$home/snapshot.delay"
+  for i in $(seq 1 12); do
+    header="$home/stale-$i.headers"
+    output="$home/stale-$i.json"
+    curl --max-time 0.5 -fsS -D "$header" -o "$output" "${url}api/state" &
+    callers+=("$!")
+    PIDS+=("$!")
+  done
+  for i in $(seq 1 12); do
+    wait "${callers[$((i - 1))]}" \
+      || fail "stale caller $i blocked on the stalled snapshot reader"
+    grep -Fi 'X-Multplx-Cache: stale' "$home/stale-$i.headers" >/dev/null \
+      || fail "stale caller $i did not receive stale cache metadata"
+    jq -e '.snapshot.marker == "alpha"' "$home/stale-$i.json" >/dev/null \
+      || fail "stale caller $i lost the last good snapshot"
+  done
+  mx_test_wait_until 2000 "bounded refresh failure" refresh_failed "${url}api/meta" \
+    || fail "stalled snapshot reader did not fail within its deadline"
+  [ "$(cat "$home/snapshot.count")" = 2 ] \
+    || fail "multiple viewers launched independent snapshot readers"
+  meta=$(curl -fsS "${url}api/meta") || fail "metrics endpoint failed after stalled refresh"
+  printf '%s\n' "$meta" | jq -e '
+    .metrics.refresh_attempts == 2 and
+    .metrics.refresh_successes == 1 and
+    .metrics.refresh_failures == 1 and
+    .metrics.stale_serves >= 12 and
+    .metrics.max_refresh_ms >= 400 and
+    .metrics.max_refresh_ms < 900' >/dev/null \
+    || fail "refresh metrics did not account for cache sharing and the bounded failure: $meta"
+  failed_headers="$home/stale-failed.headers"
+  failed_body="$home/stale-failed.json"
+  status=$(curl -sS -D "$failed_headers" -o "$failed_body" -H "If-None-Match: $etag" \
+    -w '%{http_code}' "${url}api/state")
+  [ "$status" = 304 ] || fail "failed stale conditional request returned HTTP $status"
+  grep -Fi 'X-Multplx-Cache: stale' "$failed_headers" >/dev/null \
+    || fail "failed stale response lost stale cache metadata"
+  grep -Fi 'X-Multplx-Refresh: failed' "$failed_headers" >/dev/null \
+    || fail "failed stale response lost refresh state"
+  awk '
+    BEGIN { found = 0 }
+    tolower($0) ~ /^x-multplx-refresh-error:/ {
+      sub(/\r$/, "")
+      value = $0
+      sub(/^[^:]*:[[:space:]]*/, "", value)
+      if (value != "" && value !~ /[[:cntrl:]]/) found = 1
+    }
+    END { exit !found }
+  ' "$failed_headers" \
+    || fail "failed stale 304 omitted its bounded single-line refresh error"
+
+  rm "$home/snapshot.delay"
+  sleep 0.25
+  curl -fsS "${url}api/state" >/dev/null || fail "stale cache was unavailable during retry"
+  mx_test_wait_until 2000 "refresh recovery" refresh_succeeded_twice "${url}api/meta" \
+    || fail "snapshot refresh did not recover after the stalled provider cleared"
+  [ "$(cat "$home/snapshot.count")" = 3 ] || fail "refresh recovery launched duplicate readers"
+  MX_HOME="$home" "$CLI" stop >/dev/null || fail "single-flight dashboard did not stop"
+  pass "viz shares one bounded refresh across viewers and serves stale last-good state during provider failure"
+}
+
+test_real_child_brief_artifact_projection() {
+  local home child child_real nested nested_real readers url pid test_port brief model coordinator_model body artifact_url served head branch
+  home="$TMP_ROOT/real-artifact-parent"
+  child="$TMP_ROOT/real-artifact-child"
+  nested="$TMP_ROOT/real-artifact-nested"
+  readers="$TMP_ROOT/readers-real-artifact"
+  make_home "$home"
+  mkdir -p "$child/state/brief-revisions" "$child/data/work" "$child/config" "$child/projects" "$child/bin"
+  printf '%s\n' '# Isolated fixture contract' >"$child/AGENTS.md"
+  printf '%s\n' domain >"$child/.mx-daemon-home"
+  child_real=$(cd "$child" && pwd -P)
+  mkdir -p "$nested/state/brief-revisions" "$nested/data/work" "$nested/config" "$nested/projects" "$nested/bin"
+  printf '%s\n' '# Isolated nested fixture contract' >"$nested/AGENTS.md"
+  printf '%s\n' nested >"$nested/.mx-daemon-home"
+  nested_real=$(cd "$nested" && pwd -P)
+  printf '%s\n' '# Backlog' '## In flight' '- [ ] nested - Coordinate nested fixture (repo: sample, kind: coordination)' >"$child/data/backlog.md"
+  printf -- '- nested - nested fixture domain (home: %s; scope: fixture; projects: sample; added 2026-09-17)\n' \
+    "$nested" >"$child/data/daemons.md"
+  printf '%s\n' '# Backlog' '## In flight' '- [ ] work - Implement fixture (repo: sample, kind: delivery)' >"$nested/data/backlog.md"
+  git -C "$nested" init -q
+  git -C "$nested" config user.email fixture@example.invalid
+  git -C "$nested" config user.name Fixture
+  printf '%s\n' fixture >"$nested/.fixture"
+  git -C "$nested" add .fixture
+  git -C "$nested" commit -qm fixture
+  head=$(git -C "$nested" rev-parse HEAD)
+  branch=$(git -C "$nested" symbolic-ref --short HEAD)
+  printf -- '- domain - fixture domain (home: %s; scope: fixture; projects: sample; added 2026-09-17)\n' \
+    "$child" >"$home/data/daemons.md"
+  mx_write_daemon_meta "$home/state/domain.meta" "$child" 'fixture:mx-domain' sample
+  printf '%s\n' 'working: fixture domain' >"$home/state/domain.status"
+  brief="$nested/state/brief-revisions/work-1.md"
+  printf '%s\n' '# Accepted brief' '' 'Render this exact accepted child-home brief.' >"$brief"
+  printf '%s\n' '# Report' >"$nested/data/work/report.md"
+  coordinator_model=$(jq -nc --arg owner "$child" --arg runtime "$nested" '
+    {schema_version:2,task_id:"nested",role:"sub-orchestrator",artifact:"coordination",persistent:false,private_home:false,
+     parent_id:"domain",root_id:"domain",owner_home:$owner,owner_state:($owner+"/state"),parent_state:($owner+"/state"),parent_home:$owner,
+     persistent_home:$runtime,home_allocation:null,accepted_brief_digest:"fixture-nested",accepted_brief_path:null,
+     runtime:{provider:"tmux",session_id:null,endpoint:null},attempt:{id:"attempt-nested-1",generation:1,brief_revision:1},
+     accepted_brief_revision:1,briefs:[{revision:1,scope:"Coordinate nested fixture",acceptance_criteria:["nested work is visible"],source_artifacts:[],reason:"fixture"}],
+     prior_attempts:[],retained_executions:[],native_observations:[],assignments:[{generation:1,role:"sub-orchestrator",brief_revision:1,reason:"fixture"}],
+     schedule:{priority:1,dependencies:[],state:"running",waiting_condition:null,decisions:[]},project:null,allocation:null,
+     domain:{domain_id:"nested",coordinator_id:"nested",scope_revision:1,assignment_generation:1,projects:["sample"],idea_id:null,scope:"fixture"},
+     owning_coordinator:"domain",transfers:[],delivery:{current_commit:null,history:[]},legacy_unknown:false}'
+  ) || fail "could not create canonical nested coordinator fixture"
+  model=$(jq -nc --arg owner "$home" --arg runtime "$child" '
+    {schema_version:2,task_id:"domain",role:"sub-orchestrator",artifact:"coordination",persistent:true,private_home:false,
+     parent_id:"root",root_id:"root",owner_home:$owner,owner_state:($owner+"/state"),parent_state:($owner+"/state"),parent_home:$owner,
+     persistent_home:$runtime,home_allocation:null,accepted_brief_digest:"fixture-domain",accepted_brief_path:null,
+     runtime:{provider:"tmux",session_id:null,endpoint:"fixture:mx-domain"},attempt:{id:"attempt-domain-1",generation:1,brief_revision:1},
+     accepted_brief_revision:1,briefs:[{revision:1,scope:"Coordinate fixture",acceptance_criteria:["nested domain is visible"],source_artifacts:[],reason:"fixture"}],
+     prior_attempts:[],retained_executions:[],native_observations:[],assignments:[{generation:1,role:"sub-orchestrator",brief_revision:1,reason:"fixture"}],
+     schedule:{priority:1,dependencies:[],state:"running",waiting_condition:null,decisions:[]},project:null,allocation:null,
+     domain:{domain_id:"domain",coordinator_id:"domain",scope_revision:1,assignment_generation:1,projects:["sample"],idea_id:null,scope:"fixture"},
+     owning_coordinator:"root",transfers:[],delivery:{current_commit:null,history:[]},legacy_unknown:false}'
+  ) || fail "could not create canonical direct coordinator fixture"
+  printf '%s\n' 'schema_version=2' >>"$home/state/domain.meta"
+  printf 'canonical_model=%s\n' "$model" >>"$home/state/domain.meta"
+  {
+    printf '%s\n' 'backend=tmux' 'project=sample' 'kind=delivery' 'mode=coordination' 'schema_version=2'
+    printf 'worktree=%s\n' "$nested"
+    printf 'canonical_model=%s\n' "$coordinator_model"
+  } >"$child/state/nested.meta"
+  printf '%s\n' 'working: nested fixture coordinator' >"$child/state/nested.status"
+  mkdir -p "$child/state/nested.gate"
+  jq -nc --arg worktree "$nested_real" --arg branch "$branch" --arg head "$head" \
+    '{version:1,task:"nested",worktree:$worktree,branch:$branch,approved_head:$head,status:"running",step:"test",round:1}' \
+    >"$child/state/nested.gate/run.json"
+  model=$(jq -nc --arg home "$nested" --arg brief "$brief" '
+    {schema_version:2,task_id:"work",role:"implementer",artifact:"implementation",persistent:false,private_home:false,
+     parent_id:"nested",root_id:"domain",owner_home:$home,owner_state:($home+"/state"),parent_state:($home+"/state"),parent_home:$home,
+     persistent_home:null,home_allocation:null,accepted_brief_digest:"fixture",accepted_brief_path:$brief,
+     runtime:{provider:"tmux",session_id:null,endpoint:null},attempt:{id:"attempt-work-1",generation:1,brief_revision:1},
+     accepted_brief_revision:1,briefs:[{revision:1,scope:"Implement fixture",acceptance_criteria:["brief is visible"],source_artifacts:[],reason:"fixture"}],
+     prior_attempts:[],retained_executions:[],native_observations:[],assignments:[{generation:1,role:"implementer",brief_revision:1,reason:"fixture"}],
+     schedule:{priority:1,dependencies:[],state:"running",waiting_condition:null,decisions:[]},project:null,allocation:null,domain:null,
+     owning_coordinator:"nested",transfers:[],delivery:{current_commit:null,history:[]},legacy_unknown:false}'
+  ) || fail "could not create canonical child task fixture"
+  {
+    printf '%s\n' 'backend=tmux' 'project=sample' 'kind=delivery' 'mode=delivery' 'schema_version=2'
+    printf 'worktree=%s\n' "$nested"
+    printf 'canonical_model=%s\n' "$model"
+  } >"$nested/state/work.meta"
+  printf '%s\n' 'working: fixture task' >"$nested/state/work.status"
+  mkdir -p "$nested/state/work.gate"
+  jq -nc --arg worktree "$nested_real" --arg branch "$branch" --arg head "$head" \
+    '{version:1,task:"work",worktree:$worktree,branch:$branch,approved_head:$head,status:"running",step:"test",round:1}' \
+    >"$nested/state/work.gate/run.json"
+  make_real_snapshot_reader "$readers"
+  test_port=$((PORT_BASE + 30))
+  url=$(start_viz "$home" "$test_port" 60 2 "$readers" 2000) \
+    || fail "real artifact dashboard did not start"
+  pid=$(record_value "$home/state/.viz/server.run" pid)
+  track_pid "$pid"
+  body="$home/real-state.json"
+  curl -fsS "${url}api/state" >"$body" || fail "real canonical snapshot did not load"
+  jq -e --arg direct "$child_real" --arg home "$nested" --arg validated "$nested_real" --arg brief "$brief" '
+    (.snapshot.daemon_current.records | map(select(.home == $direct and .valid == true and .provenance.selected == "structured-home")) | length == 1)
+    and (.snapshot.daemon_current.records | map(select(.home == $home)) | length == 0)
+    and (.snapshot.portfolio.tasks[] | select(.key == ($home + "#task:work"))
+      | .owner.home == $home and .brief.path == $brief)
+    and (.snapshot.domains.records[] | select(.coordinator.id == "nested")
+      | .coordinator.validated_home == $validated
+        and (.portfolio.tasks[] | select(.id == "work") | .owner.home == $home and .brief.path == $brief))
+  ' "$body" >/dev/null || {
+    jq '{tasks:.snapshot.tasks,portfolio:.snapshot.portfolio,daemon_current:.snapshot.daemon_current.records,domains:.snapshot.domains.records}' "$body" >&2
+    fail "real child portfolio lost canonical owner or accepted brief"
+  }
+  artifact_url=$(jq -r --arg brief "$brief" '.artifacts[] | select(.source_path == $brief) | .url' "$body")
+  case "$artifact_url" in
+    /artifact/ref/*) : ;;
+    *) fail "accepted brief did not receive an opaque artifact URL: $artifact_url" ;;
+  esac
+  served="$home/served-brief.md"
+  curl -fsS "${url%/}$artifact_url" >"$served" || fail "accepted brief artifact URL was not readable"
+  cmp -s "$brief" "$served" || fail "accepted brief artifact route changed file bytes"
+  MX_HOME="$home" "$CLI" stop >/dev/null || fail "real artifact dashboard did not stop"
+  pass "viz projects a real validated nested owner and serves its exact accepted brief through an opaque route"
 }
 
 test_artifact_boundary_and_get_only_server() {
@@ -461,9 +678,43 @@ test_self_containment_and_contract_headers() {
   pass "viz is self-contained and keeps its public contract in executable headers"
 }
 
+test_portfolio_scale_fixtures_and_ui_contract() {
+  local count fixture
+  for count in 0 1 5 10 20; do
+    fixture="$TMP_ROOT/portfolio-$count.json"
+    node "$ROOT/tests/fixtures/viz/portfolio.mjs" "$count" >"$fixture" \
+      || fail "could not generate $count-task portfolio fixture"
+    jq -e --argjson count "$count" '
+      .portfolio.schema == "mx-portfolio.v1"
+      and .portfolio.counts.tasks == $count
+      and (.portfolio.tasks | length) == (.portfolio.counts.tasks + .portfolio.counts.coordinators)
+      and ([.portfolio.tasks[] | select((.key | length) == 0 or (.project.display_name | length) == 0)] | length) == 0
+      and ([.portfolio.tasks[] | select((.attempt.generation | type) != "number" or (.sessions | type) != "array" or (.prior_attempts | type) != "array")] | length) == 0
+    ' "$fixture" >/dev/null || fail "$count-task fixture does not match the canonical task-first projection"
+  done
+  jq -e '
+    .portfolio.counts.tasks == 20
+    and .portfolio.counts.sessions == .portfolio.counts.records
+    and .portfolio.counts.attempts > .portfolio.counts.tasks
+    and ([.portfolio.tasks[].role] | unique | length) == 4
+    and ([.portfolio.tasks[] | select((.children | length) > 0)] | length) > 0
+    and ([.portfolio.tasks[] | select((.decisions | length) > 0)] | length) > 0
+    and ([.portfolio.tasks[] | select(.allocation.observation.state == "retained")] | length) > 0
+    and .portfolio.freshness.partial == true
+    and .domains.complete == false
+  ' "$TMP_ROOT/portfolio-20.json" >/dev/null || fail "20-task fixture does not exercise nested roles, retries, decisions, retained allocations, and partial state"
+  node --check "$ROOT/share/viz/app.js" || fail "dashboard client has invalid JavaScript syntax"
+  ! grep -REn 'data-approve|data-merge|data-spawn|method="post"' "$ROOT/share/viz" >/dev/null \
+    || fail "dashboard UI crossed its read-only boundary"
+  pass "viz has exact 0/1/5/10/20 task fixtures and task-first read-only interaction coverage"
+}
+
 PORT_BASE=$(select_test_port_base) || fail "could not select visualization test ports"
 
 test_lifecycle_cache_and_read_only_contract
+test_single_flight_stale_service_and_bounded_refresh
+test_real_child_brief_artifact_projection
 test_artifact_boundary_and_get_only_server
 test_port_walk_exhaustion_idle_and_stale_record_safety
 test_self_containment_and_contract_headers
+test_portfolio_scale_fixtures_and_ui_contract

@@ -1,12 +1,13 @@
 //! Disposable GET-only dashboard lifecycle and cached snapshot service.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use multplx_core::process::{
@@ -33,10 +34,32 @@ const MAX_FILE_BYTES: usize = 32 * 1024 * 1024;
 #[derive(Clone, Debug)]
 struct SnapshotCache {
     body: Vec<u8>,
-    hash: String,
+    content_hash: String,
     snapshot_hash: String,
     refreshed_at: Instant,
+    refreshed_at_wall: String,
     generated: Option<String>,
+    artifact_refs: BTreeMap<String, ArtifactRef>,
+}
+
+#[derive(Clone, Debug)]
+struct ArtifactRef {
+    allowed_root: PathBuf,
+    file: PathBuf,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RefreshMetrics {
+    state_requests: u64,
+    fresh_hits: u64,
+    stale_serves: u64,
+    initial_unavailable: u64,
+    refresh_attempts: u64,
+    refresh_successes: u64,
+    refresh_failures: u64,
+    not_modified: u64,
+    last_refresh_ms: Option<u64>,
+    max_refresh_ms: u64,
 }
 
 #[derive(Debug)]
@@ -45,6 +68,12 @@ struct Runtime {
     last_request_at: String,
     last_poll_at: Option<String>,
     cache: Option<SnapshotCache>,
+    refresh_in_flight: bool,
+    last_refresh_attempt: Option<Instant>,
+    last_refresh_started_at: Option<String>,
+    last_refresh_finished_at: Option<String>,
+    last_refresh_error: Option<String>,
+    metrics: RefreshMetrics,
 }
 
 struct ServerContext {
@@ -56,10 +85,44 @@ struct ServerContext {
     port: u16,
     poll_ms: u64,
     refresh: Duration,
+    command_timeout: Duration,
     snapshot_command: PathBuf,
     doctor_command: PathBuf,
     timeline_command: PathBuf,
     runtime: Mutex<Runtime>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CacheState {
+    Fresh,
+    Stale,
+}
+
+#[derive(Clone, Debug)]
+struct SnapshotAccess {
+    cache: SnapshotCache,
+    cache_state: CacheState,
+    refresh_state: &'static str,
+    refresh_error: Option<String>,
+}
+
+fn with_refresh_error_header(mut response: Response, error: Option<&str>) -> Response {
+    let Some(error) = error else {
+        return response;
+    };
+    let value = error
+        .chars()
+        .take(256)
+        .map(|character| {
+            if character.is_ascii_graphic() || character == ' ' {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+    response = response.header("X-Multplx-Refresh-Error", value);
+    response
 }
 
 fn common_headers(mut response: Response) -> Response {
@@ -196,15 +259,130 @@ fn artifact_entry(
     Some(json!({
         "root":root_name,
         "path":path,
+        "source_path":file,
         "label":label,
         "kind":kind,
         "url":format!("/artifact/{root_name}/{encoded}")
     }))
 }
 
+fn artifact_ref_entry(
+    allowed_roots: &[PathBuf],
+    file: &Path,
+    label: String,
+    kind: &str,
+) -> Option<(String, Value, ArtifactRef)> {
+    let real_file = fs::canonicalize(file).ok()?;
+    let metadata = fs::metadata(&real_file).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES as u64 {
+        return None;
+    }
+    let allowed_root = allowed_roots.iter().find_map(|root| {
+        let canonical = fs::canonicalize(root).ok()?;
+        (is_within(&canonical, &real_file)).then_some(canonical)
+    })?;
+    let token = sha256_hex(real_file.as_os_str().as_encoded_bytes());
+    let entry = json!({
+        "root":"ref",
+        "path":real_file.strip_prefix(&allowed_root).ok()?.to_string_lossy(),
+        "source_path":file,
+        "label":label,
+        "kind":kind,
+        "url":format!("/artifact/ref/{token}")
+    });
+    Some((
+        token,
+        entry,
+        ArtifactRef {
+            allowed_root,
+            file: real_file,
+        },
+    ))
+}
+
+fn artifact_owner_roots(
+    home: &Path,
+    state: &Path,
+    snapshot: &Value,
+    owner: &str,
+) -> Option<Vec<PathBuf>> {
+    fn safe_root(owner: &Path, base: &Path, relative: &str) -> Option<PathBuf> {
+        let base = fs::canonicalize(base).ok()?;
+        if !is_within(owner, &base) {
+            return None;
+        }
+        let candidate = fs::canonicalize(base.join(relative)).ok()?;
+        is_within(&base, &candidate).then_some(candidate)
+    }
+    let owner = fs::canonicalize(owner).ok()?;
+    if owner == fs::canonicalize(home).ok()? {
+        return Some(
+            [
+                safe_root(&owner, home, "data"),
+                safe_root(&owner, state, "brief-revisions"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        );
+    }
+    let records = snapshot
+        .pointer("/daemon_current/records")
+        .and_then(Value::as_array);
+    let direct = records.into_iter().flatten().find_map(|record| {
+        if record["valid"] != true
+            || record
+                .pointer("/provenance/selected")
+                .and_then(Value::as_str)
+                != Some("structured-home")
+        {
+            return None;
+        }
+        let candidate = record.get("home").and_then(Value::as_str)?;
+        fs::canonicalize(candidate)
+            .ok()
+            .filter(|candidate| candidate == &owner)
+    });
+    let nested = snapshot
+        .pointer("/domains/records")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|domain| {
+            let candidate = domain
+                .pointer("/coordinator/validated_home")
+                .and_then(Value::as_str)?;
+            fs::canonicalize(candidate)
+                .ok()
+                .filter(|candidate| candidate == &owner)
+        });
+    let child_home = direct.or(nested)?;
+    let state = child_home.join("state");
+    Some(
+        [
+            safe_root(&child_home, &child_home, "data"),
+            safe_root(&child_home, &state, "brief-revisions"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    )
+}
+
 fn collect_artifacts(root: &Path, snapshot: &Value) -> Vec<Value> {
     let mut entries = Vec::new();
     let mut seen = BTreeSet::new();
+    let mut add_path = |file: &Path, label: String, kind: &str| {
+        for root_name in ["data", "docs"] {
+            if let Some(entry) = artifact_entry(root, root_name, file, label.clone(), kind)
+                && let Some(url) = entry.get("url").and_then(Value::as_str)
+                && seen.insert(url.to_owned())
+            {
+                entries.push(entry);
+                break;
+            }
+        }
+    };
     let Some(data_root) = snapshot.pointer("/roots/data").and_then(Value::as_str) else {
         return entries;
     };
@@ -219,13 +397,7 @@ fn collect_artifacts(root: &Path, snapshot: &Value) -> Vec<Value> {
                 ("report.md", "report"),
             ] {
                 let file = Path::new(data_root).join(id).join(name);
-                if let Some(entry) =
-                    artifact_entry(root, "data", &file, format!("{id}/{name}"), kind)
-                    && let Some(url) = entry.get("url").and_then(Value::as_str)
-                    && seen.insert(url.to_owned())
-                {
-                    entries.push(entry);
-                }
+                add_path(&file, format!("{id}/{name}"), kind);
             }
         }
     }
@@ -235,38 +407,199 @@ fn collect_artifacts(root: &Path, snapshot: &Value) -> Vec<Value> {
                 continue;
             };
             let id = report.get("id").and_then(Value::as_str).unwrap_or_default();
-            if let Some(entry) = artifact_entry(
-                root,
-                "data",
-                Path::new(path),
-                format!("{id}/report.md"),
-                "report",
-            ) && let Some(url) = entry.get("url").and_then(Value::as_str)
-                && seen.insert(url.to_owned())
+            add_path(Path::new(path), format!("{id}/report.md"), "report");
+        }
+    }
+    let mut tasks = snapshot
+        .pointer("/portfolio/tasks")
+        .and_then(Value::as_array)
+        .map(|tasks| tasks.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if let Some(domains) = snapshot
+        .pointer("/domains/records")
+        .and_then(Value::as_array)
+    {
+        for domain in domains {
+            if let Some(child_tasks) = domain.pointer("/portfolio/tasks").and_then(Value::as_array)
             {
-                entries.push(entry);
+                tasks.extend(child_tasks);
             }
+        }
+    }
+    if let Some(children) = snapshot
+        .pointer("/daemon_current/records")
+        .and_then(Value::as_array)
+    {
+        for child in children {
+            if let Some(child_tasks) = child.pointer("/portfolio/tasks").and_then(Value::as_array) {
+                tasks.extend(child_tasks);
+            }
+        }
+    }
+    for task in tasks {
+        let id = task.get("id").and_then(Value::as_str).unwrap_or("task");
+        if let Some(path) = task.pointer("/brief/path").and_then(Value::as_str) {
+            add_path(Path::new(path), format!("{id}/brief"), "brief");
+        }
+        if let Some(paths) = task.pointer("/brief/research").and_then(Value::as_array) {
+            for (index, path) in paths.iter().filter_map(Value::as_str).enumerate() {
+                add_path(
+                    Path::new(path),
+                    format!("{id}/research-{}", index + 1),
+                    "research",
+                );
+            }
+        }
+        if let Some(path) = task
+            .pointer("/evidence/report/path")
+            .and_then(Value::as_str)
+        {
+            add_path(Path::new(path), format!("{id}/report"), "report");
         }
     }
     entries
 }
 
-impl ServerContext {
-    fn refresh_snapshot(&self) -> Result<SnapshotCache> {
-        let mut runtime = self.runtime.lock().expect("runtime");
-        if let Some(cache) = &runtime.cache
-            && cache.refreshed_at.elapsed() < self.refresh
-        {
-            return Ok(cache.clone());
+fn collect_cached_artifacts(
+    root: &Path,
+    home: &Path,
+    state: &Path,
+    snapshot: &Value,
+) -> (Vec<Value>, BTreeMap<String, ArtifactRef>) {
+    let mut entries = collect_artifacts(root, snapshot);
+    let mut seen = entries
+        .iter()
+        .filter_map(|entry| entry.get("source_path").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    let mut references = BTreeMap::new();
+    let mut add = |allowed_roots: &[PathBuf], path: &str, label: String, kind: &str| {
+        if path.starts_with("/artifact/") || !Path::new(path).is_absolute() {
+            return;
         }
+        let Some((token, entry, reference)) =
+            artifact_ref_entry(allowed_roots, Path::new(path), label, kind)
+        else {
+            return;
+        };
+        let Some(source_path) = entry.get("source_path").and_then(Value::as_str) else {
+            return;
+        };
+        if seen.insert(source_path.to_owned()) {
+            references.insert(token, reference);
+            entries.push(entry);
+        }
+    };
+    let mut tasks = snapshot
+        .pointer("/portfolio/tasks")
+        .and_then(Value::as_array)
+        .map(|tasks| tasks.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if let Some(domains) = snapshot
+        .pointer("/domains/records")
+        .and_then(Value::as_array)
+    {
+        for domain in domains {
+            if let Some(child_tasks) = domain.pointer("/portfolio/tasks").and_then(Value::as_array)
+            {
+                tasks.extend(child_tasks);
+            }
+        }
+    }
+    if let Some(children) = snapshot
+        .pointer("/daemon_current/records")
+        .and_then(Value::as_array)
+    {
+        for child in children {
+            if let Some(child_tasks) = child.pointer("/portfolio/tasks").and_then(Value::as_array) {
+                tasks.extend(child_tasks);
+            }
+        }
+    }
+    for task in tasks {
+        let id = task.get("id").and_then(Value::as_str).unwrap_or("task");
+        let Some(allowed_roots) = task
+            .pointer("/owner/home")
+            .and_then(Value::as_str)
+            .and_then(|owner| artifact_owner_roots(home, state, snapshot, owner))
+        else {
+            continue;
+        };
+        if let Some(path) = task.pointer("/brief/path").and_then(Value::as_str) {
+            add(&allowed_roots, path, format!("{id}/brief"), "brief");
+        }
+        if let Some(paths) = task.pointer("/brief/research").and_then(Value::as_array) {
+            for (index, path) in paths.iter().filter_map(Value::as_str).enumerate() {
+                add(
+                    &allowed_roots,
+                    path,
+                    format!("{id}/research-{}", index + 1),
+                    "research",
+                );
+            }
+        }
+        let report = task.pointer("/evidence/report");
+        let report_path = report.and_then(Value::as_str).or_else(|| {
+            report
+                .and_then(|value| value.get("path"))
+                .and_then(Value::as_str)
+        });
+        if let Some(path) = report_path {
+            add(&allowed_roots, path, format!("{id}/report"), "report");
+        }
+    }
+    (entries, references)
+}
+
+fn meaningful_value(value: &mut Value, freshness_object: bool) {
+    match value {
+        Value::Object(fields) => {
+            let has_identity = ["event_id", "observation_id", "delivery_id", "decision_id"]
+                .iter()
+                .any(|name| fields.contains_key(*name));
+            if !has_identity {
+                fields.remove("generated");
+            }
+            if freshness_object || (fields.contains_key("freshness") && !has_identity) {
+                for name in ["observed_at", "age_seconds", "age_secs"] {
+                    fields.remove(name);
+                }
+            }
+            for (name, child) in fields.iter_mut() {
+                meaningful_value(
+                    child,
+                    matches!(name.as_str(), "freshness" | "latest_change"),
+                );
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                meaningful_value(child, false);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn unavailable_error(runtime: &Runtime) -> ServiceError {
+    if let Some(error) = &runtime.last_refresh_error {
+        ServiceError::new(format!("snapshot refresh failed: {error}"))
+    } else {
+        ServiceError::new("snapshot refresh is in flight")
+    }
+}
+
+impl ServerContext {
+    fn refresh_snapshot_once(&self) -> Result<SnapshotCache> {
         let (raw, snapshot) = execute_json(
             &self.snapshot_command,
             &["--json"],
             self,
             &[0],
-            Duration::from_secs(60),
+            self.command_timeout,
         )?;
-        let artifacts = collect_artifacts(&self.root, &snapshot);
+        let (artifacts, artifact_refs) =
+            collect_cached_artifacts(&self.root, &self.home, &self.state, &snapshot);
         let server = json!({"version":VERSION,"started":self.started,"pid":std::process::id()});
         let body = format!(
             "{{\"server\":{},\"artifacts\":{},\"snapshot\":{raw}}}\n",
@@ -274,18 +607,128 @@ impl ServerContext {
             serde_json::to_string(&artifacts).expect("artifact JSON")
         )
         .into_bytes();
-        let cache = SnapshotCache {
-            hash: sha256_hex(&body),
+        let mut meaningful_snapshot = snapshot.clone();
+        meaningful_value(&mut meaningful_snapshot, false);
+        let meaningful = json!({"artifacts":artifacts,"snapshot":meaningful_snapshot});
+        Ok(SnapshotCache {
+            content_hash: sha256_hex(
+                serde_json::to_vec(&meaningful).expect("meaningful snapshot JSON"),
+            ),
             snapshot_hash: sha256_hex(raw.as_bytes()),
             body,
             refreshed_at: Instant::now(),
+            refreshed_at_wall: utc_now(),
             generated: snapshot
                 .get("generated")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
-        };
-        runtime.cache = Some(cache.clone());
-        Ok(cache)
+            artifact_refs,
+        })
+    }
+
+    fn finish_refresh(&self, started: Instant, result: &Result<SnapshotCache>) {
+        let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        let mut runtime = self.runtime.lock().expect("runtime");
+        runtime.refresh_in_flight = false;
+        runtime.last_refresh_attempt = Some(Instant::now());
+        runtime.last_refresh_finished_at = Some(utc_now());
+        runtime.metrics.last_refresh_ms = Some(elapsed_ms);
+        runtime.metrics.max_refresh_ms = runtime.metrics.max_refresh_ms.max(elapsed_ms);
+        match result {
+            Ok(cache) => {
+                runtime.cache = Some(cache.clone());
+                runtime.last_refresh_error = None;
+                runtime.metrics.refresh_successes += 1;
+            }
+            Err(error) => {
+                runtime.last_refresh_error = Some(error.message.clone());
+                runtime.metrics.refresh_failures += 1;
+            }
+        }
+    }
+
+    fn refresh_claimed(&self) -> Result<SnapshotCache> {
+        let started = Instant::now();
+        let result = self.refresh_snapshot_once();
+        self.finish_refresh(started, &result);
+        result
+    }
+
+    fn begin_refresh_locked(runtime: &mut Runtime) {
+        runtime.refresh_in_flight = true;
+        runtime.last_refresh_attempt = Some(Instant::now());
+        runtime.last_refresh_started_at = Some(utc_now());
+        runtime.metrics.refresh_attempts += 1;
+    }
+
+    fn snapshot(self: &Arc<Self>) -> Result<SnapshotAccess> {
+        let mut runtime = self.runtime.lock().expect("runtime");
+        runtime.metrics.state_requests += 1;
+        if let Some(cache) = runtime.cache.clone() {
+            if cache.refreshed_at.elapsed() < self.refresh {
+                runtime.metrics.fresh_hits += 1;
+                return Ok(SnapshotAccess {
+                    cache,
+                    cache_state: CacheState::Fresh,
+                    refresh_state: if runtime.refresh_in_flight {
+                        "in-flight"
+                    } else {
+                        "idle"
+                    },
+                    refresh_error: None,
+                });
+            }
+            runtime.metrics.stale_serves += 1;
+            let retry_ready = runtime
+                .last_refresh_attempt
+                .is_none_or(|attempt| attempt.elapsed() >= self.refresh);
+            if !runtime.refresh_in_flight && retry_ready {
+                Self::begin_refresh_locked(&mut runtime);
+                let context = Arc::clone(self);
+                thread::spawn(move || {
+                    let _ = context.refresh_claimed();
+                });
+                return Ok(SnapshotAccess {
+                    cache,
+                    cache_state: CacheState::Stale,
+                    refresh_state: "in-flight",
+                    refresh_error: None,
+                });
+            }
+            let refresh_error = runtime.last_refresh_error.clone();
+            return Ok(SnapshotAccess {
+                cache,
+                cache_state: CacheState::Stale,
+                refresh_state: if runtime.refresh_in_flight {
+                    "in-flight"
+                } else if runtime.last_refresh_error.is_some() {
+                    "failed"
+                } else {
+                    "idle"
+                },
+                refresh_error,
+            });
+        }
+        if runtime.refresh_in_flight {
+            runtime.metrics.initial_unavailable += 1;
+            return Err(unavailable_error(&runtime));
+        }
+        if runtime.last_refresh_error.is_some()
+            && runtime
+                .last_refresh_attempt
+                .is_some_and(|attempt| attempt.elapsed() < self.refresh)
+        {
+            runtime.metrics.initial_unavailable += 1;
+            return Err(unavailable_error(&runtime));
+        }
+        Self::begin_refresh_locked(&mut runtime);
+        drop(runtime);
+        self.refresh_claimed().map(|cache| SnapshotAccess {
+            cache,
+            cache_state: CacheState::Fresh,
+            refresh_state: "idle",
+            refresh_error: None,
+        })
     }
 
     fn serve_artifact(&self, raw_path: &str) -> Result<Response> {
@@ -302,6 +745,33 @@ impl ServerContext {
             return Err(ServiceError::new("forbidden"));
         }
         let root_name = segments[0];
+        if root_name == "ref" {
+            if segments.len() != 2
+                || segments[1].len() != 64
+                || !segments[1].bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(ServiceError::new("forbidden"));
+            }
+            let reference = self
+                .runtime
+                .lock()
+                .expect("runtime")
+                .cache
+                .as_ref()
+                .and_then(|cache| cache.artifact_refs.get(segments[1]))
+                .cloned()
+                .ok_or_else(|| ServiceError::new("not found"))?;
+            let allowed_root = fs::canonicalize(&reference.allowed_root)
+                .map_err(|_| ServiceError::new("forbidden"))?;
+            let file =
+                fs::canonicalize(&reference.file).map_err(|_| ServiceError::new("not found"))?;
+            if !is_within(&allowed_root, &file) {
+                return Err(ServiceError::new("forbidden"));
+            }
+            let mut response = common_headers(response_file(&file, None)?);
+            artifact_headers(&mut response);
+            return Ok(response);
+        }
         if !matches!(root_name, "data" | "docs") {
             return Err(ServiceError::new("forbidden"));
         }
@@ -333,7 +803,7 @@ impl ServerContext {
         Ok(response)
     }
 
-    fn handle(&self, request: Request) -> Response {
+    fn handle(self: &Arc<Self>, request: Request) -> Response {
         {
             let mut runtime = self.runtime.lock().expect("runtime");
             runtime.last_request = Instant::now();
@@ -392,35 +862,92 @@ impl ServerContext {
                         "last_request_at":runtime.last_request_at,
                         "last_poll_at":runtime.last_poll_at,
                         "snapshot_generated":runtime.cache.as_ref().and_then(|cache| cache.generated.clone()),
-                        "hash":runtime.cache.as_ref().map(|cache| cache.hash.clone())
+                        "snapshot_refreshed_at":runtime.cache.as_ref().map(|cache| cache.refreshed_at_wall.clone()),
+                        "snapshot_age_ms":runtime.cache.as_ref().map(|cache| cache.refreshed_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+                        "content_hash":runtime.cache.as_ref().map(|cache| cache.content_hash.clone()),
+                        "refresh":{
+                            "state":if runtime.refresh_in_flight {"in-flight"} else if runtime.last_refresh_error.is_some() {"failed"} else {"idle"},
+                            "started_at":runtime.last_refresh_started_at,
+                            "finished_at":runtime.last_refresh_finished_at,
+                            "error":runtime.last_refresh_error,
+                        },
+                        "metrics":{
+                            "state_requests":runtime.metrics.state_requests,
+                            "fresh_hits":runtime.metrics.fresh_hits,
+                            "stale_serves":runtime.metrics.stale_serves,
+                            "initial_unavailable":runtime.metrics.initial_unavailable,
+                            "refresh_attempts":runtime.metrics.refresh_attempts,
+                            "refresh_successes":runtime.metrics.refresh_successes,
+                            "refresh_failures":runtime.metrics.refresh_failures,
+                            "not_modified":runtime.metrics.not_modified,
+                            "last_refresh_ms":runtime.metrics.last_refresh_ms,
+                            "max_refresh_ms":runtime.metrics.max_refresh_ms,
+                        }
                     }),
                 ))
             }
             "/api/state" => {
                 self.runtime.lock().expect("runtime").last_poll_at = Some(utc_now());
-                match self.refresh_snapshot() {
-                    Ok(cache) => {
-                        let etag = format!("\"{}\"", cache.hash);
-                        if request
-                            .headers
-                            .get("if-none-match")
-                            .is_some_and(|value| value == &etag || value == &cache.hash)
-                        {
-                            return common_headers(
-                                Response::new(304, Vec::new())
-                                    .header("ETag", etag)
-                                    .header("X-Multplx-Content-Hash", cache.hash),
+                match self.snapshot() {
+                    Ok(access) => {
+                        let etag = format!("\"{}\"", access.cache.content_hash);
+                        let cache_state = match access.cache_state {
+                            CacheState::Fresh => "fresh",
+                            CacheState::Stale => "stale",
+                        };
+                        let age_ms = access
+                            .cache
+                            .refreshed_at
+                            .elapsed()
+                            .as_millis()
+                            .min(u128::from(u64::MAX))
+                            .to_string();
+                        if request.headers.get("if-none-match").is_some_and(|value| {
+                            value == &etag || value == &access.cache.content_hash
+                        }) {
+                            self.runtime.lock().expect("runtime").metrics.not_modified += 1;
+                            return with_refresh_error_header(
+                                common_headers(
+                                    Response::new(304, Vec::new())
+                                        .header("ETag", etag)
+                                        .header("X-Multplx-Content-Hash", access.cache.content_hash)
+                                        .header(
+                                            "X-Multplx-Snapshot-Hash",
+                                            access.cache.snapshot_hash,
+                                        )
+                                        .header("X-Multplx-Observation-Age-Ms", age_ms)
+                                        .header("X-Multplx-Cache", cache_state)
+                                        .header("X-Multplx-Refresh", access.refresh_state),
+                                ),
+                                access.refresh_error.as_deref(),
                             );
                         }
-                        common_headers(
-                            Response::new(200, cache.body)
-                                .header("Content-Type", "application/json; charset=utf-8")
-                                .header("ETag", etag)
-                                .header("X-Multplx-Content-Hash", cache.hash)
-                                .header("X-Multplx-Snapshot-Hash", cache.snapshot_hash),
+                        with_refresh_error_header(
+                            common_headers(
+                                Response::new(200, access.cache.body)
+                                    .header("Content-Type", "application/json; charset=utf-8")
+                                    .header("ETag", etag)
+                                    .header("X-Multplx-Content-Hash", access.cache.content_hash)
+                                    .header("X-Multplx-Snapshot-Hash", access.cache.snapshot_hash)
+                                    .header("X-Multplx-Observation-Age-Ms", age_ms)
+                                    .header("X-Multplx-Cache", cache_state)
+                                    .header("X-Multplx-Refresh", access.refresh_state),
+                            ),
+                            access.refresh_error.as_deref(),
                         )
                     }
-                    Err(error) => common_headers(error_json(error)),
+                    Err(error) => {
+                        let runtime = self.runtime.lock().expect("runtime");
+                        with_refresh_error_header(common_headers(Response::json(503, &json!({
+                            "error":error.message,
+                            "cache":"unavailable",
+                            "refresh":{
+                                "state":if runtime.refresh_in_flight {"in-flight"} else {"failed"},
+                                "error":runtime.last_refresh_error,
+                            }
+                        })).header("X-Multplx-Cache", "unavailable")
+                            .header("X-Multplx-Refresh", if runtime.refresh_in_flight {"in-flight"} else {"failed"})), runtime.last_refresh_error.as_deref())
+                    }
                 }
             }
             "/api/doctor" => match execute_json(
@@ -428,7 +955,7 @@ impl ServerContext {
                 &["--json"],
                 self,
                 &[0, 1, 2],
-                Duration::from_secs(60),
+                self.command_timeout,
             ) {
                 Ok((_, value)) => common_headers(Response::json(200, &value)),
                 Err(error) => common_headers(error_json(error)),
@@ -451,7 +978,7 @@ impl ServerContext {
                     &self.timeline_command,
                     &[&id, "--json"],
                     &environment(self),
-                    Duration::from_secs(30),
+                    self.command_timeout,
                     MAX_OUTPUT_BYTES,
                 ) {
                     Ok(output) if output.status.success() => {
@@ -488,7 +1015,7 @@ fn error_json(error: ServiceError) -> Response {
     Response::json(503, &json!({"error":error.message}))
 }
 
-fn handle_connection(mut stream: TcpStream, context: &ServerContext) {
+fn handle_connection(mut stream: TcpStream, context: &Arc<ServerContext>) {
     let response = match read_request(&mut stream, 0) {
         Ok(request) => context.handle(request),
         Err(response) => common_headers(response),
@@ -529,6 +1056,12 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
         .ok_or_else(|| {
             ServiceError::new("MX_VIZ_REFRESH_SECS must be a number from 0.1 through 300")
         })?;
+    let command_timeout = Duration::from_millis(parse_integer_env(
+        "MX_VIZ_COMMAND_TIMEOUT_MS",
+        10_000,
+        50,
+        60_000,
+    )?);
     let asset_directory = fs::canonicalize(root.join("share/viz")).map_err(|error| {
         ServiceError::new(format!("viz asset directory is unavailable: {error}"))
     })?;
@@ -553,6 +1086,7 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
         port,
         poll_ms,
         refresh: Duration::from_secs_f64(refresh_seconds),
+        command_timeout,
         snapshot_command,
         doctor_command,
         timeline_command,
@@ -561,6 +1095,12 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
             last_request_at: started,
             last_poll_at: None,
             cache: None,
+            refresh_in_flight: false,
+            last_refresh_attempt: None,
+            last_refresh_started_at: None,
+            last_refresh_finished_at: None,
+            last_refresh_error: None,
+            metrics: RefreshMetrics::default(),
         }),
     });
     println!("READY {port}");
@@ -792,14 +1332,17 @@ pub(super) fn run_cli(args: &[OsString], source_root: &Path) -> Result<i32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Runtime, ServerContext, artifact_entry, collect_artifacts, response_file};
-    use crate::http::Request;
-    use serde_json::json;
+    use super::{
+        RefreshMetrics, Runtime, ServerContext, artifact_entry, collect_artifacts,
+        collect_cached_artifacts, meaningful_value, response_file, with_refresh_error_header,
+    };
+    use crate::http::{Request, Response};
+    use serde_json::{Value, json};
     use std::collections::BTreeMap;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     fn script(path: &Path, body: &str) {
@@ -816,9 +1359,14 @@ mod tests {
         }
     }
 
-    fn context(root: PathBuf, command: PathBuf) -> ServerContext {
+    fn context_with(
+        root: PathBuf,
+        command: PathBuf,
+        refresh: Duration,
+        command_timeout: Duration,
+    ) -> Arc<ServerContext> {
         let started = "2026-08-12T12:00:00Z".to_owned();
-        ServerContext {
+        Arc::new(ServerContext {
             asset_directory: root.join("share/viz"),
             home: root.clone(),
             state: root.join("state"),
@@ -826,7 +1374,8 @@ mod tests {
             started: started.clone(),
             port: 4890,
             poll_ms: 123,
-            refresh: Duration::from_secs(60),
+            refresh,
+            command_timeout,
             snapshot_command: command.clone(),
             doctor_command: command.clone(),
             timeline_command: command,
@@ -835,8 +1384,31 @@ mod tests {
                 last_request_at: started,
                 last_poll_at: None,
                 cache: None,
+                refresh_in_flight: false,
+                last_refresh_attempt: None,
+                last_refresh_started_at: None,
+                last_refresh_finished_at: None,
+                last_refresh_error: None,
+                metrics: RefreshMetrics::default(),
             }),
-        }
+        })
+    }
+
+    fn context(root: PathBuf, command: PathBuf) -> Arc<ServerContext> {
+        context_with(
+            root,
+            command,
+            Duration::from_secs(60),
+            Duration::from_secs(1),
+        )
+    }
+
+    fn header<'a>(response: &'a crate::http::Response, name: &str) -> Option<&'a str> {
+        response
+            .headers
+            .iter()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
     }
 
     #[test]
@@ -846,15 +1418,31 @@ mod tests {
         fs::create_dir(temp.path().join("docs")).expect("docs");
         fs::write(temp.path().join("data/task/plan.html"), "plan").expect("plan");
         fs::write(temp.path().join("data/task/report.md"), "report").expect("report");
+        fs::write(temp.path().join("docs/research.md"), "research").expect("research");
+        fs::write(temp.path().join("private.md"), "private").expect("private");
         let snapshot = json!({
             "roots":{"data":temp.path().join("data")},
             "tasks":[{"id":"task"}],
-            "scout_reports":[]
+            "scout_reports":[],
+            "portfolio":{"tasks":[{
+                "id":"task",
+                "brief":{"path":temp.path().join("data/task/plan.html"),"research":[
+                    temp.path().join("docs/research.md"),
+                    temp.path().join("private.md")
+                ]},
+                "evidence":{"report":{"path":temp.path().join("data/task/report.md")}}
+            }]}
         });
         let root = fs::canonicalize(temp.path()).expect("canonical root");
         let artifacts = collect_artifacts(&root, &snapshot);
-        assert_eq!(artifacts.len(), 2);
+        assert_eq!(artifacts.len(), 3);
         assert_eq!(artifacts[0]["url"], "/artifact/data/task/plan.html");
+        assert!(
+            artifacts
+                .iter()
+                .any(|entry| entry["url"] == "/artifact/docs/research.md")
+        );
+        assert!(artifacts.iter().all(|entry| entry["path"] != "private.md"));
         assert!(
             artifact_entry(&root, "data", &root.join("missing"), "x".to_owned(), "x").is_none()
         );
@@ -868,9 +1456,98 @@ mod tests {
     }
 
     #[test]
+    fn cached_artifact_refs_allow_only_snapshot_linked_home_and_valid_child_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let child = temp.path().join("child");
+        let nested = temp.path().join("nested");
+        for directory in [
+            home.join("data/task"),
+            home.join("state/brief-revisions"),
+            child.join("data/task"),
+            child.join("state/brief-revisions"),
+            nested.join("data/task"),
+            nested.join("state/brief-revisions"),
+            temp.path().join("root/data"),
+            temp.path().join("root/docs"),
+        ] {
+            fs::create_dir_all(directory).expect("directory");
+        }
+        let brief = home.join("state/brief-revisions/task-2.md");
+        let report = home.join("data/task/report.md");
+        let child_report = child.join("data/task/report.md");
+        let nested_report = nested.join("data/task/report.md");
+        let cross_report = child.join("data/task/cross.md");
+        let outside = temp.path().join("outside.md");
+        for path in [
+            &brief,
+            &report,
+            &child_report,
+            &nested_report,
+            &cross_report,
+            &outside,
+        ] {
+            fs::write(path, path.display().to_string()).expect("artifact");
+        }
+        let snapshot = json!({
+            "roots":{"data":home.join("data")},
+            "tasks":[],"scout_reports":[],
+            "portfolio":{"tasks":[
+                {"id":"task","owner":{"home":home},"brief":{"path":brief,"research":[outside]},"evidence":{"report":{"path":report}}},
+                {"id":"child","owner":{"home":child},"brief":{"path":Value::Null,"research":[]},"evidence":{"report":{"path":child_report}}},
+                {"id":"cross-owner","owner":{"home":home},"brief":{"path":Value::Null,"research":[]},"evidence":{"report":{"path":cross_report}}}
+            ]},
+            "daemon_current":{"records":[{"valid":true,"home":child,"provenance":{"selected":"structured-home"}}]},
+            "domains":{"records":[{"coordinator":{"validated_home":nested},"portfolio":{"tasks":[
+                {"id":"nested","owner":{"home":nested},"brief":{"path":Value::Null,"research":[]},"evidence":{"report":{"path":nested_report}}}
+            ]}}]}
+        });
+        let (entries, references) = collect_cached_artifacts(
+            &temp.path().join("root"),
+            &home,
+            &home.join("state"),
+            &snapshot,
+        );
+        assert_eq!(entries.len(), 4);
+        assert_eq!(references.len(), 4);
+        assert!(entries.iter().all(|entry| entry["root"] == "ref"));
+        assert!(entries.iter().all(|entry| {
+            entry["url"]
+                .as_str()
+                .is_some_and(|url| url.starts_with("/artifact/ref/"))
+        }));
+        assert!(entries.iter().all(|entry| {
+            entry["source_path"].as_str() != Some(outside.to_string_lossy().as_ref())
+        }));
+        assert!(
+            entries.iter().all(|entry| entry["source_path"].as_str()
+                != Some(cross_report.to_string_lossy().as_ref()))
+        );
+
+        let escaped_home = temp.path().join("escaped-home");
+        let escaped_target = temp.path().join("escaped-target");
+        fs::create_dir_all(escaped_home.join("state/brief-revisions")).expect("escaped state");
+        fs::create_dir(&escaped_target).expect("escaped target");
+        let secret = escaped_target.join("secret.md");
+        fs::write(&secret, "secret").expect("secret");
+        std::os::unix::fs::symlink(&escaped_target, escaped_home.join("data"))
+            .expect("escaped data root");
+        let escaped_snapshot = json!({
+            "portfolio":{"tasks":[{"id":"escape","owner":{"home":escaped_home},"brief":{"path":Value::Null,"research":[]},"evidence":{"report":{"path":secret}}}]}
+        });
+        let (_, escaped_refs) = collect_cached_artifacts(
+            &temp.path().join("root"),
+            &escaped_home,
+            &escaped_home.join("state"),
+            &escaped_snapshot,
+        );
+        assert!(escaped_refs.is_empty());
+    }
+
+    #[test]
     fn direct_dashboard_routes_cover_cache_artifacts_and_command_failures() {
         let temp = tempfile::tempdir().expect("tempdir");
-        for directory in ["share/viz", "state", "data/task", "docs"] {
+        for directory in ["share/viz", "state", "data/task", "docs", "child/data/task"] {
             fs::create_dir_all(temp.path().join(directory)).expect("directory");
         }
         fs::write(
@@ -881,19 +1558,38 @@ mod tests {
         fs::write(temp.path().join("share/viz/app.js"), "js").expect("js");
         fs::write(temp.path().join("share/viz/app.css"), "css").expect("css");
         fs::write(temp.path().join("data/task/plan.html"), "plan").expect("artifact");
+        fs::write(
+            temp.path().join("child/data/task/report.md"),
+            "child report",
+        )
+        .expect("child artifact");
         let command = temp.path().join("reader.sh");
         script(
             &command,
             &format!(
-                "printf '%s\\n' '{{\"generated\":\"now\",\"roots\":{{\"data\":\"{}\"}},\"tasks\":[{{\"id\":\"task\"}}],\"scout_reports\":[]}}'",
-                temp.path().join("data").display()
+                "printf '%s\\n' '{{\"generated\":\"now\",\"roots\":{{\"data\":\"{}\"}},\"tasks\":[{{\"id\":\"task\"}}],\"scout_reports\":[],\"portfolio\":{{\"tasks\":[{{\"id\":\"child\",\"owner\":{{\"home\":\"{}\"}},\"brief\":{{\"path\":null,\"research\":[]}},\"evidence\":{{\"report\":{{\"path\":\"{}\"}}}}}}]}},\"daemon_current\":{{\"records\":[{{\"valid\":true,\"home\":\"{}\",\"provenance\":{{\"selected\":\"structured-home\"}}}}]}}}}'",
+                temp.path().join("data").display(),
+                temp.path().join("child").display(),
+                temp.path().join("child/data/task/report.md").display(),
+                temp.path().join("child").display()
             ),
         );
         let root = fs::canonicalize(temp.path()).expect("root");
         let context = context(root.clone(), command.clone());
         assert_eq!(context.handle(request("GET", "/")).status, 200);
         assert_eq!(context.handle(request("GET", "/assets/app.js")).status, 200);
-        assert_eq!(context.handle(request("GET", "/api/state")).status, 200);
+        let state = context.handle(request("GET", "/api/state"));
+        assert_eq!(state.status, 200);
+        let envelope: Value = serde_json::from_slice(&state.body).expect("state JSON");
+        let reference_url = envelope["artifacts"]
+            .as_array()
+            .expect("artifacts")
+            .iter()
+            .find(|entry| entry["root"] == "ref")
+            .and_then(|entry| entry["url"].as_str())
+            .expect("opaque artifact URL")
+            .to_owned();
+        assert_eq!(context.handle(request("GET", &reference_url)).status, 200);
         assert_eq!(context.handle(request("GET", "/api/state")).status, 200);
         assert_eq!(context.handle(request("GET", "/api/meta?x=1")).status, 200);
         assert_eq!(context.handle(request("GET", "/api/doctor")).status, 200);
@@ -940,6 +1636,14 @@ mod tests {
             context.handle(request("GET", "/artifact/data/link")).status,
             403
         );
+        fs::remove_file(temp.path().join("child/data/task/report.md"))
+            .expect("remove child report");
+        std::os::unix::fs::symlink(
+            temp.path().join("outside"),
+            temp.path().join("child/data/task/report.md"),
+        )
+        .expect("replace child report");
+        assert_eq!(context.handle(request("GET", &reference_url)).status, 403);
     }
 
     #[test]
@@ -969,6 +1673,16 @@ mod tests {
         assert_eq!(context.handle(request("GET", "/api/state")).status, 503);
         script(&context.snapshot_command, "printf '\\377'");
         assert_eq!(context.handle(request("GET", "/api/state")).status, 503);
+        assert_eq!(
+            context
+                .runtime
+                .lock()
+                .expect("runtime")
+                .metrics
+                .refresh_attempts,
+            1,
+            "failed initial refreshes must respect the retry interval",
+        );
         script(&context.timeline_command, "printf bad");
         assert_eq!(
             context.handle(request("GET", "/api/timeline/task")).status,
@@ -984,5 +1698,165 @@ mod tests {
         fs::write(&invalid, [0xff]).expect("invalid");
         assert!(response_file(&invalid, Some(&|value| value)).is_err());
         assert!(response_file(temp.path(), None).is_err());
+    }
+
+    #[test]
+    fn refresh_error_header_is_single_line_and_bounded() {
+        let error = format!("bad\r\nreader\t{}", "x".repeat(300));
+        let response = with_refresh_error_header(Response::new(200, Vec::new()), Some(&error));
+        let value = header(&response, "X-Multplx-Refresh-Error").expect("refresh error");
+        assert_eq!(value.chars().count(), 256);
+        assert!(!value.chars().any(char::is_control));
+        assert!(value.starts_with("bad  reader "));
+    }
+
+    #[test]
+    fn meaningful_hash_input_excludes_freshness_but_keeps_identified_event_time() {
+        let mut first = json!({
+            "generated":"one",
+            "portfolio":{
+                "generated":"one",
+                "observed_at":"one",
+                "freshness":{"status":"fresh","age_seconds":0,"observed_at":"one"},
+                "tasks":[{"latest_change":{"state":"working","observed_at":"one"}}]
+            },
+            "event":{"event_id":"event-1","generated":"one","observed_at":"one"}
+        });
+        let mut age_only = json!({
+            "generated":"two",
+            "portfolio":{
+                "generated":"two",
+                "observed_at":"two",
+                "freshness":{"status":"fresh","age_seconds":9,"observed_at":"two"},
+                "tasks":[{"latest_change":{"state":"working","observed_at":"two"}}]
+            },
+            "event":{"event_id":"event-1","generated":"one","observed_at":"one"}
+        });
+        meaningful_value(&mut first, false);
+        meaningful_value(&mut age_only, false);
+        assert_eq!(first, age_only);
+
+        let mut later_event = age_only.clone();
+        later_event["event"]["generated"] = json!("three");
+        later_event["event"]["observed_at"] = json!("three");
+        assert_ne!(first, later_event);
+    }
+
+    #[test]
+    fn snapshot_refresh_is_single_flight_and_does_not_hold_runtime_mutex() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        for directory in ["share/viz", "state", "data", "docs"] {
+            fs::create_dir_all(temp.path().join(directory)).expect("directory");
+        }
+        let count = temp.path().join("count");
+        let command = temp.path().join("reader.sh");
+        script(
+            &command,
+            &format!(
+                "count=$(cat '{}' 2>/dev/null || printf 0); printf '%s' $((count + 1)) > '{}'; sleep 0.2; printf '%s\\n' '{{\"generated\":\"now\",\"roots\":{{\"data\":\"{}\"}},\"tasks\":[],\"scout_reports\":[]}}'",
+                count.display(),
+                count.display(),
+                temp.path().join("data").display()
+            ),
+        );
+        let root = fs::canonicalize(temp.path()).expect("root");
+        let context = context_with(
+            root,
+            command,
+            Duration::from_millis(10),
+            Duration::from_secs(1),
+        );
+        let owner_context = Arc::clone(&context);
+        let owner = std::thread::spawn(move || owner_context.handle(request("GET", "/api/state")));
+        let wait_started = Instant::now();
+        while !count.exists() && wait_started.elapsed() < Duration::from_secs(1) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(count.exists(), "reader did not start");
+        let started = Instant::now();
+        for _ in 0..8 {
+            let response = context.handle(request("GET", "/api/state"));
+            assert_eq!(response.status, 503);
+            assert_eq!(header(&response, "X-Multplx-Cache"), Some("unavailable"));
+            assert_eq!(header(&response, "X-Multplx-Refresh"), Some("in-flight"));
+        }
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_eq!(context.handle(request("GET", "/api/meta")).status, 200);
+        assert_eq!(owner.join().expect("owner response").status, 200);
+        assert_eq!(fs::read_to_string(count).expect("count"), "1");
+        let runtime = context.runtime.lock().expect("runtime");
+        assert_eq!(runtime.metrics.refresh_attempts, 1);
+        assert_eq!(runtime.metrics.refresh_successes, 1);
+        assert_eq!(runtime.metrics.initial_unavailable, 8);
+    }
+
+    #[test]
+    fn stale_snapshot_is_served_while_one_background_refresh_runs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        for directory in ["share/viz", "state", "data", "docs"] {
+            fs::create_dir_all(temp.path().join(directory)).expect("directory");
+        }
+        let command = temp.path().join("reader.sh");
+        script(
+            &command,
+            &format!(
+                "printf '%s\\n' '{{\"generated\":\"one\",\"marker\":\"alpha\",\"roots\":{{\"data\":\"{}\"}},\"tasks\":[],\"scout_reports\":[]}}'",
+                temp.path().join("data").display()
+            ),
+        );
+        let root = fs::canonicalize(temp.path()).expect("root");
+        let context = context_with(
+            root,
+            command.clone(),
+            Duration::from_millis(20),
+            Duration::from_secs(1),
+        );
+        let first = context.handle(request("GET", "/api/state"));
+        assert_eq!(first.status, 200);
+        let first_etag = header(&first, "ETag").expect("etag").to_owned();
+        let first_snapshot_hash = header(&first, "X-Multplx-Snapshot-Hash")
+            .expect("snapshot hash")
+            .to_owned();
+        std::thread::sleep(Duration::from_millis(25));
+        script(
+            &command,
+            &format!(
+                "sleep 0.2; printf '%s\\n' '{{\"generated\":\"two\",\"marker\":\"alpha\",\"roots\":{{\"data\":\"{}\"}},\"tasks\":[],\"scout_reports\":[]}}'",
+                temp.path().join("data").display()
+            ),
+        );
+        let started = Instant::now();
+        let stale = context.handle(request("GET", "/api/state"));
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_eq!(stale.status, 200);
+        assert_eq!(header(&stale, "X-Multplx-Cache"), Some("stale"));
+        assert_eq!(header(&stale, "X-Multplx-Refresh"), Some("in-flight"));
+        for _ in 0..8 {
+            assert_eq!(context.handle(request("GET", "/api/state")).status, 200);
+        }
+        let wait_started = Instant::now();
+        loop {
+            if !context.runtime.lock().expect("runtime").refresh_in_flight {
+                break;
+            }
+            assert!(wait_started.elapsed() < Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let mut conditional = request("GET", "/api/state");
+        conditional
+            .headers
+            .insert("if-none-match".to_owned(), first_etag.clone());
+        let refreshed = context.handle(conditional);
+        assert_eq!(refreshed.status, 304);
+        assert_eq!(header(&refreshed, "ETag"), Some(first_etag.as_str()));
+        assert_ne!(
+            header(&refreshed, "X-Multplx-Snapshot-Hash"),
+            Some(first_snapshot_hash.as_str())
+        );
+        let runtime = context.runtime.lock().expect("runtime");
+        assert_eq!(runtime.metrics.refresh_attempts, 2);
+        assert_eq!(runtime.metrics.refresh_successes, 2);
+        assert_eq!(runtime.metrics.stale_serves, 9);
+        assert_eq!(runtime.metrics.not_modified, 1);
     }
 }

@@ -415,7 +415,7 @@ write_parent_daemon_event() {  # <parent> <id> <home> <note>
 }
 
 test_bad_daemon_homes_never_revive_parent_work() {
-  local home fakebin missing invalid unreadable malformed timedout wt json
+  local home fakebin missing invalid unreadable malformed timedout healthy wt json started elapsed
   home=$(make_home bad-homes)
   : > "$home/data/daemons.md"
   missing="$TMP_ROOT/missing-home"
@@ -452,23 +452,42 @@ test_bad_daemon_homes_never_revive_parent_work() {
   append_daemon_registry "$home" timedout "$timedout"
   write_parent_daemon_event "$home" timedout "$timedout" "old timed work"
 
+  healthy="$TMP_ROOT/healthy-home"
+  make_valid_daemon_home healthy "$healthy"
+  wt="$healthy/projects/fast"
+  mx_git_init_commit "$wt"
+  git -C "$wt" checkout -q -b mx/fast
+  printf '## In flight\n- [ ] fast - Fast child (repo: sample) (kind: delivery) (since 2026-07-13)\n\n## Queued\n\n## Done\n' > "$healthy/data/backlog.md"
+  mx_write_meta "$healthy/state/fast.meta" \
+    "window=broker:mx-fast" "worktree=$wt" "project=sample" \
+    "harness=codex" "kind=delivery" "mode=deep-review"
+  printf 'working: healthy observation\n' > "$healthy/state/fast.status"
+  append_daemon_registry "$home" healthy "$healthy"
+
   fakebin=$(make_fakebin "$home")
-  json=$(FAKE_ACTOR_SLEEP=1 MX_SNAPSHOT_DAEMON_TIMEOUT=1 run "$home" "$fakebin" --json)
+  started=$(date +%s)
+  json=$(FAKE_ACTOR_SLEEP=1 MX_SNAPSHOT_DAEMON_TIMEOUT=1 \
+    MX_SNAPSHOT_DAEMON_BUDGET=2 MX_SNAPSHOT_DAEMON_CONCURRENCY=2 \
+    run "$home" "$fakebin" --json)
+  elapsed=$(($(date +%s) - started))
   chmod 700 "$unreadable/data"
+  [ "$elapsed" -lt 3 ] || fail "stalled home delayed bounded healthy collection (${elapsed}s)"
   printf '%s' "$json" | jq -e '
-    (.daemons | length) == 5
-      and all(.daemons[]; .state == "unknown")
+    (.daemons | length) == 6
+      and ([.daemons[] | select(.id != "healthy")] | all(.state == "unknown"))
+      and (.daemons | any(.[]; .id == "healthy" and .state == "active_child_work"
+        and .provenance == "structured-home" and .freshness == "fresh"))
       and (.in_flight | map(.id) | all(. != "invalid" and . != "unreadable" and . != "malformed" and . != "timedout"))
       and (.daemons | any(.[]; .id == "missing" and .provenance == "unknown"
         and .freshness == "unknown" and (.reason | contains("invalid home"))))
-      and ([.daemons[] | select(.id != "missing")]
+      and ([.daemons[] | select(.id == "invalid" or .id == "unreadable" or .id == "malformed" or .id == "timedout")]
         | all(.provenance == "parent-event-fallback" and .freshness == "historical-event"))
       and (.daemons | any(.[]; .id == "invalid" and (.reason | contains("marked for"))))
       and (.daemons | any(.[]; .id == "unreadable" and (.reason | test("invalid home|unreadable"))))
       and (.daemons | any(.[]; .id == "malformed" and (.reason | contains("unstructured current backlog row"))))
       and (.daemons | any(.[]; .id == "timedout" and (.reason | contains("timed out"))))
   ' >/dev/null || fail "bad home outcomes revived stale work or lacked provenance: $json"
-  pass "missing, invalid, unreadable, malformed, and timed-out homes stay explicit unknowns"
+  pass "stalled and invalid homes stay explicit while bounded parallel collection keeps healthy reporting"
 }
 
 test_oversized_daemon_summary_stays_strict_unknown() {

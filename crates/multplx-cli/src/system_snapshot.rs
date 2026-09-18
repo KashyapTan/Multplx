@@ -10,6 +10,7 @@ use std::fs;
 use std::io::Read;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -17,6 +18,7 @@ use std::time::{Duration, Instant};
 use multplx_core::classification::{open_activities, open_decisions};
 use multplx_core::process::{ProcessProbe, SystemProcessProbe};
 use regex::Regex;
+use rustix::process::{Pid, Signal, kill_process_group};
 
 pub(crate) struct Paths {
     pub(crate) root: PathBuf,
@@ -46,7 +48,7 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
     let backlog = backlog(&paths.data.join("backlog.md"));
     let tasks = tasks(paths, &generated, &backlog);
     let model = if mode == "daemon-home" {
-        daemon_home_summary(&paths.home, &generated, &backlog, &tasks)
+        daemon_home_summary(paths, &generated, &backlog, &tasks)
     } else {
         system_model(paths, &generated, backlog, tasks)
     };
@@ -57,7 +59,7 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
 }
 
 fn usage() -> String {
-    "usage: mx-system-snapshot.sh --json\n       mx-system-snapshot.sh --daemon-home-summary\n\nPrint a read-only structured snapshot of the broker system.\nJSON is the stable machine-readable output contract.\n".into()
+    "usage: mx-system-snapshot.sh --json\n       mx-system-snapshot.sh --daemon-home-summary\n\nPrint the read-only canonical orchestration snapshot.\nThe JSON contract includes a task-first mx-portfolio.v1 projection with projects, roles, attempts, briefs, dependencies, decisions, evidence, allocations, domains, and freshness.\nCollection is bounded; unavailable observations remain explicit partial or unknown facts.\n".into()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -259,66 +261,90 @@ enum TimedOutput {
 }
 
 fn run_bounded(mut command: Command, timeout: Duration, byte_limit: usize) -> TimedOutput {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let Ok(mut child) = command.spawn() else {
         return TimedOutput::StartFailed;
     };
-    let stdout = child.stdout.take().map(|mut stream| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = stream
-                .by_ref()
-                .take((byte_limit + 1) as u64)
-                .read_to_end(&mut bytes);
-            bytes
-        })
-    });
-    let stderr = child.stderr.take().map(|mut stream| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = stream
-                .by_ref()
-                .take((byte_limit + 1) as u64)
-                .read_to_end(&mut bytes);
-            bytes
-        })
-    });
+    let mut stdout_pipe = child.stdout.take().expect("piped stdout");
+    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
+    if let Ok(flags) = rustix::fs::fcntl_getfl(&stdout_pipe) {
+        let _ = rustix::fs::fcntl_setfl(&stdout_pipe, flags | rustix::fs::OFlags::NONBLOCK);
+    }
+    if let Ok(flags) = rustix::fs::fcntl_getfl(&stderr_pipe) {
+        let _ = rustix::fs::fcntl_setfl(&stderr_pipe, flags | rustix::fs::OFlags::NONBLOCK);
+    }
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let drain = |pipe: &mut dyn Read, bytes: &mut Vec<u8>| -> bool {
+        let mut buffer = [0_u8; 8192];
+        let mut drained = 0usize;
+        loop {
+            match pipe.read(&mut buffer) {
+                Ok(0) => return true,
+                Ok(count) => {
+                    let retained = byte_limit
+                        .saturating_add(1)
+                        .saturating_sub(bytes.len())
+                        .min(count);
+                    bytes.extend_from_slice(&buffer[..retained]);
+                    drained = drained.saturating_add(count);
+                    if drained >= 64 * 1024 {
+                        return false;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return false,
+                Err(_) => return true,
+            }
+        }
+    };
+    let terminate = |child: &mut std::process::Child| {
+        if let Some(pid) = Pid::from_raw(child.id() as i32) {
+            let _ = kill_process_group(pid, Signal::KILL);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    };
     let started = Instant::now();
-    loop {
+    let status = loop {
+        let _ = drain(&mut stdout_pipe, &mut stdout);
+        let _ = drain(&mut stderr_pipe, &mut stderr);
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut stdout = stdout
-                    .and_then(|reader| reader.join().ok())
-                    .unwrap_or_default();
-                let mut stderr = stderr
-                    .and_then(|reader| reader.join().ok())
-                    .unwrap_or_default();
-                stdout.truncate(byte_limit);
-                stderr.truncate(byte_limit);
-                return TimedOutput::Completed {
-                    status: status.code().unwrap_or(1),
-                    stdout,
-                    stderr,
-                };
+                if let Some(pid) = Pid::from_raw(child.id() as i32) {
+                    let _ = kill_process_group(pid, Signal::KILL);
+                }
+                break status.code().unwrap_or(1);
             }
             Ok(None) if started.elapsed() < timeout => {
                 std::thread::sleep(Duration::from_millis(10))
             }
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                drop(stdout);
-                drop(stderr);
+                terminate(&mut child);
                 return TimedOutput::TimedOut;
             }
             Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                drop(stdout);
-                drop(stderr);
+                terminate(&mut child);
                 return TimedOutput::StartFailed;
             }
         }
+    };
+    let drain_deadline = Instant::now() + Duration::from_millis(50);
+    while Instant::now() < drain_deadline {
+        let stdout_done = drain(&mut stdout_pipe, &mut stdout);
+        let stderr_done = drain(&mut stderr_pipe, &mut stderr);
+        if stdout_done && stderr_done {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    TimedOutput::Completed {
+        status,
+        stdout,
+        stderr,
     }
 }
 
@@ -598,7 +624,7 @@ fn clean_title(rest: &str) -> String {
 }
 
 fn tasks(paths: &Paths, generated: &str, backlog: &Value) -> Value {
-    let mut rows = fs::read_dir(&paths.state)
+    let paths_to_read = fs::read_dir(&paths.state)
         .into_iter()
         .flatten()
         .flatten()
@@ -606,8 +632,24 @@ fn tasks(paths: &Paths, generated: &str, backlog: &Value) -> Value {
             let path = entry.path();
             (path.extension().and_then(|v| v.to_str()) == Some("meta")).then_some(path)
         })
-        .filter_map(|path| task(paths, &path, generated, backlog))
         .collect::<Vec<_>>();
+    let queue = std::sync::Mutex::new(VecDeque::from(paths_to_read));
+    let output = std::sync::Mutex::new(Vec::new());
+    let workers = env_usize("MX_SNAPSHOT_TASK_CONCURRENCY", 4).clamp(1, 16);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let path = queue.lock().expect("snapshot task queue").pop_front();
+                    let Some(path) = path else { break };
+                    if let Some(row) = task(paths, &path, generated, backlog) {
+                        output.lock().expect("snapshot task output").push(row);
+                    }
+                }
+            });
+        }
+    });
+    let mut rows = output.into_inner().expect("snapshot task output");
     rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     Value::Array(rows)
 }
@@ -720,26 +762,36 @@ fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<
     )
 }
 fn actor_state(paths: &Paths, id: &str) -> Value {
-    let output = Command::new(paths.source_root.join("bin/mx-actor-state.sh"))
+    let mut command = Command::new(paths.source_root.join("bin/mx-actor-state.sh"));
+    command
         .arg(id)
         .env("MX_ROOT_OVERRIDE", &paths.root)
         .env("MX_HOME", &paths.home)
         .env("MX_STATE_OVERRIDE", &paths.state)
         .env("MX_DATA_OVERRIDE", &paths.data)
         .env("MX_CONFIG_OVERRIDE", &paths.config)
-        .env("MX_PROJECTS_OVERRIDE", &paths.projects)
-        .output();
+        .env("MX_PROJECTS_OVERRIDE", &paths.projects);
+    let output = run_bounded(
+        command,
+        env_duration("MX_SNAPSHOT_TASK_TIMEOUT", 2),
+        env_usize("MX_SNAPSHOT_TASK_MAX_BYTES", 65_536),
+    );
     let raw = match output {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+        TimedOutput::Completed {
+            status: 0, stdout, ..
+        } => String::from_utf8_lossy(&stdout)
             .lines()
             .next()
             .unwrap_or("")
             .to_owned(),
-        Ok(output) => {
-            return json!({"state":"unknown", "source":"error", "detail":String::from_utf8_lossy(&output.stderr).trim(), "raw":String::from_utf8_lossy(&output.stdout)});
+        TimedOutput::Completed { stdout, stderr, .. } => {
+            return json!({"state":"unknown", "source":"error", "detail":String::from_utf8_lossy(&stderr).trim(), "raw":String::from_utf8_lossy(&stdout)});
         }
-        Err(error) => {
-            return json!({"state":"unknown", "source":"error", "detail":error.to_string(), "raw":""});
+        TimedOutput::TimedOut => {
+            return json!({"state":"unknown", "source":"timeout", "detail":"actor observation timed out", "raw":""});
+        }
+        TimedOutput::StartFailed => {
+            return json!({"state":"unknown", "source":"error", "detail":"actor observation failed to start", "raw":""});
         }
     };
     let mut state = "unknown";
@@ -762,7 +814,8 @@ fn observed(path: Option<&Path>) -> Value {
         None => json!({"path":Value::Null,"present":false}),
     }
 }
-fn daemon_home_summary(home: &Path, generated: &str, backlog: &Value, tasks: &Value) -> Value {
+fn daemon_home_summary(paths: &Paths, generated: &str, backlog: &Value, tasks: &Value) -> Value {
+    let home = &paths.home;
     let records = backlog["records"].as_array().map_or(&[][..], Vec::as_slice);
     let task_rows = tasks.as_array().map_or(&[][..], Vec::as_slice);
     let owned = records
@@ -1029,11 +1082,29 @@ fn daemon_home_summary(home: &Path, generated: &str, backlog: &Value, tasks: &Va
     } else {
         bounded(&landed_all, landed_n, "landed", &mut omitted)
     };
-    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":valid,"reason":reason,"invalidity":invalidity,"state":state,"active_children":active,"decisions_open":decisions,"holds":holds,"queued":queued,"landed":landed,"endpoints":endpoints,"domains":domains_all,"counts":{"active_children":active_all.len(),"decisions_open":decisions_all.len(),"holds":holds_all.len(),"queued":queued_all.len(),"landed":landed_all.len(),"endpoints":endpoints_all.len(),"useful_tasks":useful_tasks,"sessions":sessions,"worker_sessions":worker_sessions,"coordinator_sessions":coordinator_sessions,"attempts_known":attempts_known,"coordinator_tasks":domains_all.len(),"tasks_total":task_rows.len()},"omitted":omitted})
+    let task_limit = env_usize("MX_SNAPSHOT_DAEMON_TASKS", 20);
+    let canonical_tasks = task_rows
+        .iter()
+        .take(task_limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    if task_rows.len() > canonical_tasks.len() {
+        omitted.push(json!({"surface":"canonical_tasks","shown":canonical_tasks.len(),"total":task_rows.len(),"reason":"task_limit"}));
+    }
+    let child_workflows = workflow_runs(paths);
+    let child_portfolio = portfolio(
+        paths,
+        generated,
+        backlog,
+        tasks,
+        &json!({"records":[],"total":0,"complete":true}),
+        &json!({"workflow_runs":child_workflows}),
+    );
+    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":valid,"reason":reason,"invalidity":invalidity,"state":state,"portfolio":child_portfolio,"tasks":canonical_tasks,"workflow_runs":child_workflows["records"],"active_children":active,"decisions_open":decisions,"holds":holds,"queued":queued,"landed":landed,"endpoints":endpoints,"domains":domains_all,"counts":{"active_children":active_all.len(),"decisions_open":decisions_all.len(),"holds":holds_all.len(),"queued":queued_all.len(),"landed":landed_all.len(),"endpoints":endpoints_all.len(),"useful_tasks":useful_tasks,"sessions":sessions,"worker_sessions":worker_sessions,"coordinator_sessions":coordinator_sessions,"attempts_known":attempts_known,"coordinator_tasks":domains_all.len(),"tasks_total":task_rows.len(),"tasks_shown":canonical_tasks.len()},"omitted":omitted})
 }
 
 fn daemon_summary_invalid(home: &Path, generated: &str, invalidity: &Value, reason: &str) -> Value {
-    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":false,"reason":reason,"invalidity":invalidity,"state":"unknown","active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null},"omitted":[]})
+    json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":false,"reason":reason,"invalidity":invalidity,"state":"unknown","portfolio":Value::Null,"tasks":[],"workflow_runs":[],"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null,"tasks_shown":Value::Null},"omitted":[]})
 }
 fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) -> Value {
     let inventory = inventory(&backlog, &tasks);
@@ -1044,7 +1115,494 @@ fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) ->
     let daemon_current = daemon_current(paths, generated, &tasks);
     let domains = domain_projection(paths, &tasks, &daemon_current, generated);
     let daemon_landed = daemon_landed(&daemon_current);
-    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later(paths),"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+    let later_feeds = later(paths);
+    let portfolio = portfolio(paths, generated, &backlog, &tasks, &domains, &later_feeds);
+    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"portfolio":portfolio,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later_feeds,"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+}
+
+/// Build the task-first read model from existing authoritative records.
+///
+/// This is deliberately a projection: it does not infer sessions, successful
+/// checks, project identity, or completion when their owners did not record them.
+fn portfolio(
+    paths: &Paths,
+    generated: &str,
+    backlog_root: &Value,
+    tasks: &Value,
+    domains: &Value,
+    later_feeds: &Value,
+) -> Value {
+    let rows = tasks.as_array().map_or(&[][..], Vec::as_slice);
+    let review_records = rows
+        .iter()
+        .filter_map(|task| task.get("coordination").cloned())
+        .filter_map(|record| serde_json::from_value(record).ok())
+        .collect::<Vec<multplx_domain::lifecycle::subagent_model::TaskRecord>>();
+    let review_queue =
+        multplx_domain::lifecycle::delivery_evidence::human_review_queue(&review_records)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|entry| {
+                serde_json::to_value(&entry)
+                    .ok()
+                    .map(|value| (entry.task_key, value))
+            })
+            .collect::<BTreeMap<_, _>>();
+    let catalog = multplx_domain::project_registry::read_catalog(&paths.home);
+    let mut reasons = Vec::new();
+    if let Err(error) = &catalog {
+        reasons.push(format!("project registry unavailable: {error}"));
+    }
+    let mut projects = catalog
+        .as_ref()
+        .map(|catalog| {
+            catalog
+                .projects
+                .iter()
+                .map(|project| {
+                    json!({
+                        "id": project.project_id,
+                        "display_name": project.display_name,
+                        "aliases": project.aliases,
+                        "common_git_identity": project.common_git_identity,
+                        "remote": project.remote,
+                        "checkouts": project.checkouts,
+                        "registered": true
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let known_projects = projects
+        .iter()
+        .filter_map(|project| project["id"].as_str())
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut unregistered = rows
+        .iter()
+        .filter_map(|task| {
+            let id = task
+                .pointer("/coordination/project/project_id")
+                .or_else(|| task.get("project"))
+                .and_then(Value::as_str)?;
+            (!id.is_empty() && !known_projects.contains(id)).then(|| {
+                json!({"id":id,"display_name":id,"aliases":[],"common_git_identity":Value::Null,"remote":Value::Null,"checkouts":[],"registered":false})
+            })
+        })
+        .collect::<Vec<_>>();
+    unregistered.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+    unregistered.dedup_by(|left, right| left["id"] == right["id"]);
+    projects.extend(unregistered);
+    projects.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+
+    let task_states = rows
+        .iter()
+        .filter_map(|task| {
+            let owner = task
+                .pointer("/coordination/owner_home")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| paths.home.to_str().unwrap_or("legacy-unknown"));
+            Some((
+                multplx_domain::lifecycle::subagent_model::qualified_task_id(
+                    owner,
+                    task["id"].as_str()?,
+                ),
+                task.pointer("/coordination/schedule/state")
+                    .or_else(|| task.pointer("/current_state/state"))?
+                    .as_str()?
+                    .to_owned(),
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let workflow_rows = later_feeds
+        .pointer("/workflow_runs/records")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    let (decision_evidence, decision_evidence_truncated) = decision_evidence(&paths.state);
+    if decision_evidence_truncated {
+        reasons.push("decision evidence scan limit reached".into());
+    }
+    let mut projected = Vec::with_capacity(rows.len());
+    for task in rows {
+        let id = task["id"].as_str().unwrap_or("");
+        let coordination = task.get("coordination").filter(|value| value.is_object());
+        let owner_home = coordination
+            .and_then(|row| row["owner_home"].as_str())
+            .unwrap_or_else(|| paths.home.to_str().unwrap_or("legacy-unknown"));
+        let task_key = multplx_domain::lifecycle::subagent_model::qualified_task_id(owner_home, id);
+        if task
+            .get("coordination_error")
+            .is_some_and(|value| !value.is_null())
+        {
+            reasons.push(format!("task {id} coordination metadata unavailable"));
+        }
+        let backlog = task.get("backlog").filter(|value| value.is_object());
+        let title = backlog
+            .and_then(|row| row["title"].as_str())
+            .or_else(|| {
+                coordination
+                    .and_then(|row| row["briefs"].as_array())
+                    .and_then(|briefs| briefs.last())
+                    .and_then(|brief| brief["scope"].as_str())
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or(id);
+        let parent_id = coordination.and_then(|row| row["parent_id"].as_str());
+        let root_id = coordination.and_then(|row| row["root_id"].as_str());
+        let children = rows
+            .iter()
+            .filter(|candidate| {
+                candidate
+                    .pointer("/coordination/parent_id")
+                    .and_then(Value::as_str)
+                    == Some(id)
+            })
+            .filter_map(|candidate| {
+                let child = candidate["id"].as_str()?;
+                let child_home = candidate
+                    .pointer("/coordination/owner_home")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| paths.home.to_str().unwrap_or("legacy-unknown"));
+                Some(
+                    multplx_domain::lifecycle::subagent_model::qualified_task_id(child_home, child),
+                )
+            })
+            .collect::<Vec<_>>();
+        let project = coordination
+            .and_then(|row| row.get("project"))
+            .filter(|value| value.is_object())
+            .map(|binding| json!({
+                "id": binding["project_id"],
+                "display_name": projects.iter().find(|project| project["id"] == binding["project_id"]).map(|project| project["display_name"].clone()).unwrap_or_else(|| binding["project_id"].clone()),
+                "checkout_id": binding["checkout_id"],
+                "path": binding["canonical_path"],
+                "common_git_identity": binding["common_git_identity"],
+                "registered": projects.iter().any(|project| project["id"] == binding["project_id"] && project["registered"] == true)
+            }))
+            .unwrap_or_else(|| {
+                let legacy = task["project"].as_str().filter(|value| !value.is_empty());
+                json!({"id":legacy,"display_name":legacy,"checkout_id":Value::Null,"path":task.pointer("/paths/worktree/path"),"common_git_identity":Value::Null,"registered":false})
+            });
+        let dependencies = coordination
+            .and_then(|row| row.pointer("/schedule/dependencies"))
+            .and_then(Value::as_array)
+            .map(|dependencies| {
+                dependencies
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|dependency| {
+                        let dependency_key = multplx_domain::lifecycle::subagent_model::qualified_task_id(owner_home, dependency);
+                        let state = task_states.get(&dependency_key);
+                        json!({"task_id":dependency,"task_key":dependency_key,"state":state,"blocking":state.is_none_or(|state| state != "completed")})
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let canonical_decisions = coordination
+            .and_then(|row| row.pointer("/schedule/decisions"))
+            .and_then(Value::as_array)
+            .map(|decisions| {
+                decisions.iter().map(|decision| json!({
+                    "id":decision["id"],"question":decision["question"],"brief_revision":decision["brief_revision"],
+                    "workflow_revision":decision["workflow_revision"],"answer":decision["answer"],
+                    "waiting_since":decision_waiting_since(&decision_evidence, id, decision),"source":"coordination"
+                })).collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let decisions = if canonical_decisions.is_empty() {
+            task.pointer("/hints/open_decisions")
+                .and_then(Value::as_array)
+                .map(|decisions| decisions.iter().map(|decision| json!({
+                    "id":decision["key"],"question":decision["summary"],"brief_revision":Value::Null,
+                    "workflow_revision":Value::Null,"answer":Value::Null,
+                    "waiting_since":decision_waiting_since(&decision_evidence, id, decision),"source":"status-event"
+                })).collect())
+                .unwrap_or_default()
+        } else {
+            canonical_decisions
+        };
+        let workflow = workflow_rows
+            .iter()
+            .find(|run| {
+                run["id"] == id
+                    || run["stages"].as_array().is_some_and(|stages| {
+                        stages.iter().any(|stage| stage["task_id"] == id)
+                    })
+            })
+            .map(|run| {
+                let stage = run["stages"]
+                    .as_array()
+                    .and_then(|stages| stages.iter().find(|stage| stage["task_id"] == id));
+                json!({"id":run["id"],"revision":run["workflow_revision"],"name":run["workflow"],"status":run["status"],"current_stage":run["current_stage"],"task_stage":stage,"updated_at":run["updated_at"]})
+            })
+            .unwrap_or_else(|| json!({"id":Value::Null,"revision":Value::Null,"name":Value::Null,"status":Value::Null,"current_stage":Value::Null,"updated_at":Value::Null}));
+        let attempts = coordination
+            .and_then(|row| row["prior_attempts"].as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut sessions = Vec::new();
+        if let Some(row) = coordination {
+            let runtime = &row["runtime"];
+            if runtime.is_object()
+                && ["session_id", "endpoint"].iter().any(|field| {
+                    runtime[*field]
+                        .as_str()
+                        .is_some_and(|value| !value.is_empty())
+                })
+            {
+                sessions.push(json!({"attempt_id":row.pointer("/attempt/id"),"provider":runtime["provider"],"session_id":runtime["session_id"],"endpoint":runtime["endpoint"],"persistent":row["persistent"],"current":true,"state":task.pointer("/current_state/state")}));
+            }
+            if let Some(retained) = row["retained_executions"].as_array() {
+                sessions.extend(retained.iter().map(|execution| json!({"attempt_id":execution.pointer("/attempt/id"),"provider":execution.pointer("/runtime/provider"),"session_id":execution.pointer("/runtime/session_id"),"endpoint":execution.pointer("/runtime/endpoint"),"persistent":true,"current":false,"state":"retained"})));
+            }
+            let mut native_sessions = BTreeMap::new();
+            for observation in row["native_observations"]
+                .as_array()
+                .map_or(&[][..], Vec::as_slice)
+            {
+                let Some(child_id) = observation["child_id"].as_str() else {
+                    continue;
+                };
+                let provider = observation["provider"].as_str().unwrap_or("unknown");
+                let parent_attempt = observation
+                    .pointer("/parent_attempt/id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                native_sessions.insert(
+                    format!("{provider}\0{child_id}\0{parent_attempt}"),
+                    json!({"attempt_id":observation.pointer("/parent_attempt/id"),"provider":provider,"session_id":child_id,"endpoint":Value::Null,"persistent":false,"current":observation["state"]=="started","state":observation["state"],"source":"native-observation","observed_at":observation["observed_at"]}),
+                );
+            }
+            sessions.extend(native_sessions.into_values());
+        }
+        let briefs = coordination
+            .and_then(|row| row["briefs"].as_array())
+            .map_or(&[][..], Vec::as_slice);
+        let accepted_revision =
+            coordination.and_then(|row| row["accepted_brief_revision"].as_u64());
+        let accepted_brief = briefs
+            .iter()
+            .find(|brief| brief["revision"].as_u64() == accepted_revision);
+        let delivery = coordination.map(|row| &row["delivery"]);
+        let current_commit = delivery.and_then(|delivery| delivery["current_commit"].as_str());
+        let current_attempt =
+            coordination.and_then(|row| row.pointer("/attempt/id").and_then(Value::as_str));
+        let current_generation =
+            coordination.and_then(|row| row.pointer("/attempt/generation").and_then(Value::as_u64));
+        let current_delivery = delivery
+            .and_then(|delivery| delivery["history"].as_array())
+            .and_then(|history| {
+                history.iter().rev().find(|evidence| {
+                    evidence["commit"].as_str() == current_commit
+                        && evidence["attempt_id"].as_str() == current_attempt
+                        && evidence["attempt_generation"].as_u64() == current_generation
+                        && evidence["brief_revision"].as_u64() == accepted_revision
+                })
+            });
+        let observation_source = task
+            .pointer("/current_state/source")
+            .and_then(Value::as_str);
+        let legacy_unknown = coordination
+            .and_then(|row| row["legacy_unknown"].as_bool())
+            .unwrap_or(false);
+        let task_partial = coordination.is_none()
+            || legacy_unknown
+            || observation_source.is_none()
+            || matches!(observation_source, Some("error" | "timeout" | "none"));
+        projected.push(json!({
+            "key":task_key,"id":id,"title":title,"parent_id":parent_id,"root_id":root_id,"children":children,"project":project,
+            "state":coordination.and_then(|row|row.pointer("/schedule/state")).unwrap_or(&task["current_state"]["state"]),
+            "priority":coordination.and_then(|row|row.pointer("/schedule/priority")).and_then(Value::as_i64).or_else(||backlog.and_then(|row|row["priority"].as_str()).and_then(|value|value.parse().ok())).unwrap_or(0),
+            "role":coordination.and_then(|row|row["role"].as_str()),
+            "owner":{"home":owner_home,"coordinator":coordination.and_then(|row|row["owning_coordinator"].as_str()),"parent_id":parent_id},
+            "attempt":coordination.map(|row|row["attempt"].clone()).unwrap_or(Value::Null),"prior_attempts":attempts,
+            "brief":{"revision":accepted_revision,"digest":coordination.and_then(|row|row["accepted_brief_digest"].as_str()),"path":coordination.and_then(|row|row["accepted_brief_path"].as_str()),"scope":accepted_brief.and_then(|brief|brief["scope"].as_str()),"research":accepted_brief.and_then(|brief|brief["source_artifacts"].as_array()).cloned().unwrap_or_default()},
+            "workflow":workflow,"dependencies":dependencies,"decisions":decisions,
+            "evidence":{"report":task.pointer("/paths/report").cloned().unwrap_or(Value::Null),"delivery":current_delivery,"history":delivery.and_then(|delivery|delivery["history"].as_array()).cloned().unwrap_or_default(),"review_queue":review_queue.get(&task_key),"pr":{"url":current_delivery.and_then(|evidence|evidence["pr_url"].as_str()).or_else(||task.pointer("/pr/url").and_then(Value::as_str)),"source":if current_delivery.is_some(){"revision-bound-delivery"}else{task.pointer("/pr/source").and_then(Value::as_str).unwrap_or("absent")}}},
+            "allocation":coordination.and_then(|row|row.get("allocation")).filter(|value|!value.is_null()).map(|binding|json!({"binding":binding,"observation":task["allocation_observation"]})).unwrap_or(Value::Null),
+            "sessions":sessions,"native_observations":coordination.and_then(|row|row["native_observations"].as_array()).cloned().unwrap_or_default(),"latest_change":{"state":task.pointer("/paths/status_log/last_event/state"),"summary":task.pointer("/paths/status_log/last_event/note"),"raw":task.pointer("/paths/status_log/last_event/raw"),"observed_at":Value::Null},
+            "freshness":{"status":if task_partial{"partial"}else{"fresh"},"age_seconds":0,"partial":task_partial,"reasons":if coordination.is_none(){vec!["canonical coordination metadata unavailable"]}else if legacy_unknown{vec!["legacy task identity remains incomplete"]}else if task_partial{vec!["runtime observation unavailable"]}else{Vec::<&str>::new()}}
+        }));
+    }
+    let projected_ids = projected
+        .iter()
+        .filter_map(|task| task["id"].as_str())
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    for record in backlog_root
+        .pointer("/records")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter(|record| record["structured"] == true)
+        .filter(|record| {
+            record["id"]
+                .as_str()
+                .is_some_and(|id| !projected_ids.contains(id))
+        })
+    {
+        let Some(id) = record["id"].as_str() else {
+            continue;
+        };
+        let key = multplx_domain::lifecycle::subagent_model::qualified_task_id(
+            paths.home.to_str().unwrap_or("legacy-unknown"),
+            id,
+        );
+        projected.push(json!({
+            "key":key,"id":id,"title":record["title"],"parent_id":Value::Null,"root_id":Value::Null,"children":[],
+            "project":{"id":record["repo"],"display_name":record["repo"],"checkout_id":Value::Null,"path":Value::Null,"common_git_identity":Value::Null,"registered":false},
+            "state":record["state"],"priority":record["priority"].as_str().and_then(|value|value.parse::<i64>().ok()).unwrap_or(0),"role":Value::Null,
+            "owner":{"home":paths.home,"coordinator":Value::Null,"parent_id":Value::Null},"attempt":Value::Null,"prior_attempts":[],
+            "brief":{"revision":Value::Null,"digest":Value::Null,"path":Value::Null,"scope":Value::Null,"research":[]},
+            "workflow":{"id":Value::Null,"revision":Value::Null,"name":Value::Null,"status":Value::Null,"current_stage":Value::Null,"updated_at":Value::Null},
+            "dependencies":record["blocked_by_ids"].as_array().map(|ids|ids.iter().filter_map(Value::as_str).map(|dependency|json!({"task_id":dependency,"task_key":multplx_domain::lifecycle::subagent_model::qualified_task_id(paths.home.to_str().unwrap_or("legacy-unknown"),dependency),"state":Value::Null,"blocking":true})).collect::<Vec<_>>()).unwrap_or_default(),
+            "decisions":[],"evidence":{"report":{"path":record["report_path"],"present":record["report_path"].is_string()},"delivery":Value::Null,"history":[],"review_queue":Value::Null,"pr":{"url":record["pr_url"],"source":"backlog"}},
+            "allocation":Value::Null,"sessions":[],"native_observations":[],"latest_change":{"state":Value::Null,"summary":Value::Null,"raw":Value::Null,"observed_at":Value::Null},
+            "freshness":{"status":"partial","age_seconds":0,"partial":true,"reasons":["execution metadata unavailable"]}
+        }));
+    }
+    let mut task_keys = projected
+        .iter()
+        .filter_map(|task| task["key"].as_str())
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut project_ids = projects
+        .iter()
+        .filter_map(|project| project["id"].as_str())
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    for domain in domains["records"].as_array().map_or(&[][..], Vec::as_slice) {
+        let Some(child_portfolio) = domain.get("portfolio").filter(|value| value.is_object())
+        else {
+            continue;
+        };
+        for project in child_portfolio["projects"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice)
+        {
+            if project["id"]
+                .as_str()
+                .is_some_and(|id| project_ids.insert(id.to_owned()))
+            {
+                projects.push(project.clone());
+            }
+        }
+        for task in child_portfolio["tasks"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice)
+        {
+            if task["key"]
+                .as_str()
+                .is_some_and(|key| task_keys.insert(key.to_owned()))
+            {
+                projected.push(task.clone());
+            }
+        }
+    }
+    projects.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+    let sessions = projected
+        .iter()
+        .map(|task| task["sessions"].as_array().map_or(0, Vec::len))
+        .sum::<usize>();
+    let attempts = projected
+        .iter()
+        .map(|task| {
+            usize::from(!task["attempt"].is_null())
+                + task["prior_attempts"].as_array().map_or(0, Vec::len)
+        })
+        .sum::<usize>();
+    let task_partial = projected
+        .iter()
+        .any(|task| task.pointer("/freshness/partial") == Some(&Value::Bool(true)));
+    if task_partial {
+        reasons.push("one or more task observations are partial".into());
+    }
+    reasons.sort();
+    reasons.dedup();
+    let partial = task_partial || !reasons.is_empty() || domains["complete"] != true;
+    if domains["complete"] != true {
+        reasons.push("domain projection incomplete".into());
+    }
+    let coordinator_tasks = projected
+        .iter()
+        .filter(|task| task["role"] == "sub-orchestrator")
+        .count();
+    let useful_tasks = projected.len().saturating_sub(coordinator_tasks);
+    let record_total = projected.len();
+    projected.sort_by(|left, right| left["key"].as_str().cmp(&right["key"].as_str()));
+    projected.truncate(env_usize("MX_SNAPSHOT_PORTFOLIO_TASKS", 100));
+    let record_shown = projected.len();
+    if record_total > record_shown {
+        reasons.push("portfolio task record limit reached".into());
+    }
+    let partial = partial || record_total > record_shown;
+    json!({"schema":"mx-portfolio.v1","generated":generated,"observed_at":generated,"freshness":{"status":if partial{"partial"}else{"fresh"},"age_seconds":0,"partial":partial,"reasons":reasons},"counts":{"tasks":useful_tasks,"coordinators":coordinator_tasks,"records":record_total,"shown":record_shown,"truncated":record_total-record_shown,"sessions":sessions,"attempts":attempts,"projects":projects.len(),"domains":domains["total"]},"projects":projects,"tasks":projected})
+}
+
+/// Retained report evidence is the durable owner of a question's creation
+/// time. The scan is intentionally bounded; missing or older evidence leaves
+/// `waiting_since` unknown instead of substituting task or observation time.
+fn decision_evidence(state: &Path) -> (Vec<Value>, bool) {
+    let limit = env_usize("MX_SNAPSHOT_DECISION_EVIDENCE", 512);
+    let mut paths = fs::read_dir(state.join("evidence"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension().and_then(|value| value.to_str()) == Some("json")).then_some(path)
+        })
+        .take(limit.saturating_add(1))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let truncated = paths.len() > limit;
+    paths.truncate(limit);
+    let rows = paths
+        .into_iter()
+        .filter_map(|path| {
+            let bytes = multplx_core::filesystem::read_bounded_regular(&path, 128 * 1024).ok()?;
+            let row: Value = serde_json::from_slice(&bytes).ok()?;
+            let created = row.pointer("/envelope/created_at")?.as_str()?;
+            if row["accepted"] != true
+                || row.pointer("/envelope/kind").and_then(Value::as_str) != Some("needs-decision")
+                || row
+                    .pointer("/envelope/task_id")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                || time::OffsetDateTime::parse(
+                    created,
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .is_err()
+                || !row["decision"].is_object()
+            {
+                return None;
+            }
+            Some(row)
+        })
+        .collect();
+    (rows, truncated)
+}
+
+fn decision_waiting_since(evidence: &[Value], task_id: &str, decision: &Value) -> Value {
+    evidence
+        .iter()
+        .filter(|row| {
+            row.pointer("/decision/task_id").and_then(Value::as_str) == Some(task_id)
+                && row.pointer("/decision/id") == decision.get("id").or_else(|| decision.get("key"))
+                && row.pointer("/decision/question")
+                    == decision.get("question").or_else(|| decision.get("summary"))
+                && decision.get("brief_revision").is_none_or(|revision| {
+                    revision.is_null() || row.pointer("/decision/brief_revision") == Some(revision)
+                })
+                && decision.get("workflow_revision").is_none_or(|revision| {
+                    revision.is_null()
+                        || row.pointer("/decision/workflow_revision") == Some(revision)
+                })
+        })
+        .filter_map(|row| row.pointer("/envelope/created_at").and_then(Value::as_str))
+        .min()
+        .map_or(Value::Null, |value| Value::String(value.to_owned()))
 }
 
 fn domain_projection(
@@ -1060,6 +1618,13 @@ fn domain_projection(
     let started = Instant::now();
     let cached = array(daemon_current, "records")
         .iter()
+        .filter(|record| {
+            record["valid"] == true
+                && record
+                    .pointer("/provenance/selected")
+                    .and_then(Value::as_str)
+                    == Some("structured-home")
+        })
         .filter_map(|record| {
             record["home"]
                 .as_str()
@@ -1096,17 +1661,28 @@ fn domain_projection(
         let runtime_home = coordinator["coordination"]["persistent_home"]
             .as_str()
             .or_else(|| coordinator["coordination"]["owner_home"].as_str());
-        let summary = runtime_home
+        let validated_home = runtime_home
             .ok_or_else(|| "runtime home unavailable".to_owned())
             .and_then(|home| {
-                if let Some(summary) = cached.get(home) {
+                if cached.contains_key(home) {
+                    Ok(PathBuf::from(home))
+                } else {
+                    validate_home(paths, id, Path::new(home))
+                        .map_err(|error| format!("invalid home: {error}"))
+                }
+            });
+        let summary = validated_home
+            .as_ref()
+            .map_err(Clone::clone)
+            .and_then(|home| {
+                if let Some(summary) = cached.get(home.to_string_lossy().as_ref()) {
                     Ok(summary.clone())
                 } else if started.elapsed() >= budget {
                     Err("domain observation budget exhausted".into())
                 } else {
                     read_child_summary_with_timeout(
                         paths,
-                        Path::new(home),
+                        home,
                         generated,
                         budget.saturating_sub(started.elapsed()),
                     )
@@ -1126,13 +1702,14 @@ fn domain_projection(
             omitted =
                 omitted.saturating_add(array(summary.as_ref().expect("checked"), "domains").len());
         }
-        let channel = runtime_home
+        let channel = validated_home
+            .as_ref()
             .map(|home| {
                 if started.elapsed() >= budget {
                     return json!({"available":false,"health":Value::Null,"reason":"domain observation budget exhausted"});
                 }
                 match multplx_domain::lifecycle::parent_channel::inspect(
-                    &Path::new(home).join("state"),
+                    &home.join("state"),
                 ) {
                     Ok(health) => {
                         json!({"available":true,"health":health,"reason":Value::Null})
@@ -1142,8 +1719,8 @@ fn domain_projection(
                     }
                 }
             })
-            .unwrap_or_else(|| {
-                json!({"available":false,"health":Value::Null,"reason":"runtime home unavailable"})
+            .unwrap_or_else(|_| {
+                json!({"available":false,"health":Value::Null,"reason":validated_home.as_ref().err().cloned().unwrap_or_else(|| "runtime home unavailable".into())})
             });
         let count = |key: &str| {
             summary.as_ref().ok().and_then(|summary| {
@@ -1195,6 +1772,21 @@ fn domain_projection(
             .ok()
             .map(|summary| summary["endpoints"].clone())
             .unwrap_or_else(|| json!([]));
+        let canonical_tasks = summary
+            .as_ref()
+            .ok()
+            .map(|summary| summary["tasks"].clone())
+            .unwrap_or_else(|| json!([]));
+        let workflows = summary
+            .as_ref()
+            .ok()
+            .map(|summary| summary["workflow_runs"].clone())
+            .unwrap_or_else(|| json!([]));
+        let child_portfolio = summary
+            .as_ref()
+            .ok()
+            .map(|summary| summary["portfolio"].clone())
+            .unwrap_or(Value::Null);
         records.push(json!({
             "domain_id": binding["domain_id"],
             "scope": binding["scope"],
@@ -1208,6 +1800,7 @@ fn domain_projection(
                 "owner_home": coordinator["coordination"]["owner_home"],
                 "owner_state": coordinator["coordination"]["owner_state"],
                 "runtime_home": runtime_home,
+                "validated_home": validated_home.as_ref().ok(),
                 "parent_id": coordinator["coordination"]["parent_id"],
                 "root_id": coordinator["coordination"]["root_id"],
                 "attempt": coordinator["coordination"]["attempt"],
@@ -1218,7 +1811,8 @@ fn domain_projection(
                 "generated": generated,
                 "age_seconds": if summary.is_ok() { Some(0u64) } else { None },
                 "partial": partial,
-                "reason": observation_reason
+                "reason": observation_reason,
+                "validated_home": validated_home.as_ref().ok()
             },
             "counts": {
                 "useful_tasks": count("useful_tasks"),
@@ -1228,7 +1822,10 @@ fn domain_projection(
                 "attempts_unavailable": count("tasks_total").zip(count("attempts_known")).map(|(tasks, attempts)| tasks.saturating_sub(attempts)),
                 "undelivered_outcomes": undelivered
             },
-            "children": children
+            "children": children,
+            "tasks": canonical_tasks,
+            "workflow_runs": workflows,
+            "portfolio": child_portfolio
         }));
     }
     let total = records.len().saturating_add(omitted);
@@ -1482,15 +2079,6 @@ fn validate_home(paths: &Paths, id: &str, home: &Path) -> Result<PathBuf, String
     Ok(resolved)
 }
 
-fn read_child_summary(paths: &Paths, home: &Path, generated: &str) -> Result<Value, String> {
-    read_child_summary_with_timeout(
-        paths,
-        home,
-        generated,
-        env_duration("MX_SNAPSHOT_DAEMON_TIMEOUT", 8),
-    )
-}
-
 fn read_child_summary_with_timeout(
     paths: &Paths,
     home: &Path,
@@ -1527,6 +2115,8 @@ fn read_child_summary_with_timeout(
                 && summary["valid"].is_boolean()
                 && summary["state"].is_string()
                 && [
+                    "tasks",
+                    "workflow_runs",
                     "active_children",
                     "decisions_open",
                     "holds",
@@ -1539,6 +2129,8 @@ fn read_child_summary_with_timeout(
                 .iter()
                 .all(|key| summary[*key].is_array())
                 && summary["counts"].is_object()
+                && (summary["portfolio"].is_object()
+                    || (summary["valid"] == false && summary["portfolio"].is_null()))
                 && summary["invalidity"].is_object();
             shape
                 .then_some(summary)
@@ -1663,23 +2255,68 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
         routes.truncate(limit)
     }
     let mut seen = std::collections::BTreeSet::new();
-    let mut records = Vec::new();
+    let mut prepared = Vec::with_capacity(routes.len());
     for route in routes {
         let mut reason = route.error.clone();
         let mut home = route.home.clone();
         if reason.is_none() && home.is_none() {
-            reason = Some("no recorded daemon home".into())
+            reason = Some("no recorded daemon home".into());
         }
         if reason.is_none() {
-            match validate_home(paths, &route.id, home.as_ref().unwrap()) {
+            match validate_home(paths, &route.id, home.as_ref().expect("checked")) {
                 Ok(resolved) if seen.insert(resolved.clone()) => home = Some(resolved),
                 Ok(_) => reason = Some("invalid home: duplicate resolved home route".into()),
                 Err(error) => reason = Some(format!("invalid home: {error}")),
             }
         }
-        let empty_summary = json!({"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null},"omitted":[]});
+        prepared.push((route, home, reason));
+    }
+    let jobs = prepared
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, _, reason))| reason.is_none())
+        .map(|(index, (_, home, _))| (index, home.clone().expect("checked")))
+        .collect::<VecDeque<_>>();
+    let jobs = std::sync::Mutex::new(jobs);
+    let summaries = std::sync::Mutex::new(BTreeMap::<usize, Result<Value, String>>::new());
+    let collection_started = Instant::now();
+    let collection_budget = env_duration("MX_SNAPSHOT_DAEMON_BUDGET", 6);
+    let per_home = env_duration("MX_SNAPSHOT_DAEMON_TIMEOUT", 2);
+    let workers = env_usize("MX_SNAPSHOT_DAEMON_CONCURRENCY", 4).clamp(1, 16);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let job = jobs.lock().expect("daemon observation queue").pop_front();
+                    let Some((index, home)) = job else { break };
+                    let remaining = collection_budget.saturating_sub(collection_started.elapsed());
+                    let result = if remaining.is_zero() {
+                        Err("registered-home observation budget exhausted".into())
+                    } else {
+                        read_child_summary_with_timeout(
+                            paths,
+                            &home,
+                            generated,
+                            remaining.min(per_home),
+                        )
+                    };
+                    summaries
+                        .lock()
+                        .expect("daemon observation results")
+                        .insert(index, result);
+                }
+            });
+        }
+    });
+    let mut summaries = summaries.into_inner().expect("daemon observation results");
+    let mut records = Vec::new();
+    for (index, (route, home, mut reason)) in prepared.into_iter().enumerate() {
+        let empty_summary = json!({"portfolio":Value::Null,"tasks":[],"workflow_runs":[],"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null},"omitted":[]});
         let summary = if reason.is_none() {
-            match read_child_summary(paths, home.as_ref().unwrap(), generated) {
+            match summaries
+                .remove(&index)
+                .unwrap_or_else(|| Err("registered-home observation result unavailable".into()))
+            {
                 Ok(summary) => {
                     if summary["valid"] != true
                         && summary["invalidity"]["kind"] != "child_current_unavailable"
@@ -1706,7 +2343,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             } else {
                 "parent-event-fallback"
             };
-            records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":"unknown","reason":reason},"valid":false,"reason":reason,"invalidity":Value::Null,"provenance":{"selected":selected,"structured_home":home,"parent_event_role":"fallback-only-not-current"},"freshness":{"status":if raw.is_empty(){"unknown"}else{"historical-event"},"observed_at":generated,"age_seconds":parent_event["age_seconds"]},"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":empty_summary["counts"],"omitted":[],"parent_event":parent_event,"terminal_evidence":terminal_capture(&route.parent,&note,generated,false),"contradiction":false}));
+            records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":"unknown","reason":reason},"valid":false,"reason":reason,"invalidity":Value::Null,"provenance":{"selected":selected,"structured_home":home,"parent_event_role":"fallback-only-not-current"},"freshness":{"status":if raw.is_empty(){"unknown"}else{"historical-event"},"observed_at":generated,"age_seconds":parent_event["age_seconds"]},"portfolio":Value::Null,"tasks":[],"workflow_runs":[],"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":empty_summary["counts"],"omitted":[],"parent_event":parent_event,"terminal_evidence":terminal_capture(&route.parent,&note,generated,false),"contradiction":false}));
             continue;
         }
         let summary_valid = summary["valid"] == true;
@@ -1721,7 +2358,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             .iter()
             .any(|row| row["verdict"] == "contradicts" && row["summary"] == note);
         let terminal = terminal_capture(&route.parent, &note, generated, compare_terminal);
-        records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":summary["state"],"reason":current_reason},"valid":summary_valid,"reason":summary["reason"],"invalidity":summary["invalidity"],"provenance":{"selected":"structured-home","structured_home":home,"summary_valid":summary_valid,"trust":if summary_valid{"complete"}else{"partial-structured"},"parent_event_role":"historical-only"},"freshness":{"status":"fresh","observed_at":generated,"age_seconds":0},"active_children":summary["active_children"],"decisions_open":summary["decisions_open"],"holds":summary["holds"],"queued":summary["queued"],"landed":summary["landed"],"endpoints":summary["endpoints"],"domains":summary["domains"],"counts":summary["counts"],"omitted":summary["omitted"],"parent_event":parent_event,"terminal_evidence":terminal,"contradiction":contradiction||terminal["contradiction"]==true}));
+        records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":summary["state"],"reason":current_reason},"valid":summary_valid,"reason":summary["reason"],"invalidity":summary["invalidity"],"provenance":{"selected":"structured-home","structured_home":home,"summary_valid":summary_valid,"trust":if summary_valid{"complete"}else{"partial-structured"},"parent_event_role":"historical-only"},"freshness":{"status":"fresh","observed_at":generated,"age_seconds":0},"portfolio":summary["portfolio"],"tasks":summary["tasks"],"workflow_runs":summary["workflow_runs"],"active_children":summary["active_children"],"decisions_open":summary["decisions_open"],"holds":summary["holds"],"queued":summary["queued"],"landed":summary["landed"],"endpoints":summary["endpoints"],"domains":summary["domains"],"counts":summary["counts"],"omitted":summary["omitted"],"parent_event":parent_event,"terminal_evidence":terminal,"contradiction":contradiction||terminal["contradiction"]==true}));
     }
     let shown = records.len();
     json!({"registry":registry,"records":records,"total_registered":total_registered,"total":total,"shown":shown,"truncated":total-shown})
@@ -1914,44 +2551,64 @@ fn headroom_bin(paths: &Paths) -> PathBuf {
         .unwrap_or_else(|| paths.source_root.join("bin/mx-headroom.sh"))
 }
 fn headroom(paths: &Paths) -> (Value, Value) {
-    let output = Command::new(headroom_bin(paths))
+    let mut command = Command::new(headroom_bin(paths));
+    command
         .arg("--json")
         .env("MX_ROOT_OVERRIDE", &paths.root)
         .env("MX_HOME", &paths.home)
         .env("MX_STATE_OVERRIDE", &paths.state)
-        .env("MX_CONFIG_OVERRIDE", &paths.config)
-        .output();
+        .env("MX_CONFIG_OVERRIDE", &paths.config);
+    let output = run_bounded(
+        command,
+        env_duration("MX_SNAPSHOT_HEADROOM_TIMEOUT", 2),
+        65_536,
+    );
     match output {
-        Ok(output) if output.status.success() => serde_json::from_slice(&output.stdout)
+        TimedOutput::Completed {
+            status: 0, stdout, ..
+        } => serde_json::from_slice(&stdout)
             .map(|v| (v, Value::Null))
             .unwrap_or((Value::Null, json!("headroom check failed"))),
-        Ok(output) => (
+        TimedOutput::Completed { stderr, .. } => (
             Value::Null,
             json!(
-                String::from_utf8_lossy(&output.stderr)
+                String::from_utf8_lossy(&stderr)
                     .lines()
                     .next()
                     .unwrap_or("headroom check failed")
             ),
         ),
-        Err(_) => (Value::Null, json!("headroom check failed")),
+        TimedOutput::TimedOut => (Value::Null, json!("headroom check timed out")),
+        TimedOutput::StartFailed => (Value::Null, json!("headroom check failed")),
     }
 }
 fn dispatch(paths: &Paths) -> Value {
-    let output = Command::new(headroom_bin(paths))
+    let mut command = Command::new(headroom_bin(paths));
+    command
         .arg("--queue")
         .env("MX_ROOT_OVERRIDE", &paths.root)
         .env("MX_HOME", &paths.home)
         .env("MX_STATE_OVERRIDE", &paths.state)
-        .env("MX_CONFIG_OVERRIDE", &paths.config)
-        .output();
-    let Ok(output) = output else {
-        return json!({"depth":0,"records":[],"available":false,"reason":"dispatch queue read failed"});
+        .env("MX_CONFIG_OVERRIDE", &paths.config);
+    let stdout = match run_bounded(
+        command,
+        env_duration("MX_SNAPSHOT_HEADROOM_TIMEOUT", 2),
+        262_144,
+    ) {
+        TimedOutput::Completed {
+            status: 0, stdout, ..
+        } => stdout,
+        TimedOutput::Completed { stderr, .. } => {
+            return json!({"depth":0,"records":[],"available":false,"reason":String::from_utf8_lossy(&stderr).lines().next().unwrap_or("dispatch queue read failed")});
+        }
+        TimedOutput::TimedOut => {
+            return json!({"depth":0,"records":[],"available":false,"reason":"dispatch queue read timed out"});
+        }
+        TimedOutput::StartFailed => {
+            return json!({"depth":0,"records":[],"available":false,"reason":"dispatch queue read failed"});
+        }
     };
-    if !output.status.success() {
-        return json!({"depth":0,"records":[],"available":false,"reason":String::from_utf8_lossy(&output.stderr).lines().next().unwrap_or("dispatch queue read failed")});
-    }
-    let rows=String::from_utf8_lossy(&output.stdout).lines().filter_map(|line|{let parts=line.split('\t').collect::<Vec<_>>();(parts.len()==8).then(||json!({"enqueued_at":parts[0].parse::<u64>().ok(),"id":parts[1],"project":parts[2],"profile":{"harness":null_dash(parts[3]),"model":null_dash(parts[4]),"effort":null_dash(parts[5]),"backend":null_dash(parts[6])},"kind":parts[7]}))}).collect::<Vec<_>>();
+    let rows=String::from_utf8_lossy(&stdout).lines().filter_map(|line|{let parts=line.split('\t').collect::<Vec<_>>();(parts.len()==8).then(||json!({"enqueued_at":parts[0].parse::<u64>().ok(),"id":parts[1],"project":parts[2],"profile":{"harness":null_dash(parts[3]),"model":null_dash(parts[4]),"effort":null_dash(parts[5]),"backend":null_dash(parts[6])},"kind":parts[7]}))}).collect::<Vec<_>>();
     json!({"depth":rows.len(),"records":rows,"available":true,"reason":Value::Null})
 }
 fn null_dash(value: &str) -> Option<&str> {
@@ -1996,7 +2653,8 @@ fn later(paths: &Paths) -> Value {
 }
 
 fn json_file(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&fs::read(path).ok()?).ok()
+    serde_json::from_slice(&multplx_core::filesystem::read_bounded_regular(path, 1024 * 1024).ok()?)
+        .ok()
 }
 fn directories_with_suffix(state: &Path, suffix: &str) -> Vec<PathBuf> {
     let mut rows = fs::read_dir(state)
@@ -2021,7 +2679,38 @@ fn gate_runs(paths: &Paths) -> Value {
 }
 fn workflow_runs(paths: &Paths) -> Value {
     let supported = paths.source_root.join("bin/mx-workflow.sh").is_file();
-    let records=directories_with_suffix(&paths.state,".workflow").into_iter().map(|dir|{let id=dir.file_name().unwrap().to_string_lossy().trim_end_matches(".workflow").to_owned();json_file(&dir.join("run.json")).map_or_else(||json!({"id":id,"valid":false,"workflow":Value::Null,"status":"invalid","current_stage":Value::Null,"message":Value::Null,"created_at":Value::Null,"updated_at":Value::Null}),|run|json!({"id":id,"valid":true,"workflow":run["workflow"],"status":run["status"].as_str().unwrap_or("unknown"),"current_stage":run["current_stage"],"message":run["message"],"created_at":run["created_at"],"updated_at":run["updated_at"]}))}).collect::<Vec<_>>();
+    let records = directories_with_suffix(&paths.state, ".workflow")
+        .into_iter()
+        .map(|dir| {
+            let id = dir
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .trim_end_matches(".workflow")
+                .to_owned();
+            json_file(&dir.join("run.json")).map_or_else(
+                || json!({"id":id,"valid":false,"workflow":Value::Null,"workflow_revision":Value::Null,"status":"invalid","current_stage":Value::Null,"message":Value::Null,"created_at":Value::Null,"updated_at":Value::Null,"stages":[]}),
+                |run| {
+                    let mut stage_paths = fs::read_dir(dir.join("stages"))
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .collect::<Vec<_>>();
+                    stage_paths.sort();
+                    let stage_total = stage_paths.len();
+                    stage_paths.truncate(env_usize("MX_SNAPSHOT_WORKFLOW_STAGES", 64));
+                    let mut stages = stage_paths
+                        .iter()
+                        .filter_map(|path| json_file(path))
+                        .collect::<Vec<_>>();
+                    stages.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+                    let stage_shown = stages.len();
+                    json!({"id":id,"valid":true,"workflow":run["workflow"],"workflow_revision":run["workflow_revision"],"definition_path":run["definition_path"],"definition_sha256":run["definition_sha256"],"plan_revision":run["plan_revision"],"accepted_brief_revision":run["accepted_brief_revision"],"request_correlation":run["request_correlation"],"dependencies":run["dependencies"],"project":run["project"],"status":run["status"].as_str().unwrap_or("unknown"),"current_stage":run["current_stage"],"message":run["message"],"created_at":run["created_at"],"updated_at":run["updated_at"],"stages":stages,"stage_total":stage_total,"stage_shown":stage_shown,"stages_complete":stage_total==stage_shown})
+                },
+            )
+        })
+        .collect::<Vec<_>>();
     json!({"supported":supported,"available":supported&&!records.is_empty(),"records":records})
 }
 fn deliveries(paths: &Paths) -> Value {
@@ -2066,23 +2755,32 @@ fn upstream(paths: &Paths) -> Value {
     if !command.is_file() {
         return json!({"available":false,"reason":"upstream reader is not installed","status":Value::Null,"fork_point":Value::Null,"last_reviewed":Value::Null,"upstream_repo":Value::Null,"retired_reason":Value::Null});
     }
-    match Command::new(command)
-        .arg("--status")
-        .env("MX_ROOT_OVERRIDE", &paths.root)
-        .output()
-    {
-        Ok(output) if matches!(output.status.code(), Some(0 | 3)) => {
-            let text = String::from_utf8_lossy(&output.stdout);
+    let mut reader = Command::new(command);
+    reader.arg("--status").env("MX_ROOT_OVERRIDE", &paths.root);
+    match run_bounded(
+        reader,
+        env_duration("MX_SNAPSHOT_UPSTREAM_TIMEOUT", 2),
+        65_536,
+    ) {
+        TimedOutput::Completed {
+            status: 0 | 3,
+            stdout,
+            ..
+        } => {
+            let text = String::from_utf8_lossy(&stdout);
             let fields = text
                 .lines()
                 .filter_map(|line| line.split_once('='))
                 .collect::<BTreeMap<_, _>>();
             json!({"available":true,"reason":Value::Null,"status":fields.get("status"),"fork_point":fields.get("fork_point"),"last_reviewed":fields.get("last_reviewed"),"upstream_repo":fields.get("upstream_repo"),"retired_reason":fields.get("retired_reason").filter(|v|!v.is_empty())})
         }
-        Ok(output) => {
-            json!({"available":false,"reason":String::from_utf8_lossy(&output.stderr).lines().next().unwrap_or("upstream status failed"),"status":Value::Null,"fork_point":Value::Null,"last_reviewed":Value::Null,"upstream_repo":Value::Null,"retired_reason":Value::Null})
+        TimedOutput::Completed { stderr, .. } => {
+            json!({"available":false,"reason":String::from_utf8_lossy(&stderr).lines().next().unwrap_or("upstream status failed"),"status":Value::Null,"fork_point":Value::Null,"last_reviewed":Value::Null,"upstream_repo":Value::Null,"retired_reason":Value::Null})
         }
-        Err(_) => {
+        TimedOutput::TimedOut => {
+            json!({"available":false,"reason":"upstream status timed out","status":Value::Null,"fork_point":Value::Null,"last_reviewed":Value::Null,"upstream_repo":Value::Null,"retired_reason":Value::Null})
+        }
+        TimedOutput::StartFailed => {
             json!({"available":false,"reason":"upstream status failed","status":Value::Null,"fork_point":Value::Null,"last_reviewed":Value::Null,"upstream_repo":Value::Null,"retired_reason":Value::Null})
         }
     }
@@ -2142,6 +2840,196 @@ mod tests {
             run_bounded(command, Duration::from_millis(20), 64),
             TimedOutput::TimedOut
         );
+    }
+
+    #[test]
+    fn bounded_runner_does_not_wait_for_descendant_held_pipes() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sh -c 'sleep 5' & printf parent"]);
+        let started = Instant::now();
+        let output = run_bounded(command, Duration::from_secs(1), 64);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(matches!(&output, TimedOutput::Completed { status: 0, .. }));
+        if let TimedOutput::Completed { stdout, .. } = output {
+            assert_eq!(stdout, b"parent");
+        }
+    }
+
+    #[test]
+    fn portfolio_keeps_task_attempt_session_and_evidence_facts_distinct() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir_all(home.join("data")).unwrap();
+        fs::create_dir_all(home.join("state/evidence")).unwrap();
+        fs::write(
+            home.join("state/evidence/same-name-report-1.json"),
+            serde_json::to_vec(&json!({
+                "accepted":true,
+                "envelope":{"kind":"needs-decision","task_id":"same-name","created_at":"2026-09-16T23:59:00Z"},
+                "decision":{"id":"choice","task_id":"same-name","question":"Choose?","brief_revision":3,"workflow_revision":null}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let paths = Paths {
+            root: temp.path().to_path_buf(),
+            home: home.clone(),
+            state: home.join("state"),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: temp.path().to_path_buf(),
+        };
+        let task = json!({
+            "id":"same-name","project":"legacy","coordination_error":null,
+            "coordination":{
+                "owner_home":home,"parent_id":"root","root_id":"root","owning_coordinator":null,
+                "role":"implementer","persistent":false,
+                "runtime":{"provider":"codex","session_id":null,"endpoint":null},
+                "attempt":{"id":"attempt-2","generation":2,"brief_revision":3},
+                "native_observations":[
+                    {"observation_id":"native-1","provider":"codex","child_id":"child-7","parent_attempt":{"id":"attempt-2"},"state":"started","observed_at":"2026-09-17T00:00:00Z"},
+                    {"observation_id":"native-2","provider":"codex","child_id":"child-7","parent_attempt":{"id":"attempt-2"},"state":"result","observed_at":"2026-09-17T00:01:00Z"},
+                    {"observation_id":"native-3","provider":"codex","child_id":null,"parent_attempt":{"id":"attempt-2"},"state":"started","observed_at":"2026-09-17T00:02:00Z"}
+                ],
+                "accepted_brief_revision":3,"accepted_brief_digest":"digest","accepted_brief_path":"data/same-name/brief.md",
+                "briefs":[{"revision":3,"scope":"Implement it","source_artifacts":["data/same-name/research.md"]}],
+                "prior_attempts":[{"id":"attempt-1","generation":1,"brief_revision":2}],"retained_executions":[],
+                "schedule":{"state":"waiting-dependency","priority":7,"dependencies":["prerequisite"],"decisions":[{"id":"choice","question":"Choose?","brief_revision":3,"workflow_revision":null,"answer":null}]},
+                "project":null,"allocation":null,
+                "delivery":{"current_commit":"abc","history":[{"attempt_id":"attempt-2","attempt_generation":2,"brief_revision":3,"commit":"abc","pr_url":"https://example.invalid/pull/1","checks":[],"outcome":"published"}]}
+            },
+            "allocation_observation":null,"backlog":{"title":"Visible task"},
+            "current_state":{"state":"parked","source":"status-log","observed_at":"2026-09-17T00:00:00Z"},
+            "paths":{"worktree":{"path":null},"report":{"path":"report.md","present":true},"status_log":{"last_event":{"state":"blocked","note":"dependency","raw":"blocked: dependency"}}},
+            "hints":{"open_decisions":[]},"pr":{"url":null,"source":"absent"}
+        });
+        let projection = portfolio(
+            &paths,
+            "2026-09-17T00:00:00Z",
+            &json!({"records":[{"structured":true,"id":"queued-only","title":"Accepted queue item","repo":"other","state":"queued","priority":"3","blocked_by_ids":[],"report_path":null,"pr_url":null}]}),
+            &json!([task]),
+            &json!({"complete":true,"total":0}),
+            &json!({"workflow_runs":{"records":[{"id":"run-1","workflow":"deliver","workflow_revision":"rev-7","status":"running","current_stage":"implement","updated_at":"2026-09-17T00:00:00Z","stages":[{"id":"implement","task_id":"same-name","status":"waiting-agent"}]}]}}),
+        );
+        assert_eq!(projection["counts"]["tasks"], 2);
+        assert_eq!(projection["counts"]["attempts"], 2);
+        assert_eq!(projection["counts"]["sessions"], 1);
+        let current = projection["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "same-name")
+            .unwrap();
+        assert_eq!(current["state"], "waiting-dependency");
+        assert_eq!(current["workflow"]["id"], "run-1");
+        assert_eq!(current["workflow"]["revision"], "rev-7");
+        assert_eq!(current["dependencies"][0]["blocking"], true);
+        assert_eq!(
+            current["decisions"][0]["waiting_since"],
+            "2026-09-16T23:59:00Z"
+        );
+        assert_eq!(current["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(current["sessions"][0]["state"], "result");
+        assert_eq!(current["native_observations"].as_array().unwrap().len(), 3);
+        assert_eq!(current["evidence"]["delivery"]["commit"], "abc");
+        assert!(current["key"].as_str().unwrap().contains("#task:same-name"));
+        let queued = projection["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "queued-only")
+            .unwrap();
+        assert_eq!(queued["freshness"]["status"], "partial");
+    }
+
+    #[test]
+    fn decision_evidence_uses_only_bounded_accepted_question_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let evidence = temp.path().join("state/evidence");
+        fs::create_dir_all(&evidence).unwrap();
+        let record = |accepted: bool, kind: &str, created_at: &str| {
+            json!({
+                "accepted":accepted,
+                "envelope":{"kind":kind,"task_id":"worker","created_at":created_at},
+                "decision":{"id":"choice","task_id":"worker","question":"Choose?","brief_revision":2,"workflow_revision":"flow-1"}
+            })
+        };
+        fs::write(
+            evidence.join("worker-accepted.json"),
+            serde_json::to_vec(&record(true, "needs-decision", "2026-09-17T12:00:00Z")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            evidence.join("worker-rejected.json"),
+            serde_json::to_vec(&record(false, "needs-decision", "2026-09-17T11:00:00Z")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            evidence.join("worker-invalid-time.json"),
+            serde_json::to_vec(&record(true, "needs-decision", "not-a-time")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            evidence.join("worker-wrong-kind.json"),
+            serde_json::to_vec(&record(true, "working", "2026-09-17T10:00:00Z")).unwrap(),
+        )
+        .unwrap();
+        let (rows, truncated) = decision_evidence(&temp.path().join("state"));
+        assert!(!truncated);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            decision_waiting_since(
+                &rows,
+                "worker",
+                &json!({"id":"choice","question":"Choose?","brief_revision":2,"workflow_revision":"flow-1"})
+            ),
+            "2026-09-17T12:00:00Z"
+        );
+        assert!(
+            decision_waiting_since(
+                &rows,
+                "worker",
+                &json!({"id":"other","question":"Choose?","brief_revision":2,"workflow_revision":"flow-1"})
+            )
+            .is_null()
+        );
+
+        for index in 0..513 {
+            fs::write(evidence.join(format!("bounded-{index:03}.json")), b"{}").unwrap();
+        }
+        let (rows, truncated) = decision_evidence(&temp.path().join("state"));
+        assert!(truncated);
+        assert!(rows.len() <= 1);
+    }
+
+    #[test]
+    fn nested_domain_home_validation_returns_the_canonical_seeded_home() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let active = temp.path().join("active");
+        let nested = temp.path().join("nested");
+        for name in ["state", "data", "config", "projects", "bin"] {
+            fs::create_dir_all(nested.join(name)).unwrap();
+        }
+        fs::create_dir_all(active.join("state")).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(nested.join(".mx-daemon-home"), "nested\n").unwrap();
+        fs::write(nested.join("AGENTS.md"), "# nested\n").unwrap();
+        let paths = Paths {
+            root,
+            home: active.clone(),
+            state: active.join("state"),
+            data: active.join("data"),
+            config: active.join("config"),
+            projects: active.join("projects"),
+            source_root: temp.path().to_path_buf(),
+        };
+        assert_eq!(
+            validate_home(&paths, "nested", &nested).unwrap(),
+            nested.canonicalize().unwrap()
+        );
+        assert!(validate_home(&paths, "wrong-id", &nested).is_err());
     }
 
     #[test]
@@ -2215,8 +3103,8 @@ mod tests {
         let first_task = coordinator("first", &root, &first, true);
         let nested_task = coordinator("nested", &first, &nested, false);
         let daemon_current = json!({"records":[
-            {"home":first,"valid":true,"reason":Value::Null,"domains":[nested_task],"endpoints":[],"counts":{"useful_tasks":2,"worker_sessions":1,"coordinator_sessions":1,"attempts_known":3,"tasks_total":3}},
-            {"home":nested,"valid":true,"reason":Value::Null,"domains":[],"endpoints":[],"counts":{"useful_tasks":3,"worker_sessions":2,"coordinator_sessions":0,"attempts_known":3,"tasks_total":3}}
+            {"home":first,"valid":true,"reason":Value::Null,"provenance":{"selected":"structured-home"},"domains":[nested_task],"endpoints":[],"counts":{"useful_tasks":2,"worker_sessions":1,"coordinator_sessions":1,"attempts_known":3,"tasks_total":3}},
+            {"home":nested,"valid":true,"reason":Value::Null,"provenance":{"selected":"structured-home"},"domains":[],"endpoints":[],"counts":{"useful_tasks":3,"worker_sessions":2,"coordinator_sessions":0,"attempts_known":3,"tasks_total":3}}
         ]});
         let projection = domain_projection(
             &paths,
@@ -2233,6 +3121,10 @@ mod tests {
         );
         assert_eq!(projection["records"][1]["counts"]["useful_tasks"], 3);
         assert_eq!(projection["records"][1]["counts"]["worker_sessions"], 2);
+        assert_eq!(
+            projection["records"][1]["coordinator"]["validated_home"].as_str(),
+            nested.to_str()
+        );
     }
 
     #[test]
@@ -2294,6 +3186,7 @@ mod tests {
             summaries.push(json!({
                 "home":runtime,
                 "valid":true,
+                "provenance":{"selected":"structured-home"},
                 "domains":[],
                 "counts":{"useful_tasks":0,"worker_sessions":0,"coordinator_sessions":0,"attempts_known":0,"tasks_total":0}
             }));
@@ -2329,6 +3222,7 @@ mod tests {
             chain.push(json!({
                 "home":homes[index],
                 "valid":true,
+                "provenance":{"selected":"structured-home"},
                 "domains":nested,
                 "counts":{"useful_tasks":0,"worker_sessions":0,"coordinator_sessions":0,"attempts_known":0,"tasks_total":0}
             }));
