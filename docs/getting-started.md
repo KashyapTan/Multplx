@@ -1,32 +1,164 @@
 # Getting started
 
-This is the canonical path from installation to a safe first Multplx request.
-Multplx remains a repository-based agent distribution, while a small global launcher makes one configured control plane available from any directory.
+Install Multplx once, then open the same workspace and orchestrator conversation from any directory.
+Use existing local repositories before considering an intentional clone.
 
 [Back to the documentation index](README.md).
 
 ## Requirements
 
-Use macOS or Linux and install one verified coding-agent harness:
+Use macOS or Linux with one supported coding-agent harness:
 
-- Claude Code, launched with `claude`.
-- Codex CLI, launched with `codex`.
-- Cursor CLI, launched with `agent` or `cursor-agent`.
-- Pi, launched with `pi`.
+- Claude Code: `claude`.
+- Codex CLI: `codex`.
+- Cursor CLI: `agent` or `cursor-agent`.
+- Pi: `pi`.
 
-Every Multplx home needs Git, the official GitHub CLI, and `jq`.
-Safe worktree cleanup uses `lsof` to observe occupants; unavailable observation retains the allocation.
-Building from source additionally requires the stable Rust toolchain.
-Your runtime backend adds its own CLI requirement.
-tmux is the verified reference backend; Herdr and cmux are experimental, and Codex App is not selectable.
+Git supplies project identity and isolated worktrees.
+The supported runtime backend requires its own CLI; tmux is the reference backend, while Herdr and cmux retain their documented experimental limits.
+GitHub publication uses the official GitHub CLI and ordinary authentication; remote-free tasks stay local.
+Other existing runtime tools, including `jq`, are listed in [configuration](configuration.md).
+Safe worktree cleanup uses `lsof`; unavailable occupant observation retains the allocation.
+Only source builds require Rust.
+A package does not supply harness authentication or replace its trust prompt.
+Codex Desktop is not a shell-callable Multplx backend.
 
-Public repository reads do not require GitHub authentication.
-For branch publication, configure ordinary Git and official GitHub CLI authentication; spawned workers preserve that configuration.
+## Install a platform package
+
+Obtain the versioned package for your platform and its SHA-256 file from the release distributor.
+Verify that the checksum comes from the intended release before extracting it.
+For example, replace `VERSION`, `OS` and `ARCH` with the package's actual values:
+
+```sh
+shasum -a 256 -c multplx-VERSION-OS-ARCH.tar.gz.sha256
+tar -xzf multplx-VERSION-OS-ARCH.tar.gz
+./multplx-VERSION-OS-ARCH/bin/mx launcher-install --package ./multplx-VERSION-OS-ARCH
+```
+
+Linux also supports `sha256sum -c` for archive verification.
+The installer validates the package inventory, platform, version and file hashes before publishing the binary and matching runtime assets.
+It keeps runtime assets separate from the persistent operational home.
+Neither a Multplx source checkout nor a Rust build is needed for this path.
+
+The command defaults to `${XDG_BIN_HOME:-$HOME/.local/bin}/multplx`, configuration records to `${XDG_CONFIG_HOME:-$HOME/.config}/multplx`, and managed runtime/home storage below `${XDG_DATA_HOME:-$HOME/.local/share}/multplx`.
+Add the printed binary directory to `PATH` if needed.
+`multplx paths` shows the selected runtime and home.
+`multplx launcher-install --help` documents custom directories and adoption of an existing home.
+Before using a new runtime with an existing legacy home, stop its writers and follow [operational-home migration](state-migration.md).
+
+A package can be upgraded with the extracted new version:
+
+```sh
+./multplx-VERSION-OS-ARCH/bin/mx launcher-install --upgrade --package ./multplx-VERSION-OS-ARCH
+```
+
+Upgrades publish owned installation records transactionally and retain operational data and user repositories.
+Upgrade and uninstall first exclude supported launches, then refuse while a primary harness, launch reservation or task record is live or uncertain; stop or reconcile those recorded users before retrying.
+Uninstall removes the owned command and installation records without deleting your operational home or repositories:
+
+```sh
+multplx launcher-install --uninstall
+```
+
+The lean redesign remains under development until its deliberate release cutover.
+An isolated package validation result is not evidence that a public release has been published.
+
+## Open the workspace
+
+From home, a repository, a subdirectory or an unrelated directory:
+
+```sh
+multplx
+```
+
+The terminal workspace shows projects, tasks, decisions and connection state.
+Use `multplx workspace --plain` for noninteractive output.
+Select a supported installed harness explicitly on first use:
+
+```sh
+multplx chat codex
+# Alternatives: multplx chat claude, multplx chat cursor, multplx chat pi
+```
+
+The launcher remembers the selection, and subsequent `multplx chat` uses it.
+The named forms `multplx codex`, `multplx claude`, `multplx cursor` and `multplx pi` remain supported.
+The harness starts from the validated runtime context so its instructions and integration assets load, while the original directory remains optional next-request context.
+Preserve the harness's actual authentication and trust requirements.
+An existing live owner remains authoritative; connection uses a supported recorded route or displays where to continue the existing conversation.
+An unavailable attachment does not create another orchestrator.
+[Launcher verification](verification/launcher.md) separates deterministic tests from real-provider evidence.
+
+## Remember local projects
+
+Register a selected checkout without cloning or changing its working files:
+
+```sh
+multplx projects register ~/dev/my-app --alias my-app
+multplx projects list
+multplx my-app
+```
+
+Use an exact alias or path when duplicate names are ambiguous.
+Optional recursive discovery roots make nested repositories easier to find; `multplx projects --help` documents roots, exclusions, symlink policy and incremental refresh.
+Roots are not required for chat or explicit paths, and the launcher never automatically scans an arbitrary current directory.
+The [workspace guide](workspace-entry.md) describes discovery, location repair, unregister and the terminal keys.
+
+Selecting context never changes the project, checkout or starting revision of accepted tasks.
+Borrowed repositories retain their branches, index and dirty files; implementation starts in an isolated worktree from a recorded commit.
+Uncommitted working changes are excluded unless explicitly handled as part of the request.
+Remote-free repositories remain usable for local tasks, and discovering an unversioned folder does not create Git or a remote.
+
+## Make the first request
+
+Ask in the one orchestrator chat:
+
+```text
+Fix login in my-app, investigate the flaky test in repo-two, and research feature C in repo-three.
+```
+
+The orchestrator delegates each implementation to a sub-agent and keeps each repository's instructions and evidence scoped to its task.
+One ambiguous or blocked task does not stop independent work.
+Use explicit [scoped coordinator commands](scoped-coordinators.md) when a bounded domain benefits from a coordinator; project selection alone never creates one.
+
+Equivalent durable terminal intake is available:
+
+```sh
+multplx task --project my-app "Fix login"
+```
+
+Its receipt confirms recorded intake rather than claiming an agent is already implementing it.
+Use the request identity printed by the command for an uncertain retry, following `multplx task --help`.
+[Durable coordination](durable-coordination.md) explains separate acceptance, delivery, acknowledgement and completion facts.
+
+Workers may commit, push branches and create or update PRs with ordinary Git and forge authentication.
 PR merging remains human-only.
+Deep-review and vplan remain explicit optional tools rather than publication prerequisites.
+See [delivery](delivery.md) for retry and evidence contracts.
 
-## Install the global command
+## Backend and shell options
 
-Clone the repository once, then register that checkout as both the code root and persistent operational home:
+Select the supported task backend through local `config/backend` or the launcher's `--backend auto|tmux|herdr|cmux` option.
+`auto` leaves normal runtime detection authoritative.
+Follow the [tmux](tmux-backend.md), [Herdr](herdr-backend.md) or [cmux](cmux-backend.md) guide for prerequisites and actual persistent-home limits.
+
+Explicit shell activation remains available:
+
+```sh
+multplx shell
+codex
+```
+
+The child shell stays in the caller's directory and adds a static marker and harness shims.
+Exit restores the parent environment unchanged.
+The marker does not claim an active orchestrator.
+
+After normal session startup, inspect state with `multplx doctor` or open the read-only [MX Viz](viz.md) view from the terminal workspace.
+Doctor does not repair state unless its explicit `--fix` option is supplied.
+The dashboard is not a second chat or mutation interface.
+
+## Source installation
+
+Developers may retain the source-install path:
 
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
@@ -35,140 +167,8 @@ cargo build --release --workspace --locked
 bin/mx-launcher-install.sh
 ```
 
-This existing-checkout mode preserves every current file under `data/`, `state/`, `config/`, and `projects/` in place.
-It creates any missing private top-level directories but does not move or rewrite their contents.
-Before starting the new runtime against an existing operational home, stop its writers and follow the [operational-home migration](state-migration.md) inspect/apply procedure.
-
-For a hidden managed runtime and a separate persistent home, use managed mode instead:
-
-```sh
-bin/mx-launcher-install.sh --managed
-```
-
-Managed mode clones the configured origin into `${XDG_DATA_HOME:-$HOME/.local/share}/multplx/runtime` and creates the operational home at the sibling `home` directory.
-Both modes install `multplx` under `${XDG_BIN_HOME:-$HOME/.local/bin}` and record literal root/home paths under `${XDG_CONFIG_HOME:-$HOME/.config}/multplx`.
-The installer prints the directory to add to `PATH` when it is not already visible.
-The installer copies the release binary and records its SHA-256 receipt before publication.
-Pass `--binary <path> --checksum <sha256>` to install an externally supplied verified artifact, `--upgrade` to replace an owned installation, or `--uninstall` for data-preserving removal.
-A recognized legacy shell launcher can be upgraded without a binary receipt using the current source installer:
-
-```sh
-cargo build --release --workspace --locked
-bin/mx-launcher-install.sh --upgrade --root /absolute/Multplx --home /absolute/Multplx-home
-multplx paths
-```
-
-With explicit `--root`, the current installer works from a non-repository working directory.
-The installer accepts only the exact previously generated shim bound to the existing literal configuration directory and matching root/home records.
-Modified shims, foreign executables, linked files, and conflicting configuration remain refusals; publication failure restores the prior generation.
-The compatibility adapter always executes the source Rust binary, so a legacy shim naming itself in `MX_LAUNCH_BIN_PATH` cannot recurse.
-To install a separately verified upstream artifact with a newer migration-capable installer, add `--binary /absolute/upstream/mx --checksum <SHA-256>`; the artifact determines the installed version, not the installer build.
-Do not substitute an unmerged feature binary for an upstream release.
-Run `target/release/mx launcher-install --help` for custom XDG paths, adoption of another checkout or home, managed source selection, and the complete recovery contract.
-
-## Activate and choose a broker harness
-
-From any directory, activate an ordinary child shell:
-
-```sh
-multplx
-```
-
-The child shell stays in the caller's directory and shows a static `multplx` marker.
-The marker reads no state and does not claim that a broker is running.
-Exit the child shell to restore the parent environment unchanged.
-
-Inside the activated shell, launch one installed harness:
-
-```sh
-claude
-# or: codex
-# or: agent
-# or: pi
-```
-
-The harness child alone changes to the configured Multplx code root so project instructions, hooks, skills, and Pi extensions load exactly as they do during a manual root launch.
-Approve the repository trust prompt when the harness presents one.
-Pi needs that approval so the tracked `.pi/extensions/*.ts` files can load.
-Codex needs it so the tracked project configuration and hooks load.
-Multplx passes Cursor's scoped `--trust` flag only after validating the configured code root and keeps Cursor sandboxing enabled.
-
-An operational Multplx release uses tracked root `AGENTS.md` to define and auto-load the broker role.
-At session start the broker runs `bin/mx-session-start.sh` exactly once, detects missing tools and invalid configuration, reconciles durable work, and emits the supervision instructions for the active harness.
-Supported installs happen only after you approve them in that session; manual-only dependencies remain your responsibility.
-
-Use `multplx paths` to inspect the configured code root, operational home, bootstrap, and config directory.
-Use `multplx doctor` for the invariant sweep.
-Use `multplx update` to fast-forward the configured source, rebuild the release binary, and transactionally replace the installed binary and checksum receipt; a failed build or publication leaves the prior installed generation runnable and records a bounded retry.
-`multplx --help` and `multplx launcher-install --help` own the exact command grammar and exit statuses; the public shell filenames are transport-only adapters.
-[Launcher verification](verification/launcher.md) records current deterministic, shell, and available real-harness evidence.
-
-## Choose a runtime backend
-
-tmux is the reference backend and the fallback when no explicit setting or supported runtime environment selects another backend.
-If you require tmux, select it explicitly by putting this value in local gitignored `config/backend`:
-
-```text
-tmux
-```
-
-The supported selectors are:
-
-| Value | Support level | Best fit |
-| --- | --- | --- |
-| `tmux` | Reference | Portable terminal operation and daemon homes |
-| `herdr` | Experimental | Native agent state and push events |
-| `cmux` | Experimental | macOS GUI workspaces; daemon spawns are not supported |
-
-Follow the selected backend's [tmux](tmux-backend.md), [Herdr](herdr-backend.md), or [cmux](cmux-backend.md) setup guide before the first task.
-`config/backend` may also be omitted so runtime auto-detection can select the current supported terminal environment before falling back to tmux.
-An activated shell preserves ambient tmux, Herdr, and cmux signals.
-For a session-only choice, start it with `multplx --backend auto|tmux|herdr|cmux`; `auto` removes the session override and leaves normal detection authoritative.
-
-## Make the first request
-
-Ask the broker to add or identify a project and state one concrete outcome.
-For example:
-
-```text
-Add my project from https://github.com/example/project, then investigate the flaky login test.
-```
-
-The broker resolves the project, checks its toolchain and dispatch capacity, creates the appropriate brief, and routes project-specific work to an isolated actor.
-It asks for a decision when project identity, delivery posture, or another maintainer-owned choice cannot be inferred safely.
-
-Project delivery modes are explicit:
-
-- Remote tasks publish their task branch and open or update a PR with actual verification evidence.
-- Deep-review is separate evidence, not a publication prerequisite; request the tool explicitly when wanted.
-- `local-only` stays on the machine and reports its branch and verification evidence; local integration follows the accepted task scope.
-
-The broker records project configuration under private gitignored `data/` rather than in the tracked template.
-[Configuration](configuration.md) owns the registry, home layout, harness, backend, and dispatch details.
-
-## Private repositories and delivery
-
-Use the user's configured Git credential helper, SSH setup and official GitHub CLI authentication for the assigned repository.
-Keep credentials out of task records, briefs, logs and tracked files.
-Agents may push task branches and create or update PRs within the accepted scope without a separate approval or delivery shell.
-The [delivery instructions](delivery.md) cover repeat-safe publication, direct PR registration, current evidence and human-only merging.
-Command checks are operational backstops; independently enforced merge separation requires remote protection and identity controls.
-
-## Verify the first run
-
-Use these read-only operator entry points after the broker has completed session start:
-
-```sh
-multplx doctor
-bin/mx-viz.sh serve
-```
-
-Doctor reports invariant health and does not mutate state unless you explicitly pass its closed `--fix` option.
-The dashboard prints a loopback URL, never opens a browser, and remains a read-only view over the canonical system snapshot.
-
-Next, read [Architecture](architecture.md) for the system model, [Configuration](configuration.md) for local operating choices, and [Delivery](delivery.md) for the credential boundary.
-
-## Manual development launch
-
-Contributors may still clone the repository, change to its root, and launch `claude`, `codex`, or `pi` directly without installing the global command.
-That path remains useful while editing launcher code or testing an unregistered checkout, but the harness must start from the repository root for project-scoped discovery.
+This registers an operational release checkout; during the lean redesign, contributors must follow `CLAUDE.md` and keep the root contract dormant.
+Use `--root PATH --home PATH` to separate an adopted source checkout and home.
+The legacy `--managed` source mode remains available for advanced use and requires Git and Rust for source updates.
+`multplx update` owns source-mode refresh; package upgrades use a verified new package as shown above.
+Do not replace a live installation with an unmerged development binary.

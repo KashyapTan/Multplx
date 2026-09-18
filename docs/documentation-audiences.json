@@ -479,6 +479,14 @@
     {
       "path": "plans/lean_redesign/phase10-implementation.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/workspace-entry.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "plans/lean_redesign/phase11-implementation.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

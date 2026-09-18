@@ -490,21 +490,63 @@ fn launcher_validation_and_retired_installer_refusal_are_observable() {
         ("MX_ROOT_OVERRIDE", root.as_path()),
         ("MX_REAL_CODEX", real.as_path()),
     ];
-    assert_eq!(
+    for route in ["domain", "spawn"] {
+        let help = run(&home, &["launcher", route, "--help"], &environment);
+        assert!(help.status.success(), "global {route} help must forward");
+        assert!(String::from_utf8_lossy(&help.stdout).contains("Usage:"));
+    }
+    assert!(
         run(&home, &["launch-harness", "codex"], &environment)
             .status
-            .code(),
-        Some(2)
+            .success(),
+        "a harness that exits cleanly before session publication is a clean launch"
     );
     executable(
         &root.join("bin/mx-lock.sh"),
         "#!/bin/sh\nprintf 'lock: held by live harness pid 42\\n'\n",
     );
-    assert_eq!(
+    assert!(
         run(&home, &["launch-harness", "codex"], &environment)
             .status
-            .code(),
-        Some(3)
+            .success(),
+        "native launch ownership must not trust the retired shell lock helper"
+    );
+
+    let mut supervisor_environment = environment.to_vec();
+    supervisor_environment.extend([
+        ("MX_SUPERVISOR_TARGET", Path::new("workspace:task")),
+        ("MX_SUPERVISOR_BACKEND", Path::new("cmux")),
+    ]);
+    assert!(
+        run(&home, &["launch-harness", "codex"], &supervisor_environment,)
+            .status
+            .success(),
+        "supervisor-owned launches must record their bounded route"
+    );
+
+    let mut herdr_environment = environment.to_vec();
+    herdr_environment.extend([
+        ("HERDR_MANAGED", Path::new("1")),
+        ("HERDR_PANE_ID", Path::new("pane-2")),
+        ("HERDR_SESSION", Path::new("fixture")),
+    ]);
+    assert!(
+        run(&home, &["launch-harness", "codex"], &herdr_environment)
+            .status
+            .success(),
+        "Herdr-owned launches must record their bounded route"
+    );
+
+    let mut tmux_environment = environment.to_vec();
+    tmux_environment.extend([
+        ("TMUX_PANE", Path::new("%987654321")),
+        ("TMUX", Path::new("/tmp/mx-missing-socket,1,0")),
+    ]);
+    assert!(
+        run(&home, &["launch-harness", "codex"], &tmux_environment)
+            .status
+            .success(),
+        "an unavailable ambient tmux route must not prevent harness launch"
     );
 
     let fake_bin = temp.path().join("fake-bin");
@@ -654,11 +696,11 @@ fn launcher_rejects_incomplete_roots_homes_reals_and_recursive_shims() {
         ("MX_ROOT_OVERRIDE", root.as_path()),
         ("MX_REAL_CODEX", bad_real.as_path()),
     ];
-    assert_eq!(
-        run(&home, &["launch-harness", "codex"], &bad_env)
+    assert!(
+        !run(&home, &["launch-harness", "codex"], &bad_env)
             .status
-            .code(),
-        Some(127)
+            .success(),
+        "an executable with a missing interpreter must fail"
     );
 
     let cursor = temp.path().join("real-cursor");

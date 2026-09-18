@@ -238,12 +238,29 @@ etag_changed() {
   ! grep -F "ETag: $old" "$headers" >/dev/null
 }
 
-refresh_failed() {
-  curl -fsS "$1" | jq -e '.refresh.state == "failed" and .metrics.refresh_failures == 1' >/dev/null
+snapshot_expired() {
+  curl -fsS "$1" | jq -e --argjson refresh_ms "$2" \
+    '.snapshot_age_ms >= $refresh_ms' >/dev/null
+}
+
+capture_failed_stale_response() {
+  local state_url=$1 etag=$2 headers=$3 body=$4 status
+  status=$(curl -sS -D "$headers" -o "$body" -H "If-None-Match: $etag" \
+    -w '%{http_code}' "$state_url") || return 1
+  [ "$status" = 304 ] \
+    && grep -Fi 'X-Multplx-Cache: stale' "$headers" >/dev/null \
+    && grep -Fi 'X-Multplx-Refresh: failed' "$headers" >/dev/null
 }
 
 refresh_succeeded_twice() {
   curl -fsS "$1" | jq -e '.refresh.state == "idle" and .metrics.refresh_successes == 2' >/dev/null
+}
+
+refresh_started() {
+  local state_url=$1 headers=$2
+  curl -fsS -D "$headers" -o /dev/null "$state_url" || return 1
+  grep -Fi 'X-Multplx-Cache: stale' "$headers" >/dev/null \
+    && grep -Fi 'X-Multplx-Refresh: in-flight' "$headers" >/dev/null
 }
 
 test_lifecycle_cache_and_read_only_contract() {
@@ -371,7 +388,8 @@ test_single_flight_stale_service_and_bounded_refresh() {
   [ -n "$etag" ] || fail "initial snapshot response omitted ETag"
   [ "$(cat "$home/snapshot.count")" = 1 ] || fail "initial cache launched more than one reader"
 
-  sleep 0.25
+  mx_test_wait_until 1500 "snapshot cache expiry" snapshot_expired "${url}api/meta" 200 \
+    || fail "snapshot cache did not expire"
   printf '%s\n' 1 >"$home/snapshot.delay"
   for i in $(seq 1 12); do
     header="$home/stale-$i.headers"
@@ -380,6 +398,11 @@ test_single_flight_stale_service_and_bounded_refresh() {
     callers+=("$!")
     PIDS+=("$!")
   done
+  failed_headers="$home/stale-failed.headers"
+  failed_body="$home/stale-failed.json"
+  mx_test_wait_until 2000 "bounded refresh failure response" capture_failed_stale_response \
+    "${url}api/state" "$etag" "$failed_headers" "$failed_body" \
+    || fail "stalled snapshot reader did not fail within its deadline"
   for i in $(seq 1 12); do
     wait "${callers[$((i - 1))]}" \
       || fail "stale caller $i blocked on the stalled snapshot reader"
@@ -388,8 +411,6 @@ test_single_flight_stale_service_and_bounded_refresh() {
     jq -e '.snapshot.marker == "alpha"' "$home/stale-$i.json" >/dev/null \
       || fail "stale caller $i lost the last good snapshot"
   done
-  mx_test_wait_until 2000 "bounded refresh failure" refresh_failed "${url}api/meta" \
-    || fail "stalled snapshot reader did not fail within its deadline"
   [ "$(cat "$home/snapshot.count")" = 2 ] \
     || fail "multiple viewers launched independent snapshot readers"
   meta=$(curl -fsS "${url}api/meta") || fail "metrics endpoint failed after stalled refresh"
@@ -401,10 +422,7 @@ test_single_flight_stale_service_and_bounded_refresh() {
     .metrics.max_refresh_ms >= 400 and
     .metrics.max_refresh_ms < 900' >/dev/null \
     || fail "refresh metrics did not account for cache sharing and the bounded failure: $meta"
-  failed_headers="$home/stale-failed.headers"
-  failed_body="$home/stale-failed.json"
-  status=$(curl -sS -D "$failed_headers" -o "$failed_body" -H "If-None-Match: $etag" \
-    -w '%{http_code}' "${url}api/state")
+  status=$(awk 'NR == 1 {print $2}' "$failed_headers")
   [ "$status" = 304 ] || fail "failed stale conditional request returned HTTP $status"
   grep -Fi 'X-Multplx-Cache: stale' "$failed_headers" >/dev/null \
     || fail "failed stale response lost stale cache metadata"
@@ -423,8 +441,9 @@ test_single_flight_stale_service_and_bounded_refresh() {
     || fail "failed stale 304 omitted its bounded single-line refresh error"
 
   rm "$home/snapshot.delay"
-  sleep 0.25
-  curl -fsS "${url}api/state" >/dev/null || fail "stale cache was unavailable during retry"
+  mx_test_wait_until 1500 "refresh retry start" refresh_started \
+    "${url}api/state" "$home/retry.headers" \
+    || fail "stale cache was unavailable during retry"
   mx_test_wait_until 2000 "refresh recovery" refresh_succeeded_twice "${url}api/meta" \
     || fail "snapshot refresh did not recover after the stalled provider cleared"
   [ "$(cat "$home/snapshot.count")" = 3 ] || fail "refresh recovery launched duplicate readers"

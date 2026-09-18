@@ -1461,6 +1461,77 @@ fn portfolio(
             "freshness":{"status":"partial","age_seconds":0,"partial":true,"reasons":["execution metadata unavailable"]}
         }));
     }
+    let request_store =
+        multplx_domain::operational_input::RequestStore::new(&paths.state, &paths.home);
+    match request_store.observe(env_usize("MX_SNAPSHOT_REQUESTS", 512)) {
+        Ok((requests, total)) => {
+            if total > requests.len() {
+                reasons.push("request intake record limit reached".into());
+            }
+            let existing = projected
+                .iter()
+                .filter_map(|task| task["id"].as_str())
+                .map(str::to_owned)
+                .collect::<std::collections::BTreeSet<_>>();
+            for request in requests {
+                if existing.contains(&request.task_id) {
+                    continue;
+                }
+                let project = projects
+                    .iter()
+                    .find(|project| project["id"] == request.project_id)
+                    .map(|project| project["display_name"].clone())
+                    .unwrap_or_else(|| Value::String(request.project_id.clone()));
+                let dependencies = request
+                    .dependencies
+                    .iter()
+                    .map(|dependency| json!({
+                        "task_id": dependency,
+                        "task_key": multplx_domain::lifecycle::subagent_model::qualified_task_id(
+                            &request.recipient_home,
+                            dependency,
+                        ),
+                        "state": Value::Null,
+                        "blocking": true,
+                    }))
+                    .collect::<Vec<_>>();
+                let state = if request.completion.is_some() {
+                    "completed-request"
+                } else if request.acknowledged_at.is_some() {
+                    "accepted-request"
+                } else {
+                    "queued-request"
+                };
+                projected.push(json!({
+                    "key": multplx_domain::lifecycle::subagent_model::qualified_task_id(&request.recipient_home, &request.task_id),
+                    "id": request.task_id,
+                    "title": request.scope,
+                    "parent_id": request.parent_task_id,
+                    "root_id": Value::Null,
+                    "children": [],
+                    "project": {"id":request.project_id,"display_name":project,"checkout_id":request.checkout_id,"path":Value::Null,"common_git_identity":Value::Null,"registered":true},
+                    "state": state,
+                    "priority": 0,
+                    "role": Value::Null,
+                    "owner": {"home":request.recipient_home,"coordinator":Value::Null,"parent_id":request.parent_task_id},
+                    "attempt": Value::Null,
+                    "prior_attempts": [],
+                    "brief": {"revision":request.brief_revision,"digest":Value::Null,"path":Value::Null,"scope":request.scope,"research":request.context_artifact.iter().cloned().collect::<Vec<_>>()},
+                    "workflow": {"id":Value::Null,"revision":Value::Null,"name":Value::Null,"status":Value::Null,"current_stage":Value::Null,"updated_at":Value::Null},
+                    "dependencies": dependencies,
+                    "decisions": [],
+                    "evidence": {"report":Value::Null,"delivery":request.completion,"history":[],"review_queue":Value::Null,"pr":{"url":Value::Null,"source":"absent"}},
+                    "allocation": Value::Null,
+                    "sessions": [],
+                    "native_observations": [],
+                    "latest_change": {"state":state,"summary":request.response.as_ref().map(|result| &result.summary),"raw":Value::Null,"observed_at":request.delivered_at},
+                    "intake": {"request_id":request.request_id,"batch_id":request.batch_id,"delivered_at":request.delivered_at,"acknowledged_at":request.acknowledged_at,"notification_event_id":request.notification_event_id,"implementation_started":false},
+                    "freshness": {"status":"fresh","age_seconds":0,"partial":false,"reasons":[]}
+                }));
+            }
+        }
+        Err(error) => reasons.push(format!("request intake unavailable: {error}")),
+    }
     let mut task_keys = projected
         .iter()
         .filter_map(|task| task["key"].as_str())
@@ -1945,16 +2016,12 @@ fn registry(paths: &Paths, generated: &str) -> Value {
             .entry(record["id"].as_str().unwrap_or("").to_owned())
             .or_insert(0usize) += 1;
     }
-    records.dedup_by(|left, right| {
-        if left["id"] == right["id"] {
-            if counts[left["id"].as_str().unwrap_or("")] > 1 {
-                left["registry_error"] = json!("duplicate daemon id in registry");
-            }
-            true
-        } else {
-            false
+    for record in &mut records {
+        if counts[record["id"].as_str().unwrap_or("")] > 1 {
+            record["registry_error"] = json!("duplicate daemon id in registry");
         }
-    });
+    }
+    records.dedup_by(|left, right| left["id"] == right["id"]);
     let records_in_window = records.len();
     let records_truncated = records_in_window > max_records;
     records.truncate(max_records);
@@ -2880,6 +2947,84 @@ mod tests {
             projects: home.join("projects"),
             source_root: temp.path().to_path_buf(),
         };
+        let owner = multplx_core::process::ProcessIdentity {
+            pid: 42,
+            marker: "portfolio-owner".into(),
+        };
+        let request_store =
+            multplx_domain::operational_input::RequestStore::new(&paths.state, &paths.home);
+        let submit = |request_id: &str, task_id: &str, dependencies: &[String]| {
+            request_store
+                .submit(
+                    &multplx_domain::operational_input::RequestSubmission {
+                        batch_id: "portfolio-batch",
+                        request_id,
+                        task_id,
+                        client_id: "portfolio-fixture",
+                        recipient_owner: Some(&owner),
+                        parent_task_id: None,
+                        parent_home: None,
+                        attempt_id: None,
+                        attempt_generation: None,
+                        project_id: "project-request",
+                        checkout_id: "checkout-request",
+                        starting_revision: "0123456789abcdef",
+                        brief_revision: 1,
+                        scope: "accepted request scope",
+                        dependencies,
+                        context_artifact: Some("context.md"),
+                    },
+                    std::time::UNIX_EPOCH + Duration::from_secs(10),
+                    None,
+                )
+                .unwrap();
+        };
+        submit(
+            "request-queued",
+            "request-task-queued",
+            &["future-task".into()],
+        );
+        submit("request-accepted", "request-task-accepted", &[]);
+        request_store
+            .acknowledge(
+                "request-accepted",
+                &owner,
+                std::time::UNIX_EPOCH + Duration::from_secs(11),
+            )
+            .unwrap();
+        submit("request-complete", "request-task-complete", &[]);
+        request_store
+            .acknowledge(
+                "request-complete",
+                &owner,
+                std::time::UNIX_EPOCH + Duration::from_secs(11),
+            )
+            .unwrap();
+        request_store
+            .record_response(
+                "request-complete",
+                &owner,
+                multplx_domain::operational_input::RequestResult {
+                    id: "response-complete".into(),
+                    recorded_at: 12,
+                    summary: "implementation finished".into(),
+                    artifact: Some("report.md".into()),
+                },
+            )
+            .unwrap();
+        request_store
+            .record_completion(
+                "request-complete",
+                &owner,
+                multplx_domain::operational_input::RequestResult {
+                    id: "completion-complete".into(),
+                    recorded_at: 13,
+                    summary: "verified".into(),
+                    artifact: Some("report.md".into()),
+                },
+            )
+            .unwrap();
+        submit("request-shadowed", "same-name", &[]);
         let task = json!({
             "id":"same-name","project":"legacy","coordination_error":null,
             "coordination":{
@@ -2896,7 +3041,7 @@ mod tests {
                 "briefs":[{"revision":3,"scope":"Implement it","source_artifacts":["data/same-name/research.md"]}],
                 "prior_attempts":[{"id":"attempt-1","generation":1,"brief_revision":2}],"retained_executions":[],
                 "schedule":{"state":"waiting-dependency","priority":7,"dependencies":["prerequisite"],"decisions":[{"id":"choice","question":"Choose?","brief_revision":3,"workflow_revision":null,"answer":null}]},
-                "project":null,"allocation":null,
+                "project":{"project_id":"project-bound","checkout_id":"checkout-bound","canonical_path":"/tmp/project-bound","checkout_identity":"checkout-identity","common_git_dir":"/tmp/project-bound/.git","common_git_identity":"common-identity","starting_revision":"0123456789abcdef","ownership":"user-owned"},"allocation":null,
                 "delivery":{"current_commit":"abc","history":[{"attempt_id":"attempt-2","attempt_generation":2,"brief_revision":3,"commit":"abc","pr_url":"https://example.invalid/pull/1","checks":[],"outcome":"published"}]}
             },
             "allocation_observation":null,"backlog":{"title":"Visible task"},
@@ -2904,15 +3049,29 @@ mod tests {
             "paths":{"worktree":{"path":null},"report":{"path":"report.md","present":true},"status_log":{"last_event":{"state":"blocked","note":"dependency","raw":"blocked: dependency"}}},
             "hints":{"open_decisions":[]},"pr":{"url":null,"source":"absent"}
         });
+        let child = json!({
+            "id":"child-task","project":"legacy","coordination_error":null,
+            "coordination":{"owner_home":home,"parent_id":"same-name","root_id":"root","role":"implementer","persistent":false,"runtime":{},"attempt":null,"briefs":[],"prior_attempts":[],"retained_executions":[],"native_observations":[],"schedule":{"state":"queued","dependencies":[],"decisions":[]},"project":null,"allocation":null,"delivery":{"history":[]}},
+            "allocation_observation":null,"backlog":null,"current_state":{"state":"queued","source":"status-log"},
+            "paths":{"worktree":{"path":null},"report":{"path":null,"present":false},"status_log":{"last_event":{}}},"pr":{"url":null,"source":"absent"}
+        });
+        let nested_task = json!({
+            "key":"nested-home#task:nested-task","id":"nested-task","role":Value::Null,
+            "sessions":[],"prior_attempts":[],"attempt":Value::Null,
+            "freshness":{"partial":false}
+        });
         let projection = portfolio(
             &paths,
             "2026-09-17T00:00:00Z",
             &json!({"records":[{"structured":true,"id":"queued-only","title":"Accepted queue item","repo":"other","state":"queued","priority":"3","blocked_by_ids":[],"report_path":null,"pr_url":null}]}),
-            &json!([task]),
-            &json!({"complete":true,"total":0}),
+            &json!([task, child]),
+            &json!({"complete":false,"total":1,"records":[
+                {"observation":{}},
+                {"portfolio":{"projects":[{"id":"nested-project","display_name":"Nested","registered":true}],"tasks":[nested_task]}}
+            ]}),
             &json!({"workflow_runs":{"records":[{"id":"run-1","workflow":"deliver","workflow_revision":"rev-7","status":"running","current_stage":"implement","updated_at":"2026-09-17T00:00:00Z","stages":[{"id":"implement","task_id":"same-name","status":"waiting-agent"}]}]}}),
         );
-        assert_eq!(projection["counts"]["tasks"], 2);
+        assert_eq!(projection["counts"]["tasks"], 7);
         assert_eq!(projection["counts"]["attempts"], 2);
         assert_eq!(projection["counts"]["sessions"], 1);
         let current = projection["tasks"]
@@ -2941,6 +3100,44 @@ mod tests {
             .find(|task| task["id"] == "queued-only")
             .unwrap();
         assert_eq!(queued["freshness"]["status"], "partial");
+        assert_eq!(current["project"]["id"], "project-bound");
+        assert_eq!(current["project"]["registered"], false);
+        assert_eq!(current["children"].as_array().unwrap().len(), 1);
+        assert_eq!(projection["counts"]["projects"], 3);
+        assert_eq!(projection["freshness"]["partial"], true);
+        let accepted = projection["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "request-task-accepted")
+            .unwrap();
+        assert_eq!(accepted["state"], "accepted-request");
+        let completed = projection["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "request-task-complete")
+            .unwrap();
+        assert_eq!(completed["state"], "completed-request");
+        assert_eq!(completed["evidence"]["delivery"]["summary"], "verified");
+        let request_queued = projection["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "request-task-queued")
+            .unwrap();
+        assert_eq!(request_queued["state"], "queued-request");
+        assert_eq!(request_queued["dependencies"][0]["task_id"], "future-task");
+        assert_eq!(
+            projection["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|task| task["id"] == "same-name")
+                .count(),
+            1,
+            "accepted intake does not duplicate an existing canonical task"
+        );
     }
 
     #[test]
@@ -3236,5 +3433,490 @@ mod tests {
         assert_eq!(deep["records"].as_array().unwrap().len(), 9);
         assert_eq!(deep["truncated"], 1);
         assert_eq!(deep["complete"], false);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn later_surfaces_preserve_valid_invalid_and_unavailable_records() {
+        fn executable(path: &Path, body: &str) {
+            fs::write(path, body).unwrap();
+            let mut permissions = fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).unwrap();
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        let paths = Paths {
+            root: root.clone(),
+            home: home.clone(),
+            state: state.clone(),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: root.clone(),
+        };
+
+        for command in ["mx-deep-review.sh", "mx-workflow.sh", "mx-deliver.sh"] {
+            executable(&root.join("bin").join(command), "#!/bin/sh\nexit 0\n");
+        }
+        executable(
+            &root.join("bin/mx-headroom.sh"),
+            "#!/bin/sh\nif [ \"$1\" = --json ]; then printf '{\"slots\":2}'; else printf '17\\ttask-a\\tproject-a\\t-\\tmodel-a\\t-\\tbackend-a\\timplement\\ninvalid\\n'; fi\n",
+        );
+        executable(
+            &root.join("bin/mx-upstream-diff.sh"),
+            "#!/bin/sh\nprintf 'status=behind\\nfork_point=abc\\nlast_reviewed=def\\nupstream_repo=origin\\nretired_reason=\\n'\n",
+        );
+
+        fs::create_dir_all(state.join("valid.gate/findings")).unwrap();
+        fs::write(
+            state.join("valid.gate/run.json"),
+            br#"{"round":2,"status":"parked","step":"review","steps":{"review":"complete"},"history":["review"],"pending_decision_key":"approve","approved_head":"abc","summary":"ready","risk_level":"low"}"#,
+        )
+        .unwrap();
+        fs::write(
+            state.join("valid.gate/findings/round-02-review.json"),
+            br#"{"findings":[{"id":"one"}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            state.join("valid.gate/findings/round-02-raw.json"),
+            br#"{"findings":[{"id":"ignored"}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(state.join("invalid.gate")).unwrap();
+
+        fs::create_dir_all(state.join("valid.workflow/stages")).unwrap();
+        fs::write(
+            state.join("valid.workflow/run.json"),
+            br#"{"workflow":"deliver","workflow_revision":"r1","status":"running","current_stage":"build"}"#,
+        )
+        .unwrap();
+        fs::write(
+            state.join("valid.workflow/stages/02.json"),
+            br#"{"id":"second"}"#,
+        )
+        .unwrap();
+        fs::write(
+            state.join("valid.workflow/stages/01.json"),
+            br#"{"id":"first"}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(state.join("invalid.workflow")).unwrap();
+
+        fs::write(
+            state.join("task-a.ready-to-push.stale"),
+            "version=1\ntask=task-a\nbranch=feature\n",
+        )
+        .unwrap();
+        fs::write(
+            state.join("task-b.ready-to-push"),
+            "version=1\ntask=task-b\napproval=yes\n",
+        )
+        .unwrap();
+        fs::write(
+            state.join("task-c.delivered"),
+            "version=1\ntask=wrong\napproved_sha=abc\n",
+        )
+        .unwrap();
+        fs::create_dir_all(state.join("ignored.ready-to-push")).unwrap();
+
+        let (capacity, error) = headroom(&paths);
+        assert_eq!(capacity["slots"], 2);
+        assert!(error.is_null());
+        let queue = dispatch(&paths);
+        assert_eq!(queue["depth"], 1);
+        assert!(queue["records"][0]["profile"]["harness"].is_null());
+        assert_eq!(queue["records"][0]["profile"]["model"], "model-a");
+
+        let surface = later(&paths);
+        assert_eq!(surface["gate_runs"]["records"].as_array().unwrap().len(), 2);
+        let valid_gate = surface["gate_runs"]["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "valid")
+            .unwrap();
+        assert_eq!(valid_gate["findings"], 1);
+        assert_eq!(valid_gate["parked"], true);
+        assert_eq!(
+            surface["workflow_runs"]["records"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            surface["deliveries"]["records"].as_array().unwrap().len(),
+            3
+        );
+        assert_eq!(surface["deliveries"]["records"][0]["state"], "delivered");
+        assert_eq!(surface["upstream_drift"]["status"], "behind");
+        assert_eq!(surface["upstream_drift"]["retired_reason"], Value::Null);
+
+        fs::remove_file(root.join("bin/mx-upstream-diff.sh")).unwrap();
+        assert_eq!(upstream(&paths)["available"], false);
+        fs::remove_file(root.join("bin/mx-headroom.sh")).unwrap();
+        assert_eq!(headroom(&paths).1, "headroom check failed");
+        assert_eq!(dispatch(&paths)["available"], false);
+    }
+
+    #[test]
+    fn vplan_inventory_reports_and_home_validation_cover_boundary_states() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("repo");
+        let home = temp.path().join("active");
+        let state = home.join("state");
+        let data = home.join("data");
+        fs::create_dir_all(state.join(".vplan")).unwrap();
+        fs::create_dir_all(data.join("alpha")).unwrap();
+        fs::write(data.join("alpha/report.md"), "report").unwrap();
+        let paths = Paths {
+            root: root.clone(),
+            home: home.clone(),
+            state: state.clone(),
+            data: data.clone(),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: root.clone(),
+        };
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            state.join(".vplan/later.run"),
+            "artifact=z.html\nport=9002\nstarted_at=2026-01-02\nbrief_revision=2\n",
+        )
+        .unwrap();
+        fs::write(
+            state.join(".vplan/earlier.run"),
+            "artifact=a.html\nport=9001\nstarted_at=2026-01-01\n",
+        )
+        .unwrap();
+        fs::write(state.join(".vplan/ignored.txt"), "ignored").unwrap();
+        let plans = vplans(&paths);
+        assert_eq!(plans["records"].as_array().unwrap().len(), 2);
+        assert_eq!(plans["records"][0]["artifact"], "a.html");
+        assert_eq!(plans["records"][1]["url"], "http://127.0.0.1:9002/");
+
+        let backlog = json!({"records":[
+            {"id":"alpha","state":"in_flight","structured":true,"requires_child_metadata":true,"kind":"implementer"},
+            {"id":"legacy","state":"queued","structured":false,"requires_child_metadata":false}
+        ]});
+        assert_eq!(inventory(&backlog, &json!([]))["valid"], false);
+        assert_eq!(
+            inventory(&backlog, &json!([]))["unstructured_current_count"],
+            1
+        );
+        let found = reports(&paths, &backlog, &json!([]));
+        assert_eq!(found[0]["id"], "alpha");
+        assert_eq!(found[0]["kind"], "implementer");
+
+        assert_eq!(
+            validate_home(&paths, "worker", Path::new("relative")).unwrap_err(),
+            "registered path is not absolute"
+        );
+        assert_eq!(
+            validate_home(&paths, "worker", &home).unwrap_err(),
+            "daemon home cannot be the active Multplx home"
+        );
+        assert_eq!(
+            validate_home(&paths, "worker", &root).unwrap_err(),
+            "daemon home cannot be the Multplx repo"
+        );
+        let nested_home = home.join("nested");
+        fs::create_dir_all(&nested_home).unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &nested_home).unwrap_err(),
+            "daemon home cannot be inside the active Multplx home"
+        );
+        let nested_root = root.join("nested");
+        fs::create_dir_all(&nested_root).unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &nested_root).unwrap_err(),
+            "daemon home cannot be inside the Multplx repo"
+        );
+        assert_eq!(
+            validate_home(&paths, "worker", Path::new("/")).unwrap_err(),
+            "daemon home cannot be the filesystem root"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_home_validation_rejects_ancestor_links_permissions_and_incomplete_seeds() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let temp = tempfile::tempdir().unwrap();
+        let ancestor = temp.path().join("ancestor");
+        let home = ancestor.join("active/home");
+        let root = temp.path().join("repository");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths {
+            root: root.clone(),
+            home: home.clone(),
+            state: home.join("state"),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: root.clone(),
+        };
+
+        assert_eq!(
+            validate_home(&paths, "worker", &ancestor).unwrap_err(),
+            "daemon home cannot be an ancestor of the active Multplx home"
+        );
+        let root_ancestor = temp.path().join("root-ancestor");
+        let separate_root = root_ancestor.join("repo");
+        fs::create_dir_all(&separate_root).unwrap();
+        let root_paths = Paths {
+            root: separate_root,
+            home: temp.path().join("separate-home"),
+            state: temp.path().join("separate-home/state"),
+            data: temp.path().join("separate-home/data"),
+            config: temp.path().join("separate-home/config"),
+            projects: temp.path().join("separate-home/projects"),
+            source_root: root.clone(),
+        };
+        fs::create_dir_all(&root_paths.home).unwrap();
+        assert_eq!(
+            validate_home(&root_paths, "worker", &root_ancestor).unwrap_err(),
+            "daemon home cannot be an ancestor of the Multplx repo"
+        );
+
+        let candidate = temp.path().join("candidate");
+        fs::create_dir_all(candidate.join("bin")).unwrap();
+        fs::write(candidate.join(".mx-daemon-home"), "worker\n").unwrap();
+        fs::write(candidate.join("AGENTS.md"), "fixture\n").unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &candidate).unwrap(),
+            candidate.canonicalize().unwrap()
+        );
+
+        let unreadable = candidate.join("state");
+        fs::create_dir(&unreadable).unwrap();
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &candidate).unwrap_err(),
+            "daemon state directory is unreadable"
+        );
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir(&unreadable).unwrap();
+
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        symlink(&outside, candidate.join("data")).unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &candidate).unwrap_err(),
+            "daemon data directory must resolve inside the daemon home"
+        );
+        fs::remove_file(candidate.join("data")).unwrap();
+
+        fs::remove_file(candidate.join(".mx-daemon-home")).unwrap();
+        symlink(
+            temp.path().join("missing-marker"),
+            candidate.join(".mx-daemon-home"),
+        )
+        .unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &candidate).unwrap_err(),
+            "daemon marker must not be a symlink"
+        );
+        fs::remove_file(candidate.join(".mx-daemon-home")).unwrap();
+        fs::write(candidate.join(".mx-daemon-home"), "other\n").unwrap();
+        assert!(
+            validate_home(&paths, "worker", &candidate)
+                .unwrap_err()
+                .contains("marked for daemon other")
+        );
+
+        fs::write(candidate.join(".mx-daemon-home"), "worker\n").unwrap();
+        fs::remove_file(candidate.join("AGENTS.md")).unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &candidate).unwrap_err(),
+            "not a Multplx home (missing AGENTS.md)"
+        );
+        fs::write(candidate.join("AGENTS.md"), "fixture\n").unwrap();
+        fs::remove_dir(candidate.join("bin")).unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &candidate).unwrap_err(),
+            "not a Multplx home (missing bin/)"
+        );
+        assert_eq!(
+            validate_home(&paths, "worker", &temp.path().join("missing")).unwrap_err(),
+            "not a directory"
+        );
+        let file = temp.path().join("file");
+        fs::write(&file, "fixture").unwrap();
+        assert_eq!(
+            validate_home(&paths, "worker", &file).unwrap_err(),
+            "not a directory"
+        );
+    }
+
+    #[test]
+    fn portfolio_projects_durable_terminal_intake_and_reports_corrupt_receipts() {
+        use multplx_domain::operational_input::{RequestStore, RequestSubmission};
+        use std::time::{Duration, UNIX_EPOCH};
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        fs::create_dir_all(&state).unwrap();
+        let paths = Paths {
+            root: temp.path().join("root"),
+            home: home.clone(),
+            state: state.clone(),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: temp.path().join("root"),
+        };
+        let dependencies = vec!["task-dependency".to_owned()];
+        let artifact = temp.path().join("context.md");
+        fs::write(&artifact, "context").unwrap();
+        let artifact = artifact.to_string_lossy().into_owned();
+        let submission = RequestSubmission {
+            batch_id: "batch-one",
+            request_id: "request-one",
+            task_id: "task-one",
+            client_id: "workspace-cli",
+            recipient_owner: None,
+            parent_task_id: None,
+            parent_home: None,
+            attempt_id: None,
+            attempt_generation: None,
+            project_id: "project-one",
+            checkout_id: "checkout-one",
+            starting_revision: "0123456789012345678901234567890123456789",
+            brief_revision: 3,
+            scope: "Implement the intake behavior",
+            dependencies: &dependencies,
+            context_artifact: Some(&artifact),
+        };
+        RequestStore::new(&state, &home)
+            .submit(&submission, UNIX_EPOCH + Duration::from_secs(10), None)
+            .unwrap();
+
+        let projected = portfolio(
+            &paths,
+            "2026-09-18T00:00:00Z",
+            &json!({"records":[]}),
+            &json!([]),
+            &json!({"records":[]}),
+            &json!({}),
+        );
+        assert_eq!(projected["tasks"][0]["id"], "task-one");
+        assert_eq!(projected["tasks"][0]["state"], "queued-request");
+        assert_eq!(
+            projected["tasks"][0]["dependencies"][0]["task_id"],
+            "task-dependency"
+        );
+        assert_eq!(projected["tasks"][0]["brief"]["revision"], 3);
+        assert_eq!(projected["tasks"][0]["brief"]["research"][0], artifact);
+        assert_eq!(
+            projected["tasks"][0]["intake"]["implementation_started"],
+            false
+        );
+        fs::write(state.join("request-inbox/corrupt.json"), b"not json").unwrap();
+        let corrupt = portfolio(
+            &paths,
+            "2026-09-18T00:00:00Z",
+            &json!({"records":[]}),
+            &json!([]),
+            &json!({"records":[]}),
+            &json!({}),
+        );
+        assert_eq!(corrupt["freshness"]["partial"], true);
+        assert!(
+            corrupt["freshness"]["reasons"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|reason| reason
+                    .as_str()
+                    .unwrap()
+                    .contains("request intake unavailable"))
+        );
+    }
+
+    #[test]
+    fn native_observations_registry_and_terminal_fallbacks_are_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        let data = home.join("data");
+        let root = temp.path().join("root");
+        fs::create_dir_all(state.join("native-delegations")).unwrap();
+        fs::create_dir_all(&data).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths {
+            root,
+            home,
+            state: state.clone(),
+            data: data.clone(),
+            config: temp.path().join("config"),
+            projects: temp.path().join("projects"),
+            source_root: temp.path().to_path_buf(),
+        };
+        let evidence = |id: &str| json!({"schema":"mx-native-delegation-evidence.v1","observation":{"observation_id":id}});
+        fs::write(
+            state.join("native-delegations/z.json"),
+            serde_json::to_vec(&evidence("z-last")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            state.join("native-delegations/a.json"),
+            serde_json::to_vec(&evidence("a-first")).unwrap(),
+        )
+        .unwrap();
+        fs::write(state.join("native-delegations/invalid.json"), "{}").unwrap();
+        fs::write(state.join("native-delegations/ignored.txt"), "ignored").unwrap();
+        let observations = native_observations(&state);
+        assert_eq!(observations[0]["observation"]["observation_id"], "a-first");
+        assert_eq!(observations[1]["observation"]["observation_id"], "z-last");
+
+        fs::write(
+            data.join("daemons.md"),
+            "- duplicate (home: /tmp/one; state: active)\n- duplicate (home: /tmp/two; state: active)\n- missing-home\n",
+        )
+        .unwrap();
+        let registered = registry(&paths, "2026-09-17T00:00:00Z");
+        assert_eq!(registered["records"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            registered["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == "duplicate")
+                .unwrap()["registry_error"],
+            "duplicate daemon id in registry"
+        );
+
+        let no_endpoint = terminal_capture(
+            &json!({"backend":"tmux","endpoint":{"target":"","exists":Value::Null}}),
+            "note",
+            "2026-09-17T00:00:00Z",
+            true,
+        );
+        assert_eq!(no_endpoint["reason"], "no recorded endpoint");
+        let absent = terminal_capture(
+            &json!({"backend":"tmux","endpoint":{"target":"mx-worker","exists":false}}),
+            "note",
+            "2026-09-17T00:00:00Z",
+            true,
+        );
+        assert_eq!(absent["reason"], "recorded endpoint is absent");
+        let unsupported = terminal_capture(
+            &json!({"backend":"process","endpoint":{"target":"worker","exists":true}}),
+            "note",
+            "2026-09-17T00:00:00Z",
+            true,
+        );
+        assert_eq!(unsupported["reason"], "terminal capture unavailable");
     }
 }

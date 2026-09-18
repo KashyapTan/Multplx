@@ -60,6 +60,7 @@ bin/mx-project-mode.sh	minimal-adapter	Stable project-mode command name.
 bin/mx-promote.sh	minimal-adapter	Stable promotion command name.
 bin/mx-report	minimal-adapter	Stable task reporter command name.
 bin/mx-report-mcp	minimal-adapter	Stable report MCP service command name.
+bin/mx-release-package.sh	sourced-shell-abi	Release engineering executes this auditable tracked-asset package builder directly.
 bin/mx-review-diff.sh	minimal-adapter	Stable review-diff command name.
 bin/mx-send.sh	minimal-adapter	Stable actor-send command name.
 bin/mx-session-start.sh	minimal-adapter	Stable session-start command name.

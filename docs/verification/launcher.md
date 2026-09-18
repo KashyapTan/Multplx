@@ -5,6 +5,13 @@ This maintained record holds current empirical evidence for the global bootstrap
 The public `bin/mx-launcher.sh` and `bin/mx-launcher-install.sh` filenames are transport-only adapters.
 The Rust launcher owns verified binary publication, root and home records, update, rollback recovery, and uninstall.
 
+## Phase 11 workspace entry
+
+[Phase 11 implementation evidence](../../plans/lean_redesign/phase11-implementation.md) owns the current workspace, discovery, intake, package and connection validation ledger.
+The older measurements below establish only their dated shell/bootstrap behavior; they do not establish the new terminal workspace or reconnection guarantees.
+The global launcher now separates workspace entry, explicit shell activation and chat connection.
+Package validation uses isolated runtime assets and operational homes, and provider version probes remain distinct from a live conversation trial.
+
 ## Verification environment
 
 - Date: 2026-08-02.

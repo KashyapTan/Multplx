@@ -1808,7 +1808,7 @@ mod tests {
         let context = context_with(
             root,
             command.clone(),
-            Duration::from_millis(20),
+            Duration::from_secs(1),
             Duration::from_secs(1),
         );
         let first = context.handle(request("GET", "/api/state"));
@@ -1817,7 +1817,14 @@ mod tests {
         let first_snapshot_hash = header(&first, "X-Multplx-Snapshot-Hash")
             .expect("snapshot hash")
             .to_owned();
-        std::thread::sleep(Duration::from_millis(25));
+        {
+            let stale_instant = Instant::now()
+                .checked_sub(Duration::from_secs(2))
+                .expect("stale instant");
+            let mut runtime = context.runtime.lock().expect("runtime");
+            runtime.cache.as_mut().expect("cache").refreshed_at = stale_instant;
+            runtime.last_refresh_attempt = Some(stale_instant);
+        }
         script(
             &command,
             &format!(

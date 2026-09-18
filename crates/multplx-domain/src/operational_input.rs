@@ -639,6 +639,16 @@ impl RequestStore {
         fault: Option<TransitionFault>,
     ) -> Result<RequestAcceptance, String> {
         self.ensure_dirs()?;
+        // Task identity and dependency edges are invariants across the whole
+        // recipient inbox, so different request IDs must not validate and
+        // publish concurrently. Keep this lock around bounded local reads and
+        // the durable write only; callers resolve projects before entering.
+        let _intake_lock = DirectoryLock::acquire_wait(
+            self.state.join(".request-intake.lock"),
+            &multplx_core::process::SystemProcessProbe::default(),
+            TRANSITION_LOCK_TIMEOUT,
+        )
+        .map_err(|error| error.to_string())?;
         let _request_lock = DirectoryLock::acquire_wait(
             self.state
                 .join(format!(".request-{}.lock", request.request_id)),
@@ -646,6 +656,12 @@ impl RequestStore {
             TRANSITION_LOCK_TIMEOUT,
         )
         .map_err(|error| error.to_string())?;
+        self.validate_submission_graph_unlocked(
+            request.request_id,
+            request.task_id,
+            request.dependencies,
+            4096,
+        )?;
         let recipient_home = fs::canonicalize(&self.recipient_home)
             .map_err(|error| format!("recipient home is unavailable: {error}"))?;
         let operation = Self::operation("submit", request.request_id, None)?;
@@ -994,6 +1010,131 @@ impl RequestStore {
         self.read(request_id)
     }
 
+    /// Read a bounded, stable request projection without recovery or writes.
+    /// The total lets callers report truncation instead of treating a prefix
+    /// as the complete intake state.
+    pub fn observe(&self, limit: usize) -> Result<(Vec<RoutedRequest>, usize), String> {
+        let directory = self.state.join("request-inbox");
+        match fs::symlink_metadata(&directory) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err("request inbox is not a regular directory".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok((Vec::new(), 0));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+        let mut paths = fs::read_dir(directory)
+            .map_err(|error| error.to_string())?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+            .collect::<Vec<_>>();
+        paths.sort();
+        let total = paths.len();
+        paths.truncate(limit);
+        let mut requests = Vec::with_capacity(paths.len());
+        for path in paths {
+            let request = Self::decode(
+                &read_bounded_regular(&path, MAX_REQUEST_BYTES)
+                    .map_err(|error| error.to_string())?,
+            )?;
+            self.validate_scope(&request)?;
+            if path != self.state.join(Self::inbox_path(&request.request_id)) {
+                return Err("request inbox filename does not match request identity".into());
+            }
+            requests.push(request);
+        }
+        Ok((requests, total))
+    }
+
+    /// Validate one proposed task/dependency edge set against accepted intake.
+    /// Unknown dependencies remain valid future work, while self references,
+    /// duplicate task identities and cycles among accepted requests are refused.
+    pub fn validate_submission_graph(
+        &self,
+        request_id: &str,
+        task_id: &str,
+        dependencies: &[String],
+        limit: usize,
+    ) -> Result<(), String> {
+        self.ensure_dirs()?;
+        let _intake_lock = DirectoryLock::acquire_wait(
+            self.state.join(".request-intake.lock"),
+            &multplx_core::process::SystemProcessProbe::default(),
+            TRANSITION_LOCK_TIMEOUT,
+        )
+        .map_err(|error| error.to_string())?;
+        self.validate_submission_graph_unlocked(request_id, task_id, dependencies, limit)
+    }
+
+    fn validate_submission_graph_unlocked(
+        &self,
+        request_id: &str,
+        task_id: &str,
+        dependencies: &[String],
+        limit: usize,
+    ) -> Result<(), String> {
+        TaskId::parse(request_id.to_owned()).map_err(|error| error.to_string())?;
+        TaskId::parse(task_id.to_owned()).map_err(|error| error.to_string())?;
+        let mut unique = std::collections::BTreeSet::new();
+        for dependency in dependencies {
+            TaskId::parse(dependency.clone()).map_err(|error| error.to_string())?;
+            if dependency == task_id || !unique.insert(dependency.clone()) {
+                return Err("request dependencies cannot include self or duplicates".into());
+            }
+        }
+        let (accepted, total) = self.observe(limit)?;
+        if total > accepted.len() {
+            return Err("request dependency graph exceeds the safe validation bound".into());
+        }
+        if accepted
+            .iter()
+            .any(|request| request.request_id != request_id && request.task_id == task_id)
+        {
+            return Err("task identity is already bound to another accepted request".into());
+        }
+        let mut graph = accepted
+            .into_iter()
+            .filter(|request| request.request_id != request_id)
+            .map(|request| (request.task_id, request.dependencies))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        graph.insert(task_id.to_owned(), dependencies.to_vec());
+        fn visit(
+            task: &str,
+            graph: &std::collections::BTreeMap<String, Vec<String>>,
+            visiting: &mut std::collections::BTreeSet<String>,
+            complete: &mut std::collections::BTreeSet<String>,
+        ) -> bool {
+            if complete.contains(task) {
+                return false;
+            }
+            if !visiting.insert(task.to_owned()) {
+                return true;
+            }
+            if graph.get(task).is_some_and(|dependencies| {
+                dependencies
+                    .iter()
+                    .any(|dependency| visit(dependency, graph, visiting, complete))
+            }) {
+                return true;
+            }
+            visiting.remove(task);
+            complete.insert(task.to_owned());
+            false
+        }
+        if visit(
+            task_id,
+            &graph,
+            &mut std::collections::BTreeSet::new(),
+            &mut std::collections::BTreeSet::new(),
+        ) {
+            return Err("request dependencies would create a cycle".into());
+        }
+        Ok(())
+    }
+
     /// Count accepted requests that have not yet been linked to a wake event.
     /// This snapshot performs no recovery, locking, or filesystem writes and is
     /// suitable for read-only session diagnostics.
@@ -1123,6 +1264,144 @@ mod tests {
             dependencies,
             context_artifact: Some("data/brief-2.md"),
         }
+    }
+
+    fn submit_named(
+        state: &Path,
+        home: &Path,
+        request_id: &str,
+        task_id: &str,
+        dependencies: &[String],
+    ) -> Result<RequestAcceptance, String> {
+        let owner = ProcessIdentity {
+            pid: 42,
+            marker: "process-generation-1".into(),
+        };
+        RequestStore::new(state, home).submit(
+            &RequestSubmission {
+                batch_id: "concurrent-batch",
+                request_id,
+                task_id,
+                client_id: "terminal",
+                recipient_owner: Some(&owner),
+                parent_task_id: None,
+                parent_home: None,
+                attempt_id: None,
+                attempt_generation: None,
+                project_id: "project",
+                checkout_id: "checkout",
+                starting_revision: "0123456789abcdef",
+                brief_revision: 1,
+                scope: "concurrent intake",
+                dependencies,
+                context_artifact: None,
+            },
+            SystemTime::now(),
+            None,
+        )
+    }
+
+    #[test]
+    fn concurrent_intake_serializes_cycle_and_duplicate_task_validation() {
+        for duplicate_task in [false, true] {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let home = temp.path().join("home");
+            let state = home.join("state");
+            fs::create_dir_all(&state).expect("state");
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+            let mut handles = Vec::new();
+            for side in 0..2 {
+                let barrier = barrier.clone();
+                let state = state.clone();
+                let home = home.clone();
+                handles.push(std::thread::spawn(move || {
+                    let request_id = format!("request-{side}");
+                    let task_id = if duplicate_task {
+                        "shared-task".to_owned()
+                    } else {
+                        format!("task-{side}")
+                    };
+                    let dependencies = if duplicate_task {
+                        Vec::new()
+                    } else {
+                        vec![format!("task-{}", 1 - side)]
+                    };
+                    barrier.wait();
+                    submit_named(&state, &home, &request_id, &task_id, &dependencies)
+                }));
+            }
+            barrier.wait();
+            let outcomes = handles
+                .into_iter()
+                .map(|handle| handle.join().expect("intake thread"))
+                .collect::<Vec<_>>();
+            assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+            let error = outcomes
+                .iter()
+                .find_map(|result| result.as_ref().err())
+                .expect("one refusal");
+            assert!(
+                error.contains(if duplicate_task {
+                    "already bound"
+                } else {
+                    "cycle"
+                }),
+                "{error}"
+            );
+            assert_eq!(RequestStore::new(&state, &home).observe(16).unwrap().1, 1);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_intake_observation_rejects_unsafe_and_mismatched_layouts() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        fs::create_dir_all(&state).expect("state");
+        let store = RequestStore::new(&state, &home);
+        assert_eq!(store.observe(10).unwrap(), (Vec::new(), 0));
+        assert_eq!(store.observe_unnotified_count().unwrap(), 0);
+
+        symlink(temp.path(), state.join("request-inbox")).expect("inbox symlink");
+        assert!(store.observe(10).unwrap_err().contains("regular directory"));
+        assert!(
+            store
+                .observe_unnotified_count()
+                .unwrap_err()
+                .contains("regular directory")
+        );
+        fs::remove_file(state.join("request-inbox")).expect("remove symlink");
+
+        let owner = ProcessIdentity {
+            pid: 42,
+            marker: "owner".into(),
+        };
+        store
+            .submit(&submission(&owner, &[]), SystemTime::now(), None)
+            .expect("submit");
+        fs::write(state.join("request-inbox/ignored.txt"), "ignored").unwrap();
+        assert_eq!(store.observe_unnotified_count().unwrap(), 1);
+        let original = state.join(RequestStore::inbox_path("request-1"));
+        fs::copy(&original, state.join("request-inbox/wrong.json")).unwrap();
+        assert!(
+            store
+                .observe(10)
+                .unwrap_err()
+                .contains("filename does not match")
+        );
+        fs::remove_file(state.join("request-inbox/wrong.json")).unwrap();
+
+        fs::write(state.join(RequestStore::outbox_path("request-1")), b"{}")
+            .expect("corrupt outbox only");
+        assert!(
+            store
+                .record_notification("request-1", "wake-1")
+                .unwrap_err()
+                .contains("diverged")
+        );
     }
 
     #[test]
@@ -1357,7 +1636,10 @@ mod tests {
             pid: 42,
             marker: "process-generation-1".into(),
         };
-        let first = submission(&owner, &[]);
+        // A dependency may name future work. Accepting that future task must
+        // still refuse the edge that would close a cycle.
+        let future_dependency = vec!["task-0".to_owned()];
+        let first = submission(&owner, &future_dependency);
         store
             .submit(&first, SystemTime::now(), None)
             .expect("first");
@@ -1393,6 +1675,46 @@ mod tests {
         );
         assert_eq!(store.get("request-1").expect("first").batch_id, "batch-1");
         assert_eq!(store.get("request-2").expect("second").batch_id, "batch-1");
+        let (observed, total) = store.observe(2).expect("bounded observation");
+        assert_eq!(total, 3);
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[0].request_id, "request-1");
+        assert_eq!(observed[1].request_id, "request-2");
+        assert!(
+            store
+                .validate_submission_graph("request-4", "task-1", &[], 16)
+                .unwrap_err()
+                .contains("already bound")
+        );
+        assert!(
+            store
+                .validate_submission_graph("request-4", "task-4", &["task-4".into()], 16)
+                .unwrap_err()
+                .contains("self")
+        );
+        assert!(
+            store
+                .validate_submission_graph(
+                    "request-4",
+                    "task-4",
+                    &["task-5".into(), "task-5".into()],
+                    16,
+                )
+                .unwrap_err()
+                .contains("duplicates")
+        );
+        assert!(
+            store
+                .validate_submission_graph("request-0", "task-0", &["task-1".into()], 16)
+                .unwrap_err()
+                .contains("cycle")
+        );
+        assert!(
+            store
+                .validate_submission_graph("request-4", "task-4", &[], 2)
+                .unwrap_err()
+                .contains("validation bound")
+        );
     }
 
     #[test]
@@ -1611,6 +1933,9 @@ mod tests {
 
         let mut invalid = accepted.clone();
         invalid.project_id = ".hidden".into();
+        assert!(invalid.validate().is_err());
+        let mut invalid = accepted.clone();
+        invalid.context_artifact = Some("bad\nartifact".into());
         assert!(invalid.validate().is_err());
         let mut invalid = accepted.clone();
         invalid.dependencies.push("../escape".into());

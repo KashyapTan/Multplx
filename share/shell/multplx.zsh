@@ -89,3 +89,11 @@ case ${TERM:-} in
     [[ -t 1 ]] && print -n -- $'\e]0;multplx\a'
     ;;
 esac
+
+
+_multplx_complete() {
+  local -a commands
+  commands=(workspace chat project projects task domain spawn launcher-install shell doctor update paths claude codex cursor pi --backend --plain --help --version)
+  _describe 'multplx command' commands
+}
+(( $+functions[compdef] )) && compdef _multplx_complete multplx

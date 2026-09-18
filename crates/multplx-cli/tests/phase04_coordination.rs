@@ -72,7 +72,7 @@ fn submit(home: &Path, binding: &project_registry::ProjectBinding, request: &str
         "--request",
         request,
         "--task",
-        "task-1",
+        request,
         "--client",
         "terminal-1",
         "--project",
@@ -378,7 +378,11 @@ fn concurrent_client_retry_and_partial_three_project_batch_preserve_each_item() 
     assert_eq!(outputs[0].stdout, outputs[1].stdout);
 
     let accepted_web = run(&mut submit(&home, &second, "batch-item-web"));
-    assert!(accepted_web.status.success());
+    assert!(
+        accepted_web.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted_web.stderr)
+    );
     let mut unresolved = third.clone();
     unresolved.starting_revision = "f".repeat(40);
     let rejected_docs = run(&mut submit(&home, &unresolved, "batch-item-docs"));
@@ -397,7 +401,11 @@ fn concurrent_client_retry_and_partial_three_project_batch_preserve_each_item() 
             .is_file()
     );
     let accepted_docs = run(&mut submit(&home, &third, "batch-item-docs"));
-    assert!(accepted_docs.status.success());
+    assert!(
+        accepted_docs.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted_docs.stderr)
+    );
 
     let foreign_home = temp.path().join("foreign-home");
     fs::create_dir_all(foreign_home.join("state/request-inbox")).expect("foreign inbox");

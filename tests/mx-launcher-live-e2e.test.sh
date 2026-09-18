@@ -30,6 +30,8 @@ git -C "$RUNTIME" add -A
 git -C "$RUNTIME" -c user.name='Multplx Tests' -c user.email='tests@example.invalid' commit -qm initial
 
 ran=0
+CALLER="$TMP_ROOT/unrelated caller"
+mkdir -p "$CALLER"
 for harness in claude codex cursor pi; do
   executable=$harness
   [ "$harness" = cursor ] && executable=cursor-agent
@@ -41,12 +43,17 @@ for harness in claude codex cursor pi; do
     cursor) variable=MX_REAL_CURSOR_AGENT ;;
     pi) variable=MX_REAL_PI ;;
   esac
-  output=$(env MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$RUNTIME" "$variable=$real" \
-    "$RUNTIME/bin/mx-launch-harness.sh" "$harness" --version 2>&1) \
+  output=$(cd "$CALLER" && env MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$RUNTIME" "$variable=$real" \
+    "$RUNTIME/target/release/mx" launcher chat "$harness" --version 2>&1) \
     || fail "$harness --version failed through the real launcher: $output"
   [ -n "$output" ] || fail "$harness --version returned no version text"
   printf 'ok - live %s launcher smoke: %s\n' "$harness" "$(printf '%s' "$output" | head -1)"
   ran=$((ran + 1))
 done
 [ "$ran" -gt 0 ] || fail "no verified harness binary is installed"
-pass "real harness binaries execute through the child-root launcher"
+plain=$(cd "$CALLER" && env COLUMNS=240 LINES=24 MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$RUNTIME" \
+  "$RUNTIME/target/release/mx" launcher workspace --plain 2>&1) \
+  || fail "remembered workspace --plain probe failed: $plain"
+assert_contains "$plain" "Context: $CALLER" "launcher did not preserve unrelated caller context"
+assert_contains "$plain" "remembered" "launcher did not display the remembered harness"
+pass "real harness version probes execute through global chat entry and remember caller context"

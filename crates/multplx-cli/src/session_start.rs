@@ -69,6 +69,33 @@ fn print_file(output: &mut String, path: &Path, label: &str) {
     }
 }
 
+fn workspace_context(output: &mut String, state: &Path) {
+    let Some(value) = std::env::var_os("MX_WORKSPACE_CONTEXT") else {
+        return;
+    };
+    subsection(output, "selected next-request context");
+    let path = PathBuf::from(value);
+    let expected = state.join("workspace-contexts");
+    let valid_parent = path.parent() == Some(expected.as_path());
+    let valid_name = path.extension().and_then(|value| value.to_str()) == Some("json");
+    let metadata = fs::symlink_metadata(&path);
+    match metadata {
+        Ok(metadata)
+            if valid_parent
+                && valid_name
+                && metadata.is_file()
+                && !metadata.file_type().is_symlink()
+                && metadata.len() <= 64 * 1024 =>
+        {
+            match fs::read(&path) {
+                Ok(bytes) => output.push_str(&String::from_utf8_lossy(&bytes)),
+                Err(_) => output.push_str("UNAVAILABLE: selected context could not be read\n"),
+            }
+        }
+        _ => output.push_str("UNAVAILABLE: selected context pointer was invalid\n"),
+    }
+}
+
 fn manual_backlog(path: &Path, reason: &str, limit: usize) -> String {
     let mut output = format!(
         "compact backlog listing ({reason}; max {limit} item(s); indented task bodies omitted)\n"
@@ -401,6 +428,7 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
     );
     output.push_str(&supervision.stdout);
     section(&mut output, "CONTEXT");
+    workspace_context(&mut output, &paths.state);
     print_file(
         &mut output,
         &paths.data.join("projects.md"),

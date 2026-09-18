@@ -31,17 +31,55 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
+      - name: Install runtime test dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
+      - name: Install runtime test dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ripgrep tmux
+      - name: Require runtime test dependencies
+        run: |
+          set -eu
+          for tool in rg tmux python3 zsh; do
+            command -v "$tool" >/dev/null || {
+              echo "::error::$tool is required by the Rust and shell test fixtures"
+              exit 1
+            }
+          done
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      - name: Install Git worktree occupant observer
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y lsof
       - name: Test workspace
         run: cargo test --locked --workspace
       - name: Build release workspace
         run: cargo build --release --workspace --locked
+      - name: Build and verify platform release package
+        run: |
+          set -eu
+          package="$RUNNER_TEMP/multplx-${{ runner.os }}-${{ runner.arch }}"
+          bin/mx-release-package.sh "$package" target/release/mx
+          case "${{ runner.os }}" in
+            macOS) (cd "$RUNNER_TEMP" && shasum -a 256 -c "$(basename "$package").tar.gz.sha256") ;;
+            Linux) (cd "$RUNNER_TEMP" && sha256sum -c "$(basename "$package").tar.gz.sha256") ;;
+          esac
+          target/release/mx launcher-install --package "$package" \
+            --bin-dir "$RUNNER_TEMP/package-install/bin" \
+            --config-dir "$RUNNER_TEMP/package-install/config" \
+            --data-dir "$RUNNER_TEMP/package-install/data"
+          "$RUNNER_TEMP/package-install/bin/multplx" paths
+          target/release/mx launcher-install --uninstall \
+            --bin-dir "$RUNNER_TEMP/package-install/bin" \
+            --config-dir "$RUNNER_TEMP/package-install/config" \
+            --data-dir "$RUNNER_TEMP/package-install/data"
+      - name: Upload platform release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: multplx-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.tar.gz
+            ${{ runner.temp }}/multplx-${{ runner.os }}-${{ runner.arch }}.tar.gz.sha256
+          if-no-files-found: error
       - name: Exercise production Rust command boundaries
         run: target/release/mx test-run --family pure-contract-unit --jobs auto
 
@@ -58,15 +96,15 @@ jobs:
   rust-coverage:
     name: Rust line coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust coverage tools
         run: |
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --version 0.8.7 --locked
-      - name: Install Git worktree occupant observer
-        run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install coverage runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Enforce workspace line coverage
         # Behavior lanes own the named process-driven CLI modules, home seeding,
         # upstream review, and the three OS-lifecycle Herdr modules.
@@ -101,8 +139,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install Git worktree occupant observer
-        run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install runtime test dependencies
+        run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Run portable parallel shard 1
@@ -127,8 +165,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install Git worktree occupant observer
-        run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install runtime test dependencies
+        run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Run portable parallel shard 2
@@ -158,8 +196,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install Git worktree occupant observer
-        run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install runtime test dependencies
+        run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Require tmux for e2e tests
@@ -210,8 +248,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install Git worktree occupant observer
-        run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install runtime test dependencies
+        run: sudo apt-get update && sudo apt-get install -y lsof ripgrep tmux python3 zsh
       - name: Build Rust runtime
         run: cargo build --release --workspace --locked
       - name: Require tools for real Herdr

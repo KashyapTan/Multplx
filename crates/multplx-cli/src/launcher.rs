@@ -13,12 +13,13 @@ use std::time::Duration;
 use multplx_core::filesystem::atomic_replace;
 use multplx_core::locks::DirectoryLock;
 use multplx_core::process::SystemProcessProbe;
+use multplx_core::session_lock::{SessionLockStatus, harness_regex, status as session_lock_status};
 use rustix::fs::OFlags;
 use sha2::{Digest, Sha256};
 
-const LAUNCHER_HELP: &str = "Activate or operate one globally configured Multplx control plane.\n\nUsage:\n  multplx [shell]\n  multplx [--backend auto|tmux|herdr|cmux] [shell]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx doctor [args...]\n  multplx update\n  multplx paths\n  multplx --help\n  multplx --version\n";
+const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx update\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` binary and register one code root and home.\n\nUsage:\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [shared options]\n  mx launcher-install --uninstall [shared options]\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed runtime under DATA_DIR/runtime\n  --upgrade            atomically replace an owned binary or exact registered legacy shim\n  --uninstall          remove only the owned binary and root/home records\n  -h, --help\n\nAn explicit --root is independent of the current working directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
+const INSTALL_HELP: &str = "Install the global `multplx` binary and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -102,6 +103,19 @@ fn validate_root(root: &Path) -> Result<(), String> {
             "code root is missing an executable launcher: {}",
             launcher.display()
         ));
+    }
+    let release_marker = root.join(".multplx-release");
+    if release_marker.is_file() {
+        let marker = fs::read_to_string(&release_marker)
+            .map_err(|error_value| format!("cannot read packaged runtime marker: {error_value}"))?;
+        if marker.trim() != env!("CARGO_PKG_VERSION") {
+            return Err(format!(
+                "packaged runtime version {} does not match binary {}",
+                marker.trim(),
+                env!("CARGO_PKG_VERSION")
+            ));
+        }
+        return Ok(());
     }
     let git = fs::symlink_metadata(root.join(".git")).map_err(|_| {
         format!(
@@ -327,8 +341,169 @@ fn resolve_launch_paths(
     ))
 }
 
+fn select_project(
+    home: &Path,
+    caller: &Path,
+    selector: &str,
+) -> Result<multplx_domain::project_registry::ProjectBinding, String> {
+    let raw = Path::new(selector);
+    let candidate = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        caller.join(raw)
+    };
+    let explicit_path = raw.is_absolute()
+        || selector.starts_with('.')
+        || selector.contains(std::path::MAIN_SEPARATOR)
+        || candidate.exists();
+    if explicit_path {
+        if !candidate.is_dir() {
+            return Err(format!(
+                "selected project path is unavailable: {}",
+                candidate.display()
+            ));
+        }
+        multplx_domain::project_registry::register_project(
+            home,
+            &candidate,
+            None,
+            multplx_domain::project_registry::CheckoutOwnership::UserOwned,
+        )
+    } else {
+        multplx_domain::project_registry::resolve_checkout(home, selector)
+    }
+}
+
+fn add_project_context(
+    home: &Path,
+    binding: &multplx_domain::project_registry::ProjectBinding,
+    environment: &mut Vec<(OsString, OsString)>,
+) -> Result<(), String> {
+    multplx_domain::project_registry::validate_binding(home, binding)?;
+    let directory = home.join("state/workspace-contexts");
+    match fs::symlink_metadata(&directory) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(format!(
+                "workspace context directory is linked or not a directory: {}",
+                directory.display()
+            ));
+        }
+        Ok(_) => {}
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&directory).map_err(|error_value| {
+                format!("could not create workspace context directory: {error_value}")
+            })?;
+            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).map_err(
+                |error_value| {
+                    format!("could not secure workspace context directory: {error_value}")
+                },
+            )?;
+        }
+        Err(error_value) => {
+            return Err(format!(
+                "could not inspect workspace context directory: {error_value}"
+            ));
+        }
+    }
+    let binding_value = serde_json::to_value(binding).map_err(|error| error.to_string())?;
+    let value = serde_json::json!({
+        "schema": "mx-workspace-context.v1",
+        "binding": binding_value,
+        "purpose": "next-request-context"
+    });
+    let bytes = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let path = directory.join(format!("{}.json", &digest[..24]));
+    if path.exists() {
+        let existing = fs::read(&path).map_err(|error| error.to_string())?;
+        if existing != bytes {
+            return Err("workspace context digest collision".to_owned());
+        }
+    } else {
+        atomic_replace(&path, &bytes, 0o600).map_err(|error| error.to_string())?;
+    }
+    environment.extend([
+        (
+            OsString::from("MX_WORKSPACE_CONTEXT"),
+            path.as_os_str().to_owned(),
+        ),
+        (
+            OsString::from("MX_WORKSPACE_PROJECT_ID"),
+            OsString::from(&binding.project_id),
+        ),
+        (
+            OsString::from("MX_WORKSPACE_CHECKOUT_ID"),
+            OsString::from(&binding.checkout_id),
+        ),
+        (
+            OsString::from("MX_WORKSPACE_PROJECT_PATH"),
+            binding.canonical_path.as_os_str().to_owned(),
+        ),
+        (
+            OsString::from("MX_WORKSPACE_STARTING_REVISION"),
+            OsString::from(&binding.starting_revision),
+        ),
+    ]);
+    Ok(())
+}
+
+fn workspace_chat(
+    home: &Path,
+    shim: &Path,
+    selected: Option<&Path>,
+    environment: &mut Vec<(OsString, OsString)>,
+    remove_backend: bool,
+) -> i32 {
+    if let Some(selected) = selected {
+        let selected_text = selected.to_string_lossy();
+        let binding = match select_project(home, Path::new("/"), &selected_text) {
+            Ok(binding) => binding,
+            Err(message) => {
+                error(message);
+                return 2;
+            }
+        };
+        if let Err(message) = add_project_context(home, &binding, environment) {
+            error(message);
+            return 2;
+        }
+    }
+    let harness = multplx_backend::harness_launch::remembered_harness(home)
+        .or_else(|| {
+            capture_harnesses(shim)
+                .into_iter()
+                .find_map(|(name, path)| {
+                    (!path.is_empty()).then(|| match name.to_str() {
+                        Some("MX_REAL_CLAUDE") => "claude".to_owned(),
+                        Some("MX_REAL_CODEX") => "codex".to_owned(),
+                        Some("MX_REAL_CURSOR_AGENT") => "cursor".to_owned(),
+                        Some("MX_REAL_PI") => "pi".to_owned(),
+                        _ => String::new(),
+                    })
+                })
+        })
+        .filter(|value| !value.is_empty());
+    let Some(harness) = harness else {
+        error("no remembered or installed harness; run multplx chat claude|codex|cursor|pi");
+        return 127;
+    };
+    environment.extend(capture_harnesses(shim));
+    exec_binary(
+        &[OsString::from("launch-harness"), OsString::from(harness)],
+        environment,
+        remove_backend,
+    )
+}
+
 /// Run the installed `multplx` command surface.
 pub(crate) fn run(args: &[OsString]) -> i32 {
+    let caller = match env::current_dir().and_then(|path| path.canonicalize()) {
+        Ok(path) => path,
+        Err(error_value) => {
+            error(format!("cannot resolve caller directory: {error_value}"));
+            return 2;
+        }
+    };
     let mut values = args.to_vec();
     let mut config = env::var_os("MX_LAUNCH_CONFIG_DIR").map(PathBuf::from);
     if config.is_none()
@@ -419,6 +594,26 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             return 2;
         }
     };
+    if let Some(config) = config.as_ref() {
+        let transaction = transaction_path(config);
+        match fs::symlink_metadata(&transaction) {
+            Ok(_) => {
+                error(format!(
+                    "installation transaction is pending at {}; rerun the verified installer to recover it before launch",
+                    transaction.display()
+                ));
+                return 2;
+            }
+            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error_value) => {
+                error(format!(
+                    "cannot inspect installation transaction {}: {error_value}",
+                    transaction.display()
+                ));
+                return 2;
+            }
+        }
+    }
     if let Err(message) = validate_root(&root).and_then(|()| validate_home(&home)) {
         error(message);
         return 2;
@@ -443,6 +638,10 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             root.as_os_str().to_owned(),
         ),
         (OsString::from("MX_HOME"), home.as_os_str().to_owned()),
+        (
+            OsString::from("MX_CALLER_CWD"),
+            caller.as_os_str().to_owned(),
+        ),
         (OsString::from("MX_LAUNCH_VALIDATED"), OsString::from("1")),
         (OsString::from("MX_SHIM_DIR"), shim.as_os_str().to_owned()),
     ];
@@ -475,7 +674,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let command = values
         .first()
         .and_then(|value| value.to_str())
-        .unwrap_or("shell")
+        .unwrap_or("workspace")
         .to_owned();
     let tail = if values.is_empty() {
         &[][..]
@@ -483,6 +682,117 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         &values[1..]
     };
     match command.as_str() {
+        "workspace" => {
+            let plain = match tail {
+                [] => false,
+                [value] if value == "--plain" => true,
+                _ => {
+                    error("workspace accepts only --plain");
+                    return 2;
+                }
+            };
+            let connection =
+                multplx_backend::harness_launch::conversation_state(&home).description();
+            let runtime_config = env::var_os("MX_CONFIG_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("config"));
+            let runtime_data = env::var_os("MX_DATA_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("data"));
+            match crate::workspace_tui::run(crate::workspace_tui::RunContext {
+                root: &root,
+                home: &home,
+                caller: &caller,
+                config: &runtime_config,
+                data: &runtime_data,
+                selected: None,
+                connection,
+                plain,
+            }) {
+                crate::workspace_tui::Action::Exit => 0,
+                crate::workspace_tui::Action::Chat(selected) => workspace_chat(
+                    &home,
+                    &shim,
+                    selected.as_deref(),
+                    &mut launch_environment,
+                    remove_backend,
+                ),
+                crate::workspace_tui::Action::Viz => exec_binary(
+                    &[
+                        OsString::from("services"),
+                        OsString::from("mx-viz.sh"),
+                        OsString::from("serve"),
+                    ],
+                    &launch_environment,
+                    remove_backend,
+                ),
+                crate::workspace_tui::Action::Task {
+                    project,
+                    domain,
+                    text,
+                } => {
+                    let mut args = vec![
+                        OsString::from("task"),
+                        OsString::from("--project"),
+                        OsString::from(project),
+                    ];
+                    if let Some(domain) = domain {
+                        args.extend([OsString::from("--domain"), OsString::from(domain)]);
+                    }
+                    args.push(OsString::from(text));
+                    exec_binary(&args, &launch_environment, remove_backend)
+                }
+            }
+        }
+        "chat" => {
+            let (harness, harness_args) = match tail.first().and_then(|value| value.to_str()) {
+                Some(value) if matches!(value, "claude" | "codex" | "cursor" | "pi") => {
+                    (Some(value.to_owned()), &tail[1..])
+                }
+                Some(value) if value.starts_with('-') => (None, tail),
+                Some(value) => {
+                    error(format!(
+                        "unknown chat harness '{value}'; use claude, codex, cursor, or pi"
+                    ));
+                    return 2;
+                }
+                None => (None, tail),
+            };
+            let harness =
+                harness.or_else(|| multplx_backend::harness_launch::remembered_harness(&home));
+            let Some(harness) = harness else {
+                error(
+                    "no harness is remembered; choose one with multplx chat claude|codex|cursor|pi",
+                );
+                return 2;
+            };
+            launch_environment.extend(capture_harnesses(&shim));
+            let mut forwarded = vec![OsString::from("launch-harness"), OsString::from(harness)];
+            forwarded.extend_from_slice(harness_args);
+            exec_binary(&forwarded, &launch_environment, remove_backend)
+        }
+        "project" | "projects" => {
+            let mut forwarded = vec![OsString::from("project")];
+            forwarded.extend_from_slice(tail);
+            exec_binary(&forwarded, &launch_environment, remove_backend)
+        }
+        "task" => {
+            let mut forwarded = vec![OsString::from("task")];
+            forwarded.extend_from_slice(tail);
+            exec_binary(&forwarded, &launch_environment, remove_backend)
+        }
+        "domain" | "spawn" => {
+            let mut forwarded = vec![OsString::from(&command)];
+            forwarded.extend_from_slice(tail);
+            exec_binary(&forwarded, &launch_environment, remove_backend)
+        }
+        "launcher-install" => exec_binary(
+            &std::iter::once(OsString::from("launcher-install"))
+                .chain(tail.iter().cloned())
+                .collect::<Vec<_>>(),
+            &launch_environment,
+            remove_backend,
+        ),
         "paths" => {
             if !tail.is_empty() {
                 error("paths accepts no arguments");
@@ -627,8 +937,71 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             1
         }
         _ => {
-            error(format!("unknown command '{command}'; run multplx --help"));
-            2
+            if !tail.is_empty() {
+                error(format!(
+                    "project selector '{command}' accepts no launcher arguments"
+                ));
+                return 2;
+            }
+            let binding = match select_project(&home, &caller, &command) {
+                Ok(binding) => binding,
+                Err(message) => {
+                    error(message);
+                    return 2;
+                }
+            };
+            let connection =
+                multplx_backend::harness_launch::conversation_state(&home).description();
+            let runtime_config = env::var_os("MX_CONFIG_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("config"));
+            let runtime_data = env::var_os("MX_DATA_OVERRIDE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("data"));
+            match crate::workspace_tui::run(crate::workspace_tui::RunContext {
+                root: &root,
+                home: &home,
+                caller: &caller,
+                config: &runtime_config,
+                data: &runtime_data,
+                selected: Some(&binding.canonical_path),
+                connection,
+                plain: false,
+            }) {
+                crate::workspace_tui::Action::Exit => 0,
+                crate::workspace_tui::Action::Chat(selected) => workspace_chat(
+                    &home,
+                    &shim,
+                    selected.as_deref(),
+                    &mut launch_environment,
+                    remove_backend,
+                ),
+                crate::workspace_tui::Action::Viz => exec_binary(
+                    &[
+                        OsString::from("services"),
+                        OsString::from("mx-viz.sh"),
+                        OsString::from("serve"),
+                    ],
+                    &launch_environment,
+                    remove_backend,
+                ),
+                crate::workspace_tui::Action::Task {
+                    project,
+                    domain,
+                    text,
+                } => {
+                    let mut args = vec![
+                        OsString::from("task"),
+                        OsString::from("--project"),
+                        OsString::from(project),
+                    ];
+                    if let Some(domain) = domain {
+                        args.extend([OsString::from("--domain"), OsString::from(domain)]);
+                    }
+                    args.push(OsString::from(text));
+                    exec_binary(&args, &launch_environment, remove_backend)
+                }
+            }
         }
     }
 }
@@ -641,6 +1014,7 @@ struct InstallOptions {
     root: Option<PathBuf>,
     home: Option<PathBuf>,
     source: Option<OsString>,
+    package: Option<PathBuf>,
     binary: Option<PathBuf>,
     checksum: Option<String>,
     bin_dir: Option<PathBuf>,
@@ -667,6 +1041,7 @@ fn parse_installer(args: &[OsString]) -> Result<Option<InstallOptions>, String> 
             "--root" => options.root = Some(take(&mut index, "--root")?.into()),
             "--home" => options.home = Some(take(&mut index, "--home")?.into()),
             "--source" => options.source = Some(take(&mut index, "--source")?),
+            "--package" => options.package = Some(take(&mut index, "--package")?.into()),
             "--binary" => options.binary = Some(take(&mut index, "--binary")?.into()),
             "--checksum" => {
                 options.checksum = Some(
@@ -758,9 +1133,246 @@ fn require_recordable_path(path: &Path, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn require_packaged_runtime_quiescent(home: &Path) -> Result<(), String> {
+    let state = home.join("state");
+    match session_lock_status(
+        state.join(".lock"),
+        &SystemProcessProbe::default(),
+        &harness_regex(),
+    ) {
+        SessionLockStatus::Held(pid) => {
+            return Err(format!(
+                "packaged runtime is in use by the primary harness pid {pid}; stop it before upgrade or uninstall"
+            ));
+        }
+        SessionLockStatus::Unreadable => {
+            return Err(
+                "packaged runtime owner lock is unreadable; repair it before upgrade or uninstall"
+                    .to_owned(),
+            );
+        }
+        SessionLockStatus::Free | SessionLockStatus::Stale(_) => {}
+    }
+    if fs::symlink_metadata(state.join("workspace-launch.json")).is_ok() {
+        return Err(
+            "packaged runtime has an unresolved workspace launch; reconcile it before upgrade or uninstall"
+                .to_owned(),
+        );
+    }
+    let entries = match fs::read_dir(&state) {
+        Ok(entries) => entries,
+        Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error_value) => {
+            return Err(format!(
+                "cannot inspect packaged runtime users in {}: {error_value}",
+                state.display()
+            ));
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error_value| {
+            format!(
+                "cannot inspect packaged runtime users in {}: {error_value}",
+                state.display()
+            )
+        })?;
+        if entry.path().extension() == Some(OsStr::new("meta")) {
+            return Err(format!(
+                "packaged runtime has a recorded task user at {}; retire or reconcile it before upgrade or uninstall",
+                entry.path().display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 struct VerifiedArtifact {
     bytes: Vec<u8>,
     hash: String,
+}
+
+struct PackagedFile {
+    relative: PathBuf,
+    bytes: Vec<u8>,
+    mode: u32,
+}
+
+struct VerifiedPackage {
+    artifact: VerifiedArtifact,
+    runtime: Vec<PackagedFile>,
+    manifest: Vec<u8>,
+}
+
+fn package_platform() -> String {
+    format!("{}-{}", env::consts::OS, env::consts::ARCH)
+}
+
+fn safe_package_relative(value: &str) -> Option<PathBuf> {
+    let path = Path::new(value);
+    if path.is_absolute()
+        || value.is_empty()
+        || value.contains(['\n', '\r', '\t'])
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        None
+    } else {
+        Some(path.to_path_buf())
+    }
+}
+
+fn collect_package_files(
+    base: &Path,
+    current: &Path,
+    output: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(current)
+        .map_err(|error_value| format!("cannot read package directory: {error_value}"))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error_value| format!("cannot read package entry: {error_value}"))?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error_value| format!("cannot inspect package entry: {error_value}"))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "package contains a symbolic link: {}",
+                path.display()
+            ));
+        }
+        if metadata.is_dir() {
+            collect_package_files(base, &path, output)?;
+        } else if metadata.is_file() {
+            output.push(
+                path.strip_prefix(base)
+                    .map_err(|_| "package entry escaped its root".to_owned())?
+                    .to_path_buf(),
+            );
+        } else {
+            return Err(format!(
+                "package contains a special file: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
+    let root = canonical_dir(path, "release package")?;
+    let manifest_path = root.join("SHA256SUMS");
+    let manifest_metadata = fs::symlink_metadata(&manifest_path)
+        .map_err(|_| format!("release package is missing SHA256SUMS: {}", root.display()))?;
+    if manifest_metadata.file_type().is_symlink() || !manifest_metadata.is_file() {
+        return Err("release package SHA256SUMS is linked or not regular".to_owned());
+    }
+    let manifest = fs::read(&manifest_path)
+        .map_err(|error_value| format!("cannot read release package manifest: {error_value}"))?;
+    let text = std::str::from_utf8(&manifest)
+        .map_err(|_| "release package manifest is not UTF-8".to_owned())?;
+    let mut expected = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let mut fields = line.splitn(3, '\t');
+        let hash = fields.next().unwrap_or_default();
+        let mode = fields.next().unwrap_or_default();
+        let relative = fields.next().unwrap_or_default();
+        if hash.len() != 64
+            || !hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !matches!(mode, "0644" | "0755")
+        {
+            return Err("release package manifest has an invalid hash or mode".to_owned());
+        }
+        let relative = safe_package_relative(relative)
+            .ok_or_else(|| "release package manifest has an unsafe path".to_owned())?;
+        if relative == Path::new("SHA256SUMS") || expected.contains_key(&relative) {
+            return Err("release package manifest has a duplicate or recursive entry".to_owned());
+        }
+        expected.insert(relative, (hash.to_owned(), mode == "0755"));
+    }
+    let mut actual = Vec::new();
+    collect_package_files(&root, &root, &mut actual)?;
+    actual.sort();
+    actual.retain(|path| path != Path::new("SHA256SUMS"));
+    if actual != expected.keys().cloned().collect::<Vec<_>>() {
+        return Err("release package contents do not exactly match SHA256SUMS".to_owned());
+    }
+    let version = fs::read_to_string(root.join("VERSION"))
+        .map_err(|_| "release package is missing VERSION".to_owned())?;
+    if version.trim() != env!("CARGO_PKG_VERSION") {
+        return Err(format!(
+            "release package version {} does not match installer {}",
+            version.trim(),
+            env!("CARGO_PKG_VERSION")
+        ));
+    }
+    let platform = fs::read_to_string(root.join("PLATFORM"))
+        .map_err(|_| "release package is missing PLATFORM".to_owned())?;
+    if platform.trim() != package_platform() {
+        return Err(format!(
+            "release package platform {} does not match {}",
+            platform.trim(),
+            package_platform()
+        ));
+    }
+    let required = [
+        "bin/mx",
+        "bin/multplx",
+        "runtime/AGENTS.md",
+        "runtime/bin/mx-launcher.sh",
+        "runtime/share/shell/multplx.bash",
+        "runtime/share/shell/multplx.zsh",
+    ];
+    if required
+        .iter()
+        .any(|entry| !expected.contains_key(Path::new(entry)))
+        || !expected
+            .keys()
+            .any(|entry| entry.starts_with("runtime/.agents/skills"))
+    {
+        return Err("release package is missing required runtime assets".to_owned());
+    }
+    let mut binary = None;
+    let mut runtime = Vec::new();
+    for (relative, (expected_hash, executable)) in expected {
+        let bytes = fs::read(root.join(&relative)).map_err(|error_value| {
+            format!(
+                "cannot read package file {}: {error_value}",
+                relative.display()
+            )
+        })?;
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        if hash != expected_hash {
+            return Err(format!(
+                "release package checksum mismatch: {}",
+                relative.display()
+            ));
+        }
+        if relative == Path::new("bin/multplx") {
+            if !executable {
+                return Err("release package binary is not marked executable".to_owned());
+            }
+            binary = Some(VerifiedArtifact { bytes, hash });
+        } else if let Ok(asset) = relative.strip_prefix("runtime") {
+            runtime.push(PackagedFile {
+                relative: asset.to_path_buf(),
+                bytes,
+                mode: if executable { 0o755 } else { 0o644 },
+            });
+        }
+    }
+    runtime.push(PackagedFile {
+        relative: PathBuf::from(".multplx-release"),
+        bytes: format!("{}\n", env!("CARGO_PKG_VERSION")).into_bytes(),
+        mode: 0o644,
+    });
+    Ok(VerifiedPackage {
+        artifact: binary.ok_or("release package binary is missing")?,
+        runtime,
+        manifest,
+    })
 }
 
 fn verify_artifact(path: &Path, expected: Option<&str>) -> Result<VerifiedArtifact, String> {
@@ -794,7 +1406,7 @@ fn verify_artifact(path: &Path, expected: Option<&str>) -> Result<VerifiedArtifa
 
 #[derive(Clone)]
 struct GenerationFile {
-    key: &'static str,
+    key: String,
     path: PathBuf,
     mode: u32,
     desired: Option<Vec<u8>>,
@@ -903,7 +1515,11 @@ fn recover_generation(config_dir: &Path, files: &[GenerationFile]) -> Result<(),
     }
 }
 
-fn apply_generation(config_dir: &Path, files: &[GenerationFile]) -> Result<(), String> {
+fn apply_generation(
+    config_dir: &Path,
+    files: &[GenerationFile],
+    packaged_home: Option<&Path>,
+) -> Result<(), String> {
     let transaction = transaction_path(config_dir);
     fs::create_dir(&transaction)
         .map_err(|error_value| format!("cannot create launcher transaction: {error_value}"))?;
@@ -915,6 +1531,32 @@ fn apply_generation(config_dir: &Path, files: &[GenerationFile]) -> Result<(), S
         0o600,
     )
     .map_err(|error_value| error_value.to_string())?;
+    // The transaction directory is the launch-visible barrier. Serialize with
+    // the backend's startup lock after publishing it, then inspect the recorded
+    // home again before any binary or runtime asset can change.
+    let _launch_lock = if let Some(home) = packaged_home {
+        let lock = DirectoryLock::acquire_wait(
+            home.join("state/.workspace-launch.lock"),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        )
+        .map_err(|error_value| format!("cannot exclude a packaged runtime launch: {error_value}"));
+        match lock {
+            Ok(lock) => {
+                if let Err(message) = require_packaged_runtime_quiescent(home) {
+                    remove_transaction(&transaction)?;
+                    return Err(message);
+                }
+                Some(lock)
+            }
+            Err(message) => {
+                remove_transaction(&transaction)?;
+                return Err(message);
+            }
+        }
+    } else {
+        None
+    };
     for file in files {
         match fs::symlink_metadata(&file.path) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
@@ -958,10 +1600,10 @@ fn apply_generation(config_dir: &Path, files: &[GenerationFile]) -> Result<(), S
                     }
                 }
             }
-            if env::var("MX_LAUNCHER_INSTALL_CRASH_AFTER").as_deref() == Ok(file.key) {
+            if env::var("MX_LAUNCHER_INSTALL_CRASH_AFTER").as_deref() == Ok(file.key.as_str()) {
                 std::process::exit(97);
             }
-            if env::var("MX_LAUNCHER_INSTALL_FAIL_AFTER").as_deref() == Ok(file.key) {
+            if env::var("MX_LAUNCHER_INSTALL_FAIL_AFTER").as_deref() == Ok(file.key.as_str()) {
                 return Err(format!(
                     "injected interruption after publishing {}",
                     file.key
@@ -1085,6 +1727,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         (options.root.as_deref(), "code root"),
         (options.home.as_deref(), "operational home"),
         (options.binary.as_deref(), "binary artifact"),
+        (options.package.as_deref(), "release package"),
     ] {
         if let Some(path) = path
             && let Err(message) = require_recordable_path(path, label)
@@ -1107,14 +1750,41 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             || options.root.is_some()
             || options.home.is_some()
             || options.source.is_some()
+            || options.package.is_some()
             || options.binary.is_some()
             || options.checksum.is_some())
     {
         error("--uninstall cannot be combined with install or upgrade options");
         return 2;
     }
+    if options.package.is_some()
+        && (options.managed
+            || options.root.is_some()
+            || options.source.is_some()
+            || options.binary.is_some()
+            || options.checksum.is_some())
+    {
+        error("--package cannot be combined with source-runtime or binary options");
+        return 2;
+    }
+    let verified_package = if let Some(package) = options.package.as_ref() {
+        match verify_package(&absolute_from_cwd(package.clone())) {
+            Ok(package) => Some(package),
+            Err(message) => {
+                error(message);
+                return 2;
+            }
+        }
+    } else {
+        None
+    };
     let artifact = if options.uninstall {
         None
+    } else if let Some(package) = verified_package.as_ref() {
+        Some(VerifiedArtifact {
+            bytes: package.artifact.bytes.clone(),
+            hash: package.artifact.hash.clone(),
+        })
     } else {
         let source_binary = options.binary.clone().unwrap_or_else(|| {
             current_binary().unwrap_or_else(|_| PathBuf::from("multplx-unavailable"))
@@ -1202,38 +1872,82 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => None,
                 Err(error_value) => return Err((1, error_value.to_string())),
             };
-            let generation = vec![
+            let mut generation = vec![
                 GenerationFile {
-                    key: "multplx",
+                    key: "multplx".to_owned(),
                     path: target.clone(),
                     mode: 0o755,
                     desired: None,
                 },
                 GenerationFile {
-                    key: "root",
+                    key: "root".to_owned(),
                     path: config_dir.join("root"),
                     mode: 0o600,
                     desired: None,
                 },
                 GenerationFile {
-                    key: "home",
+                    key: "home".to_owned(),
                     path: config_dir.join("home"),
                     mode: 0o600,
                     desired: None,
                 },
                 GenerationFile {
-                    key: "config",
+                    key: "config".to_owned(),
                     path: config_pointer.clone(),
                     mode: 0o600,
                     desired: None,
                 },
                 GenerationFile {
-                    key: "digest",
+                    key: "digest".to_owned(),
                     path: digest_record.clone(),
                     mode: 0o600,
                     desired: None,
                 },
             ];
+            let package_assets_record = config_dir.join("package-assets");
+            let mut packaged_home = None;
+            if package_assets_record.is_file() {
+                let recorded_root =
+                    read_path_file(&config_dir.join("root")).map_err(|message| (2, message))?;
+                let recorded_home =
+                    read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
+                require_packaged_runtime_quiescent(&recorded_home)
+                    .map_err(|message| (2, message))?;
+                packaged_home = Some(recorded_home.clone());
+                let expected_root = data_dir.join("runtime");
+                if recorded_root != expected_root {
+                    return Err((
+                        2,
+                        "packaged runtime record does not match the managed application path"
+                            .to_owned(),
+                    ));
+                }
+                let contents = fs::read_to_string(&package_assets_record)
+                    .map_err(|error_value| (1, error_value.to_string()))?;
+                for (index, line) in contents.lines().enumerate() {
+                    let relative = safe_package_relative(line).ok_or_else(|| {
+                        (2, "installed package asset record is malformed".to_owned())
+                    })?;
+                    generation.push(GenerationFile {
+                        key: format!("asset-{index:04}"),
+                        path: recorded_root.join(relative),
+                        mode: 0o644,
+                        desired: None,
+                    });
+                }
+                generation.push(GenerationFile {
+                    key: "package-assets".to_owned(),
+                    path: package_assets_record.clone(),
+                    mode: 0o600,
+                    desired: None,
+                });
+                generation.push(GenerationFile {
+                    key: "package-manifest".to_owned(),
+                    path: config_dir.join("package-SHA256SUMS"),
+                    mode: 0o600,
+                    desired: None,
+                });
+            }
             if _uninstall_lock.is_some() {
                 recover_generation(&config_dir, &generation).map_err(|message| (2, message))?;
             }
@@ -1242,6 +1956,8 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 config_dir.join("home"),
                 digest_record.clone(),
                 config_pointer.clone(),
+                package_assets_record,
+                config_dir.join("package-SHA256SUMS"),
             ];
             for path in &records {
                 match fs::symlink_metadata(path) {
@@ -1291,30 +2007,48 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 }
             }
             if _uninstall_lock.is_some() {
-                apply_generation(&config_dir, &generation).map_err(|message| (1, message))?;
+                apply_generation(&config_dir, &generation, packaged_home.as_deref())
+                    .map_err(|message| (1, message))?;
             } else if target_exists || records.iter().any(|path| path.exists()) {
                 return Err((
                     2,
                     "refusing uninstall without an owned configuration directory".to_owned(),
                 ));
             }
-            println!("multplx: launcher removed; runtime and operational data preserved");
+            println!("multplx: application removed; operational state and repositories preserved");
             return Ok(());
         }
-        let default_root = match options.root.as_ref() {
-            Some(root) => canonical_dir(&absolute_from_cwd(root.clone()), "code root"),
-            None => default_source_root(),
-        }
-        .map_err(|message| (2, message))?;
-        require_recordable_path(&default_root, "code root").map_err(|message| (2, message))?;
-        if options.managed {
+        let default_root = if verified_package.is_some() {
+            None
+        } else {
+            let root = match options.root.as_ref() {
+                Some(root) => canonical_dir(&absolute_from_cwd(root.clone()), "code root"),
+                None => default_source_root(),
+            }
+            .map_err(|message| (2, message))?;
+            require_recordable_path(&root, "code root").map_err(|message| (2, message))?;
+            Some(root)
+        };
+        if verified_package.is_some() {
+            require_existing_owned_dir(&data_dir.join("runtime"), "packaged runtime")
+                .map_err(|message| (2, message))?;
+            if let Some(home) = options.home.as_ref() {
+                require_existing_owned_dir(&absolute_from_cwd(home.clone()), "operational home")
+                    .map_err(|message| (2, message))?;
+            }
+        } else if options.managed {
             require_existing_owned_dir(&data_dir.join("runtime"), "managed code root")
                 .map_err(|message| (2, message))?;
             require_existing_owned_dir(&data_dir.join("home"), "managed operational home")
                 .map_err(|message| (2, message))?;
         } else {
             let requested_root = canonical_dir(
-                &absolute_from_cwd(options.root.clone().unwrap_or_else(|| default_root.clone())),
+                &absolute_from_cwd(
+                    options
+                        .root
+                        .clone()
+                        .unwrap_or_else(|| default_root.as_ref().expect("source root").clone()),
+                ),
                 "code root",
             )
             .map_err(|message| (2, message))?;
@@ -1353,7 +2087,48 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             )
         })?;
         let artifact = artifact.as_ref().expect("install artifact validated");
-        let (root, home) = if options.managed {
+        let (root, home) = if let Some(package) = verified_package.as_ref() {
+            let runtime_path = data_dir.join("runtime");
+            if runtime_path.is_dir()
+                && fs::read_dir(&runtime_path)
+                    .map_err(|error_value| (1, error_value.to_string()))?
+                    .next()
+                    .is_some()
+                && !config_dir.join("package-assets").is_file()
+            {
+                return Err((
+                    2,
+                    format!(
+                        "refusing to adopt an unowned packaged runtime directory: {}",
+                        runtime_path.display()
+                    ),
+                ));
+            }
+            if config_dir.join("package-assets").is_file()
+                && !read_path_file(&config_dir.join("root")).is_ok_and(|path| path == runtime_path)
+            {
+                return Err((
+                    2,
+                    "packaged runtime ownership record does not match its root".to_owned(),
+                ));
+            }
+            let runtime = ensure_dir(&runtime_path, 0o700, true).map_err(|message| (2, message))?;
+            for asset in &package.runtime {
+                let parent = runtime
+                    .join(&asset.relative)
+                    .parent()
+                    .expect("runtime asset has a parent")
+                    .to_path_buf();
+                ensure_dir(&parent, 0o700, false).map_err(|message| (2, message))?;
+            }
+            let home = match options.home.take() {
+                Some(home) => ensure_dir(&absolute_from_cwd(home), 0o700, true)
+                    .map_err(|message| (2, message))?,
+                None => ensure_dir(&data_dir.join("home"), 0o700, true)
+                    .map_err(|message| (2, message))?,
+            };
+            (runtime, home)
+        } else if options.managed {
             if options.root.is_some() || options.home.is_some() {
                 return Err((
                     2,
@@ -1368,7 +2143,10 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         "git",
                         &[
                             OsStr::new("-C"),
-                            default_root.as_os_str(),
+                            default_root
+                                .as_ref()
+                                .expect("managed source root")
+                                .as_os_str(),
                             OsStr::new("remote"),
                             OsStr::new("get-url"),
                             OsStr::new("origin"),
@@ -1444,7 +2222,11 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 return Err((2, "--source requires --managed".to_owned()));
             }
             let root = canonical_dir(
-                &absolute_from_cwd(options.root.unwrap_or(default_root)),
+                &absolute_from_cwd(
+                    options
+                        .root
+                        .unwrap_or_else(|| default_root.expect("source root")),
+                ),
                 "code root",
             )
             .map_err(|message| (2, message))?;
@@ -1465,46 +2247,106 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         require_recordable_path(&home, "operational home").map_err(|message| (2, message))?;
         require_owned_dir(&root, "code root").map_err(|message| (2, message))?;
         require_owned_dir(&home, "operational home").map_err(|message| (2, message))?;
+        let packaged_home = if verified_package.is_some()
+            && config_dir.join("package-assets").is_file()
+        {
+            let recorded_home =
+                read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
+            require_packaged_runtime_quiescent(&recorded_home).map_err(|message| (2, message))?;
+            Some(recorded_home)
+        } else {
+            None
+        };
         for part in ["config", "data", "projects", "state"] {
             ensure_dir(&home.join(part), 0o700, true).map_err(|message| (2, message))?;
         }
-        validate_root(&root).map_err(|message| (2, message))?;
+        if verified_package.is_none() {
+            validate_root(&root).map_err(|message| (2, message))?;
+        }
         validate_home(&home).map_err(|message| (2, message))?;
         if options.managed {
             validate_managed_clean(&root, &home).map_err(|message| (2, message))?;
         }
-        let generation = vec![
+        let mut generation = vec![
             GenerationFile {
-                key: "multplx",
+                key: "multplx".to_owned(),
                 path: target.clone(),
                 mode: 0o755,
                 desired: Some(artifact.bytes.clone()),
             },
             GenerationFile {
-                key: "root",
+                key: "root".to_owned(),
                 path: config_dir.join("root"),
                 mode: 0o600,
                 desired: Some(format!("{}\n", root.display()).into_bytes()),
             },
             GenerationFile {
-                key: "home",
+                key: "home".to_owned(),
                 path: config_dir.join("home"),
                 mode: 0o600,
                 desired: Some(format!("{}\n", home.display()).into_bytes()),
             },
             GenerationFile {
-                key: "config",
+                key: "config".to_owned(),
                 path: config_pointer.clone(),
                 mode: 0o600,
                 desired: Some(format!("{}\n", config_dir.display()).into_bytes()),
             },
             GenerationFile {
-                key: "digest",
+                key: "digest".to_owned(),
                 path: digest_record.clone(),
                 mode: 0o600,
                 desired: Some(format!("{}\n", artifact.hash).into_bytes()),
             },
         ];
+        if let Some(package) = verified_package.as_ref() {
+            let asset_record = config_dir.join("package-assets");
+            let mut old_assets = std::collections::BTreeSet::new();
+            match fs::read_to_string(&asset_record) {
+                Ok(contents) => {
+                    for line in contents.lines() {
+                        let relative = safe_package_relative(line).ok_or_else(|| {
+                            (2, "installed package asset record is malformed".to_owned())
+                        })?;
+                        old_assets.insert(relative);
+                    }
+                }
+                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error_value) => return Err((1, error_value.to_string())),
+            }
+            let mut new_assets = std::collections::BTreeMap::new();
+            for asset in &package.runtime {
+                new_assets.insert(asset.relative.clone(), asset);
+            }
+            old_assets.extend(new_assets.keys().cloned());
+            for (index, relative) in old_assets.into_iter().enumerate() {
+                let desired = new_assets.get(&relative).map(|asset| asset.bytes.clone());
+                let mode = new_assets.get(&relative).map_or(0o644, |asset| asset.mode);
+                generation.push(GenerationFile {
+                    key: format!("asset-{index:04}"),
+                    path: root.join(&relative),
+                    mode,
+                    desired,
+                });
+            }
+            let mut assets = new_assets
+                .keys()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            assets.sort();
+            generation.push(GenerationFile {
+                key: "package-assets".to_owned(),
+                path: asset_record,
+                mode: 0o600,
+                desired: Some(format!("{}\n", assets.join("\n")).into_bytes()),
+            });
+            generation.push(GenerationFile {
+                key: "package-manifest".to_owned(),
+                path: config_dir.join("package-SHA256SUMS"),
+                mode: 0o600,
+                desired: Some(package.manifest.clone()),
+            });
+        }
         recover_generation(&config_dir, &generation).map_err(|message| (2, message))?;
         if matches!(
             env::var("MX_LAUNCHER_INSTALL_FAIL_BEFORE").as_deref(),
@@ -1615,7 +2457,8 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
             Err(error_value) => return Err((1, error_value.to_string())),
         }
-        apply_generation(&config_dir, &generation).map_err(|message| (1, message))?;
+        apply_generation(&config_dir, &generation, packaged_home.as_deref())
+            .map_err(|message| (1, message))?;
         println!("multplx: installed {}", target.display());
         println!("multplx: root {}", root.display());
         println!("multplx: home {}", home.display());
@@ -1835,5 +2678,59 @@ mod tests {
         let non_utf8 = PathBuf::from(OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]));
         assert!(require_recordable_path(&non_utf8, "fixture").is_err());
         assert!(require_recordable_path(Path::new("/tmp/one\ntwo"), "fixture").is_err());
+    }
+
+    #[test]
+    fn selected_project_publishes_immutable_next_request_context() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("home");
+        let repo = temporary.path().join("repo");
+        for part in ["config", "data", "projects", "state"] {
+            fs::create_dir_all(home.join(part)).unwrap();
+        }
+        fs::create_dir(&repo).unwrap();
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["init", "-q"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=f@example.test",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "base"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let binding = select_project(&home, temporary.path(), "repo").unwrap();
+        let mut environment = Vec::new();
+        add_project_context(&home, &binding, &mut environment).unwrap();
+        let pointer = environment
+            .iter()
+            .find(|(name, _)| name == "MX_WORKSPACE_CONTEXT")
+            .unwrap()
+            .1
+            .clone();
+        let bytes = fs::read(PathBuf::from(pointer)).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["binding"]["project_id"], binding.project_id);
+        assert_eq!(
+            value["binding"]["starting_revision"],
+            binding.starting_revision
+        );
     }
 }
