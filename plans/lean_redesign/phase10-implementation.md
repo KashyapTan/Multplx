@@ -154,3 +154,9 @@ Unknown native children remain uncounted as sessions, missing historical decisio
 Linux covered full Rust checks and the changed snapshot/dashboard shell surfaces; the full cross-platform combined release matrix and live-model 1/5/10/20-task trials remain Phase 12 work.
 Phase 11 is ready to begin using the shared project/task portfolio for workspace entry and its terminal UI.
 Release activation remains planned; root `AGENTS.md` has not been restored.
+
+## PR 46 macOS CI follow-up
+
+CI run `35300772166` at `e0bbe5e` failed the migration planning test's whole-home byte comparison on macOS. Its truncated map diagnostic did not identify the changed path, so the precise cause was not confirmed locally. Registry Git reads now set `GIT_OPTIONAL_LOCKS=0`; the fixture disables automatic GC, fsmonitor and the untracked cache to isolate it from runner Git configuration. The assertion still compares every home file byte, including `.git`, and now reports changed paths instead of dumping all bytes.
+
+Local validation passed: `cargo test --locked -p multplx-domain --lib` (287 tests), `cargo test --locked -p multplx-domain --lib lifecycle::migration::tests::planning_maps_projects_aliases_and_only_explicit_persistent_coordinators -- --exact` (1 test; also five earlier consecutive focused passes), `cargo clippy -p multplx-domain --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and `git diff --check`. These use local Git and isolated fixtures, not live providers. The remote macOS rerun is left for the PR owner to monitor; these results do not claim that CI has passed.

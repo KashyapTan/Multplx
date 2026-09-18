@@ -298,6 +298,9 @@ fn stable_id(prefix: &str, value: &str) -> String {
 fn git_value(path: &Path, args: &[&str]) -> Result<String, String> {
     let output = crate::lifecycle::worktree::command_output(
         std::process::Command::new("git")
+            // Registry inspection is read-only. Suppress optional Git locks and
+            // index refreshes so observing a checkout cannot mutate its home.
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .arg("-C")
             .arg(path)
             .args(args),

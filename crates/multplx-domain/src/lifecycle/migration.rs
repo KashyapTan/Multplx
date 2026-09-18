@@ -1238,6 +1238,11 @@ mod tests {
             &managed,
             &["config", "user.email", "migration@example.invalid"],
         );
+        // Keep the byte-for-byte read-only assertion independent of runner
+        // global Git accelerators and asynchronous repository maintenance.
+        git(&managed, &["config", "gc.auto", "0"]);
+        git(&managed, &["config", "core.fsmonitor", "false"]);
+        git(&managed, &["config", "core.untrackedCache", "false"]);
         fs::write(managed.join("tracked"), "base\n").unwrap();
         git(&managed, &["add", "tracked"]);
         git(&managed, &["commit", "-m", "base"]);
@@ -1266,7 +1271,19 @@ mod tests {
         assert_eq!(report.legacy_tasks, 2);
         assert_eq!(report.projects, 1);
         assert!(report.retained.iter().any(|item| item.contains("routes")));
-        assert_eq!(walk(&home), before);
+        let after = walk(&home);
+        let changed = before
+            .keys()
+            .chain(after.keys())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|path| before.get(*path) != after.get(*path))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(
+            changed.is_empty(),
+            "read-only migration inspection changed home paths: {changed:?}"
+        );
 
         apply(&home, "mapped", &coordinators).unwrap();
         for path in [
