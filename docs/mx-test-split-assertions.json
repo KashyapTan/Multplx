@@ -28,6 +28,11 @@
           "before": "the /catchup skill states the four-section chat contract in order, with empty-states and the At Anchor exclusion",
           "after": "catchup preserves structured current-state truth without a fixed four-section script",
           "reason": "Lean Phase 01 replaces the fixed response layout with current-state, freshness, read-only and optional-artifact checks; runtime projection cases remain unchanged."
+        },
+        {
+          "before": "missing, invalid, unreadable, malformed, and timed-out homes stay explicit unknowns",
+          "after": "stalled and invalid homes stay explicit while bounded parallel collection keeps healthy reporting",
+          "reason": "Lean Phase 10 adds bounded parallel registered-home observation and verifies that one stalled provider does not hide a healthy provider result."
         }
       ],
       "after_groups": {

@@ -20,6 +20,9 @@ Its macOS release suite and Linux changed-surface checks pass, with mock and liv
 Phase 09 supplies explicit inspect/apply/rollback home migration, exact private backups, compact restart projections and recoverable transfer of legacy Git worktrees and persistent homes.
 Its complete macOS release checks, Linux changed-surface checks, isolated-home fixtures and real local Git/process transfer evidence pass, with private-home and live-service limits recorded in the [Phase 09 evidence](plans/lean_redesign/phase09-implementation.md).
 
+Phase 10 supplies canonical task portfolios, bounded observations and responsive read-only MX Viz with exact evidence links.
+Its macOS/Linux checks, unchanged coverage gate, browser acceptance and recorded service/baseline measurements pass, with mock and live boundaries recorded in the [Phase 10 evidence](plans/lean_redesign/phase10-implementation.md).
+
 ## This checkout
 
 The user deliberately renamed the root operating contract to [AGENTS_E.md](AGENTS_E.md) to prevent automatic injection.

@@ -115,10 +115,15 @@ The artifact is the feedback channel, so vplan adds no polling protocol, persist
 ## Live system dashboard
 
 `bin/mx-viz.sh serve` starts a disposable loopback-only dashboard over the canonical `mx-system-snapshot.v1` feed.
-The stable adapter starts the Rust `multplx-services` process by default; the service bounds request parsing, connection concurrency, snapshot and diagnostic subprocesses, and response files while preserving the frozen browser asset contract.
-The page polls a bounded server-side cache, renders reconciled task and daemon state with signal provenance, and exposes allowlisted plans and artifacts without parsing operational state itself.
+The stable adapter starts the Rust `multplx-services` process by default; the service bounds request parsing, connection concurrency, snapshot and diagnostic subprocesses, and response files.
+The Phase 10 dashboard consumes the versioned `portfolio` projection within the canonical snapshot, separating requested tasks, execution attempts, sessions and domain coordinators.
+CLI summaries and workspace clients consume the same task, project, dependency, decision, delivery, allocation and freshness facts.
+Project filters change only the view; they never change task ownership or checkout bindings.
+The page polls a shared server-side cache and exposes allowlisted plans and artifacts without parsing operational state itself.
 Its HTTP surface is GET-only, its only lifecycle write is `state/.viz/server.run`, and no system behavior depends on whether the dashboard is running.
-Later-plan panels consume only their bounded snapshot projections, while doctor and timeline detail use their sanctioned readers on explicit request.
+One snapshot refresh runs at a time, outside the service runtime mutex, while readers receive the last good snapshot with its age or an explicit initial-unavailability result.
+Content revisions are separate from observation age, and browser polling preserves filters, focus and expanded task details.
+Doctor and timeline detail use their sanctioned readers on explicit request.
 [`viz.md`](viz.md) owns the lifecycle, cache, artifact, and read-only boundaries.
 Unresolved maintainer decisions return to `decision-hold-lifecycle` before the originating review is treated as complete.
 

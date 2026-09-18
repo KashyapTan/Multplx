@@ -17,6 +17,10 @@ pub struct SystemSnapshot {
     pub roots: SnapshotRoots,
     pub backlog: Backlog,
     pub tasks: Vec<Task>,
+    /// Task-first shared projection consumed by status, workspace clients and MX Viz.
+    /// Older fixtures may omit it, but native snapshots always publish it.
+    #[serde(default)]
+    pub portfolio: Option<Portfolio>,
     pub main_inventory: MainInventory,
     pub scout_reports: Vec<ArtifactPointer>,
     pub watcher: Watcher,
@@ -33,6 +37,86 @@ pub struct SystemSnapshot {
     pub daemon_current: DaemonCurrent,
     pub daemon_landed: DaemonLanded,
     pub daemon_guidance: DaemonGuidance,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct Portfolio {
+    #[serde(deserialize_with = "portfolio_schema")]
+    pub schema: String,
+    pub generated: String,
+    pub observed_at: String,
+    pub freshness: PortfolioFreshness,
+    pub counts: PortfolioCounts,
+    pub projects: Vec<serde_json::Value>,
+    pub tasks: Vec<PortfolioTask>,
+}
+
+fn portfolio_schema<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let schema = String::deserialize(deserializer)?;
+    if schema != "mx-portfolio.v1" {
+        return Err(serde::de::Error::custom(
+            "unsupported canonical portfolio schema",
+        ));
+    }
+    Ok(schema)
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct PortfolioFreshness {
+    /// One of `fresh`, `partial`, `stale`, or `unknown`.
+    pub status: String,
+    #[serde(default)]
+    pub age_seconds: Option<u64>,
+    pub partial: bool,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct PortfolioCounts {
+    pub tasks: u64,
+    #[serde(default)]
+    pub coordinators: u64,
+    #[serde(default)]
+    pub records: u64,
+    #[serde(default)]
+    pub shown: u64,
+    #[serde(default)]
+    pub truncated: u64,
+    pub sessions: u64,
+    pub attempts: u64,
+    pub projects: u64,
+    pub domains: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct PortfolioTask {
+    /// Home-qualified stable identity used by deep links and cross-home edges.
+    pub key: String,
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub root_id: Option<String>,
+    pub children: Vec<String>,
+    pub project: serde_json::Value,
+    pub state: String,
+    pub priority: i64,
+    #[serde(default)]
+    pub role: Option<String>,
+    pub owner: serde_json::Value,
+    pub attempt: serde_json::Value,
+    pub prior_attempts: Vec<serde_json::Value>,
+    pub brief: serde_json::Value,
+    pub workflow: serde_json::Value,
+    pub dependencies: Vec<serde_json::Value>,
+    pub decisions: Vec<serde_json::Value>,
+    pub evidence: serde_json::Value,
+    pub allocation: serde_json::Value,
+    pub sessions: Vec<serde_json::Value>,
+    pub native_observations: Vec<serde_json::Value>,
+    pub latest_change: serde_json::Value,
+    pub freshness: PortfolioFreshness,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -62,6 +146,13 @@ pub struct DomainRecord {
     pub observation: serde_json::Value,
     pub counts: serde_json::Value,
     pub children: Vec<serde_json::Value>,
+    /// Bounded canonical child task rows from the coordinator home.
+    #[serde(default)]
+    pub tasks: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub workflow_runs: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub portfolio: Option<Portfolio>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -169,6 +260,8 @@ pub struct DaemonRecord {
     pub id: String,
     #[serde(default)]
     pub home: Option<String>,
+    #[serde(default)]
+    pub valid: bool,
     pub current: serde_json::Value,
     pub provenance: serde_json::Value,
     pub freshness: serde_json::Value,
@@ -414,6 +507,17 @@ pub fn parse_system_snapshot(bytes: &[u8]) -> Result<SystemSnapshot, CommandResu
             stderr: "mx-system-view: invalid canonical snapshot\n".to_owned(),
         });
     }
+    if snapshot
+        .portfolio
+        .as_ref()
+        .is_some_and(|portfolio| portfolio.schema != "mx-portfolio.v1")
+    {
+        return Err(CommandResult {
+            status: 1,
+            stdout: String::new(),
+            stderr: "mx-system-view: invalid canonical snapshot\n".to_owned(),
+        });
+    }
     Ok(snapshot)
 }
 
@@ -421,9 +525,51 @@ pub fn parse_system_snapshot(bytes: &[u8]) -> Result<SystemSnapshot, CommandResu
 #[must_use]
 pub fn render_system_view(snapshot: &SystemSnapshot) -> String {
     let mut output = format!(
-        "# System View\n\nSchema: {}\nHome: {}\n\n## Under Way\n",
+        "# System View\n\nSchema: {}\nHome: {}\n",
         snapshot.schema, snapshot.mx_home
     );
+    if let Some(portfolio) = &snapshot.portfolio {
+        output.push_str(&format!(
+            "\n## Portfolio\nUseful tasks: {} · coordinator records: {} · sessions: {} · attempts: {} · freshness: {}\n",
+            portfolio.counts.tasks,
+            portfolio.counts.coordinators,
+            portfolio.counts.sessions,
+            portfolio.counts.attempts,
+            portfolio.freshness.status
+        ));
+        if portfolio.tasks.is_empty() {
+            output.push_str("No accepted task records found.\n");
+        } else {
+            output.push_str(
+                "| Task | State | Role | Project | Brief | Workflow stage | Freshness |\n",
+            );
+            output.push_str("| --- | --- | --- | --- | --- | --- | --- |\n");
+            for task in &portfolio.tasks {
+                output.push_str(&format!(
+                    "| {} | {} | {} | {} | {} | {} | {} |\n",
+                    task.id,
+                    task.state,
+                    dash(task.role.as_deref()),
+                    dash(
+                        task.project
+                            .get("display_name")
+                            .and_then(serde_json::Value::as_str)
+                    ),
+                    task.brief
+                        .get("revision")
+                        .and_then(serde_json::Value::as_u64)
+                        .map_or_else(|| "unknown".into(), |value| value.to_string()),
+                    dash(
+                        task.workflow
+                            .get("current_stage")
+                            .and_then(serde_json::Value::as_str)
+                    ),
+                    task.freshness.status
+                ));
+            }
+        }
+    }
+    output.push_str("\n## Under Way\n");
     if snapshot.tasks.is_empty() {
         output.push_str("No live task metadata found.\n");
     } else {
@@ -538,5 +684,16 @@ mod tests {
     fn typed_view_rejects_the_wrong_schema() {
         let bytes = br#"{"schema":"wrong"}"#;
         assert!(parse_system_snapshot(bytes).is_err());
+    }
+
+    #[test]
+    fn typed_view_rejects_an_unsupported_portfolio_schema() {
+        let error = serde_json::from_value::<Portfolio>(serde_json::json!({"schema":"future"}))
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported canonical portfolio")
+        );
     }
 }

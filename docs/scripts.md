@@ -21,7 +21,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-doctor.sh`           | Sweep system invariants read-only and optionally apply its two proof-bound repairs |
 | `mx-probe-lib.sh`        | Share structured tool and primary-tangle probes with bootstrap and doctor |
 | `mx-system-sync.sh`       | Refresh project clones with safe fast-forwards, self-heals, `STUCK:` reports, branch pruning, and bounded recovery from an orphaned `.git/packed-refs.lock` |
-| `mx-system-snapshot.sh`   | Print the read-only structured system snapshot JSON (schema `mx-system-snapshot.v1`)   |
+| `mx-system-snapshot.sh`   | Print canonical system JSON (`mx-system-snapshot.v1`) including the task portfolio for CLI, Viz and workspace clients   |
 | `mx-system-view.sh`       | Render the system snapshot as a human Markdown view                                   |
 | `mx-status-snapshot.sh` | Project the system snapshot to the compact TOON catchup view; local-only unless `--include-prs` |
 | `mx-update.sh`           | Fast-forward-only self-update of broker and daemon homes from origin          |

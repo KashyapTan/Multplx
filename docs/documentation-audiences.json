@@ -475,6 +475,10 @@
     {
       "path": "plans/lean_redesign/phase09-implementation.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase10-implementation.md",
+      "audience": "maintainer-verification"
     }
   ]
 }
