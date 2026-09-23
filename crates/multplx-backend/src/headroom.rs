@@ -2112,11 +2112,9 @@ fn admission_owner_is_authoritatively_gone(owner: &ProcessIdentity) -> bool {
     {
         let proc = PathBuf::from(format!("/proc/{}", owner.pid));
         match fs::symlink_metadata(&proc) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return true,
-            Err(_) => return false,
-            Ok(_) => {
-                return admission_owner_identity(owner.pid).is_ok_and(|current| current != *owner);
-            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+            Err(_) => false,
+            Ok(_) => admission_owner_identity(owner.pid).is_ok_and(|current| current != *owner),
         }
     }
     #[cfg(target_os = "macos")]
@@ -2142,7 +2140,7 @@ fn admission_owner_is_authoritatively_gone(owner: &ProcessIdentity) -> bool {
         if String::from_utf8_lossy(&output.stdout).trim().is_empty() {
             return output.status.code() == Some(1);
         }
-        return admission_owner_identity(owner.pid).is_ok_and(|current| current != *owner);
+        admission_owner_identity(owner.pid).is_ok_and(|current| current != *owner)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
@@ -2606,6 +2604,22 @@ mod tests {
             config,
             proc_root: temp.path().join("proc"),
         }
+    }
+
+    fn deterministic_linux_capacity_signals(paths: &HeadroomPaths) {
+        std::fs::create_dir_all(&paths.proc_root).expect("proc fixture");
+        std::fs::write(
+            paths.proc_root.join("cpuinfo"),
+            "processor : 0\nprocessor : 1\n",
+        )
+        .expect("cpu capacity fixture");
+        std::fs::write(paths.proc_root.join("loadavg"), "0.00 0.00 0.00 1/1 1\n")
+            .expect("load fixture");
+        std::fs::write(
+            paths.proc_root.join("meminfo"),
+            "MemAvailable: 1048576 kB\n",
+        )
+        .expect("memory fixture");
     }
 
     fn admission_record(paths: &HeadroomPaths, request: &str, task: &str) -> QueueRecord {
@@ -3795,6 +3809,7 @@ mod tests {
     fn root_queue_drain_launches_with_registered_private_owner_and_parent_context() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
+        deterministic_linux_capacity_signals(&paths);
         let owner_home = temp.path().join("registered-coordinator-home");
         let owner_state = owner_home.join("state");
         std::fs::create_dir_all(&owner_state).expect("private owner state");
@@ -3889,6 +3904,7 @@ mod tests {
     fn root_queue_drain_recovers_only_exact_never_started_dispatches() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
+        deterministic_linux_capacity_signals(&paths);
         let mut record = admission_record(&paths, "recover-request", "recover-task");
         record.canonical_model = Some(
             serde_json::json!({
