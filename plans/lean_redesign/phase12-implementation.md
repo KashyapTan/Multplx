@@ -825,3 +825,19 @@ The same focused tests pass with `cargo llvm-cov test --no-report --locked` inst
 The README, getting-started guide and user guide now link an explicit build/package/install example for the unpublished candidate, with separate installation directories and the source contract kept dormant.
 `target/release/mx doc-audience-check` passes with 93 surfaces and 516 local links.
 Fresh hosted validation is required for this follow-up; the prior failed result is not represented as passing.
+
+
+The follow-up [hosted run 35883457262](https://github.com/KashyapTan/Multplx/actions/runs/35883457262) passes both original failures, the complete macOS/Linux Rust jobs and every behavior lane.
+Coverage then fails later in the Phase 11 instrumented shell group at the concurrent distinct-artifact upgrade assertion.
+Its old test discarded both installer error streams, so the exact hosted failure cause cannot be established; a targeted local reproduction using the 52 MB instrumented executable passes both upgrades.
+The generation-publication/rollback test now uses small distinct executable fixtures, including its initial generation, while the actual installer remains instrumented.
+This removes unnecessary large-debug-binary hashing/copying from a test of atomic transaction semantics without changing the production five-second lock policy.
+Both upgrades must still succeed, and the final binary/digest must match one complete known generation; the existing rollback/crash-recovery assertions remain.
+Failure output now includes both installer statuses and captured diagnostics.
+Other launcher and package tests retain real runtime binaries and execution checks.
+The isolated transaction regression passes with `MX_RUST_BIN=target/llvm-cov-target/debug/mx`; `bash -n tests/mx-launcher.test.sh` and `git diff --check` pass.
+
+Full local follow-up validation also passes: `cargo test --locked --workspace` runs 785 tests with zero failures, strict all-target/all-feature Clippy passes, and the locked release build completes.
+`target/release/mx test-run tests/mx-watch-checkpoint.test.sh tests/mx-supervise-daemon-native.test.sh tests/mx-release-package.test.sh --jobs auto --json /private/tmp/mx-pr48-ci-fix-behavior.json` passes all three suites without failures or gates.
+The rebuilt package at `/private/tmp/mx-phase12-ci-fixed-release/package` installs successfully into adjacent isolated `install/{bin,config,data}` directories.
+These are local results; the additional instrumented group and new full hosted run remain required follow-up validation.
