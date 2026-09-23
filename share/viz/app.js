@@ -1,6 +1,7 @@
 "use strict";
 
 const pollMs = Number(document.querySelector('meta[name="mx-viz-poll-ms"]')?.content || 2500);
+const agentsGraphApi = window.MxAgentsGraph;
 const hiddenPollMs = Math.max(15000, pollMs * 6);
 const staleAfterSeconds = Math.max(15, Math.ceil(pollMs / 1000) * 4);
 const list = (value) => Array.isArray(value) ? value : [];
@@ -31,6 +32,13 @@ let pollInFlight = false;
 let lastError = null;
 let lastAppliedHash = null;
 const expanded = new Set();
+let normalizedAgentGraph = null;
+let selectedAgentKey = null;
+let agentSearchValue = "";
+let lastRenderedAgentSearch = null;
+const collapsedAgentKeys = new Set();
+let attentionItemCount = 0;
+let agentsViewActive = false;
 
 function ageText(seconds) {
   if (!Number.isFinite(seconds)) return "unknown";
@@ -548,6 +556,8 @@ function renderAttention() {
     target.append(link);
   }
   panel.hidden = items.length === 0;
+  attentionItemCount = items.length;
+  panel.hidden = attentionItemCount === 0 || agentsViewActive;
   document.querySelector("#attention-count").textContent = `${items.length} actionable`;
 }
 
@@ -636,12 +646,270 @@ function render(payload) {
   renderCounts();
   renderAttention();
   renderTasks();
+  renderAgents(currentPayload?.snapshot || currentPayload || {});
   renderDomains();
   renderArtifacts();
   renderFreshness();
   document.querySelector("#doctor-button").hidden = payload.snapshot?.later_feeds?.doctor?.available !== true;
   restoreFocus(focusKey);
   applyHash(false);
+}
+
+function agentSearchMatches(node, query) {
+  if (!query) return false;
+  return [node.id, node.title, node.home, node.role, node.state, node.freshness, node.provider, node.session]
+    .filter(Boolean).join(" ").toLowerCase().includes(query);
+}
+
+function agentOwnerLabel(home) {
+  if (!home) return "owner home unknown";
+  const parts = home.split(/[\\/]/).filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : home;
+}
+
+function agentCard(node, isRoot = false) {
+  const coordinator = node.role === "sub-orchestrator";
+  const card = isRoot ? el("div", "agent-card root-card") : el("button", `agent-card${coordinator ? " coordinator" : ""}${node.unresolved ? " unresolved-card" : ""}`);
+  card.dataset.agentCardKey = node.key;
+  if (!isRoot) {
+    card.type = "button";
+    card.setAttribute("aria-pressed", String(selectedAgentKey === node.key));
+    card.title = `${node.id}\nQualified task: ${node.key}\nOwner: ${node.home || "unknown"}\nOpen this exact assignment in Tasks`;
+    card.addEventListener("click", () => {
+      selectedAgentKey = node.key;
+      showAgentTask(node.task);
+    });
+  } else {
+    card.tabIndex = 0;
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-label", "Main orchestrator; session health is not observed by this snapshot");
+  }
+  card.append(
+    el("span", "agent-card-role", isRoot ? "Main orchestrator" : node.role),
+    el("strong", "agent-card-title", node.title || node.id),
+  );
+  if (!isRoot && node.title && node.title !== node.id) card.append(el("span", "agent-card-scope", node.id));
+  const facts = el("div", "agent-card-facts");
+  if (isRoot) {
+    facts.append(chip("health unknown", "neutral"), chip(`snapshot ${node.freshness}`, node.freshness));
+    card.append(facts, el("span", "agent-card-owner", node.home ? `Home · ${agentOwnerLabel(node.home)}` : "Home identity unavailable"));
+    card.title = node.home || "Root home identity unavailable";
+    card.append(el("span", "agent-card-scope", "Session not observed · no health inferred from child work."));
+    return card;
+  }
+  facts.append(chip(node.state || "unknown", statusTone(String(node.state || "unknown").toLowerCase())), chip(node.freshness || "freshness unknown", statusTone(String(node.freshness || "unknown").toLowerCase())));
+  facts.append(chip(node.provider || "provider not recorded", "neutral"));
+  card.title = `${card.title}\nSession details: ${node.sessionDetails || node.session}`;
+  card.append(facts, el("span", "agent-card-owner", `${agentOwnerLabel(node.home)} · Session: ${node.session}`));
+  if (node.domain?.coordinator?.runtime_home) {
+    const runtime = node.domain.coordinator.runtime_home;
+    const validated = node.domain.coordinator.validated_home === runtime;
+    card.title += `\nRuntime home ${validated ? "validated" : "unvalidated"}: ${runtime}`;
+  }
+  return card;
+}
+
+function agentBranch(node, graph, matching, ancestors) {
+  const branch = el("div", `agent-branch${node.unresolved ? " agent-unresolved-branch" : ""}`);
+  branch.dataset.agentBranchKey = node.key;
+  const isRoot = node.kind === "root";
+  const isMatch = matching.has(node.key);
+  if (!isRoot && agentSearchValue && !isMatch && !ancestors.has(node.key)) branch.classList.add("agent-dimmed");
+  if (isMatch) branch.classList.add("agent-match");
+  const row = el("div", "agent-card-row");
+  row.append(agentCard(node, isRoot));
+  const children = node.children || [];
+  const collapsible = children.length > 0 && !isRoot;
+  const collapsed = !isRoot && collapsedAgentKeys.has(node.key) && !ancestors.has(node.key);
+  if (collapsible) {
+    const toggle = el("button", "agent-collapse", `${collapsed ? "+" : "−"}${children.length}`);
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${children.length} child assignments for ${node.id}`);
+    toggle.dataset.agentCollapseKey = node.key;
+    toggle.addEventListener("click", () => {
+      if (collapsedAgentKeys.has(node.key)) collapsedAgentKeys.delete(node.key);
+      else collapsedAgentKeys.add(node.key);
+      renderAgents(currentPayload?.snapshot || currentPayload || {});
+    });
+    row.append(toggle);
+  }
+  branch.append(row);
+  if (children.length) {
+    const childGroup = el("div", "agent-children");
+    childGroup.id = `agent-children-${encodeURIComponent(node.key)}`;
+    childGroup.setAttribute("role", "group");
+    childGroup.hidden = !isRoot && collapsed;
+    if (collapsible) row.lastChild.setAttribute("aria-controls", childGroup.id);
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(node.key);
+    for (const child of children) childGroup.append(agentBranch(child, graph, matching, nextAncestors));
+    branch.append(childGroup);
+  }
+  if (node.unresolved) branch.append(el("span", "agent-unresolved-reason", node.unresolved));
+  return branch;
+}
+
+function drawAgentConnectors(graph) {
+  if (!graph) return;
+  const canvas = document.querySelector("#agents-canvas");
+  const viewport = document.querySelector("#agents-viewport");
+  const svg = document.querySelector("#agents-connectors");
+  svg.replaceChildren();
+  svg.setAttribute("width", "1");
+  svg.setAttribute("height", "1");
+  svg.setAttribute("viewBox", "0 0 1 1");
+  const cards = [...canvas.querySelectorAll("[data-agent-card-key]")]
+    .filter((card) => !card.closest("[hidden]"));
+  const byKey = new Map(cards.map((card) => [card.dataset.agentCardKey, card]));
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(viewport.clientWidth - 2, canvas.scrollWidth, 1);
+  const height = Math.max(canvas.scrollHeight, 1);
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.replaceChildren();
+  const svgNamespace = "http:" + "//www.w3.org/2000/svg";
+  for (const node of graph.nodes) {
+    if (node.unresolved || !node.parentKey) continue;
+    const parent = byKey.get(node.parentKey);
+    const child = byKey.get(node.key);
+    if (!parent || !child) continue;
+    const parentRect = parent.getBoundingClientRect();
+    const childRect = child.getBoundingClientRect();
+    const x1 = parentRect.left + parentRect.width / 2 - rect.left;
+    const y1 = parentRect.bottom - rect.top;
+    const x2 = childRect.left + childRect.width / 2 - rect.left;
+    const y2 = childRect.top - rect.top;
+    const bend = Math.max(12, Math.min(38, (y2 - y1) / 2));
+    const path = document.createElementNS(svgNamespace, "path");
+    path.setAttribute("d", `M ${x1} ${y1} C ${x1} ${y1 + bend}, ${x2} ${y2 - bend}, ${x2} ${y2}`);
+    path.setAttribute("class", node.role === "sub-orchestrator" ? "agent-link coordinator-link" : "agent-link");
+    svg.append(path);
+  }
+}
+
+function renderAgents(snapshot) {
+  if (!agentsGraphApi) return;
+  const viewport = document.querySelector("#agents-viewport");
+  const scrollLeft = viewport.scrollLeft;
+  const scrollTop = viewport.scrollTop;
+  const focusedKey = document.activeElement?.dataset?.agentCardKey || null;
+  const focusedCollapseKey = document.activeElement?.dataset?.agentCollapseKey || null;
+  const graph = agentsGraphApi.normalize({ ...object(snapshot), portfolio: portfolio || {} });
+  normalizedAgentGraph = graph;
+  const layout = agentsGraphApi.layout(graph);
+  const query = document.querySelector("#agent-search").value.trim().toLowerCase();
+  const searchChanged = query !== lastRenderedAgentSearch;
+  lastRenderedAgentSearch = query;
+  agentSearchValue = query;
+  const matching = new Set(graph.nodes.filter((node) => agentSearchMatches(node, query)).map((node) => node.key));
+  const ancestors = new Set();
+  const byKey = new Map(graph.nodes.map((node) => [node.key, node]));
+  for (const key of matching) {
+    let node = byKey.get(key);
+    while (node?.parentKey && node.parentKey !== graph.rootKey) {
+      ancestors.add(node.parentKey);
+      node = byKey.get(node.parentKey);
+    }
+  }
+  const tree = document.querySelector("#agents-tree");
+  clear(tree);
+  tree.append(agentBranch(graph.root, graph, matching, ancestors));
+  if (graph.nodes.length === 0) tree.append(el("p", "agent-empty", "No assignments in the bounded task projection."));
+  const unresolvedPanel = document.querySelector("#agents-unresolved-panel");
+  const unresolvedList = document.querySelector("#agents-unresolved");
+  clear(unresolvedList);
+  unresolvedPanel.hidden = graph.unresolved.length === 0;
+  for (const node of graph.unresolved) unresolvedList.append(agentBranch(node, graph, matching, ancestors));
+  const coordinators = graph.nodes.filter((node) => node.role === "sub-orchestrator").length;
+  const searchSummary = query ? ` · ${matching.size} match${matching.size === 1 ? "" : "es"}${matching.size ? "" : " · no matching assignments"}` : "";
+  const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.length} assignments`;
+  const summary = `${assignmentCount} · ${coordinators} coordinators · root session not observed${graph.partial ? " · projection partial" : " · projection complete"}${searchSummary}`;
+  document.querySelector("#agents-summary").textContent = summary;
+  const warning = document.querySelector("#agents-warning");
+  const warnings = [...graph.partialReasons];
+  if (graph.unresolved.length) warnings.push(`${graph.unresolved.length} assignment${graph.unresolved.length === 1 ? "" : "s"} with unresolved ownership`);
+  warning.hidden = warnings.length === 0;
+  warning.textContent = warnings.join(" · ");
+  const expandButton = document.querySelector("#agents-expand");
+  const collapseButton = document.querySelector("#agents-collapse");
+  const branches = graph.nodes.filter((node) => node.role === "sub-orchestrator" && node.children.length);
+  expandButton.disabled = branches.length === 0 || branches.every((node) => !collapsedAgentKeys.has(node.key));
+  collapseButton.disabled = branches.length === 0 || branches.every((node) => collapsedAgentKeys.has(node.key));
+  const rootButton = document.querySelector("#agents-root");
+  rootButton.disabled = false;
+  requestAnimationFrame(() => {
+    drawAgentConnectors(graph);
+    viewport.scrollLeft = scrollLeft;
+    viewport.scrollTop = scrollTop;
+    if (focusedKey && !document.querySelector("#agents-view").hidden) {
+      [...document.querySelectorAll("[data-agent-card-key]")]
+        .find((card) => card.dataset.agentCardKey === focusedKey)
+        ?.focus({ preventScroll: true });
+    } else if (focusedCollapseKey && !document.querySelector("#agents-view").hidden) {
+      [...document.querySelectorAll("[data-agent-collapse-key]")]
+        .find((button) => button.dataset.agentCollapseKey === focusedCollapseKey)
+        ?.focus({ preventScroll: true });
+    }
+  });
+  if (searchChanged && query && matching.size) {
+    const selected = graph.nodes.find((node) => matching.has(node.key));
+    if (selected && layout.depth.has(selected.key)) {
+      requestAnimationFrame(() => [...document.querySelectorAll("[data-agent-card-key]")]
+        .find((card) => card.dataset.agentCardKey === selected.key)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    }
+  }
+}
+
+function showAgentTask(task) {
+  if (!task) return;
+  for (const control of controls) control.value = "";
+  document.querySelector("#search").value = "";
+  document.querySelector("#tasks-view-button").click();
+  renderTasks();
+  const key = taskKey(task);
+  const row = [...document.querySelectorAll(".task-row")].find((candidate) => candidate.dataset.taskId === key);
+  if (row) {
+    expanded.add(key);
+    row.open = true;
+    setHashForTask(task);
+    requestAnimationFrame(() => row.scrollIntoView({ block: "center" }));
+    announce(`Opened task details for ${task.id || key}`);
+  } else announce(`Task ${task.id || key} is not present in the current task projection`);
+}
+
+function centerAgentRoot() {
+  const viewport = document.querySelector("#agents-viewport");
+  const rootCard = document.querySelector("#agents-tree [data-agent-card-key]");
+  if (!rootCard) return;
+  const viewportRect = viewport.getBoundingClientRect();
+  const cardRect = rootCard.getBoundingClientRect();
+  viewport.scrollLeft += cardRect.left + cardRect.width / 2 - (viewportRect.left + viewport.clientWidth / 2);
+}
+
+function setAgentsView(agentsVisible) {
+  const agents = document.querySelector("#agents-view");
+  const tasks = document.querySelector("#tasks-view");
+  const agentsButton = document.querySelector("#agents-view-button");
+  const tasksButton = document.querySelector("#tasks-view-button");
+  const wasAgentsVisible = !agents.hidden;
+  agents.hidden = !agentsVisible;
+  tasks.hidden = agentsVisible;
+  agentsViewActive = agentsVisible;
+  document.querySelector("#attention-panel").hidden = agentsVisible || attentionItemCount === 0;
+  agentsButton.classList.toggle("selected", agentsVisible);
+  agentsButton.setAttribute("aria-pressed", String(agentsVisible));
+  tasksButton.classList.toggle("selected", !agentsVisible);
+  tasksButton.setAttribute("aria-pressed", String(!agentsVisible));
+  requestAnimationFrame(() => {
+    if (agentsVisible) {
+      drawAgentConnectors(normalizedAgentGraph);
+      agents.scrollIntoView({ block: "start" });
+      if (!wasAgentsVisible) centerAgentRoot();
+    } else tasks.scrollIntoView({ block: "start" });
+  });
 }
 
 function setConnected(message = "Live") {
@@ -738,6 +1006,44 @@ document.querySelector("#clear-filters").addEventListener("click", () => {
   renderTasks();
   document.querySelector("#search").focus();
 });
+document.querySelector("#tasks-view-button").addEventListener("click", () => setAgentsView(false));
+document.querySelector("#agents-view-button").addEventListener("click", () => setAgentsView(true));
+document.querySelector("#agent-search").addEventListener("input", () => renderAgents(currentPayload?.snapshot || currentPayload || {}));
+document.querySelector("#agents-expand").addEventListener("click", () => {
+  for (const node of normalizedAgentGraph?.nodes || []) {
+    if (node.role === "sub-orchestrator") collapsedAgentKeys.delete(node.key);
+  }
+  renderAgents(currentPayload?.snapshot || currentPayload || {});
+});
+document.querySelector("#agents-collapse").addEventListener("click", () => {
+  for (const node of normalizedAgentGraph?.nodes || []) {
+    if (node.role === "sub-orchestrator" && node.children.length) collapsedAgentKeys.add(node.key);
+  }
+  renderAgents(currentPayload?.snapshot || currentPayload || {});
+});
+document.querySelector("#agents-root").addEventListener("click", () => {
+  setAgentsView(true);
+  const viewport = document.querySelector("#agents-viewport");
+  viewport.scrollTop = 0;
+  centerAgentRoot();
+  document.querySelector("#agents-tree [data-agent-card-key]")?.focus({ preventScroll: true });
+});
+document.querySelector("#agent-search").addEventListener("input", () => {
+  const summary = document.querySelector("#agents-summary").textContent;
+  announce(summary);
+});
+document.querySelector("#agents-viewport").addEventListener("keydown", (event) => {
+  if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  const cards = [...document.querySelectorAll("#agents-view [data-agent-card-key]")]
+    .filter((card) => !card.closest("[hidden]") && !card.closest(".agent-dimmed"));
+  const current = cards.indexOf(event.target.closest("[data-agent-card-key]"));
+  if (current < 0) return;
+  event.preventDefault();
+  const step = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
+  const target = cards[Math.max(0, Math.min(cards.length - 1, current + step))];
+  target?.focus();
+  target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+});
 document.querySelector("#task-list").addEventListener("keydown", (event) => {
   if (!event.target.matches(".task-row > summary")) return;
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -748,7 +1054,11 @@ document.querySelector("#task-list").addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !/input|select|textarea/i.test(event.target.tagName)) {
     event.preventDefault();
-    document.querySelector("#search").focus();
+    (document.querySelector("#agents-view").hidden ? document.querySelector("#search") : document.querySelector("#agent-search")).focus();
+  }
+  if (event.key === "Escape" && document.activeElement === document.querySelector("#agent-search") && document.querySelector("#agent-search").value) {
+    document.querySelector("#agent-search").value = "";
+    renderAgents(currentPayload?.snapshot || currentPayload || {});
   }
   if (event.key === "Escape" && document.activeElement === document.querySelector("#search") && document.querySelector("#search").value) {
     document.querySelector("#search").value = "";

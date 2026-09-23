@@ -757,3 +757,49 @@ A future source cutover must update the filename, current links and inventory to
 Claude/Pi/cmux candidate live verification, broader Cursor live work, live 10/20 scaling, complete provider billing and human-review/post-merge measurements remain unavailable or outside the approved trial scope.
 Observer assistance and mixed-runtime repair in the independent hierarchy prevent unattended-operation or velocity-gain claims.
 No required correctness assertion, performance target or coverage threshold was relaxed to close the phase.
+
+
+## Post-Phase-12 addition: agent hierarchy graph
+
+The user requested restoration of an attractive, scalable orchestrator/coordinator/sub-agent graph in MX Viz, appended to the same PR only after Phase 12 was fully finished.
+[Final Phase 12 CI run 35873968998](https://github.com/KashyapTan/Multplx/actions/runs/35873968998) passed on `4a49a0b2bb9f67e31ce70beb1abac2f24b95a945` before graph implementation began.
+That final documentation-commit run records 93.08% line coverage (73,399 lines, 5,078 missed), above the unchanged 93% gate; the preceding runtime-source run remains separately recorded at 93.09%.
+This subsequent UI addition does not reopen or replace the completed four-trial Phase 12 acceptance.
+This addition is implemented and locally verified without another model workload; hosted validation is recorded separately below.
+
+
+### Graph implementation and validation
+
+MX Viz now has an Agents view alongside the existing default Tasks view.
+A compact main-orchestrator node connects to direct workers and scoped coordinators, including nested coordinators and their private-home children.
+The implementation uses the existing bounded snapshot, validated home-qualified ownership and a small dependency-free graph module; ambiguous identities, cycles and missing parents remain visible as unresolved records rather than invented connections.
+Curved connectors, responsive card grids, branch expansion/collapse, highlighted search, scrolling, Show root and keyboard navigation support larger graphs.
+Selecting a node opens its exact home-qualified task details, and meaningful polling updates preserve graph scroll, focus and branch state.
+Root session health remains explicitly unknown; task state and observed session state remain separate.
+The user guide and Viz reference document the view and its observation limits.
+
+Exact local checks pass:
+
+- `cargo build --release --workspace --locked` completes in 54.38 seconds.
+- `cargo fmt --all -- --check` passes.
+- `cargo test --locked -p multplx-services --lib local_services::viz::tests` passes all eight service tests.
+- `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` passes.
+- `node --check share/viz/app.js`, `node --check share/viz/agents-graph.js` and `node tests/fixtures/viz/agents-graph.test.cjs` pass.
+- `target/release/mx test-run tests/mx-viz.test.sh tests/mx-release-package.test.sh --jobs auto --json /private/tmp/mx-viz-graph-browser/final-checks.json` passes both suites, zero failures/gates, in 35.942 seconds.
+- `target/release/mx doc-audience-check` passes with 93 surfaces and 514 local links; `git diff --check` passes.
+
+Actual browser checks against the Rust service pass for empty and single-agent snapshots, the 20-worker/three-coordinator nested fixture, and synthetic 100/500-agent projections.
+The 100/500 cases render exactly 101/501 cards and 100/500 edges with zero overlapping cards and no page overflow at 1280 pixels; search reaches workers 099 and 499.
+At a 390-pixel viewport, the root fits inside the graph viewport and the page does not overflow.
+Nested search temporarily reveals collapsed ancestors, Escape restores their prior state, node selection clears conflicting task filters and opens the exact task, and arrow navigation moves focus.
+A meaningful snapshot update preserves the exact scroll offsets, focused qualified node and collapsed branches.
+The 20-worker fixture collapses from 24 visible cards to five and shrinks the canvas accordingly.
+A fresh read-only snapshot of the stopped, retained coupled-hierarchical live trial renders nine cards and eight correct ownership edges, including all three coordinators and five workers, with partial observations and unknown session state visible.
+This retained-state check is actual runtime-data evidence, not newly running agents; the 100/500 cases are synthetic UI stress checks, not live concurrency claims.
+Browser QA found and fixed collapsed-search visibility, narrow-screen root centering and root search dimming; no subsequent console errors were observed.
+
+`bin/mx-release-package.sh /private/tmp/mx-phase12-graph-release/package target/release/mx` creates the updated package, including the new graph asset and documentation.
+The archive SHA-256 is `9dd722efd724de9695022283fab60dda1c0c364cb9b6300579c3cad8daf7364c`.
+Its packaged binary successfully performs `launcher-install --package /private/tmp/mx-phase12-graph-release/package --bin-dir /private/tmp/mx-phase12-graph-release/install/bin --config-dir /private/tmp/mx-phase12-graph-release/install/config --data-dir /private/tmp/mx-phase12-graph-release/install/data` with inventory validation.
+No private installation or operational home is changed.
+The graph honors the collector's bounded projection and cannot display agents omitted by truncation or opaque native observations; warnings disclose partial and unresolved ownership.

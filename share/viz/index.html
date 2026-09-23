@@ -41,7 +41,40 @@
         <div id="attention-list" class="attention-list"></div>
       </section>
 
-      <section class="workspace" aria-label="Task portfolio browser">
+      <nav class="view-switch" aria-label="Workspace view">
+        <button id="tasks-view-button" class="view-tab selected" type="button" aria-pressed="true">Tasks</button>
+        <button id="agents-view-button" class="view-tab" type="button" aria-pressed="false">Agents</button>
+      </nav>
+
+      <section id="agents-view" class="agents-panel" aria-labelledby="agents-title" hidden>
+        <div class="section-heading agents-heading">
+          <div>
+            <span class="eyebrow">Ownership graph</span>
+            <h2 id="agents-title">Agents and assignments</h2>
+            <p id="agents-summary" class="agents-summary" aria-live="polite">Loading the bounded task projection…</p>
+          </div>
+          <div class="agents-controls">
+            <label class="agent-search"><span class="sr-only">Find an agent or task</span><input id="agent-search" type="search" autocomplete="off" placeholder="Find an agent or task…"></label>
+            <button id="agents-expand" class="ghost-btn" type="button">Expand branches</button>
+            <button id="agents-collapse" class="ghost-btn" type="button">Collapse branches</button>
+            <button id="agents-root" class="ghost-btn" type="button">Show root</button>
+          </div>
+        </div>
+        <div id="agents-warning" class="state-banner partial" role="status" hidden></div>
+        <div id="agents-viewport" class="agents-viewport" tabindex="0" aria-label="Scrollable agent hierarchy">
+          <div id="agents-canvas" class="agents-canvas">
+            <svg id="agents-connectors" class="agents-connectors" aria-hidden="true"></svg>
+            <div id="agents-tree" class="agents-tree" aria-label="Main orchestrator and assigned work"></div>
+          </div>
+        </div>
+        <section id="agents-unresolved-panel" class="agents-unresolved" aria-labelledby="agents-unresolved-title" hidden>
+          <h3 id="agents-unresolved-title">Unresolved ownership</h3>
+          <p>These records remain visible without an inferred parent connection.</p>
+          <div id="agents-unresolved" class="agents-unresolved-list"></div>
+        </section>
+      </section>
+
+      <section id="tasks-view" class="workspace" aria-label="Task portfolio browser">
         <div class="primary-column">
           <form id="filters" class="toolbar" role="search">
             <label class="search-field"><span class="sr-only">Search tasks</span><input id="search" type="search" autocomplete="off" placeholder="Search tasks, owners, projects…" aria-keyshortcuts="/"></label>
@@ -79,6 +112,7 @@
     <div id="dialog-body"></div>
   </dialog>
   <span id="aria-live" class="sr-only" aria-live="polite"></span>
+  <script src="/assets/agents-graph.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>

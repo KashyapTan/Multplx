@@ -841,7 +841,7 @@ impl ServerContext {
                     .unwrap_or_else(error_json),
                 )
             }
-            "/assets/app.js" | "/assets/app.css" => common_headers(
+            "/assets/app.js" | "/assets/app.css" | "/assets/agents-graph.js" => common_headers(
                 response_file(
                     &self
                         .asset_directory
@@ -1557,6 +1557,7 @@ mod tests {
         .expect("index");
         fs::write(temp.path().join("share/viz/app.js"), "js").expect("js");
         fs::write(temp.path().join("share/viz/app.css"), "css").expect("css");
+        fs::write(temp.path().join("share/viz/agents-graph.js"), "graph js").expect("graph js");
         fs::write(temp.path().join("data/task/plan.html"), "plan").expect("artifact");
         fs::write(
             temp.path().join("child/data/task/report.md"),
@@ -1578,6 +1579,12 @@ mod tests {
         let context = context(root.clone(), command.clone());
         assert_eq!(context.handle(request("GET", "/")).status, 200);
         assert_eq!(context.handle(request("GET", "/assets/app.js")).status, 200);
+        assert_eq!(
+            context
+                .handle(request("GET", "/assets/agents-graph.js"))
+                .status,
+            200
+        );
         let state = context.handle(request("GET", "/api/state"));
         assert_eq!(state.status, 200);
         let envelope: Value = serde_json::from_slice(&state.body).expect("state JSON");

@@ -301,6 +301,8 @@ See [Agent delivery and human PR merges](delivery.md) for publication receipts, 
 ## Inspect the dashboard
 
 MX Viz is a disposable read-only view of the same canonical task, domain, decision, workflow, freshness, and delivery state used by the terminal workspace.
+Switch between **Tasks** for detailed task records and **Agents** for the orchestrator, coordinator and worker hierarchy.
+The graph distinguishes assignment state from observed sessions and flags unresolved ownership or partial data.
 The terminal workspace key `v` opens it when available.
 You can also manage the local server directly from an activated shell after changing to `$MX_ROOT_OVERRIDE`:
 

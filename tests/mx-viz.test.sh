@@ -723,9 +723,13 @@ test_portfolio_scale_fixtures_and_ui_contract() {
     and .domains.complete == false
   ' "$TMP_ROOT/portfolio-20.json" >/dev/null || fail "20-task fixture does not exercise nested roles, retries, decisions, retained allocations, and partial state"
   node --check "$ROOT/share/viz/app.js" || fail "dashboard client has invalid JavaScript syntax"
+  node --check "$ROOT/share/viz/agents-graph.js" || fail "agent graph module has invalid JavaScript syntax"
+  node "$ROOT/tests/fixtures/viz/agents-graph.test.cjs" || fail "agent graph normalization/layout fixtures failed"
+  grep -F 'Agents and assignments' "$ROOT/share/viz/index.html" >/dev/null \
+    || fail "dashboard lost its agent hierarchy view"
   ! grep -REn 'data-approve|data-merge|data-spawn|method="post"' "$ROOT/share/viz" >/dev/null \
     || fail "dashboard UI crossed its read-only boundary"
-  pass "viz has exact 0/1/5/10/20 task fixtures and task-first read-only interaction coverage"
+  pass "viz has bounded task fixtures and read-only task/agent graph interaction coverage"
 }
 
 PORT_BASE=$(select_test_port_base) || fail "could not select visualization test ports"
