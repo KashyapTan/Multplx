@@ -2383,12 +2383,21 @@ fn queue_drain_with(
     spawn_override: Option<&Path>,
     endpoint_exists: &dyn Fn(&str, &str) -> Option<bool>,
 ) -> Result<String> {
+    queue_drain_with_headroom(paths, spawn_override, endpoint_exists, &evaluate)
+}
+
+fn queue_drain_with_headroom(
+    paths: &HeadroomPaths,
+    spawn_override: Option<&Path>,
+    endpoint_exists: &dyn Fn(&str, &str) -> Option<bool>,
+    observe_headroom: &dyn Fn(&HeadroomPaths) -> Result<Headroom>,
+) -> Result<String> {
     admission_reconcile_inactive_with_probe(paths, endpoint_exists)?;
     if !paths.queue_dir().is_dir() {
         return Ok(String::new());
     }
     recover_unstarted_dispatches(paths)?;
-    let headroom = evaluate(paths)?;
+    let headroom = observe_headroom(paths)?;
     let config = admission_config(paths)?;
     let now = now_epoch();
     // Backend liveness can invoke an external provider. Observe before the
@@ -2588,9 +2597,9 @@ mod tests {
         existing_admission_decision, fits, live_counts_with_probe, metadata_reconciled,
         metadata_value, now_epoch, parse_nonnegative_integer, parse_nonnegative_number,
         parse_positive_number, profile_harnesses, queue_add, queue_cancel, queue_drain_with,
-        queue_list, queue_priority, queue_records, read_compact, read_receipt,
-        reservation_owner_is_live, reserve, resource_use, same_receipt_identity, valid_id,
-        validate_dependency_graph, validate_record, write_receipt,
+        queue_drain_with_headroom, queue_list, queue_priority, queue_records, read_compact,
+        read_receipt, reservation_owner_is_live, reserve, resource_use, same_receipt_identity,
+        valid_id, validate_dependency_graph, validate_record, write_receipt,
     };
 
     fn paths(temp: &tempfile::TempDir) -> HeadroomPaths {
@@ -2604,22 +2613,6 @@ mod tests {
             config,
             proc_root: temp.path().join("proc"),
         }
-    }
-
-    fn deterministic_linux_capacity_signals(paths: &HeadroomPaths) {
-        std::fs::create_dir_all(&paths.proc_root).expect("proc fixture");
-        std::fs::write(
-            paths.proc_root.join("cpuinfo"),
-            "processor : 0\nprocessor : 1\n",
-        )
-        .expect("cpu capacity fixture");
-        std::fs::write(paths.proc_root.join("loadavg"), "0.00 0.00 0.00 1/1 1\n")
-            .expect("load fixture");
-        std::fs::write(
-            paths.proc_root.join("meminfo"),
-            "MemAvailable: 1048576 kB\n",
-        )
-        .expect("memory fixture");
     }
 
     fn admission_record(paths: &HeadroomPaths, request: &str, task: &str) -> QueueRecord {
@@ -3809,7 +3802,6 @@ mod tests {
     fn root_queue_drain_launches_with_registered_private_owner_and_parent_context() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        deterministic_linux_capacity_signals(&paths);
         let owner_home = temp.path().join("registered-coordinator-home");
         let owner_state = owner_home.join("state");
         std::fs::create_dir_all(&owner_state).expect("private owner state");
@@ -3857,7 +3849,12 @@ mod tests {
             .to_string(),
         );
         queue_add(&paths, &record).expect("queue private task for root owner");
-        assert!(queue_drain_with(&paths, Some(&spawn), &|_, _| Some(false)).is_err());
+        assert!(
+            queue_drain_with_headroom(&paths, Some(&spawn), &|_, _| Some(false), &|_| Ok(
+                synthetic_headroom(8)
+            ),)
+            .is_err()
+        );
         assert!(
             read_receipt(&paths, "private-request")
                 .expect("no reserved receipt")
@@ -3870,9 +3867,11 @@ mod tests {
         std::fs::write(&parent_meta, format!("canonical_model={parent_model}\n"))
             .expect("restored canonical parent metadata");
         assert!(
-            queue_drain_with(&paths, Some(&spawn), &|_, _| Some(false))
-                .expect("root drains private task")
-                .contains("launched private-worker")
+            queue_drain_with_headroom(&paths, Some(&spawn), &|_, _| Some(false), &|_| Ok(
+                synthetic_headroom(8)
+            ),)
+            .expect("root drains private task")
+            .contains("launched private-worker")
         );
 
         let environment = std::fs::read_to_string(captured).expect("captured child environment");
@@ -3904,7 +3903,6 @@ mod tests {
     fn root_queue_drain_recovers_only_exact_never_started_dispatches() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = paths(&temp);
-        deterministic_linux_capacity_signals(&paths);
         let mut record = admission_record(&paths, "recover-request", "recover-task");
         record.canonical_model = Some(
             serde_json::json!({
@@ -3998,9 +3996,11 @@ mod tests {
         std::fs::set_permissions(&spawn, std::fs::Permissions::from_mode(0o700))
             .expect("executable");
         assert!(
-            queue_drain_with(&paths, Some(&spawn), &|_, _| Some(false))
-                .expect("recover and launch same request")
-                .contains("launched recover-task")
+            queue_drain_with_headroom(&paths, Some(&spawn), &|_, _| Some(false), &|_| Ok(
+                synthetic_headroom(8)
+            ),)
+            .expect("recover and launch same request")
+            .contains("launched recover-task")
         );
         let final_receipt = read_receipt(&paths, "recover-request")
             .expect("receipt")
