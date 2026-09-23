@@ -26,8 +26,8 @@ Its macOS/Linux checks, unchanged coverage gate, browser acceptance and recorded
 Phase 11 supplies global workspace entry, bounded project discovery, durable multi-repository task intake, a shared terminal workspace and verified runtime packages.
 Its macOS/Linux checks, unchanged coverage gate and isolation proof pass, with synthetic harness, executable-probe and release boundaries recorded in the [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md).
 
-Phase 12 is in progress; [its evidence](plans/lean_redesign/phase12-implementation.md) and [acceptance ledger](plans/lean_redesign/phase12-acceptance.md) distinguish release-candidate checks from open live trials and cutover.
-The source contract remains dormant while release acceptance is open.
+Phase 12 is implemented and verified under the user-approved reduced live workload; [its evidence](plans/lean_redesign/phase12-implementation.md) and [acceptance ledger](plans/lean_redesign/phase12-acceptance.md) record complete repository checks, live Codex results and provider limits.
+The tested package is ready; this source checkout remains deliberately dormant, with repository filename cutover, public release and private-home migration pending as explicit operator actions.
 
 ## This checkout
 

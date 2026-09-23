@@ -73,10 +73,10 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 12 · Multplx</div>
 <h1>Documentation, Validation and Cutover</h1>
 <p class="subtitle">Ship a consistent lean product across help, prompts, UI, supported runtimes and existing-home upgrades.</p>
-<div class="badges"><span class="badge phase">Phase 12 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">In progress · 2026-09-23</span></div>
+<div class="badges"><span class="badge phase">Phase 12 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · source cutover pending · 2026-09-23</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. Implementation and release-candidate validation are in progress; required live acceptance and deliberate cutover remain open.</p></div>
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. Implementation and required release validation are complete under the approved reduced live scope. The tested package is ready; deliberate source filename cutover remains pending under the dormant-checkout restriction.</p></div>
 <p><b>Dependencies:</b> 01-11.</p>
 <h2>Overview</h2>
 <p>The redesign is complete only when fresh agents receive the short contract, actual launches allow the promised actions, selected workflows remain intact and older homes recover correctly. Historical policy tests must be intentionally replaced while retained coordination tests remain meaningful.</p>
@@ -151,7 +151,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>The current planning baseline already fails documentation inventory because AGENTS.md was deliberately renamed. Fix current links in the implementation phases and validate the final package; never undo that rename early just to make an intermediate check green.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: in progress. <a href="phase12-implementation.md">Implementation evidence</a> records the release-contract and package changes, user guide, coverage scheduling investigation, exact repository checks and integration limits. <a href="phase12-acceptance.md">The complete 39-scenario and A1-A11 ledger</a> separates deterministic fixtures from live evidence. The ordinary-task dependency prerequisite is repaired and passes repository checks; the reduced live comparison, unavailable-provider verification and release cutover remain open; this phase is not complete.</p>
+<p>Status: complete under the user-approved reduced live scope. <a href="phase12-implementation.md">Implementation evidence</a> records the tested package, user guide, runtime repairs, complete macOS/Linux checks, passing hosted CI and 93.09% coverage. All 20 worker results and integrated checks pass across four live Codex trials. <a href="phase12-acceptance.md">The 39-scenario and A1-A11 ledger</a> separates fixtures, live results, observer assistance and unavailable providers. <a href="https://github.com/KashyapTan/Multplx/pull/48">PR #48</a> awaits human review/merge. The dormant source checkout is preserved; repository filename cutover, public release and private-home migration remain explicit operator actions.</p>
 <nav class="footer-nav"><a href="11-workspace-entry-and-project-discovery.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="../../porting.md">Porting guide →</a></nav>
 </main>
 </body>

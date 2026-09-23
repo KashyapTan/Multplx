@@ -17,7 +17,8 @@ Use an isolated candidate package with the release contract restored when valida
 After a public release is published, prefer its verified platform package and matching checksum.
 
 Candidate acceptance is provider-specific.
-The current Codex package trial has demonstrated installed startup, native delegation, and local worker commits, but candidate validation remains incomplete.
+The current Codex package passed four five-task live trials covering flat and hierarchical delegation, independent repositories and coupled dependencies, with all 20 worker checks and integrated results passing.
+The validation record also documents runtime repairs and observer assistance; these results do not establish unattended operation or live 10/20-task scalability.
 Cursor evidence is limited to its pinned version, authentication, and adapter checks, while Claude, Pi, and cmux still lack current candidate-package live acceptance.
 Treat deterministic adapter tests and older live evidence separately from a successful run of this candidate; the candidate validation record carries the exact evolving limits.
 

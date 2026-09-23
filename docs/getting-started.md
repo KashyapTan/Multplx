@@ -64,7 +64,7 @@ Uninstall removes the owned command and installation records without deleting yo
 multplx launcher-install --uninstall
 ```
 
-The lean redesign remains under development until its deliberate release cutover.
+The lean redesign has a validated local candidate; public release publication and deliberate source-checkout cutover are separate steps.
 An isolated package validation result is not evidence that a public release has been published.
 
 ## Open the workspace

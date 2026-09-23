@@ -2,11 +2,12 @@
 
 ## Status and source boundary
 
-Status: in progress; release acceptance and repository cutover are not complete.
+Status: complete under the user-approved reduced live scope; tested package delivered, deliberate repository filename cutover pending.
+The final validation and disposition sections below supersede interim open-check statements retained in this chronological record.
 Work started on 2026-09-18 on `lean-redesign-phase12` from merged Phase 11 commit `8535d8e1c6048ac3a3525544394e753bed741256`.
 The checkout was clean before branch creation.
 The [phase plan](12-documentation-validation-cutover.html) assigns the work; [porting.md](../../porting.md#accepted-architecture-contract) owns A1-A11.
-The [39-scenario acceptance ledger](phase12-acceptance.md) separates deterministic verification, historical evidence and open combined live trials.
+The [39-scenario acceptance ledger](phase12-acceptance.md) separates deterministic verification, historical evidence, completed combined live trials and explicit limits.
 
 Inspection covered CLAUDE.md, the porting guide, roadmap, Phase 12, prerequisite evidence, accepted architecture/worktree/coordinator research, actual package/launcher contracts, task intake, parent-channel integration, coverage wrappers and CI.
 The source checkout remains dormant under `AGENTS_E.md`; root `AGENTS.md` has not been recreated and no operational session has been started in this checkout.
@@ -234,11 +235,11 @@ A fresh GPT-6 Luna medium `codex exec` probe returned `LUNA_READY`; log: `/priva
 New worker and coordinator launches use GPT-6 Luna medium, with no fallback required.
 Existing live-trial evidence remains attributed to its actual older CLI and model; the upgrade is not retroactive validation.
 
-## Open release acceptance
+## Interim release acceptance (superseded by final closeout)
 
 Claude and Pi executables and cmux are not installed in the current environment.
 Earlier provider deferral is recorded in Phase 04; it does not turn unexecuted Phase 12 provider trials into passes.
-A focused user question asks whether to install missing providers or retain explicit unavailable-provider limits, and which disposable forge repository may receive live test branches/PRs.
+Missing providers remain explicitly unavailable; the final ledger separates those limits from deterministic mechanism acceptance and actual Codex/tmux trials.
 Local isolated verification continues independently.
 
 The combined live independent/coupled and flat/hierarchical 1/5/10/20-task workloads, model/native telemetry where available, response/disposition latency, quality/rework and human-attention evidence remain open.
@@ -643,3 +644,116 @@ These model-driven handling delays include observer trust approvals and endpoint
 The root report uses first working status as its launch approximation, while the retained task journals supply the runtime `task.spawned` times used in the machine-readable results.
 An observer's final attempt to combine `--json --queue-drain` was a CLI syntax refusal; the preceding normal observer snapshot, not that failed command, establishes released capacity.
 Original reports, exact checks, hashes, event times and limitations are linked from [the reduced live results](phase12-live-results.json).
+
+## Changed-tree CI feedback before final validation
+
+Commit `0f8410d9f81ee8e445cd74ff5aa323d2f1178f23` published the queue, supervision and relay repairs to PR #48.
+Hosted run `35868983151` is not a passing release result: strict Clippy found needless tail `return` statements in the new macOS/Linux process-identity helper, and the coverage test run found missing Linux CPU-capacity fixture files in the two new queue-drain tests.
+The helper now uses equivalent tail expressions, and those two tests supply their private `proc_root` CPU, load and memory inputs without mutating process-global environment.
+Production capacity checks, test assertions and the coverage gate are unchanged.
+Formatting and diff checks pass; full final validation follows the live trials so local builds do not compete with their model workloads.
+
+
+## Completed reduced live comparison
+
+All four user-approved five-task trials completed their requested useful work: 20 worker commits and every selected integrated golden check passed.
+The final coupled hierarchy used the same installed `58d35754` runtime as its flat pair, three private coordinators, direct root work and the shared five-delegate budget.
+Its final integrated commit is `f110620a0d6351a411059df6a7ac1731446fb763`.
+Task-05 retained base `e1fadabb92178101627cddb8f3b9d77c16f1235f` and four canonical dependency edges resolved across the root and private homes during normal spawn.
+The observer independently reran all five worker-commit checks and all five checks on the final integrated tree; all passed, and the borrowed seed/main/sentinel remained intact.
+
+The hierarchy required model-command corrections and observer assistance, which remain part of the result.
+Task-02 changed its authored brief after queue acceptance and was correctly refused; its edited drafts were preserved, the exact original accepted bytes restored, and normal queue drain launched the same request/attempt.
+No queue, receipt, frozen snapshot or canonical metadata was hand-edited.
+The root used `backend send-literal`, which deliberately omits submission; the observer supplied one Enter to the existing composer rather than retyping the message.
+This was not a transport defect.
+The idle coordinator was later notified with normal `mx send` for task-05, and cross-home inspection guidance avoided recreating sibling tasks.
+Task-03/04 brief corrections required fresh current evidence; original reports are retained even where their prose approximates revision timing.
+The final root report is followed by two recorded observer CLI relay passes, ending with zero pending inbox/outbox records and no error.
+All 31 root wakes have durable dispositions and acknowledgements; the one repeated status-file key is not evidence of duplicate logical presentation.
+All disposable model sessions were stopped after the report and independent verification, preserving worktrees, registrations and records.
+
+| Trial | Verified tasks | Raw elapsed seconds | Raw verified tasks/hour | Delegated/session high-water | Root progress reply |
+| --- | --- | --- | --- | --- | --- |
+| `independent-flat-5` | 5/5 | 1170.769 | 15.37 | 5 / 6 | 5.579 s |
+| `independent-hierarchical-5` | 5/5 | 2906.795 | 6.19 | 5 / 6 | Not measured |
+| `coupled-flat-5` | 5/5 | 1045.469 | 17.22 | 4 / 5 | 3.553 s |
+| `coupled-hierarchical-5` | 5/5 | 2235.526 | 8.05 | 5 / 6 | 6.775 s |
+
+Elapsed time runs from initial root prompt to observer closeout, including trust prompts, model mistakes, recovery, context compaction and final reporting.
+The interrupted independent hierarchy also includes runtime repair and rebuild time, so these raw rates are not a clean autonomous-throughput comparison or evidence of a velocity gain.
+There were no failed golden checks or worker implementation correction commits in the four measured workloads; runtime defects and coordination rework are recorded separately.
+The [machine-readable results](phase12-live-results.json) retain event/disposition timing, capacity/resource snapshots, root-only cumulative provider counters, exact commits and artifact hashes.
+Complete provider billing, human-review time and post-merge defects are not available; no human merge is simulated.
+The reduced scope does not establish live 10/20-task scalability.
+Only source lint cleanup and deterministic test-fixture corrections followed these model runs; they do not alter the installed runtime behavior exercised by the paired trials.
+
+
+The next hosted run, `35871244427` on `0599320`, exposed a separate macOS test nondeterminism: current runner load could prevent either lifecycle fixture from dispatching.
+Those two tests now inject the existing synthetic headroom value through a small private observation seam; production drains still call the real evaluator with unchanged resource checks.
+This supersedes the temporary Linux-only capacity files and removes host load from the lifecycle assertions on both platforms.
+Focused tests and strict backend Clippy pass locally; the final exact-source CI run validates the complete tree.
+The shell dispatch fixture also now distinguishes a durable reserved launch action from failure before any action: uncertain starts remain fenced, while proven unstarted requests recover normally.
+
+
+## Final repository validation
+
+Full local validation completed on both platforms after the four live trials.
+The full suites built source `0599320552e3c3e8f65b6d59037ce9988c39143e`; the subsequent private test-observation seam in `4f84a5f47ea3000ff22becffbeb2f8d22cfa0dd9` leaves production capacity evaluation unchanged and passes focused tests and strict Clippy on both platforms.
+The hosted exact-source run for `4f84a5f` is recorded at final closeout below.
+
+| Exact command | macOS | Linux |
+| --- | --- | --- |
+| `cargo fmt --all -- --check` | Pass | Pass |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Pass | Pass |
+| `cargo test --locked --workspace` | 785 passed, zero failed/ignored | 787 passed, zero failed/ignored |
+| `cargo build --release --workspace --locked` | Pass, 63.88 s | Pass, 65.00 s |
+| `target/release/mx test-run --check-coverage` | All 133 scripts classified | All 133 scripts classified |
+| `target/release/mx test-run --all --jobs auto` | 133 scripts, zero failures, eight explicit gates; 373.734 s | 133 scripts, zero failures, eight explicit gates; 233.545 s |
+| `target/release/mx doc-audience-check` | Pass, 93 surfaces/514 links | Pass, 93 surfaces/513 links before final evidence links |
+| `cargo test -p multplx-backend --lib root_queue_drain -- --nocapture` on `4f84a5f` | Both lifecycle regressions pass | Both lifecycle regressions pass |
+
+The complete behavior suites include real temporary Git, process, tmux and Herdr integration alongside deterministic provider/forge fixtures.
+Their eight explicitly gated cases are not counted as live integration success; the separate installed Codex trials supply the live model evidence.
+Full command arrays, timestamps and exit codes are retained in `/private/tmp/mx-phase12-final-validation/results.json` and `/private/tmp/mx-phase12-final-validation-linux-results/results.json`, alongside Rust logs and per-script timing JSON.
+The final runtime is rebuilt after these suites; no concurrent rebuild changed a binary beneath the running behavior tests.
+
+The gated scripts are `mx-backend-cmux-smoke`, `mx-claude-stop-autoarm-live-e2e`, `mx-codex-continuity-live-e2e`, `mx-cursor-live-e2e`, `mx-launcher-live-e2e`, `mx-pi-primary-live-e2e`, `mx-pi-primary-types` and `mx-send-daemon-marker-herdr-e2e`.
+Their missing tools or explicit live opt-ins remain documented limits, including the unavailable installed Pi typecheck.
+
+## Final local package
+
+The final arm64 macOS binary is rebuilt from `4f84a5f47ea3000ff22becffbeb2f8d22cfa0dd9` with `cargo build --release --workspace --locked` (57.58 seconds, exit 0).
+Its SHA-256 is `f6ebbb4fb0ab99af1b241e8c0bbc69b07b757d64e844dd717dc170fcedc1f7d6`.
+`bin/mx-release-package.sh /private/tmp/mx-phase12-final-release/package target/release/mx` produces the package with the final user guide and canonical runtime contract.
+Archive `/private/tmp/mx-phase12-final-release/package.tar.gz` has SHA-256 `2ddb4c42dd56486b3b48068167f79cb5967a894c653320b1f0699887e04397ed`; its inventory SHA-256 is `8272fe11b2b85359b635867629301a7ce64a42dc20703d2a9150c562b3db3844`.
+The adjacent archive checksum passes `shasum -a 256 -c package.tar.gz.sha256`.
+The packaged binary successfully installs with `launcher-install --package /private/tmp/mx-phase12-final-release/package --bin-dir /private/tmp/mx-phase12-final-release/install/bin --config-dir /private/tmp/mx-phase12-final-release/install/config --data-dir /private/tmp/mx-phase12-final-release/install/data`; the installed `multplx paths` returns only those owned runtime/home/config paths.
+No private installation or operational home is changed.
+
+`target/release/mx test-run tests/mx-dispatch-queue.test.sh tests/mx-release-package.test.sh tests/mx-instruction-owners.test.sh --jobs auto --json /private/tmp/mx-phase12-final-package-checks.json` passes all three suites, zero failures/gates, in 38.137 seconds against that rebuilt runtime.
+This includes canonical package startup, scoped installed hooks and MCP, no source/Rust requirement, three-repository fixtures, upgrade preservation, exact uncertain-start fencing and conservative uninstall.
+These are meaningful local integration fixtures, not additional authenticated model trials.
+An independent read-only review of `0f8410d..4f84a5f` found no weakened assertions or production regression in the final portability corrections.
+
+
+## Final release validation and disposition
+
+[Hosted CI run 35872010247](https://github.com/KashyapTan/Multplx/actions/runs/35872010247) passes every job on exact runtime source `4f84a5f47ea3000ff22becffbeb2f8d22cfa0dd9`: macOS/Linux Rust checks, platform packaging, behavior lanes, Herdr, repository invariants, test inventory, dependency advisories and line coverage.
+The unchanged line gate passes at **93.09%**, with **73,399 included lines and 5,075 missed lines**.
+Its coverage step takes **10m23s** (14:11:47-14:22:10 UTC), compared with the recorded **18m28s** baseline: **43.8% shorter** in this observed run.
+The complete coverage job takes 11m39s including tools/dependencies.
+The exact coverage log is `/private/tmp/mx-phase12-ci-4f84-coverage.log`.
+This corroborates the earlier 44.0% improvement without changing the denominator exclusions, threshold, script inventory or timeout.
+Final documentation-only changes record these results and update status; they do not change the verified runtime.
+
+All assigned mechanisms have passing evidence through their documented owners, all four approved useful-work trials are complete, and all measured Viz targets pass.
+The implementation is complete and the tested local package is ready, with [PR 48](https://github.com/KashyapTan/Multplx/pull/48) available for human review and merge.
+The roadmap has no Phase 13; the next step is using the packaged runtime, reviewing/merging this PR and arranging a public release if desired.
+
+Remaining boundaries are explicit: this is not a public release, no private operational home was migrated, and the source checkout still has dormant `AGENTS_E.md` under the user's restriction.
+The plan permits this tested-package outcome with deliberate repository filename cutover reported pending.
+A future source cutover must update the filename, current links and inventory together, rerun instruction/launcher/documentation checks, and use a fresh operational session.
+Claude/Pi/cmux candidate live verification, broader Cursor live work, live 10/20 scaling, complete provider billing and human-review/post-merge measurements remain unavailable or outside the approved trial scope.
+Observer assistance and mixed-runtime repair in the independent hierarchy prevent unattended-operation or velocity-gain claims.
+No required correctness assertion, performance target or coverage threshold was relaxed to close the phase.

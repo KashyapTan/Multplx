@@ -13,8 +13,8 @@ The dependency-ordered implementation plans are in [plans/lean_redesign](plans/l
 This is a planned product redesign, not a behavior-preserving language port.
 These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
 Phases 01-11 are implemented and verified; [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md) records global workspace entry, bounded discovery, durable task intake, terminal integration, verified packages, repository checks and integration limits.
-Phase 12 is in progress; [its implementation evidence](plans/lean_redesign/phase12-implementation.md) and [39-scenario ledger](plans/lean_redesign/phase12-acceptance.md) record repository checks separately from open live release acceptance.
-Release activation and the deliberate root-contract cutover remain pending.
+Phase 12 is implemented and verified under the user-approved four-trial live scope; [its implementation evidence](plans/lean_redesign/phase12-implementation.md) and [39-scenario ledger](plans/lean_redesign/phase12-acceptance.md) distinguish complete repository validation, live Codex evidence and provider limits.
+The tested package is ready for use; public release publication, private-home migration and deliberate source-contract cutover remain explicit operator actions.
 The original source baseline was commit `6360b040460a08c2d5b8bcfcbc5e64e6e024ab53`, inspected on 2026-09-11.
 This revision incorporates the user's 2026-09-14 notes and architecture review at commit `c09ede3d015799739354ff00e5b0e5e84845737e`.
 The objective is high-quality progress on 10-20 concurrent tasks through one human-facing orchestrator, measured by completed useful work and human attention rather than agent count.

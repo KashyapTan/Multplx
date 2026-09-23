@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "in_progress",
+  "status": "four approved trials completed; all worker and integrated checks passed with recorded repairs and observer limits",
   "scope": "user-approved four five-task trials; no live 10/20-task scaling claim",
   "model": "gpt-6-luna",
   "effort": "medium",
@@ -253,7 +253,18 @@
         "max_workers_charged": 5,
         "max_coordinators_charged": 0,
         "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
-      }
+      },
+      "elapsed_seconds": 1170.769093,
+      "verified_tasks_per_hour_raw": 15.374509036514171,
+      "first_durable_disposition": {
+        "samples": 26,
+        "p50_seconds": 44,
+        "p95_seconds": 214,
+        "max_seconds": 216
+      },
+      "oldest_unhandled_at_closeout_seconds": 0,
+      "max_event_age_before_first_disposition_seconds": 216,
+      "disposition_metric_limits": "First durable disposition includes bounded waiting dispositions. Earlier wake_to_disposition fields measure the latest retained disposition, including later resolution; they may exceed initial durable handling latency."
     },
     "independent-hierarchical-5": {
       "status": "worker and integrated checks passed; mixed-runtime repairs recorded",
@@ -478,7 +489,16 @@
         "max_workers_charged": 2,
         "max_coordinators_charged": 3,
         "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
-      }
+      },
+      "first_durable_disposition": {
+        "samples": 39,
+        "p50_seconds": 194,
+        "p95_seconds": 388,
+        "max_seconds": 1490
+      },
+      "oldest_unhandled_at_closeout_seconds": 0,
+      "max_event_age_before_first_disposition_seconds": 1490,
+      "disposition_metric_limits": "First durable disposition includes bounded waiting dispositions. Earlier wake_to_disposition fields measure the latest retained disposition, including later resolution; they may exceed initial durable handling latency."
     },
     "coupled-flat-5": {
       "status": "all worker and integrated checks passed on final installed runtime",
@@ -764,11 +784,305 @@
         "max_workers_charged": 4,
         "max_coordinators_charged": 0,
         "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
-      }
+      },
+      "first_durable_disposition": {
+        "samples": 26,
+        "p50_seconds": 212,
+        "p95_seconds": 379,
+        "max_seconds": 379
+      },
+      "oldest_unhandled_at_closeout_seconds": 0,
+      "max_event_age_before_first_disposition_seconds": 379,
+      "disposition_metric_limits": "First durable disposition includes bounded waiting dispositions. Earlier wake_to_disposition fields measure the latest retained disposition, including later resolution; they may exceed initial durable handling latency."
     },
     "coupled-hierarchical-5": {
-      "status": "running",
-      "runtime_sha256": "58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9"
+      "status": "all five worker and final integrated checks passed; observer-assisted model recovery recorded",
+      "runtime_sha256": "58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9",
+      "source_commit": "0f8410d9f81ee8e445cd74ff5aa323d2f1178f23",
+      "start": {
+        "root_prompt_utc": "2026-09-23T13:25:35.057275+00:00"
+      },
+      "end": {
+        "observed_end_utc": "2026-09-23T14:02:50.583045+00:00",
+        "reason": "All five worker and final integrated checks pass; root report complete; two observer mechanical final relay passes recorded; stop owned sessions to save usage, preserving registrations/worktrees/state."
+      },
+      "worker_checks": {
+        "verified_utc": "2026-09-23T13:57:47.149114+00:00",
+        "results": [
+          {
+            "task": "task-01",
+            "schedule": "completed",
+            "commit": "cf810988a36ccb5c3d324bb9bc33e709d479c53c",
+            "typed_commit": "cf810988a36ccb5c3d324bb9bc33e709d479c53c",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "changed_paths": [
+              "bundle/task_01.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_01 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_01.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+            "working_tree": "?? bundle/__pycache__/\n?? evaluator/__pycache__/\n",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/home/state/task-01.meta"
+          },
+          {
+            "task": "task-02",
+            "schedule": "completed",
+            "commit": "c20442f7a362cc0fee32342f31cf04f9a4999653",
+            "typed_commit": "c20442f7a362cc0fee32342f31cf04f9a4999653",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "changed_paths": [
+              "bundle/task_02.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_02 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_02.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+            "working_tree": "?? bundle/__pycache__/\n?? evaluator/__pycache__/\n",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/.multplx-homes-bb9cbadc53009758/coordinator-2/state/task-02.meta"
+          },
+          {
+            "task": "task-03",
+            "schedule": "completed",
+            "commit": "9836a13a22639de9e0d26eb9ee379c90d80a4fb3",
+            "typed_commit": "9836a13a22639de9e0d26eb9ee379c90d80a4fb3",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "changed_paths": [
+              "bundle/task_03.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_03 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_03.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nOK\n",
+            "working_tree": "?? bundle/__pycache__/\n?? evaluator/__pycache__/\n",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/.multplx-homes-bb9cbadc53009758/coordinator-3/state/task-03.meta"
+          },
+          {
+            "task": "task-04",
+            "schedule": "completed",
+            "commit": "67047a3854ba1b8caa411c77a184ddbacf66d65b",
+            "typed_commit": "67047a3854ba1b8caa411c77a184ddbacf66d65b",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "changed_paths": [
+              "bundle/task_04.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_04 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_04.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+            "working_tree": "?? bundle/__pycache__/\n?? evaluator/__pycache__/\n",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/.multplx-homes-bb9cbadc53009758/coordinator-1/state/task-04.meta"
+          },
+          {
+            "task": "task-05",
+            "schedule": "completed",
+            "commit": "1d93c828574becefafef9b9bd202655195b1e6c2",
+            "typed_commit": "1d93c828574becefafef9b9bd202655195b1e6c2",
+            "base": "e1fadabb92178101627cddb8f3b9d77c16f1235f",
+            "changed_paths": [
+              "bundle/task_05.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_05 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_05.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+            "working_tree": "",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/.multplx-homes-bb9cbadc53009758/coordinator-2/state/task-05.meta"
+          }
+        ]
+      },
+      "integrated_checks": {
+        "utc": "2026-09-23T14:02:50.444151+00:00",
+        "commit": "f110620a0d6351a411059df6a7ac1731446fb763",
+        "check": [
+          "python3",
+          "-m",
+          "unittest",
+          "evaluator.test_task_01",
+          "evaluator.test_task_02",
+          "evaluator.test_task_03",
+          "evaluator.test_task_04",
+          "evaluator.test_task_05",
+          "-v"
+        ],
+        "exit": 0,
+        "output": "test_behavior (evaluator.test_task_01.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_02.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_03.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_04.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_05.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 0.003s\n\nOK\n",
+        "borrowed_head": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+        "borrowed_status": "?? borrowed.keep\n",
+        "sentinel_sha256": "fec20374732bd6fc96ca432da5f6eb859592c57277ecf7c5cdb0b5183c7b9042"
+      },
+      "progress_probe": {
+        "session_id": "01a0ce70-d94e-7373-a1ac-c925f05c5dec",
+        "request_received_utc": "2026-09-23T13:30:45.877Z",
+        "response_completed_utc": "2026-09-23T13:30:52.652Z",
+        "latency_seconds": 6.775,
+        "source": "owned Codex rollout item timestamps",
+        "response": {
+          "type": "AgentMessage",
+          "id": "msg_05baf11be621f8db016ab3d489ec4c87d29a042c8efc6d94c3",
+          "content": [
+            {
+              "type": "Text",
+              "text": "Progress: 4 of 5 tasks are accepted; task-05 is correctly waiting for tasks 01\u201304 to pass and integrate. The scheduler currently charges 2 active workers and 3 coordinators against the five delegated slots. No tasks are complete yet, and there is no blocker; the only wait is the declared task-05 dependency gate. I\u2019ve also created the separate managed integration worktree at the seed commit. I\u2019m continuing with admission and task tracking."
+            }
+          ],
+          "phase": "commentary"
+        }
+      },
+      "final_observer_relay": [
+        {
+          "pass": 1,
+          "exit": 0,
+          "stdout": "{\n  \"pending_inbox\": 0,\n  \"pending_outbox\": 0,\n  \"delivered_outbox\": 15,\n  \"archived_inbox\": 25,\n  \"oldest_pending_epoch\": null,\n  \"relayed_this_tick\": 0,\n  \"last_progress_epoch\": 1790172125,\n  \"observed_epoch\": 1790172170,\n  \"last_error\": null,\n  \"records_observed\": 0,\n  \"scan_truncated\": false\n}\n",
+          "stderr": ""
+        },
+        {
+          "pass": 2,
+          "exit": 0,
+          "stdout": "{\n  \"pending_inbox\": 0,\n  \"pending_outbox\": 0,\n  \"delivered_outbox\": 15,\n  \"archived_inbox\": 25,\n  \"oldest_pending_epoch\": null,\n  \"relayed_this_tick\": 0,\n  \"last_progress_epoch\": 1790172125,\n  \"observed_epoch\": 1790172170,\n  \"last_error\": null,\n  \"records_observed\": 0,\n  \"scan_truncated\": false\n}\n",
+          "stderr": ""
+        }
+      ],
+      "observation_count": 222,
+      "observed_delegated_charge_high_water": 5,
+      "observed_pane_high_water": 6,
+      "resource_observations": {
+        "sample_count": 222,
+        "max_load_one": 4.9,
+        "min_available_memory_bytes": 4771020800,
+        "max_workers_charged": 2,
+        "max_coordinators_charged": 3,
+        "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
+      },
+      "wake_metrics": {
+        "method": "nearest-rank, durable integer-second root records; observer interventions included",
+        "wake_to_disposition": {
+          "samples": 31,
+          "p50_seconds": 42,
+          "p95_seconds": 303,
+          "max_seconds": 446
+        },
+        "wake_to_acknowledgement": {
+          "samples": 31,
+          "p50_seconds": 42,
+          "p95_seconds": 303,
+          "max_seconds": 446
+        },
+        "wake_total": 31,
+        "undisposed": 0,
+        "unacknowledged": 0,
+        "repeated_keys": 1,
+        "repeated_key_limits": "Status-file key repetition at distinct observations is not a duplicate logical message claim."
+      },
+      "elapsed_seconds": 2235.52577,
+      "verified_tasks_per_hour_raw": 8.051797139426398,
+      "final_task_dependencies": [
+        "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/home#task:task-01",
+        "task-02",
+        "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/.multplx-homes-bb9cbadc53009758/coordinator-3#task:task-03",
+        "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/install/data/.multplx-homes-bb9cbadc53009758/coordinator-1#task:task-04"
+      ],
+      "final_task_base": "e1fadabb92178101627cddb8f3b9d77c16f1235f",
+      "task_event_times": [
+        {
+          "task_id": "task-01",
+          "accepted_epoch": 1790170084,
+          "spawned_utc": "2026-09-23T13:29:16Z",
+          "done_utc": "2026-09-23T13:30:39Z",
+          "acceptance_to_spawn_seconds": 72.0
+        },
+        {
+          "task_id": "task-02",
+          "accepted_epoch": 1790170097,
+          "spawned_utc": "2026-09-23T13:41:54Z",
+          "done_utc": "2026-09-23T13:42:50Z",
+          "acceptance_to_spawn_seconds": 817.0
+        },
+        {
+          "task_id": "task-03",
+          "accepted_epoch": 1790170097,
+          "spawned_utc": "2026-09-23T13:29:52Z",
+          "done_utc": "2026-09-23T13:31:40Z",
+          "acceptance_to_spawn_seconds": 95.0
+        },
+        {
+          "task_id": "task-04",
+          "accepted_epoch": 1790170097,
+          "spawned_utc": "2026-09-23T13:31:56Z",
+          "done_utc": "2026-09-23T13:33:27Z",
+          "acceptance_to_spawn_seconds": 219.0
+        },
+        {
+          "task_id": "task-05",
+          "accepted_epoch": 1790171293,
+          "spawned_utc": "2026-09-23T13:55:57Z",
+          "done_utc": "2026-09-23T13:57:12Z",
+          "acceptance_to_spawn_seconds": 464.0
+        }
+      ],
+      "root_usage": {
+        "session_id": "01a0ce70-d94e-7373-a1ac-c925f05c5dec",
+        "usage_events": 147,
+        "last_observed_utc": "2026-09-23T14:02:48.244Z",
+        "provider_total_token_usage": {
+          "input_tokens": 13767722,
+          "cached_input_tokens": 13458944,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 69204,
+          "reasoning_output_tokens": 41670,
+          "total_tokens": 13836926
+        },
+        "limits": "Root only; cumulative counters include cached tokens, exclude coordinators/workers/observer, not billed cost or API calls."
+      },
+      "limitations": [
+        "Observed folder/hooks approvals, installed CLI guidance, exact accepted brief restoration and idle coordinator notification required observer assistance.",
+        "Root used send-literal (intentionally no Enter); observer supplied omitted submission. Not a send transport defect.",
+        "Task02 edited brief after enqueue; refusal was correct. Observer restored authored brief from original accepted bytes; same task/request/attempt recovered without machine-state edits.",
+        "Task03/04 revised briefs during worker execution; fresh revision-bound evidence required. Root report describes task03 revision correction as before dispatch, but original worker records show active-attempt correction.",
+        "Coordinator03 listed other fixture filenames while searching for mx; no solution read observed.",
+        "Root context compaction and model command mistakes included in raw elapsed time; no clean autonomous-throughput or speedup claim.",
+        "Managed integration worktree has generated Python cache directories; borrowed checkout only original sentinel.",
+        "Two final observer mechanical relay passes consumed retained outcomes after root report, no new model work."
+      ],
+      "artifacts": {
+        "root-result.md": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/root-result.md",
+          "sha256": "f571c74fa2b4ff3ece49a9c167ef12073751f1c07864a6938a6a03304e572b00"
+        },
+        "observations.jsonl": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/observations.jsonl",
+          "sha256": "c161d70768cdeb22e4c8b63a13fdcaf5629cd712a2f16854457d14bfd1c556df"
+        },
+        "observer-worker-verification.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/observer-worker-verification.json",
+          "sha256": "7156ea34506f70419f056a3fe5d997e902f3361ef06ad204bd66136a044070bf"
+        },
+        "observer-integration-verification.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/observer-integration-verification.json",
+          "sha256": "43ca1df9f83155f1d79b39d7ac741a1b9e9781e376f359a89f3654175a38df03"
+        },
+        "observer-interventions.jsonl": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/observer-interventions.jsonl",
+          "sha256": "8c492fb5950f1e2ddbae4f4c93befc80453d96e6a7a19350deebfbfaf1c708ef"
+        },
+        "final-pane-0.txt": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/final-pane-0.txt",
+          "sha256": "7a7665f25ee8761531232a6db1d7ceb3506377fbfa192f40e86014e4a2bf0976"
+        },
+        "final-observer-relay.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-hierarchical-5/final-observer-relay.json",
+          "sha256": "d97c9904dfa8cfc7b2b24fe006d6dc6ced7ec53c36a965246a836af4d1f48a70"
+        }
+      },
+      "first_durable_disposition": {
+        "samples": 31,
+        "p50_seconds": 42,
+        "p95_seconds": 303,
+        "max_seconds": 446
+      },
+      "oldest_unhandled_at_closeout_seconds": 0,
+      "max_event_age_before_first_disposition_seconds": 446,
+      "disposition_metric_limits": "First durable disposition includes bounded waiting dispositions. Earlier wake_to_disposition fields measure the latest retained disposition, including later resolution; they may exceed initial durable handling latency."
     }
   },
   "packaged_viz_browser_interaction": {
