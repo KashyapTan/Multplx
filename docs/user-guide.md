@@ -11,7 +11,7 @@ Use `multplx --help` and each command's `--help` output for the exact grammar in
 
 The lean redesign described here does not yet have a published public release.
 These commands describe the current release candidate and should not be assumed to exist in an older installed `multplx` command.
-Until release cutover, use the explicit [source installation](getting-started.md#source-installation) for development or an isolated candidate package supplied for validation.
+Until release cutover, [build and install the current candidate](getting-started.md#build-the-current-candidate-from-source) in separate directories or use an isolated candidate package supplied for validation.
 The development checkout deliberately keeps its root operating contract dormant, so do not use that checkout for normal orchestration startup.
 Use an isolated candidate package with the release contract restored when validating the complete installed experience.
 After a public release is published, prefer its verified platform package and matching checksum.

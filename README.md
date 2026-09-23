@@ -1,7 +1,7 @@
 <h1 align="center">Multplx</h1>
 
 <p align="center">
-  <strong>The agent distro that extends yourself deterministically.</strong>
+  <strong>One conversation. Parallel agents. Durable coordination.</strong>
 </p>
 
 <p align="center">
@@ -47,12 +47,13 @@ The global `multplx` command opens one workspace from any directory, with the ex
 
 ## Getting Started
 
-You need macOS or Linux, one verified harness - Claude Code, Codex, Cursor, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
+You need macOS or Linux, one supported harness - Claude Code, Codex, Cursor, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
 tmux is the reference runtime backend; Herdr and cmux are experimental alternatives.
 
 The lean redesign is currently a release candidate and does not yet have a published public package.
-Until release cutover, use the documented source installation for development or an isolated candidate package supplied for validation.
-Install a verified platform release with matching runtime assets, then run `multplx` from any directory.
+Until release cutover, follow [Build the current candidate from source](docs/getting-started.md#build-the-current-candidate-from-source) to install an isolated candidate without activating the development checkout.
+Once a public release is available, prefer its verified platform package with matching runtime assets.
+After installation, run `multplx` from any directory.
 The [getting-started guide](docs/getting-started.md) covers package installation and the optional source build.
 Bare `multplx` opens the terminal workspace; `multplx shell` opens an explicit activation shell.
 

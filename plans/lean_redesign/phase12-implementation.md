@@ -807,3 +807,21 @@ The graph honors the collector's bounded projection and cannot display agents om
 [Graph hosted CI run 35879810652](https://github.com/KashyapTan/Multplx/actions/runs/35879810652) was started for implementation commit `d96013dfbb71c6cfa2c97ff1a8da44fc3dbc9130`.
 At this evidence update it remains in progress; local success above is not a claim that this new hosted run has passed.
 The completed Phase 12 CI result remains separately recorded before this addition.
+
+
+### Follow-up CI repair and onboarding clarification
+
+[Hosted run 35880265022](https://github.com/KashyapTan/Multplx/actions/runs/35880265022) failed the macOS supervisor cleanup test and the coverage-instrumented nested watcher relay test; Linux Rust and every behavior lane passed.
+The coverage job stopped at a failing test before computing its percentage, rather than failing the unchanged 93% threshold.
+The supervisor published its readiness PID file before installing shutdown handlers, allowing an immediate SIGTERM to terminate it without cleanup.
+Signal registration and fallible executable lookup now finish before readiness publication; the existing PID cleanup assertion remains unchanged.
+The nested relay test previously assumed four single one-second checkpoints had completed every hop.
+It now permits at most five bounded checkpoints per hop and observes the real derived inbox/receipt names before continuing, while retaining the exact original-envelope assertion at the root.
+No production relay behavior, checkpoint timeout, coverage exclusion or coverage threshold changed.
+
+`cargo test --locked -p multplx-cli --test phase05_parent_channel idle_watcher_checkpoints_relay_a_nested_outcome_without_model_turns` passes in 5.71 seconds, and `cargo test --locked -p multplx-cli --test lifecycle_runtime lifecycle_dispatch_covers_briefs_reports_update_and_compatibility_refusals` passes in 0.95 seconds.
+The same focused tests pass with `cargo llvm-cov test --no-report --locked` instrumentation in 5.68 and 0.95 seconds respectively; these targeted instrumented runs do not claim full-workspace coverage.
+`cargo fmt --all -- --check` and `git diff --check` pass.
+The README, getting-started guide and user guide now link an explicit build/package/install example for the unpublished candidate, with separate installation directories and the source contract kept dormant.
+`target/release/mx doc-audience-check` passes with 93 surfaces and 516 local links.
+Fresh hosted validation is required for this follow-up; the prior failed result is not represented as passing.

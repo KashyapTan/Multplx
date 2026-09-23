@@ -3658,16 +3658,10 @@ pub(crate) fn supervise_daemon(
             return 1;
         }
     };
-    let pid = std::process::id();
-    let identity = SystemProcessProbe::default().identity(pid).ok();
-    let _ = lock.publish_metadata("pid", format!("{pid}\n").as_bytes());
-    if let Some(identity) = identity {
-        let _ = lock.publish_metadata("pid-identity", identity.marker.as_bytes());
-    }
-    let pidfile = state.join(".supervise-daemon.pid");
-    if fs::write(&pidfile, format!("{pid}\n")).is_err() {
-        return 1;
-    }
+    // The pidfile is the supervisor readiness marker. Install termination
+    // handlers and finish fallible process setup before publishing it so a
+    // caller that observes the pidfile can immediately signal this process
+    // without racing the default SIGTERM action.
     let (shutdown, _) = match install_watcher_signals() {
         Ok(flags) => flags,
         Err(error) => {
@@ -3684,6 +3678,16 @@ pub(crate) fn supervise_daemon(
     };
     let watcher_override = std::env::var_os("MX_SUPERVISE_WATCH_EXEC").map(PathBuf::from);
     let log = state.join(".supervise-daemon.log");
+    let pid = std::process::id();
+    let identity = SystemProcessProbe::default().identity(pid).ok();
+    let _ = lock.publish_metadata("pid", format!("{pid}\n").as_bytes());
+    if let Some(identity) = identity {
+        let _ = lock.publish_metadata("pid-identity", identity.marker.as_bytes());
+    }
+    let pidfile = state.join(".supervise-daemon.pid");
+    if fs::write(&pidfile, format!("{pid}\n")).is_err() {
+        return 1;
+    }
     let flush = |state: &Path| -> bool {
         if !state.join(".afk").is_file() {
             return false;

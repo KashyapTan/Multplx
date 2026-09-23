@@ -160,18 +160,46 @@ After normal session startup, inspect state with `multplx doctor` or open the re
 Doctor does not repair state unless its explicit `--fix` option is supplied.
 The dashboard is not a second chat or mutation interface.
 
-## Source installation
+## Build the current candidate from source
 
-Developers may retain the source-install path:
+The current lean candidate has not been published as a public release.
+To try this version, check out the candidate revision you intend to evaluate, build its binary and create a matching package.
+For PR 48, check out its `lean-redesign-phase12` branch after cloning; after merge, use the merged revision instead.
+This requires Git, Rust and the runtime tools listed above.
 
 ```sh
 git clone https://github.com/KashyapTan/Multplx.git
 cd Multplx
+git switch lean-redesign-phase12
+cargo build --release --workspace --locked
+candidate_dir=$(mktemp -d "${TMPDIR:-/tmp}/multplx-candidate.XXXXXX")
+bin/mx-release-package.sh "$candidate_dir/package" target/release/mx
+"$candidate_dir/package/bin/mx" launcher-install \
+  --package "$candidate_dir/package" \
+  --bin-dir "$HOME/.local/multplx-candidate/bin" \
+  --config-dir "$HOME/.local/multplx-candidate/config" \
+  --data-dir "$HOME/.local/multplx-candidate/data"
+export PATH="$HOME/.local/multplx-candidate/bin:$PATH"
+multplx paths
+```
+
+The package supplies the canonical operating contract and matching runtime assets without activating the development checkout.
+These explicit candidate directories keep an existing default installation separate; use a fresh directory if those candidate paths already contain an installation.
+The `PATH` change applies to the current shell; add the candidate binary directory to your shell configuration only if you want it selected in future shells.
+Continue with [Open the workspace](#open-the-workspace), register your repository and start the main chat.
+Do not run orchestration startup from this development checkout or rename its dormant root contract.
+
+## Source installation
+
+An operational release checkout with its canonical root contract can also be registered directly:
+
+```sh
 cargo build --release --workspace --locked
 bin/mx-launcher-install.sh
 ```
 
-This registers an operational release checkout; during the lean redesign, contributors must follow `CLAUDE.md` and keep the root contract dormant.
+This direct source mode is for an activated release checkout, not the dormant lean-development checkout.
+For the current candidate, use the package-building instructions above.
 Use `--root PATH --home PATH` to separate an adopted source checkout and home.
 The legacy `--managed` source mode remains available for advanced use and requires Git and Rust for source updates.
 `multplx update` owns source-mode refresh; package upgrades use a verified new package as shown above.
