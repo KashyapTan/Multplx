@@ -26,7 +26,11 @@ That check keeps sub-agent linked worktrees inert because their git dir differs 
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 The exact root `AGENTS.md` filename scopes the primary backstop.
 
-For an in-scope primary, the guard counts in-flight work from `state/*.meta`.
+For an in-scope primary, the guard counts active work from `state/*.meta`, excluding only a valid schema-2 canonical ordinary assignment whose schedule is `completed`.
+The exclusion requires an exact task-id match, a nonpersistent non-coordinator assignment, a current attempt identity, and matching canonical compatibility fields.
+Legacy, malformed, oversized, unreadable, persistent and coordinator records remain in flight conservatively.
+The shell compatibility predicate uses `jq` for this projection and conservatively counts all metadata when `jq` is unavailable.
+Reopened or otherwise nonterminal ordinary work is counted again; pending wakes remain visible and the existing identity-matched watcher checks are unchanged.
 The default cross-harness mode exits silently with no work in flight.
 Otherwise it calls `mx_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/mx-wake-lib.sh`, the same identity-matched lock and fresh-beacon check used by `bin/mx-watch-arm.sh`.
 A stale beacon blocks even when a watcher pid is live.

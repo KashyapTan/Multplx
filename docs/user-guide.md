@@ -203,6 +203,12 @@ A missing live provider transcript does not erase durable task, request, worktre
 A scoped sub-orchestrator is useful when one project, several related repositories, or a research idea needs ongoing coordination beneath the main orchestrator.
 Project selection alone never creates one.
 
+The named `spawn --sub-orchestrator` form creates its charter directly from `--scope`.
+Use a fresh coordinator ID and include its bounded assignment in that scope.
+Ordinary worker assignments use the separate `brief` scaffolding flow before `spawn`.
+Finish the task text before spawning, even when admission will queue it; a queued request freezes the accepted brief.
+Editing that brief afterward does not update the queued assignment and correctly prevents launch against changed instructions.
+
 Create a project-backed coordinator explicitly:
 
 ```sh
@@ -363,6 +369,12 @@ Check the tasks and decisions views for dependencies, a human question, admissio
 Queued work retains its request identity rather than being dropped.
 If a declared prerequisite has no canonical task binding yet, its dependent request stays accepted but spawn refuses with a retry instruction.
 Have the orchestrator establish the prerequisite first, then retry the dependent task with the same identity.
+A newly launched Codex session may also be waiting at its folder-trust or hook-review prompt before the model can work.
+Inspect that exact session, review the installed runtime or assigned worktree and hooks, and accept them when they are the ones you intend to run.
+The live Codex 0.156 trials required these first-use confirmations; a launched endpoint alone does not prove the worker has begun.
+A completed task can still have an open provider window that consumes admission capacity.
+After verifying its current result and recorded endpoint, the orchestrator can close that exact worker with `mx backend kill TARGET` and run `mx headroom --queue-drain` to reconcile capacity.
+This preserves the task records and worktree; `/quit` alone may leave the window open, and persistent coordinators have their own explicit lifecycle controls.
 
 ### The provider session ended
 

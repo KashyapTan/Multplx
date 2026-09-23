@@ -342,10 +342,14 @@ Queue and admission transitions use atomic replacement under a short root lock; 
 Runnable work is ordered by `priority + floor(age_seconds / aging_seconds)`, then enqueue time and task ID.
 Aging prevents starvation.
 A blocked or oversized request does not prevent a smaller runnable request from fitting, and dependency cycles are rejected before publication.
-A drain durably marks `dispatching` and reserves capacity before launch.
+A drain validates the frozen task owner and parent context before reserving capacity and marking `dispatching`.
+A root-triggered drain launches private-home work with that home's state, configuration and parent attempt, while preserving the shared root budget.
 After restart it acknowledges only exact canonical metadata with a live endpoint.
 Missing, duplicate, wrong-home, stale-attempt, or mismatched metadata stays retained.
 Failed endpoints remain uncertain until the lifecycle owner verifies absence; a proven-absent retry reuses its exact allocation.
+A failed prelaunch dispatch can retry its original request only after its recorded launcher has exited, its receipt has no endpoint or allocation, and its exact owner has no launch action, intent, metadata or launch lock.
+Unknown process identity, unreadable paths and any retained launch evidence prevent that automatic retry.
+An explicit drain also reconciles provably absent execution receipts when there is no queued work.
 Successful teardown releases capacity only when task ID, owner state, attempt ID, and endpoint all match.
 Use `bin/mx-headroom.sh --queue` to inspect requests, `--queue-cancel <request-id>` to cancel queued work, and `--queue-priority <request-id> <signed-priority>` to reprioritize it.
 Dispatching work cannot be cancelled or reprioritized.

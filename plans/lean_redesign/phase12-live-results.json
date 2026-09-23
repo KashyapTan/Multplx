@@ -1,0 +1,807 @@
+{
+  "schema_version": 1,
+  "status": "in_progress",
+  "scope": "user-approved four five-task trials; no live 10/20-task scaling claim",
+  "model": "gpt-6-luna",
+  "effort": "medium",
+  "codex_version": "0.156.0",
+  "budget": {
+    "root": 1,
+    "delegated": 5,
+    "worker_headroom": 2
+  },
+  "trials": {
+    "independent-flat-5": {
+      "candidate_runtime_sha256": "b0f73a62a2b224d073771bef09d55f1cc41bb17b7c5ff52fed385bdd25e5f57c",
+      "source_commit": "fa8ce5d76d52240ce0b2cafcb8e2724c4442273a",
+      "status": "implementation_checks_passed; cleanup defects found",
+      "start": {
+        "root_prompt_utc": "2026-09-23T11:47:41.794965+00:00"
+      },
+      "end": {
+        "observed_end_utc": "2026-09-23T12:07:12.564058+00:00",
+        "reason": "All worker and integration checks and final report complete. Root final response observed; stop hook still counts retained tasks and requested watcher checkpoint. Observer ends owned fixture after preserving this limitation."
+      },
+      "observation_count": 119,
+      "observed_delegated_charge_high_water": 5,
+      "observed_pane_high_water": 6,
+      "progress_probe": {
+        "session_id": "01a0ce17-9dba-7f20-9e24-06080b72ee83",
+        "request_received_utc": "2026-09-23T11:54:44.816Z",
+        "response_completed_utc": "2026-09-23T11:54:50.395Z",
+        "latency_seconds": 5.579,
+        "source": "owned Codex CLI rollout item timestamps",
+        "response": "Accepted 5 tasks; charged 5 worker sessions; three working, two unknown; no blocker."
+      },
+      "worker_checks": {
+        "verified_utc": "2026-09-23T11:56:09.664958+00:00",
+        "results": [
+          {
+            "task": "task-01",
+            "schedule": "completed",
+            "commit": "38ce820c23b6aa9482c8748cf0301c4d0276a384",
+            "typed_commit": "38ce820c23b6aa9482c8748cf0301c4d0276a384",
+            "base": "7e1cb51f3aff21f2b7c26ef2a9238da7ba411808",
+            "changed_paths": [
+              "manifest_kit/task_01.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "?? evaluator/__pycache__/\n?? manifest_kit/__pycache__/",
+            "check": "python3 -m unittest evaluator.test_task_01 -v",
+            "check_exit": 0
+          },
+          {
+            "task": "task-02",
+            "schedule": "completed",
+            "commit": "9bc21b756a71e31f672ca0adfb602d5f22795859",
+            "typed_commit": "9bc21b756a71e31f672ca0adfb602d5f22795859",
+            "base": "f39389768d2597e674bf8efde8c8141dbcd7064c",
+            "changed_paths": [
+              "change_kit/task_02.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "?? change_kit/__pycache__/\n?? evaluator/__pycache__/",
+            "check": "python3 -m unittest evaluator.test_task_02 -v",
+            "check_exit": 0
+          },
+          {
+            "task": "task-03",
+            "schedule": "completed",
+            "commit": "31f2f91abe3b0733eab3f13df8b91db36f45b43a",
+            "typed_commit": "31f2f91abe3b0733eab3f13df8b91db36f45b43a",
+            "base": "2f0806a199dc300b0f8ae498229c865aac272686",
+            "changed_paths": [
+              "doccheck/task_03.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "?? doccheck/__pycache__/\n?? evaluator/__pycache__/",
+            "check": "python3 -m unittest evaluator.test_task_03 -v",
+            "check_exit": 0
+          },
+          {
+            "task": "task-04",
+            "schedule": "completed",
+            "commit": "9e4a60da2a5d3b6846f4767d228664d45c5a2df8",
+            "typed_commit": "9e4a60da2a5d3b6846f4767d228664d45c5a2df8",
+            "base": "7e1cb51f3aff21f2b7c26ef2a9238da7ba411808",
+            "changed_paths": [
+              "manifest_kit/task_04.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "?? evaluator/__pycache__/\n?? manifest_kit/__pycache__/",
+            "check": "python3 -m unittest evaluator.test_task_04 -v",
+            "check_exit": 0
+          },
+          {
+            "task": "task-05",
+            "schedule": "completed",
+            "commit": "1b0c965fb8c4c52ac3a2e266ab837f0410d846d1",
+            "typed_commit": "1b0c965fb8c4c52ac3a2e266ab837f0410d846d1",
+            "base": "f39389768d2597e674bf8efde8c8141dbcd7064c",
+            "changed_paths": [
+              "change_kit/task_05.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "?? change_kit/__pycache__/\n?? evaluator/__pycache__/",
+            "check": "python3 -m unittest evaluator.test_task_05 -v",
+            "check_exit": 0
+          }
+        ]
+      },
+      "artifacts": {
+        "observations.jsonl": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-flat-5/observations.jsonl",
+          "sha256": "f144e0e3ab142309f8872c2da549903ccf3b854a8fa5e17a0d548e04e2fcd4fa"
+        },
+        "root-result.md": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-flat-5/root-result.md",
+          "sha256": "c08c9aaccbe08162d6c33846dfc1c3f4e948c1493d30aa709b1c5a29d4b97e4b"
+        },
+        "root-pane-final.txt": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-flat-5/root-pane-final.txt",
+          "sha256": "b549865016bcbda71b910f83ced10eb7baf6dd4575a464e8453c0c1165f21f27"
+        },
+        "observer-worker-verification.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-flat-5/observer-worker-verification.json",
+          "sha256": "593face6815d5ae5c8845b041ea14cd7a8105ced4d955c04a4b768d4728c65fb"
+        },
+        "browser-evidence.md": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-flat-5/browser-evidence.md",
+          "sha256": "6328b85db63bde9af871e9e634bf11dfaf156dc3f4436e4d9ddc89aaa1482877"
+        }
+      },
+      "limitations": [
+        "Exact endpoint closure did not release receipts because empty-queue reconciliation was skipped.",
+        "Final root response was followed by an unnecessary stop-hook checkpoint; observer stopped disposable session.",
+        "Worker-provided task-02 verification time is inconsistent with actual done event.",
+        "Root report mislabels initial no-brief refusal as TASK-placeholder refusal; original terminal establishes no brief at 11:50:42Z.",
+        "Observer verification snapshot includes generated untracked Python caches.",
+        "No comparative velocity claim; human review and post-merge defects not measured."
+      ],
+      "task_event_times": [
+        {
+          "task_id": "task-01",
+          "accepted_epoch": 1790164148,
+          "spawned_utc": "2026-09-23T11:52:45Z",
+          "done_utc": "2026-09-23T11:55:04Z",
+          "acceptance_to_spawn_seconds": 217.0,
+          "spawn_to_done_seconds": 139.0
+        },
+        {
+          "task_id": "task-02",
+          "accepted_epoch": 1790164162,
+          "spawned_utc": "2026-09-23T11:53:20Z",
+          "done_utc": "2026-09-23T11:55:27Z",
+          "acceptance_to_spawn_seconds": 238.0,
+          "spawn_to_done_seconds": 127.0
+        },
+        {
+          "task_id": "task-03",
+          "accepted_epoch": 1790164163,
+          "spawned_utc": "2026-09-23T11:53:31Z",
+          "done_utc": "2026-09-23T11:55:27Z",
+          "acceptance_to_spawn_seconds": 248.0,
+          "spawn_to_done_seconds": 116.0
+        },
+        {
+          "task_id": "task-04",
+          "accepted_epoch": 1790164163,
+          "spawned_utc": "2026-09-23T11:53:32Z",
+          "done_utc": "2026-09-23T11:55:44Z",
+          "acceptance_to_spawn_seconds": 249.0,
+          "spawn_to_done_seconds": 132.0
+        },
+        {
+          "task_id": "task-05",
+          "accepted_epoch": 1790164164,
+          "spawned_utc": "2026-09-23T11:53:33Z",
+          "done_utc": "2026-09-23T11:55:25Z",
+          "acceptance_to_spawn_seconds": 249.0,
+          "spawn_to_done_seconds": 112.0
+        }
+      ],
+      "latencies": {
+        "method": "nearest-rank quantiles; integer-second durable event times",
+        "acceptance_to_spawn": {
+          "samples": 5,
+          "p50_seconds": 248.0,
+          "p95_seconds": 249.0,
+          "max_seconds": 249.0
+        },
+        "wake_to_disposition": {
+          "samples": 26,
+          "p50_seconds": 44,
+          "p95_seconds": 214,
+          "max_seconds": 216
+        },
+        "wake_to_acknowledgement": {
+          "samples": 26,
+          "p50_seconds": 44,
+          "p95_seconds": 214,
+          "max_seconds": 216
+        },
+        "wake_total": 26,
+        "undisposed": 0,
+        "unacknowledged": 0,
+        "repeated_keys": 0,
+        "limits": "Acceptance-to-spawn includes model briefing/dispatch work and is not scheduler-only queue latency. Distinct progress events are not duplicates. Small single-trial sample."
+      },
+      "postfix_replay": {
+        "observed_utc": "2026-09-23T12:54:06.202397+00:00",
+        "upgrade_exit": 0,
+        "upgrade_output": "multplx: installed /private/tmp/mx-phase12-live-matrix/independent-flat-5/install/bin/multplx\nmultplx: root /private/tmp/mx-phase12-live-matrix/independent-flat-5/install/data/runtime\nmultplx: home /private/tmp/mx-phase12-live-matrix/independent-flat-5/install/data/home\nmultplx: add /private/tmp/mx-phase12-live-matrix/independent-flat-5/install/bin to PATH\n",
+        "protected_files_preserved": true,
+        "protected_file_count": 21,
+        "setup": "Fresh owned tmux inventory with no former worker endpoints; no model session or source-checkout startup.",
+        "checks": {
+          "primary_scope": {
+            "exit": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "headroom": {
+            "exit": 0,
+            "stdout": "{\"model\":\"local+api\",\"accounting_scope\":\"root-home-and-descendants\",\"capacity\":5,\"in_use\":0,\"available\":5,\"at_limit\":false,\"worker_headroom\":2,\"workers_in_use\":0,\"coordinators_in_use\":0,\"unknown_session_use\":0,\"local\":{\"cpu_count\":15.0,\"load_one\":2.71,\"memory_available_bytes\":5190811648,\"available\":19},\"api\":{\"source\":\"configured-budget\",\"capacity\":5,\"available\":5},\"candidates\":{\"default\":{\"capacity\":5,\"in_use\":0,\"available\":5,\"window\":\"configured-budget\"}}}\n",
+            "stderr": ""
+          },
+          "turnend_guard": {
+            "exit": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        },
+        "runtime_sha256": "fe4a78d3065ea7b90fc7cbd6b32a535e510919c997c77231f9f1edeb13b74d51"
+      },
+      "root_usage": {
+        "session_id": "01a0ce17-9dba-7f20-9e24-06080b72ee83",
+        "usage_events": 80,
+        "last_observed_utc": "2026-09-23T12:07:05.861Z",
+        "provider_total_token_usage": {
+          "input_tokens": 6783619,
+          "cached_input_tokens": 6604800,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 52235,
+          "reasoning_output_tokens": 30908,
+          "total_tokens": 6835854
+        },
+        "limits": "Root session only, cumulative provider counters including cached tokens; excludes workers/coordinators/observer. Not billed cost or API call count."
+      },
+      "resource_observations": {
+        "sample_count": 119,
+        "max_load_one": 6.31,
+        "min_available_memory_bytes": 4576362496,
+        "max_workers_charged": 5,
+        "max_coordinators_charged": 0,
+        "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
+      }
+    },
+    "independent-hierarchical-5": {
+      "status": "worker and integrated checks passed; mixed-runtime repairs recorded",
+      "pause": {
+        "paused_utc": "2026-09-23T12:31:20.846457+00:00",
+        "reason": "Root queue drain did not bind registered private task owner home; failed prelaunch admissions retained as uncertain. All four model turns interrupted while implementation fix is prepared; raw observer log continues."
+      },
+      "initial_runtime_sha256": "b0f73a62a2b224d073771bef09d55f1cc41bb17b7c5ff52fed385bdd25e5f57c",
+      "resume": {
+        "resumed_utc": "2026-09-23T12:46:17.776500+00:00",
+        "runtime_sha256": "e42a6c4a69d2cabd38b8f11afad4114dae1f3f0df8ef7ab35b8c8a8cadb1943c",
+        "runtime_binary": "/Users/kash/Documents/Multplx/target/release/mx",
+        "scope": "Explicit corrected runtime used with retained installed assets; not package upgrade; all four models resumed, original request identities preserved."
+      },
+      "worker_checks": {
+        "verified_utc": "2026-09-23T12:51:14.284139+00:00",
+        "results": [
+          {
+            "requested_task": "task-01",
+            "canonical_task": "task-01",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/data/home/state/task-01.meta",
+            "schedule": "completed",
+            "commit": "f91f0aaee875a50372184b2e8ba067d8859c4ea7",
+            "base": "7e1cb51f3aff21f2b7c26ef2a9238da7ba411808",
+            "changed_paths": [
+              "manifest_kit/task_01.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_01 -v",
+            "check_exit": 0
+          },
+          {
+            "requested_task": "task-02",
+            "canonical_task": "task-02",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/data/.multplx-homes-39e4ca48e5c8c60d/h5co-changelog-01/state/task-02.meta",
+            "schedule": "completed",
+            "commit": "c6e323b578ba6a01bc209edec4069b9a1eac1ade",
+            "base": "f39389768d2597e674bf8efde8c8141dbcd7064c",
+            "changed_paths": [
+              "change_kit/task_02.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_02 -v",
+            "check_exit": 0
+          },
+          {
+            "requested_task": "task-03",
+            "canonical_task": "task-03",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/data/.multplx-homes-39e4ca48e5c8c60d/h5co-docs-01/state/task-03.meta",
+            "schedule": "completed",
+            "commit": "62273aa2868c668dc2d6dcfefc53b9261097a025",
+            "base": "2f0806a199dc300b0f8ae498229c865aac272686",
+            "changed_paths": [
+              "doccheck/task_03.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_03 -v",
+            "check_exit": 0
+          },
+          {
+            "requested_task": "task-04",
+            "canonical_task": "task-04-worker",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/data/.multplx-homes-39e4ca48e5c8c60d/h5co-manifest-01/state/task-04-worker.meta",
+            "schedule": "completed",
+            "commit": "b9139e4f6761eb8ce3ba2d34080167b92a86ab22",
+            "base": "7e1cb51f3aff21f2b7c26ef2a9238da7ba411808",
+            "changed_paths": [
+              "manifest_kit/task_04.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_04 -v",
+            "check_exit": 0
+          },
+          {
+            "requested_task": "task-05",
+            "canonical_task": "task-05",
+            "metadata": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/data/.multplx-homes-39e4ca48e5c8c60d/h5co-changelog-01/state/task-05.meta",
+            "schedule": "completed",
+            "commit": "e79726bfeca3f9b400f6a7ec4fa9c338e0cd11b4",
+            "base": "f39389768d2597e674bf8efde8c8141dbcd7064c",
+            "changed_paths": [
+              "change_kit/task_05.py"
+            ],
+            "allowed_paths_only": true,
+            "check": "python3 -m unittest evaluator.test_task_05 -v",
+            "check_exit": 0
+          }
+        ]
+      },
+      "automatic_outage": {
+        "stopped_utc": "2026-09-23T12:49:31.335288+00:00",
+        "model_pid": 43494,
+        "model_identity": "Wed Sep 23 08:15:46 2026     /opt/homebrew/Caskroom/codex/0.156.0/bin/codex",
+        "watcher_pid": 24345,
+        "watcher_identity": "24345 24340 /private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/bin/multplx supervision mx-watch.sh",
+        "method": "SIGSTOP exact owned model only; foreground watcher and workers continue",
+        "pending_outbox_before": [],
+        "observed_root_hop1_utc": "2026-09-23T12:52:18.337947+00:00",
+        "event_id": "report-18d7f42169d61388-35310-0",
+        "model_state_at_root_delivery": "T+",
+        "root_delivery_paths": [
+          "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/install/data/home/state/parent-inbox/report-18d7f42169d61388-35310-0-hop-1-repair-0.json"
+        ],
+        "limits": "Private watcher relayed automatically; root model used normal parent-channel CLI passes, including a progress probe. Observer did not invoke relay in this second outage. Mixed runtime and interrupted trial are not timing benchmark.",
+        "resumed_utc": "2026-09-23T12:52:18.338206+00:00"
+      },
+      "limitations": [
+        "Runtime defect paused all model turns; explicit mixed-runtime recovery reused existing attempts.",
+        "Final strengthened runtime rebuilt during interrupted diagnostic trial; no uninterrupted speed comparison.",
+        "Initial missing private watcher required observer relay; second outage separately proves private watcher delivery while coordinator model SIGSTOP-paused.",
+        "Observer corrected briefing/runtime/watcher syntax guidance and exact task ownership pointers.",
+        "Requested task-04 has canonical coordinator child ID task-04-worker; identity mapping retained.",
+        "Three long coordinator message IDs initially stalled final relay; corrected binary drained all original outcomes with no model running and repeated relay was a no-op."
+      ],
+      "end": {
+        "observed_end_utc": "2026-09-23T12:57:47.547337+00:00",
+        "reason": "All five workers and integrated selected checks passed; root report complete. Preserve three pending coordinator outcomes for derived message-ID length fix; observer ends owned sessions to save usage. Persistent registrations and all work retained."
+      },
+      "observation_count": 297,
+      "observed_delegated_charge_high_water": 5,
+      "observed_pane_high_water": 6,
+      "relay_length_replay": {
+        "observed_utc": "2026-09-23T13:04:13.252269+00:00",
+        "runtime_sha256": "58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9",
+        "models": "All stopped; explicit mechanical CLI relay only",
+        "runs": [
+          {
+            "pass": 1,
+            "exit": 0,
+            "stdout": "{\n  \"pending_inbox\": 3,\n  \"pending_outbox\": 0,\n  \"delivered_outbox\": 19,\n  \"archived_inbox\": 27,\n  \"oldest_pending_epoch\": 1790167775,\n  \"relayed_this_tick\": 3,\n  \"last_progress_epoch\": 1790168652,\n  \"observed_epoch\": 1790168652,\n  \"last_error\": null,\n  \"records_observed\": 3,\n  \"scan_truncated\": false\n}\n",
+            "stderr": ""
+          },
+          {
+            "pass": 2,
+            "exit": 0,
+            "stdout": "{\n  \"pending_inbox\": 0,\n  \"pending_outbox\": 0,\n  \"delivered_outbox\": 19,\n  \"archived_inbox\": 30,\n  \"oldest_pending_epoch\": null,\n  \"relayed_this_tick\": 3,\n  \"last_progress_epoch\": 1790168653,\n  \"observed_epoch\": 1790168653,\n  \"last_error\": null,\n  \"records_observed\": 0,\n  \"scan_truncated\": false\n}\n",
+            "stderr": ""
+          },
+          {
+            "pass": 3,
+            "exit": 0,
+            "stdout": "{\n  \"pending_inbox\": 0,\n  \"pending_outbox\": 0,\n  \"delivered_outbox\": 19,\n  \"archived_inbox\": 30,\n  \"oldest_pending_epoch\": null,\n  \"relayed_this_tick\": 0,\n  \"last_progress_epoch\": 1790168653,\n  \"observed_epoch\": 1790168653,\n  \"last_error\": null,\n  \"records_observed\": 0,\n  \"scan_truncated\": false\n}\n",
+            "stderr": ""
+          }
+        ]
+      },
+      "artifacts": {
+        "observations.jsonl": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/observations.jsonl",
+          "sha256": "5d9c7be520318357bac76f323bfcba37ded704b5e31563ca8919ff3b4d70b4a2"
+        },
+        "root-result.md": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/root-result.md",
+          "sha256": "8336fd941320bee4936b12c1ec1403810baf9ccb20cdc2b899c10532af4793d0"
+        },
+        "observer-worker-verification.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/observer-worker-verification.json",
+          "sha256": "9562f9da05f883995f3d7fd407db62c16c6cc30cf743b914fcfe56d8cf0c9892"
+        },
+        "final-pane-0.txt": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/final-pane-0.txt",
+          "sha256": "bb45b9b729282b6d9719a95432720da0d08f0cf6aa6d002d321f507fcbb645d2"
+        },
+        "automatic-outage.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/automatic-outage.json",
+          "sha256": "8d5096ff543fe5d2156edbc99e0a7ce778889eac5330ad1fc25ea3b7f1124b1f"
+        },
+        "relay-length-replay.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/independent-hierarchical-5/relay-length-replay.json",
+          "sha256": "7c78370b92a160132f5b26d3f8cf90ecad1cd4487da94504347000ad1745f2f7"
+        }
+      },
+      "start": {
+        "root_prompt_utc": "2026-09-23T12:09:20.752800+00:00",
+        "guidance": "Known cleanup findings and scaffolding guidance supplied; retained original-root-request.txt."
+      },
+      "integrated_commits": {
+        "manifest": "629ad364dee9cd7f701c20dc9c517a24bd99bc5d",
+        "changelog": "d955c52d8cffa43308d44a42ef1c88dfcece6314",
+        "docs": "347e5ea83845662b36ee539f4c66b9d2bb00d94c"
+      },
+      "wake_metrics": {
+        "method": "nearest-rank; root durable integer-second records; all observer pauses included",
+        "wake_to_disposition": {
+          "samples": 39,
+          "p50_seconds": 197,
+          "p95_seconds": 388,
+          "max_seconds": 1490
+        },
+        "wake_to_acknowledgement": {
+          "samples": 39,
+          "p50_seconds": 197,
+          "p95_seconds": 390,
+          "max_seconds": 1492
+        },
+        "wake_total": 39,
+        "undisposed": 0,
+        "unacknowledged": 0,
+        "repeated_keys": 5,
+        "repeated_key_limits": "Five repetitions are status-file keys observed at distinct times; these are not proof of duplicate logical messages or presentations."
+      },
+      "elapsed_seconds": 2906.794537,
+      "verified_tasks_per_hour_raw": 6.192388134380204,
+      "root_usage": {
+        "session_id": "01a0ce2b-3c50-7fa3-813e-dfc24819c426",
+        "usage_events": 140,
+        "last_observed_utc": "2026-09-23T12:57:29.241Z",
+        "provider_total_token_usage": {
+          "input_tokens": 11362786,
+          "cached_input_tokens": 11045632,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 86874,
+          "reasoning_output_tokens": 51397,
+          "total_tokens": 11449660
+        },
+        "limits": "Root session only, cumulative provider counters including cached tokens; excludes workers/coordinators/observer. Not billed cost or API call count."
+      },
+      "resource_observations": {
+        "sample_count": 297,
+        "max_load_one": 5.53,
+        "min_available_memory_bytes": 3939942400,
+        "max_workers_charged": 2,
+        "max_coordinators_charged": 3,
+        "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
+      }
+    },
+    "coupled-flat-5": {
+      "status": "all worker and integrated checks passed on final installed runtime",
+      "runtime_sha256": "58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9",
+      "start": {
+        "root_prompt_utc": "2026-09-23T13:07:05.603119+00:00"
+      },
+      "end": {
+        "observed_end_utc": "2026-09-23T13:24:31.071737+00:00",
+        "reason": "All five worker and integrated checks passed; final report complete. Observer stops owned fixture after preserving report and endpoint reconciliation."
+      },
+      "worker_checks": {
+        "verified_utc": "2026-09-23T13:19:21.516235+00:00",
+        "results": [
+          {
+            "task": "task-01",
+            "schedule": "completed",
+            "commit": "c2ab1c264501e425a73e7b2f544737a835bbe21e",
+            "typed_commit": "c2ab1c264501e425a73e7b2f544737a835bbe21e",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "dependencies": [],
+            "changed_paths": [
+              "bundle/task_01.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "",
+            "check": "python3 -m unittest evaluator.test_task_01 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_01.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n"
+          },
+          {
+            "task": "task-02",
+            "schedule": "completed",
+            "commit": "a93d358dd29d714eca6f7d18c705d8ab6a7edb86",
+            "typed_commit": "a93d358dd29d714eca6f7d18c705d8ab6a7edb86",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "dependencies": [],
+            "changed_paths": [
+              "bundle/task_02.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "",
+            "check": "python3 -m unittest evaluator.test_task_02 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_02.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n"
+          },
+          {
+            "task": "task-03",
+            "schedule": "completed",
+            "commit": "ab33902a8e899fb5f535e521ee160f46c03b3073",
+            "typed_commit": "ab33902a8e899fb5f535e521ee160f46c03b3073",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "dependencies": [],
+            "changed_paths": [
+              "bundle/task_03.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "",
+            "check": "python3 -m unittest evaluator.test_task_03 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_03.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n"
+          },
+          {
+            "task": "task-04",
+            "schedule": "completed",
+            "commit": "c43b8ec2f208f1645b661b424d1bcf697d91d788",
+            "typed_commit": "c43b8ec2f208f1645b661b424d1bcf697d91d788",
+            "base": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+            "dependencies": [],
+            "changed_paths": [
+              "bundle/task_04.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "",
+            "check": "python3 -m unittest evaluator.test_task_04 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_04.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n"
+          },
+          {
+            "task": "task-05",
+            "schedule": "completed",
+            "commit": "599a581c325c46ba4398c856892f74e00d95df32",
+            "typed_commit": "599a581c325c46ba4398c856892f74e00d95df32",
+            "base": "f6284bf402916b4f6f6c1037e03eef14737545f9",
+            "dependencies": [
+              "task-01",
+              "task-02",
+              "task-03",
+              "task-04"
+            ],
+            "changed_paths": [
+              "bundle/task_05.py"
+            ],
+            "allowed_paths_only": true,
+            "working_tree": "",
+            "check": "python3 -m unittest evaluator.test_task_05 -v",
+            "check_exit": 0,
+            "check_output": "test_behavior (evaluator.test_task_05.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n"
+          }
+        ]
+      },
+      "integrated_checks": {
+        "utc": "2026-09-23T13:25:36.277281+00:00",
+        "commit": "200d7f42b2b2cbedf5618b91dc004a7e45dc56e2",
+        "check": [
+          "python3",
+          "-m",
+          "unittest",
+          "evaluator.test_task_01",
+          "evaluator.test_task_02",
+          "evaluator.test_task_03",
+          "evaluator.test_task_04",
+          "evaluator.test_task_05",
+          "-v"
+        ],
+        "exit": 0,
+        "output": "test_behavior (evaluator.test_task_01.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_02.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_03.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_04.Contract.test_behavior) ... ok\ntest_behavior (evaluator.test_task_05.Contract.test_behavior) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 0.003s\n\nOK\n",
+        "borrowed_head": "338c2c84a76f067a8c058edffbedec5a88bbc418",
+        "borrowed_status": "?? borrowed.keep\n",
+        "sentinel_sha256": "fec20374732bd6fc96ca432da5f6eb859592c57277ecf7c5cdb0b5183c7b9042"
+      },
+      "progress_probe": {
+        "session_id": "01a0ce60-2969-7ac1-8258-701062547df9",
+        "request_received_utc": "2026-09-23T13:11:32.172Z",
+        "response_completed_utc": "2026-09-23T13:11:35.725Z",
+        "latency_seconds": 3.553,
+        "source": "owned Codex CLI rollout item timestamps",
+        "response": {
+          "type": "AgentMessage",
+          "id": "msg_09d71374f98267ac016ab3d005fcf887d299bdbd169642af0e",
+          "content": [
+            {
+              "type": "Text",
+              "text": "Four tasks are canonically accepted and running at the original seed SHA: task-01 through task-04. Four delegated worker sessions are charged against the shared budget; root is the fifth active session, and task-05 is pending its four predecessors. The watcher\u2019s stale wake was caused by launch prompts; the observer reports those prompts are now accepted. No implementation blocker is confirmed yet; I\u2019m reconciling worker status and resuming the watcher checkpoint protocol."
+            }
+          ],
+          "phase": "commentary"
+        }
+      },
+      "observation_count": 114,
+      "observed_delegated_charge_high_water": 4,
+      "observed_pane_high_water": 5,
+      "final_headroom": {
+        "model": "local+api",
+        "accounting_scope": "root-home-and-descendants",
+        "capacity": 5,
+        "in_use": 0,
+        "available": 5,
+        "at_limit": false,
+        "worker_headroom": 2,
+        "workers_in_use": 0,
+        "coordinators_in_use": 0,
+        "unknown_session_use": 0,
+        "local": {
+          "cpu_count": 15.0,
+          "load_one": 4.46,
+          "memory_available_bytes": 5484216320,
+          "available": 20
+        },
+        "api": {
+          "source": "configured-budget",
+          "capacity": 5,
+          "available": 5
+        },
+        "candidates": {
+          "default": {
+            "capacity": 5,
+            "in_use": 0,
+            "available": 5,
+            "window": "configured-budget"
+          }
+        }
+      },
+      "limitations": [
+        "Observed folder/hook approvals and exact endpoint cleanup guidance included in elapsed time.",
+        "Observer final --json --queue-drain combination was a syntax refusal; normal observer headroom snapshot proves zero active delegated admissions.",
+        "No live speedup or 10/20-task scalability claim.",
+        "Root report uses first working status for launch; task journal task.spawned supplies the authoritative runtime launch observation used here."
+      ],
+      "artifacts": {
+        "root-result.md": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-flat-5/root-result.md",
+          "sha256": "5f344814b1abcc80f11e8456ba26d933b5945f91de1f4d7134a3e263fdbf0451"
+        },
+        "observations.jsonl": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-flat-5/observations.jsonl",
+          "sha256": "11d78716d1f5ef3aa0f2a14159fea9ca2c1fb305915fdac4dc48675b1da4c7b3"
+        },
+        "observer-worker-verification.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-flat-5/observer-worker-verification.json",
+          "sha256": "6b08273d4f6026e416a8f3f7edd649a33f0ff4069ae0569a9f63acfe7c2c0eb4"
+        },
+        "observer-integration-verification.json": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-flat-5/observer-integration-verification.json",
+          "sha256": "ecf6876bb32d6619745ac6fc66be819977411e413d4d8314ec4f282fd274ff67"
+        },
+        "root-pane-final.txt": {
+          "path": "/private/tmp/mx-phase12-live-matrix/coupled-flat-5/root-pane-final.txt",
+          "sha256": "3866b239f2c6d79ac2311925312e52a63b7b5f003303dd179205477f75d779fc"
+        }
+      },
+      "wake_metrics": {
+        "method": "nearest-rank; root durable integer-second records; all observer pauses included",
+        "wake_to_disposition": {
+          "samples": 26,
+          "p50_seconds": 212,
+          "p95_seconds": 379,
+          "max_seconds": 379
+        },
+        "wake_to_acknowledgement": {
+          "samples": 26,
+          "p50_seconds": 212,
+          "p95_seconds": 379,
+          "max_seconds": 380
+        },
+        "wake_total": 26,
+        "undisposed": 0,
+        "unacknowledged": 0,
+        "repeated_keys": 0
+      },
+      "elapsed_seconds": 1045.468618,
+      "verified_tasks_per_hour_raw": 17.217159549403135,
+      "task_event_times": [
+        {
+          "task_id": "task-01",
+          "accepted_epoch": 1790168914,
+          "spawned_utc": "2026-09-23T13:09:00Z",
+          "done_utc": "2026-09-23T13:12:23Z",
+          "acceptance_to_spawn_seconds": 26.0,
+          "spawn_to_done_seconds": 203.0
+        },
+        {
+          "task_id": "task-02",
+          "accepted_epoch": 1790168914,
+          "spawned_utc": "2026-09-23T13:09:20Z",
+          "done_utc": "2026-09-23T13:12:00Z",
+          "acceptance_to_spawn_seconds": 46.0,
+          "spawn_to_done_seconds": 160.0
+        },
+        {
+          "task_id": "task-03",
+          "accepted_epoch": 1790168915,
+          "spawned_utc": "2026-09-23T13:10:14Z",
+          "done_utc": "2026-09-23T13:12:07Z",
+          "acceptance_to_spawn_seconds": 99.0,
+          "spawn_to_done_seconds": 113.0
+        },
+        {
+          "task_id": "task-04",
+          "accepted_epoch": 1790168915,
+          "spawned_utc": "2026-09-23T13:10:22Z",
+          "done_utc": "2026-09-23T13:12:19Z",
+          "acceptance_to_spawn_seconds": 107.0,
+          "spawn_to_done_seconds": 117.0
+        },
+        {
+          "task_id": "task-05",
+          "accepted_epoch": 1790169266,
+          "spawned_utc": "2026-09-23T13:17:23Z",
+          "done_utc": "2026-09-23T13:18:28Z",
+          "acceptance_to_spawn_seconds": 177.0,
+          "spawn_to_done_seconds": 65.0
+        }
+      ],
+      "root_usage": {
+        "session_id": "01a0ce60-2969-7ac1-8258-701062547df9",
+        "usage_events": 93,
+        "last_observed_utc": "2026-09-23T13:24:19.772Z",
+        "provider_total_token_usage": {
+          "input_tokens": 7480664,
+          "cached_input_tokens": 7300864,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 39958,
+          "reasoning_output_tokens": 22714,
+          "total_tokens": 7520622
+        },
+        "limits": "Root session only, cumulative provider counters including cached tokens; excludes workers/coordinators/observer. Not billed cost or API call count."
+      },
+      "resource_observations": {
+        "sample_count": 114,
+        "max_load_one": 5.22,
+        "min_available_memory_bytes": 4574003200,
+        "max_workers_charged": 4,
+        "max_coordinators_charged": 0,
+        "limit": "Headroom snapshots, not process CPU utilization or peak physical memory."
+      }
+    },
+    "coupled-hierarchical-5": {
+      "status": "running",
+      "runtime_sha256": "58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9"
+    }
+  },
+  "packaged_viz_browser_interaction": {
+    "measured_utc": "2026-09-23T13:00:16.609403+00:00",
+    "runtime_sha256": "fe4a78d3065ea7b90fc7cbd6b32a535e510919c997c77231f9f1edeb13b74d51",
+    "machine": "macOS 26.6.2 arm64, 15 logical CPUs, 24 GiB; Codex in-app browser",
+    "workload": "Existing canonical-schema fixture: 20 tasks plus three scoped coordinators, synthetic provider snapshot; actual packaged assets and service",
+    "cache": "warm browser and service cache; page reload each sample",
+    "method": "Node REPL wall clock surrounding browser reload, wait for complete 23-record overview, fill Search tasks with Portfolio task 7, wait for filtered 1-record result, and read DOM confirming focused search and one task disclosure. Includes navigation/network/automation overhead and therefore bounds readiness after data arrival. No browser Performance API or injected timers.",
+    "samples_ms": [
+      103,
+      167,
+      163,
+      164,
+      171
+    ],
+    "max_ms": 171,
+    "target_ms": 2000,
+    "passed": true,
+    "limitations": [
+      "Five warm-cache local browser reload samples, not live model throughput.",
+      "Synthetic state is not 20 active worker models.",
+      "No separate physical paint or cold-browser timing claim."
+    ],
+    "assets": {
+      "app.js": "6625bb8e12d52e1a8b9cf62ef00a536a8a51d15ab35aee00ff92f7a8593573e3",
+      "app.css": "93cda4aa6f3c795291c40aad03bf74d0ae3adfce6fe86beabaed75e96f8f8009"
+    }
+  },
+  "unavailable_measurements": [
+    "Human decision/review time and post-merge failures: no human merge simulated.",
+    "Complete provider-wide worker/coordinator token billing: root cumulative counters available separately.",
+    "Scheduler-only runnable-to-start latency: accepted-to-spawn contains model briefing, trust and dispatch delays.",
+    "Live single-task baseline and 10/20-task scalability: superseded by approved reduced scope; no velocity-gain claim."
+  ]
+}

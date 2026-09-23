@@ -150,6 +150,7 @@ Claude's `bin/mx-claude-stop-autoarm.sh` hook fires on every Stop and, when the 
 The existing turn-end guard remains the final backstop for all four harness protocols, cooperating with the auto-arm claim in its `--claude` mode.
 Its `--restart` mode signals only the watcher recorded in the current home's `state/.watch.lock`, so restarting one home cannot kill sibling persistent-sub-agent watchers.
 A pull-based guard (`bin/mx-guard.sh`) warns through supervision tool output if the primary checkout is tangled, or if tasks are in flight and that watcher stops running or queued wakes are waiting to be drained.
+The primary turn-end guard treats only valid completed ordinary task records as terminal; malformed, legacy, persistent, and coordinator records remain supervised.
 The drain script calls that guard after emptying the queue, which avoids repeating the queued-wakes warning for records it just consumed while still warning on stale watcher liveness.
 It leads with a prominent bordered tangle banner, while `multplx-cli::supervision` owns the stale-watcher banner/reminder policy so repeated guarded commands stay noisy without reprinting the full watcher-down banner in the same episode.
 On every verified primary harness, tracked hook integration gives the primary session a push-based backstop: when work is in flight and no identity-matched watcher lock with a fresh beacon is live, direct Stop hooks block and passive turn-end hooks force one bounded follow-up.

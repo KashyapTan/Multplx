@@ -524,3 +524,122 @@ This local elapsed time does not establish the hosted CI speedup.
 The candidate archive is `/private/tmp/mx-phase12-dependency-candidate/package.tar.gz`, SHA-256 `b34b797c682cf241de59885e87e5fd301c2ff3a5f78d260c7347b80d06743bbc`.
 All four selected idle trial homes upgraded to runtime `b0f73a62a2b224d073771bef09d55f1cc41bb17b7c5ff52fed385bdd25e5f57c` before live execution.
 The maintained documentation check now passes 93 surfaces and 511 local links.
+
+## Reviewable PR and hosted coverage timing
+
+[Draft PR 48](https://github.com/KashyapTan/Multplx/pull/48) contains implementation commit `fa8ce5d76d52240ce0b2cafcb8e2724c4442273a`.
+[Hosted CI run 35856986999](https://github.com/KashyapTan/Multplx/actions/runs/35856986999) passes its repository, advisory, Rust, behavior, inventory and coverage jobs on that commit.
+The coverage step runs from 11:53:06 to 12:03:26 UTC on 2026-09-23: 10m20s, compared with 18m28s in recorded main-branch run 35373191925.
+That is 44.0% shorter for this observed hosted run; it is not a repeated same-machine statistical benchmark.
+The complete coverage job, including tool/dependency installation, takes 11m46s versus 19m43s in the baseline.
+Hosted line coverage is 93.05% (72743 included lines, 5057 missed), above the unchanged 93% threshold.
+Exact logs are retained at `/private/tmp/mx-phase12-dependencies-final/hosted-coverage.log`.
+A later narrowly scoped empty-queue admission-reconciliation correction is not included in this commit or CI result and must receive its own checks.
+
+## Reduced live comparison: first results and uncovered defects
+
+The independent flat five-task trial ran from the initial root prompt at 11:47:41.795 UTC to observer shutdown at 12:07:12.564 UTC on 2026-09-23 using the installed `b0f73a62` candidate, Codex CLI 0.156 and GPT-6 Luna medium.
+All five workers produced commits restricted to their assigned modules, passed their task-specific golden checks, supplied current typed delivery evidence and reached canonical completed schedules.
+The observer independently reran all five checks against their exact worker commits; all passed.
+The root integrated the results in three separate managed worktrees and reran the selected checks successfully without conflicts.
+Borrowed repositories stayed at their seed commits with their original `borrowed.keep` sentinels.
+The observer's earlier check snapshot contains generated untracked Python cache directories, so this is not a claim that every retained worktree was pristine at every observation.
+A progress question received a completed root response in 5.579 seconds, measured from the owned Codex rollout timestamps.
+This single response sample does not establish a latency percentile or comparative throughput gain.
+
+Two actual browser viewers displayed the installed dashboard against the live home, distinguished five accepted tasks from initially zero and later five sessions, retained search focus through polling, and displayed the exact completed commit and evidence links without implying a human merge.
+This is functional live UI evidence, separate from synthetic 20-task performance measurements.
+The original records are retained under `/private/tmp/mx-phase12-live-matrix/independent-flat-5`, including `root-result.md`, `observer-worker-verification.json`, `observations.jsonl`, `progress-probe-result.json`, `browser-evidence.md`, and the original prompt and terminal capture.
+Task-02's worker-supplied verification timestamp is later than its actual done event; both are retained, and no latency calculation should substitute that inconsistent self-reported clock for the observed event time.
+The preserved terminal capture establishes that the first spawn at 11:50:42 UTC failed because no brief existed; the root report incorrectly describes that first refusal as a remaining scaffold placeholder.
+
+The trial exposed two cleanup defects after the implementations passed: draining an absent queue skipped inactive admission reconciliation, and retained completed ordinary-task metadata unnecessarily kept turn-end supervision active.
+The root produced its result report, but its final stop hook requested another watcher checkpoint; the observer then stopped the owned fixture.
+This is not evidence of a clean natural final-turn exit.
+Both defects are being corrected with regressions, retaining conservative handling of incomplete or ambiguous state.
+
+The independent hierarchical trial started with one direct worker and three private coordinators sharing the same five-delegate budget.
+A root-triggered queue drain inherited the caller's home and parent environment instead of the queued task's frozen private owner, causing prelaunch failure and conservative uncertain admission reservations.
+All four model turns were interrupted at 12:31:20.846 UTC while that defect is repaired, preserving queued identities, receipts and worktrees.
+The raw observer continues through the pause; this interrupted trial must not be presented as an uninterrupted speed comparison.
+A child outcome survived its coordinator's interrupted model turn and was relayed through the durable private and root channels, but the private watcher had not been established and the observer invoked the mechanical relay explicitly.
+That demonstrates durable model-independent relay commands, not automatic private-watcher recovery.
+The pending repair and remaining reduced trials remain release acceptance work.
+
+The [reduced live results](phase12-live-results.json) retain measured high-water marks, independent check outcomes, source identity, original artifact hashes and explicit unfinished trials.
+For the first flat trial, all 26 durable wake records have dispositions and acknowledgements, with zero repeated wake keys.
+Nearest-rank wake-to-disposition p50/p95 are 44/214 seconds; five acceptance-to-spawn samples have p50/p95 248/249 seconds and include model briefing work, not merely scheduler delay.
+These small-sample observations are recorded without claiming an improvement against an unmeasured live baseline.
+
+
+## Queue ownership and retained-task supervision repairs
+
+Explicit queue drain now reconciles inactive exact execution receipts before returning for an absent queue directory.
+A queued launch uses its frozen owner home/state/configuration and validated parent attempt instead of inherited caller routing; parent validation happens before reserving or marking dispatch.
+A retained prelaunch failure retries the same request only when the recorded launcher has authoritatively exited, queue and receipt identities match, no allocation or endpoint is recorded, and no owner launch action, intent, lock or task metadata exists.
+Existing, unreadable or symlinked launch surfaces and live/unknown owners remain conservative refusals.
+The completed-task supervision predicate excludes only current canonical completed ordinary assignments; malformed, legacy, persistent and coordinator records still require supervision, and pending wakes remain independently visible.
+The Rust and shell supervision projections have corresponding regression coverage.
+
+Focused checks pass: `cargo test -p multplx-backend root_queue_drain -- --nocapture` (two tests), `cargo test -p multplx-backend queue_drain_reconciles_absent_execution_without_a_queue_directory -- --nocapture` (one), `cargo test -p multplx-core only_valid_completed_ordinary_records_stop_requiring_supervision -- --nocapture` (one), and the complete `tests/mx-turnend-guard.test.sh` behavior test.
+Formatting, diff checks and `cargo build --release --workspace --locked` pass.
+The frozen strengthened build has SHA-256 `fe4a78d3065ea7b90fc7cbd6b32a535e510919c997c77231f9f1edeb13b74d51`; full changed-tree validation remains required.
+
+The first recovery build `e42a6c4a69d2cabd38b8f11afad4114dae1f3f0df8ef7ab35b8c8a8cadb1943c` recovered the two original blocked hierarchy requests and launched their workers without editing machine-owned state or replacing attempts.
+The existing installed runtime assets and model sessions were retained with an explicit corrected binary binding; this is mixed-runtime recovery, not a successful installer upgrade of active persistent homes.
+A subsequent strengthened canonical/allocation proof rebuild overlapped this already interrupted diagnostic trial and was frozen before the coupled trials.
+Both untouched coupled homes then upgraded normally to a verified package containing `fe4a78d3`.
+
+The resumed hierarchy's five worker commits pass the observer's independent golden checks with changes restricted to their assigned modules.
+Requested task-04 was implemented under coordinator-created canonical ID `task-04-worker`; the evidence records that mapping rather than pretending all IDs remained identical.
+A second outage test established a private foreground watcher, SIGSTOP-paused only manifest coordinator model PID 43494 at 12:49:31.335 UTC, and observed child done event `report-18d7f42169d61388-35310-0` arrive in the root hop-1 inbox by 12:52:18.338 UTC while the model still had process state `T+`.
+The private watcher relayed automatically; the root model performed ordinary parent-channel CLI passes, including a progress probe, and the observer did not invoke a relay command in this second outage.
+The same coordinator process was then resumed with SIGCONT.
+Original event envelopes, receipts, process identities and timestamps are retained in `independent-hierarchical-5/automatic-outage.json` and `automatic-outage-proof/` under the owned live-fixture directory.
+Inline environment prefixes on the protected root watcher command were correctly refused by its hook; observer guidance was corrected to the bare supported checkpoint command without weakening or bypassing the guard.
+
+The retained first-trial home upgraded to the final queue-fix package with 21 task metadata/journal/evidence files byte-identical.
+An explicit installed queue drain then released all five absent admissions, yielding zero in use and five available.
+The installed primary-scope predicate returned zero, and its actual turn-end guard returned zero with no output for the completed ordinary tasks.
+This post-fix local replay used an owned empty tmux inventory and no model process; it repairs the observed cleanup failure without relabeling the earlier interrupted exit as a clean live pass.
+
+
+## Packaged 20-task overview interaction
+
+The final queue-fix package served its actual Viz assets against the existing canonical-schema 20-task plus three-coordinator synthetic fixture in the Codex in-app browser.
+Five warm-cache browser reload trials timed navigation, waiting for all 23 records, typing a search, waiting for the one-record filtered result and reading the DOM to verify one task disclosure and retained search focus.
+Observed reload-to-successful-interaction times were 103, 167, 163, 164 and 171 ms, all below the 2000 ms target.
+Because this interval starts before navigation and includes data arrival and automation overhead, it conservatively bounds interaction readiness after data arrival for these samples.
+The browser's read-only automation scope did not expose the Performance API, so no separate paint or browser performance-timeline claim is made.
+Cache state, reference machine, fixture boundaries, exact asset hashes and samples are in the reduced-results JSON; `/private/tmp/mx-phase12-viz-final-browser/interactive-timing.json` retains the original observation.
+This actual browser interaction complements the existing cached-API, healthy-refresh and stalled-provider measurements; it is not a 20-live-agent scalability trial.
+
+
+## Bounded relay identities and retained-outcome replay
+
+The hierarchy's final coordinator report exposed a valid message ID whose hop/repair suffix exceeded the internal 64-byte path-component limit.
+The three affected original envelopes remained durable and visible, but delivery could not advance.
+The parent-channel owner now preserves existing derived names through 64 bytes and uses a deterministic digest suffix for longer derived identities, validating the original message ID before deriving a path.
+Its public regression covers the actual retained message shape, exact length boundary, unchanged short names, distinct long identities/hops, malformed Unicode refusal and repeat relay without duplicate wake bytes.
+`cargo test -p multplx-domain lifecycle::parent_channel` passes all 19 tests; formatting, diff checks and the optimized workspace build pass.
+The resulting runtime SHA-256 is `58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9`.
+
+With all hierarchy models stopped, the corrected CLI delivered the three retained outboxes, then consumed their three root inboxes; a third pass relayed zero records.
+Final channel health reports zero pending inbox/outbox records and no last error.
+The replay preserves original event identities and artifacts and requires no machine-state editing or replacement model work.
+The original failed health/envelopes and three exact command results are retained as `relay-length-before.json` and `relay-length-replay.json` in the owned hierarchy fixture.
+Both coupled trial homes upgraded to a package containing this final runtime before model launch.
+
+## Final-runtime coupled flat trial
+
+The `coupled-flat-5` installed-package trial completed all five requested implementations on runtime `58d35754ac0befce02985459e9f26fe322e33c2cd6c71b8469147f081ae732b9`.
+The observer independently reran each exact worker-commit golden check and all five selected checks on integrated commit `200d7f42b2b2cbedf5618b91dc004a7e45dc56e2`; all passed.
+Task-05 was accepted against the verified integrated predecessor commit with all four canonical dependency edges declared.
+The borrowed checkout retained its seed, main branch and sentinel; only the original sentinel remained untracked.
+All five verified worker endpoints were closed through exact targets, and the last normal observation reported zero delegated admissions and five available slots.
+The root answered the under-load progress probe in 3.553 seconds.
+All 26 root wakes were disposed and acknowledged, with zero repeated keys; nearest-rank wake-to-disposition p50/p95 were 212/379 seconds.
+These model-driven handling delays include observer trust approvals and endpoint guidance; they are not scheduler-only latency or a speedup claim.
+The root report uses first working status as its launch approximation, while the retained task journals supply the runtime `task.spawned` times used in the machine-readable results.
+An observer's final attempt to combine `--json --queue-drain` was a CLI syntax refusal; the preceding normal observer snapshot, not that failed command, establishes released capacity.
+Original reports, exact checks, hashes, event times and limitations are linked from [the reduced live results](phase12-live-results.json).

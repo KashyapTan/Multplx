@@ -16,6 +16,7 @@ use multplx_core::identifiers::TaskId;
 use multplx_core::locks::DirectoryLock;
 use multplx_core::process::{ProcessProbe, SystemProcessProbe};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::subagent_model::{Acknowledgement, MessageEnvelope, TaskRecord, read_meta};
 
@@ -226,14 +227,24 @@ fn record_path(directory: &Path, message_id: &str) -> Result<PathBuf, String> {
     Ok(directory.join(format!("{message_id}.json")))
 }
 
-fn inbox_record_path(directory: &Path, outcome: &ParentOutcome) -> Result<PathBuf, String> {
-    let id = format!(
+fn inbox_record_id(outcome: &ParentOutcome) -> Result<String, String> {
+    TaskId::parse(outcome.event.message_id.clone()).map_err(|error| error.to_string())?;
+    let derived = format!(
         "{}-hop-{}-repair-{}",
         outcome.event.message_id,
         outcome.hops.len(),
         outcome.route_repairs.len()
     );
-    record_path(directory, &id)
+    if derived.len() <= 64 {
+        return Ok(derived);
+    }
+    let digest = format!("{:x}", Sha256::digest(derived.as_bytes()));
+    let prefix_bytes = 64 - 1 - 24;
+    Ok(format!("{}-{}", &derived[..prefix_bytes], &digest[..24]))
+}
+
+fn inbox_record_path(directory: &Path, outcome: &ParentOutcome) -> Result<PathBuf, String> {
+    record_path(directory, &inbox_record_id(outcome)?)
 }
 
 fn read_outcome(path: &Path) -> Result<ParentOutcome, String> {
@@ -1397,6 +1408,77 @@ mod tests {
             artifact: Some("result.md".into()),
             acknowledgement: Acknowledgement::Pending,
         }
+    }
+
+    #[test]
+    fn long_derived_inbox_ids_are_stable_bounded_and_relay_public_outcomes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let child = temp.path().join("child");
+        fs::create_dir_all(root.join("state")).unwrap();
+        fs::create_dir_all(child.join("state")).unwrap();
+        let root_identity = root_id(&root);
+        let record = task(
+            "h5co-changelog-01",
+            &child,
+            &root_identity,
+            &root,
+            &root.join("state"),
+            &root,
+        );
+        write_task(&child.join("state"), &record);
+        let long_message = "h5co-changelog-result-attempt-18d7f2422a3ef590-40462-1";
+        let event = envelope(&record, long_message, "done");
+        record_outcome(&child.join("state"), &event).unwrap();
+        let outbox_path = record_path(&outbox(&child.join("state")), long_message).unwrap();
+        let outcome = read_outcome(&outbox_path).unwrap();
+        let derived = inbox_record_id(&outcome).unwrap();
+        assert!(derived.len() <= 64);
+        assert_eq!(derived, inbox_record_id(&outcome).unwrap());
+        let mut distinct = outcome.clone();
+        distinct.event.message_id = format!("{long_message}-retry");
+        assert_ne!(derived, inbox_record_id(&distinct).unwrap());
+        distinct = outcome.clone();
+        distinct.hops.push(HopReceipt {
+            sender_id: "parent".into(),
+            sender_state: "/parent/state".into(),
+            recipient_id: "root".into(),
+            recipient_state: "/root/state".into(),
+            delivered_epoch: 1,
+        });
+        assert_ne!(derived, inbox_record_id(&distinct).unwrap());
+        let mut short = outcome.clone();
+        short.event.message_id = "short-message".into();
+        assert_eq!(
+            inbox_record_id(&short).unwrap(),
+            "short-message-hop-0-repair-0"
+        );
+        short.event.message_id = "x".repeat(49);
+        assert_eq!(inbox_record_id(&short).unwrap().len(), 64);
+        assert_eq!(
+            inbox_record_id(&short).unwrap(),
+            format!("{}-hop-0-repair-0", "x".repeat(49))
+        );
+        short.event.message_id = format!("{}é", "x".repeat(55));
+        assert!(inbox_record_path(&inbox(&root.join("state")), &short).is_err());
+        assert_eq!(
+            inbox_record_path(&inbox(&root.join("state")), &outcome).unwrap(),
+            inbox(&root.join("state")).join(format!("{derived}.json"))
+        );
+        assert_eq!(relay(&child.join("state"), 8).unwrap().pending_outbox, 0);
+        assert_eq!(relay(&root.join("state"), 8).unwrap().pending_inbox, 0);
+        assert_eq!(
+            crate::operational_input::read_message_envelope(&root.join("state"), long_message,)
+                .unwrap(),
+            event
+        );
+        let wake_queue = fs::read_to_string(root.join("state/.wake-queue")).unwrap();
+        assert_eq!(relay(&child.join("state"), 8).unwrap().pending_outbox, 0);
+        assert_eq!(relay(&root.join("state"), 8).unwrap().pending_inbox, 0);
+        assert_eq!(
+            fs::read_to_string(root.join("state/.wake-queue")).unwrap(),
+            wake_queue
+        );
     }
 
     #[test]
