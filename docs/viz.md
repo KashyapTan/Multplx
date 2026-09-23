@@ -114,6 +114,25 @@ MX_PLAYWRIGHT_MODULE="$run_root/playwright/node_modules/playwright/index.mjs" \
 MX_HOME="$home" bin/mx-viz.sh stop
 ```
 
+## Agent hierarchy
+
+Switch to **Agents** to see the main orchestrator, scoped sub-orchestrators and ordinary assignments as a connected graph.
+**Tasks** retains the detailed portfolio, filters, decisions and delivery evidence.
+The graph reads the same bounded canonical projection; it does not start agents, change ownership or issue commands.
+Use the graph search to find an assignment, collapse coordinator branches to reduce clutter, and expand them to inspect descendants.
+Scroll within the graph to explore larger groups; **Show root** returns to the main orchestrator.
+Select an assignment node to inspect its existing task details.
+
+The main orchestrator anchors the hierarchy to the observed Multplx home.
+The snapshot does not report that primary model's session liveness, so its node explicitly says the session is not observed.
+A worker's assignment state is separate from its observed sessions; a queued assignment, completed task or retained home is not presented as a currently running model.
+Opaque native observations do not become invented agent nodes.
+
+Connections use home-qualified task identity and recorded coordinator home ownership.
+Same-named tasks in different homes remain separate.
+Unknown parents, conflicting identities and cycles remain visibly unresolved instead of being attached to a guessed owner.
+A partial or truncated snapshot is labeled; the graph cannot display records the collector did not provide.
+
 ## Read-only and artifact boundary
 
 The HTTP surface accepts only `GET`.

@@ -10,29 +10,29 @@ the watcher-arm PreToolUse seatbelt (`bin/mx-arm-pretool-check.sh`, `docs/arm-pr
 
 ## Purpose and boundary
 
-The primary broker shell persists its working directory across tool calls.
-A stray persistent top-level `cd projects/<clone>` therefore silently relocates the shell, so the next broker-owned command - a backlog write or an `mx-*` lifecycle call - runs inside a project clone instead of the home.
-That has actually happened: a persistent top-level `cd` caused a broker-owned backlog write to execute inside a project clone rather than the home.
+The primary orchestrator shell persists its working directory across tool calls.
+A stray persistent top-level `cd projects/<clone>` therefore silently relocates the shell, so the next orchestrator-owned command - a backlog write or an `mx-*` lifecycle call - runs inside a project clone instead of the home.
+That has actually happened: a persistent top-level `cd` caused an orchestrator-owned backlog write to execute inside a project clone rather than the home.
 The seatbelt denies exactly that command shape - a cwd change that persists to the primary shell - before it runs.
 
 This guard is not a general sandbox.
 It classifies shell command positions only; it never evaluates, expands, sources, or runs any byte of the submitted command.
 Its threat model is agent mistakes, the same as the watcher-arm seatbelt: an accidental bare `cd projects/foo`, not a deliberately obfuscated bypass.
 
-## Scope: plain broker checkouts only
+## Scope: plain orchestrator checkouts only
 
 The guard fires only in a plain Multplx checkout where git-dir equals git-common-dir.
-It is a silent no-op (exit 0, no output) everywhere else, so it never interferes with an actor or scout that legitimately works inside its own project or broker task worktree.
+It is a silent no-op (exit 0, no output) everywhere else, so it never interferes with a sub-agent that legitimately works inside its own project or task worktree.
 
 `multplx-domain::supervision` owns checkout detection behind `bin/mx-cd-pretool-check.sh`; the turn-end guard's marker-aware scope is a separate contract (`docs/turnend-guard.md`).
 A plain, non-worktree checkout has `git rev-parse --git-dir` equal to `git rev-parse --git-common-dir`.
-an actor or scout task worktree - the shape `bin/mx-spawn.sh` always hands out - is a linked git worktree where the two differ, so the guard is inert there.
+a sub-agent task worktree - the shape `bin/mx-spawn.sh` always hands out - is a linked git worktree where the two differ, so the guard is inert there.
 The checkout must also carry `AGENTS.md` and `bin/`, and any failure to confirm the primary is treated as inert, never as a block.
 The guard recognizes the exact operational root `AGENTS.md` filename.
 
 The cd-guard does not inspect `.mx-daemon-home`.
-It therefore applies in a git-cloned daemon home where git-dir equals git-common-dir, but remains inert in a Git-worktree-backed persistent home that is itself a linked worktree.
-Daemon child actors and scout worktrees are likewise inert under the linked-worktree test.
+It therefore applies in a git-cloned persistent-sub-agent home where git-dir equals git-common-dir, but remains inert in a Git-worktree-backed persistent home that is itself a linked worktree.
+Persistent sub-agents' child worktrees are likewise inert under the linked-worktree test.
 
 ## Block vs allow
 
@@ -120,7 +120,7 @@ Each harness runs the cd-guard alongside the watcher-arm seatbelt; the two are i
 
 `tests/mx-cd-pretool-check.test.sh` owns the acceptance matrix.
 Every block and allow case runs through Codex-shaped stdin, Claude-shaped stdin, and Pi-shaped CLI entry forms.
-The suite also proves the end-to-end cwd-leak regression (a broker-owned backlog write leaking into a project clone, then denied at the exact command), the checkout scoping (fires in a git-cloned daemon fixture, inert in an actor/scout linked worktree, inert outside a Multplx checkout, inert outside a git repo), the fail-open transport behavior, the prefilter fast path, the policy CLI output contract, and the per-harness wiring.
+The suite also proves the end-to-end cwd-leak regression (an orchestrator-owned backlog write leaking into a project clone, then denied at the exact command), the checkout scoping (fires in a git-cloned persistent-sub-agent fixture, inert in a sub-agent linked worktree, inert outside a Multplx checkout, inert outside a git repo), the fail-open transport behavior, the prefilter fast path, the policy CLI output contract, and the per-harness wiring.
 
 Run:
 

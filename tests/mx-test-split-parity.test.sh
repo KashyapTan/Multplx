@@ -55,10 +55,10 @@ for split in doc["splits"]:
     assert set(mapped) == set(definitions)
     assert collections.Counter(current_assertions) == collections.Counter(baseline_assertions)
     expected_total += split["case_count"]
-assert expected_total == 142
+assert expected_total == 143
 PY
 
-pass "all 142 maintained split cases and named assertions map exactly once with explicit contract changes"
+pass "all 143 maintained split cases and named assertions map exactly once with explicit contract changes"
 
 tmp=
 mx_test_tmproot_into tmp mx-test-helper-contract

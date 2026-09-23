@@ -209,13 +209,13 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Move queued backlog work into a seeded daemon home.
+    /// Move queued backlog work into a seeded persistent sub-agent home.
     BacklogHandoff {
         daemon_id: String,
         #[arg(required = true)]
         item_keys: Vec<String>,
     },
-    /// Resolve a project's delivery mode and yolo posture.
+    /// Resolve a project's legacy publication-mode and yolo compatibility settings.
     ProjectMode { project_name: String },
     /// Construct and classify operational-input protocol messages.
     #[command(disable_help_flag = true)]
@@ -238,7 +238,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Push inherited local material to live daemon homes.
+    /// Push inherited local material to live persistent sub-agent homes.
     #[command(disable_help_flag = true)]
     ConfigPush {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -253,7 +253,7 @@ enum Command {
     /// Safely refresh one or all registered project checkouts.
     #[command(hide = true)]
     SystemSync { project: Option<PathBuf> },
-    /// Fast-forward the broker and daemon homes from origin.
+    /// Fast-forward the primary orchestrator and persistent sub-agent homes from origin.
     #[command(hide = true)]
     Update,
     /// Scaffold a sub-agent assignment or persistent coordinator charter.
@@ -268,13 +268,13 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Append an optional correlated daemon report to its parent status path.
+    /// Append an optional correlated persistent sub-agent report to its parent status path.
     #[command(hide = true, disable_help_flag = true)]
     DaemonReport {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Provision and validate persistent daemon homes.
+    /// Provision and validate persistent sub-agent homes.
     #[command(hide = true, disable_help_flag = true)]
     HomeSeed {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -298,13 +298,13 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Safely retire one task or daemon home.
+    /// Safely retire one task or persistent sub-agent home.
     #[command(hide = true, disable_help_flag = true)]
     Teardown {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Compare the local broker with its configured upstream.
+    /// Compare the local primary orchestrator with its configured upstream.
     #[command(hide = true, disable_help_flag = true)]
     UpstreamDiff {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -1195,7 +1195,7 @@ fn wake_handler_owner<P: multplx_core::process::ProcessProbe>(
     state: &Path,
     processes: &P,
 ) -> Result<(multplx_core::process::ProcessIdentity, bool), String> {
-    use multplx_core::session_lock::{harness_ancestry_pid, harness_regex};
+    use multplx_core::session_lock::{harness_ancestry_pid, harness_pid_alive, harness_regex};
 
     let lock = state.join(".lock");
     if fs::symlink_metadata(&lock).is_ok_and(|metadata| metadata.is_file()) {
@@ -1204,11 +1204,16 @@ fn wake_handler_owner<P: multplx_core::process::ProcessProbe>(
             .trim()
             .parse::<u32>()
             .map_err(|_| format!("invalid session owner in {}", lock.display()))?;
-        if !processes.is_alive(pid) {
-            return Err(format!("session owner PID {pid} is not active"));
+        let matcher = harness_regex();
+        if !harness_pid_alive(pid, processes, &matcher) {
+            return Err(format!(
+                "session owner PID {pid} does not identify an active verified orchestrator session"
+            ));
         }
-        let caller = harness_ancestry_pid(std::process::id(), processes, &harness_regex())
-            .map_err(|_| "caller does not belong to a verified orchestrator session".to_owned())?;
+        let caller =
+            harness_ancestry_pid(std::process::id(), processes, &matcher).map_err(|error| {
+                format!("caller does not belong to a verified orchestrator session: {error}")
+            })?;
         if caller != pid {
             return Err(format!(
                 "caller belongs to harness PID {caller}, but this home is owned by PID {pid}"
@@ -2449,9 +2454,20 @@ fn admission_record(
             .schedule
             .dependencies
             .iter()
-            .map(|task_id| multplx_backend::headroom::Dependency {
-                task_id: task_id.clone(),
-                owner_state: PathBuf::from(binding.owner_state.as_deref().unwrap_or_default()),
+            .map(|task_id| {
+                if let Some((owner_home, task)) = task_id.split_once("#task:") {
+                    multplx_backend::headroom::Dependency {
+                        task_id: task.to_owned(),
+                        owner_state: PathBuf::from(owner_home).join("state"),
+                    }
+                } else {
+                    multplx_backend::headroom::Dependency {
+                        task_id: task_id.clone(),
+                        owner_state: PathBuf::from(
+                            binding.owner_state.as_deref().unwrap_or_default(),
+                        ),
+                    }
+                }
             })
             .collect(),
         resources,
@@ -2725,6 +2741,42 @@ fn launch_path_word(path: &Path) -> Result<String, String> {
         .ok_or_else(|| format!("launch path is not valid UTF-8: {}", path.display()))
 }
 
+fn worker_runtime_binary() -> Result<PathBuf, String> {
+    let binary = std::env::var_os("MX_RUST_BIN")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("MX_LAUNCH_BIN_PATH").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .map_or_else(std::env::current_exe, Ok)
+        .map_err(|error| format!("cannot resolve worker runtime binary: {error}"))?;
+    if !binary.is_absolute() {
+        return Err("worker runtime binary is not absolute".to_owned());
+    }
+    Ok(binary)
+}
+
+fn worker_harness_word(harness: &str) -> Result<String, String> {
+    let (variable, fallback) = match harness {
+        "claude" => ("MX_REAL_CLAUDE", "claude"),
+        "codex" => ("MX_REAL_CODEX", "codex"),
+        "cursor" => ("MX_REAL_CURSOR_AGENT", "agent"),
+        "pi" => ("MX_REAL_PI", "pi"),
+        _ => return Err(format!("unknown harness '{harness}'")),
+    };
+    if let Some(value) = std::env::var_os(variable).filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(value);
+        if !path.is_absolute() {
+            return Err(format!("{variable} is not an absolute executable path"));
+        }
+        return launch_path_word(&path);
+    }
+    if std::env::var_os("MX_SHIM_DIR").is_some() {
+        return Err(format!(
+            "{variable} is missing while the primary harness shim path is active"
+        ));
+    }
+    Ok(fallback.to_owned())
+}
+
 fn write_tmux_launch_script(task_tmp: &Path, launch: &str) -> Result<String, String> {
     let path = task_tmp.join("launch.sh");
     let script = format!("#!/bin/sh\n{launch}\n");
@@ -2870,6 +2922,23 @@ fn launch_environment_block(
             .to_str()
             .ok_or_else(|| "launch PATH is not valid UTF-8".to_owned())?;
         environment.push(launch_environment("PATH", path));
+    }
+    Ok(environment.join(" "))
+}
+
+fn private_home_environment(home: &Path, runtime_root: &Path) -> Result<String, String> {
+    let mut environment = Vec::with_capacity(5);
+    for (name, path) in [
+        ("MX_ROOT_OVERRIDE", runtime_root.to_owned()),
+        ("MX_STATE_OVERRIDE", home.join("state")),
+        ("MX_DATA_OVERRIDE", home.join("data")),
+        ("MX_PROJECTS_OVERRIDE", home.join("projects")),
+        ("MX_CONFIG_OVERRIDE", home.join("config")),
+    ] {
+        let value = path
+            .to_str()
+            .ok_or_else(|| format!("launch path is not valid UTF-8: {}", path.display()))?;
+        environment.push(launch_environment(name, value));
     }
     Ok(environment.join(" "))
 }
@@ -3594,7 +3663,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     let mut recovered_preallocation = false;
     let mut recovered_failed_action = false;
     if !starts_new_attempt {
-        let prior_action = match multplx_domain::lifecycle::spawn::read_action(
+        let mut prior_action = match multplx_domain::lifecycle::spawn::read_action(
             &context,
             &admission_record.request_id,
         ) {
@@ -3604,6 +3673,47 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 return 1;
             }
         };
+        // The task lifecycle lock acquired for this run keeps the absence
+        // observation and receipt transition exclusive with another launch of
+        // the same task.
+        if let Some(action) = prior_action.as_ref()
+            && matches!(
+                action.stage,
+                multplx_domain::lifecycle::spawn::LaunchStage::EndpointCreated
+                    | multplx_domain::lifecycle::spawn::LaunchStage::MetadataPublished
+            )
+            && let Some(endpoint) = action.endpoint.as_deref()
+            && multplx_backend::facade::observe_endpoint(
+                &action.backend,
+                endpoint,
+                Some(format!("mx-{}", action.task_id)),
+                false,
+            )
+            .is_ok_and(|observation| !observation.exists)
+        {
+            if let Err(error) =
+                multplx_domain::lifecycle::spawn::reconcile_interrupted_action_after_absence(
+                    &context,
+                    &admission_record.request_id,
+                    endpoint,
+                    &mut request,
+                    "recorded launch endpoint is absent; exact allocation retained for retry",
+                )
+            {
+                eprintln!("error: {error}");
+                return 1;
+            }
+            prior_action = match multplx_domain::lifecycle::spawn::read_action(
+                &context,
+                &admission_record.request_id,
+            ) {
+                Ok(action) => action,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    return 1;
+                }
+            };
+        }
         if prior_action.as_ref().is_some_and(|action| {
             action.stage == multplx_domain::lifecycle::spawn::LaunchStage::Failed
         }) {
@@ -3613,6 +3723,23 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 &mut request,
             ) {
                 eprintln!("error: {error}");
+                return 1;
+            }
+            let binding = request.binding.as_ref().expect("recovered binding");
+            let attempt = binding.attempt.as_ref().expect("validated attempt");
+            let owner_state = binding
+                .owner_state
+                .as_deref()
+                .expect("validated owner state");
+            if let Err(error) = multplx_backend::headroom::admission_retryable(
+                &admission_paths,
+                &admission_record.request_id,
+                &request.id,
+                Path::new(owner_state),
+                &attempt.id,
+                "recorded launch endpoint absence verified; exact allocation retained for retry",
+            ) {
+                eprintln!("error: dispatch admission reconciliation failed: {error}");
                 return 1;
             }
             recovered_failed_action = true;
@@ -4328,7 +4455,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 serde_json::to_string(&serde_json::json!({
                     "name": format!("multplx-turnend-{}", request.id),
                     "version": "1.0.0",
-                    "description": "Private Multplx actor turn-end signal.",
+                    "description": "Private Multplx sub-agent turn-end signal.",
                     "hooks": "./hooks/hooks.json"
                 }))
                 .map_err(|error_value| error_value.to_string())?
@@ -4396,7 +4523,8 @@ fn run_spawn(args: &[OsString]) -> i32 {
         } else {
             logical_home.clone()
         };
-        let mcp_json = serde_json::json!({"mcpServers":{"multplx_status":{"type":"stdio","command":report_server,"args":[],"env":{"MX_TASK_ID":request.id,"MX_HOME":report_home,"MX_REPORT_STATE_OVERRIDE":context.state,"MX_ATTEMPT_ID":attempt.id,"MX_ATTEMPT_GENERATION":attempt.generation.to_string(),"MX_BRIEF_REVISION":attempt.brief_revision.to_string()}}}});
+        let runtime_binary = worker_runtime_binary()?;
+        let mcp_json = serde_json::json!({"mcpServers":{"multplx_status":{"type":"stdio","command":report_server,"args":[],"env":{"MX_TASK_ID":request.id,"MX_HOME":report_home,"MX_REPORT_STATE_OVERRIDE":context.state,"MX_ATTEMPT_ID":attempt.id,"MX_ATTEMPT_GENERATION":attempt.generation.to_string(),"MX_BRIEF_REVISION":attempt.brief_revision.to_string(),"MX_RUST_SOURCE_ROOT":source_root,"MX_RUST_BIN":&runtime_binary,"MX_LAUNCH_BIN_PATH":&runtime_binary,"MX_MULTICALL_EXPLICIT":"1"}}}});
         multplx_core::filesystem::atomic_replace(
             &mcp_config,
             serde_json::to_string(&mcp_json)
@@ -4415,22 +4543,47 @@ fn run_spawn(args: &[OsString]) -> i32 {
         let state_text = path_text(&context.state)?;
         let home_text = path_text(&request.home)?;
         let root_home_text = path_text(&admission_record.root_home)?;
+        let runtime_binary_word = launch_path_word(&runtime_binary)?;
+        let harness_word = worker_harness_word(&request.harness)?;
+        let worker_bridge_environment = [
+            "MX_SHIM_DIR",
+            "MX_REAL_CLAUDE",
+            "MX_REAL_CODEX",
+            "MX_REAL_CURSOR_AGENT",
+            "MX_REAL_PI",
+        ]
+        .into_iter()
+        .filter_map(|name| {
+            std::env::var(name)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .map(|value| launch_environment(name, &value))
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
         let brief_command = format!(
-            "\"$({} encode launch-brief < {})\"",
-            launch_path_word(&source_root.join("bin/mx-operational-input.sh"))?,
+            "\"$(MX_MULTICALL_EXPLICIT=1 {runtime_binary_word} operational-input encode launch-brief < {})\"",
             launch_path_word(&brief)?
         );
         let launch_path = std::env::var_os("PATH");
-        let common_environment = format!(
-            "{} {} {} {} {} {} {}",
+        let mut common_environment = format!(
+            "{} {} {} {} {} {} {} {} {} {} {}",
             launch_environment_block(&home_text, &request.id, &state_text, launch_path.as_deref())?,
             launch_environment("MX_ATTEMPT_ID", &attempt.id),
             launch_environment("MX_ATTEMPT_GENERATION", &attempt.generation.to_string()),
             launch_environment("MX_BRIEF_REVISION", &attempt.brief_revision.to_string()),
             launch_environment("MX_ROOT_HOME", &root_home_text),
             launch_environment("MX_CURRENT_ADMISSION_ID", &admission_record.request_id),
-            launch_environment("MX_RUST_SOURCE_ROOT", &path_text(&source_root)?)
+            launch_environment("MX_RUST_SOURCE_ROOT", &path_text(&source_root)?),
+            launch_environment("MX_RUST_BIN", &path_text(&runtime_binary)?),
+            launch_environment("MX_LAUNCH_BIN_PATH", &path_text(&runtime_binary)?),
+            launch_environment("MX_MULTICALL_EXPLICIT", "1"),
+            worker_bridge_environment
         );
+        if request.private_home {
+            common_environment.push(' ');
+            common_environment.push_str(&private_home_environment(&request.home, &source_root)?);
+        }
         let model = if request.model == "default" {
             String::new()
         } else {
@@ -4452,7 +4605,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             format!("-c {} ", launch_shell_word(&value))
         };
         let codex_mcp_value = format!(
-            "mcp_servers.multplx_status={{command={},args=[],env={{MX_TASK_ID={},MX_HOME={},MX_REPORT_STATE_OVERRIDE={},MX_ATTEMPT_ID={},MX_ATTEMPT_GENERATION={},MX_BRIEF_REVISION={}}}}}",
+            "mcp_servers.multplx_status={{command={},args=[],env={{MX_TASK_ID={},MX_HOME={},MX_REPORT_STATE_OVERRIDE={},MX_ATTEMPT_ID={},MX_ATTEMPT_GENERATION={},MX_BRIEF_REVISION={},MX_RUST_SOURCE_ROOT={},MX_RUST_BIN={},MX_LAUNCH_BIN_PATH={},MX_MULTICALL_EXPLICIT=\"1\"}}}}",
             serde_json::to_string(&report_server_text)
                 .map_err(|error_value| error_value.to_string())?,
             serde_json::to_string(&request.id).map_err(|error_value| error_value.to_string())?,
@@ -4463,6 +4616,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
             serde_json::to_string(&attempt.generation.to_string())
                 .map_err(|error| error.to_string())?,
             serde_json::to_string(&attempt.brief_revision.to_string())
+                .map_err(|error| error.to_string())?,
+            serde_json::to_string(&path_text(&source_root)?).map_err(|error| error.to_string())?,
+            serde_json::to_string(&path_text(&runtime_binary)?)
+                .map_err(|error| error.to_string())?,
+            serde_json::to_string(&path_text(&runtime_binary)?)
                 .map_err(|error| error.to_string())?
         );
         let codex_mcp = format!("-c {} ", launch_shell_word(&codex_mcp_value));
@@ -4492,15 +4650,15 @@ fn run_spawn(args: &[OsString]) -> i32 {
         );
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "{common_environment} codex {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
+                "{common_environment} {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
-                "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",
+                "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false {harness_word} --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",
                 launch_path_word(&mcp_config)?,
                 launch_path_word(&claude_observer_settings)?
             ),
             "pi" => format!(
-                "{common_environment} pi {model}{}{}-e {} -e {} {brief_command}",
+                "{common_environment} {harness_word} {model}{}{}-e {} -e {} {brief_command}",
                 if request.effort != "default" {
                     format!("--thinking {} ", launch_shell_word(&request.effort))
                 } else {
@@ -4539,18 +4697,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     )
                 };
                 format!(
-                    "{common_environment} agent --sandbox enabled --trust --plugin-dir {} {cursor_model}{brief_command}",
+                    "{common_environment} {harness_word} --sandbox enabled --trust --plugin-dir {} {cursor_model}{brief_command}",
                     launch_path_word(&cursor_plugin)?
                 )
             }
             other => return Err(format!("unknown harness '{other}'")),
-        };
-        let launch = if request.private_home {
-            format!(
-                "MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE= MX_CONFIG_OVERRIDE= {launch}"
-            )
-        } else {
-            launch
         };
         let tmux_launch = if target.backend() == BackendName::Tmux {
             write_tmux_launch_script(&task_tmp, &launch)?
@@ -7541,7 +7692,7 @@ fn run_config_inherit(args: &[OsString]) -> i32 {
     }
 }
 
-const CONFIG_PUSH_USAGE: &str = "Usage: mx-config-push.sh [--help]\n\nPush the primary Multplx home's declared inherited local material into each\nlive daemon home.\n\nThis is local-material-only:\n  - does not fast-forward tracked files\n  - after successful config/* changes, writes a generation-specific\n    literal-content reread instruction and sends its pointer to that live daemon\n    (no message when config is unchanged unless a previous send failure is pending)\n  - reports each live home and each inheritable item as pushed, unchanged,\n    skipped, or error\n  - exits non-zero for real propagation errors or reread-send failures\n\nLive homes come from state/*.meta records with kind=daemon.\ndata/daemons.md is only a fallback for missing home= fields in older or\nincomplete meta records.\n\nEnvironment overrides follow the rest of broker:\n  MX_HOME            active Multplx home\n  MX_ROOT_OVERRIDE  Multplx repo root\n  MX_STATE_OVERRIDE state dir\n  MX_DATA_OVERRIDE  data dir\n  MX_CONFIG_OVERRIDE config dir\n";
+const CONFIG_PUSH_USAGE: &str = "Usage: mx-config-push.sh [--help]\n\nPush the primary Multplx home's declared inherited local material into each\nlive persistent sub-agent home.\n\nThis is local-material-only:\n  - does not fast-forward tracked files\n  - after successful config/* changes, writes a generation-specific\n    literal-content reread instruction and sends its pointer to that live persistent sub-agent\n    (no message when config is unchanged unless a previous send failure is pending)\n  - reports each live home and each inheritable item as pushed, unchanged,\n    skipped, or error\n  - exits non-zero for real propagation errors or reread-send failures\n\nLive homes come from state/*.meta records with the legacy kind=daemon projection.\nThe legacy data/daemons.md registry is only a fallback for missing home= fields in older or\nincomplete meta records.\n\nEnvironment overrides follow the rest of the orchestrator runtime:\n  MX_HOME            active Multplx home\n  MX_ROOT_OVERRIDE  Multplx repo root\n  MX_STATE_OVERRIDE state dir\n  MX_DATA_OVERRIDE  data dir\n  MX_CONFIG_OVERRIDE config dir\n";
 
 fn last_field(text: &str, key: &str) -> String {
     text.lines()
@@ -7625,10 +7776,13 @@ fn run_config_push(args: &[OsString]) -> i32 {
         .unwrap_or_else(|| home.join("config"));
     let records = live_daemons(&state, &data.join("daemons.md"));
     if records.is_empty() {
-        println!("config-push: no live daemon homes found");
+        println!("config-push: no live persistent sub-agent homes found");
         return 0;
     }
-    println!("config-push: {} -> live daemon homes", home.display());
+    println!(
+        "config-push: {} -> live persistent sub-agent homes",
+        home.display()
+    );
     let mut seen = std::collections::BTreeSet::new();
     let mut failed = false;
     for (id, raw_home, metadata) in records {
@@ -8177,6 +8331,16 @@ mod tests {
         assert_eq!(
             configured_spawn_backend(config.path()).as_deref(),
             Some("herdr")
+        );
+    }
+
+    #[test]
+    fn private_home_environment_rebinds_parent_overrides_to_the_private_context() {
+        let home = Path::new("/private/coordinator home");
+        let runtime = Path::new("/Applications/Multplx/runtime");
+        assert_eq!(
+            private_home_environment(home, runtime).expect("private home environment"),
+            "MX_ROOT_OVERRIDE='/Applications/Multplx/runtime' MX_STATE_OVERRIDE='/private/coordinator home/state' MX_DATA_OVERRIDE='/private/coordinator home/data' MX_PROJECTS_OVERRIDE='/private/coordinator home/projects' MX_CONFIG_OVERRIDE='/private/coordinator home/config'"
         );
     }
 

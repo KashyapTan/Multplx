@@ -5,6 +5,22 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use multplx_domain::lifecycle::subagent_model::{TaskRecord, read_meta};
+
+fn run(command: &mut Command) -> Output {
+    command.output().expect("run command")
+}
+
+fn success(command: &mut Command) -> Output {
+    let output = command.output().expect("run command");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
 struct Fixture {
     _temp: tempfile::TempDir,
     home: PathBuf,
@@ -137,6 +153,447 @@ impl Fixture {
             1
         );
     }
+}
+
+fn install_fake_cmux(f: &Fixture) -> PathBuf {
+    let cmux = f.fake.join("cmux");
+    fs::write(
+        &cmux,
+        r#"#!/bin/sh
+set -eu
+case "$1" in
+  version) echo 'cmux 0.64.17 (97) [abcdef1]' ;;
+  ping) echo PONG ;;
+  workspace)
+    if [ -f "$MX_CMUX_FIXTURE/titles" ]; then
+      title=$(tail -n 1 "$MX_CMUX_FIXTURE/titles")
+      printf '{"workspaces":[{"id":"11111111-1111-4111-8111-111111111111","title":"%s"}]}' "$title"
+    else echo '{"workspaces":[]}'; fi ;;
+  new-workspace)
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --name) shift; printf '%s\n' "$1" >> "$MX_CMUX_FIXTURE/titles" ;;
+        --cwd) shift; printf '%s\n' "$1" >> "$MX_CMUX_FIXTURE/cwds" ;;
+      esac
+      shift
+    done ;;
+  list-panes) echo '{"panes":[{"selected_surface_id":"22222222-2222-4222-8222-222222222222","surface_ids":["22222222-2222-4222-8222-222222222222"]}]}' ;;
+  send|send-key) printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent" ;;
+  close-workspace) rm -f "$MX_CMUX_FIXTURE/title" ;;
+  *) echo "unexpected cmux request: $*" >&2; exit 99 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&cmux, fs::Permissions::from_mode(0o755)).unwrap();
+    cmux
+}
+
+fn evidence_request(record: &TaskRecord, commit: &str, evidence_id: &str) -> serde_json::Value {
+    let attempt = record.attempt.as_ref().unwrap();
+    serde_json::json!({
+        "evidence_id": evidence_id,
+        "attempt_id": attempt.id,
+        "attempt_generation": attempt.generation,
+        "brief_revision": record.accepted_brief_revision,
+        "commit": commit,
+        "checks": [],
+        "review": null,
+        "limitations": [],
+        "pr_url": null,
+        "outcome": "evidence-updated",
+        "observed_at": "2026-09-23T12:00:00Z",
+        "mark_current": true,
+        "expected_current_commit": record.delivery.current_commit,
+    })
+}
+
+fn write_evidence(f: &Fixture, record: &TaskRecord, commit: &str, evidence_id: &str) -> PathBuf {
+    let path = f.home.join(format!("{evidence_id}.json"));
+    fs::write(
+        &path,
+        serde_json::to_vec(&evidence_request(record, commit, evidence_id)).unwrap(),
+    )
+    .unwrap();
+    path
+}
+
+fn report_done(f: &Fixture, record: &TaskRecord, commit: &str, revision: u64) -> Output {
+    let attempt = record.attempt.as_ref().unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mx"));
+    command
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", f.home.join("state"))
+        .env("MX_REPORT_STATE_OVERRIDE", f.home.join("state"))
+        .env("MX_TASK_ID", "task")
+        .env("MX_ATTEMPT_ID", &attempt.id)
+        .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+        .env("MX_BRIEF_REVISION", revision.to_string())
+        .env("MX_NUDGE", "0")
+        .args([
+            "supervision",
+            "mx-report",
+            "--id",
+            "task",
+            "--state",
+            "done",
+            "--message",
+            commit,
+        ]);
+    command.output().unwrap()
+}
+
+fn report_working(f: &Fixture, record: &TaskRecord, revision: u64) -> Output {
+    let attempt = record.attempt.as_ref().unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mx"));
+    command
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", f.home.join("state"))
+        .env("MX_REPORT_STATE_OVERRIDE", f.home.join("state"))
+        .env("MX_TASK_ID", "task")
+        .env("MX_ATTEMPT_ID", &attempt.id)
+        .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+        .env("MX_BRIEF_REVISION", revision.to_string())
+        .env("MX_NUDGE", "0")
+        .args([
+            "supervision",
+            "mx-report",
+            "--id",
+            "task",
+            "--state",
+            "working",
+            "--message",
+            "continuing implementation",
+        ]);
+    command.output().unwrap()
+}
+
+#[test]
+fn routed_dependencies_wait_for_current_completion_and_preserve_the_accepted_start() {
+    let f = Fixture::new();
+    let cmux = install_fake_cmux(&f);
+    fs::create_dir_all(f.home.join("data/task")).unwrap();
+    fs::write(f.home.join("data/task/brief.md"), "Predecessor\n").unwrap();
+    let predecessor_spawn = cmux_spawn(&f, "task", None, &cmux).output().unwrap();
+    assert!(
+        predecessor_spawn.status.success(),
+        "{}",
+        String::from_utf8_lossy(&predecessor_spawn.stderr)
+    );
+    let state = f.home.join("state");
+    let predecessor = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        predecessor.schedule.state,
+        multplx_domain::lifecycle::subagent_model::WorkState::Running
+    );
+
+    let base = f.git(&["rev-parse", "HEAD"]);
+    fs::create_dir_all(f.home.join("data/dependent")).unwrap();
+    fs::write(f.home.join("data/dependent/brief.md"), "Dependent\n").unwrap();
+    let mut intake = Command::new(env!("CARGO_BIN_EXE_mx"));
+    intake
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", &state)
+        .env("MX_DATA_OVERRIDE", f.home.join("data"))
+        .args([
+            "task",
+            "--project",
+            f.project.to_str().unwrap(),
+            "--request-id",
+            "request-dependent",
+            "--task-id",
+            "dependent",
+            "--start",
+            &base,
+            "--depends",
+            "task",
+            "Dependent work",
+        ]);
+    let accepted: serde_json::Value = serde_json::from_slice(&success(&mut intake).stdout).unwrap();
+    assert_eq!(
+        accepted["request"]["dependencies"],
+        serde_json::json!(["task"])
+    );
+
+    fs::write(f.project.join("later.txt"), "after intake\n").unwrap();
+    f.git(&["add", "later.txt"]);
+    f.git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "after intake",
+    ]);
+
+    let queued = cmux_spawn(&f, "dependent", Some("request-dependent"), &cmux)
+        .output()
+        .unwrap();
+    assert!(
+        queued.status.success(),
+        "{}",
+        String::from_utf8_lossy(&queued.stderr)
+    );
+    assert!(String::from_utf8_lossy(&queued.stdout).contains("queued:"));
+    assert_eq!(
+        fs::read_to_string(f.fake.join("cwds"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+
+    let predecessor = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    let allocation = predecessor.allocation.as_ref().unwrap();
+    let commit = Command::new("git")
+        .arg("-C")
+        .arg(&allocation.path)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    let commit = String::from_utf8(commit.stdout).unwrap().trim().to_owned();
+    let unproven_done = report_done(&f, &predecessor, &commit, 1);
+    assert!(unproven_done.status.success());
+    assert!(
+        String::from_utf8_lossy(&unproven_done.stderr)
+            .contains("implementation completion was not proven")
+    );
+    let still_running = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        still_running.schedule.state,
+        multplx_domain::lifecycle::subagent_model::WorkState::Running
+    );
+    let evidence = write_evidence(&f, &predecessor, &commit, "evidence-one");
+    let recorded = run(Command::new(env!("CARGO_BIN_EXE_mx"))
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", &state)
+        .args(["task-model", "evidence", "task", "--request-file"])
+        .arg(&evidence));
+    assert!(
+        recorded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let completed = report_done(&f, &predecessor, &commit, 1);
+    assert!(
+        completed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&completed.stderr)
+    );
+    let completed_record = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        completed_record.schedule.state,
+        multplx_domain::lifecycle::subagent_model::WorkState::Completed
+    );
+    let renewed = report_working(&f, &completed_record, 1);
+    assert!(renewed.status.success());
+    let reopened = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        reopened.schedule.state,
+        multplx_domain::lifecycle::subagent_model::WorkState::Running
+    );
+
+    let revised = run(Command::new(env!("CARGO_BIN_EXE_mx"))
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", &state)
+        .args([
+            "task-model",
+            "revise",
+            "task",
+            "--expected-revision",
+            "1",
+            "--scope",
+            "Updated predecessor",
+            "--reason",
+            "revision fence",
+        ]));
+    assert!(
+        revised.status.success(),
+        "{}",
+        String::from_utf8_lossy(&revised.stderr)
+    );
+    let stale = report_done(&f, &completed_record, &commit, 1);
+    assert!(
+        !stale.status.success(),
+        "stale completion unexpectedly succeeded"
+    );
+    let reopened = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        reopened.schedule.state,
+        multplx_domain::lifecycle::subagent_model::WorkState::Runnable
+    );
+
+    let runner = f.home.join("spawn-queued.sh");
+    fs::write(
+        &runner,
+        format!(
+            "#!/bin/sh\nexec '{}' spawn \"$@\" --backend cmux\n",
+            env!("CARGO_BIN_EXE_mx")
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&runner, fs::Permissions::from_mode(0o700)).unwrap();
+    let pending = run(Command::new(env!("CARGO_BIN_EXE_mx"))
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", &state)
+        .env("MX_HEADROOM_CPU_COUNT", "8")
+        .env("MX_HEADROOM_LOAD1", "0")
+        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
+        .env("MX_HEADROOM_API_CAPACITY", "8")
+        .env("MX_HEADROOM_IN_USE", "0")
+        .env("MX_HEADROOM_SPAWN_BIN", &runner)
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", &cmux)
+        .env(
+            "PATH",
+            format!("{}:{}", f.fake.display(), std::env::var("PATH").unwrap()),
+        )
+        .args(["headroom", "--queue-drain"]));
+    assert!(
+        pending.status.success(),
+        "{}",
+        String::from_utf8_lossy(&pending.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(f.fake.join("cwds"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+
+    let reopened = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    let refreshed = write_evidence(&f, &reopened, &commit, "evidence-two");
+    let recorded = run(Command::new(env!("CARGO_BIN_EXE_mx"))
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", &state)
+        .args(["task-model", "evidence", "task", "--request-file"])
+        .arg(&refreshed));
+    assert!(
+        recorded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let current = read_meta(
+        "task",
+        &fs::read_to_string(state.join("task.meta")).unwrap(),
+    )
+    .unwrap();
+    assert!(report_done(&f, &current, &commit, 2).status.success());
+
+    let launched = run(Command::new(env!("CARGO_BIN_EXE_mx"))
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env("MX_STATE_OVERRIDE", &state)
+        .env("MX_HEADROOM_CPU_COUNT", "8")
+        .env("MX_HEADROOM_LOAD1", "0")
+        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
+        .env("MX_HEADROOM_API_CAPACITY", "8")
+        .env("MX_HEADROOM_IN_USE", "0")
+        .env("MX_HEADROOM_SPAWN_BIN", &runner)
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", &cmux)
+        .env(
+            "PATH",
+            format!("{}:{}", f.fake.display(), std::env::var("PATH").unwrap()),
+        )
+        .args(["headroom", "--queue-drain"]));
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(f.fake.join("cwds"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    let dependent = read_meta(
+        "dependent",
+        &fs::read_to_string(state.join("dependent.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(dependent.schedule.dependencies, ["task"]);
+    assert_eq!(dependent.project.as_ref().unwrap().starting_revision, base);
+    assert_eq!(dependent.allocation.as_ref().unwrap().base_revision, base);
+}
+
+fn cmux_spawn(f: &Fixture, id: &str, request: Option<&str>, cmux: &std::path::Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mx"));
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("MX_") {
+            command.env_remove(key);
+        }
+    }
+    command
+        .current_dir(&f.home)
+        .env("MX_HOME", &f.home)
+        .env("MX_ROOT_OVERRIDE", &f.home)
+        .env(
+            "MX_RUST_SOURCE_ROOT",
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
+        .env("MX_STATE_OVERRIDE", f.home.join("state"))
+        .env("MX_DATA_OVERRIDE", f.home.join("data"))
+        .env("MX_CONFIG_OVERRIDE", f.home.join("config"))
+        .env("MX_HEADROOM_CPU_COUNT", "8")
+        .env("MX_HEADROOM_LOAD1", "0")
+        .env("MX_HEADROOM_MEM_AVAILABLE_BYTES", "17179869184")
+        .env("MX_HEADROOM_API_CAPACITY", "8")
+        .env("MX_HEADROOM_IN_USE", "0")
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", cmux)
+        .env(
+            "PATH",
+            format!("{}:{}", f.fake.display(), std::env::var("PATH").unwrap()),
+        )
+        .args(["spawn", id])
+        .arg(&f.project)
+        .args(["--backend", "cmux"]);
+    if let Some(request) = request {
+        command.args(["--request-id", request]);
+    }
+    command
 }
 
 #[test]
@@ -437,4 +894,121 @@ esac
         }
         assert!(!f.home.join("sentinel.log").exists());
     }
+}
+
+#[test]
+fn interrupted_endpoint_retry_requires_fresh_absence_and_preserves_allocation() {
+    let f = Fixture::new();
+    let cmux = f.fake.join("cmux");
+    fs::write(
+        &cmux,
+        r#"#!/bin/sh
+set -eu
+case "$1" in
+  version) echo 'cmux 0.64.17 (97) [abcdef1]' ;;
+  ping) echo PONG ;;
+  workspace)
+    if [ -f "$MX_CMUX_FIXTURE/observe-fail" ]; then
+      remaining=$(cat "$MX_CMUX_FIXTURE/observe-fail")
+      if [ "$remaining" -gt 1 ]; then expr "$remaining" - 1 > "$MX_CMUX_FIXTURE/observe-fail"; else rm "$MX_CMUX_FIXTURE/observe-fail"; fi
+      exit 99
+    fi
+    if [ -f "$MX_CMUX_FIXTURE/title" ]; then printf '{"workspaces":[{"id":"11111111-1111-4111-8111-111111111111","title":"%s"}]}' "$(cat "$MX_CMUX_FIXTURE/title")"; else echo '{"workspaces":[]}'; fi ;;
+  new-workspace)
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in --name) shift; printf '%s' "$1" > "$MX_CMUX_FIXTURE/title";; --cwd) shift; printf '%s' "$1" > "$MX_CMUX_FIXTURE/cwd";; esac
+      shift
+    done ;;
+  list-panes) echo '{"panes":[{"selected_surface_id":"22222222-2222-4222-8222-222222222222","surface_ids":["22222222-2222-4222-8222-222222222222"]}]}' ;;
+  send|send-key) : ;;
+  close-workspace) printf '2' > "$MX_CMUX_FIXTURE/observe-fail" ;;
+  *) exit 99 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&cmux, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let failed = f
+        .spawn(&["--backend", "cmux"])
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", &cmux)
+        .env("MX_SPAWN_FAULT", "after-endpoint")
+        .output()
+        .unwrap();
+    assert_eq!(
+        failed.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&failed.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&failed.stderr).contains("injected failure after endpoint"),
+        "{}",
+        String::from_utf8_lossy(&failed.stderr)
+    );
+    let action_path = f.home.join("state/.spawn-actions/task.json");
+    let retained: serde_json::Value =
+        serde_json::from_slice(&fs::read(&action_path).unwrap()).unwrap();
+    assert_eq!(retained["stage"], "endpoint-created");
+    let allocation = retained["binding"]["allocation"].clone();
+    let attempt = retained["binding"]["attempt"].clone();
+
+    let unknown = f
+        .spawn(&["--backend", "cmux"])
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", &cmux)
+        .output()
+        .unwrap();
+    assert_eq!(
+        unknown.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&unknown.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&unknown.stderr).contains("uncertain endpoint"),
+        "{}",
+        String::from_utf8_lossy(&unknown.stderr)
+    );
+    let live = f
+        .spawn(&["--backend", "cmux"])
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", &cmux)
+        .output()
+        .unwrap();
+    assert_eq!(
+        live.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&live.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&live.stderr).contains("uncertain endpoint"),
+        "{}",
+        String::from_utf8_lossy(&live.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&action_path).unwrap()).unwrap()["stage"],
+        "endpoint-created"
+    );
+
+    fs::remove_file(f.fake.join("title")).unwrap();
+    let recovered = f
+        .spawn(&["--backend", "cmux"])
+        .env("MX_CMUX_FIXTURE", &f.fake)
+        .env("MX_CMUX_BIN", &cmux)
+        .output()
+        .unwrap();
+    assert!(
+        recovered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    let final_action: serde_json::Value =
+        serde_json::from_slice(&fs::read(action_path).unwrap()).unwrap();
+    assert_eq!(final_action["stage"], "running");
+    assert_eq!(final_action["binding"]["allocation"], allocation);
+    assert_eq!(final_action["binding"]["attempt"], attempt);
 }

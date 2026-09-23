@@ -3,11 +3,19 @@
 # shellcheck disable=SC2016
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-AGENTS="$ROOT/AGENTS_E.md"
-assert_absent "$ROOT/AGENTS.md" 'development contract must remain dormant'
+if [ -f "$ROOT/AGENTS.md" ]; then
+  AGENTS="$ROOT/AGENTS.md"
+  assert_absent "$ROOT/AGENTS_E.md" 'canonical and dormant contracts must not coexist'
+else
+  AGENTS="$ROOT/AGENTS_E.md"
+  assert_present "$AGENTS" 'operating contract missing'
+fi
 assert_grep 'Delegate project implementation, code fixes and test-code changes' "$AGENTS" 'orchestrator boundary lost'
 assert_grep 'Any agent may delegate' "$AGENTS" 'nested delegation missing'
-assert_grep 'A1-A11' "$AGENTS" 'shared architecture discovery lost'
+assert_grep 'docs/workspace-entry.md' "$AGENTS" 'workspace-entry owner link lost'
+assert_grep 'docs/worktrees.md' "$AGENTS" 'worktree owner link lost'
+assert_grep 'docs/scoped-coordinators.md' "$AGENTS" 'coordinator owner link lost'
+assert_no_grep 'porting.md\|CLAUDE.md\|dormant release contract\|do not activate' "$AGENTS" 'release contract contains development-only instructions or links'
 assert_grep 'Discovery roots are optional' "$AGENTS" 'launch narrowed to dev root'
 assert_grep 'three repositories creates three scoped tasks in the same chat' "$AGENTS" 'multi-repo intake missing'
 assert_grep 'starting revision' "$AGENTS" 'checkout binding omitted'

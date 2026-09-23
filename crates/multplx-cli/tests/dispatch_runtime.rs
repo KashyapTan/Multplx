@@ -227,6 +227,9 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     assert_success(&run(&home, &["headroom", "--queue-drain"], &environment));
 
     fs::write(config.join("api-capacity"), "9\n").expect("capacity");
+    // The retained uncertain receipt and MX_HEADROOM_IN_USE each consume one
+    // Codex unit; leave exactly one additional unit for this success path.
+    fs::write(config.join("api-capacity-codex"), "3\n").expect("candidate capacity");
     assert_success(&run(
         &home,
         &[

@@ -1,6 +1,6 @@
 # tmux runtime backend
 
-tmux is Multplx's verified reference runtime backend and the fully supported baseline for daemon homes.
+tmux is Multplx's verified reference runtime backend and the fully supported baseline for persistent-sub-agent homes.
 [`configuration.md`](configuration.md#runtime-backend-configbackend--mx_backend) owns shared backend selection and metadata semantics.
 
 ## Setup
@@ -14,7 +14,7 @@ An explicit selection is also the opt-out from Herdr or cmux runtime auto-detect
 
 No provisioning is required before the first task.
 
-## Watching the actors
+## Watching sub-agents
 
 For the best visible experience, launch the primary harness inside a tmux session:
 
@@ -22,7 +22,7 @@ For the best visible experience, launch the primary harness inside a tmux sessio
 tmux new -s broker
 ```
 
-Actors tasks become windows in that session.
+Sub-agent tasks become windows in that session.
 `tmux display-message -p '#S'` prints its name.
 If the primary harness runs outside tmux, Multplx creates or reuses a detached session named `broker`:
 
@@ -72,7 +72,7 @@ After the normal retry budget, a provably busy pane is accepted as queued, while
 
 ## Limits and regression entry points
 
-- tmux is the reference path and supports daemon homes.
+- tmux is the reference path and supports persistent-sub-agent homes.
 - Existing Pi agent-process liveness is inconclusive, while an authoritatively missing Pi window can trigger recovery.
 - The busy-queue exception is tmux-specific; Herdr retains its separately documented gap.
 

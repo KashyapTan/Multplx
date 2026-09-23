@@ -83,6 +83,12 @@ fn fixture(temp: &tempfile::TempDir) -> (PathBuf, PathBuf, PathBuf) {
         &fake.join("tmux"),
         r#"#!/bin/sh
 case "${1:-}" in
+  list-windows)
+    if [ "${MX_TMUX_DEAD:-0}" = 1 ]; then
+      printf "can't find session: session\n" >&2
+      exit 1
+    fi
+    printf 'task\ndaemon\n' ;;
   display-message)
     if [ "${MX_TMUX_DEAD:-0}" = 1 ]; then exit 1; fi
     case "$*" in *cursor_y*) printf '0\n' ;; *) printf '%%1\n' ;; esac ;;

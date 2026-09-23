@@ -35,6 +35,45 @@ test_predicate_healthy_no_inflight() {
   pass "mx_supervision_unhealthy: false with no state/*.meta at all"
 }
 
+test_predicate_completed_ordinary_metadata_is_not_inflight() {
+  local state="$TMP_ROOT/pred-completed/state"
+  mkdir -p "$state"
+  printf '%s\n' \
+    'schema_version=2' \
+    'kind=delivery' \
+    'canonical_model={"schema_version":2,"task_id":"ordinary","role":"implementer","artifact":"implementation","persistent":false,"private_home":false,"legacy_unknown":false,"accepted_brief_revision":1,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    > "$state/ordinary.meta"
+  mx_supervision_status "$state" 300
+  if command -v jq >/dev/null 2>&1; then
+    [ "$MX_SUP_IN_FLIGHT" -eq 0 ] || fail "completed ordinary task still counted in flight: $MX_SUP_IN_FLIGHT"
+    sed 's/"state":"completed"/"state":"running"/' "$state/ordinary.meta" > "$state/reopened.tmp"
+    mv "$state/reopened.tmp" "$state/ordinary.meta"
+    mx_supervision_status "$state" 300
+    [ "$MX_SUP_IN_FLIGHT" -eq 1 ] || fail "reopened ordinary task was not counted in flight: $MX_SUP_IN_FLIGHT"
+  else
+    [ "$MX_SUP_IN_FLIGHT" -eq 1 ] || fail "missing jq must retain conservative in-flight classification"
+  fi
+
+  printf '%s\n' \
+    'schema_version=2' \
+    'kind=daemon' \
+    'canonical_model={"schema_version":2,"task_id":"standing","role":"sub-orchestrator","artifact":"coordination","persistent":true,"private_home":true,"legacy_unknown":false,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    > "$state/standing.meta"
+  printf '%s\n' \
+    'schema_version=2' \
+    'kind=daemon' \
+    'canonical_model={"schema_version":2,"task_id":"persistent-worker","role":"implementer","artifact":"implementation","persistent":true,"private_home":true,"legacy_unknown":false,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    > "$state/persistent-worker.meta"
+  printf '%s\n' 'id=legacy' > "$state/legacy.meta"
+  printf '%s\n' 'schema_version=2' 'kind=delivery' 'canonical_model={bad}' \
+    > "$state/malformed.meta"
+  printf 'pending wake\n' > "$state/.wake-queue"
+  mx_supervision_status "$state" 300
+  [ "$MX_SUP_IN_FLIGHT" -ge 1 ] || fail "completed persistent coordinator was not retained in flight"
+  [ "$MX_SUP_QUEUE_PENDING" = true ] || fail "pending wake stopped being visible"
+  pass "completed ordinary metadata is excluded; reopened and standing work plus pending wakes remain visible"
+}
+
 test_predicate_unhealthy_no_beacon() {
   local state="$TMP_ROOT/pred-nobeat/state"
   mkdir -p "$state"
@@ -209,6 +248,20 @@ test_hook_silent_when_no_work_in_flight() {
   pass "mx-turnend-guard: silent no-op with nothing in flight"
 }
 
+test_hook_silent_with_completed_ordinary_task() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-completed")
+  printf '%s\n' \
+    'schema_version=2' \
+    'kind=delivery' \
+    'canonical_model={"schema_version":2,"task_id":"completed","role":"implementer","artifact":"implementation","persistent":false,"private_home":false,"legacy_unknown":false,"accepted_brief_revision":1,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    > "$dir/state/completed.meta"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 0 "$status" "hook must ignore a valid completed ordinary task record"
+  [ -z "$out" ] || fail "hook warned with only completed ordinary work: $out"
+  pass "mx-turnend-guard: completed ordinary task metadata does not require a watcher"
+}
+
 test_hook_blocks_when_fresh_beacon_has_no_live_lock() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-fresh-no-lock")
@@ -279,10 +332,12 @@ test_hook_blocks_when_unhealthy_in_primary() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-block")
   : > "$dir/state/task1.meta"
+  printf 'pending wake\n' > "$dir/state/.wake-queue"
   out=$(run_hook "$dir" false); status=$?
   expect_code 2 "$status" "hook must block (exit 2) when in-flight work has no live watcher"
   assert_contains "$out" "$REQUIRED_REASON" "block reason must contain the exact required instruction"
   assert_contains "$out" "TURN WOULD END BLIND" "block banner must read as an alarm"
+  assert_contains "$out" "After claiming queued wakes" "pending wake must remain visible in the recovery guidance"
   pass "mx-turnend-guard: blocks with the exact required reason in the primary when unhealthy"
 }
 
@@ -918,11 +973,13 @@ test_hook_claude_mode_daemon_reblocks_like_primary() {
   pass "mx-turnend-guard --claude: daemon home re-blocks unclaimed and allows auto-arm-claimed stops"
 }
 test_predicate_healthy_no_inflight
+test_predicate_completed_ordinary_metadata_is_not_inflight
 test_predicate_unhealthy_no_beacon
 test_predicate_unhealthy_stale_beacon
 test_predicate_healthy_fresh_beacon
 test_predicate_queue_pending_flag
 test_hook_silent_when_no_work_in_flight
+test_hook_silent_with_completed_ordinary_task
 test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_when_dead_lock_has_fresh_beacon
 test_hook_silent_with_live_lock_and_fresh_beacon

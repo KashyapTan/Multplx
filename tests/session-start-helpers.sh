@@ -138,6 +138,14 @@ case "$*" in
     fi
     exit 0
     ;;
+  *"ppid="*"args="*)
+    if is_harness_pid "$pid"; then
+      printf '1 %s\n' "$harness"
+    else
+      printf '%s sh\n' "$owner"
+    fi
+    exit 0
+    ;;
   *"ppid="*)
     if is_harness_pid "$pid"; then
       printf '1\n'
@@ -187,6 +195,14 @@ case "\$*" in
       printf '1 /usr/local/bin/pi pi\n'
     else
       printf '%s /bin/zsh zsh\n' "$holder_pid"
+    fi
+    exit 0
+    ;;
+  *"ppid="*"args="*)
+    if [ "\$pid" = "$holder_pid" ]; then
+      printf '1 pi\n'
+    else
+      printf '%s zsh\n' "$holder_pid"
     fi
     exit 0
     ;;
@@ -721,6 +737,13 @@ case "$*" in
       printf '%s\n' /usr/local/bin/claude
     else
       printf '%s\n' /bin/bash
+    fi
+    ;;
+  *"ppid="*"args="*)
+    if [ -f "$MX_FAKE_LOCK_STATE/harness-$pid" ]; then
+      printf '1 claude\n'
+    else
+      printf '%s bash\n' "$MX_FAKE_HARNESS_PID"
     fi
     ;;
   *"args="*)

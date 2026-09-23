@@ -89,9 +89,10 @@ fn shell_quote(value: &Path) -> String {
 
 fn status_contract(root: &Path, state: &Path, id: &str) -> String {
     format!(
-        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.",
+        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task and record exact-current typed evidence with `mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
         shell_quote(&root.join("bin/mx-report")),
-        state.join(format!("{id}.status")).display()
+        state.join(format!("{id}.status")).display(),
+        root.join("docs/delivery.md").display()
     )
 }
 
@@ -725,6 +726,12 @@ mod tests {
             assert!(body.contains(&format!(
                 "role={role} persistent={persistent} output={output}"
             )));
+            assert!(body.contains(&format!(
+                "mx task-model evidence {id} --request-file /absolute/path/evidence.json"
+            )));
+            assert!(body.contains("structured `--artifact PATH` option"));
+            assert!(body.contains("does not release dependent work"));
+            assert!(body.contains(&temp.path().join("docs/delivery.md").display().to_string()));
             if output == "report" {
                 assert!(body.contains("This assignment produces a report"));
                 assert!(body.contains("report.md"));

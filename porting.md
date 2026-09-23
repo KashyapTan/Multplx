@@ -13,7 +13,8 @@ The dependency-ordered implementation plans are in [plans/lean_redesign](plans/l
 This is a planned product redesign, not a behavior-preserving language port.
 These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
 Phases 01-11 are implemented and verified; [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md) records global workspace entry, bounded discovery, durable task intake, terminal integration, verified packages, repository checks and integration limits.
-Phase 12 and release activation remain planned.
+Phase 12 is implemented and verified under the user-approved four-trial live scope; [its implementation evidence](plans/lean_redesign/phase12-implementation.md) and [39-scenario ledger](plans/lean_redesign/phase12-acceptance.md) distinguish complete repository validation, live Codex evidence and provider limits.
+The tested package is ready for use; public release publication, private-home migration and deliberate source-contract cutover remain explicit operator actions.
 The original source baseline was commit `6360b040460a08c2d5b8bcfcbc5e64e6e024ab53`, inspected on 2026-09-11.
 This revision incorporates the user's 2026-09-14 notes and architecture review at commit `c09ede3d015799739354ff00e5b0e5e84845737e`.
 The objective is high-quality progress on 10-20 concurrent tasks through one human-facing orchestrator, measured by completed useful work and human attention rather than agent count.
@@ -209,6 +210,9 @@ Do not add dashboard mutation, approval, merge or agent-launch endpoints.
 ### A8: Measurement and release acceptance
 
 Exercise representative workloads at 1, 5, 10 and 20 accepted tasks, separating independent projects from coupled changes and reporting actual active sessions.
+For Phase 12, the user approved reducing the expensive live example on 2026-09-23: run four five-task trials covering independent/coupled work and flat/hierarchical delegation, with identical paired inputs and equal session budgets.
+Keep the existing 1/5/10/20-task local filesystem and visualization measurements, but do not claim live 10/20-task throughput or a live scaling comparison from this reduced sample.
+This explicit release-validation exception changes the model workload size, not dependency, recovery, capacity, correctness or visualization targets.
 Record p50/p95 event-to-durable-disposition latency, oldest unhandled event age, orchestrator response delay, runnable-to-start delay, snapshot age/latency, resource saturation, repeated-message rate and model usage where available.
 Also record completion throughput, behavior correctness, review defects, integration rework, human decision/review time and post-merge failures where observed.
 Report unavailable measurements explicitly and do not simulate human merges to claim live evidence.

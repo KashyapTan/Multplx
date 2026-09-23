@@ -41,8 +41,8 @@ It parses JSON with typed Rust code and performs event subscription and `workspa
 
 Each Multplx home gets one durable workspace with one task tab per endpoint.
 The primary workspace is `broker`.
-A daemon home uses `daemon-<daemon-id>`, derived from its validated `.mx-daemon-home` marker.
-The daemon process and every child it launches resolve the same home label; a daemon launched by the primary receives a narrowly scoped home override during container creation.
+A persistent-sub-agent home uses `daemon-<daemon-id>`, derived from its validated `.mx-daemon-home` marker.
+The persistent sub-agent and every child it launches resolve the same home label; a persistent sub-agent launched by the primary receives a narrowly scoped home override during container creation.
 
 Attach to the selected named Herdr session and switch to the relevant home workspace to watch its task tabs.
 Routine supervision uses `bin/mx-peek.sh <id>` and `MX_HOME=<home> bin/mx-send.sh <id> '<text>'` without attaching.
@@ -53,7 +53,7 @@ The first workspace in a completely empty Herdr session must become focused beca
 Herdr does not enforce workspace or tab label uniqueness.
 Multplx adopts the first workspace matching its derived home label and refuses duplicate task tabs inside it.
 Avoid naming a personal workspace `broker` or `daemon-<id>` because the adapter cannot distinguish that label collision from its own container.
-An older daemon workspace using `broker-<id>` is not migrated automatically; rename it manually before expecting new tasks or recovery to use it.
+An older persistent-sub-agent workspace using `broker-<id>` is not migrated automatically; rename it manually before expecting new tasks or recovery to use it.
 
 Existing task operations use recorded endpoint ids and do not move a live task when labels change.
 The per-home workspace is reused while it has task tabs.
@@ -61,9 +61,9 @@ Closing its last tab can remove the workspace, and the next spawn recreates it.
 
 ## Optional presentation spaces
 
-Create local gitignored `config/herdr-presentation-spaces` to request a disposable one-task workspace for each new actor or scout.
-The setting is inherited into daemon homes through the normal configuration-convergence owner.
-A daemon agent itself always stays in its ordinary parent workspace; only children launched by that home are eligible.
+Create local gitignored `config/herdr-presentation-spaces` to request a disposable one-task workspace for each new sub-agent.
+The setting is inherited into persistent-sub-agent homes through the normal configuration-convergence owner.
+A persistent sub-agent itself always stays in its ordinary parent workspace; only children launched by that home are eligible.
 An absent or unconverged setting keeps the flat default.
 
 Presentation is a best-effort visual projection, never task ownership or lifecycle authority.
@@ -108,7 +108,7 @@ Version 1 journals, dead or missing panes, duplicate or absent tokens, renamed o
 A live or unknown recorded or token-matched endpoint refuses duplicate launch.
 
 Locked session start has one narrower cleanup for a restored projected child that is no longer current task state.
-It runs only when the current home has at least one ordinary presentation journal and considers only that home; a primary never recursively sweeps a daemon home.
+It runs only when the current home has at least one ordinary presentation journal and considers only that home; a primary never recursively sweeps a persistent-sub-agent home.
 Discovery starts from the exact current `└ <concise-task> · p:<22-character-token>` grammar, but a title or token alone is never mutation authority.
 The title must contain exactly one token occurrence across the named-session snapshot and must equal the title derived from exactly one valid presentation journal in this home's own `state/`; a version 2 journal additionally must bind this exact physical home, named session, workspace, tab, and pane.
 The task's ordinary metadata must be absent, and the candidate must have exactly one tab and exactly one pane.
@@ -128,7 +128,7 @@ Operational compromises:
 - Existing layouts are not force-renamed or rearranged.
 - Missing or ambiguous restart bindings fall back to the ordinary home workspace while the old projection remains untouched.
 - Crashes, lost responses, failed exact-pane cleanup, or human renames can leave quarantined spaces; session start removes only the exact home-local, uniquely journal-correlated, childless idle-shell shape above.
-- Spaces have no cross-home cleanup path, and a daemon child can clean up only from its exact home.
+- Spaces have no cross-home cleanup path, and a persistent sub-agent's child can clean up only from its exact home.
 - Every stale-looking space outside that narrow startup proof still requires manual cleanup in Herdr's UI after human inspection.
 - Regaining a dedicated space after degradation requires stopping the flat task, manually checking the stale projection, and clearing its journal before a genuinely fresh launch.
 - The visible token is only a restart-stable correlator and never substitutes for the exact binding.
@@ -187,7 +187,7 @@ The capture owner requests at least 200 lines from Herdr and trims locally to th
 This generous floor is required for small composer and peek reads.
 
 Herdr's native agent state can read idle while a harness waits on its own long foreground tool.
-The shared actor-state path therefore corroborates every native non-busy or unreadable result with the rendered busy regex before concluding that a pane is not working.
+The shared sub-agent-state path therefore corroborates every native non-busy or unreadable result with the rendered busy regex before concluding that a pane is not working.
 A human-blocked permission dialog has no busy banner and still surfaces.
 
 ## Composer and injection safety
@@ -222,14 +222,14 @@ A structurally gone pane becomes `missing`, a restored agent-less shell becomes 
 Unlike tmux process-name inspection, native registration can classify Pi without guessing from a generic interpreter name.
 
 The session-start sweep uses this probe.
-Mid-session daemon liveness is not implemented because idle daemons are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
+Mid-session persistent-sub-agent liveness is not implemented because idle persistent sub-agents are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
 
 ## Push events and polling fallback
 
 Protocol 16 can subscribe to `pane.agent_status_changed` over one bounded Unix-socket reader.
 The Rust supervision and backend modules own the backend-neutral transition vocabulary and policy.
 The Herdr adapter subscribes before reconciling current levels, buffers edges during reconciliation, and returns fresh blocked transitions for this home's panes.
-The watcher maps the pane back to the task and skips daemon endpoints.
+The watcher maps the pane back to the task and skips persistent-sub-agent endpoints.
 A native `blocked` edge follows the precedence contract owned by `multplx-core::classification` and surfaces even when the latest self-report declared `paused:`.
 
 The push path only shortens latency.
@@ -240,18 +240,18 @@ There is still one watcher process; the Rust event reader is a bounded cancellab
 
 ## Away-mode supervisor support
 
-The away daemon supports tmux and Herdr supervisor panes only.
+The away-mode service daemon supports tmux and Herdr supervisor panes only.
 It refuses cmux as a supervisor backend rather than applying the wrong transport.
 For Herdr, target existence, native state, capture, composer state, and verified submit all route through the shared backend dispatcher and the explicit named-session CLI owner.
 The pane-independent max-defer alert is configured in [`configuration.md`](configuration.md) "Away-mode wedge alarm channels".
 
-Harnesses with native tracked background execution can run the daemon in their terminal.
+Harnesses with native tracked background execution can run the service daemon in their terminal.
 Pi has no such mechanism.
-`bin/mx-afk-launch.sh` therefore creates a dedicated unfocused Herdr workspace, runs the daemon there with an explicit supervisor target and backend, records the exact daemon pane, and closes only that pane on stop.
+`bin/mx-afk-launch.sh` therefore creates a dedicated unfocused Herdr workspace, runs the service daemon there with an explicit supervisor target and backend, records its exact pane, and closes only that pane on stop.
 It never splits the maintainer's active tab and never uses shell `&`.
 Recovery reconciles only the recorded exact id.
 
-On stop, the daemon receives termination while `state/.afk` still exists so its final flush can run, the recorded terminal is closed, and the AFK flag is removed last.
+On stop, the service daemon receives termination while `state/.afk` still exists so its final flush can run, the recorded terminal is closed, and the AFK flag is removed last.
 A fresh entry clears stale transient escalation caches, while durable queue and task records remain authoritative.
 
 ## Destructive lab safety
@@ -273,7 +273,7 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 - Presentation ordering needs protocol 16 and is best-effort only.
 - Mutable labels can collide; they are never destructive authority.
 - Ghost and placeholder recognition depends on ANSI de-emphasis and fails safely to pending when unavailable.
-- Mid-session daemon liveness is not implemented.
+- Mid-session persistent-sub-agent liveness is not implemented.
 - Some harness TUIs can accept Enter while busy without clearing the composer.
   The tmux backend has a busy-queue fallback, but Herdr still reports this case as submit pending and needs a separate adapter fix.
 - Only tmux and Herdr can host the away-mode supervisor terminal.

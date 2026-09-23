@@ -11,7 +11,7 @@ mx_test_tmproot_into TMP_ROOT mx-launcher
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 
 make_runtime() {
-  local target=$1 source_file
+  local target=$1 source_file runtime_binary=${2:-$RUST_BINARY}
   mkdir -p "$target/bin" "$target/.agents/skills" "$target/share/shell/shims" "$target/target/release"
   for source_file in \
     mx-launcher.sh mx-launcher-install.sh \
@@ -19,7 +19,7 @@ make_runtime() {
     mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
     cp "$ROOT/bin/$source_file" "$target/bin/$source_file"
   done
-  cp "$RUST_BINARY" "$target/target/release/mx"
+  cp "$runtime_binary" "$target/target/release/mx"
   cp "$ROOT/share/shell/multplx.bash" "$target/share/shell/multplx.bash"
   cp "$ROOT/share/shell/multplx.zsh" "$target/share/shell/multplx.zsh"
   cp "$ROOT/share/shell/shims/claude" "$target/share/shell/shims/claude"
@@ -487,13 +487,19 @@ test_registration_conflict_mode_and_uninstall_preflight() {
 
 test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
   local root="$TMP_ROOT/generation-root" case_dir="$TMP_ROOT/generation-case"
+  local runtime_binary="$TMP_ROOT/generation-runtime-binary"
   local artifact="$TMP_ROOT/generation-artifact" artifact_three="$TMP_ROOT/generation-artifact-three"
+  local upgrade_a_log="$TMP_ROOT/generation-upgrade-a.log" upgrade_b_log="$TMP_ROOT/generation-upgrade-b.log"
   local checksum checksum_three final_hash old_hash pid_a pid_b status status_a status_b
-  make_runtime "$root"
+  printf '#!/bin/sh\nprintf "initial generation\\n"\n' >"$runtime_binary"
+  chmod +x "$runtime_binary"
+  make_runtime "$root" "$runtime_binary"
   install_fixture "$case_dir" "$root"
   old_hash=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
-  cp "$RUST_BINARY" "$artifact"
-  printf '\0generation-two\0' >>"$artifact"
+  # This case checks generation publication and rollback, not runtime execution.
+  # Keep the verified executable payloads small so coverage instrumentation does
+  # not spend the install-lock budget copying a debug binary.
+  printf '#!/bin/sh\nprintf "generation two\\n"\n' >"$artifact"
   chmod +x "$artifact"
   checksum=$(shasum -a 256 "$artifact" | awk '{print $1}')
   [ "$checksum" != "$old_hash" ] || fail "distinct artifact fixture is not distinct"
@@ -549,22 +555,21 @@ test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
   [ "$(cat "$case_dir/config/binary.sha256")" = "$checksum" ] \
     || fail "distinct verified upgrade did not publish its exact digest"
 
-  cp "$artifact" "$artifact_three"
-  printf '\0generation-three\0' >>"$artifact_three"
+  printf '#!/bin/sh\nprintf "generation three\\n"\n' >"$artifact_three"
   chmod +x "$artifact_three"
   checksum_three=$(shasum -a 256 "$artifact_three" | awk '{print $1}')
   "$INSTALLER" --upgrade --root "$root" --binary "$artifact" --checksum "$checksum" \
     --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
-    --data-dir "$case_dir/data" >/dev/null 2>&1 &
+    --data-dir "$case_dir/data" >"$upgrade_a_log" 2>&1 &
   pid_a=$!
   "$INSTALLER" --upgrade --root "$root" --binary "$artifact_three" \
     --checksum "$checksum_three" --bin-dir "$case_dir/bin" \
-    --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1 &
+    --config-dir "$case_dir/config" --data-dir "$case_dir/data" >"$upgrade_b_log" 2>&1 &
   pid_b=$!
   if wait "$pid_a"; then status_a=0; else status_a=$?; fi
   if wait "$pid_b"; then status_b=0; else status_b=$?; fi
   [ "$status_a:$status_b" = 0:0 ] \
-    || fail "serialized distinct-artifact upgrades did not both complete"
+    || fail "serialized distinct-artifact upgrades did not both complete (statuses $status_a:$status_b; A: $(cat "$upgrade_a_log"); B: $(cat "$upgrade_b_log"))"
   final_hash=$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')
   [ "$(cat "$case_dir/config/binary.sha256")" = "$final_hash" ] \
     || fail "concurrent distinct-artifact upgrades published a torn generation"

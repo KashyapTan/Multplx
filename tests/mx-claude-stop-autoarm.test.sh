@@ -292,7 +292,7 @@ test_actionable_close_rewakes_with_reason() {
   write_arm_fixture "$dir" actionable
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
   expect_code 2 "$status" "an actionable arm close must exit 2 so Claude rewakes"
-  assert_contains "$out" "broker watcher wake" "rewake must carry the wake banner"
+  assert_contains "$out" "orchestrator watcher wake" "rewake must carry the wake banner"
   assert_contains "$out" "stale: fixture-win actionable" "rewake must carry the arm's reason line"
   assert_contains "$out" "bin/mx-wake-drain.sh" "rewake must direct the drain-first protocol"
   assert_contains "$out" "do NOT run bin/mx-watch-arm.sh" "rewake must forbid a duplicate model re-arm"

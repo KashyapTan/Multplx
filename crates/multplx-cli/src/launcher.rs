@@ -644,12 +644,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         ),
         (OsString::from("MX_LAUNCH_VALIDATED"), OsString::from("1")),
         (OsString::from("MX_SHIM_DIR"), shim.as_os_str().to_owned()),
+        (OsString::from("PATH"), prepend_path_once(&shim)),
     ];
     if let Ok(binary) = current_binary() {
         launch_environment.push((
             OsString::from("MX_LAUNCH_BIN_PATH"),
-            binary.into_os_string(),
+            binary.as_os_str().to_owned(),
         ));
+        launch_environment.push((OsString::from("MX_RUST_BIN"), binary.into_os_string()));
     }
     if let Some(config) = &config {
         launch_environment.push((
@@ -846,7 +848,6 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             }
             launch_environment.extend(capture_harnesses(&shim));
             launch_environment.push((OsString::from("MULTPLX_ACTIVE"), OsString::from("1")));
-            launch_environment.push((OsString::from("PATH"), prepend_path_once(&shim)));
             let shell = env::var_os("MX_LAUNCH_SHELL")
                 .or_else(|| env::var_os("SHELL"))
                 .map(PathBuf::from);
@@ -1133,7 +1134,10 @@ fn require_recordable_path(path: &Path, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn require_packaged_runtime_quiescent(home: &Path) -> Result<(), String> {
+fn require_packaged_runtime_quiescent_mode(
+    home: &Path,
+    allow_stopped_workers: bool,
+) -> Result<(), String> {
     let state = home.join("state");
     match session_lock_status(
         state.join(".lock"),
@@ -1177,6 +1181,9 @@ fn require_packaged_runtime_quiescent(home: &Path) -> Result<(), String> {
             )
         })?;
         if entry.path().extension() == Some(OsStr::new("meta")) {
+            if allow_stopped_workers && retained_worker_is_quiescent(&entry.path(), home)? {
+                continue;
+            }
             return Err(format!(
                 "packaged runtime has a recorded task user at {}; retire or reconcile it before upgrade or uninstall",
                 entry.path().display()
@@ -1184,6 +1191,92 @@ fn require_packaged_runtime_quiescent(home: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn retained_worker_is_quiescent(path: &Path, inspected_home: &Path) -> Result<bool, String> {
+    use multplx_backend::facade::{BackendName, observe_endpoint};
+    use multplx_domain::lifecycle::subagent_model::{ArtifactKind, AssignmentRole, read_meta};
+    let id = path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| "recorded task user has an invalid identity".to_owned())?;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| format!("cannot inspect recorded task user {}: {e}", path.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!(
+            "recorded task user at {} is not a regular file",
+            path.display()
+        ));
+    }
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(format!(
+            "recorded task user at {} is not owned by the current user",
+            path.display()
+        ));
+    }
+    let bytes =
+        multplx_core::filesystem::read_bounded_regular(path, 4 * 1024 * 1024).map_err(|e| {
+            format!(
+                "cannot safely read recorded task user {}: {e}",
+                path.display()
+            )
+        })?;
+    let raw = std::str::from_utf8(&bytes)
+        .map_err(|e| format!("recorded task user at {} is malformed: {e}", path.display()))?;
+    let record = read_meta(id, raw)
+        .map_err(|e| format!("recorded task user at {} is uncertain: {e}", path.display()))?;
+    if record.legacy_unknown
+        || record.persistent
+        || record.private_home
+        || record.artifact == ArtifactKind::Coordination
+        || record.role == AssignmentRole::SubOrchestrator
+        || record.owning_coordinator.is_some()
+        || record.parent_id != record.root_id
+        || record.owner_home.as_deref() != inspected_home.to_str()
+        || record.owner_state.as_deref()
+            != Some(inspected_home.join("state").to_string_lossy().as_ref())
+        || record.runtime.endpoint.as_deref().is_none_or(str::is_empty)
+        || record.runtime.provider.is_empty()
+    {
+        return Ok(false);
+    }
+    // read_meta validates the canonical record and projection together. Ensure
+    // the backend projection also agrees before probing the canonical identity.
+    let field = |key: &str| {
+        raw.lines()
+            .filter_map(|line| line.strip_prefix(&format!("{key}=")))
+            .next_back()
+            .map(str::to_owned)
+    };
+    let endpoint = record
+        .runtime
+        .endpoint
+        .as_deref()
+        .expect("checked endpoint");
+    let backend = BackendName::parse(&record.runtime.provider).map_err(|_| {
+        format!(
+            "recorded task user at {} has an invalid backend",
+            path.display()
+        )
+    })?;
+    if field("window").as_deref() != Some(endpoint)
+        || field("backend").is_some_and(|value| value != backend.to_string())
+    {
+        return Ok(false);
+    }
+    let observed = observe_endpoint(
+        &backend.to_string(),
+        endpoint,
+        Some(format!("mx-{id}")),
+        false,
+    )
+    .map_err(|e| {
+        format!(
+            "cannot verify recorded task endpoint {}: {e}",
+            path.display()
+        )
+    })?;
+    Ok(!observed.exists)
 }
 
 struct VerifiedArtifact {
@@ -1324,6 +1417,7 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
         "runtime/bin/mx-launcher.sh",
         "runtime/share/shell/multplx.bash",
         "runtime/share/shell/multplx.zsh",
+        "runtime/share/shell/shims/multplx",
     ];
     if required
         .iter()
@@ -1519,6 +1613,7 @@ fn apply_generation(
     config_dir: &Path,
     files: &[GenerationFile],
     packaged_home: Option<&Path>,
+    allow_stopped_workers: bool,
 ) -> Result<(), String> {
     let transaction = transaction_path(config_dir);
     fs::create_dir(&transaction)
@@ -1543,7 +1638,9 @@ fn apply_generation(
         .map_err(|error_value| format!("cannot exclude a packaged runtime launch: {error_value}"));
         match lock {
             Ok(lock) => {
-                if let Err(message) = require_packaged_runtime_quiescent(home) {
+                if let Err(message) =
+                    require_packaged_runtime_quiescent_mode(home, allow_stopped_workers)
+                {
                     remove_transaction(&transaction)?;
                     return Err(message);
                 }
@@ -1911,7 +2008,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     read_path_file(&config_dir.join("root")).map_err(|message| (2, message))?;
                 let recorded_home =
                     read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
-                require_packaged_runtime_quiescent(&recorded_home)
+                require_packaged_runtime_quiescent_mode(&recorded_home, options.upgrade)
                     .map_err(|message| (2, message))?;
                 packaged_home = Some(recorded_home.clone());
                 let expected_root = data_dir.join("runtime");
@@ -2007,7 +2104,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 }
             }
             if _uninstall_lock.is_some() {
-                apply_generation(&config_dir, &generation, packaged_home.as_deref())
+                apply_generation(&config_dir, &generation, packaged_home.as_deref(), false)
                     .map_err(|message| (1, message))?;
             } else if target_exists || records.iter().any(|path| path.exists()) {
                 return Err((
@@ -2247,16 +2344,16 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         require_recordable_path(&home, "operational home").map_err(|message| (2, message))?;
         require_owned_dir(&root, "code root").map_err(|message| (2, message))?;
         require_owned_dir(&home, "operational home").map_err(|message| (2, message))?;
-        let packaged_home = if verified_package.is_some()
-            && config_dir.join("package-assets").is_file()
-        {
-            let recorded_home =
-                read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
-            require_packaged_runtime_quiescent(&recorded_home).map_err(|message| (2, message))?;
-            Some(recorded_home)
-        } else {
-            None
-        };
+        let packaged_home =
+            if verified_package.is_some() && config_dir.join("package-assets").is_file() {
+                let recorded_home =
+                    read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
+                require_packaged_runtime_quiescent_mode(&recorded_home, options.upgrade)
+                    .map_err(|message| (2, message))?;
+                Some(recorded_home)
+            } else {
+                None
+            };
         for part in ["config", "data", "projects", "state"] {
             ensure_dir(&home.join(part), 0o700, true).map_err(|message| (2, message))?;
         }
@@ -2457,8 +2554,13 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
             Err(error_value) => return Err((1, error_value.to_string())),
         }
-        apply_generation(&config_dir, &generation, packaged_home.as_deref())
-            .map_err(|message| (1, message))?;
+        apply_generation(
+            &config_dir,
+            &generation,
+            packaged_home.as_deref(),
+            options.upgrade,
+        )
+        .map_err(|message| (1, message))?;
         println!("multplx: installed {}", target.display());
         println!("multplx: root {}", root.display());
         println!("multplx: home {}", home.display());

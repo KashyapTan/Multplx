@@ -509,6 +509,18 @@ test_target_ready_fails_when_target_absent() {
   pass "mx_backend_cmux_target_ready: fails when the workspace/surface is not found (list-panes structural check)"
 }
 
+test_target_ready_rejects_empty_inventory() {
+  local dir fb status
+  dir="$TMP_ROOT/ready-empty"; mkdir -p "$dir/responses"
+  # Missing 1.out makes the successful fake command return an empty body.
+  fb=$(make_cmux_fakebin "$dir")
+  PATH="$fb:$PATH" MX_CMUX_LOG="$dir/log" MX_CMUX_RESPONSES="$dir/responses" \
+    bash -c '. "$0/bin/backends/cmux.sh"; mx_backend_cmux_target_ready "aaaaaaaa-0000-0000-0000-000000000000:bbbbbbbb-1111-1111-1111-111111111111"' "$ROOT"
+  status=$?
+  [ "$status" -ne 0 ] || fail "target_ready should reject a successful list-panes call with no JSON document"
+  pass "mx_backend_cmux_target_ready: rejects an empty successful inventory on every supported jq version"
+}
+
 test_target_ready_checks_expected_label() {
   local dir fb title
   dir="$TMP_ROOT/ready-label-ok"; mkdir -p "$dir/responses"
@@ -1032,6 +1044,7 @@ test_ensure_running_fails_fast_on_unauth_without_launching
 test_create_task_refuses_duplicate_label
 test_create_task_creates_and_parses_ids
 test_target_ready_fails_when_target_absent
+test_target_ready_rejects_empty_inventory
 test_target_ready_checks_expected_label
 test_target_ready_rejects_label_mismatch
 test_capture_trims_locally

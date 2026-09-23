@@ -3,7 +3,8 @@
 # Usage: . bin/mx-supervision-lib.sh
 #
 # Reports whether a Multplx home needs supervision because it has in-flight
-# work (a state/<id>.meta exists), and whether its watcher has a fresh liveness
+# work (a state/<id>.meta exists, except a valid completed ordinary task), and
+# whether its watcher has a fresh liveness
 # beacon (state/.last-watcher-beat, touched every poll cycle, within the grace
 # window).
 # bin/mx-guard.sh keeps its task-specific grace-based warning predicate;
@@ -22,7 +23,7 @@ mx_sup_stat_mtime() {
 
 # mx_supervision_status <state-dir> [grace-seconds]
 # Populates, for the state dir at $1:
-#   MX_SUP_IN_FLIGHT      count of state/*.meta (in-flight tasks)
+#   MX_SUP_IN_FLIGHT      count of active, legacy, persistent, or unknown task records
 #   MX_SUP_NEEDED         true/false - in-flight work
 #   MX_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   MX_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
@@ -39,6 +40,7 @@ mx_supervision_status() {
 
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
+    mx_sup_completed_ordinary "$meta" && continue
     MX_SUP_IN_FLIGHT=$((MX_SUP_IN_FLIGHT + 1))
   done
   if [ "$MX_SUP_IN_FLIGHT" -gt 0 ]; then
@@ -61,6 +63,43 @@ mx_supervision_status() {
   # shellcheck disable=SC2034 # Read by callers (mx-guard.sh) after sourcing.
   [ -s "$state/.wake-queue" ] && MX_SUP_QUEUE_PENDING=true
   return 0
+}
+
+# Exclude only a bounded, non-symlink canonical ordinary assignment whose
+# completion state is explicit. Without jq or complete identity, keep the
+# metadata in-flight conservatively.
+mx_sup_completed_ordinary() {
+  local meta=$1 id size schema_count model_count kind_count kind canonical
+  command -v jq >/dev/null 2>&1 || return 1
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  size=$(wc -c < "$meta" 2>/dev/null) || return 1
+  [ "$size" -le 4194304 ] 2>/dev/null || return 1
+  awk -F= 'NF < 2 || $1 !~ /^[A-Za-z_][A-Za-z0-9_]*$/ || seen[$1]++ { exit 1 }' "$meta" \
+    || return 1
+  schema_count=$(grep -c '^schema_version=2$' "$meta" 2>/dev/null || true)
+  model_count=$(grep -c '^canonical_model=' "$meta" 2>/dev/null || true)
+  kind_count=$(grep -c '^kind=' "$meta" 2>/dev/null || true)
+  [ "$schema_count" -eq 1 ] && [ "$model_count" -eq 1 ] && [ "$kind_count" -eq 1 ] || return 1
+  kind=$(sed -n 's/^kind=//p' "$meta")
+  canonical=$(sed -n 's/^canonical_model=//p' "$meta")
+  [ -n "$canonical" ] || return 1
+  id=${meta##*/}
+  id=${id%.meta}
+  printf '%s\n' "$canonical" | jq -e --arg id "$id" --arg kind "$kind" '
+    type == "object" and
+    .schema_version == 2 and .task_id == $id and
+    (.role == "researcher" or .role == "implementer" or .role == "reviewer") and
+    (.artifact == "report" or .artifact == "implementation") and
+    (((.persistent == true or .private_home == true) and $kind == "daemon") or
+     ((.persistent == false and .private_home == false) and
+      ((.artifact == "report" and $kind == "scout") or (.artifact == "implementation" and $kind == "delivery")))) and
+    .persistent == false and .private_home == false and .legacy_unknown == false and
+    (.attempt.id | type == "string" and length > 0) and
+    (.attempt.generation | type == "number" and . > 0) and
+    (.attempt.brief_revision | type == "number" and . > 0) and
+    .accepted_brief_revision == .attempt.brief_revision and
+    .schedule.state == "completed"
+  ' >/dev/null 2>&1
 }
 
 # mx_supervision_needed <state-dir> [grace-seconds]

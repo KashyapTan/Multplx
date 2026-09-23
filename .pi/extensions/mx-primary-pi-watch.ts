@@ -415,7 +415,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand?.("mx-watch-arm-pi", {
-    description: "Arm broker watcher supervision through the Pi extension instead of foreground bash.",
+    description: "Arm orchestrator watcher supervision through the Pi extension instead of foreground bash.",
     handler: async (_args, ctx) => {
       const result = startArm();
       ctx.ui.notify(result.message, result.ok ? "info" : "warning");
@@ -424,7 +424,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool?.({
     name: "mx_watch_arm_pi",
-    label: "Arm broker watcher",
+    label: "Arm orchestrator watcher",
     description: "Start the first required Pi watcher cycle, or repair one only after a notification says the cycle is missing, failed, or unhealthy. Do not call after ordinary work or ordinary notifications; the Pi extension re-arms automatically. Never run bin/mx-watch-arm.sh through bash.",
     promptSnippet: "Start the first required Pi watcher cycle or repair a cycle reported missing, failed, or unhealthy; ordinary re-arming is automatic.",
     promptGuidelines: [

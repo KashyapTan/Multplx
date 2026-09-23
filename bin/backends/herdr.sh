@@ -1818,9 +1818,11 @@ MX_BACKEND_HERDR_COMPOSER_LINES=${MX_BACKEND_HERDR_COMPOSER_LINES:-20}
 # herdr-verified harness needs its own idle placeholder recognized.
 MX_BACKEND_HERDR_IDLE_RE=${MX_BACKEND_HERDR_IDLE_RE:-'^Type a message\.\.\.$'}
 # Known bare (unbordered) prompt glyphs a composer row may start with: ❯
-# (claude) and › (codex) only. Generic shell-style glyphs > $ % # are still
-# recognized after a bordered composer row has already been structurally found.
-MX_BACKEND_HERDR_BARE_PROMPT_RE=${MX_BACKEND_HERDR_BARE_PROMPT_RE:-'^[❯›]'}
+# (claude) and › (codex) only. Use complete-glyph alternatives: in byte locales
+# a bracket expression can match a shared UTF-8 byte in unrelated box glyphs.
+# Generic shell-style glyphs > $ % # are still recognized after a bordered
+# composer row has already been structurally found.
+MX_BACKEND_HERDR_BARE_PROMPT_RE=${MX_BACKEND_HERDR_BARE_PROMPT_RE:-'^(❯|›)'}
 # Pi allows a multi-line composer between its horizontal separators. Bound the
 # structural candidate so two unrelated transcript rules with an arbitrarily
 # large region between them can never be promoted into a composer.
@@ -1984,7 +1986,7 @@ EOF
   fi
   # Delegate the empty/pending/unknown decision to the shared owner. The bare
   # shape only ever starts with an AGENT glyph (MX_BACKEND_HERDR_BARE_PROMPT_RE
-  # is '^[❯›]'), so a bare shell prompt never reaches here - it stays 'unknown'
+  # is '^(❯|›)'), so a bare shell prompt never reaches here - it stays 'unknown'
   # via the no-composer-row path above, exactly as before.
   mx_composer_classify_content "$bordered" "$stripped" "$MX_BACKEND_HERDR_IDLE_RE"
 }

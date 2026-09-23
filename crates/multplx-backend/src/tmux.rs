@@ -322,6 +322,30 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
 
     fn target_ready(&mut self, target: &BackendTarget) -> Result<(), BackendError> {
         self.ensure_tmux_target(target)?;
+        if let Some((session, window)) = Self::split_named_target(target.endpoint()) {
+            let inventory = self.list_windows_raw(Some(session))?;
+            if inventory.status.success() {
+                let inventory = String::from_utf8(inventory.stdout).map_err(|_| {
+                    BackendError::Malformed("tmux window inventory is not UTF-8".to_owned())
+                })?;
+                return if inventory.lines().any(|candidate| candidate == window) {
+                    Ok(())
+                } else {
+                    Err(BackendError::Missing(format!(
+                        "no exact tmux window named {window} in session {session}"
+                    )))
+                };
+            }
+            let detail = String::from_utf8_lossy(&inventory.stderr).trim().to_owned();
+            return if Self::missing_inventory(&inventory.stderr) {
+                Err(BackendError::Missing(detail))
+            } else {
+                Err(BackendError::Command(format!(
+                    "tmux list-windows exited {:?}: {detail}",
+                    inventory.status.code()
+                )))
+            };
+        }
         let output = self.run([
             "display-message",
             "-p",
@@ -550,17 +574,19 @@ impl<R: CommandRunner> LiveInventory for TmuxBackend<R> {
 mod tests {
     use std::collections::VecDeque;
     use std::ffi::OsString;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::ExitStatusExt;
     use std::path::PathBuf;
-    use std::process::ExitStatus;
+    use std::process::{Command, ExitStatus};
     use std::time::Duration;
 
     use multplx_core::composer::ComposerState;
 
     use crate::command::{CommandError, CommandOutput, CommandRequest, CommandRunner};
     use crate::facade::{
-        AgentState, BackendName, BackendTarget, Capability, CaptureRequest, ContainerId,
-        KillOutcome, RuntimeBackend, SubmitRequest, TaskSpec,
+        AgentState, BackendError, BackendName, BackendTarget, Capability, CaptureRequest,
+        ContainerId, KillOutcome, RuntimeBackend, SubmitRequest, TaskSpec,
     };
 
     use super::TmuxBackend;
@@ -681,13 +707,13 @@ mod tests {
     fn read_send_and_composer_commands_are_exact() {
         let runner = FakeRunner {
             outputs: VecDeque::from([
-                output(0, b"%1\n", b""),
+                output(0, b"mx-one\n", b""),
                 output(0, b"/tmp/wt\n", b""),
                 output(0, b"tail\n", b""),
                 output(0, b"12\n", b""),
                 output(0, "│ ❯ │\n".as_bytes(), b""),
                 output(0, b"", b""),
-                output(0, b"%1\n", b""),
+                output(0, b"mx-one\n", b""),
                 output(0, b"", b""),
                 output(0, b"", b""),
             ]),
@@ -747,6 +773,57 @@ mod tests {
             calls[8].args,
             ["send-keys", "-t", "broker:mx-one", "printf ready", "Enter"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn real_tmux_named_target_never_falls_back_to_the_current_pane() {
+        let Ok(which) = Command::new("sh").args(["-c", "command -v tmux"]).output() else {
+            return;
+        };
+        if !which.status.success() {
+            return;
+        }
+        let executable = String::from_utf8_lossy(&which.stdout).trim().to_owned();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let socket = temp.path().join("tmux.sock");
+        let wrapper = temp.path().join("tmux");
+        let quoted = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+        fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\nexec {} -S {} \"$@\"\n",
+                quoted(&executable),
+                quoted(&socket.to_string_lossy())
+            ),
+        )
+        .expect("wrapper");
+        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).expect("wrapper mode");
+        let started = Command::new(&wrapper)
+            .args(["new-session", "-d", "-s", "exact", "-n", "present"])
+            .status()
+            .expect("start isolated tmux");
+        assert!(started.success());
+        let result = (|| -> Result<(), String> {
+            let pane = Command::new(&wrapper)
+                .args(["display-message", "-p", "-t", "exact:present", "#{pane_id}"])
+                .output()
+                .map_err(|error| error.to_string())?;
+            let pane = String::from_utf8_lossy(&pane.stdout).trim().to_owned();
+            let mut backend = TmuxBackend::new(
+                crate::command::SystemCommandRunner,
+                wrapper.as_os_str(),
+                false,
+            );
+            backend
+                .target_ready(&target(&pane))
+                .map_err(|error| error.to_string())?;
+            match backend.target_ready(&target("exact:absent")) {
+                Err(BackendError::Missing(_)) => Ok(()),
+                outcome => Err(format!("missing named window was not absent: {outcome:?}")),
+            }
+        })();
+        let _ = Command::new(&wrapper).arg("kill-server").status();
+        result.expect("exact target checks");
     }
 
     #[test]

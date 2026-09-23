@@ -1399,7 +1399,7 @@ pub(crate) fn claude_stop_autoarm(root: &Path, home: &Path, source_root: &Path) 
         .join("\n");
     if failed {
         eprintln!(
-            "broker watcher cycle FAILED - supervision is down while this home still needs it."
+            "orchestrator watcher cycle FAILED - supervision is down while this home still needs it."
         );
         if !selected.is_empty() {
             eprintln!("{selected}");
@@ -1408,7 +1408,7 @@ pub(crate) fn claude_stop_autoarm(root: &Path, home: &Path, source_root: &Path) 
             "Run bin/mx-wake-drain.sh first. Then repair supervision with bin/mx-watch-arm.sh as its own Claude Code background task (never shell &). If the failure repeats, treat it as a blocker and report it instead of ending blind."
         );
     } else {
-        eprintln!("broker watcher wake - one supervision event needs a handling turn now.");
+        eprintln!("orchestrator watcher wake - one supervision event needs a handling turn now.");
         if !selected.is_empty() {
             eprintln!("{selected}");
         }
@@ -2036,7 +2036,7 @@ fn afk_return_print(text: &str) {
         match f.as_slice() {
             ["evidence", kind, value] => println!("catch-up {kind}: {value}"),
             ["blocker", task, key, summary] => {
-                eprintln!("broker-actionable blocker: {task} [key={key}] {summary}")
+                eprintln!("orchestrator-actionable blocker: {task} [key={key}] {summary}")
             }
             _ => {}
         }
@@ -3658,16 +3658,10 @@ pub(crate) fn supervise_daemon(
             return 1;
         }
     };
-    let pid = std::process::id();
-    let identity = SystemProcessProbe::default().identity(pid).ok();
-    let _ = lock.publish_metadata("pid", format!("{pid}\n").as_bytes());
-    if let Some(identity) = identity {
-        let _ = lock.publish_metadata("pid-identity", identity.marker.as_bytes());
-    }
-    let pidfile = state.join(".supervise-daemon.pid");
-    if fs::write(&pidfile, format!("{pid}\n")).is_err() {
-        return 1;
-    }
+    // The pidfile is the supervisor readiness marker. Install termination
+    // handlers and finish fallible process setup before publishing it so a
+    // caller that observes the pidfile can immediately signal this process
+    // without racing the default SIGTERM action.
     let (shutdown, _) = match install_watcher_signals() {
         Ok(flags) => flags,
         Err(error) => {
@@ -3684,6 +3678,16 @@ pub(crate) fn supervise_daemon(
     };
     let watcher_override = std::env::var_os("MX_SUPERVISE_WATCH_EXEC").map(PathBuf::from);
     let log = state.join(".supervise-daemon.log");
+    let pid = std::process::id();
+    let identity = SystemProcessProbe::default().identity(pid).ok();
+    let _ = lock.publish_metadata("pid", format!("{pid}\n").as_bytes());
+    if let Some(identity) = identity {
+        let _ = lock.publish_metadata("pid-identity", identity.marker.as_bytes());
+    }
+    let pidfile = state.join(".supervise-daemon.pid");
+    if fs::write(&pidfile, format!("{pid}\n")).is_err() {
+        return 1;
+    }
     let flush = |state: &Path| -> bool {
         if !state.join(".afk").is_file() {
             return false;
@@ -4480,7 +4484,7 @@ pub(crate) fn turnend_guard(
     if count > limit {
         reset_budget(&budget, true);
         let message = format!(
-            "broker turn-end guard: {} task(s) in flight with no live watcher and no Stop auto-arm claim; block budget exhausted, allowing this stop. Repair supervision (bin/mx-watch-arm.sh as a Claude Code background task) or investigate why bin/mx-claude-stop-autoarm.sh is not claiming this home.",
+            "orchestrator turn-end guard: {} task(s) in flight with no live watcher and no Stop auto-arm claim; block budget exhausted, allowing this stop. Repair supervision (bin/mx-watch-arm.sh as a Claude Code background task) or investigate why bin/mx-claude-stop-autoarm.sh is not claiming this home.",
             status.in_flight
         );
         println!("{}", serde_json::json!({"systemMessage": message}));

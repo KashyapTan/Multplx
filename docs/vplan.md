@@ -3,7 +3,7 @@
 vplan is Multplx's optional, one-shot HTML review surface.
 Run it only when the user explicitly requests vplan or knowingly selects a workflow that clearly includes it.
 Creating or receiving an HTML plan does not start vplan.
-The broker authors an ordinary HTML artifact, serves it only on loopback with an injected comment overlay, and the maintainer confirms a queue of comments.
+The orchestrator authors an ordinary HTML artifact, serves it only on loopback with an injected comment overlay, and the maintainer confirms a queue of comments.
 Confirmation writes an inert JSON block into the artifact and ends the server.
 There is no persistent daemon, polling protocol, remote hosting, or external runtime asset fetch.
 
@@ -114,7 +114,7 @@ Every object has exactly these fields.
 The selector, anchor text, and nearest heading form the location fallback.
 The SDK uses the selector first, highlights matching anchor text when it still exists, and falls back to an element pin when the text range has drifted.
 Resolved comments remain in the block and render dimmed on later rounds.
-The broker marks an addressed comment by changing only its `resolved` value to `true`.
+The orchestrator marks an addressed comment by changing only its `resolved` value to `true`.
 
 ## Run-record contract
 
@@ -154,7 +154,7 @@ A dead, malformed, or identity-mismatched record is stale and is removed without
 ## Operational boundary
 
 The presence of a live run record marks the artifact as under review.
-The broker must not edit the file until confirmation, `stop`, or idle timeout ends that review.
+The orchestrator must not edit the file until confirmation, `stop`, or idle timeout ends that review.
 Atomic replacement prevents partial-file corruption, while this no-edit rule prevents comments from being attached to content the maintainer did not review.
 
 Ending a vplan review completes no task or decision by itself.

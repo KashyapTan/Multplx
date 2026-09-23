@@ -19,14 +19,18 @@ The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) o
 ## Shared predicate
 
 The guard first calls the shared primary scope.
-A daemon home runs its own primary Multplx session, so a genuine `.mx-daemon-home` marker includes it whether the home is a linked worktree or plain clone.
+A persistent-sub-agent home runs its own primary Multplx session, so a genuine `.mx-daemon-home` marker includes it whether the home is a linked worktree or plain clone.
 The marker must be a regular non-symlink file whose whitespace-stripped first line is a non-empty identifier containing only letters, digits, dots, underscores, and dashes.
 An unmarked checkout or invalid marker falls through to the git-dir check.
-That check keeps actor and scout linked worktrees inert because their git dir differs from their git common dir.
+That check keeps sub-agent linked worktrees inert because their git dir differs from their git common dir.
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 The exact root `AGENTS.md` filename scopes the primary backstop.
 
-For an in-scope primary, the guard counts in-flight work from `state/*.meta`.
+For an in-scope primary, the guard counts active work from `state/*.meta`, excluding only a valid schema-2 canonical ordinary assignment whose schedule is `completed`.
+The exclusion requires an exact task-id match, a nonpersistent non-coordinator assignment, a current attempt identity, and matching canonical compatibility fields.
+Legacy, malformed, oversized, unreadable, persistent and coordinator records remain in flight conservatively.
+The shell compatibility predicate uses `jq` for this projection and conservatively counts all metadata when `jq` is unavailable.
+Reopened or otherwise nonterminal ordinary work is counted again; pending wakes remain visible and the existing identity-matched watcher checks are unchanged.
 The default cross-harness mode exits silently with no work in flight.
 Otherwise it calls `mx_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/mx-wake-lib.sh`, the same identity-matched lock and fresh-beacon check used by `bin/mx-watch-arm.sh`.
 A stale beacon blocks even when a watcher pid is live.
@@ -66,15 +70,15 @@ That warning uses `bin/mx-supervision-instructions.sh --repair-line`, so it alwa
 
 ## Compatibility limits
 
-- Child actor and scout worktrees are outside scope.
-- A valid daemon home is in scope; an idle daemon endpoint remains healthy because it has no supervision need.
+- Child sub-agent worktrees are outside scope.
+- A valid persistent-sub-agent home is in scope; an idle persistent-sub-agent endpoint remains healthy because it has no supervision need.
 - Claude and Codex block directly, Cursor translates one bounded native follow-up, and Pi uses bounded passive follow-ups.
 - Missing `jq` or unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
 
 ## Regression coverage
 
-`tests/mx-turnend-guard.test.sh` covers the predicate, main and daemon primary scope, child-worktree exclusion, `MX_HOME` and `MX_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, and the existing registrations.
+`tests/mx-turnend-guard.test.sh` covers the predicate, main and persistent-sub-agent primary scope, child-worktree exclusion, `MX_HOME` and `MX_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, and the existing registrations.
 `tests/mx-cursor-adapter.test.sh` covers Cursor translation and the one-follow-up bound.
 `tests/mx-supervision-instructions.test.sh` covers recovery-line ownership.
 `MX_PI_LIVE_E2E=1 tests/mx-pi-primary-live-e2e.test.sh` is the opt-in isolated Pi path.

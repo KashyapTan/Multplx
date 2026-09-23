@@ -88,7 +88,7 @@ test_tracked_extension_present_and_self_hashing() {
   assert_contains "$text" "MX_CONFIG_OVERRIDE: config" "tracked extension does not pass the effective config to the watcher arm"
   assert_contains "$text" "MX_WATCH_ARM_SCRIPT: armScript" "tracked extension does not pass the effective watcher arm script"
   assert_contains "$text" "exec \\\"\$MX_WATCH_ARM_SCRIPT\\\" --restart" "tracked extension does not restart into a Pi-owned watcher child"
-  assert_contains "$text" 'label: "Arm broker watcher"' "tracked extension tool is missing its human-readable label"
+  assert_contains "$text" 'label: "Arm orchestrator watcher"' "tracked extension tool is missing its human-readable label"
   assert_not_contains "$text" "Always use this tool" "tracked extension kept broad tool-selection guidance"
   assert_contains "$text" "only for the first required cycle or after a notification says the cycle is missing, failed, or unhealthy" "tracked extension tool metadata is missing the Pi first-cycle or explicit-repair rule"
   assert_contains "$text" "Do not call it after ordinary work, turn completion, or ordinary signal, stale, check, or heartbeat handling" "tracked extension prompt guidance does not prevent redundant ordinary-notification calls"
@@ -219,7 +219,7 @@ writeFileSync(`${process.env.MX_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
 if (!tool) throw new Error("Pi watch tool was not registered");
-if (tool.label !== "Arm broker watcher") throw new Error(`unexpected label: ${tool.label}`);
+if (tool.label !== "Arm orchestrator watcher") throw new Error(`unexpected label: ${tool.label}`);
 if (tool.parameters?.type !== "object") throw new Error("tool parameters are not a TypeBox object schema");
 const metadata = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join("\n");
 if (metadata.includes("Always use this tool")) throw new Error(`broad tool-selection metadata remained visible: ${metadata}`);

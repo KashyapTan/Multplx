@@ -394,9 +394,10 @@ mx_backend_cmux_parse_target() {  # <target>
 # instead - a structural pane-exists check rather than the design sketch's
 # original read-screen-based suggestion.
 mx_backend_cmux_surface_exists() {  # <workspace_id> <surface_id>
-  local wsid=$1 sfid=$2
-  mx_backend_cmux_cli list-panes --workspace "$wsid" --json --id-format uuids 2>/dev/null \
-    | jq -e --arg s "$sfid" '[.panes[]? | select(.surface_ids // [] | index($s))] | length > 0' >/dev/null 2>&1
+  local wsid=$1 sfid=$2 raw
+  raw=$(mx_backend_cmux_cli list-panes --workspace "$wsid" --json --id-format uuids 2>/dev/null) || return 1
+  printf '%s' "$raw" \
+    | jq -e -s --arg s "$sfid" 'length == 1 and ([.[0].panes[]? | select(.surface_ids // [] | index($s))] | length > 0)' >/dev/null 2>&1
 }
 
 # mx_backend_cmux_target_ready: parse the target and verify it is live via

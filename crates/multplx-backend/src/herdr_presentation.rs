@@ -238,10 +238,41 @@ pub fn quiesce_projection_before_allocation<R: CommandRunner>(
             )))
         }
     };
-    let ProjectionJournal::V2(binding) = read_journal(&journal, request.task_id)? else {
-        return Err(BackendError::Metadata(
-            "projection has no exact bound journal".to_owned(),
-        ));
+    let journal_record = read_journal(&journal, request.task_id)?;
+    if matches!(journal_record, ProjectionJournal::V1 { .. }) {
+        let workspace = exact("herdr_workspace_id")?;
+        let pane = exact("herdr_pane_id")?;
+        let pane_state = backend.pane_agent_state(&session, &pane);
+        if exact("backend")? != "herdr"
+            || exact("herdr_session")? != session
+            || exact("window")? != format!("{session}:{pane}")
+            || !matches!(pane_state, PaneAgentState::Dead | PaneAgentState::NoAgent)
+            || !backend.projection_recovery_allows_flat(&session, &journal, request.task_id)
+        {
+            return Err(BackendError::Metadata(
+                "version-1 projection recovery is not provably inactive".to_owned(),
+            ));
+        }
+        // A V1 journal cannot identify an endpoint strongly enough to mutate it.
+        // These read-only checks prove that allocating a replacement cannot
+        // overlap a live worker. Recovery will either correlate and reclaim the
+        // inactive token workspace or choose flat layout.
+        if pane_state == PaneAgentState::NoAgent
+            && !backend.projection_endpoint_matches_journal(
+                &session,
+                &workspace,
+                &journal,
+                request.task_id,
+            )
+        {
+            return Err(BackendError::Metadata(
+                "version-1 projection endpoint correlation is uncertain".to_owned(),
+            ));
+        }
+        return Ok(());
+    }
+    let ProjectionJournal::V2(binding) = journal_record else {
+        unreachable!("journal versions are exhaustive")
     };
     let existing_receipt = read_quiescence(&journal)?;
     let recovering_quiescence = existing_receipt.is_some();
@@ -1906,6 +1937,7 @@ mod tests {
     struct PresentationRunner {
         socket: PathBuf,
         calls: Vec<CommandRequest>,
+        agent_response: &'static [u8],
     }
 
     fn output(stdout: impl Into<Vec<u8>>) -> CommandOutput {
@@ -1964,7 +1996,7 @@ mod tests {
                     };
                     format!(r#"{{"result":{{"pane":{{"pane_id":"{pane}","tab_id":"{tab}","workspace_id":"{workspace}"}}}}}}"#).into_bytes()
                 }
-                Some("agent") => br#"{"error":{"code":"agent_not_found"}}"#.to_vec(),
+                Some("agent") => self.agent_response.to_vec(),
                 Some("session") => format!(
                     r#"{{"sessions":[{{"name":"named","running":true,"socket_path":"{}"}}]}}"#,
                     self.socket.display()
@@ -2040,6 +2072,7 @@ mod tests {
             PresentationRunner {
                 socket: home.join("named.sock"),
                 calls: Vec::new(),
+                agent_response: br#"{"error":{"code":"agent_not_found"}}"#,
             },
             "herdr",
             "named",
@@ -2097,6 +2130,77 @@ mod tests {
             },
         )
         .expect("uncertain prepared receipt");
+        assert!(super::quiesce_projection_before_allocation(&mut backend, &request).is_err());
+    }
+
+    #[test]
+    fn version_one_recovery_allows_only_proven_inactive_token_endpoints() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = std::fs::canonicalize(temp.path()).expect("home");
+        create_journal(&home, "task", TOKEN).expect("journal");
+        std::fs::write(
+            home.join("task.meta"),
+            concat!(
+                "backend=herdr\nherdr_session=named\nwindow=named:child:p1\n",
+                "herdr_workspace_id=child\nherdr_tab_id=child:t1\nherdr_pane_id=child:p1\n"
+            ),
+        )
+        .expect("prior metadata");
+        let mut backend = HerdrBackend::new(
+            PresentationRunner {
+                socket: home.join("named.sock"),
+                calls: Vec::new(),
+                agent_response: br#"{"error":{"code":"agent_not_found"}}"#,
+            },
+            "herdr",
+            "named",
+            home.clone(),
+        );
+        let request = super::ProjectionSpawnRequest {
+            state: &home,
+            task_id: "task",
+            home: &home,
+            cwd: &home,
+            task_label: "mx-task",
+            recovering: true,
+        };
+        super::quiesce_projection_before_allocation(&mut backend, &request)
+            .expect("agent-free token endpoint is safe before allocation");
+
+        let mut live_backend = HerdrBackend::new(
+            PresentationRunner {
+                socket: home.join("named.sock"),
+                calls: Vec::new(),
+                agent_response: br#"{"result":{"agent":{"agent_status":"working"}}}"#,
+            },
+            "herdr",
+            "named",
+            home.clone(),
+        );
+        assert!(super::quiesce_projection_before_allocation(&mut live_backend, &request).is_err());
+
+        let mut unknown_backend = HerdrBackend::new(
+            PresentationRunner {
+                socket: home.join("named.sock"),
+                calls: Vec::new(),
+                agent_response: br#"{"result":{"agent":{"agent_status":"mystery"}}}"#,
+            },
+            "herdr",
+            "named",
+            home.clone(),
+        );
+        assert!(
+            super::quiesce_projection_before_allocation(&mut unknown_backend, &request).is_err()
+        );
+
+        std::fs::write(
+            home.join("task.meta"),
+            concat!(
+                "backend=herdr\nherdr_session=foreign\nwindow=foreign:child:p1\n",
+                "herdr_workspace_id=child\nherdr_tab_id=child:t1\nherdr_pane_id=child:p1\n"
+            ),
+        )
+        .expect("foreign metadata");
         assert!(super::quiesce_projection_before_allocation(&mut backend, &request).is_err());
     }
 
@@ -2254,6 +2358,7 @@ mod tests {
             PresentationRunner {
                 socket: socket.clone(),
                 calls: Vec::new(),
+                agent_response: br#"{"error":{"code":"agent_not_found"}}"#,
             },
             "herdr",
             "named",
@@ -2313,6 +2418,7 @@ mod tests {
             PresentationRunner {
                 socket: temp.path().join("named.sock"),
                 calls: Vec::new(),
+                agent_response: br#"{"error":{"code":"agent_not_found"}}"#,
             },
             "herdr",
             "named",

@@ -60,6 +60,31 @@ fn watcher_checkpoint(home: &Path) -> Output {
         .args(["supervision", "mx-watch-checkpoint.sh", "--seconds", "1"]))
 }
 
+fn watcher_checkpoint_until(home: &Path, description: &str, progressed: impl Fn() -> bool) {
+    const MAX_CHECKPOINTS: usize = 5;
+    let mut last = None;
+    for _ in 0..MAX_CHECKPOINTS {
+        let output = watcher_checkpoint(home);
+        assert!(
+            matches!(output.status.code(), Some(0 | 124)),
+            "watcher checkpoint status={:?}\nstdout={}\nstderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        last = Some(output);
+        if progressed() {
+            return;
+        }
+    }
+    let output = last.expect("at least one bounded watcher checkpoint ran");
+    panic!(
+        "watcher did not {description} after {MAX_CHECKPOINTS} bounded checkpoints\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn canonical_terminal_report_freezes_parent_outcome_in_same_transition_evidence() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -794,16 +819,35 @@ fn idle_watcher_checkpoints_relay_a_nested_outcome_without_model_turns() {
     multplx_domain::lifecycle::parent_channel::record_outcome(&worker_home.join("state"), &event)
         .unwrap();
 
-    for home in [&worker_home, &coordinator_home, &coordinator_home, &root] {
-        let output = watcher_checkpoint(home);
-        assert!(
-            matches!(output.status.code(), Some(0 | 124)),
-            "watcher checkpoint status={:?}\nstdout={}\nstderr={}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    let first_hop_file = "watcher-relay-hop-0-repair-0.json";
+    let second_hop_file = "watcher-relay-hop-1-repair-0.json";
+    let message_file = "watcher-relay.json";
+    watcher_checkpoint_until(
+        &worker_home,
+        "deliver the worker outcome to its coordinator",
+        || {
+            coordinator_home
+                .join("state/parent-inbox")
+                .join(first_hop_file)
+                .is_file()
+        },
+    );
+    watcher_checkpoint_until(&coordinator_home, "accept the worker outcome", || {
+        coordinator_home
+            .join("state/parent-receipts")
+            .join(format!("parent-inbox-{first_hop_file}"))
+            .is_file()
+    });
+    watcher_checkpoint_until(&coordinator_home, "forward the outcome to the root", || {
+        root.join("state/parent-inbox")
+            .join(second_hop_file)
+            .is_file()
+    });
+    watcher_checkpoint_until(&root, "publish the root's exact message receipt", || {
+        root.join("state/message-outbox")
+            .join(message_file)
+            .is_file()
+    });
     assert_eq!(
         multplx_domain::operational_input::read_message_envelope(
             &root.join("state"),

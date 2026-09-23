@@ -44,15 +44,19 @@
     {
       "before": "tests/mx-daemon-harness.test.sh",
       "helper": "tests/daemon-harness-helpers.sh",
-      "case_count": 41,
+      "case_count": 42,
       "assertion_additions": [
         {
           "assertion": "spawned providers load task-bound native observation from the trusted runtime",
           "reason": "Lean Phase 04 adds generated native lifecycle observation configuration to each supported provider launch."
+        },
+        {
+          "assertion": "worker launch binds the real harness and runtime independently of backend shell state",
+          "reason": "Lean Phase 12 binds packaged worker launches to the captured provider executable and installed runtime instead of backend-shell shim state."
         }
       ],
       "after_groups": {
-        "harness-model-resolution": ["test_harness_resolution", "test_daemon_model_effort_tokens", "test_propagate_lib", "test_spawn_split_and_inherit", "test_spawn_backward_compat_actor_fallback", "test_spawn_bare_backward_compat", "test_spawn_explicit_harness_wins", "test_spawn_unverified_daemon_harness_refused", "test_spawn_bare_harness_no_model_effort_flag", "test_spawn_daemon_harness_model_token", "test_spawn_daemon_harness_model_and_effort_tokens", "test_spawn_explicit_model_overrides_daemon_harness_token", "test_spawn_explicit_effort_overrides_daemon_harness_token", "test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens", "test_spawn_explicit_harness_uses_explicit_profile_axes", "test_spawn_injects_native_observer_configuration", "test_spawn_fallback_chain_and_actor_scout_unaffected"],
+        "harness-model-resolution": ["test_harness_resolution", "test_daemon_model_effort_tokens", "test_propagate_lib", "test_spawn_split_and_inherit", "test_spawn_backward_compat_actor_fallback", "test_spawn_bare_backward_compat", "test_spawn_explicit_harness_wins", "test_spawn_unverified_daemon_harness_refused", "test_spawn_bare_harness_no_model_effort_flag", "test_spawn_daemon_harness_model_token", "test_spawn_daemon_harness_model_and_effort_tokens", "test_spawn_explicit_model_overrides_daemon_harness_token", "test_spawn_explicit_effort_overrides_daemon_harness_token", "test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens", "test_spawn_explicit_harness_uses_explicit_profile_axes", "test_spawn_injects_native_observer_configuration", "test_worker_launch_binds_real_harness_and_runtime", "test_spawn_fallback_chain_and_actor_scout_unaffected"],
         "spawn-config-inheritance": ["test_bootstrap_sweep_propagates_and_reconverges", "test_bootstrap_sweep_propagates_when_tracked_current", "test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home", "test_bootstrap_sweep_no_inheritance_is_noop", "test_bootstrap_sweep_surfaces_config_propagation_failure", "test_bootstrap_rereads_after_partial_propagation", "test_config_push_propagates_reports_without_ff_or_nudge", "test_config_push_reports_skips_dirty_and_invalid_home", "test_config_push_exits_nonzero_on_copy_error", "test_config_push_rereads_after_partial_propagation"],
         "config-reread-retry": ["test_config_reread_per_home_changed_sets_and_exact_bytes", "test_config_reread_isolation_and_absent_and_send_failure", "test_config_reread_publication_failure_retries_exact_generation", "test_config_reread_write_failure_retains_exact_retry_generation", "test_config_reread_exact_temp_survives_adoption_failure", "test_config_reread_serializes_concurrent_pushes", "test_config_reread_full_retry_queue_drains_before_new_push", "test_config_reread_cleanup_runs_after_mixed_delivery_failure", "test_config_reread_stops_after_failed_generation", "test_config_reread_skips_when_unchanged_and_reads_after_push", "test_config_reread_bootstrap_path_and_spawn_flexibility", "test_bootstrap_respawns_before_config_reread", "test_spawn_quarantines_pending_rereads_on_cleanup_failure", "test_bootstrap_detect_only_does_not_create_state"]
       }

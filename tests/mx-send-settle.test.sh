@@ -39,7 +39,9 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '0\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '\xe2\x94\x82 \xe2\x94\x82\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows)
+    case " $* " in *' -t sess '*) printf 'win\n' ;; esac
+    ;;
 esac
 exit 0
 SH

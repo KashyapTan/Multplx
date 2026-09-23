@@ -117,11 +117,19 @@ phase_spawn() {
   assert_grep 'kind=daemon' "$meta" "spawn meta did not record kind=daemon"
   assert_grep "home=$SUB_ABS" "$meta" "spawn meta did not record the subhome"
   assert_grep 'projects=alpha, beta, gamma' "$meta" "spawn meta did not record the project list"
-  # Launch ran in the subhome, with the persistent charter and cleared overrides,
+  # Launch ran in the subhome, with the persistent charter and private context,
   # and never invoked the retired worktree provider.
   assert_grep "MX_HOME='$SUB_ABS'" "$LOG" "daemon launch did not set MX_HOME to the subhome"
-  assert_grep 'MX_ROOT_OVERRIDE= MX_STATE_OVERRIDE= MX_DATA_OVERRIDE= MX_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
-  assert_grep 'MX_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
+  assert_grep "MX_ROOT_OVERRIDE='$ROOT'" "$LOG" "launch did not use the packaged source root"
+  assert_grep "MX_STATE_OVERRIDE='$SUB_ABS/state'" "$LOG" "launch did not bind state to the private home"
+  assert_grep "MX_DATA_OVERRIDE='$SUB_ABS/data'" "$LOG" "launch did not bind data to the private home"
+  assert_grep "MX_PROJECTS_OVERRIDE='$SUB_ABS/projects'" "$LOG" "launch did not bind projects to the private home"
+  assert_grep "MX_CONFIG_OVERRIDE='$SUB_ABS/config'" "$LOG" "launch did not bind config to the private home"
+  assert_no_grep 'MX_ROOT_OVERRIDE= ' "$LOG" "launch included an empty root override"
+  assert_no_grep 'MX_STATE_OVERRIDE= ' "$LOG" "launch included an empty state override"
+  assert_no_grep 'MX_DATA_OVERRIDE= ' "$LOG" "launch included an empty data override"
+  assert_no_grep 'MX_PROJECTS_OVERRIDE= ' "$LOG" "launch included an empty projects override"
+  assert_no_grep 'MX_CONFIG_OVERRIDE= ' "$LOG" "launch included an empty config override"
   local accepted
   accepted=$(sed -n 's/^canonical_model=//p' "$meta" | jq -r '.accepted_brief_path')
   assert_grep "$accepted" "$LOG" "launch did not use the accepted immutable charter"

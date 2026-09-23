@@ -31,7 +31,7 @@ const WATCHER_REASONS: &[(&str, &str)] = &[
     ),
     (
         "broad-watcher-kill",
-        "a broad process kill targeting the broker watcher is forbidden",
+        "a broad process kill targeting the orchestrator watcher is forbidden",
     ),
     (
         "unclassifiable-protected-command",

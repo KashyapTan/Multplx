@@ -268,7 +268,7 @@ RETURN_RC=$?
 set -e
 DAEMON_STARTED=0
 [ "$RETURN_RC" -eq 3 ] || fail "return catch-up did not gate the still-live blocker (rc=$RETURN_RC): $RETURN_OUT"
-assert_contains "$RETURN_OUT" 'broker-actionable blocker: repair-task [key=synthetic-dependency]' "return gate did not assign remediation"
+assert_contains "$RETURN_OUT" 'orchestrator-actionable blocker: repair-task [key=synthetic-dependency]' "return gate did not assign remediation"
 set +e
 STATUS_OUT=$(PATH="$FAKEBIN:$ORIGINAL_PATH" HERDR_SESSION="$SESSION" MX_ROOT_OVERRIDE="$PROJECT" MX_HOME="$HOME_DIR" MX_STATE_OVERRIDE="$STATE" \
   "$ROOT/bin/mx-status-snapshot.sh" --json 2>&1)

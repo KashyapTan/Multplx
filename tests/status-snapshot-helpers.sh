@@ -39,6 +39,18 @@ case "${1:-}" in
       *) printf 'all quiet\n> \n' ;;
     esac
     ;;
+  list-windows)
+    session=""
+    previous=""
+    for arg in "$@"; do
+      if [ "$previous" = "-t" ]; then session=$arg; fi
+      previous=$arg
+    done
+    for meta in "${MX_HOME:?}"/state/*.meta; do
+      [ -f "$meta" ] || continue
+      awk -F= -v session="$session" '$1 == "window" { split($2, target, ":"); if (target[1] == session) { sub(/^[^:]*:/, "", $2); if ($2 !~ /dead-/) print $2 } }' "$meta"
+    done
+    ;;
 esac
 exit 0
 SH

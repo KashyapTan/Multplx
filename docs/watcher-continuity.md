@@ -45,7 +45,7 @@ The nudge creates no recoverable state and no listener process; the append-only 
 
 `bin/mx-classify-lib.sh` is the single owner of same-moment signal precedence used by the watcher, native push handler, current-state reader, and away-mode classifier.
 A native runtime blocker closes the watcher cycle immediately even while attributed validation continues, while a schema-valid terminal report cannot be hidden by regex-only busy text.
-The resulting wake lets broker report both the blocker and any concurrent validation progress without waiting for that validation to finish.
+The resulting wake lets the orchestrator report both the blocker and any concurrent validation progress without waiting for that validation to finish.
 
 ## Arm-layer cycle contract
 

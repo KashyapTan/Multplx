@@ -490,8 +490,10 @@ mod tests {
                 "-c",
                 // The child publishes readiness only after installing its own
                 // TERM handler, so group TERM cannot race its pre-exec
-                // inherited signal disposition. The parent then reaps it.
-                "trap 'wait \"$child\" 2>/dev/null; exit 0' TERM; /bin/sh -c 'trap \"exit 0\" TERM; : > \"$1\"; while :; do :; done' sh \"$3\" & child=$!; while [ ! -f \"$3\" ]; do :; done; printf '%s\\n' \"$child\" > \"$2\"; : > \"$1\"; wait \"$child\"",
+                // inherited signal disposition. The parent records TERM and
+                // reaps after leaving its interrupted foreground command;
+                // exiting directly from a trap around `wait` is racy in sh.
+                "term=0; trap 'term=1' TERM; /bin/sh -c 'trap \"exit 0\" TERM; : > \"$1\"; while :; do sleep 0.01; done' sh \"$3\" & child=$!; while [ ! -f \"$3\" ]; do sleep 0.01; done; printf '%s\\n' \"$child\" > \"$2\"; : > \"$1\"; while [ \"$term\" -eq 0 ]; do sleep 0.01; done; wait \"$child\" 2>/dev/null || :; exit 0",
                 "sh",
             ])
             .arg(&ready)

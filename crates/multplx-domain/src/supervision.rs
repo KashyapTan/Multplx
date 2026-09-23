@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -499,6 +499,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         |key| format!("{state_name} [key={key}]: {message}"),
     );
     let mut identity_detail = serde_json::Value::Null;
+    let mut implementation_completed = false;
     let meta_path = state.join(format!("{}.meta", task.as_str()));
     // One scoped lock serializes report acceptance with explicit brief changes.
     let _binding_lock = match multplx_core::locks::DirectoryLock::acquire_wait(
@@ -570,11 +571,57 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             correlation_id: parsed.correlation_id.unwrap_or_else(|| message_id.clone()),
             created_at: timestamp(),
             summary: message.clone(),
-            artifact: parsed.artifact,
+            artifact: parsed.artifact.clone(),
             acknowledgement: Acknowledgement::Pending,
         };
         let validation = validate_report_home(&record, &state)
             .and_then(|()| envelope.validate_current(&record, bound.as_str(), &recipient));
+        // A completion report can close the implementation dependency gate
+        // only when a separately typed, current implementation or report
+        // artifact proves the result. The status message alone remains status
+        // evidence for compatibility.
+        if validation.is_ok() && state_name == "done" {
+            let completion_evidence = match record.artifact {
+                crate::lifecycle::subagent_model::ArtifactKind::Implementation => {
+                    record.current_delivery_evidence().is_some_and(|evidence| {
+                        let checkout = record
+                            .allocation
+                            .as_ref()
+                            .map(|allocation| Path::new(&allocation.path))
+                            .or_else(|| {
+                                record
+                                    .project
+                                    .as_ref()
+                                    .map(|project| project.canonical_path.as_path())
+                            });
+                        checkout
+                            .and_then(|path| git_line(path, &["rev-parse", "--verify", "HEAD"]))
+                            .is_some_and(|head| head == evidence.commit)
+                    })
+                }
+                crate::lifecycle::subagent_model::ArtifactKind::Report
+                | crate::lifecycle::subagent_model::ArtifactKind::Coordination => {
+                    parsed.artifact.as_deref().is_some_and(|path| {
+                        fs::symlink_metadata(path).is_ok_and(|metadata| {
+                            metadata.is_file() && !metadata.file_type().is_symlink()
+                        })
+                    })
+                }
+            };
+            if completion_evidence {
+                record.schedule.state = crate::lifecycle::subagent_model::WorkState::Completed;
+                record.schedule.waiting_condition = None;
+            }
+        }
+        if validation.is_ok()
+            && state_name == "working"
+            && record.schedule.state == crate::lifecycle::subagent_model::WorkState::Completed
+        {
+            record.schedule.state = crate::lifecycle::subagent_model::WorkState::Running;
+            record.schedule.waiting_condition = None;
+        }
+        implementation_completed =
+            record.schedule.state == crate::lifecycle::subagent_model::WorkState::Completed;
         let mut prepared_outcome = if validation.is_ok() {
             match crate::lifecycle::parent_channel::prepare_report(&state, &envelope) {
                 Ok(outcome) => outcome,
@@ -782,6 +829,9 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         .unwrap_or_default();
     if let Some(debug) = nudge_watcher(&state) {
         stderr.push_str(&debug);
+    }
+    if state_name == "done" && !implementation_completed {
+        stderr.push_str("done status recorded; implementation completion was not proven, so dependency gates remain closed. Record current revision-bound task-model evidence whose commit matches the bound checkout HEAD, or attach a result artifact for a report assignment.\n");
     }
     CommandResult {
         status: 0,
@@ -1584,7 +1634,7 @@ pub fn pretool_guard(
             } else {
                 Some(multplx_core::command_policy::Denial {
                     code: "persistent-cd",
-                    reason: "a persistent top-level directory change in the primary Multplx checkout is blocked; it would move the shell out of the home so a later broker-owned command runs inside a project clone. Reach the target without moving the shell - use git -C <dir> or an absolute path on the command itself - or scope the cd to a subshell like (cd <dir> && ...).",
+                    reason: "a persistent top-level directory change in the primary Multplx checkout is blocked; it would move the shell out of the home so a later orchestrator-owned command runs inside a project clone. Reach the target without moving the shell - use git -C <dir> or an absolute path on the command itself - or scope the cd to a subshell like (cd <dir> && ...).",
                 })
             }
         }

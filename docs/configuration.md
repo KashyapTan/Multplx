@@ -12,14 +12,14 @@ The shared orchestrator behavior contract lives in the [dormant operating contra
 
 This section is the single owner of the top-level operational-home layout; Rust command help and the owning crate modules define exact child-file fields and mutation contracts.
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `MX_HOME` contains private operational directories.
-`data/` holds durable private system records such as the project and daemon registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and scout reports.
-`state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private daemon config-reread generations with their retry and quarantine state, and parent-owned daemon pending-reply records under `state/pending-replies/` (`multplx-domain::lifecycle::pending_reply`).
+`data/` holds durable private system records such as the project and persistent-sub-agent registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and researcher reports.
+`state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private persistent-sub-agent config-reread generations with their retry and quarantine state, and parent-owned persistent-sub-agent pending-reply records under `state/pending-replies/` (`multplx-domain::lifecycle::pending_reply`).
 `config/` holds local gitignored operating choices, and `projects/` holds the legacy managed project clones; the lean local-checkout model is owned by [A9](../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat).
 
 `multplx-domain::lifecycle::spawn` owns base task metadata, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 [`mx migrate`](state-migration.md) owns the versioned home marker, canonical alias conversion, private backup and rollback evidence.
 The [sub-agent model](subagent-model.md) owns the versioned task/attempt/brief and project/checkout contracts, including legacy mappings and the migration boundary.
-The producing Rust review helpers own the fields they append, `multplx-core::classification` owns status-event vocabulary, and the Rust actor-state backend owns current-state reconciliation.
+The producing Rust review helpers own the fields they append, `multplx-core::classification` owns status-event vocabulary, and the Rust sub-agent-state backend owns current-state reconciliation.
 Wake, watcher, and away-mode state mechanics remain with the Rust supervision runtime and their reference sections rather than being duplicated into one exhaustive state tree here.
 
 `multplx-cli::session_start` is the single implementation owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
@@ -69,18 +69,18 @@ The Pi Calm extension stores the maintainer's home-local presentation choice in 
 The only values it writes are `on` and `off`, each followed by one newline; an absent, unreadable, or unrecognized value defaults to off.
 The `/calm` command replaces the file atomically before changing live presentation, so a failed write leaves the current choice unchanged rather than claiming persistence.
 The extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
-This preference is local to each Multplx home and is not part of daemon inherited configuration.
+This preference is local to each Multplx home and is not part of persistent-sub-agent inherited configuration.
 
 ## Backlog backend (config/backlog-backend)
 
 The typed Rust `BacklogStore` is the single owner of the markdown backlog schema, parsing rules, mutation semantics, and retention defaults.
 The public functions in `bin/mx-backlog-lib.sh` and the `bin/mx-backlog.sh` command are transport adapters to it by default.
 It stores live work in `data/backlog.md`, keeps the newest 10 Done items inline by default, and moves retention overflow to `data/done-archive.md`.
-When the default backend is selected, broker uses the library for routine backlog mutations with no external package or version probe.
-Daemon handoffs are separate and unconditional: `mx-backlog-handoff.sh` keeps its system-level validation and routes the item move through the library's atomic `mx_backlog_mv`.
+When the default backend is selected, the orchestrator uses the library for routine backlog mutations with no external package or version probe.
+Persistent-sub-agent handoffs are separate and unconditional: `mx-backlog-handoff.sh` keeps its system-level validation and routes the item move through the library's atomic `mx_backlog_mv`.
 It moves in-scope `## Queued` items only and refuses `## In flight` and historical `## Done` records, which stay with their home for pruning or archiving.
 Handoff item bodies must use at least two leading spaces, and the helper refuses a selected item with a single-space or tab-indented continuation rather than risk orphaning it.
-The `config/backlog-backend=manual` knob governs broker's own hand-editing of its backlog, not this validated handoff helper.
+The `config/backlog-backend=manual` knob governs the orchestrator's own hand-editing of its backlog, not this validated handoff helper.
 Set the local, gitignored `config/backlog-backend` file to `manual` to force manual backlog editing; absent or `owned` selects the in-repo library.
 The file format is unchanged in both modes; the library and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.
 Use `bin/mx-backlog.sh` for routine list, show, add, done, ready, hold, update, block, unblock, move, and validation operations.
@@ -97,19 +97,19 @@ Build the runtime with `cargo build --release --workspace --locked` when running
 For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.
 `tmux` is the verified reference backend (see [`docs/tmux-backend.md`](tmux-backend.md)); `herdr` and `cmux` are experimental spawn backends (see [`docs/herdr-backend.md`](herdr-backend.md) and [`docs/cmux-backend.md`](cmux-backend.md)).
 The [built-in Git allocation owner](worktrees.md) supplies exact working paths to tmux, Herdr and cmux.
-New spawns choose the backend in this order: an explicit `--backend` flag broker passes when it spawns a task, then `MX_BACKEND`, then the first non-empty line of local gitignored `config/backend`, then runtime auto-detection from `$TMUX`, `HERDR_ENV=1`, or cmux runtime signals, then default `tmux`.
+New spawns choose the backend in this order: an explicit `--backend` flag the orchestrator passes when it spawns a task, then `MX_BACKEND`, then the first non-empty line of local gitignored `config/backend`, then runtime auto-detection from `$TMUX`, `HERDR_ENV=1`, or cmux runtime signals, then default `tmux`.
 If more than one runtime marker is present, detection resolves innermost-first: `$TMUX` is checked before `HERDR_ENV=1`, which is checked before cmux's primary `CMUX_WORKSPACE_ID` marker and its documented fallback signals - tmux or herdr started from inside a cmux terminal is the innermost, currently-executing layer, while cmux itself (a terminal application, not a nestable multiplexer) is always checked last.
 See [`docs/cmux-backend.md`](cmux-backend.md#runtime-detection) for why cmux can be selected when `CMUX_WORKSPACE_ID` is absent.
 Auto-detected herdr or cmux prints a stderr notice naming `config/backend` and `--backend tmux` as opt-outs; auto-detected tmux stays silent to preserve existing default behavior.
 Any value other than `tmux`, `herdr`, or `cmux` is rejected until another adapter is implemented and verified.
-`mx-spawn.sh` accepts `tmux`, `herdr`, and `cmux` for delivery and scout tasks; `backend=cmux` still refuses `--daemon` until daemon launch semantics are designed.
+`mx-spawn.sh` accepts `tmux`, `herdr`, and `cmux` for implementation and research tasks; `backend=cmux` still refuses the legacy `--daemon` alias until persistent-sub-agent launch semantics are designed.
 `codex-app` is not an accepted runtime backend yet; [`docs/codex-app-backend.md`](codex-app-backend.md) owns the Codex App boundary.
-The session-start daemon liveness sweep uses the recovery-grade `mx_backend_agent_state` classifier where verified.
+The session-start persistent-sub-agent liveness sweep uses the recovery-grade `mx_backend_agent_state` classifier where verified.
 The comment above that function in `bin/mx-backend.sh` is the single owner of its detailed state contract and recovery authorization.
 The compatibility helper `mx_backend_agent_alive` continues to collapse those detailed results to `alive`, `dead`, or `unknown` for older callers.
 A herdr spawn additionally version-gates against the installed `herdr` binary's protocol and requires `jq`, refusing loudly on an incompatible or missing installation.
 A cmux spawn additionally version-gates against the installed `cmux` binary's version, requires `jq`, and requires the control socket to be reachable and accessible (see [`docs/cmux-backend.md`](cmux-backend.md) "Setup" for the one-time socket-access configuration this needs; Automation mode is the recommended socket control mode, with Password mode supported via `config/cmux-socket-password`), refusing loudly and non-retryably on a `cmuxOnly`/unauthenticated socket.
-A backend spawn refusal from a missing dependency, version gate, or unauthenticated socket is terminal for that selected backend; broker surfaces it as a blocker instead of silently retrying another backend.
+A backend spawn refusal from a missing dependency, version gate, or unauthenticated socket is terminal for that selected backend; the orchestrator surfaces it as a blocker instead of silently retrying another backend.
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 A cmux task additionally records `cmux_workspace_id=` and `cmux_surface_id=`.
@@ -117,29 +117,29 @@ Task selectors for `mx-peek.sh`, `mx-send.sh`, and `mx-actor-state.sh` resolve c
 A selector containing `:` is passed through as an explicit backend endpoint escape hatch.
 Otherwise an exact task id matching `state/<id>.meta` wins before the legacy `mx-<id>` label fallback, so task ids that themselves start with `mx-` route to their own metadata instead of being stripped.
 A metadata-routed selector returns the recorded backend target (`window=`), and matching explicit targets can still recover the recorded backend when metadata contains the same endpoint.
-Only metadata-routed task selectors carry daemon-marker and Codex-harness context; explicit endpoint escape hatches do not.
+Only metadata-routed task selectors carry persistent-home-marker and Codex-harness context; explicit endpoint escape hatches do not.
 These five sentences are the single owner of the task-selector vocabulary; backend guides and other documents point here instead of restating the resolution order.
 `mx-teardown.sh <id>` takes a task id directly and uses the same recorded backend target fields after loading `state/<id>.meta`.
-By default, Herdr workspaces are derived from `MX_HOME`: the primary home uses `broker`, and a daemon home marked by `.mx-daemon-home` uses `daemon-<daemon-id>`.
-The default-container spawn, list-live, and recovery paths read that label from the active home, so a daemon's own actors stay inside that daemon home's herdr space.
+By default, Herdr workspaces are derived from `MX_HOME`: the primary home uses `broker`, and a persistent-sub-agent home marked by `.mx-daemon-home` uses `daemon-<daemon-id>`.
+The default-container spawn, list-live, and recovery paths read that label from the active home, so a persistent sub-agent's children stay inside that sub-agent home's Herdr space.
 The optional local `config/herdr-presentation-spaces` presence flag instead enables Herdr's default-off disposable single-task visual projection; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns its behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
-The flag is default-off and inherited into daemon homes under the primary-authoritative contract owned by [inherited configuration](configuration.md#persistent-home-inheritance).
+The flag is default-off and inherited into persistent-sub-agent homes under the primary-authoritative contract owned by [inherited configuration](configuration.md#persistent-home-inheritance).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
 cmux has no session layer at all - one workspace per task, in whatever cmux window is open - and its socket password (when configured) is read from local, gitignored `config/cmux-socket-password` under the effective config directory, never committed.
 The caller-facing label remains `mx-<id>`, but the actual cmux workspace title is scoped by the active `MX_HOME` readable label plus a short hash of the resolved `MX_ROOT` path as `mx-<home-label>-<id>`.
 Test cleanup must use the guarded path in [`docs/cmux-backend.md`](cmux-backend.md#current-operation-and-safety), never enumerate-and-close every workspace.
-The `config/backend` file is not inherited by daemon homes.
+The `config/backend` file is not inherited by persistent-sub-agent homes.
 
 ## Away-mode supervisor backend (MX_SUPERVISOR_BACKEND / MX_SUPERVISOR_TARGET)
 
-The `/afk` sub-supervisor injects escalation digests into broker's own pane independently of where new task endpoints are spawned.
+The `/afk` service daemon injects escalation digests into the orchestrator's own pane independently of where new task endpoints are spawned.
 It currently supports only `tmux` and `herdr` supervisor panes.
 Set `MX_SUPERVISOR_BACKEND=tmux|herdr` and `MX_SUPERVISOR_TARGET=<target>` to override both axes explicitly; for herdr the target is `"<session>:<pane-id>"`.
 Without overrides, backend detection uses `$TMUX_PANE` first, then `HERDR_ENV=1` with `HERDR_PANE_ID`, then falls back to `tmux`.
 That keeps a tmux pane nested inside herdr on the tmux transport, matching the runtime backend's innermost-first rule.
 Target detection uses `MX_SUPERVISOR_TARGET`, then `$TMUX_PANE`, then `"${HERDR_SESSION:-default}:${HERDR_PANE_ID}"` under herdr, then the legacy `broker:0` tmux fallback with a warning.
-Selecting any other supervisor backend, including `cmux`, refuses at daemon startup instead of trying tmux injection primitives against a non-tmux pane.
+Selecting any other supervisor backend, including `cmux`, refuses when the service daemon starts instead of trying tmux injection primitives against a non-tmux pane.
 
 ## Away-mode wedge alarm channels (config/wedge-alarm)
 
@@ -149,7 +149,7 @@ Beyond the durable `state/.subsuper-inject-wedged` marker and the tmux status-li
 `MX_WEDGE_ALARM_CHANNEL` overrides the file with a single directive.
 Directives are `off` (a position-independent kill switch that disables every active alert), `auto`/`default`, `herdr` (herdr UI notification), and `command:<cmd>` (run `<cmd>` via `sh -c`, summary on `$1` and stdin).
 An absent file means `auto`: no platform has a built-in OS channel, so the durable marker is the only signal until a channel is configured; the alarm fires at most once per max-defer window after a genuine wedge.
-A missing or failing channel logs and falls through to the next, never crashing the daemon.
+A missing or failing channel logs and falls through to the next, never crashing the service daemon.
 See [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) for active evidence and [`examples/wedge-alarm`](examples/wedge-alarm) for a copyable config.
 
 ## Optional deep-review configuration (.deep-review.yaml)
@@ -168,7 +168,7 @@ Portable shard evidence and coverage rules are in [mx-test-portable-shards.md](m
 
 Domain-local preferences for one maintainer's system live locally in each home's `data/maintainer.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/daemons.md`.
 Before changing it, inspect the current file and rewrite or prune the matching bullet in place; add a new bullet only for a genuinely new durable preference.
-Shared maintainer preferences that apply across daemon domains live only in the primary home's optional `data/maintainer-shared.md`.
+Shared maintainer preferences that apply across persistent-sub-agent domains live only in the primary home's optional `data/maintainer-shared.md`.
 The persistent-home inheritance section below owns propagation; the parent-authoritative shared preference header and read-only child copies prevent accidental reverse synchronization.
 
 ## Operational learnings (data/learnings.md)
@@ -177,11 +177,11 @@ System-local operational facts and gotchas live locally in `data/learnings.md`; 
 The file is created lazily on first learning and follows the same dated, evidence-backed, curated style as `data/maintainer.md`: inspect the current file first, then rewrite or prune stale entries instead of appending forever.
 There is no shared learnings file by maintainer decision.
 
-## Daemon routes (data/daemons.md)
+## Persistent sub-agent routes (data/daemons.md)
 
 The [scoped coordinator command](scoped-coordinators.md) provisions a named domain and private home without manual route setup.
 The following registry grammar remains the compatibility surface for existing homes.
-Persistent daemon routes live locally in `data/daemons.md`.
+Persistent-sub-agent routes live locally in `data/daemons.md`.
 The existing parser accepts one route per line:
 
 ```text
@@ -190,20 +190,20 @@ The existing parser accepts one route per line:
 
 Keep the route concise; `home:` locates the seeded charter and `projects:` is non-exclusive provisioning data.
 `mx-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
-The main broker routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
+The main orchestrator routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
 Use `mx-home-seed.sh <id> - {<project>...|--no-projects}` to provision a private persistent home using installed runtime assets.
 Selected projects become canonical references to existing checkouts; seeding does not clone the runtime or projects.
 Use the deliberate `--no-projects` signal for a home with no initial project references.
 It cannot be combined with a project list, and omitting both still fails loudly.
 A project-less seed requires no existing project clones or `data/projects.md` entries in the home, so it refuses a populated-home conversion without changing that home.
 A preexisting project-bearing charter is also refused until it is re-scaffolded with `--no-projects` or removed.
-The reservation is held under the daemon id across normal restarts and interrupted seeding.
+The reservation is held under the persistent-sub-agent id across normal restarts and interrupted seeding.
 Teardown retains uncertain Git-backed homes and archives new private homes using their exact recorded lease identity.
-Daemon routes also support local-only and remote-free projects without fabricating a publication remote.
+Persistent-sub-agent routes also support local-only and remote-free projects without fabricating a publication remote.
 The optional deep-review command resolves configuration from the explicitly selected task project and requires no per-clone initialization during seeding.
-After creating a daemon, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <daemon-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-daemon homes.
+After creating a persistent sub-agent, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <daemon-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-persistent homes.
 Set `MX_DAEMON_CHARTER` to seed from inline charter text when no filled charter brief exists; set `MX_DAEMON_SCOPE` when the routing scope should differ from the charter text.
-The seeded home's `data/charter.md` owns the standard daemon lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
+The seeded home's `data/charter.md` owns the standard persistent-sub-agent lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
 Each seed writes an `.mx-daemon-home` identity marker at the home root.
 The tracked root `.gitignore` ignores that marker, so validation can read it without making a freshly seeded home appear dirty to porcelain-based safety checks.
 This does not relax protection for any other untracked file.
@@ -212,7 +212,7 @@ A standalone-clone home cannot receive a primary-local commit through that no-fe
 
 ## MX_HOME
 
-`MX_HOME` selects the operational home for one broker instance.
+`MX_HOME` selects the operational home for one orchestrator instance.
 When it is unset, most scripts use the repo root as the home; when it is set, scripts still run from this repo's `bin/`, but `state/`, `data/`, `config/`, and `projects/` come from `$MX_HOME`.
 `MX_ROOT_OVERRIDE` overrides the Multplx repo root used by scripts, including the primary checkout watched by the worktree-tangle guard.
 When `MX_HOME` is unset, it also behaves as the old whole-root override.
@@ -226,7 +226,7 @@ The full cmux home label also includes a short hash of the resolved `MX_ROOT` pa
 ## Harness support
 
 claude, codex, cursor, and pi are empirically verified; new harnesses get verified through a monitored trial task before joining the set.
-The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and actor launch require host operations that the default command sandbox denies.
+The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and sub-agent launch require host operations that the default command sandbox denies.
 The project setting does not change `approval_policy`; Codex approval prompts remain under the maintainer's user-level or command-line policy.
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Launch mechanics and verified command templates are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) is its transport-only compatibility entrypoint.
@@ -250,10 +250,10 @@ Those inherited values are defaults and rules only; `mx-spawn` still permits a c
 The canonical persistent default is inherited so nested delegation can select persistent execution without a separate role class.
 The legacy `config/daemon-harness` stays home-local for compatibility.
 For Pi persistent-home launches, `mx-spawn.sh` starts Pi with `-e` pointed at the home's `.pi/extensions/mx-primary-pi-watch.ts` and `.pi/extensions/mx-primary-turnend-guard.ts`, supplied through its links to installed runtime assets.
-For Cursor launches, `mx-spawn.sh` always passes `--sandbox enabled --trust`; actor turn-end signaling comes from a private per-run plugin and primary behavior comes from tracked `.cursor` rules and hooks.
+For Cursor launches, `mx-spawn.sh` always passes `--sandbox enabled --trust`; sub-agent turn-end signaling comes from a private per-run plugin and primary behavior comes from tracked `.cursor` rules and hooks.
 Cursor model effort is encoded as `<model>[effort=<level>]`; use `agent models` in the authenticated account before choosing a named model.
 Cursor deep-review is deliberately unsupported because schema enforcement and project-rule suppression are not verified together.
-[Cursor CLI verification](verification/cursor-cli.md) owns the dated version, authentication, sandbox, hook, resume, daemon, and negative-control evidence.
+[Cursor CLI verification](verification/cursor-cli.md) owns the dated version, authentication, sandbox, hook, resume, persistent-sub-agent, and negative-control evidence.
 
 ## Sub-agent dispatch profiles (config/subagent-dispatch.json)
 
@@ -272,7 +272,7 @@ This section is the single owner of the canonical schema and its per-field seman
       "use": [
         { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max, optional>" }
       ],
-      "why": "<optional rationale that helps broker choose>"
+      "why": "<optional rationale that helps the orchestrator choose>"
     }
   ],
   "default": [
@@ -306,7 +306,7 @@ Active admission receipts charge sessions and harness resources across descendan
 Root endpoint metadata contributes legacy live executions only when no exact task, attempt and endpoint receipt already accounts for them.
 Reserved and uncertain admissions remain charged, including reservations that become active while a capacity snapshot is being evaluated.
 Its JSON combines spare CPU and memory with a conservative configured API concurrency budget.
-The default local reservation is one-quarter logical CPU and 256 MiB per additional actor; `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain strict test and specialized-setup overrides.
+The default local reservation is one-quarter logical CPU and 256 MiB per additional sub-agent; `MX_HEADROOM_CPU_PER_ACTOR` and `MX_HEADROOM_MEM_PER_ACTOR_BYTES` retain strict test and specialized-setup overrides.
 The optional global budget is the nonnegative integer in `config/api-capacity`, with per-harness refinements in `config/api-capacity-<harness>`; absent configuration uses twenty.
 This signal is labeled `configured-budget`, not live provider quota.
 A provider omitted from the configured snapshot has an opaque native limit: the shared session budget still applies, while Multplx does not invent a zero or claim knowledge of that provider's quota.
@@ -342,10 +342,14 @@ Queue and admission transitions use atomic replacement under a short root lock; 
 Runnable work is ordered by `priority + floor(age_seconds / aging_seconds)`, then enqueue time and task ID.
 Aging prevents starvation.
 A blocked or oversized request does not prevent a smaller runnable request from fitting, and dependency cycles are rejected before publication.
-A drain durably marks `dispatching` and reserves capacity before launch.
+A drain validates the frozen task owner and parent context before reserving capacity and marking `dispatching`.
+A root-triggered drain launches private-home work with that home's state, configuration and parent attempt, while preserving the shared root budget.
 After restart it acknowledges only exact canonical metadata with a live endpoint.
 Missing, duplicate, wrong-home, stale-attempt, or mismatched metadata stays retained.
 Failed endpoints remain uncertain until the lifecycle owner verifies absence; a proven-absent retry reuses its exact allocation.
+A failed prelaunch dispatch can retry its original request only after its recorded launcher has exited, its receipt has no endpoint or allocation, and its exact owner has no launch action, intent, metadata or launch lock.
+Unknown process identity, unreadable paths and any retained launch evidence prevent that automatic retry.
+An explicit drain also reconciles provably absent execution receipts when there is no queued work.
 Successful teardown releases capacity only when task ID, owner state, attempt ID, and endpoint all match.
 Use `bin/mx-headroom.sh --queue` to inspect requests, `--queue-cancel <request-id>` to cancel queued work, and `--queue-priority <request-id> <signed-priority>` to reprioritize it.
 Dispatching work cannot be cancelled or reprioritized.
@@ -353,7 +357,7 @@ Dispatching work cannot be cancelled or reprioritized.
 
 ## Toolchain
 
-On session start the broker detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
+On session start the orchestrator detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
 The universal toolchain is Git, gh and jq.
@@ -362,7 +366,7 @@ The viz and vplan services are Rust-native and do not require Node.
 The [worktree lifecycle](worktrees.md) is built into the runtime; there is no worktree-provider installer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
 The in-repo deep-review scripts supply explicitly requested review evidence, while official gh supports ordinary branch and PR publication with user-configured authentication.
-Bootstrap does not require GitHub authentication in the broker session.
+Bootstrap does not require GitHub authentication in the orchestrator session.
 Authentication, repeat-safe publication and the human-only merge boundary are documented in [delivery.md](delivery.md).
 The in-repo vplan module covers explicitly requested rich-review operations and validates its vendored assets lazily when created, reviewed or explicitly self-checked.
 Backlog mutations and dispatch capacity are owned by the repository's typed backlog and headroom modules behind their existing shell entry points.
@@ -387,15 +391,15 @@ If bootstrap kills a timed-out refresh, it replays any completed `mx-system-sync
 A killed refresh (or a teardown process kill) can leave an orphaned `.git/packed-refs.lock` in a clone, which makes the next refresh's fetch fail with Git's `Unable to create '...packed-refs.lock': File exists`.
 On that signature only, `mx-system-sync.sh` retries the fetch with a bounded wait for the lock to self-clear, then removes the lock and retries once more only when it can prove the lock stale, exactly like the `mx-teardown.sh` `index.lock` recovery.
 It never removes a live lock, leaves any other failure shape untouched, and prints every wait, retry, and removal to stderr plus a one-line `recovered:` summary to stdout on success so that this session-start relay still surfaces the recovery.
-The locked session-start bootstrap step also runs the guarded local daemon sync for recorded live daemon homes, then propagates declared inherited local material into each validated live home.
+The locked session-start bootstrap step also runs the guarded local persistent-sub-agent sync for recorded live homes, then propagates declared inherited local material into each validated live home.
 It emits `DAEMON_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared maintainer-preference copy was quarantined.
 When a running home advances and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, bootstrap sends the re-read nudge itself through the stable `mx-<id>` selector and reports the exact completed send as `BOOTSTRAP_INFO:`.
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_DAEMONS:` with the failure reason.
-The same bootstrap run emits `DAEMON_LIVENESS:` only when a registered daemon is skipped or its relaunch fails; already-live and successfully relaunched daemons are handled silently.
+The same bootstrap run emits `DAEMON_LIVENESS:` only when a registered persistent sub-agent is skipped or its relaunch fails; already-live and successfully relaunched persistent sub-agents are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/mx-config-push.sh`.
-It uses the same live daemon discovery and propagation helper as bootstrap, prints each live home's `actor-dispatch.json`, `actor-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/maintainer-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
+It uses the same live persistent-sub-agent discovery and propagation helper as bootstrap, prints each live home's `actor-dispatch.json`, `actor-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/maintainer-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running home, it sends the literal-content reread pointer described in [inherited configuration](configuration.md#persistent-home-inheritance); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
-The locked bootstrap inheritance pass uses the same per-home changed-set and reread path for already-running homes; see `daemon-provisioning` for the single contract owner.
+The locked bootstrap inheritance pass uses the same per-home changed-set and reread path for already-running homes; see `daemon-provisioning` for the compatibility contract owner.
 That live discovery starts from `state/*.meta` records with `kind=daemon`; `data/daemons.md` only backfills `home=` for older or incomplete meta records.
 Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
 
@@ -411,7 +415,7 @@ MX_DATA_OVERRIDE=        # alternate data dir, mainly for tests
 MX_PROJECTS_OVERRIDE=    # alternate projects dir, mainly for tests
 MX_CONFIG_OVERRIDE=      # alternate config dir, mainly for tests
 MX_PROC_ROOT_OVERRIDE=   # alternate /proc root for the Linux process-identity read in mx-wake-lib.sh, mainly for tests
-MX_BACKEND=             # optional runtime backend override for new spawns; tmux/herdr/cmux support delivery/scout spawns, codex-app is not accepted
+MX_BACKEND=             # optional runtime backend override for new spawns; tmux/herdr/cmux support implementation/research spawns, codex-app is not accepted
 HERDR_SESSION=default  # herdr-only: named session for normal backend ops; not enough for destructive cleanup (docs/herdr-backend.md)
 MX_BACKEND_HERDR_COMPOSER_LINES=20  # herdr-only: tail lines scanned by composer-state guard/fallback paths; idle-baseline submit confirmation uses agent-state
 MX_BACKEND_HERDR_IDLE_RE='^Type a message\.\.\.$'  # herdr-only: empty-composer placeholder regex after shared ghost extraction plus border and prompt stripping
@@ -450,16 +454,16 @@ MX_WATCH_CYCLE_LOG_KEEP_LINES=1000   # newest complete lifecycle rows considered
 MX_WATCHER_STALE_GRACE=300   # defaults to MX_GUARD_GRACE; seconds a live watcher lock may have a stale beacon before re-arm errors
 MX_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
 MX_MAINTAINER_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'   # maintainer-relevant status regex; nonterminal progress verbs remain excluded even when their prose matches
-MX_CLASSIFY_PAUSED_VERB=paused     # read-side compatibility override for legacy status logs; validated actor writes use the closed `paused` state
+MX_CLASSIFY_PAUSED_VERB=paused     # read-side compatibility override for legacy status logs; validated sub-agent writes use the closed `paused` state
 MX_TASK_ID=                        # spawn-managed task binding consumed by mx-report and mx-report-mcp; do not set globally
-MX_REPORT_STATE_OVERRIDE=          # spawn-managed parent status directory, distinct from a daemon's own operational MX_HOME/state
+MX_REPORT_STATE_OVERRIDE=          # spawn-managed parent status directory, distinct from a persistent sub-agent's own operational MX_HOME/state
 MX_AGENT_GH_TOKEN=                 # retired launch override; configure ordinary GH_TOKEN/gh/SSH authentication instead
 MX_DELIVERY_GH_TOKEN=              # optional explicit publication token for mx-deliver.sh
 MX_DELIVERY_GH_CONFIG_DIR=         # optional absolute isolated gh config for mx-deliver.sh; mutually exclusive with MX_DELIVERY_GH_TOKEN
 MX_NUDGE=1                         # set to 0 to disable mx-report's best-effort watcher nudge without changing durable writes
 MX_NUDGE_DEBUG=0                   # set to 1 to print otherwise-silent watcher-nudge diagnostics from mx-report
-MX_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates; stale panes whose actor is not provably working surface immediately unless they declare the pause verb
-MX_PAUSE_RESURFACE_SECS=3600       # seconds before an idle declared external wait re-surfaces for a recheck in the watcher or away-mode daemon
+MX_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates; stale panes whose sub-agent is not provably working surface immediately unless they declare the pause verb
+MX_PAUSE_RESURFACE_SECS=3600       # seconds before an idle declared external wait re-surfaces for a recheck in the watcher or away-mode service daemon
 MX_WEDGE_DEMAND_INSPECT_COUNT=3    # consecutive provably-working stale escalations on the same unchanged pane before demand-deep-inspection is added
 MX_WATCH_TRIAGE_LOG_MAX_BYTES=262144   # size cap for the watcher's absorbed-wake debug log
 MX_SYSTEM_SYNC_BOOTSTRAP_TIMEOUT=     # optional seconds allowed for bootstrap's best-effort clone refresh; unset/blank defaults to max(20, 5 + 3 * origin-backed-project-count)
@@ -478,26 +482,26 @@ MX_SEND_RETRIES=3       # mx-send Enter-retry attempts after typing the line onc
 MX_SEND_SLEEP=0.4       # seconds between mx-send submit checks
 MX_SEND_SETTLE=1        # seconds mx-send waits after a successful text submit; 0 disables
 MX_PENDING_REPLY_GRACE_SECS=120   # seconds after marked-request delivery before a completed turn without a correlated parent report is eligible for its one recovery repost
-# sub-supervisor (bin/mx-supervise-daemon.sh); presence-gated via /afk
+# service daemon (bin/mx-supervise-daemon.sh); presence-gated via /afk
 MX_SUPERVISOR_BACKEND=             # optional supervisor pane backend override; tmux/herdr only, otherwise detects $TMUX_PANE then HERDR_ENV/HERDR_PANE_ID before tmux fallback
 MX_SUPERVISOR_TARGET=              # optional supervisor pane target override; tmux target or herdr <session>:<pane-id>, otherwise auto-detected
 MX_INJECT_SKIP=heartbeat           # |-prefixes force-self-handled bypassing classification; empty disables
 MX_ESCALATE_BATCH_SECS=90          # buffer window for batched escalation digests; 0 = flush immediately
 MX_MAX_DEFER_SECS=300              # max buffered escalation age before retry plus wedge alarm; 0 disables
 MX_WEDGE_ALARM_CHANNEL=            # override config/wedge-alarm with one active-alert directive for the wedge alarm; off|auto|herdr|command:<cmd>; absent = auto (no built-in channel; the durable marker is the only signal)
-MX_WEDGE_ALARM_EXEC=              # notifier seam: route every channel (herdr, command:) through this command as `<cmd> <channel> <summary>`; "discard" fires nothing; unset in production; the daemon defaults it to "discard" when sourced so no test posts a real notification
+MX_WEDGE_ALARM_EXEC=              # notifier seam: route every channel (herdr, command:) through this command as `<cmd> <channel> <summary>`; "discard" fires nothing; unset in production; the service daemon defaults it to "discard" when sourced so no test posts a real notification
 MX_WEDGE_ALARM_TIMEOUT_SECS=10    # maximum seconds for each herdr, override, or command: notifier before its watchdog terminates it and continues to the next channel; invalid or zero values use 10
 MX_INJECT_FAIL_SLEEP=30            # seconds to back off when the supervisor pane is unavailable
-MX_INJECT_CONFIRM_RETRIES=3        # daemon Enter-retry attempts after typing a digest once
-MX_INJECT_CONFIRM_SLEEP=0.5        # seconds between daemon submit checks
+MX_INJECT_CONFIRM_RETRIES=3        # service-daemon Enter-retry attempts after typing a digest once
+MX_INJECT_CONFIRM_SLEEP=0.5        # seconds between service-daemon submit checks
 MX_HEARTBEAT_SCAN_SECS=300         # cadence of the catch-all status scan for missed maintainer verbs
 MX_HOUSEKEEPING_TICK=15            # seconds between batch-flush, stale/pause-recheck, and scan passes
-MX_CRASH_THRESHOLD=10              # watcher crashes allowed inside MX_CRASH_WINDOW before daemon backoff
+MX_CRASH_THRESHOLD=10              # watcher crashes allowed inside MX_CRASH_WINDOW before service-daemon backoff
 MX_CRASH_WINDOW=60                 # seconds in the crash-loop detection window
 MX_CRASH_BACKOFF=60                # seconds to wait after crossing the crash threshold
 MX_CRASH_NORMAL_SLEEP=5            # seconds to wait after an isolated watcher crash
-MX_LOG_MAX_BYTES=1048576           # daemon log size that triggers trimming
-MX_LOG_KEEP_LINES=2000             # daemon log lines kept when trimming
+MX_LOG_MAX_BYTES=1048576           # service-daemon log size that triggers trimming
+MX_LOG_KEEP_LINES=2000             # service-daemon log lines kept when trimming
 ```
 
 `mx-teardown.sh` rechecks a present Git index lock up to `MX_WORKTREE_LOCK_RETRIES` times before applying stale-lock proof.

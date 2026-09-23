@@ -1,0 +1,648 @@
+{
+  "schema_version": 1,
+  "started_utc": "2026-09-23T04:52:50.570851+00:00",
+  "host": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 15,
+    "load_average_start": [
+      5.18212890625,
+      5.20166015625,
+      4.4306640625
+    ],
+    "load_average_end": [
+      3.25244140625,
+      4.55517578125,
+      4.2490234375
+    ]
+  },
+  "binary_sha256": "ca7d6fdd1ad634a0770e459c28eeabcb4bde831d48e0152f45e3af0efcb0f030",
+  "script_sha256": "4ea135c0781fdff5217d170faccea7b933a38c9daf25a50cc09f93657bd21e46",
+  "git_version": "git version 2.55.0",
+  "overlap": "No intentional competing validation workloads; ordinary workstation activity not controlled.",
+  "method": {
+    "trials": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "repetitions_per_count": 1,
+    "repository": "local-only temporary Git repository; 1 MiB tracked file, cache/ ignored",
+    "timing": "wall clock per serial CLI operation; includes process startup, registry validation and Git/lsof",
+    "setup": "three Git readiness observations at exact allocated cwd: top-level, exact HEAD, clean status; no endpoint or harness startup",
+    "same_request_retry": "idempotent active allocation reconciliation, not idle warm worktree reuse",
+    "idle_warm_reuse": "not applicable: implementation creates fresh paths instead of reusing disposed paths",
+    "disk": "regular-file logical bytes and st_blocks*512 allocated bytes, includes local Git records and both homes; no symlink following",
+    "cleanup": "manager prunes only clean disposed allocations; retained cache stays until temporary test fixture destruction",
+    "limitations": "one small local fixture per task count, serial and workstation-loaded; no model throughput, concurrent acquisition scaling, endpoint latency or production repository extrapolation"
+  },
+  "trials": [
+    {
+      "task_count": 1,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085022,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 2137045,
+        "allocated_bytes": 2273280,
+        "files": 41
+      },
+      "disk_after_release": {
+        "logical_bytes": 2137080,
+        "allocated_bytes": 2273280,
+        "files": 41
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1087645,
+        "allocated_bytes": 1191936,
+        "files": 32
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 304.236,
+        "fresh_fallback_acquire_ms": 362.517,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2403634,
+          "allocated_bytes": 2555904,
+          "files": 46
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 1,
+          "total_ms": 359.716,
+          "median_ms": 359.716,
+          "min_ms": 359.716,
+          "max_ms": 359.716
+        },
+        "same_request_retry": {
+          "observations": 1,
+          "total_ms": 249.452,
+          "median_ms": 249.452,
+          "min_ms": 249.452,
+          "max_ms": 249.452
+        },
+        "setup_readiness": {
+          "observations": 1,
+          "total_ms": 21.965,
+          "median_ms": 21.965,
+          "min_ms": 21.965,
+          "max_ms": 21.965
+        },
+        "release": {
+          "observations": 1,
+          "total_ms": 443.8,
+          "median_ms": 443.8,
+          "min_ms": 443.8,
+          "max_ms": 443.8
+        },
+        "prune_preview": {
+          "observations": 1,
+          "total_ms": 428.645,
+          "median_ms": 428.645,
+          "min_ms": 428.645,
+          "max_ms": 428.645
+        },
+        "prune_apply": {
+          "observations": 1,
+          "total_ms": 468.843,
+          "median_ms": 468.843,
+          "min_ms": 468.843,
+          "max_ms": 468.843
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          359.716
+        ],
+        "same_request_retry": [
+          249.452
+        ],
+        "setup_readiness": [
+          21.965
+        ],
+        "release": [
+          443.8
+        ],
+        "prune_preview": [
+          428.645
+        ],
+        "prune_apply": [
+          468.843
+        ]
+      }
+    },
+    {
+      "task_count": 5,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085022,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 6342386,
+        "allocated_bytes": 6623232,
+        "files": 83
+      },
+      "disk_after_release": {
+        "logical_bytes": 6342561,
+        "allocated_bytes": 6623232,
+        "files": 83
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1095386,
+        "allocated_bytes": 1216512,
+        "files": 38
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 319.48,
+        "fresh_fallback_acquire_ms": 354.166,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2410458,
+          "allocated_bytes": 2572288,
+          "files": 50
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 5,
+          "total_ms": 1814.888,
+          "median_ms": 361.299,
+          "min_ms": 357.12,
+          "max_ms": 369.786
+        },
+        "same_request_retry": {
+          "observations": 5,
+          "total_ms": 1293.051,
+          "median_ms": 259.65,
+          "min_ms": 255.591,
+          "max_ms": 261.986
+        },
+        "setup_readiness": {
+          "observations": 5,
+          "total_ms": 106.094,
+          "median_ms": 21.359,
+          "min_ms": 20.122,
+          "max_ms": 22.153
+        },
+        "release": {
+          "observations": 5,
+          "total_ms": 2191.571,
+          "median_ms": 438.563,
+          "min_ms": 426.977,
+          "max_ms": 450.042
+        },
+        "prune_preview": {
+          "observations": 5,
+          "total_ms": 2229.749,
+          "median_ms": 447.533,
+          "min_ms": 438.938,
+          "max_ms": 453.806
+        },
+        "prune_apply": {
+          "observations": 5,
+          "total_ms": 2310.173,
+          "median_ms": 456.231,
+          "min_ms": 454.427,
+          "max_ms": 482.484
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          361.299,
+          369.786,
+          365.683,
+          357.12,
+          361.0
+        ],
+        "same_request_retry": [
+          255.591,
+          259.927,
+          259.65,
+          261.986,
+          255.898
+        ],
+        "setup_readiness": [
+          20.122,
+          21.359,
+          20.651,
+          21.81,
+          22.153
+        ],
+        "release": [
+          444.436,
+          431.552,
+          438.563,
+          426.977,
+          450.042
+        ],
+        "prune_preview": [
+          441.081,
+          453.806,
+          448.39,
+          438.938,
+          447.533
+        ],
+        "prune_apply": [
+          454.427,
+          455.769,
+          456.231,
+          461.261,
+          482.484
+        ]
+      }
+    },
+    {
+      "task_count": 10,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085023,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 11597981,
+        "allocated_bytes": 12050432,
+        "files": 133
+      },
+      "disk_after_release": {
+        "logical_bytes": 11598331,
+        "allocated_bytes": 12050432,
+        "files": 133
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1103961,
+        "allocated_bytes": 1236992,
+        "files": 43
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 318.314,
+        "fresh_fallback_acquire_ms": 361.842,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2419043,
+          "allocated_bytes": 2592768,
+          "files": 55
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 10,
+          "total_ms": 3587.669,
+          "median_ms": 358.867,
+          "min_ms": 344.95,
+          "max_ms": 369.419
+        },
+        "same_request_retry": {
+          "observations": 10,
+          "total_ms": 2576.948,
+          "median_ms": 256.727,
+          "min_ms": 248.675,
+          "max_ms": 264.649
+        },
+        "setup_readiness": {
+          "observations": 10,
+          "total_ms": 212.114,
+          "median_ms": 21.163,
+          "min_ms": 19.42,
+          "max_ms": 23.016
+        },
+        "release": {
+          "observations": 10,
+          "total_ms": 4482.411,
+          "median_ms": 450.944,
+          "min_ms": 432.923,
+          "max_ms": 467.834
+        },
+        "prune_preview": {
+          "observations": 10,
+          "total_ms": 4332.709,
+          "median_ms": 431.567,
+          "min_ms": 418.427,
+          "max_ms": 456.219
+        },
+        "prune_apply": {
+          "observations": 10,
+          "total_ms": 4634.636,
+          "median_ms": 464.525,
+          "min_ms": 453.637,
+          "max_ms": 476.171
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          361.214,
+          363.94,
+          356.52,
+          344.95,
+          368.234,
+          361.821,
+          355.909,
+          352.983,
+          369.419,
+          352.678
+        ],
+        "same_request_retry": [
+          262.661,
+          262.729,
+          255.674,
+          257.591,
+          263.712,
+          248.675,
+          255.863,
+          252.667,
+          264.649,
+          252.725
+        ],
+        "setup_readiness": [
+          20.252,
+          22.375,
+          21.246,
+          21.819,
+          23.016,
+          21.137,
+          20.971,
+          20.691,
+          21.189,
+          19.42
+        ],
+        "release": [
+          455.976,
+          467.834,
+          450.967,
+          432.923,
+          460.643,
+          441.084,
+          450.922,
+          433.663,
+          435.956,
+          452.443
+        ],
+        "prune_preview": [
+          418.427,
+          438.275,
+          419.016,
+          422.408,
+          427.562,
+          435.573,
+          421.747,
+          447.743,
+          445.739,
+          456.219
+        ],
+        "prune_apply": [
+          467.974,
+          473.238,
+          453.638,
+          455.507,
+          469.197,
+          463.706,
+          456.224,
+          465.344,
+          476.171,
+          453.637
+        ]
+      }
+    },
+    {
+      "task_count": 20,
+      "homes": 2,
+      "execution": "serial, alternating owner homes",
+      "disk_before": {
+        "logical_bytes": 1085023,
+        "allocated_bytes": 1179648,
+        "files": 29
+      },
+      "disk_after_acquire": {
+        "logical_bytes": 22109131,
+        "allocated_bytes": 22904832,
+        "files": 233
+      },
+      "disk_after_release": {
+        "logical_bytes": 22109831,
+        "allocated_bytes": 22904832,
+        "files": 233
+      },
+      "disk_after_prune": {
+        "logical_bytes": 1121091,
+        "allocated_bytes": 1277952,
+        "files": 53
+      },
+      "cache_behavior": {
+        "unclassified_ignored_bytes": 262145,
+        "release_refused_retained_ms": 308.506,
+        "fresh_fallback_acquire_ms": 378.273,
+        "cache_preserved": true,
+        "fresh_path_distinct": true,
+        "cache_copied_to_fresh_path": false,
+        "disk_after_retained_cache_and_fallback_prune": {
+          "logical_bytes": 2436173,
+          "allocated_bytes": 2633728,
+          "files": 65
+        }
+      },
+      "borrowed_checkout_unchanged": true,
+      "timings": {
+        "acquire": {
+          "observations": 20,
+          "total_ms": 7224.323,
+          "median_ms": 362.1,
+          "min_ms": 335.534,
+          "max_ms": 377.1
+        },
+        "same_request_retry": {
+          "observations": 20,
+          "total_ms": 5121.748,
+          "median_ms": 257.678,
+          "min_ms": 237.67,
+          "max_ms": 263.852
+        },
+        "setup_readiness": {
+          "observations": 20,
+          "total_ms": 418.908,
+          "median_ms": 21.057,
+          "min_ms": 18.453,
+          "max_ms": 22.777
+        },
+        "release": {
+          "observations": 20,
+          "total_ms": 8700.633,
+          "median_ms": 432.755,
+          "min_ms": 418.236,
+          "max_ms": 458.6
+        },
+        "prune_preview": {
+          "observations": 20,
+          "total_ms": 8662.117,
+          "median_ms": 434.901,
+          "min_ms": 383.601,
+          "max_ms": 457.445
+        },
+        "prune_apply": {
+          "observations": 20,
+          "total_ms": 9248.506,
+          "median_ms": 460.399,
+          "min_ms": 415.971,
+          "max_ms": 503.92
+        }
+      },
+      "samples_ms": {
+        "acquire": [
+          370.028,
+          373.418,
+          372.111,
+          335.534,
+          372.581,
+          346.626,
+          361.292,
+          377.1,
+          346.155,
+          354.36,
+          354.45,
+          371.254,
+          366.653,
+          354.809,
+          355.828,
+          359.399,
+          365.037,
+          371.795,
+          352.989,
+          362.908
+        ],
+        "same_request_retry": [
+          261.741,
+          237.67,
+          263.632,
+          258.942,
+          255.557,
+          263.852,
+          253.847,
+          260.806,
+          250.956,
+          246.572,
+          254.146,
+          257.565,
+          260.76,
+          257.792,
+          252.853,
+          256.901,
+          261.945,
+          259.726,
+          245.709,
+          260.777
+        ],
+        "setup_readiness": [
+          19.765,
+          20.994,
+          22.348,
+          21.451,
+          21.357,
+          21.622,
+          21.794,
+          20.611,
+          20.55,
+          18.453,
+          21.827,
+          22.424,
+          21.12,
+          20.994,
+          20.447,
+          22.777,
+          21.17,
+          20.836,
+          19.219,
+          19.15
+        ],
+        "release": [
+          442.684,
+          455.897,
+          450.767,
+          423.968,
+          444.824,
+          449.726,
+          435.438,
+          439.148,
+          442.617,
+          430.348,
+          431.807,
+          427.13,
+          433.703,
+          418.236,
+          425.041,
+          419.883,
+          421.728,
+          430.497,
+          418.591,
+          458.6
+        ],
+        "prune_preview": [
+          439.145,
+          418.087,
+          421.624,
+          420.265,
+          419.539,
+          440.8,
+          454.134,
+          442.056,
+          426.299,
+          430.323,
+          454.828,
+          457.445,
+          432.879,
+          457.397,
+          424.015,
+          436.923,
+          452.731,
+          451.687,
+          383.601,
+          398.337
+        ],
+        "prune_apply": [
+          459.785,
+          474.846,
+          459.783,
+          478.79,
+          441.521,
+          451.48,
+          448.154,
+          446.021,
+          475.419,
+          486.63,
+          493.734,
+          446.548,
+          481.71,
+          503.92,
+          467.072,
+          488.366,
+          448.189,
+          415.971,
+          419.554,
+          461.014
+        ]
+      }
+    }
+  ],
+  "provider_and_download_sentinels_untouched": true,
+  "finished_utc": "2026-09-23T04:54:10.523596+00:00"
+}

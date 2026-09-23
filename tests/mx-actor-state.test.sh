@@ -19,6 +19,13 @@ case "$1" in
     [ "${MX_FAKE_PANE_GONE:-0}" != 1 ] || exit 1
     printf '%%1\n'
     ;;
+  list-windows)
+    if [ "${MX_FAKE_PANE_GONE:-0}" = 1 ]; then
+      echo "can't find session: fixture endpoint exited" >&2
+      exit 1
+    fi
+    sed -n 's/^window=[^:]*://p' "${MX_STATE_OVERRIDE:?}"/*.meta | head -1
+    ;;
   capture-pane)
     printf '%s\n' "${MX_FAKE_PANE_TEXT:-idle prompt}"
     ;;
@@ -292,14 +299,11 @@ EOF
 #!/usr/bin/env bash
 case "$1" in
   display-message)
-    if [ "${@: -1}" = '#{pane_current_command}' ]; then
-      [ "$MX_FAKE_LIVENESS_FAILURE" != command ] || { echo 'fixture foreground command denied' >&2; exit 1; }
-      echo codex
-    else
-      echo '%1'
-    fi ;;
+    echo 'fixture foreground command denied' >&2; exit 1 ;;
   list-windows)
-    [ "$MX_FAKE_LIVENESS_FAILURE" != inventory ] || { echo 'fixture window inventory denied' >&2; exit 1; }
+    if [ "$MX_FAKE_LIVENESS_FAILURE" = inventory ]; then
+      echo 'fixture window inventory denied' >&2; exit 1
+    fi
     echo "mx-$MX_FAKE_TASK" ;;
   *) exit 2 ;;
 esac
@@ -309,7 +313,11 @@ SH
   export MX_HOME="$case_dir" MX_STATE_OVERRIDE="$state" MX_ROOT_OVERRIDE="$ROOT"
   for failure in inventory command; do
     MX_FAKE_LIVENESS_FAILURE=$failure "$ROOT/bin/mx-system-snapshot.sh" --json > "$case_dir/snapshot"
-    jq -e '.tasks[0].endpoint | .exists == true and .agent_alive == "unknown" and (.detail | contains("fixture")) and (.detail | contains("denied"))' "$case_dir/snapshot" >/dev/null || fail "tmux $failure failure lost presence or diagnostic"
+    if [ "$failure" = inventory ]; then
+      jq -e '.tasks[0].endpoint | .exists == null and (.detail | contains("fixture window inventory denied"))' "$case_dir/snapshot" >/dev/null || fail 'tmux inventory failure lost unknown presence or diagnostic'
+    else
+      jq -e '.tasks[0].endpoint | .exists == true and .agent_alive == "unknown" and (.detail | contains("fixture foreground command denied"))' "$case_dir/snapshot" >/dev/null || fail 'tmux foreground failure lost verified presence or diagnostic'
+    fi
   done
   pass 'tmux snapshot retains liveness command diagnostics and verified presence'
 )

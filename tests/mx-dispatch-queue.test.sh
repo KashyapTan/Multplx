@@ -17,7 +17,16 @@ cat > "$FAKE_SPAWN" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MX_QUEUE_TEST_SPAWN_LOG"
 printf '%s\n' "${MX_QUEUED_MODEL:-}" >> "$MX_QUEUE_TEST_SPAWN_LOG.models"
-[ "${MX_QUEUE_FAIL_TASK:-}" != "${1:-}" ]
+if [ "${MX_QUEUE_FAIL_TASK:-}" = "${1:-}" ]; then
+  if [ "${MX_QUEUE_FAIL_AFTER_ACTION_TASK:-}" = "${1:-}" ]; then
+    mkdir -p "$MX_STATE_OVERRIDE/.spawn-actions"
+    printf '{"version":1,"request_id":"%s","task_id":"%s","binding":%s,"backend":"%s","worktree":null,"endpoint":null,"stage":"reserved","detail":null}\n' \
+      "$MX_ADMISSION_REQUEST_ID" "$1" "$MX_QUEUED_MODEL" "$MX_BACKEND" \
+      > "$MX_STATE_OVERRIDE/.spawn-actions/$MX_ADMISSION_REQUEST_ID.json"
+  fi
+  exit 1
+fi
+exit 0
 SH
 chmod +x "$FAKE_SPAWN"
 
@@ -32,7 +41,7 @@ seed_request() {
   fi
   printf 'Inspect %s in its recorded repository.\n' "$task" > "$home/data/$task/brief.md"
 }
-for task in later first keep cancel retry; do
+for task in later first keep cancel retry retry-before-launch; do
   seed_request "$HOME_DIR" "$task" "$HOME_DIR/projects/$task"
 done
 
@@ -157,14 +166,26 @@ test_cancel_removes_only_named_entry() {
 test_failed_launch_retains_record_until_reconciled() {
   local record="$HOME_DIR/state/.dispatch-queue/retry.request" out rc=0
   queue_cmd --queue-add retry projects/retry --harness pi >/dev/null
-  out=$(MX_QUEUE_FAIL_TASK=retry queue_cmd --queue-drain 2>&1) || rc=$?
+  out=$(MX_QUEUE_FAIL_TASK=retry MX_QUEUE_FAIL_AFTER_ACTION_TASK=retry queue_cmd --queue-drain 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "failed queued launch reported success"
   assert_contains "$out" 'record retained' "failed launch did not explain retry preservation"
   assert_grep 'task_id=retry' "$record" "failed launch dropped its durable record"
+  [ -f "$HOME_DIR/state/.spawn-actions/retry.json" ] \
+    || fail "fake launch did not persist its launch action"
   before=$(wc -l < "$SPAWN_LOG" | tr -d ' ')
   queue_cmd --queue-drain >/dev/null || fail "uncertain request made drain fail"
   [ "$(wc -l < "$SPAWN_LOG" | tr -d ' ')" -eq "$before" ] || fail "uncertain endpoint was retried without reconciliation"
   assert_grep 'state=dispatching' "$record" "uncertain request lost its dispatching fence"
+
+  queue_cmd --queue-add retry-before-launch projects/retry-before-launch --harness pi >/dev/null
+  rc=0
+  out=$(MX_QUEUE_FAIL_TASK=retry-before-launch queue_cmd --queue-drain 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "prelaunch failure reported success"
+  assert_absent "$HOME_DIR/state/.spawn-actions/retry-before-launch.json" \
+    "prelaunch failure unexpectedly wrote a launch action"
+  queue_cmd --queue-drain >/dev/null || fail "provably unstarted request was not recovered"
+  assert_absent "$HOME_DIR/state/.dispatch-queue/retry-before-launch.request" \
+    "recovered prelaunch request remained queued"
 
   pass "failed queue launch retains an exact crash-recovery record until endpoint reconciliation"
 }

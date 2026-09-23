@@ -120,7 +120,15 @@
     },
     {
       "source": "AGENTS_E.md",
-      "target": "porting.md"
+      "target": "docs/workspace-entry.md"
+    },
+    {
+      "source": "AGENTS_E.md",
+      "target": "docs/worktrees.md"
+    },
+    {
+      "source": "AGENTS_E.md",
+      "target": "docs/scoped-coordinators.md"
     },
     {
       "source": ".agents/skills/persistent-subagents/SKILL.md",
@@ -238,6 +246,10 @@
     },
     {
       "path": "docs/getting-started.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/user-guide.md",
       "audience": "operator-current"
     },
     {
@@ -486,6 +498,14 @@
     },
     {
       "path": "plans/lean_redesign/phase11-implementation.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase12-implementation.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/lean_redesign/phase12-acceptance.md",
       "audience": "maintainer-verification"
     }
   ]
