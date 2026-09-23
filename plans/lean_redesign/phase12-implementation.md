@@ -803,3 +803,7 @@ The archive SHA-256 is `9dd722efd724de9695022283fab60dda1c0c364cb9b6300579c3cad8
 Its packaged binary successfully performs `launcher-install --package /private/tmp/mx-phase12-graph-release/package --bin-dir /private/tmp/mx-phase12-graph-release/install/bin --config-dir /private/tmp/mx-phase12-graph-release/install/config --data-dir /private/tmp/mx-phase12-graph-release/install/data` with inventory validation.
 No private installation or operational home is changed.
 The graph honors the collector's bounded projection and cannot display agents omitted by truncation or opaque native observations; warnings disclose partial and unresolved ownership.
+
+[Graph hosted CI run 35879810652](https://github.com/KashyapTan/Multplx/actions/runs/35879810652) was started for implementation commit `d96013dfbb71c6cfa2c97ff1a8da44fc3dbc9130`.
+At this evidence update it remains in progress; local success above is not a claim that this new hosted run has passed.
+The completed Phase 12 CI result remains separately recorded before this addition.
