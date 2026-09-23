@@ -4,11 +4,11 @@ This document is the authoritative human-readable contract for the watcher arm P
 `multplx_core::command_policy` is the single semantic owner.
 `bin/mx-arm-pretool-check.sh` is the stable harness transport into the Rust supervision runtime and output renderer.
 The tracked harness adapters forward command text without classifying it.
-The Rust command-policy module also owns broker's narrow shell tokenization and command-position analysis, which the sibling cd-guard seatbelt (`bin/mx-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
+The Rust command-policy module also owns the orchestrator's narrow shell tokenization and command-position analysis, which the sibling cd-guard seatbelt (`bin/mx-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
 
 ## Purpose and boundary
 
-A broker primary must arm `bin/mx-watch-arm.sh` or run `bin/mx-watch-checkpoint.sh` through an observable harness call.
+An orchestrator primary must arm `bin/mx-watch-arm.sh` or run `bin/mx-watch-checkpoint.sh` through an observable harness call.
 A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the watcher child die with the tool call.
 The seatbelt rejects those command shapes before execution.
 

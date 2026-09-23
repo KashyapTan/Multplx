@@ -369,6 +369,8 @@ impl TaskRecord {
             .find(|brief| brief.revision == request.brief_revision)
             .map(|brief| brief.scope.clone())
             .ok_or("delivery evidence brief is unknown")?;
+        let commit_changed = request.mark_current
+            && self.delivery.current_commit.as_deref() != Some(request.commit.as_str());
         let evidence = DeliveryEvidence {
             evidence_id: request.evidence_id.clone(),
             attempt_id: request.attempt_id.clone(),
@@ -390,6 +392,10 @@ impl TaskRecord {
         projected.history.push(evidence.clone());
         projected.validate(self)?;
         self.delivery = projected;
+        if commit_changed && self.schedule.state == super::subagent_model::WorkState::Completed {
+            self.schedule.state = super::subagent_model::WorkState::Runnable;
+            self.schedule.waiting_condition = None;
+        }
         Ok(evidence)
     }
 }
@@ -1061,7 +1067,7 @@ mod tests {
             checkout_id: "checkout".into(),
             common_git_identity: "git".into(),
             path: repo.to_string_lossy().into_owned(),
-            base_revision: first,
+            base_revision: first.clone(),
             task_id: "worker".into(),
             attempt_id: task.attempt.as_ref().unwrap().id.clone(),
             persistent: false,
@@ -1082,10 +1088,20 @@ mod tests {
             "two",
             "--quiet",
         ]);
-        let entry = human_review_queue(&[task]).unwrap().remove(0);
+        let second = git(&["rev-parse", "HEAD"]);
+        let entry = human_review_queue(&[task.clone()]).unwrap().remove(0);
         assert_eq!(entry.revision_freshness, RevisionFreshness::Stale);
         assert_eq!(entry.state, HumanReviewState::StaleRevision);
         assert!(!entry.pr_ready);
+        task.schedule.state = super::super::subagent_model::WorkState::Completed;
+        let mut updated = request(&task, "updated", 'b');
+        updated.commit = second;
+        updated.expected_current_commit = Some(first);
+        task.apply_delivery_evidence(&updated).unwrap();
+        assert_eq!(
+            task.schedule.state,
+            super::super::subagent_model::WorkState::Runnable
+        );
     }
 
     #[test]

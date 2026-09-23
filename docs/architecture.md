@@ -1,6 +1,6 @@
 # Architecture
 
-How broker works, in depth.
+How the orchestrator works, in depth.
 
 The [README](../README.md) carries the high-level diagram and a short synopsis.
 The [documentation index](README.md) provides audience-specific reading paths.
@@ -19,17 +19,17 @@ The exact maintainer-override state machine plugs into the session-lock primitiv
 `multplx-domain` owns typed durable records and the common task and private-home lifecycle.
 The [scoped coordinator reference](scoped-coordinators.md) describes domain assignments, canonical parent routes and mechanical outcome relay.
 Coordinator summaries supplement original task facts; each home retains its own inbox consumption boundary.
-Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and actor-state reconciliation.
+Portion 04 makes `multplx-backend` the typed owner of the runtime-backend interface, bounded subprocess transport, tmux adapter, selector resolution, and sub-agent-state reconciliation.
 Portion 05 adds the typed Herdr runtime, bounded AF_UNIX event and workspace-move transports, presentation journals and focus safety, restored-shell cleanup, isolated lab and CI cleanup, and pinned installer verification.
 Portion 06 adds the typed cmux runtime, harness detection and primary launch, composite headroom and durable dispatch queue.
-Portion 07 adds typed task and daemon lifecycle state machines behind the stable lifecycle entry points.
+Portion 07 adds typed task and persistent-sub-agent lifecycle state machines behind the stable lifecycle entry points.
 Portion 08 makes Rust the production entry owner for supervision, watcher, wake, hook, reporting, and away-mode paths.
 Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
 Portion 10 makes Rust the production entry owner for decisions, maintainer overrides, canonical exception bindings, exact-command exceptions, and workflows.
 Native override transitions, decision identities, workflow validation, workflow dry-run rendering, snapshot construction, and stage-order checks live in `multplx-domain`.
-The Portion 09 snapshot module parses the canonical JSON into typed task, endpoint, backlog, queue, daemon, lifecycle-run, and artifact containers before the native human renderer consumes it.
+The Portion 09 snapshot module parses the canonical JSON into typed task, endpoint, backlog, queue, persistent-sub-agent, lifecycle-run, and artifact containers before the native human renderer consumes it.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
-Selector resolution and actor-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
+Selector resolution and sub-agent-state reconciliation depend on narrow read traits, while the full adapter remains available to lifecycle callers.
 Every tmux command is an argument array executed with a stable locale, bounded output, a deadline, and owned process-group cleanup on timeout.
 The backend, harness, and headroom entry points execute the Rust path and never fall back after execution begins.
 `multplx-cli` builds the single `mx` multicall executable and keeps command handlers thin.
@@ -52,18 +52,18 @@ Doctor's `--fix` surface is limited to a proof-bound stale watcher-lock cleanup 
 
 The Rust supervision runtime is the production entry owner for status reporting, hook policies, durable wake draining, watcher cycles, checkpoints, turn-end adapters, and AFK transfer.
 The stable `bin/` names are source-compatible transports to the Rust runtime.
-The zero-token watcher (`bin/mx-watch.sh`) sleeps on the system and wakes the broker only when something is actionable.
-Actionable wakes include maintainer-relevant status signals, no-verb signals whose actor is not provably working, authenticated check output such as PR merge polling, stale panes whose actor is not provably working whether their status log looks terminal or non-terminal, provably-working stale panes that persist past `MX_STALE_ESCALATE_SECS`, declared external waits that remain paused past `MX_PAUSE_RESURFACE_SECS`, and heartbeat backstop hits.
+The zero-token watcher (`bin/mx-watch.sh`) sleeps on the system and wakes the orchestrator only when something is actionable.
+Actionable wakes include maintainer-relevant status signals, no-verb signals whose sub-agent is not provably working, authenticated check output such as PR merge polling, stale panes whose sub-agent is not provably working whether their status log looks terminal or non-terminal, provably-working stale panes that persist past `MX_STALE_ESCALATE_SECS`, declared external waits that remain paused past `MX_PAUSE_RESURFACE_SECS`, and heartbeat backstop hits.
 Repeated provably-working stale escalations on the same unchanged pane add an escalation count to the wake reason and, at `MX_WEDGE_DEMAND_INSPECT_COUNT`, a `demand-deep-inspection` marker.
 Those actionable wakes are written to a durable local queue (`state/.wake-queue`) before detector state advances, so a missed process exit can be recovered by draining the queue.
 When a canonical validated PR poll returns exactly `merged`, the watcher appends that durable notification before publishing a private receipt bound to the poll's registration, bytes, file identities, metadata, provider, URL, and task ID.
 The receipt makes retirement safely retryable across restarts: fixed-path recovery revalidates the same evidence, removes the runnable check first, removes its registration and data sidecars, removes the receipt last, and preserves task metadata including `pr=` and `pr_head=`.
-A concurrent replacement remains armed, every non-merged or invalid observation remains unchanged, and retirement never performs task or persistent-daemon cleanup.
+A concurrent replacement remains armed, every non-merged or invalid observation remains unchanged, and retirement never performs task or persistent-sub-agent cleanup.
 `multplx-cli::review` owns the receipt format and strict identity mechanics, while `multplx-cli::supervision` owns queue-before-retirement ordering.
-No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/mx-actor-state.sh` reports positive evidence that the actor is still working from native runtime state, an attributed deep-review step, or a backend busy signature.
-an actor that declares `paused:` for a known external wait is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
-For an ordinary actors that has stopped, the normal-mode watcher first surfaces one stale wake, then applies that same cadence to an unchanged `paused:` or durable `maintainer-held` endpoint only when the backend confidently reports its agent dead.
-Live or inconclusive liveness remains fail-open at that initial surface, and the daemon idle-endpoint exemption is unchanged.
+No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/mx-actor-state.sh` reports positive evidence that the sub-agent is still working from native runtime state, an attributed deep-review step, or a backend busy signature.
+A sub-agent that declares `paused:` for a known external wait is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
+For an ordinary sub-agent that has stopped, the normal-mode watcher first surfaces one stale wake, then applies that same cadence to an unchanged `paused:` or durable `maintainer-held` endpoint only when the backend confidently reports its agent dead.
+Live or inconclusive liveness remains fail-open at that initial surface, and the persistent-sub-agent idle-endpoint exemption is unchanged.
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting individual observations.
 `multplx-core::classification` owns the exact signal-precedence contract; native runtime blockers surface immediately even while an attributed validation run continues, and schema-valid terminal reports outrank regex-only busy text.
@@ -72,24 +72,24 @@ Absorbed wakes advance their suppression markers, log to `state/.watch-triage.lo
 After each drain, `mx-wake-drain.sh` runs the same liveness guard as the supervision scripts, so a lapsed watcher chain surfaces even on a turn that only drains and handles queued wakes.
 Routine watcher polling, supervision no-ops, elapsed waiting time, and absorbed benign wakes stay silent.
 A declared external wait trades that silence for one bounded recheck per pause window, so a forgotten pause cannot remain invisible indefinitely.
-Actor status files are append-only wake-event logs, not current-state fields.
-Actors write status events through the task-bound `report_status` MCP tool when their harness exposes it or through `bin/mx-report` as the universal fallback.
-The wrapper owns the closed actor-writable vocabulary `working|paused|blocked|needs-decision|done|failed|resolved`, rejects multiline events and cross-task writes before opening a status file, and emits the existing plain or keyed line grammar.
+Sub-agent status files are append-only wake-event logs, not current-state fields.
+Sub-agents write status events through the task-bound `report_status` MCP tool when their harness exposes it or through `bin/mx-report` as the universal fallback.
+The wrapper owns the closed sub-agent-writable vocabulary `working|paused|blocked|needs-decision|done|failed|resolved`, rejects multiline events and cross-task writes before opening a status file, and emits the existing plain or keyed line grammar.
 Claude and Codex receive session-scoped MCP configuration from `mx-spawn.sh`; Cursor and Pi use the wrapper because no project-scoped MCP registration contract is verified for them.
 The MCP adapter delegates every accepted call to the wrapper, so validation and append behavior have one owner.
 After a successful durable append, `mx-report` may send a payload-free `USR1` nudge to the live watcher only when the PID and PID identity advertised by that home's singleton lock still match.
 The signal interrupts the watcher's ordinary terminal poll wait and causes the same scan loop to run early; native Herdr event waits remain bounded and unchanged.
 Missing, stale, disabled, or undeliverable nudges are silent, and the durable event plus the normal `MX_POLL` cycle remain authoritative.
 This is a latency optimization over the existing reconstructable disk state, not a status-ingest daemon, socket, or second supervision path.
-`bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a deep-review run, active or terminal, only when it matches the actor's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
-The Rust actor-state backend owns the exact run-head ancestry rules.
+`bin/mx-actor-state.sh <id>` is the cheap current-state read for an actionable heartbeat review: it attributes a deep-review run, active or terminal, only when it matches the sub-agent's branch and current code identity, and retains that run-step across a closed pane unless a stronger native runtime verdict is present.
+The Rust sub-agent-state backend owns the exact run-head ancestry rules.
 Native runtime evidence outranks an attributed deep-review run, which in turn outranks schema-valid status events and pane heuristics.
 When no native verdict or matching run exists, a schema-valid status event whose verb maps to a recognized run-state outranks the pane busy-signature; a dead pane without stronger evidence reports unknown instead of trusting a stale log.
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
 For Herdr, exact `working`, `blocked`, and `done` levels contribute native verdicts, while `idle` is not treated as task-progress evidence because it can occur between tool calls or while a foreground process continues.
 Herdr `idle` and unknown levels therefore leave the lower report and rendered busy-signature tiers available.
-For whole-system read-only review, the Rust-default `bin/mx-system-snapshot.sh --json` entry emits schema `mx-system-snapshot.v1` from the backlog, task metadata, current actor state, endpoint probes, PR/report pointers, scout reports, bounded current summaries from registered daemon homes, and daemon return-channel guidance.
+For whole-system read-only review, the Rust-default `bin/mx-system-snapshot.sh --json` entry emits schema `mx-system-snapshot.v1` from the backlog, task metadata, current sub-agent state, endpoint probes, PR/report pointers, researcher reports, bounded current summaries from registered persistent-sub-agent homes, and persistent-sub-agent return-channel guidance.
 The native Rust `bin/mx-system-view.sh` path parses that JSON into its typed snapshot model and renders it as Markdown for humans, while `bin/mx-status-snapshot.sh` provides the bounded catchup projection, so both views consume one structured contract instead of reparsing raw system files.
 `multplx-cli::system_snapshot` and the typed snapshot model own the exact JSON schema.
 
@@ -127,12 +127,12 @@ Doctor and timeline detail use their sanctioned readers on explicit request.
 [`viz.md`](viz.md) owns the lifecycle, cache, artifact, and read-only boundaries.
 Unresolved maintainer decisions return to `decision-hold-lifecycle` before the originating review is treated as complete.
 
-### Registered daemon current state
+### Registered persistent-sub-agent current state
 
-A registered daemon's validated home is the authority for catchup current state because it owns the child metadata inventory, each child's current-state result, endpoint observations, backlog holds and dependencies, keyed unresolved decisions, and recent Done baseline.
-The original cross-home projection instead treated the daemon agent as an ordinary parent task, so an idle daemon's `mx-actor-state` fallback selected the latest append-only parent status event even when structured state in the registered home contradicted it.
+A registered persistent sub-agent's validated home is the authority for catchup current state because it owns the child metadata inventory, each child's current-state result, endpoint observations, backlog holds and dependencies, keyed unresolved decisions, and recent Done baseline.
+The original cross-home projection instead treated the persistent sub-agent as an ordinary parent task, so an idle persistent sub-agent's `mx-actor-state` fallback selected the latest append-only parent status event even when structured state in the registered home contradicted it.
 The parent-status contract also required explicit keyed resolution for decisions and blockers but not for a material `working` phase, so a start event could remain unsuperseded after the corresponding home backlog had moved the work to Done.
-Generated daemon charters reject generic receipt or start acknowledgements, key only supervisor-actionable material phase reports, and close an opened phase with a same-key later state or `resolved` event, while the structured home remains authoritative even if that closure is missing.
+Generated persistent-sub-agent charters reject generic receipt or start acknowledgements, key only supervisor-actionable material phase reports, and close an opened phase with a same-key later state or `resolved` event, while the structured home remains authoritative even if that closure is missing.
 Cross-home reads validate the seeded identity and operational-directory boundaries, use per-home time and output bounds, and classify unavailable, malformed, or inconsistent structured state as unknown rather than reviving a parent event as current work.
 When only an owned child's current classification is unavailable, the home classification stays unknown while independently trustworthy structured decisions, holds, queued and landed records, endpoint identities, counts, and provenance remain available; every other invalid path stays strict and exposes none of those child-derived surfaces.
 A bounded direct-report terminal tail can help diagnose a mismatch by showing that historical parent wording is still visible, but it is untrusted supplemental evidence because scrollback, prompts, copied output, idle shells, and agent prose are not durable state.
@@ -148,32 +148,32 @@ Pi verifies session-lock ownership and launches one singleton successor from its
 Claude's `bin/mx-claude-stop-autoarm.sh` hook fires on every Stop and, when the home is eligible and still needs supervision, claims one home-scoped cycle, foregrounds the arm wrapper, and translates an actionable close or typed failure into one exit-2 rewake.
 [`watcher-continuity.md`](watcher-continuity.md) owns Claude's residual active-turn coverage and watcher-status command-gating boundary.
 The existing turn-end guard remains the final backstop for all four harness protocols, cooperating with the auto-arm claim in its `--claude` mode.
-Its `--restart` mode signals only the watcher recorded in the current home's `state/.watch.lock`, so restarting one home cannot kill sibling daemon watchers.
+Its `--restart` mode signals only the watcher recorded in the current home's `state/.watch.lock`, so restarting one home cannot kill sibling persistent-sub-agent watchers.
 A pull-based guard (`bin/mx-guard.sh`) warns through supervision tool output if the primary checkout is tangled, or if tasks are in flight and that watcher stops running or queued wakes are waiting to be drained.
 The drain script calls that guard after emptying the queue, which avoids repeating the queued-wakes warning for records it just consumed while still warning on stale watcher liveness.
 It leads with a prominent bordered tangle banner, while `multplx-cli::supervision` owns the stale-watcher banner/reminder policy so repeated guarded commands stay noisy without reprinting the full watcher-down banner in the same episode.
 On every verified primary harness, tracked hook integration gives the primary session a push-based backstop: when work is in flight and no identity-matched watcher lock with a fresh beacon is live, direct Stop hooks block and passive turn-end hooks force one bounded follow-up.
-The guard covers the main primary and genuinely marked daemon homes, exempts child actor/scout worktrees, is loop-safe per harness, and is documented in [turnend-guard.md](turnend-guard.md).
+The guard covers the main primary and genuinely marked persistent-sub-agent homes, exempts child sub-agent worktrees, is loop-safe per harness, and is documented in [turnend-guard.md](turnend-guard.md).
 
-A presence-gated sub-supervisor (`bin/mx-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill starts it through the Rust-dispatched foreground helper `bin/mx-afk-start.sh`, after which the watcher reverts to daemon-managed one-shot mode and the daemon self-handles routine wakes without a broker turn.
-The watcher and daemon share `multplx-core::classification` for maintainer-relevant status verbs, declared-external-wait vocabulary, and status-scan primitives.
+A presence-gated service daemon (`bin/mx-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill starts it through the Rust-dispatched foreground helper `bin/mx-afk-start.sh`, after which the watcher reverts to daemon-managed one-shot mode and the service daemon self-handles routine wakes without an orchestrator turn.
+The watcher and service daemon share `multplx-core::classification` for maintainer-relevant status verbs, declared-external-wait vocabulary, and status-scan primitives.
 Terminal verbs remain maintainer-relevant, while a nonterminal progress verb cannot become terminal merely because its prose contains a legacy free-text token such as `merged`; bare legacy free-text lines remain compatible.
-The always-on watcher also uses that library's absorb classification on no-verb signals and first-sighting stale panes before status-log terminality is trusted, while the daemon maintains distinct wedge and declared-pause recheck cadences.
+The always-on watcher also uses that library's absorb classification on no-verb signals and first-sighting stale panes before status-log terminality is trusted, while the service daemon maintains distinct wedge and declared-pause recheck cadences.
 In away mode, seen-status dedupe does not clear possible-wedge aging for nonterminal progress, so housekeeping still re-escalates an unchanged idle pane at the configured bound.
-The daemon escalates maintainer-relevant events, plus a bounded recheck for a declared pause that remains idle, as one batched, single-line digest using the canonical `away-supervisor` kind from `multplx-domain::operational_input` so broker can distinguish it structurally from real messages.
+The service daemon escalates maintainer-relevant events, plus a bounded recheck for a declared pause that remains idle, as one batched, single-line digest using the canonical `away-supervisor` kind from `multplx-domain::operational_input` so the orchestrator can distinguish it structurally from real messages.
 Its supervisor injection path supports tmux and herdr panes, with `MX_SUPERVISOR_BACKEND` and `MX_SUPERVISOR_TARGET` resolved independently from the task-spawn backend.
 Pane existence, busy checks, composer checks, capture, and verified submit route through `bin/mx-backend.sh`: tmux keeps the same submit core used by the tmux send backend, while herdr uses native busy state, native agent-state submit confirmation on idle baselines, and its ANSI-aware structural composer classifier for pending-input guards and submit fallback.
-The tmux submit core (shared `mx_tmux_submit_enter_core`) treats a busy pane + retries-exhausted + composer-still-pending as a queued Enter (some harness TUIs accept Enter mid-turn and queue it for after the turn without clearing the composer), reported as `empty` so the daemon and `mx-send` do not re-send; an idle pane keeps the `pending` verdict as a genuine swallow. The same busy-queue case is a known gap on the herdr adapter and is recorded in `docs/herdr-backend.md` rather than patched here.
+The tmux submit core (shared `mx_tmux_submit_enter_core`) treats a busy pane + retries-exhausted + composer-still-pending as a queued Enter (some harness TUIs accept Enter mid-turn and queue it for after the turn without clearing the composer), reported as `empty` so the service daemon and `mx-send` do not re-send; an idle pane keeps the `pending` verdict as a genuine swallow. The same busy-queue case is a known gap on the herdr adapter and is recorded in `docs/herdr-backend.md` rather than patched here.
 Composer-content classification has one shared owner, `bin/mx-composer-lib.sh`, used by tmux, herdr, and cmux after each adapter performs its own capture and composer-row recognition.
-The daemon injects only into an affirmatively `empty` composer, so both `pending` and `unknown` defer and a bare dead-shell prompt cannot receive an escalation; the current boundary is in [Composer and injection safety](herdr-backend.md#composer-and-injection-safety).
-Unsupported supervisor backends refuse at daemon startup.
+The service daemon injects only into an affirmatively `empty` composer, so both `pending` and `unknown` defer and a bare dead-shell prompt cannot receive an escalation; the current boundary is in [Composer and injection safety](herdr-backend.md#composer-and-injection-safety).
+Unsupported supervisor backends refuse when the service daemon starts.
 Stalled escalation delivery writes `state/.subsuper-inject-wedged` and attempts a configured backend-independent active alert after `MX_MAX_DEFER_SECS` instead of silently deferring forever.
-On an unmarked return, `multplx-cli::supervision` owns ordered shutdown, durable catch-up evidence, and the fail-closed gate entered through `bin/mx-afk-return.sh` that keeps ordinary work behind every live broker-actionable blocker.
+On an unmarked return, `multplx-cli::supervision` owns ordered shutdown, durable catch-up evidence, and the fail-closed gate entered through `bin/mx-afk-return.sh` that keeps ordinary work behind every live orchestrator-actionable blocker.
 `mx-send.sh` selects a pre-Enter popup-settle for slash commands and for codex `$...` skill invocations using metadata-routed target `harness=` values, then adds its own `MX_SEND_SETTLE` pause after successful text sends so immediate peeks catch the receiving turn starting; the sub-supervisor uses only the shared submit core and does not pay that post-submit pause.
 
 ## Runtime session backends
 
-The runtime backend is the session-provider layer below broker's scripts.
+The runtime backend is the session-provider layer below the orchestrator's scripts.
 It owns task endpoint creation at the allocated path, bounded capture, text/key sends, current-path observations, live-window fallback lookup, agent-process liveness probes where verified, and endpoint teardown.
 The Rust CLI and `multplx-backend` centralize backend selection, `state/<id>.meta` handling, target resolution, and operation dispatch.
 The public `bin/mx-backend.sh` and backend-specific shell filenames retain only transport or sourced compatibility surfaces; tmux is the verified reference backend ([`docs/tmux-backend.md`](tmux-backend.md)), while Herdr and cmux remain experimental.
@@ -184,9 +184,9 @@ For compatibility, default tmux tasks do not write `backend=tmux`; every reader 
 The Rust watcher entered through `mx-watch.sh` polls each window's backend for a busy state: tmux and cmux have no native primitive and report unknown, preserving pane-tail-regex detection unchanged; Herdr's `agent.get` semantic state (working/idle/done/blocked) is consulted first for stale detection, with unknown native states falling back to the same regex.
 That poll loop is the default event source for backends with no native push events, so this stays an extraction of the abstraction rather than a watcher rewrite.
 For capable Herdr sessions, the same watcher replaces its terminal sleep with a bounded native event wait that immediately surfaces `blocked`; [Push events and polling fallback](herdr-backend.md#push-events-and-polling-fallback) owns the current mechanism and capability gates, while [runtime backend verification](verification/runtime-backends.md#native-blocked-event) owns the active evidence.
-The deeper session-start agent-process liveness probe is separate from that busy-state poll: tmux and Herdr have verified classifiers for daemon recovery, and cmux does not support daemon spawns.
+The deeper session-start agent-process liveness probe is separate from that busy-state poll: tmux and Herdr have verified classifiers for persistent-sub-agent recovery, and cmux does not support persistent-sub-agent spawns.
 Herdr is experimental and can be selected explicitly or by runtime auto-detection: the built-in Git lifecycle supplies its worktrees, [`herdr-backend.md`](herdr-backend.md) owns current setup and safety limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#herdr) owns active empirical evidence.
-Herdr's durable default container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `broker`, daemon homes use `daemon-<daemon-id>`, and recovery/list-live scopes to the current `MX_HOME`'s workspace.
+Herdr's durable default container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `broker`, persistent-sub-agent homes use `daemon-<daemon-id>`, and recovery/list-live scopes to the current `MX_HOME`'s workspace.
 Its optional default-off presentation projection may place one clean new task in a disposable workspace without changing endpoint authority or lifecycle ownership; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns that conditional design and its narrow home-local restored-shell cleanup at locked session start.
 cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or by runtime auto-detection from its primary `CMUX_WORKSPACE_ID` marker plus documented fallback signals: the built-in Git lifecycle supplies its worktrees, [`cmux-backend.md`](cmux-backend.md) owns current setup and limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) owns active source and live evidence.
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `MX_ROOT` path, and `--daemon` spawns are refused.
@@ -194,30 +194,30 @@ Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectab
 
 ## Worktrees, not branches in your checkout
 
-Actors never intentionally touch your project clone; the [built-in worktree owner](worktrees.md) acquires isolated Git worktrees before creating tmux, Herdr, or cmux task sessions.
+Sub-agents never intentionally touch your project clone; the [built-in worktree owner](worktrees.md) acquires isolated Git worktrees before creating tmux, Herdr, or cmux task sessions.
 The resource owner records exact project, base, path, attempt and lease generation before endpoint launch.
-For delivery and scout work, `mx-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
+For implementation and research work, `mx-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
 
-The Multplx repo has one extra exposure because it can dispatch actors to work on itself.
-Its operating checkout (`MX_ROOT`) and the disposable actor worktrees are all linked git worktrees of the same repository, so the valid discriminator is branch state, not whether the checkout is linked.
-The primary checkout is healthy on its default branch, and linked worktrees or daemon homes are healthy at detached HEAD.
+The Multplx repo has one extra exposure because it can dispatch sub-agents to work on itself.
+Its operating checkout (`MX_ROOT`) and the disposable sub-agent worktrees are all linked git worktrees of the same repository, so the valid discriminator is branch state, not whether the checkout is linked.
+The primary checkout is healthy on its default branch, and linked worktrees or persistent-sub-agent homes are healthy at detached HEAD.
 Only a named non-default branch checked out in `MX_ROOT` is a worktree tangle.
 
 `mx-tangle-lib.sh` resolves the default branch from `origin/HEAD`, then local `main` or `master`, and classifies that named non-default primary branch as the tangle.
 `mx-guard.sh` prints the repair command on the next mutable system action, while `bin/mx-session-start.sh` reports the same condition through bootstrap as a `TANGLE:` line at session start.
 If another live session holds the system lock, both surfaces keep the alarm but switch to read-only wording with no repair command.
-Delivery briefs also tell the actor to verify `pwd -P` and `git rev-parse --show-toplevel` before creating `mx/<id>`, then stop with a blocked status if it landed in the primary checkout.
+Implementation briefs also tell the sub-agent to verify `pwd -P` and `git rev-parse --show-toplevel` before creating `mx/<id>`, then stop with a blocked status if it landed in the primary checkout.
 
 ## Optional deep-review authority boundary
 
-An explicitly requested deep-review run may execute agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so its execution needs an authority boundary separate from ordinary actor worktree isolation.
+An explicitly requested deep-review run may execute agents inside a checkout that also contains the system-maintainer identity in root `AGENTS.md`, so its execution needs an authority boundary separate from ordinary sub-agent worktree isolation.
 `bin/mx-deep-review.sh` reads code-executing configuration and documentation instructions from the trusted default-branch copy of `.deep-review.yaml`.
 Branch-local commands remain inert unless that trusted copy explicitly sets `allow_repo_commands: true`, and `disable_project_settings: true` launches gate agents without branch-local project identity.
 New runs bind the canonical task attempt, accepted brief, project allocation and exact commit, then record review evidence without creating a publication approval handoff.
 Legacy runs without recorded explicit intent remain historical until the operator explicitly confirms continuation.
 The Rust lifecycle entry points for `mx-send.sh` and `mx-teardown.sh` retain their existing deep-review gate refusal when `DEEP_REVIEW_GATE` is present.
 Spawn no longer treats that marker as a blanket child-delegation prohibition; canonical task identity and explicit assignment still apply.
-A normal primary checkout or actor worktree has neither signal and remains unaffected.
+A normal primary checkout or sub-agent worktree has neither signal and remains unaffected.
 The Rust lifecycle gate owns the exact marker and test-harness bypass contract.
 
 ## Workflow composition
@@ -227,8 +227,8 @@ The stable entry point selects the Rust authority runtime before any snapshot, r
 Rust parses and validates the constrained definition grammar without Node, models immutable run order and stage transitions as closed types, and rejects unsafe output traversal before execution.
 Repo-tracked definitions under `workflows/` declare stage order, executor type, deterministic contract, and approval gate.
 The engine snapshots a validated definition at launch and every resume reads only that snapshot, so a tracked edit cannot mutate an in-flight command boundary.
-Interactive approvals reuse durable decision holds, broker agent stages use an explicitly declared one-shot adapter, actor stages reuse spawn and validated status reconciliation, command stages trust exit codes, and publication retains ordinary authentication while PR merging remains human-only.
-Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-stage records, actual artifacts, actor state, git heads, command results, and decision holds.
+Interactive approvals reuse durable decision holds, orchestrator stages use an explicitly declared one-shot adapter, sub-agent stages reuse spawn and validated status reconciliation, command stages trust exit codes, and publication retains ordinary authentication while PR merging remains human-only.
+Run state under `state/<run>.workflow/` is reconstructable from snapshot, per-stage records, actual artifacts, sub-agent state, git heads, command results, and decision holds.
 [`workflows.md`](workflows.md) owns the definition schema, state layout, lifecycle, and trust posture.
 The upstream-sync workflow composes that engine with a fetch-only private clone under the run artifact directory, and [`upstream.md`](upstream.md) owns its path map, review cursor, and retirement decision.
 
@@ -242,49 +242,49 @@ The [lean intake contract](../porting.md#task-intake-roles-and-quality) makes re
 ## Dispatch profiles
 
 Ordinary sub-agent dispatch resolves `config/subagent-harness` and optional `config/subagent-dispatch.json`, with `actor-harness` and `actor-dispatch.json` retained as bounded aliases.
-The dispatch file is intentionally judgment-based: broker reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays from current capacity and task requirements, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
+The dispatch file is intentionally judgment-based: the orchestrator reads the natural-language rules at intake, chooses the best matching rule, resolves profile arrays from current capacity and task requirements, and passes only concrete `--harness`, `--model`, and `--effort` axes to `mx-spawn.sh`.
 The Rust owner validates the JSON shape and verified harness/effort combinations without parsing task intent or selecting profiles.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
-When the file exists, `mx-spawn.sh` refuses actor and scout launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
-Daemon launches are exempt because they resolve the daemon harness and any optional daemon model or effort tokens instead.
+When the file exists, `mx-spawn.sh` refuses sub-agent launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
+Persistent-sub-agent launches are exempt because they resolve the legacy daemon harness alias and any optional model or effort tokens instead.
 Unsupported effort values are still recorded in task meta when passed to `mx-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, and pi while preserving the requested profile for later audit.
 
-## Optional daemons
+## Optional persistent sub-agents
 
-`data/daemons.md` records persistent daemons with natural-language scopes, project references, and home paths.
+`data/daemons.md` records persistent sub-agents with natural-language scopes, project references, and home paths.
 `mx-home-seed.sh` provisions a private home, remembers selected project checkouts, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.
 A deliberate `--no-projects` seed creates a project-less home; later project work receives isolated allocations from its explicitly selected repository.
-The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#daemon-routes-datadaemonsmd).
-On the herdr backend, a daemon launch lands in that daemon home's labeled workspace, and actors spawned from that home land in the same workspace.
+The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#persistent-sub-agent-routes-datadaemonsmd).
+On the herdr backend, a persistent-sub-agent launch lands in that sub-agent home's labeled workspace, and child sub-agents spawned from that home land in the same workspace.
 When seeded with `-`, a private home has a durable identity and reservation that survives zero live processes.
 See [worktrees](worktrees.md) for allocation, retention and retirement mechanics.
 Retirement archives private home material through its exact lease; deliberate Git-backed homes remain retained in place.
 If ownership or occupant checks fail, teardown leaves the route and home intact.
 Interrupted seeding restores recorded parent artifacts and preserves the reserved home for reconciliation.
 Local-only and remote-free projects can be selected for persistent homes without inventing a publication remote.
-The same project may appear in multiple daemon homes when their scopes differ, such as issue triage versus feature development.
-Daemons are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
-When called with `MX_HOME=<this-broker-home>` or when `MX_HOME` is already set to the active Multplx home, metadata-routed `mx-send.sh` requests to a live `kind=daemon` use the live-charter-compatible `from-broker` carrier owned by `multplx-domain::operational_input`, so the daemon returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.
-The parent guards every marked request against a missing correlated report without reading the daemon conversation; `multplx-domain::lifecycle::pending_reply` owns the correlation, recovery, escalation, and retention contract.
-Explicit backend-target sends and direct human typing stay unmarked, so maintainer intervention in a daemon pane remains conversational.
-After seeding a daemon, `mx-backlog-handoff.sh` validates the system-specific handoff, then atomically routes already-judged in-scope queued item moves through the owned backlog library so the domain queue starts in the right place.
-Idle daemon panes are healthy; teardown is explicit and refuses while the daemon home has in-flight work unless the maintainer has approved discard with `--force`.
+The same project may appear in multiple persistent-sub-agent homes when their scopes differ, such as issue triage versus feature development.
+Persistent sub-agents are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
+When called with `MX_HOME=<this-broker-home>` or when `MX_HOME` is already set to the active Multplx home, metadata-routed `mx-send.sh` requests to a live `kind=daemon` use the live-charter-compatible `from-broker` carrier owned by `multplx-domain::operational_input`, so the persistent sub-agent returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.
+The parent guards every marked request against a missing correlated report without reading the persistent sub-agent's conversation; `multplx-domain::lifecycle::pending_reply` owns the correlation, recovery, escalation, and retention contract.
+Explicit backend-target sends and direct human typing stay unmarked, so maintainer intervention in a persistent-sub-agent pane remains conversational.
+After seeding a persistent sub-agent, `mx-backlog-handoff.sh` validates the system-specific handoff, then atomically routes already-judged in-scope queued item moves through the owned backlog library so the domain queue starts in the right place.
+Idle persistent-sub-agent panes are healthy; teardown is explicit and refuses while the persistent-sub-agent home has in-flight work unless the maintainer has approved discard with `--force`.
 
-Daemon homes converge conservatively to the primary's version and declared inherited local material at launch and during locked session start.
+Persistent-sub-agent homes converge conservatively to the primary's version and declared inherited local material at launch and during locked session start.
 [Configuration](configuration.md#persistent-home-inheritance) owns the full guarded sync, propagation, nudge, and mid-session local-material push contract.
 
-Daemon agents can run on a different verified harness than actors.
+Persistent sub-agents can run on a different verified harness than their child sub-agents.
 `config/persistent-subagent-harness` controls persistent launch defaults, with `config/daemon-harness` retained as its alias, and may carry model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
 A bare harness line remains harness-only, so existing `config/daemon-harness` files keep their previous behavior.
 When the harness token is unset or `default`, launch falls back to `config/actor-harness`, then to the primary's own harness, and the model and effort tokens are ignored.
-Those optional tokens are re-read on every daemon spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
+Those optional tokens are re-read on every persistent-sub-agent spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
 An explicit per-spawn verified harness does not inherit model or effort tokens from `config/daemon-harness`.
-`config/actor-harness` remains the actor harness and is inherited into daemon homes.
-`config/actor-dispatch.json` is inherited too; daemons use the same natural-language dispatch profiles when spawning their own actors.
+`config/actor-harness` remains the sub-agent harness alias and is inherited into persistent-sub-agent homes.
+`config/actor-dispatch.json` is inherited too; persistent sub-agents use the same natural-language dispatch profiles when spawning their own child sub-agents.
 [Configuration](configuration.md#persistent-home-inheritance) owns the complete inherited-local-material allowlist and propagation contract.
 
-The `data/daemons.md` line contract is owned by the [route schema](configuration.md#daemon-routes-datadaemonsmd), and the daemon environment variables are documented in [configuration.md](configuration.md).
+The `data/daemons.md` line contract is owned by the [route schema](configuration.md#persistent-sub-agent-routes-datadaemonsmd), and the persistent-sub-agent compatibility environment variables are documented in [configuration.md](configuration.md).
 
 ## Project modes are explicit
 
@@ -308,7 +308,7 @@ The `mx teardown --help` contract and [`bin/mx-teardown.sh`](../bin/mx-teardown.
 ## Project memory belongs to projects
 
 Durable project-intrinsic agent knowledge lives in each project's committed `AGENTS.md`, with `CLAUDE.md` as a symlink.
-Delivery briefs prompt actors to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
+Implementation briefs prompt sub-agents to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 Each project `AGENTS.md` carries a short `## Maintaining this file` self-governance section; `multplx-domain::lifecycle::ensure_agents` owns the canonical wording and injects it idempotently when creating the skeleton, promoting an existing `CLAUDE.md`, or reconciling an existing `AGENTS.md` that still lacks it.
 It refuses a case-variant real memory file such as a lowercase `agents.md`, whose `CLAUDE.md` symlink would carry an uppercase literal target that dangles on a case-sensitive filesystem, and surfaces the mismatch for manual reconciliation.
 [Configuration](configuration.md) owns private storage locations; the optional [stow reference](../.agents/skills/stow/SKILL.md) describes inspect-before-update mechanics.
@@ -319,12 +319,12 @@ It refuses a case-variant real memory file such as a lowercase `agents.md`, whos
 Home-domain maintainer preferences go to `data/maintainer.md`, cross-domain shared maintainer preferences go to the primary home's `data/maintainer-shared.md`, system-local operational facts and gotchas go to home-local `data/learnings.md`, project-intrinsic knowledge can remain in task artifacts or appropriate scoped project documentation, and task-scoped notes or undone next steps go to the backlog.
 Memory writes use inspect-then-update: read the current destination first, then rewrite or prune matching bullets or notes in place instead of appending by default.
 Task-scoped notes use `bin/mx-backlog.sh show <id>` followed by `bin/mx-backlog.sh update <id> --body-file <path>`, adding `--archive-body` when the prior body should remain recoverable.
-Generalizable broker knowledge goes to shared tracked docs through the normal PR pipeline; the broker-internal `/stow` deliberately never stores findings in either skill directory.
+Generalizable orchestrator knowledge goes to shared tracked docs through the normal PR pipeline; the orchestrator-internal `/stow` deliberately never stores findings in either skill directory.
 
 ## Local clones stay fresh
 
 The locked session-start bootstrap step, PR-based teardown, and merged-PR wake handling refresh remote-backed project clones when the clone is safe to move.
-Wake-time refreshes can target a single clone by project name, so the primary home also catches up when a daemon reports a merge from its own home.
+Wake-time refreshes can target a single clone by project name, so the primary home also catches up when a persistent sub-agent reports a merge from its own home.
 Clean default-branch clones fast-forward to `origin/<default>`, and a clean detached HEAD that holds no unique commits is re-attached to the default branch before the same fast-forward path runs.
 Dirty clones, non-default branches, detached HEADs with unique commits, diverged defaults, and default branches checked out in another worktree are reported as `STUCK:` with their behind count and left untouched.
 Fetches blocked by an orphaned `.git/packed-refs.lock` use bounded retries and remove the lock only when the shared staleness proof can prove it abandoned; [configuration.md](configuration.md#toolchain) owns the recovery details and tuning knobs.
@@ -333,19 +333,19 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 
 ## Self-updates stay safe
 
-`/updatemultplx` fast-forwards the running Multplx repo and registered daemon homes from `origin`, then re-reads updated instructions and nudges updated daemons without touching project clones.
+`/updatemultplx` fast-forwards the running Multplx repo and registered persistent-sub-agent homes from `origin`, then re-reads updated instructions and nudges updated persistent sub-agents without touching project clones.
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
-The origin-based updater and the local daemon sync share the same guarded fast-forward helper; only the origin mode fetches.
+The origin-based updater and the local persistent-sub-agent sync share the same guarded fast-forward helper; only the origin mode fetches.
 The update command owns mechanics; the optional [updatemultplx reference](../.agents/skills/updatemultplx/SKILL.md) provides discovery.
 
 ## Restart-proof
 
-System state lives in each task's session-provider backend (tmux by hard default, herdr or cmux when selected or auto-detected), private `state/<id>.gate/` deep-review records, status event logs, local markdown under `data/` including `data/maintainer.md`, `data/maintainer-shared.md`, and `data/learnings.md`, and persistent daemon homes.
+System state lives in each task's session-provider backend (tmux by hard default, herdr or cmux when selected or auto-detected), private `state/<id>.gate/` deep-review records, status event logs, local markdown under `data/` including `data/maintainer.md`, `data/maintainer-shared.md`, and `data/learnings.md`, and persistent-sub-agent homes.
 For herdr, respawning after a server-restored layout closes and replaces confirmed no-agent or dead task-tab husks instead of requiring manual tab cleanup.
-At session start, confirmed-dead daemon agent endpoints are closed and relaunched through the same daemon spawn path, while ambiguous liveness reads are left untouched to avoid duplicate supervisors.
-Use `/stow` before an intentional reset when the conversation may hold durable knowledge that has not yet been written to disk; after that, the next broker session can reconcile and carry on.
+At session start, confirmed-dead persistent-sub-agent endpoints are closed and relaunched through the same compatibility spawn path, while ambiguous liveness reads are left untouched to avoid duplicate supervisors.
+Use `/stow` before an intentional reset when the conversation may hold durable knowledge that has not yet been written to disk; after that, the next orchestrator session can reconcile and carry on.
 
 ## Development notes
 
 The current watcher reliability work combines always-on bash triage with a durable queue for actionable wakes, a race-proof singleton lock, duplicate self-eviction, drain-time liveness assertion, and a self-verifying tracked-child arm wrapper.
-The presence-gated sub-supervisor (`bin/mx-supervise-daemon.sh`) provides walk-away supervision via the `/afk` skill while reusing the same shared wake classifier as the always-on watcher.
+The presence-gated service daemon (`bin/mx-supervise-daemon.sh`) provides walk-away supervision via the `/afk` skill while reusing the same shared wake classifier as the always-on watcher.

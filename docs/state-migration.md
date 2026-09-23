@@ -20,7 +20,7 @@ Persistence by itself never maps a task to the sub-orchestrator assignment.
 Ambiguous roles, parents, attempts and briefs remain visibly unknown for reconciliation.
 
 Apply refuses a live session writer, unsafe symlink, newer schema, malformed owned record or conflicting canonical and legacy alias.
-It copies legacy harness and dispatch settings to their canonical names while retaining the aliases for the Phase 12 compatibility window.
+It copies legacy harness and dispatch settings to their canonical names while retaining the aliases for this lean release's compatibility window.
 It embeds the versioned compatibility model in legacy task metadata without inventing an attempt, accepted brief or completed result.
 It assigns stable identities to available flat managed project checkouts without moving them.
 Missing project locations remain recorded for repair.
@@ -74,6 +74,8 @@ Foreign, ambiguous, active or unsupported resources stay retained with a specifi
 ## Compatibility window
 
 Schema-1 and unversioned task records plus schema-2 canonical records are supported migration inputs.
-Canonical and legacy configuration aliases remain readable through the Phase 12 cutover.
+Canonical and legacy configuration aliases remain readable for this lean release.
+Their removal requires an announced subsequent breaking version with a migration path.
+Do not rename durable records, message carriers, endpoint labels or filesystem markers merely to modernize their vocabulary.
 Existing `.mx-daemon-home`, route, carrier and endpoint labels remain compatibility evidence while new task and status records use canonical assignment terminology.
 Run `mx doctor --check home-migration` to verify the current marker.

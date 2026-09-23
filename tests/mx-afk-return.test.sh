@@ -81,7 +81,7 @@ test_return_gate_orders_catchup_before_status() {
   [ "$rc" -eq 3 ] || fail "return begin should gate on a live blocker (rc=$rc): $out"
   gate="$dir/home/state/.afk-return-catchup"
   [ -s "$gate" ] || fail "return begin did not persist its fail-closed catch-up gate"
-  assert_contains "$out" 'broker-actionable blocker: repair-task [key=synthetic-dependency]' "return output did not assign blocker remediation to Multplx"
+  assert_contains "$out" 'orchestrator-actionable blocker: repair-task [key=synthetic-dependency]' "return output did not assign blocker remediation to Multplx"
   grep -F $'evidence\twake\t1784074271' "$gate" >/dev/null || fail "drained wake evidence was not retained in the durable gate"
   grep -F $'evidence\twake\twake annotation: latest wake-EVENT observed at drain, not current state: repair-task.status: blocked synthetic dependency' "$gate" >/dev/null \
     || fail "the separate drain annotation was not retained as away-return evidence"
@@ -169,7 +169,7 @@ EOF
   out=$(run_return "$dir" begin) || fail "approval decision should not be treated as a broker blocker: $out"
   assert_contains "$out" 'catch-up wake:' "approval decision notification was not surfaced in catch-up"
   [ ! -e "$dir/home/state/.afk-return-catchup" ] || fail "approval decision incorrectly opened a broker blocker gate"
-  pass "needs-decision remains reportable without masquerading as a broker-actionable blocker"
+  pass "needs-decision remains reportable without masquerading as an orchestrator-actionable blocker"
 }
 
 test_away_reentry_refuses_pending_return_gate() {

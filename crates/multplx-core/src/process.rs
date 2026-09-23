@@ -342,16 +342,20 @@ impl ProcessProbe for SystemProcessProbe {
     }
 
     fn ancestry_row(&self, pid: u32) -> Result<AncestryRow> {
-        let output = self.ps_output([
-            "-p",
-            &pid.to_string(),
-            "-o",
-            "ppid=",
-            "-o",
-            "comm=",
-            "-o",
-            "args=",
-        ])?;
+        // On macOS, `ps` truncates `comm` when later columns share the row,
+        // even with wide output enabled. Read it alone so long installed
+        // harness paths remain classifiable.
+        let command = self
+            .ps_output(["-p", &pid.to_string(), "-o", "comm="])?
+            .trim_end_matches('\n')
+            .to_owned();
+        if command.is_empty() {
+            return Err(CoreError::MalformedRecord {
+                kind: "process ancestry",
+                reason: "missing command",
+            });
+        }
+        let output = self.ps_output(["-p", &pid.to_string(), "-o", "ppid=", "-o", "args="])?;
         let line = output.lines().next().ok_or(CoreError::MalformedRecord {
             kind: "process ancestry",
             reason: "empty ps row",
@@ -364,13 +368,6 @@ impl ProcessProbe for SystemProcessProbe {
                 kind: "process ancestry",
                 reason: "invalid parent PID",
             })?;
-        let command = fields
-            .next()
-            .ok_or(CoreError::MalformedRecord {
-                kind: "process ancestry",
-                reason: "missing command",
-            })?
-            .to_owned();
         let arguments = fields.collect::<Vec<_>>().join(" ");
         Ok(AncestryRow {
             parent_pid,
@@ -453,6 +450,39 @@ mod tests {
         assert!(path_age(&file, modified + 1).expect("past") <= 1);
         assert!(path_age(temp.path().join("absent"), modified).is_err());
         let _ = SystemTime::now();
+    }
+
+    #[test]
+    fn ancestry_preserves_a_long_harness_executable_name() {
+        use std::fs;
+        use std::path::Path;
+        use std::process::Command;
+
+        use super::{ProcessProbe, SystemProcessProbe};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let executable = temp
+            .path()
+            .join("a-deliberately-long-installed-runtime-path")
+            .join("codex");
+        fs::create_dir_all(executable.parent().expect("parent")).expect("runtime directory");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/bin/sleep", &executable).expect("link executable");
+        let mut child = Command::new(&executable).arg("30").spawn().expect("spawn");
+        let row = SystemProcessProbe::default().ancestry_row(child.id());
+        child.kill().expect("kill child");
+        child.wait().expect("reap child");
+        let row = row.expect("ancestry");
+        if cfg!(target_os = "macos") {
+            assert_eq!(Path::new(&row.command), executable);
+        } else {
+            assert_eq!(
+                Path::new(&row.command)
+                    .file_name()
+                    .and_then(|value| value.to_str()),
+                Some("codex")
+            );
+        }
     }
 
     #[test]

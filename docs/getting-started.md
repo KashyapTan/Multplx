@@ -52,6 +52,10 @@ A package can be upgraded with the extracted new version:
 ./multplx-VERSION-OS-ARCH/bin/mx launcher-install --upgrade --package ./multplx-VERSION-OS-ARCH
 ```
 
+Upgrade checks whether the installed runtime is quiescent.
+A well-formed ordinary task may remain unfinished when its exact recorded runtime endpoint is confirmed stopped; upgrade preserves that task's state and evidence byte-for-byte.
+Live, uncertain, persistent, and coordinator-owned runtime users still prevent upgrade.
+
 Upgrades publish owned installation records transactionally and retain operational data and user repositories.
 Upgrade and uninstall first exclude supported launches, then refuse while a primary harness, launch reservation or task record is live or uncertain; stop or reconcile those recorded users before retrying.
 Uninstall removes the owned command and installation records without deleting your operational home or repositories:

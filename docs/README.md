@@ -3,12 +3,13 @@
 This index is the human entry point for Multplx documentation.
 Choose the path that matches what you are trying to do; agent operating contracts remain linked from their human-facing owners rather than duplicated here.
 
-[Start with the product overview](../README.md) or continue directly to [Getting Started](getting-started.md).
+[Start with the product overview](../README.md), continue to [Getting Started](getting-started.md), or open the [User guide](user-guide.md) for practical day-to-day operation.
 
 ## Start here
 
-- [Getting Started](getting-started.md) takes a new operator from installation to a safe first broker request.
-- [Architecture](architecture.md) explains the maintainer, broker, actor, daemon, worktree, supervision, and delivery model.
+- [Getting Started](getting-started.md) takes a new operator from installation to a safe first orchestrator request.
+- [User guide](user-guide.md) explains practical project, task, scoped coordinator, workflow, delivery, visualization, and recovery operations.
+- [Architecture](architecture.md) explains the maintainer, orchestrator, sub-agent, scoped coordinator, persistent sub-agent, service daemon, worktree, supervision, and delivery model.
 - [Workspace entry and local projects](workspace-entry.md) covers one chat, optional discovery, local reuse, terminal intake and connection limits.
 - [Configuration](configuration.md) owns `MX_HOME`, local settings, harness selection, dispatch profiles, capacity, and the universal toolchain.
 - [Sub-agent records](subagent-model.md) explains task, attempt, accepted brief, project and checkout identity and the lean compatibility boundary.
@@ -28,7 +29,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 
 ## Runtime backends
 
-- [tmux](tmux-backend.md) is the verified reference backend and the baseline for daemon homes.
+- [tmux](tmux-backend.md) is the verified reference backend and the baseline for persistent sub-agent homes.
 - [Herdr](herdr-backend.md) is an experimental agent-native backend with native state and push events.
 - [cmux](cmux-backend.md) is an experimental macOS GUI backend.
 - [Codex App](codex-app-backend.md) is not a selectable runtime backend; its page records the missing bridge and acceptance boundary.
@@ -57,8 +58,8 @@ Choose the path that matches what you are trying to do; agent operating contract
 
 | Reader | Suggested path |
 | --- | --- |
-| New operator | [Getting Started](getting-started.md) -> [Configuration](configuration.md) -> one backend guide -> [Delivery](delivery.md) |
-| Day-to-day operator | [Doctor](doctor.md) -> [mx-viz](viz.md) -> [vplan](vplan.md) or [Workflows](workflows.md) |
+| New operator | [Getting Started](getting-started.md) -> [User guide](user-guide.md) -> [Configuration](configuration.md) -> one backend guide -> [Delivery](delivery.md) |
+| Day-to-day operator | [User guide](user-guide.md) -> [Doctor](doctor.md) -> [mx-viz](viz.md) -> [vplan](vplan.md) or [Workflows](workflows.md) |
 | Contributor | [Contributing](../CONTRIBUTING.md) -> [Architecture](architecture.md) -> the relevant mechanism page |
 | Maintainer validating a guarantee | The relevant page under [guard](verification/guards.md), [supervision](verification/supervision.md), backend, or test verification |
 

@@ -1000,6 +1000,23 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
     let body = fs::read(&brief)
         .map_err(|error| format!("cannot bind accepted brief {}: {error}", brief.display()))?;
     let digest = format!("{:x}", Sha256::digest(&body));
+    let (requests, request_total) =
+        super::super::operational_input::RequestStore::new(&context.state, &context.home)
+            .observe(4096)?;
+    if request_total > requests.len() {
+        return Err(
+            "accepted request inbox is truncated; refusing to prepare incomplete task bindings"
+                .into(),
+        );
+    }
+    let routed = requests
+        .into_iter()
+        .filter(|routed| routed.task_id == request.id)
+        .collect::<Vec<_>>();
+    if routed.len() > 1 {
+        return Err("task identity matches multiple accepted routed requests".into());
+    }
+    let routed = routed.into_iter().next();
     let mut record = if let Some(record) = prior {
         if record.legacy_unknown {
             return Err(
@@ -1022,6 +1039,17 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         {
             return Err(
                 "launch conflicts with recorded assignment; record reassignment first".into(),
+            );
+        }
+        if let Some(routed) = &routed
+            && let Some(project) = &record.project
+            && (project.project_id != routed.project_id
+                || project.checkout_id != routed.checkout_id
+                || project.starting_revision != routed.starting_revision)
+        {
+            return Err(
+                "canonical task project/checkout/revision conflicts with accepted routed request"
+                    .into(),
             );
         }
         if let Some(project) = &record.project {
@@ -1126,7 +1154,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
             .push(brief.to_string_lossy().into_owned());
         record.private_home = request.private_home;
         if !request.private_home {
-            record.project = if artifact == ArtifactKind::Implementation
+            let mut project = if artifact == ArtifactKind::Implementation
                 && let Some(allowed) = parent_domain_projects
             {
                 // A coordinator home's catalog contains only its explicitly
@@ -1147,18 +1175,177 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
                             .into(),
                     );
                 }
-                Some(project)
+                project
             } else {
-                Some(crate::project_registry::bind_project_at(
+                crate::project_registry::bind_project_at(
                     &context.home,
                     &context.data,
                     &context.projects,
                     &request.project,
-                )?)
+                )?
             };
+            if let Some(routed) = &routed {
+                if project.project_id != routed.project_id
+                    || project.checkout_id != routed.checkout_id
+                {
+                    return Err(
+                        "selected project/checkout conflicts with accepted routed request".into(),
+                    );
+                }
+                let start = crate::project_registry::resolve_starting_revision(
+                    &project.canonical_path,
+                    &routed.starting_revision,
+                )?;
+                if start != routed.starting_revision {
+                    return Err(
+                        "accepted routed starting revision is not the recorded full commit".into(),
+                    );
+                }
+                project.starting_revision = start;
+            }
+            record.project = Some(project);
         }
         record
     };
+    // Carry accepted ordinary-task dependencies into the canonical task model
+    // before it is serialized into admission. If a predecessor has not yet
+    // been bound, preparation refuses while retaining the accepted intake.
+    if let Some(routed) = routed
+        .as_ref()
+        .filter(|request| !request.dependencies.is_empty())
+    {
+        let mut dependencies = Vec::new();
+        let root_home = record
+            .root_id
+            .as_deref()
+            .and_then(|root| root.strip_prefix("root-home:"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| context.home.clone());
+        let root_home = fs::canonicalize(&root_home)
+            .map_err(|error| format!("cannot resolve canonical dependency root home: {error}"))?;
+        let current_home = fs::canonicalize(
+            record
+                .owner_home
+                .as_deref()
+                .ok_or("task owner home missing")?,
+        )
+        .map_err(|error| format!("cannot resolve task owner home: {error}"))?;
+        let mut homes = vec![current_home.clone(), root_home.clone()];
+        // Traverse only registered same-root coordinator descendants. Each
+        // catalog is owned by the home whose state directory contains it.
+        let mut catalog_entries = 0usize;
+        let mut catalogs = vec![root_home.clone()];
+        let mut catalog_homes = std::collections::BTreeSet::from([root_home.clone()]);
+        while let Some(catalog_home) = catalogs.pop() {
+            let catalog_state = catalog_home.join("state");
+            for entry in fs::read_dir(&catalog_state).map_err(|error| error.to_string())? {
+                let entry = entry.map_err(|error| error.to_string())?;
+                let path = entry.path();
+                if path.extension().is_none_or(|extension| extension != "meta") {
+                    continue;
+                }
+                catalog_entries += 1;
+                if catalog_entries > 4096 {
+                    return Err("registered coordinator catalog exceeds its safe bound".into());
+                }
+                let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    continue;
+                };
+                let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
+                    .map_err(|error| {
+                        format!("cannot verify registered coordinator catalog: {error}")
+                    })?;
+                let text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
+                let coordinator = super::subagent_model::read_meta(id, &text).map_err(|error| {
+                    format!("cannot verify registered coordinator catalog: {error}")
+                })?;
+                if coordinator.role != super::subagent_model::AssignmentRole::SubOrchestrator
+                    || coordinator.root_id != record.root_id
+                    || coordinator.owner_home.as_deref()
+                        != Some(catalog_home.to_string_lossy().as_ref())
+                {
+                    continue;
+                }
+                if let Some(home) = coordinator.persistent_home {
+                    let validated = crate::inheritance::validate_daemon_home(
+                        id,
+                        Path::new(&home),
+                        &catalog_home,
+                        &context.root,
+                    )?;
+                    if catalog_homes.insert(validated.path.clone()) {
+                        if catalog_homes.len() > 4096 {
+                            return Err(
+                                "registered coordinator home catalog exceeds its safe bound".into(),
+                            );
+                        }
+                        homes.push(validated.path.clone());
+                        catalogs.push(validated.path);
+                    }
+                }
+            }
+        }
+        homes.sort();
+        homes.dedup();
+        for dependency in &routed.dependencies {
+            let mut owners = Vec::new();
+            for home in &homes {
+                let candidate = home.join("state").join(format!("{dependency}.meta"));
+                match fs::symlink_metadata(&candidate) {
+                    Ok(_) => {
+                        let bytes = multplx_core::filesystem::read_bounded_regular(
+                            &candidate,
+                            4 * 1024 * 1024,
+                        )
+                        .map_err(|error| {
+                            format!("cannot verify dependency task record: {error}")
+                        })?;
+                        let text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
+                        let predecessor = super::subagent_model::read_meta(dependency, &text)
+                            .map_err(|error| {
+                                format!("cannot verify dependency task record: {error}")
+                            })?;
+                        if predecessor.root_id == record.root_id
+                            && predecessor.owner_home.as_deref()
+                                == Some(home.to_string_lossy().as_ref())
+                        {
+                            owners.push(home.clone());
+                        }
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(format!("cannot verify dependency task record: {error}"));
+                    }
+                }
+            }
+            owners.sort();
+            owners.dedup();
+            match owners.as_slice() {
+                [owner] if owner == &current_home => dependencies.push(dependency.clone()),
+                [owner] => dependencies.push(super::subagent_model::qualified_task_id(
+                    &owner.to_string_lossy(),
+                    dependency,
+                )),
+                [] => {
+                    return Err(format!(
+                        "dependency {dependency} has no canonical task binding yet; accepted intake is retained, retry after its owner spawns it"
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "dependency {dependency} is ambiguous across registered task owners"
+                    ));
+                }
+            }
+        }
+        if record.schedule.dependencies.is_empty() {
+            record.schedule.dependencies = dependencies;
+        } else if record.schedule.dependencies != dependencies {
+            return Err(
+                "accepted routed dependencies conflict with canonical task dependencies".into(),
+            );
+        }
+    }
     if let Some(domain) = &request.domain {
         if record
             .domain
@@ -1187,26 +1374,48 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
             .parent_id
             .as_ref()
             .ok_or("parent identity missing")?;
-        let mut edges = current
-            .schedule
-            .dependencies
-            .iter()
-            .map(|id| {
-                (
-                    id.clone(),
-                    current.owner_home.clone().unwrap_or_default(),
-                    current.owner_state.clone(),
+        for dependency in &current.schedule.dependencies {
+            let (id, home) = dependency
+                .split_once("#task:")
+                .map(|(home, id)| (id.to_owned(), home.to_owned()))
+                .unwrap_or_else(|| {
+                    (
+                        dependency.clone(),
+                        current.owner_home.clone().unwrap_or_default(),
+                    )
+                });
+            TaskId::parse(&id).map_err(|error| error.to_string())?;
+            let key = super::subagent_model::qualified_task_id(&home, &id);
+            if !loaded.insert(key) {
+                continue;
+            }
+            let state = if home == current.owner_home.as_deref().unwrap_or_default() {
+                current.owner_state.as_deref().map(PathBuf::from)
+            } else {
+                Some(PathBuf::from(&home).join("state"))
+            };
+            let path = state
+                .unwrap_or_else(|| PathBuf::from(&home).join("state"))
+                .join(format!("{id}.meta"));
+            let text = fs::read_to_string(&path).map_err(|_| {
+                format!(
+                    "dependency {id} has no canonical task binding yet; accepted intake is retained, retry after its owner spawns it"
                 )
-            })
-            .collect::<Vec<_>>();
-        if parent != &root {
-            edges.push((
-                parent.clone(),
-                current.parent_home.clone().ok_or("parent home missing")?,
-                current.parent_state.clone(),
-            ));
+            })?;
+            let ancestor = read_meta(&id, &text)?;
+            if ancestor.owner_home.as_deref() != Some(home.as_str())
+                || ancestor.legacy_unknown
+                || ancestor.root_id.as_ref() != Some(&root)
+            {
+                return Err("dependency resolves to an untrusted or foreign-root task".into());
+            }
+            lineage.push(ancestor.clone());
+            pending.push(ancestor);
         }
-        for (id, home, state) in edges {
+        if parent != &root {
+            let id = parent.clone();
+            let home = current.parent_home.clone().ok_or("parent home missing")?;
+            let state = current.parent_state.clone();
             let key = super::subagent_model::qualified_task_id(&home, &id);
             if !loaded.insert(key) {
                 continue;
@@ -1401,6 +1610,54 @@ pub fn recover_failed_action_binding(
     }
     request.binding = Some(action.binding);
     Ok(true)
+}
+
+/// Commit a retry boundary after the owning backend has freshly proven that
+/// the exact recorded endpoint is absent. The accepted attempt and allocation
+/// are restored byte-for-byte. Only pre-submission stages qualify, so work
+/// that may already have run is never repeated; live, unknown, or changed
+/// actions are retained.
+pub fn reconcile_interrupted_action_after_absence(
+    context: &Context,
+    request_id: &str,
+    expected_endpoint: &str,
+    request: &mut Request,
+    detail: &str,
+) -> Result<(), String> {
+    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+        context
+            .state
+            .join(format!(".spawn-action-{request_id}.lock")),
+        &multplx_core::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut action = read_action(context, request_id)?
+        .ok_or("spawn action disappeared while endpoint absence was observed")?;
+    if action.task_id != request.id || action.backend != request.backend {
+        return Err("spawn action request conflicts with the retry target".into());
+    }
+    if !matches!(
+        action.stage,
+        LaunchStage::EndpointCreated | LaunchStage::MetadataPublished
+    ) || action.endpoint.as_deref() != Some(expected_endpoint)
+    {
+        return Err("spawn action changed while endpoint absence was observed; retained".into());
+    }
+    let current = request.binding.as_ref().ok_or("spawn binding missing")?;
+    if !same_launch_identity(current, &action.binding) {
+        return Err("spawn action binding conflicts with the retry identity".into());
+    }
+    action.stage = LaunchStage::Failed;
+    action.detail = Some(detail.into());
+    atomic_replace(
+        action_path(context, request_id)?,
+        &serde_json::to_vec(&action).map_err(|error| error.to_string())?,
+        0o600,
+    )
+    .map_err(|error| error.to_string())?;
+    request.binding = Some(action.binding);
+    Ok(())
 }
 
 /// Recover a launch reservation that stopped before allocation and endpoint
@@ -3406,8 +3663,154 @@ mod tests {
         request.binding = None;
         fs::create_dir_all(context.data.join("fresh")).unwrap();
         fs::write(context.data.join("fresh/brief.md"), "accepted scope\n").unwrap();
+        let project_binding = crate::project_registry::register_project(
+            &context.home,
+            &project,
+            None,
+            crate::project_registry::CheckoutOwnership::UserOwned,
+        )
+        .unwrap();
+        let starting_revision = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&project)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let starting_revision = String::from_utf8(starting_revision.stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        let accepted_dependencies = vec!["predecessor".to_owned()];
+        crate::operational_input::RequestStore::new(&context.state, &context.home)
+            .submit(
+                &crate::operational_input::RequestSubmission {
+                    batch_id: "batch-fresh",
+                    request_id: "request-fresh",
+                    task_id: "fresh",
+                    client_id: "workspace-cli",
+                    recipient_owner: None,
+                    parent_task_id: None,
+                    parent_home: None,
+                    attempt_id: None,
+                    attempt_generation: None,
+                    project_id: &project_binding.project_id,
+                    checkout_id: &project_binding.checkout_id,
+                    starting_revision: &starting_revision,
+                    brief_revision: 1,
+                    scope: "accepted scope",
+                    dependencies: &accepted_dependencies,
+                    context_artifact: None,
+                },
+                std::time::SystemTime::now(),
+                None,
+            )
+            .unwrap();
+        assert!(
+            prepare_binding(&context, &mut request)
+                .unwrap_err()
+                .contains("accepted intake is retained")
+        );
+        let owner = fs::canonicalize(&context.home)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let root = format!("root-home:{owner}");
+        let coordinator_home = temp.path().join("coordinator-home");
+        for directory in ["data", "state", "config", "projects", "bin"] {
+            fs::create_dir_all(coordinator_home.join(directory)).unwrap();
+        }
+        let coordinator_home = fs::canonicalize(coordinator_home).unwrap();
+        fs::write(coordinator_home.join(".mx-daemon-home"), "coordinator\n").unwrap();
+        fs::write(
+            coordinator_home.join("AGENTS.md"),
+            "coordinator test home\n",
+        )
+        .unwrap();
+        let mut coordinator = crate::lifecycle::subagent_model::TaskRecord::new(
+            "coordinator".into(),
+            crate::lifecycle::subagent_model::AssignmentRole::SubOrchestrator,
+            crate::lifecycle::subagent_model::ArtifactKind::Coordination,
+            true,
+            root.clone(),
+            root.clone(),
+            owner.clone(),
+        );
+        coordinator.private_home = true;
+        coordinator.persistent_home = Some(coordinator_home.to_string_lossy().into_owned());
+        coordinator.owner_state = Some(context.state.to_string_lossy().into_owned());
+        coordinator.parent_state = coordinator.owner_state.clone();
+        fs::write(
+            context.state.join("coordinator.meta"),
+            crate::lifecycle::subagent_model::write_meta("kind=daemon\n", &coordinator).unwrap(),
+        )
+        .unwrap();
+        let nested_home = temp.path().join("nested-coordinator-home");
+        for directory in ["data", "state", "config", "projects", "bin"] {
+            fs::create_dir_all(nested_home.join(directory)).unwrap();
+        }
+        let nested_home = fs::canonicalize(nested_home).unwrap();
+        fs::write(nested_home.join(".mx-daemon-home"), "nested-coordinator\n").unwrap();
+        fs::write(
+            nested_home.join("AGENTS.md"),
+            "nested coordinator test home\n",
+        )
+        .unwrap();
+        let mut nested_coordinator = crate::lifecycle::subagent_model::TaskRecord::new(
+            "nested-coordinator".into(),
+            crate::lifecycle::subagent_model::AssignmentRole::SubOrchestrator,
+            crate::lifecycle::subagent_model::ArtifactKind::Coordination,
+            true,
+            "coordinator".into(),
+            root.clone(),
+            coordinator_home.to_string_lossy().into_owned(),
+        );
+        nested_coordinator.private_home = true;
+        nested_coordinator.persistent_home = Some(nested_home.to_string_lossy().into_owned());
+        nested_coordinator.owner_state = Some(
+            coordinator_home
+                .join("state")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        nested_coordinator.parent_home = Some(owner.clone());
+        nested_coordinator.parent_state = Some(context.state.to_string_lossy().into_owned());
+        fs::write(
+            coordinator_home.join("state/nested-coordinator.meta"),
+            crate::lifecycle::subagent_model::write_meta("kind=daemon\n", &nested_coordinator)
+                .unwrap(),
+        )
+        .unwrap();
+        let mut predecessor = crate::lifecycle::subagent_model::TaskRecord::new(
+            "predecessor".into(),
+            crate::lifecycle::subagent_model::AssignmentRole::Implementer,
+            crate::lifecycle::subagent_model::ArtifactKind::Implementation,
+            false,
+            "nested-coordinator".into(),
+            root.clone(),
+            nested_home.to_string_lossy().into_owned(),
+        );
+        predecessor.parent_home = Some(coordinator_home.to_string_lossy().into_owned());
+        predecessor.parent_state = Some(
+            coordinator_home
+                .join("state")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        predecessor.owner_state = Some(nested_home.join("state").to_string_lossy().into_owned());
+        fs::write(
+            nested_home.join("state/predecessor.meta"),
+            crate::lifecycle::subagent_model::write_meta("kind=delivery\n", &predecessor).unwrap(),
+        )
+        .unwrap();
         prepare_binding(&context, &mut request).unwrap();
         let frozen = request.binding.clone().expect("frozen binding");
+        assert_eq!(
+            frozen.schedule.dependencies,
+            [crate::lifecycle::subagent_model::qualified_task_id(
+                &nested_home.to_string_lossy(),
+                "predecessor",
+            )]
+        );
         assert_eq!(
             frozen.project.as_ref().unwrap().canonical_path,
             request.project
@@ -3416,6 +3819,37 @@ mod tests {
             frozen.accepted_brief_digest.as_deref(),
             Some(format!("{:x}", Sha256::digest(b"accepted scope\n")).as_str())
         );
+
+        let mut duplicate = crate::lifecycle::subagent_model::TaskRecord::new(
+            "predecessor".into(),
+            crate::lifecycle::subagent_model::AssignmentRole::Implementer,
+            crate::lifecycle::subagent_model::ArtifactKind::Implementation,
+            false,
+            "coordinator".into(),
+            root,
+            coordinator_home.to_string_lossy().into_owned(),
+        );
+        duplicate.parent_home = Some(owner);
+        duplicate.parent_state = Some(context.state.to_string_lossy().into_owned());
+        duplicate.owner_state = Some(
+            coordinator_home
+                .join("state")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        fs::write(
+            coordinator_home.join("state/predecessor.meta"),
+            crate::lifecycle::subagent_model::write_meta("kind=delivery\n", &duplicate).unwrap(),
+        )
+        .unwrap();
+        let mut ambiguous = request.clone();
+        ambiguous.binding = None;
+        assert!(
+            prepare_binding(&context, &mut ambiguous)
+                .unwrap_err()
+                .contains("ambiguous across registered task owners")
+        );
+        fs::remove_file(coordinator_home.join("state/predecessor.meta")).unwrap();
 
         fs::write(
             context.state.join("fresh.meta"),

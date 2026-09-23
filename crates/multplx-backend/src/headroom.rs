@@ -549,7 +549,16 @@ fn configured_candidates(paths: &HeadroomPaths) -> Result<Vec<String>> {
     if std::env::var("MX_HEADROOM_IGNORE_DISPATCH_CONFIG").as_deref() == Ok("1") {
         return Ok(vec!["default".to_owned()]);
     }
-    let dispatch = paths.config.join("actor-dispatch.json");
+    crate::harness::HarnessConfig::new(&paths.config)
+        .validate_aliases()
+        .map_err(message)?;
+    let canonical_dispatch = paths.config.join("subagent-dispatch.json");
+    let legacy_dispatch = paths.config.join("actor-dispatch.json");
+    let dispatch = if canonical_dispatch.is_file() {
+        canonical_dispatch
+    } else {
+        legacy_dispatch
+    };
     let mut candidates = Vec::new();
     if dispatch.is_file() {
         let bytes = read_bounded_regular(&dispatch, 1024 * 1024)
@@ -566,7 +575,15 @@ fn configured_candidates(paths: &HeadroomPaths) -> Result<Vec<String>> {
         if let Some(profiles) = value.get("default") {
             profile_harnesses(profiles, &mut candidates)?;
         }
-    } else if let Ok(text) = fs::read_to_string(paths.config.join("actor-harness")) {
+    } else if let Ok(text) =
+        fs::read_to_string(paths.config.join("subagent-harness")).or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                fs::read_to_string(paths.config.join("actor-harness"))
+            } else {
+                Err(error)
+            }
+        })
+    {
         let harness = text
             .lines()
             .find_map(|line| line.split_whitespace().next())
@@ -2388,6 +2405,39 @@ mod tests {
                 ["claude", "codex", "pi"]
             );
         }
+    }
+
+    #[test]
+    fn canonical_candidate_files_precede_matching_legacy_aliases() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = paths(&temp);
+        let dispatch = r#"{"rules":[],"default":{"harness":"codex"}}"#;
+        std::fs::write(paths.config.join("subagent-dispatch.json"), dispatch).expect("canonical");
+        std::fs::write(paths.config.join("actor-dispatch.json"), dispatch).expect("legacy");
+        assert_eq!(
+            configured_candidates(&paths).expect("candidates"),
+            ["codex"]
+        );
+
+        std::fs::write(
+            paths.config.join("actor-dispatch.json"),
+            r#"{"rules":[],"default":{"harness":"pi"}}"#,
+        )
+        .expect("conflict");
+        assert!(
+            configured_candidates(&paths)
+                .expect_err("conflicting aliases")
+                .to_string()
+                .contains("conflicting config/subagent-dispatch.json")
+        );
+
+        std::fs::remove_file(paths.config.join("subagent-dispatch.json")).expect("remove dispatch");
+        std::fs::remove_file(paths.config.join("actor-dispatch.json")).expect("remove alias");
+        std::fs::write(paths.config.join("subagent-harness"), "claude\n").expect("harness");
+        assert_eq!(
+            configured_candidates(&paths).expect("harness candidate"),
+            ["claude"]
+        );
     }
 
     #[test]

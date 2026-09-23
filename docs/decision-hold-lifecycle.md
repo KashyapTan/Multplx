@@ -8,7 +8,7 @@ This document records the deterministic mechanism, structured surfaces, and priv
 
 `bin/mx-decision-hold.sh` remains the only lifecycle command for an investigation or visual review's unresolved maintainer decisions and selects the Rust authority entry before mutation.
 `multplx-domain::decision_hold` owns typed hold identities, sorted inventory unions, and exact resolution retry identities.
-The command uses the owned backlog library in the active `MX_HOME`, so the existing backlog remains the only durable work database and a daemon-owned decision stays in the daemon home.
+The command uses the owned backlog library in the active `MX_HOME`, so the existing backlog remains the only durable work database and a persistent-sub-agent-owned decision stays in the persistent-sub-agent home.
 It never reads report bodies, review artifacts, terminal output, or chat.
 
 The `hold` subcommand maps an originating work id and stable decision key to `<origin-id>-decision-<decision-key>`.
@@ -24,7 +24,7 @@ It verifies every listed identity against the owned backlog before recording com
 For an open keyed status decision, it appends a `maintainer-held [key=<key>]: ...` transfer event only after the matching backlog hold is durable.
 `bin/mx-classify-lib.sh` recognizes that transfer as closing the live status copy without claiming that the maintainer has answered it.
 
-Scout teardown calls the script's read-only `verify` subcommand after checking for the report and before removing any source state.
+Researcher teardown calls the script's read-only `verify` subcommand after checking for the report and before removing any source state.
 The `--force` path remains the explicit maintainer-approved discard escape hatch.
 
 The `resolve` subcommand requires a decision file and at least one existing dependent task whose structured `blocked-by` edge points to the hold.
@@ -37,7 +37,7 @@ A failed intermediate step leaves the hold open.
 
 `bin/mx-system-snapshot.sh` parses canonical `(hold: ...)` and `(hold-kind: maintainer)` metadata alongside existing backlog fields.
 It resolves every repeated `blocked-by:` edge against structured Done records, keeps missing blockers unresolved, and classifies only an unblocked maintainer hold as actionable.
-Its daemon-home summary classifies an actionable maintainer hold as `maintainer_decision` and preserves blocked maintainer holds as queued work in the owning home.
+Its persistent-sub-agent-home summary classifies an actionable maintainer hold as `maintainer_decision` and preserves blocked maintainer holds as queued work in the owning home.
 
 `bin/mx-status-snapshot.sh` projects actionable maintainer holds into `decisions_open` and leaves blocked maintainer holds in ordinary queued gates.
 It excludes completed kind `maintainer` records from Recently Landed.

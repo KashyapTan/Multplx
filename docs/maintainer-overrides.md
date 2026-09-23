@@ -20,7 +20,7 @@ Records are regular mode-`0600` single-link JSON files and are never sourced as 
 One transition lock serializes every move, and a request identity must exist in exactly one lifecycle directory.
 The public command enters the Rust authority boundary before reading or mutating an authority record.
 
-Workers may create a pending request, but only the lock-owning primary broker may grant or deny it.
+Sub-agents may create a pending request, but only the lock-owning primary orchestrator may grant or deny it.
 Grant wording must name the exact boundary, operation, and target.
 The subsystem owner recomputes fresh state and atomically moves a matching grant to `consumed` before the exceptional mutation.
 A mismatch or expiry moves the record to `stale`, a denial preserves the ordinary path, and a consumed outcome is immutable after `succeeded` or `failed` is recorded.

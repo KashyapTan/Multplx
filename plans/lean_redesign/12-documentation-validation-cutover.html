@@ -73,10 +73,10 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <div class="plan-num">Lean Redesign 12 · Multplx</div>
 <h1>Documentation, Validation and Cutover</h1>
 <p class="subtitle">Ship a consistent lean product across help, prompts, UI, supported runtimes and existing-home upgrades.</p>
-<div class="badges"><span class="badge phase">Phase 12 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Revised · 2026-09-14</span></div>
+<div class="badges"><span class="badge phase">Phase 12 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">In progress · 2026-09-23</span></div>
 </div></header>
 <main class="wrap">
-<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is planned, not implemented.</p></div>
+<div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. Implementation and release-candidate validation are in progress; required live acceptance and deliberate cutover remain open.</p></div>
 <p><b>Dependencies:</b> 01-11.</p>
 <h2>Overview</h2>
 <p>The redesign is complete only when fresh agents receive the short contract, actual launches allow the promised actions, selected workflows remain intact and older homes recover correctly. Historical policy tests must be intentionally replaced while retained coordination tests remain meaningful.</p>
@@ -98,6 +98,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 <h2>Accepted architecture scope</h2>
 <p><a href="../../porting.md#accepted-architecture-contract">Porting contract</a>: A1-A11 combined acceptance and evidence. These requirements were accepted on 2026-09-14 and are required for phase completion. The guide owns shared semantics; this plan owns the work and checks below. This phase also owns A9 end-to-end launch-anywhere entry and packaged TUI acceptance. A10 worktree integration is also required as allocated below.</p>
 <p><a href="../../porting.md#a11-scoped-sub-orchestrators">A11</a> integration is allocated below; Phase 05 owns the coordinator lifecycle and parent-channel composition.</p>
+<p><b>Approved validation adjustment, 2026-09-23:</b> At the user's request to reduce time and model usage, Phase 12 uses four five-task live trials spanning independent/coupled work and flat/hierarchical delegation. The original live 1/5/10/20 matrix below is superseded for this release by that scope; existing local scale measurements remain, and no live 10/20-task scaling claim is made. Correctness, dependency, recovery, capacity and Viz targets remain unchanged. See the <a href="phase12-acceptance.md">acceptance ledger</a>.</p>
 <h2>Behavior boundaries</h2>
 <div class="flow">
 <div><b>FRESH INSTALL</b><span>One concise contract and normal authentication.</span></div>
@@ -150,7 +151,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--yello
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>The current planning baseline already fails documentation inventory because AGENTS.md was deliberately renamed. Fix current links in the implementation phases and validate the final package; never undo that rename early just to make an intermediate check green.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: planned; this document accepts scope and does not implement runtime behavior. The implementing session must record change/revision references, focused checks and results, integration evidence where required, and remaining acceptance items here. Link supporting task or PR evidence rather than embedding transcripts. Mark complete only when this phase's required checks pass.</p>
+<p>Status: in progress. <a href="phase12-implementation.md">Implementation evidence</a> records the release-contract and package changes, user guide, coverage scheduling investigation, exact repository checks and integration limits. <a href="phase12-acceptance.md">The complete 39-scenario and A1-A11 ledger</a> separates deterministic fixtures from live evidence. The ordinary-task dependency prerequisite is repaired and passes repository checks; the reduced live comparison, unavailable-provider verification and release cutover remain open; this phase is not complete.</p>
 <nav class="footer-nav"><a href="11-workspace-entry-and-project-discovery.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="../../porting.md">Porting guide →</a></nav>
 </main>
 </body>

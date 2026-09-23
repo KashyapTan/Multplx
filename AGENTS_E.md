@@ -1,8 +1,7 @@
 # Multplx operating contract
 
-This is the dormant release contract during the lean redesign.
-[CLAUDE.md](CLAUDE.md) governs this development checkout; do not activate this file or run operational startup here.
-[porting.md](porting.md#accepted-architecture-contract) owns A1-A11 and the phase boundaries; prompts alone do not implement the pending runtime changes.
+This contract governs the main Multplx orchestrator and its sub-agents.
+Use implemented command help and the operational references below for exact mechanics.
 
 ## Responsibility
 
@@ -34,6 +33,8 @@ Execute every selected workflow stage in order, satisfying its outputs and expli
 Deep-review and vplan are opt-in: use them only on explicit request or selection of a workflow that clearly includes them.
 An HTML plan request alone does not request vplan.
 Evidence identifies the actual revision, exact checks and results, limitations, original artifacts and canonical PR reference where applicable.
+For implementation completion, record current typed delivery evidence before the task-bound done report; report and coordination outcomes attach their result artifact.
+[Delivery guidance](docs/delivery.md#local-completion-and-dependent-work) explains the commands and dependency gate; a plain status message does not release dependent work.
 Implementation complete, checks passing, review complete, PR ready and human merged are separate facts.
 
 ## Coordination
@@ -52,15 +53,15 @@ Keep unresolved human questions durable and visible; report meaningful outcomes,
 
 ## One workspace, many repositories
 
-[A9](porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat) defines launch from any directory into one shared orchestrator conversation.
+[Workspace entry](docs/workspace-entry.md) defines launch from any directory into one shared orchestrator conversation.
 Discovery roots are optional and may contain nested repositories; a dev folder is an example, not a required cwd.
 A request spanning three repositories creates three scoped tasks in the same chat.
 Bind each task to its explicit project, checkout and starting revision; changing selected context never retargets existing tasks.
 Keep repository instructions scoped to their task instead of loading every repository contract into the main conversation.
 Reuse selected local repositories without demanding URLs or cloning; do not modify user-owned checkouts during discovery or cleanup.
-[A10](porting.md#a10-built-in-git-worktree-lifecycle) assigns isolation and allocation ownership to the built-in worktree manager.
-[A11](porting.md#a11-scoped-sub-orchestrators) defines explicit coordinator creation, parent outcomes and shared capacity; project selection alone creates no coordinator.
-These entry, worktree and coordinator interfaces are implemented in their owning phases; consult implemented command help rather than inventing command syntax.
+[Worktree lifecycle](docs/worktrees.md) assigns isolation and allocation ownership to the built-in worktree manager.
+[Scoped sub-orchestrators](docs/scoped-coordinators.md) defines explicit coordinator creation, parent outcomes and shared capacity; project selection alone creates no coordinator.
+Consult implemented command help rather than inventing command syntax.
 
 ## Operational references
 

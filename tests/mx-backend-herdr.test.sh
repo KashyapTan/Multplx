@@ -1674,6 +1674,34 @@ test_composer_state_bare_prompt_is_empty() {
   pass "mx_backend_herdr_composer_state: a bare '❯' composer row reads empty"
 }
 
+test_composer_state_c_locale_glyph_matching() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/composer-c-locale"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '  ╭────────────────────────╮\n  │ ❯                      │\n  ╰──────── Composer ─────╯\n' > "$resp/1.out"
+  printf '❯\n' > "$resp/2.out"
+  printf '╰──────── Composer ─────╯\n' > "$resp/3.out"
+  printf '  ╭────────────────────────╮\n  │ ❯ keep this pending    │\n  ╰──────── Composer ─────╯\n' > "$resp/4.out"
+  printf '$ \n' > "$resp/5.out"
+  fb=$(make_herdr_fakebin "$dir")
+
+  out=$( LC_ALL=C PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "C-locale bordered prompt should read empty, got '$out'"
+  out=$( LC_ALL=C PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "C-locale bare prompt should read empty, got '$out'"
+  out=$( LC_ALL=C PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = unknown ] || fail "C-locale box footer is not an agent prompt, got '$out'"
+  out=$( LC_ALL=C PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = pending ] || fail "C-locale real typed content should remain pending, got '$out'"
+  out=$( LC_ALL=C PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = unknown ] || fail "C-locale shell prompt should remain unknown, got '$out'"
+  pass "mx_backend_herdr_composer_state: C-locale complete-glyph matching preserves composer and shell classifications"
+}
+
 test_composer_state_ghost_placeholder_is_empty() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-ghost"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -2962,6 +2990,7 @@ test_busy_state_working_maps_to_busy
 test_busy_state_done_and_blocked_map_to_idle
 test_busy_state_unknown_on_no_agent
 test_composer_state_bare_prompt_is_empty
+test_composer_state_c_locale_glyph_matching
 test_composer_state_ghost_placeholder_is_empty
 test_composer_state_real_text_is_pending
 test_composer_state_popup_placeholder_fill_is_pending

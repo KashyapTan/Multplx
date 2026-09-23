@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="docs/getting-started.md"><img alt="Get Started" src="https://img.shields.io/badge/Get_Started-0969da?style=for-the-badge" /></a>
+  <a href="docs/user-guide.md"><img alt="User Guide" src="https://img.shields.io/badge/User_Guide-d29922?style=for-the-badge" /></a>
   <a href="docs/README.md"><img alt="Documentation" src="https://img.shields.io/badge/Documentation-1f883d?style=for-the-badge" /></a>
   <a href="CONTRIBUTING.md"><img alt="Contributing" src="https://img.shields.io/badge/Contributing-8250df?style=for-the-badge" /></a>
 </p>
@@ -49,6 +50,8 @@ The global `multplx` command opens one workspace from any directory, with the ex
 You need macOS or Linux, one verified harness - Claude Code, Codex, Cursor, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
 tmux is the reference runtime backend; Herdr and cmux are experimental alternatives.
 
+The lean redesign is currently a release candidate and does not yet have a published public package.
+Until release cutover, use the documented source installation for development or an isolated candidate package supplied for validation.
 Install a verified platform release with matching runtime assets, then run `multplx` from any directory.
 The [getting-started guide](docs/getting-started.md) covers package installation and the optional source build.
 Bare `multplx` opens the terminal workspace; `multplx shell` opens an explicit activation shell.
@@ -73,6 +76,7 @@ Existing dirty files remain in the user's checkout while implementation uses iso
 Use `multplx task --project my-app "Fix login"` for durable command-line intake; its receipt confirms acceptance rather than claiming that implementation has started.
 
 Continue with [Getting Started](docs/getting-started.md) for installation, local reuse, discovery, connection limits, backend selection and ordinary Git/forge authentication.
+Then use the [User guide](docs/user-guide.md) for multi-repository intake, task tracking, scoped coordinators, workflows, delivery, visualization and recovery.
 
 ## Built-in skills
 
@@ -114,6 +118,7 @@ They are autonomous agents with a different workflow scope, coordinated through 
 | --- | --- |
 | [Documentation index](docs/README.md) | Reading paths by audience and task |
 | [Getting started](docs/getting-started.md) | Installation, local project reuse and first task intake |
+| [User guide](docs/user-guide.md) | Practical use of projects, tasks, domains, workflows, delivery and recovery |
 | [Architecture](docs/architecture.md) | Orchestration, supervision, state and ownership boundaries |
 | [Configuration](docs/configuration.md) | `MX_HOME`, harnesses, dispatch, toolchain, and local settings |
 | [Delivery](docs/delivery.md) | Branch publication, current evidence, and human-only PR merges |

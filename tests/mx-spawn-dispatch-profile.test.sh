@@ -187,7 +187,11 @@ assert_claude_report_mcp_config() {
       .env.MX_BRIEF_REVISION == "1" and
       .env.MX_TASK_ID == $id and
       .env.MX_HOME == $home and
-      .env.MX_REPORT_STATE_OVERRIDE == $state' \
+      .env.MX_REPORT_STATE_OVERRIDE == $state and
+      (.env.MX_RUST_SOURCE_ROOT | startswith("/")) and
+      (.env.MX_RUST_BIN | startswith("/")) and
+      .env.MX_LAUNCH_BIN_PATH == .env.MX_RUST_BIN and
+      .env.MX_MULTICALL_EXPLICIT == "1"' \
     "$config" >/dev/null || fail "claude MCP config has the wrong task-bound server entry"
 }
 
@@ -209,8 +213,8 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_claude_report_mcp_config "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
   assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions" \
     "no-profile claude launch lost its harness flags"
-  assert_contains "$launch" "mx-operational-input.sh' encode launch-brief" \
-    "no-profile claude launch did not use the canonical launch kind"
+  assert_contains "$launch" "MX_MULTICALL_EXPLICIT=1 '$MX_RUST_BIN' operational-input encode launch-brief" \
+    "no-profile claude launch did not use the direct canonical launch-kind encoder"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
@@ -263,6 +267,12 @@ test_active_dispatch_profile_allows_explicit_harness() {
   assert_report_binding "$launch" "$HOME_DIR" "$HOME_DIR/state" "$id"
   assert_contains "$launch" "codex -c 'mcp_servers.multplx_status=" \
     "explicit codex launch did not receive the report_status MCP server"
+  assert_contains "$launch" 'MX_RUST_BIN="' \
+    "Codex report_status MCP server did not bind its runtime binary"
+  assert_contains "$launch" 'MX_LAUNCH_BIN_PATH="' \
+    "Codex report_status MCP server did not bind its launcher binary alias"
+  assert_contains "$launch" 'MX_MULTICALL_EXPLICIT="1"' \
+    "Codex report_status MCP server did not select internal command dispatch"
   assert_contains "$launch" "--model 'gpt-5' -c 'model_reasoning_effort=\"high\"' --dangerously-bypass-approvals-and-sandbox" \
     "explicit harness launch did not thread model and effort"
   pass "active actor-dispatch profile allows an explicit resolved harness"
@@ -424,8 +434,8 @@ test_pi_threads_model_and_max_effort() {
     "pi launch did not thread the requested model and max thinking level"
   assert_not_contains "$launch" "MX_MULTPLX_PI_LAUNCH_BRIEF=" \
     "pi launch still exports the removed Calm input-reroute binding"
-  assert_contains "$launch" "mx-operational-input.sh' encode launch-brief" \
-    "pi launch lost the canonical typed launch-brief envelope"
+  assert_contains "$launch" "MX_MULTICALL_EXPLICIT=1 '$MX_RUST_BIN' operational-input encode launch-brief" \
+    "pi launch lost the direct canonical typed launch-brief encoder"
   pass "pi receives --model and --thinking max profile flags"
 }
 

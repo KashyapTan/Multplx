@@ -1,18 +1,18 @@
-use std::path::Path;
 use std::process::Command;
 
-fn run_behavior_contract(script: &str) {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new("bash")
-        .arg(root.join(script))
+fn run_behavior_contracts(scripts: &[&str]) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new(env!("CARGO_BIN_EXE_mx"))
+        .args(["test-run", "--jobs", "auto"])
+        .args(scripts)
         .current_dir(&root)
         .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
         .env("MX_RUST_SOURCE_ROOT", &root)
         .output()
-        .unwrap_or_else(|error| panic!("run {script}: {error}"));
+        .unwrap_or_else(|error| panic!("run session behavior contracts: {error}"));
     assert!(
         output.status.success(),
-        "{script} failed with {}\nstdout:\n{}\nstderr:\n{}",
+        "session behavior contracts failed with {}\nstdout:\n{}\nstderr:\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -24,7 +24,7 @@ fn native_session_behavior_contracts_run_through_the_instrumented_binary() {
     if std::env::var_os("LLVM_PROFILE_FILE").is_none() {
         return;
     }
-    for script in [
+    run_behavior_contracts(&[
         "tests/mx-backlog-lib.test.sh",
         "tests/mx-pending-reply.test.sh",
         "tests/mx-shared-maintainer-inheritance.test.sh",
@@ -95,9 +95,7 @@ fn native_session_behavior_contracts_run_through_the_instrumented_binary() {
         "tests/mx-removed-deps.test.sh",
         "tests/mx-workflow.test.sh",
         "tests/mx-documentation-audiences.test.sh",
-    ] {
-        run_behavior_contract(script);
-    }
+    ]);
 }
 
 #[test]
@@ -105,5 +103,5 @@ fn dispatch_queue_preserves_delivery_authority_through_instrumented_binary() {
     if std::env::var_os("LLVM_PROFILE_FILE").is_none() {
         return;
     }
-    run_behavior_contract("tests/mx-dispatch-queue.test.sh");
+    run_behavior_contracts(&["tests/mx-dispatch-queue.test.sh"]);
 }

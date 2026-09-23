@@ -26,6 +26,9 @@ Its macOS/Linux checks, unchanged coverage gate, browser acceptance and recorded
 Phase 11 supplies global workspace entry, bounded project discovery, durable multi-repository task intake, a shared terminal workspace and verified runtime packages.
 Its macOS/Linux checks, unchanged coverage gate and isolation proof pass, with synthetic harness, executable-probe and release boundaries recorded in the [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md).
 
+Phase 12 is in progress; [its evidence](plans/lean_redesign/phase12-implementation.md) and [acceptance ledger](plans/lean_redesign/phase12-acceptance.md) distinguish release-candidate checks from open live trials and cutover.
+The source contract remains dormant while release acceptance is open.
+
 ## This checkout
 
 The user deliberately renamed the root operating contract to [AGENTS_E.md](AGENTS_E.md) to prevent automatic injection.

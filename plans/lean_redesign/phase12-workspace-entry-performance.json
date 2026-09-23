@@ -1,0 +1,691 @@
+{
+  "schema": "mx-phase11-workspace-entry-measurement.v1",
+  "started_utc": "2026-09-23T04:52:21.623056+00:00",
+  "machine": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "logical_cpus": 15,
+    "load_average_start": [
+      3.7734375,
+      4.9345703125,
+      4.3115234375
+    ],
+    "load_average_end": [
+      5.18212890625,
+      5.20166015625,
+      4.4306640625
+    ]
+  },
+  "binary": {
+    "path": "/Users/kash/Documents/Multplx/target/release/mx",
+    "sha256": "ca7d6fdd1ad634a0770e459c28eeabcb4bde831d48e0152f45e3af0efcb0f030"
+  },
+  "source": {
+    "revision": "8535d8e1c6048ac3a3525544394e753bed741256",
+    "tree_sha256": "be0bf90c2863dc0927eb97607d0552262c07a9c89313a5b886c6e2692a6bfa04",
+    "files": 262
+  },
+  "script_sha256": "b17e83b271b1a124080cab2b26853003c54a84301d3645ac89ca3fe4f0b1b008",
+  "git_version": "git version 2.55.0",
+  "overlap": "No intentional competing validation workloads; ordinary workstation activity not controlled.",
+  "method": {
+    "counts": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "samples_per_count": 1,
+    "execution": "serial CLI processes over temporary independent local Git repositories",
+    "timing": "wall clock including process startup and local filesystem/Git work",
+    "allocation_startup": "local worktree creation and validated binding return; no harness or model started",
+    "limitations": "small local repositories on one non-isolated workstation; no model usage, model throughput, implementation duration, concurrent scaling, network, or human latency claims"
+  },
+  "trials": [
+    {
+      "task_count": 1,
+      "discovery": {
+        "elapsed_ms": 74.264,
+        "candidate_count": 1,
+        "scanned_directories": 2,
+        "status": "complete"
+      },
+      "intake": {
+        "observations": 1,
+        "total_ms": 348.663,
+        "median_ms": 348.663,
+        "min_ms": 348.663,
+        "max_ms": 348.663,
+        "samples_ms": [
+          348.663
+        ]
+      },
+      "portfolio_projection_ms": 82.06,
+      "portfolio_intake_rows": 1,
+      "request_inbox_count": 1,
+      "wake_queue_depth": 1,
+      "allocation_startup": {
+        "observations": 1,
+        "total_ms": 371.66,
+        "median_ms": 371.66,
+        "min_ms": 371.66,
+        "max_ms": 371.66,
+        "samples_ms": [
+          371.66
+        ]
+      },
+      "identities": [
+        {
+          "request_id": "request-1-00",
+          "task_id": "task-1-00",
+          "project_id": "project-add00248ef2c4cf5c1d3524fa0a85b225cbd954deaab7494f530d5fb264fce09",
+          "checkout_id": "checkout-31e494acc5ccaf41a31eeb47f16b569f5d75ecbd0201ee6c1f8de9b23d5f56d2",
+          "starting_revision": "c0a483cd4df61046a320530f1a2ede79ebba0c9a"
+        }
+      ],
+      "allocations": [
+        {
+          "allocation_id": "549644ad03e4eb54ce55b1b14cd7fa154bb0c99fde6f7b220fe20592eb113f86",
+          "task_id": "task-1-00",
+          "starting_revision": "c0a483cd4df61046a320530f1a2ede79ebba0c9a"
+        }
+      ]
+    },
+    {
+      "task_count": 5,
+      "discovery": {
+        "elapsed_ms": 262.409,
+        "candidate_count": 5,
+        "scanned_directories": 6,
+        "status": "complete"
+      },
+      "intake": {
+        "observations": 5,
+        "total_ms": 1718.758,
+        "median_ms": 342.62,
+        "min_ms": 333.289,
+        "max_ms": 352.824,
+        "samples_ms": [
+          337.231,
+          352.824,
+          352.794,
+          342.62,
+          333.289
+        ]
+      },
+      "portfolio_projection_ms": 70.7,
+      "portfolio_intake_rows": 5,
+      "request_inbox_count": 5,
+      "wake_queue_depth": 5,
+      "allocation_startup": {
+        "observations": 5,
+        "total_ms": 1649.824,
+        "median_ms": 327.83,
+        "min_ms": 313.729,
+        "max_ms": 359.375,
+        "samples_ms": [
+          359.375,
+          317.77,
+          313.729,
+          331.12,
+          327.83
+        ]
+      },
+      "identities": [
+        {
+          "request_id": "request-5-00",
+          "task_id": "task-5-00",
+          "project_id": "project-a44472a36ad0d9670572f2b6c71d5aebf90423a22626f1de42a21ff3f7f2998c",
+          "checkout_id": "checkout-3d9841acd8dfd1872e560bc8dc7202ee416d7fd66cf5275c5502a388f6382dcb",
+          "starting_revision": "1dc9648ebd47ea23440857d50e4e0a2b17470f23"
+        },
+        {
+          "request_id": "request-5-01",
+          "task_id": "task-5-01",
+          "project_id": "project-9d49027bfdc69232c83d316827360bfb256e5f79c4aeccbb5fb89f61a0e7e391",
+          "checkout_id": "checkout-d22530f61dd9cb469533c1750e42843bb68dbcd4f194d69fa95fffe71f465a13",
+          "starting_revision": "378d12fc08f529bd41e0c5a051d75cfa47033c8c"
+        },
+        {
+          "request_id": "request-5-02",
+          "task_id": "task-5-02",
+          "project_id": "project-96d11a3187a903b114633f930215439f470f1df7b58bd2a336e95508d176f842",
+          "checkout_id": "checkout-1af04f95495c56113c006fe400c0e6facc35cb8e4f49ea0436411f04b29fefb0",
+          "starting_revision": "66f54aff89cb745cf0d3874a8cd9b36462f40509"
+        },
+        {
+          "request_id": "request-5-03",
+          "task_id": "task-5-03",
+          "project_id": "project-fdaecd198f8e081610376dedd9b922b881986e1d29d300674ba88914a8bc398d",
+          "checkout_id": "checkout-800c791908b825e6bde3492ca254974b8f5399f13e8dfedd5161e9a638b58337",
+          "starting_revision": "be4c4f47644546851badcdf0b310f1d1410be0e2"
+        },
+        {
+          "request_id": "request-5-04",
+          "task_id": "task-5-04",
+          "project_id": "project-8bb08a1ab872de9467079a33a6a01b9e25485dba15355eba5d673ce32e1b5853",
+          "checkout_id": "checkout-0305516ac3ed7972afe78acef2bfa808afb73819a4e17a51266a2b01e8f84d6e",
+          "starting_revision": "e75f9246ed40533b25e6f0cb801519496cdd8f7d"
+        }
+      ],
+      "allocations": [
+        {
+          "allocation_id": "7f2fb3d7861b642747bbdf4ee754d536d80004cc373ee89b0606d8d7218939c4",
+          "task_id": "task-5-00",
+          "starting_revision": "1dc9648ebd47ea23440857d50e4e0a2b17470f23"
+        },
+        {
+          "allocation_id": "3bf691e8ea13789bb90272d786c2c1f41529df108222f0907f13fa8fdf94ff67",
+          "task_id": "task-5-01",
+          "starting_revision": "378d12fc08f529bd41e0c5a051d75cfa47033c8c"
+        },
+        {
+          "allocation_id": "d30e9825dbaaccb5149ff54d25ba4bf535b94d47f73767c7f4eb1522a2edb236",
+          "task_id": "task-5-02",
+          "starting_revision": "66f54aff89cb745cf0d3874a8cd9b36462f40509"
+        },
+        {
+          "allocation_id": "46fc2999934e26f6ccfdba689b526e445c17bdf8dadb1365b005391fd8418cd1",
+          "task_id": "task-5-03",
+          "starting_revision": "be4c4f47644546851badcdf0b310f1d1410be0e2"
+        },
+        {
+          "allocation_id": "f363883a22449243d3f50fc0e97b51a040e90a961a1f48d7c361a9282879907d",
+          "task_id": "task-5-04",
+          "starting_revision": "e75f9246ed40533b25e6f0cb801519496cdd8f7d"
+        }
+      ]
+    },
+    {
+      "task_count": 10,
+      "discovery": {
+        "elapsed_ms": 480.808,
+        "candidate_count": 10,
+        "scanned_directories": 11,
+        "status": "complete"
+      },
+      "intake": {
+        "observations": 10,
+        "total_ms": 3482.557,
+        "median_ms": 351.678,
+        "min_ms": 319.148,
+        "max_ms": 361.737,
+        "samples_ms": [
+          350.038,
+          319.148,
+          336.611,
+          342.832,
+          344.867,
+          353.655,
+          353.318,
+          359.379,
+          360.972,
+          361.737
+        ]
+      },
+      "portfolio_projection_ms": 71.7,
+      "portfolio_intake_rows": 10,
+      "request_inbox_count": 10,
+      "wake_queue_depth": 10,
+      "allocation_startup": {
+        "observations": 10,
+        "total_ms": 3646.966,
+        "median_ms": 368.5,
+        "min_ms": 341.385,
+        "max_ms": 377.651,
+        "samples_ms": [
+          341.385,
+          369.123,
+          377.651,
+          367.878,
+          372.703,
+          376.012,
+          364.788,
+          371.621,
+          344.612,
+          361.193
+        ]
+      },
+      "identities": [
+        {
+          "request_id": "request-10-00",
+          "task_id": "task-10-00",
+          "project_id": "project-2d2635b3acfccbcc3cdf3ba0bb2ccfb9330270ea34f73fbdc84dc11589f6404f",
+          "checkout_id": "checkout-a3770d489246ba601e97c55d01b54e669d7d028a7a0c802e25acbf9daf52fc2e",
+          "starting_revision": "6bbedb82faae3697dedf009a85b691e409622c30"
+        },
+        {
+          "request_id": "request-10-01",
+          "task_id": "task-10-01",
+          "project_id": "project-4d3f30d1f3e805b2c99a2c8186734ac66886c06709c02b9749994c53c4726f70",
+          "checkout_id": "checkout-e736f1e17536a6bc7d0b3ce5f827a1a6965342a85d862f58d2b65c8a2f7e0778",
+          "starting_revision": "51153c8ac25bd0d551bfabba0eb8b546bf459aa1"
+        },
+        {
+          "request_id": "request-10-02",
+          "task_id": "task-10-02",
+          "project_id": "project-aaa05f80337696290b4cf529820371c7a940d96321361ceaa1c036edbc3ec8bb",
+          "checkout_id": "checkout-86bb85bf2f387b138c740c3ee118181271008840f687ed1fdcc3e18e3ff2e193",
+          "starting_revision": "f0144b07c52b07f5968877e15e18bcf57aacb95e"
+        },
+        {
+          "request_id": "request-10-03",
+          "task_id": "task-10-03",
+          "project_id": "project-7b30e09136521f166f1f99c10011f11c7063dc7c8ba078e6ea79b9c22097e67f",
+          "checkout_id": "checkout-38d22a44fc44adba355bda29559e4707d565d28a2018d59aac1edbfbbdf88def",
+          "starting_revision": "dbddd9e9d9c78e886a970ae2369861712e4d9245"
+        },
+        {
+          "request_id": "request-10-04",
+          "task_id": "task-10-04",
+          "project_id": "project-91219c195dde3bb0bac07755f578a006c7a1ef4bd3ff9e92b1a0bb7e07b2aea2",
+          "checkout_id": "checkout-3baa82394bcc72f64d032d050a8851e477d5438079a43f5bd3262079e8b4b4f6",
+          "starting_revision": "4dc09b4803809f08837c5701284b45ee1702f8e7"
+        },
+        {
+          "request_id": "request-10-05",
+          "task_id": "task-10-05",
+          "project_id": "project-4cbe342e20cb97f0723dcfc6d936a3dac368e2fb52f4871d515cd5ffba9209c3",
+          "checkout_id": "checkout-f85182f1d4bae3388215b73efa357660c6703e43dcdab94caeda36aa2d4cb1f8",
+          "starting_revision": "9a588b63c1a6997f89ff179eb6ff1d3e17e40c77"
+        },
+        {
+          "request_id": "request-10-06",
+          "task_id": "task-10-06",
+          "project_id": "project-14bc3811c6c008b572c45376ddd8be8c93e475fe050f0a8cf72d2583c2d26e5b",
+          "checkout_id": "checkout-116c92c265bb4d25680ee200c2214a97acf856a65e00f40fac05c7d4c7a048e3",
+          "starting_revision": "639740e282c5d711c826ec46f50f2101435006e8"
+        },
+        {
+          "request_id": "request-10-07",
+          "task_id": "task-10-07",
+          "project_id": "project-2908373ac0c2c5d8afc13d6c504f99301a7f5fedc916abf2d731bd715fb91dae",
+          "checkout_id": "checkout-5a41485476afa73fbe13029ff569d52979708f1078e670fd1f0ea2e2ec86ba98",
+          "starting_revision": "602d1e774d3a5edba5b68d92cf83d3fbc58bd33f"
+        },
+        {
+          "request_id": "request-10-08",
+          "task_id": "task-10-08",
+          "project_id": "project-950c6c2c7dcf5f0e2369c2a7fc0345bd0f70312925c17ad124c1faedf23dc36e",
+          "checkout_id": "checkout-349b16da664ccd0c6cc836dfe3b06c0eebaad12183350de7cddcc473dfa1fe3a",
+          "starting_revision": "8117613f62ed43d72e32434cebe8c69cbd44f5c7"
+        },
+        {
+          "request_id": "request-10-09",
+          "task_id": "task-10-09",
+          "project_id": "project-a99968edeb7ebf4f9b30aa3afc0399556e412b13e09fe4482de2f402e80d7aab",
+          "checkout_id": "checkout-c278a66daa16fe49fca86a3c8859f807de34657f54b418ad2cd6a80c093359f8",
+          "starting_revision": "5ea4a9324bb06f745529c2d52db43be037b3b3a1"
+        }
+      ],
+      "allocations": [
+        {
+          "allocation_id": "fac19e96851f58cbe41b228550dae438246c11ba89f1c9fd7b7ac9adcd27932a",
+          "task_id": "task-10-00",
+          "starting_revision": "6bbedb82faae3697dedf009a85b691e409622c30"
+        },
+        {
+          "allocation_id": "a3a8c9d3057298b59a9ead980d22ff9559eb1254d98481d23f67ca8a927dbe04",
+          "task_id": "task-10-01",
+          "starting_revision": "51153c8ac25bd0d551bfabba0eb8b546bf459aa1"
+        },
+        {
+          "allocation_id": "2e87d3a0ca5bcb808548a4e24e6025d582ed8a2b0842179357b94db5235d1eb3",
+          "task_id": "task-10-02",
+          "starting_revision": "f0144b07c52b07f5968877e15e18bcf57aacb95e"
+        },
+        {
+          "allocation_id": "cfc61aefa5454b5bf3af2330283369d2e110bcbabe1aed651a61738455d5a86f",
+          "task_id": "task-10-03",
+          "starting_revision": "dbddd9e9d9c78e886a970ae2369861712e4d9245"
+        },
+        {
+          "allocation_id": "c01d8d34f1cf0486c9882f99e652f55854c67faa0fd3be8c399298b735cb5308",
+          "task_id": "task-10-04",
+          "starting_revision": "4dc09b4803809f08837c5701284b45ee1702f8e7"
+        },
+        {
+          "allocation_id": "ff5c3250132ffa149fd94bf40161772032516165ea0600f62145fa502c84f7b7",
+          "task_id": "task-10-05",
+          "starting_revision": "9a588b63c1a6997f89ff179eb6ff1d3e17e40c77"
+        },
+        {
+          "allocation_id": "57885eb86968f9f7c0c09a86c3e7eb086c3e0feacbc563e07bd62be54002a86e",
+          "task_id": "task-10-06",
+          "starting_revision": "639740e282c5d711c826ec46f50f2101435006e8"
+        },
+        {
+          "allocation_id": "e0b22959526f63656e94316ef8dc1977723dbff34770e6cf068148ede54f6fa4",
+          "task_id": "task-10-07",
+          "starting_revision": "602d1e774d3a5edba5b68d92cf83d3fbc58bd33f"
+        },
+        {
+          "allocation_id": "433fbac6efe3b6faf0e26f967ccf862fcf49f0655bd2d38f849bb8679d5c356e",
+          "task_id": "task-10-08",
+          "starting_revision": "8117613f62ed43d72e32434cebe8c69cbd44f5c7"
+        },
+        {
+          "allocation_id": "b2f545c65305cba47109773a1ce9297c7ed72263c78348d2dda02a982fd2e72e",
+          "task_id": "task-10-09",
+          "starting_revision": "5ea4a9324bb06f745529c2d52db43be037b3b3a1"
+        }
+      ]
+    },
+    {
+      "task_count": 20,
+      "discovery": {
+        "elapsed_ms": 964.494,
+        "candidate_count": 20,
+        "scanned_directories": 21,
+        "status": "complete"
+      },
+      "intake": {
+        "observations": 20,
+        "total_ms": 7087.484,
+        "median_ms": 352.685,
+        "min_ms": 342.235,
+        "max_ms": 364.648,
+        "samples_ms": [
+          350.988,
+          349.097,
+          351.232,
+          342.235,
+          346.689,
+          351.255,
+          356.923,
+          348.896,
+          349.602,
+          360.552,
+          363.104,
+          361.96,
+          360.734,
+          360.688,
+          354.083,
+          361.745,
+          364.648,
+          358.741,
+          351.287,
+          343.025
+        ]
+      },
+      "portfolio_projection_ms": 65.071,
+      "portfolio_intake_rows": 20,
+      "request_inbox_count": 20,
+      "wake_queue_depth": 20,
+      "allocation_startup": {
+        "observations": 20,
+        "total_ms": 7336.251,
+        "median_ms": 371.318,
+        "min_ms": 338.432,
+        "max_ms": 376.706,
+        "samples_ms": [
+          370.824,
+          352.992,
+          369.147,
+          370.72,
+          361.085,
+          372.303,
+          371.812,
+          374.828,
+          374.841,
+          362.54,
+          373.94,
+          375.835,
+          375.867,
+          376.706,
+          340.206,
+          338.432,
+          375.932,
+          358.69,
+          372.931,
+          366.62
+        ]
+      },
+      "identities": [
+        {
+          "request_id": "request-20-00",
+          "task_id": "task-20-00",
+          "project_id": "project-b8c39c0c46f782969119be7cbd9778ab269c1f372ec21ee312afe365cec093a0",
+          "checkout_id": "checkout-08c659458022b1c0b013780f7dc8a22f249ade7190103a145389c737d4aa796a",
+          "starting_revision": "8942f0553e95fdb28e47dc19800ade42ca93d039"
+        },
+        {
+          "request_id": "request-20-01",
+          "task_id": "task-20-01",
+          "project_id": "project-861a48a33c55e3e4e6568bdb6e2a8c58df6db30e2d0d0c027ce7c4feeae6aaca",
+          "checkout_id": "checkout-1fe8ecc20ad0727c5740af23b3f5946f70194d72055c30efabecd1b403d50ace",
+          "starting_revision": "8a460283c300116841524057345fdd89ffb5fc0a"
+        },
+        {
+          "request_id": "request-20-02",
+          "task_id": "task-20-02",
+          "project_id": "project-c441d3c6cc895201c42af8482cbbf48c7104e66badb96c3b054747d159ab12ee",
+          "checkout_id": "checkout-aeb9ad1d305eaff36a3c24547c276ba944cc6df6e0b2a2dda24cdc0e801a08d4",
+          "starting_revision": "bf566d947455a488427617b968b083fe9165c4fb"
+        },
+        {
+          "request_id": "request-20-03",
+          "task_id": "task-20-03",
+          "project_id": "project-6bfd8ed80b8e28cc8b62986e82c5e1d415f8927034f93e68334503507b285653",
+          "checkout_id": "checkout-df6be6dd812feff235620ac6cb970656ed80da80a030915810421f728f13671f",
+          "starting_revision": "25c7c9f630dec3ec4cb63c8ae1e914643775de1e"
+        },
+        {
+          "request_id": "request-20-04",
+          "task_id": "task-20-04",
+          "project_id": "project-7d07204e80c21208c4fedaa32ad2a660d9cb75fb1ba3390339aa8892ad12040f",
+          "checkout_id": "checkout-24e5336091e257319dd781fd5e5c1cab88ab548e3d67c7ff994ed01b4d3f60d9",
+          "starting_revision": "50b4be826a2b7d65da7cca5617bc51806ec6a923"
+        },
+        {
+          "request_id": "request-20-05",
+          "task_id": "task-20-05",
+          "project_id": "project-ea2ff432dd8ec469d2c13ed8e76ae223cc7123bcd893311d5d038a254b4f3b91",
+          "checkout_id": "checkout-7387059dce7a21996021dd832d583c4088944b6efa43b7c3a9f20cce33fa16d4",
+          "starting_revision": "9c64bf411dc66664c26318fc61fc118dfa18162c"
+        },
+        {
+          "request_id": "request-20-06",
+          "task_id": "task-20-06",
+          "project_id": "project-66da135d5cc3eb8dea3eed33a78f99c3b195068e17be829ce4eaa491a00ac910",
+          "checkout_id": "checkout-83f9a905c411eb6980b16c72eb8dc19b6d30ecf86b179aeeab64fe5928539994",
+          "starting_revision": "772eed9044b58ba28dd7692139051ced7139b7fe"
+        },
+        {
+          "request_id": "request-20-07",
+          "task_id": "task-20-07",
+          "project_id": "project-c216ada945802fcbdf09ed1b5edd5eed5fdf86423002cee63def508e16870201",
+          "checkout_id": "checkout-fd5e1f3a0020d3f7d26ff0e897bc2768adb446c5b1cecb1e6e344fe8b5124180",
+          "starting_revision": "f515ec3805d3eabf82f09b4e321af99a1974f8ac"
+        },
+        {
+          "request_id": "request-20-08",
+          "task_id": "task-20-08",
+          "project_id": "project-c39d285813c1a50f4795483575e6dc32509b1c17642e56b7b1ada0c19d78dc5a",
+          "checkout_id": "checkout-1cfd3a2438649551370852e4b2619c1d0cfad2acc7bb5ab844ee58dd99066d0e",
+          "starting_revision": "996a3fbf50a56cba885713a2f58e535a777f4b3c"
+        },
+        {
+          "request_id": "request-20-09",
+          "task_id": "task-20-09",
+          "project_id": "project-9d09cbe85f236c05607676bc7958a8127d1921555656df093d47b78941b9a6d4",
+          "checkout_id": "checkout-a7180b3979e15275c3a98813352a358696f9c5d61438e0980151164220f150aa",
+          "starting_revision": "0a94d6a4eee14239559560648db13f8f33cae547"
+        },
+        {
+          "request_id": "request-20-10",
+          "task_id": "task-20-10",
+          "project_id": "project-ade2d4fcecd9bbe45fb6e883b188fc2fc9592384c25754eaf384f00af3c6c319",
+          "checkout_id": "checkout-91b9889c1ea0383e03dd0fab0907166147b93b997a8eabf275d31d89a1e9aef4",
+          "starting_revision": "de2c363efa6cad8d7b5fae5a03d063abb1a07a70"
+        },
+        {
+          "request_id": "request-20-11",
+          "task_id": "task-20-11",
+          "project_id": "project-b8b22ef86f07388f2945e7dc259edfb08500c97d71895f73191ea0fdae4c15d4",
+          "checkout_id": "checkout-2b45ea7e319cafd3d6fa4ca577e231b28afb84f6bde6a6e3d4d57ac2d4acac05",
+          "starting_revision": "bfe318ffadafdefb19cfc09895fda7aea01e9855"
+        },
+        {
+          "request_id": "request-20-12",
+          "task_id": "task-20-12",
+          "project_id": "project-561ad038ee08aad36ed81e8b8ea2a8983ff3ea86799a39561201e3d297127936",
+          "checkout_id": "checkout-52bfac7a9fdf934112e2786ba10f781c868da46ec6faf1ecc03e69401d85fad4",
+          "starting_revision": "80333f5dd6b47bf47e40d3c7dd5f22af06c7a8d4"
+        },
+        {
+          "request_id": "request-20-13",
+          "task_id": "task-20-13",
+          "project_id": "project-fce1ab2135d30071dc1c6e4f98f141df9810be4e1e4b9112cbb88b55c0b35e73",
+          "checkout_id": "checkout-66b9183651fd3faf2172e211253c6b7ba27ad3b9ac6791de6d6e014a80d8af44",
+          "starting_revision": "6ee48ce1f17a136f1deacc84c75c0ea5b0457a05"
+        },
+        {
+          "request_id": "request-20-14",
+          "task_id": "task-20-14",
+          "project_id": "project-bde6191337df9207673740e7b886b22643a0dca3ca19ad38078875b0e7b531ff",
+          "checkout_id": "checkout-4609a5ca03468889b2ad9d3405725362581bbf0181dcd907b6a14cd32bb33be7",
+          "starting_revision": "7363a6fefbbfaa63cbff3f58d358258c6f1c3cff"
+        },
+        {
+          "request_id": "request-20-15",
+          "task_id": "task-20-15",
+          "project_id": "project-2959f7efec7273e6678527eb8f0cb620d41093ba6d3378b6c012b549d79aa8e1",
+          "checkout_id": "checkout-bc5927e2cca059dcfc03b5488cc12d2681c962377e0b0b75e1fc83d1d6d9b5a8",
+          "starting_revision": "c05981af6acda0698f86dede85f242e1dfaa247d"
+        },
+        {
+          "request_id": "request-20-16",
+          "task_id": "task-20-16",
+          "project_id": "project-30d19883f72b8cb4218492ef915d667859475007a934b4eb283a555d1d9d6711",
+          "checkout_id": "checkout-182d6c97b098d300161067206ae7df67288b32762157361ccbfc077bc6d0793b",
+          "starting_revision": "da8e8196734fe87c75090d08ca493de89f88c54d"
+        },
+        {
+          "request_id": "request-20-17",
+          "task_id": "task-20-17",
+          "project_id": "project-d09aaf6e9732ccfef3e92deb8046fef8eff40d03e239dce789640a2cf2c5c3b4",
+          "checkout_id": "checkout-aff2cc2f526491d9b3d8ec4698951ad3120cb157d89528435939a223ecb3249a",
+          "starting_revision": "2556d9264f9245497009d4fbfbaaec2dfc522eca"
+        },
+        {
+          "request_id": "request-20-18",
+          "task_id": "task-20-18",
+          "project_id": "project-abb90563389f685036cfd4833c099565e29088ae0637b4b7e916a42ba0e24864",
+          "checkout_id": "checkout-8545d5918085277a425a28ac7e79c572f5d625b947c23c5e5c96f7e10ef84001",
+          "starting_revision": "4517b9dd6269ec7553ce36a5c36d3f0a48f730cd"
+        },
+        {
+          "request_id": "request-20-19",
+          "task_id": "task-20-19",
+          "project_id": "project-9ca316499836e9abdf74c22f3b72464b80ff3e3798c3adab108ca865b9309ec4",
+          "checkout_id": "checkout-21cf68d9d5f7c2a6ba50e220a20b8e16255dab1bc1bf5e5ace0b4867c760d1b7",
+          "starting_revision": "1769f882805b817541c9fdaaeec5e4f64cad7e1d"
+        }
+      ],
+      "allocations": [
+        {
+          "allocation_id": "a9b86fcd77330bcf7f1ff10e3f8ae8444b9efb8b01e9ec6c580a3b0726e57b7e",
+          "task_id": "task-20-00",
+          "starting_revision": "8942f0553e95fdb28e47dc19800ade42ca93d039"
+        },
+        {
+          "allocation_id": "4af7aa881465d966ce13580c8ee6a72916921625cc379cde81ae0d165de6c57d",
+          "task_id": "task-20-01",
+          "starting_revision": "8a460283c300116841524057345fdd89ffb5fc0a"
+        },
+        {
+          "allocation_id": "5066edf986823f2d84b25d1ca961d6cf509d77342e8ca83d7d670a7563dd701a",
+          "task_id": "task-20-02",
+          "starting_revision": "bf566d947455a488427617b968b083fe9165c4fb"
+        },
+        {
+          "allocation_id": "7eacbe434c81ec6afd6e27d3a1828a8f3ce7727ab021d5d59cd2ef729a4d34db",
+          "task_id": "task-20-03",
+          "starting_revision": "25c7c9f630dec3ec4cb63c8ae1e914643775de1e"
+        },
+        {
+          "allocation_id": "242b9addb95993abdc82821217b80f853535ea7b51ce1cd6d8ee35a35109e159",
+          "task_id": "task-20-04",
+          "starting_revision": "50b4be826a2b7d65da7cca5617bc51806ec6a923"
+        },
+        {
+          "allocation_id": "9e85f29e1445580d8c97795596a697adf19a5fa9ef8ed8e0df2ed74c34da6f5e",
+          "task_id": "task-20-05",
+          "starting_revision": "9c64bf411dc66664c26318fc61fc118dfa18162c"
+        },
+        {
+          "allocation_id": "3de3f6b70d33311c42e4cbc739a28c2732698ce68f1090662c96c4206de15bc2",
+          "task_id": "task-20-06",
+          "starting_revision": "772eed9044b58ba28dd7692139051ced7139b7fe"
+        },
+        {
+          "allocation_id": "4273fa3b8a46eef77f7737b6bf96fcad081c1b3a6ec76df4ac0cfdfb7ae42ce3",
+          "task_id": "task-20-07",
+          "starting_revision": "f515ec3805d3eabf82f09b4e321af99a1974f8ac"
+        },
+        {
+          "allocation_id": "180424855d7822de6340f031bc8715b4a4883363facf814aae3f9447e8e4360c",
+          "task_id": "task-20-08",
+          "starting_revision": "996a3fbf50a56cba885713a2f58e535a777f4b3c"
+        },
+        {
+          "allocation_id": "3c8acbe7cdd8aa7e275100344035c14811379810feef9fed989a4d4316fa8ba5",
+          "task_id": "task-20-09",
+          "starting_revision": "0a94d6a4eee14239559560648db13f8f33cae547"
+        },
+        {
+          "allocation_id": "f44729d5b3c3e26d9a5fc38c15a6606ddf64e5b654a5003db5160a57e960d059",
+          "task_id": "task-20-10",
+          "starting_revision": "de2c363efa6cad8d7b5fae5a03d063abb1a07a70"
+        },
+        {
+          "allocation_id": "8fa41c30e034db9d56db604d6b276e2790c8d2f234bf85cbe040dd2563cdcae9",
+          "task_id": "task-20-11",
+          "starting_revision": "bfe318ffadafdefb19cfc09895fda7aea01e9855"
+        },
+        {
+          "allocation_id": "433285c26598eba20bfd1067300b5930be98b33884aa54aecdcbbb7950642bb3",
+          "task_id": "task-20-12",
+          "starting_revision": "80333f5dd6b47bf47e40d3c7dd5f22af06c7a8d4"
+        },
+        {
+          "allocation_id": "0033fb332d44f10b7c84be8af42411333dddd2dbc6326a760b286826ac357b45",
+          "task_id": "task-20-13",
+          "starting_revision": "6ee48ce1f17a136f1deacc84c75c0ea5b0457a05"
+        },
+        {
+          "allocation_id": "cd7265acc060c737ead068f426770971735754896e78c3c7b2cc80c3cfb62c4d",
+          "task_id": "task-20-14",
+          "starting_revision": "7363a6fefbbfaa63cbff3f58d358258c6f1c3cff"
+        },
+        {
+          "allocation_id": "fc60e7ccb764cf1d87a1c71a29fe0e23adff59ff9d85cbab3cbceabc3a318448",
+          "task_id": "task-20-15",
+          "starting_revision": "c05981af6acda0698f86dede85f242e1dfaa247d"
+        },
+        {
+          "allocation_id": "ca2a5fa020f4f71994b24c0ce373a6a29a1e54f06f656db16ae11eeb0b8ac78b",
+          "task_id": "task-20-16",
+          "starting_revision": "da8e8196734fe87c75090d08ca493de89f88c54d"
+        },
+        {
+          "allocation_id": "7f596f794b92a3b468225e6a2fb2f665eb20cb7026c5b6a4c668e7439294fc1d",
+          "task_id": "task-20-17",
+          "starting_revision": "2556d9264f9245497009d4fbfbaaec2dfc522eca"
+        },
+        {
+          "allocation_id": "f7b8f876975c724a257488e155c677bb37dab48f5e4da71ed21140d5192e8812",
+          "task_id": "task-20-18",
+          "starting_revision": "4517b9dd6269ec7553ce36a5c36d3f0a48f730cd"
+        },
+        {
+          "allocation_id": "c09a28f967c94c6152258518c281724cc5d1d68261976563193378fb57cb67e1",
+          "task_id": "task-20-19",
+          "starting_revision": "1769f882805b817541c9fdaaeec5e4f64cad7e1d"
+        }
+      ]
+    }
+  ],
+  "finished_utc": "2026-09-23T04:52:50.521674+00:00"
+}

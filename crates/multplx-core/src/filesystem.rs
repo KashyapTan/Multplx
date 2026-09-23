@@ -306,9 +306,10 @@ pub fn recoverable_transition(
             "invalid operation identity or empty write set",
         ));
     }
-    let _lock = crate::locks::DirectoryLock::try_acquire(
+    let _lock = crate::locks::DirectoryLock::acquire_wait(
         root.join(".transition.lock"),
         &crate::process::SystemProcessProbe::default(),
+        std::time::Duration::from_secs(5),
     )?;
     let directory = root.join(".transitions");
     fs::create_dir_all(&directory)
@@ -568,6 +569,8 @@ mod tests {
 #[cfg(test)]
 mod transition_tests {
     use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::time::Duration;
     fn writes() -> Vec<TransitionWrite> {
         vec![
             TransitionWrite {
@@ -610,6 +613,39 @@ mod transition_tests {
             assert!(receipt.committed);
             assert_eq!(receipt.progress, 2);
         }
+    }
+
+    #[test]
+    fn independent_transitions_wait_for_the_short_publication_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        let held = crate::locks::DirectoryLock::try_acquire(
+            root.join(".transition.lock"),
+            &crate::process::SystemProcessProbe::default(),
+        )
+        .unwrap();
+        let started = Arc::new(Barrier::new(2));
+        let child_started = Arc::clone(&started);
+        let child_root = root.clone();
+        let child = std::thread::spawn(move || {
+            child_started.wait();
+            recoverable_transition(
+                &child_root,
+                "second",
+                &[TransitionWrite {
+                    path: "second-record".into(),
+                    before: None,
+                    after: b"second".to_vec(),
+                }],
+                None,
+            )
+            .unwrap();
+        });
+        started.wait();
+        std::thread::sleep(Duration::from_millis(100));
+        drop(held);
+        child.join().unwrap();
+        assert_eq!(fs::read(root.join("second-record")).unwrap(), b"second");
     }
     #[test]
     fn unfinished_operations_retain_conflicts_and_block_overlapping_writers() {

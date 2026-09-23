@@ -139,6 +139,12 @@ fn actor_state_reports_busy_gone_and_missing_metadata() {
         &fakebin.join("tmux"),
         r#"#!/bin/sh
 case "$1" in
+  list-windows)
+    if [ "${MX_FAKE_GONE:-0}" = 1 ]; then
+      printf "can't find session: broker\n" >&2
+      exit 1
+    fi
+    printf 'mx-one\n' ;;
   display-message) [ "${MX_FAKE_GONE:-0}" = 1 ] && exit 1; printf '%%1\n' ;;
   capture-pane) printf '%s\n' "${MX_FAKE_PANE_TEXT:-idle prompt}" ;;
 esac

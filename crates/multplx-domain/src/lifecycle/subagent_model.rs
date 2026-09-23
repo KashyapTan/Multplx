@@ -493,6 +493,8 @@ impl TaskRecord {
         self.runtime.session_id = None;
         self.runtime.endpoint = None;
         self.delivery.current_commit = None;
+        self.schedule.state = WorkState::Runnable;
+        self.schedule.waiting_condition = None;
         // Retention belongs to allocation owner. Never transfer the old lease.
         self.allocation = None;
         Ok(())
@@ -546,6 +548,8 @@ impl TaskRecord {
             attempt.brief_revision = revision;
         }
         self.delivery.current_commit = None;
+        self.schedule.state = WorkState::Runnable;
+        self.schedule.waiting_condition = None;
         Ok(())
     }
     pub fn answer_decision(
@@ -1417,6 +1421,7 @@ mod tests {
     #[test]
     fn replacement_retains_old_execution_and_resume_requires_actual_identity() {
         let mut record = task("task");
+        record.schedule.state = WorkState::Completed;
         record.runtime.provider = "codex".into();
         record.runtime.session_id = Some("native-session".into());
         record.runtime.endpoint = Some("pane".into());
@@ -1430,6 +1435,7 @@ mod tests {
         assert_eq!(record.resume_attempt(&proof).unwrap(), old);
         assert!(record.replace_attempt(&old.id, false).is_err());
         record.replace_attempt(&old.id, true).unwrap();
+        assert_eq!(record.schedule.state, WorkState::Runnable);
         assert_ne!(record.attempt.as_ref().unwrap().id, old.id);
         assert_eq!(record.attempt.as_ref().unwrap().generation, 2);
         assert_eq!(
@@ -1439,6 +1445,26 @@ mod tests {
         assert!(record.resume_attempt(&proof).is_err());
         assert!(record.runtime.session_id.is_none());
         record.validate().unwrap();
+    }
+
+    #[test]
+    fn revised_brief_reopens_implementation_completion_gate() {
+        let mut record = task("task");
+        record.schedule.state = WorkState::Completed;
+        record.schedule.waiting_condition = Some("old wait".into());
+        record
+            .revise_assignment(
+                1,
+                AssignmentRole::Implementer,
+                "new scope".into(),
+                vec!["new acceptance".into()],
+                Vec::new(),
+                "changed requirements".into(),
+            )
+            .unwrap();
+        assert_eq!(record.schedule.state, WorkState::Runnable);
+        assert!(record.schedule.waiting_condition.is_none());
+        assert_eq!(record.accepted_brief_revision, Some(2));
     }
     #[test]
     fn evidence_checks_attempt_revision_sender_recipient_and_nullable_native_identity() {

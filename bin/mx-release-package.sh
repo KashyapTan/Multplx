@@ -30,7 +30,17 @@ cp "$BINARY" "$OUTPUT/bin/mx"
 chmod 755 "$OUTPUT/bin/mx"
 printf '%s\n' "$VERSION" >"$OUTPUT/VERSION"
 printf '%s-%s\n' "$OS" "$ARCH" >"$OUTPUT/PLATFORM"
-cp "$ROOT/AGENTS_E.md" "$OUTPUT/runtime/AGENTS.md"
+if [ -f "$ROOT/AGENTS.md" ]; then
+  contract=$ROOT/AGENTS.md
+elif [ -f "$ROOT/AGENTS_E.md" ]; then
+  # The redesign checkout deliberately keeps the completed release contract
+  # dormant under this filename. Packages always publish its canonical name.
+  contract=$ROOT/AGENTS_E.md
+else
+  printf 'multplx: release contract is missing (expected AGENTS.md or dormant AGENTS_E.md)\n' >&2
+  exit 1
+fi
+cp "$contract" "$OUTPUT/runtime/AGENTS.md"
 
 while IFS= read -r -d '' relative; do
   case "$relative" in

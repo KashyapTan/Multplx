@@ -38,7 +38,7 @@ A `FAIL` does not authorize teardown, process termination, hold resolution, gate
 | `open-holds` | `FAIL` when the backlog is invalid or an open maintainer hold has no live task, completed decision attestation, archived report, or backlog origin. |
 | `dispatch-queue-age` | `WARN` when a valid parked request under `state/.dispatch-queue/` exceeds the configured age, and `FAIL` when a request is malformed. |
 | `gate-runs` | `OK` for terminal runs or nonterminal runs backed by a live task, and `FAIL` for malformed or unowned nonterminal gate records. |
-| `workflow-runs` | `OK` for terminal runs, intentional waits, live actor stages, or a running reconcile owner, and `FAIL` for malformed or abandoned nonterminal records. |
+| `workflow-runs` | `OK` for terminal runs, intentional waits, live sub-agent stages, or a running reconcile owner, and `FAIL` for malformed or abandoned nonterminal records. |
 | `orphan-servers` | `FAIL` when a vplan or future visualization run record lacks its identity-matched process, an active vplan depends on invalid assets, or a reserved loopback port has an unrecorded listener. Optional assets are not checked when no run is active. |
 | `tools` | `FAIL` when a universal or selected-backend tool is absent or the backend is invalid. |
 | `primary-tangle` | `FAIL` when the primary checkout is on a named non-default branch, using the same shared tangle probe as bootstrap. |

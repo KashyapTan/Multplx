@@ -548,7 +548,9 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '0\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '\xe2\x94\x82 \xe2\x94\x82\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows)
+    case " $* " in *' -t sess '*) printf 'win\n' ;; esac
+    ;;
 esac
 exit 0
 SH
@@ -567,7 +569,7 @@ run_send_case() {  # <bin-root> <fakebin> <log> <home> -- <send args...>
 
 strip_send_preflight() {  # <log>
   local preflight
-  preflight=$'tmux\x1fdisplay-message\x1f-p\x1f-t\x1fsess:win\x1f#{pane_id}'
+  preflight=$'tmux\x1flist-windows\x1f-t\x1fsess\x1f-F\x1f#{window_name}'
   awk -v preflight="$preflight" '$0 != preflight { print }' "$1"
 }
 
@@ -581,8 +583,8 @@ test_send_native_facade() {
   run_send_case "$ROOT" "$fb" "$log" "$home" -- "sess:win" --key Escape
   rc=$?
   expect_code 0 "$rc" "mx-send --key native exit code"
-  assert_contains "$(cat "$log")" $'\x1f''display-message'$'\x1f''-p'$'\x1f''-t'$'\x1f''sess:win'$'\x1f''#{pane_id}' \
-    "mx-send --key did not verify the explicit tmux target before sending"
+  assert_contains "$(cat "$log")" $'\x1f''list-windows'$'\x1f''-t'$'\x1f''sess'$'\x1f''-F'$'\x1f''#{window_name}' \
+    "mx-send --key did not verify the named window through the exact session inventory"
   assert_contains "$(cat "$log")" $'\x1f''Escape' "mx-send --key did not send the named key"
 
   # Case 2: plain text (0.3s settle, no popup).

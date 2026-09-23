@@ -62,6 +62,54 @@ Priorities and unresolved dependencies help order human attention without creati
 Durable outcomes carry publication, failure, evidence-change and human-merge facts through the parent chain even while a coordinator model is idle.
 Coordinator summaries may explain the facts but do not replace them or make stale evidence current.
 
+## Local completion and dependent work
+
+A status report is separate from canonical implementation completion.
+For an implementation assignment, record current typed delivery evidence and then report `done` through the task-bound reporter.
+The completion check requires that evidence to match the current attempt, accepted brief and actual worktree `HEAD`.
+It does not turn failed or unrun checks into passing checks, create a PR, or record a human merge.
+A report or coordination assignment can instead attach its existing result file through the reporter's structured `--artifact` option.
+A plain `done` message remains valid status evidence, but reports a diagnostic and does not release dependent work without the required result evidence.
+
+From the assigned worker's activated environment, inspect the task and submit a JSON evidence file:
+
+```sh
+mx task-model inspect TASK_ID
+mx task-model evidence TASK_ID --request-file /absolute/path/evidence.json
+```
+
+Use the actual task attempt, brief revision, current full commit SHA and observed check results in the closed request format below.
+The placeholder strings are not literal values to submit.
+Use `null` for `expected_current_commit` only when the inspected task has no current delivery commit; otherwise use that existing commit as the concurrency token.
+Keep the same evidence ID and identical JSON when retrying an uncertain submission.
+
+```json
+{
+  "evidence_id": "task-result-1",
+  "attempt_id": "ATTEMPT_ID_FROM_INSPECT",
+  "attempt_generation": 1,
+  "brief_revision": 1,
+  "commit": "FULL_CURRENT_COMMIT_SHA",
+  "checks": [{
+    "name": "EXACT_CHECK_COMMAND",
+    "outcome": "passed",
+    "summary": "ACTUAL_RESULT",
+    "artifact": null
+  }],
+  "review": null,
+  "limitations": [],
+  "pr_url": null,
+  "outcome": "evidence-updated",
+  "observed_at": "ACTUAL_OBSERVATION_TIMESTAMP",
+  "mark_current": true,
+  "expected_current_commit": null
+}
+```
+
+After evidence is accepted, send a new task-bound `done` report using the installed status tool or `mx-report` command.
+A report sent before the evidence existed needs a new message ID after evidence is recorded; replaying an already committed status event does not reinterpret its historical meaning.
+Scope changes, replacement attempts, renewed working reports and a changed current delivery commit reopen completion until fresh evidence is reported.
+
 ## Authentication and merge boundary
 
 Ordinary workers inherit user-configured Git credential helpers, GitHub CLI configuration, token precedence and SSH settings.

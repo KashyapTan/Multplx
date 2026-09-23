@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BINARY=${MX_RUST_BIN:-${MX_LAUNCH_BIN_PATH:-}}
+if [ -z "$BINARY" ] || [ ! -x "$BINARY" ]; then
+  printf 'multplx: installed mx command cannot resolve its runtime binary\n' >&2
+  exit 1
+fi
+MX_MULTICALL_EXPLICIT=1 exec "$BINARY" "$@"

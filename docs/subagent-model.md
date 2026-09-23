@@ -129,7 +129,8 @@ An interrupted launch retains its intent and refuses another external launch; Ph
 | `data/daemons.md`, `.mx-daemon-home` | Existing persistent home ownership, parent routes and restart facts |
 | `data/projects.md` | Legacy project configuration and managed-clone evidence |
 
-Aliases remain supported through the Phase 12 cutover checks.
+Aliases remain supported for this lean release and may be removed only by an announced subsequent breaking version with a migration path.
+Durable records retain their original keys, carrier tokens, endpoint labels and filesystem markers.
 The compatibility window does not permit two incompatible writers in the same home.
 Historical records, message correlation IDs, journals, leases and unfinished artifacts are retained.
 [`mx migrate`](state-migration.md) owns inspect/apply migration, quiescence, private backups, compact restart summaries and matching rollback of operational homes.

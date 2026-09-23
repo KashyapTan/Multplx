@@ -11,8 +11,9 @@ RUNTIME="$TMP_ROOT/runtime root"
 HOME_DIR="$TMP_ROOT/main home"
 FAKEBIN=$(mx_fakebin "$TMP_ROOT/fake")
 TMUX_LOG="$TMP_ROOT/tmux.log"
+TASK_TMP="$TMP_ROOT/task-tmp"
 
-mkdir -p "$RUNTIME/bin" "$HOME_DIR/data" "$HOME_DIR/state" "$HOME_DIR/config" "$HOME_DIR/projects"
+mkdir -p "$RUNTIME/bin" "$HOME_DIR/data" "$HOME_DIR/state" "$HOME_DIR/config" "$HOME_DIR/projects" "$TASK_TMP"
 cp "$ROOT/AGENTS_E.md" "$RUNTIME/AGENTS.md"
 printf '%s\n' codex > "$HOME_DIR/config/daemon-harness"
 
@@ -63,12 +64,13 @@ run_mx() {
     MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
     MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
     MX_SPAWN_NO_GUARD=1 MX_FAKE_TMUX_LOG="$TMUX_LOG" \
+    TMPDIR="$TASK_TMP" \
     PATH="$FAKEBIN:$PATH" "$MX_RUST_BIN" "$@"
 }
 
 test_idea_spawn_and_repeat_adopt_one_coordinator() {
-  local first second meta model private_home out status implementation_repo
-  local attempt_id attempt_generation brief_revision window_count
+  local first second meta model private_home out status implementation_repo coordinator_launch
+  local attempt_id attempt_generation brief_revision window_count root_state
   first=$(run_mx spawn research --sub-orchestrator --idea runtime-v2 \
     --scope 'assess runtime v2 before repository selection' \
     --request-id research-create --backend tmux --harness codex --json) \
@@ -94,10 +96,73 @@ test_idea_spawn_and_repeat_adopt_one_coordinator() {
     .runtime.endpoint != null
   ' >/dev/null || fail 'canonical coordinator/domain binding is incomplete'
   private_home=$(printf '%s' "$model" | jq -r .persistent_home)
+  root_state=$(cd "$HOME_DIR/state" && pwd -P)
   assert_present "$private_home/data/charter.md" 'private coordinator charter is missing'
   assert_grep 'assess runtime v2 before repository selection' "$private_home/data/charter.md" \
     'private charter lost accepted scope'
   [ "$(grep -c '^new-window ' "$TMUX_LOG")" -eq 1 ] || fail 'initial spawn did not create exactly one endpoint'
+  coordinator_launch=$(find "$TASK_TMP" -name launch.sh -print -quit)
+  assert_present "$coordinator_launch" 'coordinator launch script was not installed'
+  assert_grep "MX_STATE_OVERRIDE='$private_home/state'" "$coordinator_launch" \
+    'installed coordinator launch did not bind state to its private home'
+  assert_grep "MX_ROOT_OVERRIDE='$RUNTIME'" "$coordinator_launch" \
+    'installed coordinator launch did not retain the runtime package root'
+  cat > "$FAKEBIN/codex" <<'SH'
+#!/usr/bin/env bash
+set -u
+env > "$MX_TEST_ENV_CAPTURE"
+set +e
+"$MX_RUST_BIN" request get smoke-domain-child > "$MX_TEST_REQUEST_OUTPUT" 2>&1
+printf '%s\n' "$?" > "$MX_TEST_REQUEST_STATUS"
+exit 0
+SH
+  chmod +x "$FAKEBIN/codex"
+  coordinator_mcp=$(find "$TASK_TMP" -name report-mcp.json -print -quit)
+  assert_present "$coordinator_mcp" 'coordinator report MCP configuration was not installed'
+  jq -e --arg home "$private_home" --arg state "$root_state" \
+    --arg root "$RUNTIME" --arg bin "$MX_RUST_BIN" '
+    .mcpServers.multplx_status.env.MX_TASK_ID == "research" and
+    .mcpServers.multplx_status.env.MX_HOME == $home and
+    .mcpServers.multplx_status.env.MX_REPORT_STATE_OVERRIDE == $state and
+    .mcpServers.multplx_status.env.MX_RUST_SOURCE_ROOT == $root and
+    .mcpServers.multplx_status.env.MX_RUST_BIN == $bin
+  ' "$coordinator_mcp" >/dev/null || {
+    printf 'expected home=%s state=%s root=%s bin=%s\n' \
+      "$private_home" "$HOME_DIR/state" "$RUNTIME" "$MX_RUST_BIN"
+    cat "$coordinator_mcp"
+    fail 'coordinator report MCP crossed private and parent identities or lost installed runtime paths'
+  }
+
+  mkdir -p "$private_home/state/request-inbox"
+  printf '{' > "$private_home/state/request-inbox/smoke-domain-child.json"
+  env MX_ROOT_OVERRIDE="$HOME_DIR" MX_HOME="$HOME_DIR" \
+    MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
+    MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    MX_TEST_ENV_CAPTURE="$TMP_ROOT/coordinator-env" \
+    MX_TEST_REQUEST_OUTPUT="$TMP_ROOT/coordinator-request.out" \
+    MX_TEST_REQUEST_STATUS="$TMP_ROOT/coordinator-request.status" \
+    PATH="$FAKEBIN:$PATH" "$coordinator_launch" \
+    || fail 'generated coordinator launch script did not execute the fake provider'
+  assert_grep "MX_HOME=$private_home" "$TMP_ROOT/coordinator-env" \
+    'generated coordinator launch did not bind MX_HOME to its private home'
+  assert_grep "MX_ROOT_OVERRIDE=$RUNTIME" "$TMP_ROOT/coordinator-env" \
+    'generated coordinator launch did not bind MX_ROOT_OVERRIDE to the runtime package'
+  assert_grep "MX_STATE_OVERRIDE=$private_home/state" "$TMP_ROOT/coordinator-env" \
+    'generated coordinator launch did not bind state to its private home'
+  assert_grep "MX_DATA_OVERRIDE=$private_home/data" "$TMP_ROOT/coordinator-env" \
+    'generated coordinator launch did not bind data to its private home'
+  assert_grep "MX_PROJECTS_OVERRIDE=$private_home/projects" "$TMP_ROOT/coordinator-env" \
+    'generated coordinator launch did not bind projects to its private home'
+  assert_grep "MX_CONFIG_OVERRIDE=$private_home/config" "$TMP_ROOT/coordinator-env" \
+    'generated coordinator launch did not bind config to its private home'
+  [ "$(cat "$TMP_ROOT/coordinator-request.status")" -ne 0 ] \
+    || fail 'malformed private request receipt unexpectedly decoded'
+  out=$(cat "$TMP_ROOT/coordinator-request.out")
+  assert_contains "$out" 'EOF while parsing an object' \
+    'coordinator request lookup did not decode the private request-inbox receipt'
+  assert_not_contains "$out" 'No such file or directory' \
+    'generated coordinator launch request lookup missed its private receipt under inherited parent overrides'
+  rm "$private_home/state/request-inbox/smoke-domain-child.json"
 
   second=$(run_mx spawn research --sub-orchestrator --idea runtime-v2 \
     --scope 'assess runtime v2 before repository selection' \
@@ -215,7 +280,7 @@ test_overlapping_domains_share_one_project_without_exclusivity() {
 
 test_stopped_idea_domain_binds_project_and_restarts_new_generation() {
   local selected="$TMP_ROOT/selected repo" model private_home restarted child
-  local attempt_id attempt_generation brief_revision
+  local attempt_id attempt_generation brief_revision child_attempt child_generation child_revision
   mx_git_init_commit "$selected"
   run_mx project register "$selected" --alias selected >/dev/null || fail 'selected registration failed'
   run_mx teardown research --stop-coordinator >/dev/null || fail 'coordinator stop failed'
@@ -262,16 +327,38 @@ test_stopped_idea_domain_binds_project_and_restarts_new_generation() {
     MX_REPORT_STATE_OVERRIDE="$HOME_DIR/state" MX_TASK_ID=research \
     MX_ATTEMPT_ID="$attempt_id" MX_ATTEMPT_GENERATION="$attempt_generation" \
     MX_BRIEF_REVISION="$brief_revision" MX_SPAWN_NO_GUARD=1 MX_FAKE_TMUX_LOG="$TMUX_LOG" \
+    TMPDIR="$TASK_TMP" \
     PATH="$FAKEBIN:$PATH" "$MX_RUST_BIN" spawn bound-implementation "$selected" \
       --role implementer --output implementation --request-id bound-implementation-create \
       --backend tmux --harness codex) || fail 'bound domain implementation delegation failed'
   assert_contains "$child" 'spawned bound-implementation' \
     'bound implementation did not report a launched endpoint'
+  worker_mcp=$(find "$TASK_TMP" -name report-mcp.json -print | while IFS= read -r path; do
+    jq -e '.mcpServers.multplx_status.env.MX_TASK_ID == "bound-implementation"' "$path" >/dev/null 2>&1 && { printf '%s\n' "$path"; break; }
+  done)
+  assert_present "$worker_mcp" 'nested worker report MCP configuration was not installed'
   model=$(sed -n 's/^canonical_model=//p' "$private_home/state/bound-implementation.meta")
+  child_attempt=$(printf '%s' "$model" | jq -r .attempt.id)
+  child_generation=$(printf '%s' "$model" | jq -r .attempt.generation)
+  child_revision=$(printf '%s' "$model" | jq -r .accepted_brief_revision)
   printf '%s' "$model" | jq -e --arg parent research '
     .parent_id == $parent and .artifact == "implementation" and
     .project.project_id != null and .runtime.endpoint != null
   ' >/dev/null || fail 'bound implementation lost its parent, project, or attempt authority'
+  jq -e --arg home "$private_home" --arg state "$private_home/state" \
+    --arg root "$RUNTIME" --arg bin "$MX_RUST_BIN" --arg attempt "$child_attempt" \
+    --arg generation "$child_generation" --arg revision "$child_revision" '
+    .mcpServers.multplx_status.env.MX_HOME == $home and
+    .mcpServers.multplx_status.env.MX_REPORT_STATE_OVERRIDE == $state and
+    .mcpServers.multplx_status.env.MX_RUST_SOURCE_ROOT == $root and
+    .mcpServers.multplx_status.env.MX_RUST_BIN == $bin and
+    .mcpServers.multplx_status.env.MX_ATTEMPT_ID == $attempt and
+    .mcpServers.multplx_status.env.MX_ATTEMPT_GENERATION == $generation and
+    .mcpServers.multplx_status.env.MX_BRIEF_REVISION == $revision
+  ' "$worker_mcp" >/dev/null || {
+    cat "$worker_mcp"
+    fail 'nested worker report MCP crossed its coordinator parent or lost installed runtime identity'
+  }
   pass 'stopped idea domain binds a canonical project and restarts at the revised generation'
 }
 

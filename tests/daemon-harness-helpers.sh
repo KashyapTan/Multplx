@@ -735,6 +735,59 @@ test_spawn_injects_native_observer_configuration() {
   pass "spawned providers load task-bound native observation from the trusted runtime"
 }
 
+test_worker_launch_binds_real_harness_and_runtime() {
+  local w sm launchlog launch real_codex shim_dir installed_binary launch_script adapter_log
+  w="$TMP_ROOT/worker-runtime-bridge"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  real_codex="$w/real-bin/codex"
+  shim_dir="$w/runtime/share/shell/shims"
+  installed_binary="$w/installed/multplx"
+  adapter_log="$w/adapter.log"
+  mkdir -p "$w/home/config" "${real_codex%/*}" "$shim_dir" "${installed_binary%/*}"
+  cp "$MX_RUST_BIN" "$installed_binary"
+  cat >"$real_codex" <<'SH'
+#!/bin/sh
+[ "${MX_MULTICALL_EXPLICIT:-}" = 1 ] || exit 90
+printf 'adapter-body' \
+  | "$MX_RUST_SOURCE_ROOT/bin/mx-operational-input.sh" encode launch-brief >/dev/null \
+  || exit 91
+printf 'worker-adapter-ok\n' >"$MX_WORKER_ADAPTER_LOG"
+SH
+  chmod +x "$real_codex"
+  make_seeded_home "$sm" sm
+
+  MX_MULTICALL_EXPLICIT=1 MX_RUST_BIN="$installed_binary" \
+    MX_REAL_CODEX="$real_codex" MX_SHIM_DIR="$shim_dir" MX_WORKER_ADAPTER_LOG="$adapter_log" \
+    spawn_daemon_capture "$w" sm "$sm" "$launchlog" --harness codex >/dev/null 2>&1 \
+    || fail 'worker runtime bridge spawn failed'
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "'$real_codex'" \
+    'worker launch did not bind the captured real harness executable'
+  assert_contains "$launch" "MX_RUST_BIN='$installed_binary'" \
+    'worker launch did not carry its Rust runtime into hooks and MCP servers'
+  assert_contains "$launch" "MX_LAUNCH_BIN_PATH='$installed_binary'" \
+    'worker launch did not carry its installed-launch runtime alias'
+  assert_contains "$launch" "MX_MULTICALL_EXPLICIT='1'" \
+    'worker launch did not preserve internal command dispatch for an installed multplx binary'
+  assert_contains "$launch" "MX_SHIM_DIR='$shim_dir'" \
+    'worker launch did not preserve the shim marker for nested spawn guards'
+  assert_contains "$launch" "MX_REAL_CODEX='$real_codex'" \
+    'worker launch did not preserve the real harness for nested spawns'
+  assert_contains "$launch" "MX_MULTICALL_EXPLICIT=1 '$installed_binary' operational-input encode launch-brief" \
+    'worker brief substitution did not invoke the runtime directly'
+  assert_not_contains "$launch" " $shim_dir/codex " \
+    'worker launch selected the primary harness shim'
+  launch_script=$(sed -n "1s/^'//; 1s/'$//; 1p" "$launchlog.submitted")
+  [ -x "$launch_script" ] || fail 'worker launch artifact is not executable'
+  env -u MX_RUST_BIN -u MX_LAUNCH_BIN_PATH -u MX_MULTICALL_EXPLICIT \
+    MX_WORKER_ADAPTER_LOG="$adapter_log" "$launch_script" >/dev/null 2>&1 \
+    || fail 'fresh backend shell could not execute the installed worker adapter'
+  assert_grep 'worker-adapter-ok' "$adapter_log" \
+    'installed worker adapter did not retain internal command dispatch'
+  pass "worker launch binds the real harness and runtime independently of backend shell state"
+}
+
 # The harness fallback chain (daemon-harness -> actor-harness -> own) still
 # resolves correctly with no model/effort tokens anywhere in the chain, and a
 # actor/scout (non-daemon) launch is entirely unaffected by this feature: no
@@ -1170,7 +1223,7 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
 
   expect_code 0 "$status" "config push should succeed"
-  assert_contains "$out" "config-push: $w/home -> live daemon homes" \
+  assert_contains "$out" "config-push: $w/home -> live persistent sub-agent homes" \
     "config push lacked the header"
   assert_contains "$out" "daemon sm ($sm_real):" \
     "config push did not discover the live daemon through registry fallback"
@@ -2156,6 +2209,7 @@ SH
 case "${MX_TEST_CASE_GROUP:-all}" in
   native-observers)
     test_spawn_injects_native_observer_configuration
+    test_worker_launch_binds_real_harness_and_runtime
     ;;
   harness-model-resolution)
     test_harness_resolution
@@ -2174,6 +2228,7 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_spawn_explicit_harness_does_not_inherit_daemon_harness_tokens
     test_spawn_explicit_harness_uses_explicit_profile_axes
     test_spawn_injects_native_observer_configuration
+    test_worker_launch_binds_real_harness_and_runtime
     test_spawn_fallback_chain_and_actor_scout_unaffected
     ;;
   spawn-config-inheritance)

@@ -5,8 +5,8 @@ An HTML request by itself is not a vplan request.
 Use plain chat for a yes-or-no decision.
 Task-linked artifacts live at `data/<id>/plan.html` and start from `bin/mx-vplan.sh new data/<id>/plan.html`.
 That stable command is Rust-backed by default; this authoring contract and the frozen browser assets are unchanged by the runtime port.
-The artifact is broker-authored and maintainer-facing.
-Actors may supply evidence, but the broker owns the review surface and the unresolved-decision return path.
+The artifact is orchestrator-authored and maintainer-facing.
+Sub-agents may supply evidence, but the orchestrator owns the review surface and the unresolved-decision return path.
 
 This guide is the single authoring owner for vplan artifacts.
 It adapts the visual hierarchy, overflow, design selection, and seven playbook rules from the upstream [Lavish authoring guide](https://github.com/kunchenguid/lavish-axi/blob/main/skills/lavish/SKILL.md) and [playbook catalog](https://github.com/kunchenguid/lavish-axi/blob/main/src/playbooks.js) to Multplx's offline, one-shot review loop.
@@ -140,7 +140,7 @@ Use this playbook when the maintainer can select, tune, triage, or edit a struct
 - Show selected state separately from queued state.
 - Queue one clear comment for the final answer instead of one comment per intermediate change.
 - Use the vplan comment panel's queue and Confirm and Save action as the persistence boundary.
-- Make the queued text specific enough for the broker to act without a follow-up question.
+- Make the queued text specific enough for the orchestrator to act without a follow-up question.
 - Keep controls accessible and readable on narrow screens.
 - Do not require interaction for information the maintainer only needs to read.
 

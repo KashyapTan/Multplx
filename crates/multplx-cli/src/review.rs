@@ -277,7 +277,7 @@ fn merge_local(args: &[OsString]) -> i32 {
         &["merge-base", "--is-ancestor", &default, &branch],
     ) {
         eprintln!("REFUSED: {branch} is not a fast-forward of {default} (it has diverged).");
-        eprintln!("Have the actor rebase {branch} onto {default}, then retry.");
+        eprintln!("Have the sub-agent rebase {branch} onto {default}, then retry.");
         return 1;
     }
     let Some(before) = command_line("git", &project, &["rev-parse", "--short", &default]) else {

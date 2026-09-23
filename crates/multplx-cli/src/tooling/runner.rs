@@ -1009,6 +1009,7 @@ fn configure_test_environment(
     .into_iter()
     .filter_map(|key| std::env::var_os(key).map(|value| (OsString::from(key), value)))
     .collect::<Vec<_>>();
+    inherited.extend(coverage_environment(|key| std::env::var_os(key)));
     inherited.extend(
         std::env::vars_os()
             .filter(|(key, _)| key.to_str().is_some_and(|key| key.starts_with("MX_TEST_"))),
@@ -1053,6 +1054,17 @@ fn configure_test_environment(
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
     Ok(())
+}
+
+fn coverage_environment(lookup: impl Fn(&str) -> Option<OsString>) -> Vec<(OsString, OsString)> {
+    let Some(profile) = lookup("LLVM_PROFILE_FILE") else {
+        return Vec::new();
+    };
+    let mut inherited = vec![(OsString::from("LLVM_PROFILE_FILE"), profile)];
+    if let Some(binary) = lookup("MX_RUST_BIN") {
+        inherited.push((OsString::from("MX_RUST_BIN"), binary));
+    }
+    inherited
 }
 
 fn worker_tempdir() -> Result<tempfile::TempDir, String> {
@@ -2318,6 +2330,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn coverage_environment_couples_profile_output_to_the_instrumented_binary() {
+        let lookup = |key: &str| match key {
+            "LLVM_PROFILE_FILE" => Some(OsString::from("/tmp/mx-%p-%m.profraw")),
+            "MX_RUST_BIN" => Some(OsString::from("/tmp/instrumented-mx")),
+            _ => None,
+        };
+        assert_eq!(
+            coverage_environment(lookup),
+            vec![
+                (
+                    OsString::from("LLVM_PROFILE_FILE"),
+                    OsString::from("/tmp/mx-%p-%m.profraw")
+                ),
+                (
+                    OsString::from("MX_RUST_BIN"),
+                    OsString::from("/tmp/instrumented-mx")
+                ),
+            ]
+        );
+        assert!(coverage_environment(|_| None).is_empty());
+        assert_eq!(
+            coverage_environment(
+                |key| (key == "MX_RUST_BIN").then(|| OsString::from("/tmp/untrusted-mx"))
+            ),
+            Vec::new()
+        );
+    }
+
+    #[test]
     fn child_environment_is_allowlisted_and_fixture_bound() {
         let fixture = tempfile::tempdir().expect("fixture");
         let source = tempfile::tempdir().expect("source");
@@ -2358,6 +2399,12 @@ mod tests {
             text.lines()
                 .any(|line| line == "GIT_CONFIG_GLOBAL=/dev/null")
         );
+        if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+            assert!(text.lines().any(|line| {
+                line.strip_prefix("LLVM_PROFILE_FILE=")
+                    .is_some_and(|value| OsStr::new(value) == profile)
+            }));
+        }
 
         let host = tempfile::tempdir().expect("host home");
         let mut command = Command::new("/usr/bin/env");

@@ -1,6 +1,6 @@
 # The bin/ toolbelt
 
-The broker drives these; interactive entrypoints work by hand too, while remaining `*-lib.sh` files expose compatibility ABIs to existing homes.
+The orchestrator drives these; interactive entrypoints work by hand too, while remaining `*-lib.sh` files expose compatibility ABIs to existing homes.
 The release `mx` binary owns production command behavior.
 Executable command paths are host-required or compatibility transports and must not parse domain records, decide policy, lock state, or orchestrate lifecycle.
 Sourced library files preserve explicitly inventoried compatibility ABIs, but they are not production command owners.
@@ -14,7 +14,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-session-start.sh`    | Compose lock, bootstrap, and wake drain into the single ordered session-start digest |
 | `mx-launcher-install.sh` | Execute the Rust installer that installs, upgrades, or removes the global binary and adopted or managed root/home pair |
 | `mx-launcher.sh`         | Execute the Rust launcher that validates the control plane, activates a shell, or delegates one global command |
-| `mx-launch-harness.sh`   | Refuse a known competing broker, change only the harness child cwd, and exec its captured real binary |
+| `mx-launch-harness.sh`   | Refuse a known competing orchestrator, change only the harness child cwd, and exec its captured real binary |
 | `mx-sessionstart-nudge.sh` | Print the native session-start hook nudge when the primary has not already run the digest |
 | `mx-operational-input.sh` | Transport canonical cross-language operational-input construction and parsing to Rust |
 | `mx-bootstrap.sh`        | Detect toolchain and system problems, run the locked session-start sweeps, and install approved tools |
@@ -24,10 +24,10 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-system-snapshot.sh`   | Print canonical system JSON (`mx-system-snapshot.v1`) including the task portfolio for CLI, Viz and workspace clients   |
 | `mx-system-view.sh`       | Render the system snapshot as a human Markdown view                                   |
 | `mx-status-snapshot.sh` | Project the system snapshot to the compact TOON catchup view; local-only unless `--include-prs` |
-| `mx-update.sh`           | Fast-forward-only self-update of broker and daemon homes from origin          |
+| `mx-update.sh`           | Fast-forward-only self-update of orchestrator and persistent-sub-agent homes from origin          |
 | `mx-backlog.sh`          | Operate the owned markdown backlog through its supported command surface       |
 | `mx-backlog-lib.sh`      | Own backlog schema, parsing, atomic mutations, and Done retention              |
-| `mx-backlog-handoff.sh`  | Validate and route queued backlog-item moves into a daemon home                  |
+| `mx-backlog-handoff.sh`  | Validate and route queued backlog-item moves into a persistent-sub-agent home                  |
 | `mx-headroom.sh`         | Report composite dispatch capacity and inspect, cancel, or drain parked requests |
 | `mx-viz.sh`              | Start, inspect, and stop the disposable read-only loopback system dashboard |
 | `mx-vplan.sh`            | Create, serve, inspect, and stop one-shot loopback HTML review artifacts |
@@ -58,15 +58,15 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-subagent-pretool-check.sh` | Allow native delegation and check supported remote merge commands (docs/subagent-guard.md) |
 | `mx-native-observe.sh` | Record attempt-bound provider child lifecycle evidence or an honest session-bound fallback |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
-| `mx-home-seed.sh`        | Transactionally provision a daemon home and maintain `data/daemons.md`       |
-| `mx-spawn.sh`            | Spawn actors, scouts, `id=repo` batches, and daemons on the resolved harness and runtime backend |
+| `mx-home-seed.sh`        | Transactionally provision a persistent-sub-agent home and maintain `data/daemons.md`       |
+| `mx-spawn.sh`            | Spawn sub-agents, `id=repo` batches, and persistent sub-agents on the resolved harness and runtime backend |
 | `mx-backend.sh`          | Transport runtime-backend selection, target resolution, and operation dispatch to Rust |
 | `mx-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for cmux workspace titles |
 | `mx-composer-lib.sh`     | Single system-wide owner of composer-content classification for all backends          |
 | `backends/tmux.sh`       | Verified tmux session-provider adapter                                               |
 | `backends/herdr.sh`      | Experimental herdr session-provider adapter                                          |
 | `backends/cmux.sh`       | Experimental cmux session-provider adapter                                           |
-| `mx-config-push.sh`      | Push declared inherited local material to live daemons mid-session and send a pointer to the literal-content config reread when config changed |
+| `mx-config-push.sh`      | Push declared inherited local material to live persistent sub-agents mid-session and send a pointer to the literal-content config reread when config changed |
 | `mx-deliver.sh`          | Publish a task branch and reconcile its canonical PR with ordinary authentication and durable receipts |
 | `mx-deliver-lib.sh`      | Preserve the sourced-function delivery-record and eligibility ABI for remaining callers |
 | `mx-deep-review.sh`      | Explicitly run, resume, or answer the Rust-owned optional review pipeline and record revision-bound evidence |
@@ -74,32 +74,32 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-project-mode.sh`     | Resolve a project's publication destination and legacy `+yolo` flag; legacy deep-review mode does not request a review run |
 | `mx-merge-local.sh`      | Integrate explicitly requested local-only work with clean fast-forward and checkout-ownership checks |
 | `mx-review-diff.sh`      | Enter the Rust review-delivery boundary for a bounded authoritative-base diff review |
-| `mx-marker-lib.sh`       | Compatibility entry point for the from-broker carrier owned by `mx-operational-input.sh` |
-| `mx-pending-reply-lib.sh` | Parent-owned daemon pending-reply expectations, recovery, and one-shot escalation |
-| `mx-daemon-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
+| `mx-marker-lib.sh`       | Compatibility entry point for the parent-request carrier owned by `mx-operational-input.sh` |
+| `mx-pending-reply-lib.sh` | Parent-owned persistent-sub-agent pending-reply expectations, recovery, and one-shot escalation |
+| `mx-daemon-report.sh` | Optional helper to append a correlated persistent-sub-agent status or document-pointer report       |
 | `mx-report`           | Validate and durably append a task-bound status event, then best-effort nudge the identity-matched watcher |
 | `mx-report-mcp`       | Rust stdio MCP server exposing `report_status` through the shared task-bound reporter    |
 | `mx-gate-refuse-lib.sh`  | Refuse lifecycle entrypoints whenever a deep-review agent marker is present             |
 | `mx-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
 | `mx-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `mx-watch.sh`            | Singleton-safe watcher with interruptible polling: absorb benign wakes, queue and exit on actionable ones |
-| `mx-afk-start.sh`        | Run the common sourceable away-mode daemon entry in the foreground                      |
+| `mx-afk-start.sh`        | Run the common sourceable away-mode service-daemon entry in the foreground                      |
 | `mx-afk-launch.sh`       | Execute Rust-owned away-mode entry, exit, rollback, and backend terminal lifecycle                 |
 | `mx-afk-return.sh`       | Execute Rust-owned deterministic return shutdown, catch-up evidence, and blocker gate |
-| `mx-supervisor-target-lib.sh` | Resolve the shared supervisor target and backend for the daemon and launcher       |
-| `mx-supervise-daemon.sh` | Presence-gated away-mode sub-supervisor: self-handle routine wakes, escalate batched digests, alert on failed delivery |
-| `mx-actor-state.sh`       | Print one deterministic current-state line for an actor                                |
+| `mx-supervisor-target-lib.sh` | Resolve the shared supervisor target and backend for the service daemon and launcher       |
+| `mx-supervise-daemon.sh` | Presence-gated away-mode service daemon: self-handle routine wakes, escalate batched digests, alert on failed delivery |
+| `mx-actor-state.sh`       | Print one deterministic current-state line for a sub-agent                                |
 | `mx-tangle-lib.sh`       | Shared default-branch resolution and primary-checkout tangle classification          |
 | `mx-supervision-lib.sh`  | Shared in-flight-work-without-fresh-watcher-beacon predicate                         |
-| `mx-ff-lib.sh`           | Shared guarded fast-forward helper for origin pulls and local daemon syncs       |
+| `mx-ff-lib.sh`           | Shared guarded fast-forward helper for origin pulls and local persistent-sub-agent syncs       |
 | `mx-lock-lib.sh`         | Shared "is this git lock provably abandoned?" proof used by teardown and system-sync   |
-| `mx-config-inherit-lib.sh` | Shared primary-to-daemon inherited local-material propagation and config-reread delivery |
+| `mx-config-inherit-lib.sh` | Shared primary-to-persistent-sub-agent inherited local-material propagation and config-reread delivery |
 | `mx-wake-drain.sh`       | Atomically drain queued watcher wakes, emit bounded best-effort status-event annotations, then assert watcher liveness |
 | `mx-wake-lib.sh`         | Shared durable wake queue, portable locks, and watcher identity/health helpers       |
 | `mx-classify-lib.sh`     | Preserve the sourced classification ABI while `multplx-core::classification` owns production vocabulary |
 | `mx-send.sh`             | Send one verified literal line or supported key through the target's recorded backend |
 | `mx-tmux-lib.sh`         | Shared tmux pane primitives for busy detection, composer capture, and verified submit |
-| `mx-peek.sh`             | Print a bounded tail of an actor endpoint                                          |
+| `mx-peek.sh`             | Print a bounded tail of a sub-agent endpoint                                          |
 | `mx-check-register.sh`   | Bind an intentional custom watcher check to its current bytes through Rust          |
 | `mx-check-lib.sh`        | Validate custom-check registrations and prepare private execution snapshots          |
 | `mx-pr-lib.sh`           | Preserve the sourced PR-artifact ABI while Rust owns typed identities and closed records |
@@ -107,7 +107,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-pr-check-migrate.sh` | Enter the Rust review-delivery boundary for non-executing quarantine and canonical rebuild |
 | `mx-pr-check.sh`         | Enter the Rust boundary to record canonical PR metadata and arm a static merge poll |
 | `mx-pr-merge.sh`         | Human-shell helper to record PR metadata and merge a canonical GitHub URL; refuses agent sessions |
-| `mx-promote.sh`          | Atomically promote a scout task in place to a protected delivery task through Rust  |
-| `mx-teardown.sh`         | Guarded teardown: release proven landed allocations, require completed scout deliverables, preserve retired home material |
-| `mx-harness.sh`          | Detect the running harness and resolve the actor or daemon harness, model, and effort |
-| `mx-lock.sh`             | Per-home broker session lock                                                      |
+| `mx-promote.sh`          | Atomically promote a researcher task in place to a protected implementation task through Rust  |
+| `mx-teardown.sh`         | Guarded teardown: release proven landed allocations, require completed researcher deliverables, preserve retired home material |
+| `mx-harness.sh`          | Detect the running harness and resolve the sub-agent or persistent-sub-agent harness, model, and effort |
+| `mx-lock.sh`             | Per-home orchestrator session lock                                                      |

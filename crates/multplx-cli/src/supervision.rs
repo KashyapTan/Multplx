@@ -1399,7 +1399,7 @@ pub(crate) fn claude_stop_autoarm(root: &Path, home: &Path, source_root: &Path) 
         .join("\n");
     if failed {
         eprintln!(
-            "broker watcher cycle FAILED - supervision is down while this home still needs it."
+            "orchestrator watcher cycle FAILED - supervision is down while this home still needs it."
         );
         if !selected.is_empty() {
             eprintln!("{selected}");
@@ -1408,7 +1408,7 @@ pub(crate) fn claude_stop_autoarm(root: &Path, home: &Path, source_root: &Path) 
             "Run bin/mx-wake-drain.sh first. Then repair supervision with bin/mx-watch-arm.sh as its own Claude Code background task (never shell &). If the failure repeats, treat it as a blocker and report it instead of ending blind."
         );
     } else {
-        eprintln!("broker watcher wake - one supervision event needs a handling turn now.");
+        eprintln!("orchestrator watcher wake - one supervision event needs a handling turn now.");
         if !selected.is_empty() {
             eprintln!("{selected}");
         }
@@ -2036,7 +2036,7 @@ fn afk_return_print(text: &str) {
         match f.as_slice() {
             ["evidence", kind, value] => println!("catch-up {kind}: {value}"),
             ["blocker", task, key, summary] => {
-                eprintln!("broker-actionable blocker: {task} [key={key}] {summary}")
+                eprintln!("orchestrator-actionable blocker: {task} [key={key}] {summary}")
             }
             _ => {}
         }
@@ -4480,7 +4480,7 @@ pub(crate) fn turnend_guard(
     if count > limit {
         reset_budget(&budget, true);
         let message = format!(
-            "broker turn-end guard: {} task(s) in flight with no live watcher and no Stop auto-arm claim; block budget exhausted, allowing this stop. Repair supervision (bin/mx-watch-arm.sh as a Claude Code background task) or investigate why bin/mx-claude-stop-autoarm.sh is not claiming this home.",
+            "orchestrator turn-end guard: {} task(s) in flight with no live watcher and no Stop auto-arm claim; block budget exhausted, allowing this stop. Repair supervision (bin/mx-watch-arm.sh as a Claude Code background task) or investigate why bin/mx-claude-stop-autoarm.sh is not claiming this home.",
             status.in_flight
         );
         println!("{}", serde_json::json!({"systemMessage": message}));
