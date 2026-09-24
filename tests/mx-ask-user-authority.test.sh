@@ -3,7 +3,8 @@
 # Existing command/record security remains covered by decision/override runtime tests.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-CONTRACT="$ROOT/AGENTS_E.md"
+CONTRACT="$ROOT/AGENTS.md"
+[ -f "$CONTRACT" ] || CONTRACT="$ROOT/AGENTS_E.md"
 assert_grep 'accepted request and its acceptance criteria' "$CONTRACT" 'accepted scope omitted'
 assert_grep 'genuinely missing scope decisions' "$CONTRACT" 'real clarification omitted'
 assert_grep 'keep independent work moving' "$CONTRACT" 'one decision stalls unrelated work'

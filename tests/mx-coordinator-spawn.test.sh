@@ -14,7 +14,9 @@ TMUX_LOG="$TMP_ROOT/tmux.log"
 TASK_TMP="$TMP_ROOT/task-tmp"
 
 mkdir -p "$RUNTIME/bin" "$HOME_DIR/data" "$HOME_DIR/state" "$HOME_DIR/config" "$HOME_DIR/projects" "$TASK_TMP"
-cp "$ROOT/AGENTS_E.md" "$RUNTIME/AGENTS.md"
+SOURCE_CONTRACT="$ROOT/AGENTS.md"
+[ -f "$SOURCE_CONTRACT" ] || SOURCE_CONTRACT="$ROOT/AGENTS_E.md"
+cp "$SOURCE_CONTRACT" "$RUNTIME/AGENTS.md"
 printf '%s\n' codex > "$HOME_DIR/config/daemon-harness"
 
 cat > "$FAKEBIN/tmux" <<'SH'

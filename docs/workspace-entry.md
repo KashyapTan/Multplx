@@ -86,10 +86,14 @@ The workspace displays projects, cross-repository tasks, pending decisions, curr
 Its task and domain facts come from the same canonical projection as CLI status and [MX Viz](viz.md).
 Search and selection are presentation state; the terminal interface has no separate model, task store or workflow engine.
 Closing it leaves independent work running.
+Use `multplx chat codex` to go straight to the orchestrator conversation without opening the dashboard.
 
 Use `Tab` to switch between projects, tasks, decisions and domains.
 Arrow keys or `j`/`k` move within a view, `/` searches projects, `t` enters task text for a selected project, `r` refreshes discovery and task state, `c` enters chat, `v` opens MX Viz and `q` leaves.
+The mouse wheel moves through the current list; `Ctrl+C` also exits while editing text.
 The screen adapts to terminal size and preserves selection as cached discovery results change.
+Interactive rendering uses [Ratatui](https://ratatui.rs/) with Crossterm for terminal events.
+It uses the terminal's alternate screen, keeping dashboard redraws out of normal shell scrollback, and restores the shell screen when leaving the workspace.
 Task observation age stays visible between explicit refreshes.
 Discovery progress and unavailable observations remain visible while known projects and chat entry stay usable.
 `multplx shell` retains explicit shell activation, including the existing named-harness shims.

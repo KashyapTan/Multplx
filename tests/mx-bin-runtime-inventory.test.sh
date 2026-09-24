@@ -37,7 +37,7 @@ while IFS="$(printf '\t')" read -r path class reason extra_field; do
     minimal-adapter)
       lines=$(wc -l < "$ROOT/$path" | tr -d ' ')
       [ "$lines" -le 12 ] || inventory_fail "$path minimal adapter grew to $lines lines"
-      grep -Eq '^exec .*\$?(BINARY|MX_BINARY|rust_bin|mx_[a-z_]+_bin)' "$ROOT/$path" \
+      grep -Eq '^((export )?MX_MULTICALL_EXPLICIT=1 )?exec .*\$?(BINARY|MX_BINARY|rust_bin|mx_[a-z_]+_bin)' "$ROOT/$path" \
         || inventory_fail "$path minimal adapter does not end in an exec-only Rust handoff"
       if rg -n '^[[:space:]]*(mktemp|mkdir|rm|mv|cp|chmod|chown|jq|git|gh|tmux|herdr)([[:space:]]|$)' "$ROOT/$path" >/dev/null; then
         inventory_fail "$path minimal adapter contains policy, mutation, or orchestration"

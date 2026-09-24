@@ -62,6 +62,8 @@ Fix login in my-app, investigate the flaky tests in api, and research the export
 ```
 
 Open `multplx` in another terminal to see the workspace; press `v` for MX Viz or `c` to connect to the main conversation.
+This terminal dashboard shows projects, tasks and decisions; it does not run a separate AI chat.
+Use `multplx chat codex` when you want to talk directly to the orchestrator.
 You can also submit a durable request from the terminal:
 
 ```sh

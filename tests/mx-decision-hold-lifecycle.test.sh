@@ -548,5 +548,7 @@ test_resolve_matches_quoted_blocked_by_edges
 
 # Fresh prompts no longer make compatibility attestation a universal completion step.
 assert_absent "$ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md" 'retired completion skill remains active'
-assert_no_grep 'complete --none' "$ROOT/AGENTS_E.md" 'mandatory empty attestation reintroduced'
+CONTRACT="$ROOT/AGENTS.md"
+[ -f "$CONTRACT" ] || CONTRACT="$ROOT/AGENTS_E.md"
+assert_no_grep 'complete --none' "$CONTRACT" 'mandatory empty attestation reintroduced'
 pass 'legacy decision mechanics remain tested separately from lean prompt policy'

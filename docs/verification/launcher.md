@@ -5,6 +5,39 @@ This maintained record holds current empirical evidence for the global bootstrap
 The public `bin/mx-launcher.sh` and `bin/mx-launcher-install.sh` filenames are transport-only adapters.
 The Rust launcher owns verified binary publication, root and home records, update, rollback recovery, and uninstall.
 
+## Terminal workspace rendering repair
+
+The previous workspace used `stty raw` and printed a newline-delimited full screen every 100 ms into the shell's main screen buffer.
+Raw-mode line feeds did not return to column zero, and the final line feed scrolled the screen; repeated clears did not prevent scrollback growth or text overflow.
+It also left a detached stdin-reading thread alive when handing control to chat.
+
+The replacement uses Ratatui with Crossterm, an alternate screen, bounded widgets and differential drawing.
+One event loop handles keyboard, mouse and resize events, and terminal cleanup runs before returning a launcher action.
+The canonical project/task projections, durable task intake and chat connection owner remain unchanged.
+The noninteractive `multplx workspace --plain` path remains available.
+
+Validation on macOS, based on `2f57d21` plus the local terminal repair:
+
+- `cargo build --release --workspace --locked`: passed.
+- `cargo test --locked -p multplx-cli workspace_tui::tests`: 16 passed, no failures.
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: passed.
+- `target/release/mx test-run tests/mx-launcher.test.sh tests/mx-launcher-shell.test.sh tests/mx-workspace-discovery.test.sh`: three passed, no failures or gates (17.349 seconds).
+- `target/release/mx test-run tests/mx-launcher-connection.test.sh`: passed, no failures or gates (7.779 seconds).
+  This uses real PTYs and tmux with a synthetic harness; it covers resize, bounded idle output, Unicode task intake, navigation, existing-chat attachment and terminal restoration on quit and signals.
+- `/bin/bash -n tests/mx-launcher-connection.test.sh tests/mx-launcher.test.sh`: passed.
+- An isolated real tmux session displayed the workspace at 80x24 and resized to 40x12; inspection led to prioritizing connection/freshness and shortening the footer.
+- A separate real tmux session exited cleanly after three view changes and `q`.
+- Real tmux sessions with `remain-on-exit` confirmed process exit for keyboard `Ctrl+C` (130), externally delivered `SIGINT` (130) and `SIGTERM` (143).
+- `target/release/mx doc-audience-check`: passed, 94 surfaces and 504 local links.
+- `git diff --check`: passed.
+
+These checks do not start model sessions or establish live provider behavior.
+The PTY assertions now reconstruct changed terminal cells and handle partial frames and EOF, rather than requiring full-screen text in each output chunk.
+The launcher adapter assertion accepts the existing explicit-dispatch assignment before `exec` while retaining the required process handoff.
+The repair was not installed into the user's global runtime during validation.
+The checks above ran locally on macOS; hosted Linux/macOS and coverage results are tracked on [PR #49](https://github.com/KashyapTan/Multplx/pull/49).
+
 ## Simple source installer verification
 
 The root `install.sh` builds the locked release, packages matching runtime assets and delegates installation to the existing transactional package installer.
