@@ -3,7 +3,8 @@
 # shellcheck disable=SC2016
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-CONTRACT="$ROOT/AGENTS_E.md"
+CONTRACT="$ROOT/AGENTS.md"
+[ -f "$CONTRACT" ] || CONTRACT="$ROOT/AGENTS_E.md"
 assert_grep 'unresolved human questions durable and visible' "$CONTRACT" 'unanswered questions lost'
 assert_grep 'actual revision, exact checks and results, limitations' "$CONTRACT" 'quality evidence missing'
 assert_grep 'PR ready and human merged are separate facts' "$CONTRACT" 'readiness conflated with merge'
