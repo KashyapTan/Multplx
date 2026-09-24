@@ -145,7 +145,8 @@ multplx
 ```
 
 Use arrows to browse, `Tab` to change sections, `c` to enter chat and `v` to open MX Viz.
-The dashboard has a detailed Tasks view and a searchable, collapsible Agents graph.
+The terminal workspace is a dashboard for the same orchestrator, not another AI chat.
+MX Viz is the browser dashboard, with a detailed Tasks view and a searchable, collapsible Agents graph.
 Closing the workspace or browser does not stop independent tasks.
 For a plain terminal summary or command-line request:
 

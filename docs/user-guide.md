@@ -42,6 +42,7 @@ multplx
 ```
 
 The terminal workspace shows known projects, tasks, decisions, scoped domains, and the connection to the main conversation.
+It is a dashboard and task-entry surface, not a separate AI conversation; `multplx chat codex` opens the orchestrator directly.
 The directory where you launched Multplx supplies context but is never scanned or registered automatically.
 
 The main workspace keys are:
@@ -49,13 +50,14 @@ The main workspace keys are:
 | Key | Action |
 | --- | --- |
 | `Tab` | Move between projects, tasks, decisions, and domains. |
-| Arrow keys or `j` and `k` | Move through the current list. |
+| Arrow keys, `j` and `k`, or mouse wheel | Move through the current list. |
 | `/` | Search projects. |
 | `t` | Enter a task for the selected project. |
 | `r` | Refresh discovery and task state. |
 | `c` | Enter the main chat. |
 | `v` | Open MX Viz. |
 | `q` | Close the workspace while independent work continues. |
+| `Ctrl+C` | Interrupt the workspace and restore the terminal, including while entering text. |
 
 Use a plain snapshot when you do not want the interactive interface:
 

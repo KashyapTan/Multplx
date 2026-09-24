@@ -48,18 +48,20 @@ See [upgrade and uninstall](getting-started.md#upgrade) for active-session and c
 | `multplx shell` | Open a shell with this installation's runtime and home bindings. |
 
 The shorter `multplx codex`, `multplx claude`, `multplx cursor` and `multplx pi` forms are also supported.
+The workspace is a dashboard and task-entry surface; use a chat command for the AI conversation itself.
 The terminal keys are:
 
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch projects, tasks, decisions and domains. |
-| Arrows or `j` / `k` | Move through the current list. |
+| Arrows, `j` / `k`, or mouse wheel | Move through the current list. |
 | `/` | Search projects. |
 | `t` | Submit a task for the selected project. |
 | `r` | Refresh discovery and state. |
 | `c` | Enter the main conversation. |
 | `v` | Open MX Viz. |
 | `q` | Close the workspace while independent work continues. |
+| `Ctrl+C` | Interrupt the workspace and restore the terminal, including while entering text. |
 
 There is one main conversation per operational home, not one per selected project.
 An unavailable attachment route is reported rather than replaced with another main orchestrator.

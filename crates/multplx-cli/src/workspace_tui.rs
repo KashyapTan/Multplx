@@ -1,12 +1,20 @@
 //! Thin terminal workspace over the canonical project and task projections.
 
-use std::io::{self, IsTerminal, Read, Write};
+use std::io::{self, IsTerminal, Stdout};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseEventKind,
+};
+use crossterm::execute;
+use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use multplx_domain::project_discovery::{self, ScanStatus};
 use multplx_domain::project_registry::{ProjectRecord, read_catalog};
 use multplx_domain::snapshot::{
@@ -14,6 +22,12 @@ use multplx_domain::snapshot::{
 };
 
 use crate::system_snapshot;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
+use ratatui::{Frame, Terminal};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Action {
@@ -25,6 +39,7 @@ pub(crate) enum Action {
         domain: Option<String>,
         text: String,
     },
+    Interrupted(i32),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -378,6 +393,11 @@ fn safe(value: &str) -> String {
         .collect()
 }
 
+fn safe_multiline(value: &str) -> String {
+    value.lines().map(safe).collect::<Vec<_>>().join("\n")
+}
+
+#[cfg(test)]
 fn push_utf8(pending: &mut Vec<u8>, target: &mut String, byte: u8) {
     pending.push(byte);
     match std::str::from_utf8(pending) {
@@ -597,24 +617,252 @@ fn render_details(
     }
 }
 
-fn dimensions() -> (usize, usize) {
-    if io::stdin().is_terminal()
-        && let Ok(output) = Command::new("stty")
-            .arg("size")
-            .stdin(Stdio::inherit())
-            .output()
-        && output.status.success()
-    {
-        let values = String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .filter_map(|value| value.parse::<usize>().ok())
-            .collect::<Vec<_>>();
-        if let [rows, columns] = values.as_slice()
-            && *rows > 0
-            && *columns > 0
-        {
-            return (*columns, *rows);
+fn selected_view_index(view: View) -> usize {
+    match view {
+        View::Projects => 0,
+        View::Tasks => 1,
+        View::Decisions => 2,
+        View::Domains => 3,
+    }
+}
+
+fn current_rows(model: &Model) -> (Vec<String>, Option<String>, Option<usize>) {
+    match model.view {
+        View::Projects => {
+            let rows = model.visible_projects();
+            (
+                rows.iter()
+                    .map(|row| format!("{}  ·  {}", safe(&row.name), safe(&row.status)))
+                    .collect(),
+                rows.get(model.selected)
+                    .map(|row| format!("{}\n{}\n\n{}", row.name, row.path, row.status)),
+                (!rows.is_empty()).then_some(model.selected),
+            )
         }
+        View::Tasks => (
+            model
+                .tasks
+                .iter()
+                .map(|row| format!("{}  ·  {}", safe(&row.id), safe(&row.title)))
+                .collect(),
+            model
+                .tasks
+                .get(model.item_selected)
+                .map(|row| format!("{}\n{}\nProject: {}", row.title, row.state, row.project)),
+            (!model.tasks.is_empty()).then_some(model.item_selected),
+        ),
+        View::Decisions => (
+            model.decisions.iter().map(|row| safe(&row.title)).collect(),
+            model
+                .decisions
+                .get(model.item_selected)
+                .map(|row| format!("{}\n\n{}", row.title, row.detail)),
+            (!model.decisions.is_empty()).then_some(model.item_selected),
+        ),
+        View::Domains => (
+            model.domains.iter().map(|row| safe(&row.title)).collect(),
+            model
+                .domains
+                .get(model.item_selected)
+                .map(|row| format!("{}\n\n{}", row.title, row.detail)),
+            (!model.domains.is_empty()).then_some(model.item_selected),
+        ),
+    }
+}
+
+fn render_frame(frame: &mut Frame<'_>, model: &Model) {
+    let area = frame.area();
+    let background = Block::default()
+        .title(" Multplx · Workspace ")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let inner = background.inner(area);
+    frame.render_widget(background, area);
+    let compact_header = inner.height < 18;
+    let [header_area, tabs_area, body_area, footer_area] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(if compact_header { 3 } else { 4 }),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+
+    let selected_project = model
+        .visible_projects()
+        .get(model.selected)
+        .filter(|_| model.selection_active)
+        .map_or("none", |row| row.name.as_str());
+    let mut header_lines = vec![
+        Line::from(vec![
+            Span::styled("Snapshot  ", Style::default().fg(Color::Cyan)),
+            Span::raw(model.snapshot_at.map_or_else(
+                || "loading".to_owned(),
+                |at| format!("{}s ago", at.elapsed().as_secs()),
+            )),
+            Span::raw(" · "),
+            Span::styled("Chat  ", Style::default().fg(Color::Cyan)),
+            Span::raw(safe(&model.connection)),
+        ]),
+        Line::from(vec![
+            Span::styled("Context  ", Style::default().fg(Color::Cyan)),
+            Span::raw(safe(&model.caller.display().to_string())),
+            Span::raw("   "),
+            Span::styled("Project  ", Style::default().fg(Color::Cyan)),
+            Span::raw(safe(selected_project)),
+        ]),
+        Line::from(vec![
+            Span::styled("Discovery  ", Style::default().fg(Color::Cyan)),
+            Span::raw(safe(&model.scan)),
+        ]),
+    ];
+    if !compact_header {
+        header_lines.push(Line::from(vec![
+            Span::styled("Home  ", Style::default().fg(Color::Cyan)),
+            Span::raw(safe(&model.home.display().to_string())),
+        ]));
+    }
+    frame.render_widget(
+        Paragraph::new(header_lines).style(Style::default().fg(Color::White)),
+        header_area,
+    );
+
+    let tabs = [
+        format!("Projects {}", model.projects.len()),
+        format!("Tasks {}", model.tasks.len()),
+        format!("Decisions {}", model.decisions.len()),
+        format!("Domains {}", model.domains.len()),
+    ]
+    .into_iter()
+    .map(Line::from)
+    .collect::<Vec<_>>();
+    frame.render_widget(
+        Tabs::new(tabs)
+            .select(selected_view_index(model.view))
+            .divider(" │ ")
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        tabs_area,
+    );
+
+    let (rows, detail, selected) = current_rows(model);
+    let body_columns = if body_area.width >= 64 {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(body_area)
+            .to_vec()
+    } else if body_area.height >= 8 && detail.is_some() {
+        let [list_area, detail_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .areas(body_area);
+        vec![list_area, detail_area]
+    } else {
+        vec![body_area]
+    };
+    let empty = match model.view {
+        View::Projects => {
+            "No known projects. Enter a path or configure discovery roots.".to_owned()
+        }
+        View::Tasks => match &model.state {
+            LoadState::Loading => "Loading canonical task state…".to_owned(),
+            LoadState::Error(message) => format!("State unavailable: {}", safe(message)),
+            LoadState::Ready => "No accepted tasks.".to_owned(),
+        },
+        View::Decisions => "No pending decisions.".to_owned(),
+        View::Domains => "No active domains.".to_owned(),
+    };
+    let list_items = if rows.is_empty() {
+        vec![ListItem::new(empty).style(Style::default().fg(Color::DarkGray))]
+    } else {
+        rows.iter()
+            .map(|row| ListItem::new(safe(row)))
+            .collect::<Vec<_>>()
+    };
+    let title = match model.view {
+        View::Projects => "Projects",
+        View::Tasks => "Tasks",
+        View::Decisions => "Pending decisions",
+        View::Domains => "Active domains",
+    };
+    let mut list_state = ListState::default();
+    list_state.select(selected);
+    frame.render_stateful_widget(
+        List::new(list_items)
+            .block(
+                Block::default()
+                    .title(format!(" {title} "))
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            )
+            .highlight_symbol("› ")
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        body_columns[0],
+        &mut list_state,
+    );
+    if let Some(detail_area) = body_columns.get(1) {
+        let detail = detail.unwrap_or_else(|| match &model.state {
+            LoadState::Loading if model.view == View::Tasks => {
+                "Loading canonical task state…".into()
+            }
+            LoadState::Error(message) if model.view == View::Tasks => message.clone(),
+            _ => "Select an item to see its details.".into(),
+        });
+        frame.render_widget(
+            Paragraph::new(safe_multiline(&detail))
+                .block(
+                    Block::default()
+                        .title(" Details ")
+                        .borders(Borders::ALL)
+                        .border_type(ratatui::widgets::BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                )
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            *detail_area,
+        );
+    }
+
+    let (footer, offset) = if model.task_entry {
+        let line = format!("New task: {}█", safe(&model.task_text));
+        let width = Line::from(line.clone()).width();
+        let visible = usize::from(footer_area.width.saturating_sub(1));
+        let offset = width.saturating_sub(visible).min(usize::from(u16::MAX)) as u16;
+        (line, offset)
+    } else if model.filtering {
+        (format!("Filter: {}█", safe(&model.filter)), 0)
+    } else if footer_area.width < 64 {
+        ("Tab · ↑↓ · / · t · c · v · q".into(), 0)
+    } else {
+        (
+            "Tab · ↑↓/jk · /filter · t task · r refresh · c chat · v viz · q quit".into(),
+            0,
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(safe(&footer))
+            .style(Style::default().fg(Color::Gray))
+            .scroll((0, offset)),
+        footer_area,
+    );
+}
+
+fn dimensions() -> (usize, usize) {
+    if let Ok((columns, rows)) = terminal::size()
+        && columns > 0
+        && rows > 0
+    {
+        return (usize::from(columns), usize::from(rows));
     }
     let value = |name: &str, fallback| {
         std::env::var(name)
@@ -684,35 +932,185 @@ fn refresh_receiver(home: &Path, config: &Path, data: &Path) -> Receiver<Result<
     receiver
 }
 
-struct TerminalMode {
-    saved: Option<String>,
+struct TerminalSession {
+    terminal: Terminal<CrosstermBackend<Stdout>>,
+    raw: bool,
+    alternate: bool,
+    signal_ids: Vec<signal_hook::SigId>,
+    signal: Arc<AtomicUsize>,
 }
 
-impl TerminalMode {
-    fn enter() -> Self {
-        let saved = Command::new("stty")
-            .arg("-g")
-            .stdin(Stdio::inherit())
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
-        if saved.is_some() {
-            let _ = Command::new("stty")
-                .args(["raw", "-echo", "min", "1", "time", "0"])
-                .status();
+impl TerminalSession {
+    fn enter() -> io::Result<Self> {
+        let mut session = Self {
+            terminal: Terminal::new(CrosstermBackend::new(io::stdout()))?,
+            raw: false,
+            alternate: false,
+            signal_ids: Vec::new(),
+            signal: Arc::new(AtomicUsize::new(0)),
+        };
+        terminal::enable_raw_mode()?;
+        session.raw = true;
+        execute!(session.terminal.backend_mut(), EnterAlternateScreen)?;
+        session.alternate = true;
+        execute!(
+            session.terminal.backend_mut(),
+            EnableMouseCapture,
+            crossterm::cursor::Hide
+        )?;
+        for (number, code) in [
+            (signal_hook::consts::SIGINT, 130),
+            (signal_hook::consts::SIGTERM, 143),
+            (signal_hook::consts::SIGHUP, 129),
+        ] {
+            let id = signal_hook::flag::register_usize(number, Arc::clone(&session.signal), code)
+                .map_err(io::Error::other)?;
+            session.signal_ids.push(id);
         }
-        Self { saved }
+        Ok(session)
     }
 }
 
-impl Drop for TerminalMode {
+impl Drop for TerminalSession {
     fn drop(&mut self) {
-        if let Some(saved) = &self.saved {
-            let _ = Command::new("stty").arg(saved).status();
+        for id in self.signal_ids.drain(..) {
+            signal_hook::low_level::unregister(id);
         }
-        println!("\x1b[?25h\x1b[0m");
-        let _ = io::stdout().flush();
+        let _ = self.terminal.show_cursor();
+        if self.alternate {
+            let _ = execute!(
+                self.terminal.backend_mut(),
+                crossterm::cursor::Show,
+                DisableMouseCapture,
+                LeaveAlternateScreen
+            );
+        }
+        if self.raw {
+            let _ = terminal::disable_raw_mode();
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum KeyOutcome {
+    Continue,
+    Refresh,
+    Action(Action),
+}
+
+fn handle_key(model: &mut Model, key: KeyEvent) -> KeyOutcome {
+    if key.kind == KeyEventKind::Release {
+        return KeyOutcome::Continue;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        return KeyOutcome::Action(Action::Interrupted(130));
+    }
+    if model.task_entry {
+        match key.code {
+            KeyCode::Enter if !model.task_text.trim().is_empty() => {
+                let routed = (model.view == View::Domains)
+                    .then(|| model.domains.get(model.item_selected))
+                    .flatten();
+                let project = routed
+                    .and_then(|row| row.target.clone())
+                    .or_else(|| model.selected_path().map(|path| path.display().to_string()));
+                if let Some(project) = project {
+                    return KeyOutcome::Action(Action::Task {
+                        project,
+                        domain: routed.map(|row| row.title.clone()),
+                        text: model.task_text.trim().to_owned(),
+                    });
+                }
+            }
+            KeyCode::Esc => {
+                model.task_entry = false;
+                model.task_text.clear();
+            }
+            KeyCode::Backspace => {
+                model.task_text.pop();
+            }
+            KeyCode::Char(character) if !character.is_control() => model.task_text.push(character),
+            _ => {}
+        }
+        return KeyOutcome::Continue;
+    }
+    if model.filtering {
+        match key.code {
+            KeyCode::Enter => model.filtering = false,
+            KeyCode::Esc => {
+                model.filter.clear();
+                model.filtering = false;
+                model.selected = 0;
+            }
+            KeyCode::Backspace => {
+                model.filter.pop();
+                model.selected = 0;
+            }
+            KeyCode::Char(character) if !character.is_control() => {
+                model.filter.push(character);
+                model.selected = 0;
+            }
+            _ => {}
+        }
+        return KeyOutcome::Continue;
+    }
+    match key.code {
+        KeyCode::Char('q') => KeyOutcome::Action(Action::Exit),
+        KeyCode::Char('c') | KeyCode::Enter => {
+            KeyOutcome::Action(Action::Chat(model.selected_path()))
+        }
+        KeyCode::Char('v') => KeyOutcome::Action(Action::Viz),
+        KeyCode::Tab => {
+            model.cycle_view();
+            KeyOutcome::Continue
+        }
+        KeyCode::Char('t')
+            if model.selected_path().is_some()
+                || (model.view == View::Domains
+                    && model
+                        .domains
+                        .get(model.item_selected)
+                        .and_then(|row| row.target.as_ref())
+                        .is_some()) =>
+        {
+            model.task_entry = true;
+            KeyOutcome::Continue
+        }
+        KeyCode::Char('/') => {
+            model.filtering = true;
+            KeyOutcome::Continue
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            model.move_selection(1);
+            KeyOutcome::Continue
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            model.move_selection(-1);
+            KeyOutcome::Continue
+        }
+        KeyCode::Char('r') => KeyOutcome::Refresh,
+        _ => KeyOutcome::Continue,
+    }
+}
+
+fn handle_event(model: &mut Model, event: Event) -> KeyOutcome {
+    match event {
+        Event::Key(key) => handle_key(model, key),
+        Event::Mouse(mouse)
+            if !model.filtering
+                && !model.task_entry
+                && mouse.kind == MouseEventKind::ScrollDown =>
+        {
+            model.move_selection(1);
+            KeyOutcome::Continue
+        }
+        Event::Mouse(mouse)
+            if !model.filtering && !model.task_entry && mouse.kind == MouseEventKind::ScrollUp =>
+        {
+            model.move_selection(-1);
+            KeyOutcome::Continue
+        }
+        _ => KeyOutcome::Continue,
     }
 }
 
@@ -774,29 +1172,22 @@ pub(crate) fn run(context: RunContext<'_>) -> Action {
         return Action::Exit;
     }
 
-    let _terminal = TerminalMode::enter();
-    print!("\x1b[?25l");
-    let (input_sender, input_receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let mut input = io::stdin().lock();
-        let mut byte = [0_u8; 1];
-        loop {
-            match input.read(&mut byte) {
-                Ok(0) | Err(_) => {
-                    let _ = input_sender.send(None);
-                    break;
-                }
-                Ok(_) => {
-                    if input_sender.send(Some(byte[0])).is_err() {
-                        break;
-                    }
-                }
-            }
+    let mut session = match TerminalSession::enter() {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("workspace terminal setup failed: {error}");
+            return Action::Interrupted(1);
         }
-    });
-    let mut escape = Vec::new();
-    let mut utf8_pending = Vec::new();
-    'main: loop {
+    };
+    let mut dirty = true;
+    let mut last_status_tick = Instant::now();
+    loop {
+        if let Some(code) = match session.signal.load(Ordering::Relaxed) {
+            129 | 130 | 143 => Some(session.signal.load(Ordering::Relaxed) as i32),
+            _ => None,
+        } {
+            return Action::Interrupted(code);
+        }
         if let Some(receiver) = &snapshot
             && let Ok(result) = receiver.try_recv()
         {
@@ -811,6 +1202,7 @@ pub(crate) fn run(context: RunContext<'_>) -> Action {
                 Err(message) => model.state = LoadState::Error(message),
             }
             snapshot = None;
+            dirty = true;
         }
         if let Some(receiver) = &refresh
             && let Ok(result) = receiver.try_recv()
@@ -823,126 +1215,62 @@ pub(crate) fn run(context: RunContext<'_>) -> Action {
                 Err(error) => model.scan = format!("refresh failed: {error}"),
             }
             refresh = None;
-        } else if refresh.is_some() {
-            model.replace_projects(project_rows(home, data));
-            model.scan = scan_status(config, data);
+            dirty = true;
         }
-        let (width, height) = dimensions();
-        print!("\x1b[H\x1b[2J{}", render(&model, width, height));
-        let _ = io::stdout().flush();
-        let byte = match input_receiver.recv_timeout(std::time::Duration::from_millis(100)) {
-            Ok(Some(byte)) => byte,
-            Ok(None) | Err(mpsc::RecvTimeoutError::Disconnected) => return Action::Exit,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-        };
-        if byte == 0x1b && !model.filtering && !model.task_entry {
-            escape.clear();
-            escape.push(byte);
-            continue;
+        if last_status_tick.elapsed() >= std::time::Duration::from_secs(1) {
+            last_status_tick = Instant::now();
+            if model.snapshot_at.is_some() {
+                dirty = true;
+            }
+            if refresh.is_some() {
+                let projects = project_rows(home, data);
+                let scan = scan_status(config, data);
+                if model.scan != scan || model.projects.len() != projects.len() {
+                    model.replace_projects(projects);
+                    model.scan = scan;
+                    dirty = true;
+                }
+            }
         }
-        if !escape.is_empty() {
-            escape.push(byte);
-            if escape == b"\x1b[A" {
-                escape.clear();
-                model.move_selection(-1);
-                continue;
+        if dirty {
+            if let Err(error) = session.terminal.draw(|frame| render_frame(frame, &model)) {
+                drop(session);
+                eprintln!("workspace render failed: {error}");
+                return Action::Interrupted(1);
             }
-            if escape == b"\x1b[B" {
-                escape.clear();
-                model.move_selection(1);
-                continue;
-            }
-            if escape.len() < 3 {
-                continue;
-            }
-            escape.clear();
+            dirty = false;
         }
-        let one = [byte];
-        let bytes = &one[..];
-        if model.task_entry {
-            match bytes {
-                b"\r" | b"\n" if !model.task_text.trim().is_empty() => {
-                    utf8_pending.clear();
-                    let routed = (model.view == View::Domains)
-                        .then(|| model.domains.get(model.item_selected))
-                        .flatten();
-                    let project = routed
-                        .and_then(|row| row.target.clone())
-                        .or_else(|| model.selected_path().map(|path| path.display().to_string()));
-                    if let Some(project) = project {
-                        return Action::Task {
-                            project,
-                            domain: routed.map(|row| row.title.clone()),
-                            text: model.task_text.trim().to_owned(),
-                        };
+        match event::poll(std::time::Duration::from_millis(100)) {
+            Ok(true) => match event::read() {
+                Ok(Event::Resize(_, _)) => dirty = true,
+                Ok(input) => match handle_event(&mut model, input) {
+                    KeyOutcome::Continue => dirty = true,
+                    KeyOutcome::Action(action) => return action,
+                    KeyOutcome::Refresh if refresh.is_none() => {
+                        model.scan = "scanning in background".to_owned();
+                        refresh = Some(refresh_receiver(home, config, data));
+                        if snapshot.is_none() {
+                            model.state = LoadState::Loading;
+                            snapshot = Some(snapshot_receiver(root, home, config, data));
+                        }
+                        model.connection =
+                            multplx_backend::harness_launch::conversation_state(home).description();
+                        dirty = true;
                     }
+                    KeyOutcome::Refresh => {}
+                },
+                Err(error) => {
+                    drop(session);
+                    eprintln!("workspace input failed: {error}");
+                    return Action::Interrupted(1);
                 }
-                b"\x1b" => {
-                    utf8_pending.clear();
-                    model.task_entry = false;
-                    model.task_text.clear();
-                }
-                b"\x7f" | b"\x08" => {
-                    utf8_pending.clear();
-                    model.task_text.pop();
-                }
-                _ => push_utf8(&mut utf8_pending, &mut model.task_text, byte),
+            },
+            Ok(false) => {}
+            Err(error) => {
+                drop(session);
+                eprintln!("workspace input failed: {error}");
+                return Action::Interrupted(1);
             }
-            continue;
-        }
-        if model.filtering {
-            match bytes {
-                b"\r" | b"\n" => {
-                    utf8_pending.clear();
-                    model.filtering = false;
-                }
-                b"\x1b" => {
-                    utf8_pending.clear();
-                    model.filter.clear();
-                    model.filtering = false;
-                    model.selected = 0;
-                }
-                b"\x7f" | b"\x08" => {
-                    utf8_pending.clear();
-                    model.filter.pop();
-                    model.selected = 0;
-                }
-                _ => {
-                    push_utf8(&mut utf8_pending, &mut model.filter, byte);
-                    model.selected = 0;
-                }
-            }
-            continue;
-        }
-        match bytes {
-            b"q" => break 'main Action::Exit,
-            b"c" | b"\r" | b"\n" => break 'main Action::Chat(model.selected_path()),
-            b"v" => break 'main Action::Viz,
-            b"\t" => model.cycle_view(),
-            b"t" if model.selected_path().is_some()
-                || (model.view == View::Domains
-                    && model
-                        .domains
-                        .get(model.item_selected)
-                        .and_then(|row| row.target.as_ref())
-                        .is_some()) =>
-            {
-                model.task_entry = true;
-            }
-            b"/" => model.filtering = true,
-            b"j" | b"\x1b[B" => model.move_selection(1),
-            b"k" | b"\x1b[A" => model.move_selection(-1),
-            b"r" if refresh.is_none() => {
-                model.scan = "scanning in background".to_owned();
-                refresh = Some(refresh_receiver(home, config, data));
-                if snapshot.is_none() {
-                    model.state = LoadState::Loading;
-                    snapshot = Some(snapshot_receiver(root, home, config, data));
-                }
-                model.connection =
-                    multplx_backend::harness_launch::conversation_state(home).description();
-            }
-            _ => {}
         }
     }
 }
@@ -950,7 +1278,116 @@ pub(crate) fn run(context: RunContext<'_>) -> Action {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::backend::TestBackend;
     use std::fs;
+
+    fn model() -> Model {
+        let mut model = Model::new(
+            Path::new("/a/home"),
+            Path::new("/a/config"),
+            Path::new("/a/data"),
+            Path::new("/a/caller"),
+            "offline".into(),
+        );
+        model.projects = vec![row("alpha", "Alpha"), row("beta", "Beta")];
+        model.selection_active = true;
+        model
+    }
+
+    fn text_of(terminal: &Terminal<TestBackend>) -> String {
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn ratatui_frame_fits_narrow_terminals_and_keeps_selected_details() {
+        let mut model = model();
+        model.projects[1].name = "Second 界 project".into();
+        model.selected = 1;
+        let backend = TestBackend::new(38, 16);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render_frame(frame, &model)).unwrap();
+        let text = text_of(&terminal);
+        assert!(text.contains("Projects"));
+        assert!(text.contains("Second"));
+        assert!(text.contains("/work/Beta"));
+        assert!(text.contains("· q"));
+
+        model.view = View::Tasks;
+        model.state = LoadState::Ready;
+        model.tasks.push(TaskRow {
+            id: "task-1".into(),
+            title: "Review plan".into(),
+            state: "queued".into(),
+            project: "Multplx".into(),
+        });
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, 38, 16))
+            .unwrap();
+        terminal.draw(|frame| render_frame(frame, &model)).unwrap();
+        let text = text_of(&terminal);
+        assert!(text.contains("Review plan"));
+        assert!(text.contains("queued"));
+    }
+
+    #[test]
+    fn crossterm_key_and_mouse_events_preserve_navigation_and_action_contract() {
+        let mut model = model();
+        assert_eq!(
+            handle_event(
+                &mut model,
+                Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+            ),
+            KeyOutcome::Continue
+        );
+        assert_eq!(model.selected, 1);
+        handle_event(
+            &mut model,
+            Event::Mouse(crossterm::event::MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            }),
+        );
+        assert_eq!(model.selected, 0);
+        assert_eq!(
+            handle_event(
+                &mut model,
+                Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE))
+            ),
+            KeyOutcome::Action(Action::Chat(Some(PathBuf::from("/work/Alpha"))))
+        );
+        assert_eq!(
+            handle_event(
+                &mut model,
+                Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL))
+            ),
+            KeyOutcome::Action(Action::Interrupted(130))
+        );
+
+        model.task_entry = true;
+        for character in "task 界".chars() {
+            handle_event(
+                &mut model,
+                Event::Key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)),
+            );
+        }
+        assert_eq!(model.task_text, "task 界");
+        assert_eq!(
+            handle_event(
+                &mut model,
+                Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE))
+            ),
+            KeyOutcome::Continue
+        );
+        assert_eq!(model.task_text, "task ");
+    }
 
     fn row(id: &str, name: &str) -> ProjectRow {
         ProjectRow {

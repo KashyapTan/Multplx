@@ -241,7 +241,7 @@ test_plan13_adapters_are_exec_only() {
     bin/mx-update.sh bin/mx-validation-waive.sh bin/mx-viz.sh bin/mx-vplan.sh bin/mx-wake-drain.sh; do
     lines=$(wc -l <"$ROOT/$adapter" | tr -d ' ')
     [ "$lines" -le 10 ] || fail "$adapter contains more than minimal transport logic"
-    grep -Eq '^exec ' "$ROOT/$adapter" \
+    grep -Eq '^(MX_MULTICALL_EXPLICIT=1 )?exec ' "$ROOT/$adapter" \
       || fail "$adapter does not end at an exec boundary"
     if grep -Eq '(^|[[:space:]])(git|awk|sed|jq|node|python3|flock|mkdir|mv|rm)([[:space:]]|$)' "$ROOT/$adapter"; then
       fail "$adapter contains policy, parsing, or state-mutation commands"

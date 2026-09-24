@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+crossterm.workspace = true
 multplx-backend = { path = "../multplx-backend" }
 multplx-core = { path = "../multplx-core" }
 multplx-domain = { path = "../multplx-domain" }
@@ -22,6 +23,7 @@ sha2.workspace = true
 rustix.workspace = true
 time.workspace = true
 regex.workspace = true
+ratatui.workspace = true
 signal-hook.workspace = true
 
 [dev-dependencies]
