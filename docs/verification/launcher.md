@@ -35,7 +35,8 @@ Validation on macOS, based on `2f57d21` plus the local terminal repair:
 These checks do not start model sessions or establish live provider behavior.
 The PTY assertions now reconstruct changed terminal cells and handle partial frames and EOF, rather than requiring full-screen text in each output chunk.
 The launcher adapter assertion accepts the existing explicit-dispatch assignment before `exec` while retaining the required process handoff.
-The repair has not been installed into the user's global runtime, and Linux CI has not been run for this local branch.
+The repair was not installed into the user's global runtime during validation.
+The checks above ran locally on macOS; hosted Linux/macOS and coverage results are tracked on [PR #49](https://github.com/KashyapTan/Multplx/pull/49).
 
 ## Simple source installer verification
 
