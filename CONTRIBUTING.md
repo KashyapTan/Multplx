@@ -40,7 +40,7 @@ Deep-review is an optional tool under that target, and PR merges belong to human
 ## Development
 
 Read [CLAUDE.md](CLAUDE.md) before editing this checkout.
-Keep the dormant [operating contract](AGENTS_E.md) short, command mechanics in help, and project-specific facts in their relevant documentation.
+Keep the [operating contract](AGENTS.md) short, command mechanics in help, and project-specific facts in their relevant documentation.
 Do not run operational session start or activate the partial redesign in real homes.
 Use one authoritative owner for each contract; other surfaces link to it.
 Review affected callers and supported harness/backend integrations when changing shared behavior.

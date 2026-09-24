@@ -5,6 +5,26 @@ This maintained record holds current empirical evidence for the global bootstrap
 The public `bin/mx-launcher.sh` and `bin/mx-launcher-install.sh` filenames are transport-only adapters.
 The Rust launcher owns verified binary publication, root and home records, update, rollback recovery, and uninstall.
 
+## Simple source installer verification
+
+The root `install.sh` builds the locked release, packages matching runtime assets and delegates installation to the existing transactional package installer.
+It supports separate installation directories and explicit upgrade; it does not install system dependencies or launch a model.
+`install-from-github.sh` clones public `main` into a disposable directory and forwards the same installation options.
+The public curl URL requires these new scripts to be published; local-only validation does not establish that the URL is available.
+
+On macOS, actual `./install.sh` and `./install.sh --upgrade` runs with explicit temporary bin/config/data directories both succeed.
+The installed command reports version `0.1.0`, a runtime under `data/runtime` and a separate home under `data/home`.
+The installed runtime includes `docs/commands.md`.
+The new source-install test covers help, deterministic missing-Cargo refusal and a local Git bootstrap fixture with argument forwarding and temporary-clone cleanup; its bootstrap target is a test script, not a live public download.
+The source-install and existing release-package behavior suites pass without failures or gates.
+Strict Clippy, formatting, shell syntax, documentation links/classification and the complete 134-script coverage inventory pass.
+
+Verification also exposed an installed-wrapper dispatch bug when `MX_RUST_BIN` names the global `multplx` binary and `MX_MULTICALL_EXPLICIT` is absent.
+The workflow, deep-review, timeline, headroom, backlog, system-view and system-snapshot transports now set the explicit dispatch marker only for their own exec.
+A package regression invokes their help commands against the installed binary with that marker deliberately absent in the caller.
+A rebuilt isolated installation passes those checks plus Viz/vplan help, while normal global help, project help and path resolution still work.
+No replacement was installed in the user's default global directories during these tests.
+
 ## Phase 11 workspace entry
 
 [Phase 11 implementation evidence](../../plans/lean_redesign/phase11-implementation.md) owns the current workspace, discovery, intake, package and connection validation ledger.

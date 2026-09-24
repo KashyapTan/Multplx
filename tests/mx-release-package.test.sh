@@ -92,6 +92,31 @@ assert_contains "$output" "root=$install/data/runtime" 'installed package did no
 assert_contains "$output" "home=$install/data/home" 'installed package lost its persistent home'
 pass 'package installs and launches from an unrelated directory without Rust or a source checkout'
 
+launcher_help=$(env -u MX_MULTICALL_EXPLICIT "$install/bin/multplx" --help) \
+  || fail 'installed multplx --help failed without explicit multicall mode'
+assert_contains "$launcher_help" 'multplx PATH|ALIAS' \
+  'installed multplx --help did not reach the public launcher'
+env -u MX_MULTICALL_EXPLICIT "$install/bin/multplx" task --help >/dev/null \
+  || fail 'installed multplx task --help failed without explicit multicall mode'
+env -u MX_MULTICALL_EXPLICIT "$install/bin/multplx" project --help >/dev/null \
+  || fail 'installed multplx project --help failed without explicit multicall mode'
+pass 'installed global help, task and project commands retain launcher dispatch'
+
+for wrapper in \
+  mx-workflow.sh mx-deep-review.sh mx-timeline.sh mx-headroom.sh \
+  mx-backlog.sh mx-system-view.sh mx-system-snapshot.sh; do
+  if wrapper_help=$(env -u MX_MULTICALL_EXPLICIT \
+      MX_RUST_SOURCE_ROOT="$install/data/runtime" \
+      MX_ROOT_OVERRIDE="$install/data/runtime" MX_HOME="$install/data/home" \
+      MX_RUST_BIN="$install/bin/multplx" \
+      "$install/data/runtime/bin/$wrapper" --help 2>&1); then
+    :
+  else
+    fail "installed $wrapper --help failed with MX_MULTICALL_EXPLICIT unset: $wrapper_help"
+  fi
+done
+pass 'installed documented command wrappers dispatch explicitly through the multplx binary'
+
 project="$TMP_ROOT/borrowed-project"
 mx_git_init_commit "$project"
 printf 'borrowed sentinel\n' >"$project/untracked-sentinel"

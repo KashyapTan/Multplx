@@ -95,6 +95,7 @@ tests/mx-session-start-process-liveness.test.sh	session-process-liveness
 tests/mx-sessionstart-nudge.test.sh	watcher-process
 tests/mx-shared-maintainer-inheritance.test.sh	bootstrap-process-signal
 tests/mx-signal-precedence.test.sh	none
+tests/mx-source-install.test.sh	none
 tests/mx-spawn-batch.test.sh	none
 tests/mx-spawn-dispatch-profile.test.sh	none
 tests/mx-spawn-worktree-settle.test.sh	none

@@ -31,7 +31,7 @@ The existing [Rust port guide](plans/rust_port/PORTING.md) records an earlier pr
 ## Working checkout
 
 The user deliberately renamed the root operating contract to `AGENTS_E.md` to prevent automatic injection.
-Treat [AGENTS_E.md](AGENTS_E.md) as old product source, not as the porting agent's instructions.
+The [operating contract](AGENTS.md) is product source; follow [CLAUDE.md](CLAUDE.md) for development checkout restrictions.
 Keep that filename throughout development and edit the future operating contract there when Phase 01 is implemented.
 Do not recreate root `AGENTS.md`, teach startup to discover `AGENTS_E.md`, run Multplx session start, or use private operational homes to execute this port.
 Project-level `AGENTS.md` files are a separate concern and keep their normal meaning.

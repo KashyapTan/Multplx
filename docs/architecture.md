@@ -5,7 +5,7 @@ How the orchestrator works, in depth.
 The [README](../README.md) carries the high-level diagram and a short synopsis.
 The [documentation index](README.md) provides audience-specific reading paths.
 This document expands every part of it.
-The lean operating target is maintained in the [dormant operating contract](../AGENTS_E.md); this is the human-facing companion.
+The lean operating target is maintained in the [operating contract](../AGENTS.md); this is the human-facing companion.
 Lean Phase 02 implements the [shared sub-agent and project records](subagent-model.md); the legacy delivery, backend and release interfaces below remain until their assigned phases replace them.
 
 ## Rust runtime workspace

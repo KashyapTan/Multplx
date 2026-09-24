@@ -119,15 +119,15 @@
       "target": "docs/verification/guards.md"
     },
     {
-      "source": "AGENTS_E.md",
+      "source": "AGENTS.md",
       "target": "docs/workspace-entry.md"
     },
     {
-      "source": "AGENTS_E.md",
+      "source": "AGENTS.md",
       "target": "docs/worktrees.md"
     },
     {
-      "source": "AGENTS_E.md",
+      "source": "AGENTS.md",
       "target": "docs/scoped-coordinators.md"
     },
     {
@@ -173,8 +173,8 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "AGENTS_E.md",
-      "audience": "maintainer-architecture"
+      "path": "AGENTS.md",
+      "audience": "agent-runtime"
     },
     {
       "path": "CLAUDE.md",
@@ -507,6 +507,10 @@
     {
       "path": "plans/lean_redesign/phase12-acceptance.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/commands.md",
+      "audience": "operator-current"
     }
   ]
 }

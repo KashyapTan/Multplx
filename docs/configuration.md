@@ -6,7 +6,7 @@ The files and environment variables used by the orchestrator and its sub-agents.
 
 ## Orchestrator behavior
 
-The shared orchestrator behavior contract lives in the [dormant operating contract](../AGENTS_E.md).
+The shared orchestrator behavior contract lives in the [operating contract](../AGENTS.md).
 
 ## Operational home layout and state
 

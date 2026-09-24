@@ -9,12 +9,9 @@ Use `multplx --help` and each command's `--help` output for the exact grammar in
 
 ## Release status
 
-The lean redesign described here does not yet have a published public release.
-These commands describe the current release candidate and should not be assumed to exist in an older installed `multplx` command.
-Until release cutover, [build and install the current candidate](getting-started.md#build-the-current-candidate-from-source) in separate directories or use an isolated candidate package supplied for validation.
-The development checkout deliberately keeps its root operating contract dormant, so do not use that checkout for normal orchestration startup.
-Use an isolated candidate package with the release contract restored when validating the complete installed experience.
-After a public release is published, prefer its verified platform package and matching checksum.
+Install the current source with `./install.sh` as described in [Getting started](getting-started.md#install-from-a-clone).
+It builds a complete installation with a separate runtime and operational home; a public prebuilt release is not required.
+The [human command reference](commands.md) collects the commands and features in one place.
 
 Candidate acceptance is provider-specific.
 The current Codex package passed four five-task live trials covering flat and hierarchical delegation, independent repositories and coupled dependencies, with all 20 worker checks and integrated results passing.

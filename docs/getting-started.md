@@ -1,206 +1,209 @@
 # Getting started
 
-Install Multplx once, then open the same workspace and orchestrator conversation from any directory.
-Use existing local repositories before considering an intentional clone.
+Install the full runtime once, register a repository and start one orchestrator conversation.
+You do not need a prebuilt release archive.
+[Documentation index](README.md) · [Human command reference](commands.md) · [User guide](user-guide.md).
 
-[Back to the documentation index](README.md).
+## Prerequisites
 
-## Requirements
+Use macOS or Linux with Bash, Git and current stable Rust/Cargo for the source build.
+The runtime's [toolchain](configuration.md#toolchain) includes Git, `gh` and `jq`; use `tmux` for the reference backend and `lsof` for safe worktree cleanup.
+Install and authenticate at least one harness: Codex CLI (`codex`), Claude Code (`claude`), Cursor CLI (`agent` or `cursor-agent`) or Pi (`pi`).
+The Multplx installer does not install an agent CLI or sign you into a provider.
 
-Use macOS or Linux with one supported coding-agent harness:
-
-- Claude Code: `claude`.
-- Codex CLI: `codex`.
-- Cursor CLI: `agent` or `cursor-agent`.
-- Pi: `pi`.
-
-Git supplies project identity and isolated worktrees.
-The supported runtime backend requires its own CLI; tmux is the reference backend, while Herdr and cmux retain their documented experimental limits.
-GitHub publication uses the official GitHub CLI and ordinary authentication; remote-free tasks stay local.
-Other existing runtime tools, including `jq`, are listed in [configuration](configuration.md).
-Safe worktree cleanup uses `lsof`; unavailable occupant observation retains the allocation.
-Only source builds require Rust.
-A package does not supply harness authentication or replace its trust prompt.
-Codex Desktop is not a shell-callable Multplx backend.
-
-## Install a platform package
-
-Obtain the versioned package for your platform and its SHA-256 file from the release distributor.
-Verify that the checksum comes from the intended release before extracting it.
-For example, replace `VERSION`, `OS` and `ARCH` with the package's actual values:
+On macOS with Homebrew:
 
 ```sh
-shasum -a 256 -c multplx-VERSION-OS-ARCH.tar.gz.sha256
-tar -xzf multplx-VERSION-OS-ARCH.tar.gz
-./multplx-VERSION-OS-ARCH/bin/mx launcher-install --package ./multplx-VERSION-OS-ARCH
+brew install rust git gh jq tmux
 ```
 
-Linux also supports `sha256sum -c` for archive verification.
-The installer validates the package inventory, platform, version and file hashes before publishing the binary and matching runtime assets.
-It keeps runtime assets separate from the persistent operational home.
-Neither a Multplx source checkout nor a Rust build is needed for this path.
+macOS normally supplies `lsof`.
+If the compiler reports missing developer tools, run `xcode-select --install`, finish that installation and retry.
 
-The command defaults to `${XDG_BIN_HOME:-$HOME/.local/bin}/multplx`, configuration records to `${XDG_CONFIG_HOME:-$HOME/.config}/multplx`, and managed runtime/home storage below `${XDG_DATA_HOME:-$HOME/.local/share}/multplx`.
-Add the printed binary directory to `PATH` if needed.
-`multplx paths` shows the selected runtime and home.
-`multplx launcher-install --help` documents custom directories and adoption of an existing home.
-Before using a new runtime with an existing legacy home, stop its writers and follow [operational-home migration](state-migration.md).
-
-A package can be upgraded with the extracted new version:
+On Ubuntu/Debian:
 
 ```sh
-./multplx-VERSION-OS-ARCH/bin/mx launcher-install --upgrade --package ./multplx-VERSION-OS-ARCH
+sudo apt-get update
+sudo apt-get install -y build-essential git curl gh jq tmux lsof
 ```
 
-Upgrade checks whether the installed runtime is quiescent.
-A well-formed ordinary task may remain unfinished when its exact recorded runtime endpoint is confirmed stopped; upgrade preserves that task's state and evidence byte-for-byte.
-Live, uncertain, persistent, and coordinator-owned runtime users still prevent upgrade.
+Install current stable Rust using [rustup](https://rustup.rs/) if `cargo --version` is unavailable or the distribution's Rust is too old.
+An older compiler may not support this repository's Rust 2024 edition or locked dependencies.
+After installing Rust, open a new terminal so Cargo is on `PATH`.
+For other Linux distributions, install the same tools with the system's package manager.
 
-Upgrades publish owned installation records transactionally and retain operational data and user repositories.
-Upgrade and uninstall first exclude supported launches, then refuse while a primary harness, launch reservation or task record is live or uncertain; stop or reconcile those recorded users before retrying.
-Uninstall removes the owned command and installation records without deleting your operational home or repositories:
+Check the build tools before starting:
 
 ```sh
-multplx launcher-install --uninstall
+git --version
+cargo --version
 ```
 
-The lean redesign has a validated local candidate; public release publication and deliberate source-checkout cutover are separate steps.
-An isolated package validation result is not evidence that a public release has been published.
+## Install from a clone
 
-## Open the workspace
+```sh
+git clone https://github.com/KashyapTan/Multplx.git
+cd Multplx
+./install.sh
+export PATH="$HOME/.local/bin:$PATH"
+multplx paths
+```
 
-From home, a repository, a subdirectory or an unrelated directory:
+If you already have this checkout, start at `cd /path/to/Multplx` and run `./install.sh`.
+Do not clone a second copy just to install it.
+The command builds the locked release binary, assembles matching assets and runs the transactional installer.
+It installs the command, operating contract, harness integration, skills, workflows and dashboard together.
+The clone is not used as the operational home, and no agent is launched during installation.
+The first compile may take several minutes.
+
+Defaults are:
+
+| Item | Default location |
+| --- | --- |
+| Command | `~/.local/bin/multplx` |
+| Installation records | `~/.config/multplx` |
+| Runtime assets | `~/.local/share/multplx/runtime` |
+| Operational home | `~/.local/share/multplx/home` |
+
+The corresponding XDG environment variables can change these defaults.
+The installer prints the actual paths; `multplx paths` confirms them.
+For future zsh terminals, add this line once to `~/.zshrc` (or `~/.bashrc` for Bash):
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+If you used a custom binary directory, add that printed directory instead.
+For example, an entirely separate installation is:
+
+```sh
+./install.sh --bin-dir "$HOME/.local/multplx-test/bin" \
+  --config-dir "$HOME/.local/multplx-test/config" \
+  --data-dir "$HOME/.local/multplx-test/data"
+```
+
+Use `./install.sh --help` for supported options.
+Keep the source checkout for future `git pull` and upgrades, or use the download bootstrap below once published.
+
+## Download and install from anywhere
+
+After `install.sh` and `install-from-github.sh` are published on public `main`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-from-github.sh | bash
+```
+
+The bootstrap downloads a temporary clone of `main`, runs the same installer and removes its temporary checkout afterward.
+It needs the same prerequisites and builds from source; it is not a prebuilt binary download.
+The new URL does not work until these local changes have been pushed.
+To inspect the script before executing it, download it to a file, read it and run it with Bash.
+
+## Register your first project
+
+Use an existing Git checkout with at least one commit:
+
+```sh
+multplx projects register ~/dev/my-app --alias my-app
+multplx projects list
+```
+
+Replace `~/dev/my-app` with your repository's actual path.
+Registration leaves its files and branch alone.
+A project can be remote-free for local work.
+Uncommitted files are preserved but are not automatically included in the task's committed starting revision.
+
+## Start the orchestrator
+
+With your chosen harness installed and authenticated:
+
+```sh
+multplx chat codex
+```
+
+Alternatives are `multplx chat claude`, `multplx chat cursor` and `multplx chat pi`.
+The launcher remembers the selection; later use `multplx chat`.
+Complete the harness's own authentication or trust prompt if it appears.
+An existing live conversation remains authoritative; the launcher connects through a supported route or tells you where that conversation is.
+It does not create a second orchestrator to bypass an attachment limit.
+[Launcher verification](verification/launcher.md) records tested provider boundaries.
+
+Ask in the chat:
+
+```text
+Fix the login issue in my-app. Run the relevant tests and open a PR.
+```
+
+For a local-only outcome, say so instead of asking for a PR.
+GitHub publication needs ordinary authentication, such as `gh auth login`; only the human merges PRs.
+
+## Follow the work
+
+In another terminal:
 
 ```sh
 multplx
 ```
 
-The terminal workspace shows projects, tasks, decisions and connection state.
-Use `multplx workspace --plain` for noninteractive output.
-Select a supported installed harness explicitly on first use:
+Use arrows to browse, `Tab` to change sections, `c` to enter chat and `v` to open MX Viz.
+The dashboard has a detailed Tasks view and a searchable, collapsible Agents graph.
+Closing the workspace or browser does not stop independent tasks.
+For a plain terminal summary or command-line request:
 
 ```sh
-multplx chat codex
-# Alternatives: multplx chat claude, multplx chat cursor, multplx chat pi
+multplx workspace --plain
+multplx task --project my-app "Investigate the flaky test"
 ```
 
-The launcher remembers the selection, and subsequent `multplx chat` uses it.
-The named forms `multplx codex`, `multplx claude`, `multplx cursor` and `multplx pi` remain supported.
-The harness starts from the validated runtime context so its instructions and integration assets load, while the original directory remains optional next-request context.
-Preserve the harness's actual authentication and trust requirements.
-An existing live owner remains authoritative; connection uses a supported recorded route or displays where to continue the existing conversation.
-An unavailable attachment does not create another orchestrator.
-[Launcher verification](verification/launcher.md) separates deterministic tests from real-provider evidence.
+The request receipt means accepted, not started or completed.
+See the [command reference](commands.md) for discovery, dependencies, scoped coordinators, workflows and recovery.
 
-## Remember local projects
+## Upgrade
 
-Register a selected checkout without cloning or changing its working files:
+From your source checkout, after stopping or reconciling active runtime users:
 
 ```sh
-multplx projects register ~/dev/my-app --alias my-app
-multplx projects list
-multplx my-app
+git pull --ff-only
+./install.sh --upgrade
 ```
 
-Use an exact alias or path when duplicate names are ambiguous.
-Optional recursive discovery roots make nested repositories easier to find; `multplx projects --help` documents roots, exclusions, symlink policy and incremental refresh.
-Roots are not required for chat or explicit paths, and the launcher never automatically scans an arbitrary current directory.
-The [workspace guide](workspace-entry.md) describes discovery, location repair, unregister and the terminal keys.
-
-Selecting context never changes the project, checkout or starting revision of accepted tasks.
-Borrowed repositories retain their branches, index and dirty files; implementation starts in an isolated worktree from a recorded commit.
-Uncommitted working changes are excluded unless explicitly handled as part of the request.
-Remote-free repositories remain usable for local tasks, and discovering an unversioned folder does not create Git or a remote.
-
-## Make the first request
-
-Ask in the one orchestrator chat:
-
-```text
-Fix login in my-app, investigate the flaky test in repo-two, and research feature C in repo-three.
-```
-
-The orchestrator delegates each implementation to a sub-agent and keeps each repository's instructions and evidence scoped to its task.
-One ambiguous or blocked task does not stop independent work.
-Use explicit [scoped coordinator commands](scoped-coordinators.md) when a bounded domain benefits from a coordinator; project selection alone never creates one.
-
-Equivalent durable terminal intake is available:
+If you installed through the download bootstrap, rerun it with `--upgrade` once that script is published:
 
 ```sh
-multplx task --project my-app "Fix login"
+curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-from-github.sh | bash -s -- --upgrade
 ```
 
-Its receipt confirms recorded intake rather than claiming an agent is already implementing it.
-Use the request identity printed by the command for an uncertain retry, following `multplx task --help`.
-[Durable coordination](durable-coordination.md) explains separate acceptance, delivery, acknowledgement and completion facts.
+Use the same custom path options if you selected non-default installation directories.
+Upgrade preserves operational data and repositories; live or uncertain runtime users can prevent it.
+For package-mode installs created by this installer, use this upgrade command rather than `multplx update`, which owns legacy source-mode updates.
+For an old installation that points directly at a source checkout, uninstall its registered application first and make a fresh full installation.
+Before reusing a legacy operational home, follow [home migration](state-migration.md); a new default home does not import old task state automatically.
 
-Workers may commit, push branches and create or update PRs with ordinary Git and forge authentication.
-PR merging remains human-only.
-Deep-review and vplan remain explicit optional tools rather than publication prerequisites.
-See [delivery](delivery.md) for retry and evidence contracts.
-
-## Backend and shell options
-
-Select the supported task backend through local `config/backend` or the launcher's `--backend auto|tmux|herdr|cmux` option.
-`auto` leaves normal runtime detection authoritative.
-Follow the [tmux](tmux-backend.md), [Herdr](herdr-backend.md) or [cmux](cmux-backend.md) guide for prerequisites and actual persistent-home limits.
-
-Explicit shell activation remains available:
+## Uninstall
 
 ```sh
-multplx shell
-codex
+multplx launcher-install --uninstall
 ```
 
-The child shell stays in the caller's directory and adds a static marker and harness shims.
-Exit restores the parent environment unchanged.
-The marker does not claim an active orchestrator.
+Supply the same `--bin-dir`, `--config-dir` and `--data-dir` options for a custom installation.
+Uninstall removes owned application files and installation records while preserving operational data and repositories.
+It refuses unrecognized binaries and active or uncertain packaged runtime users.
+An older launcher without this subcommand can be removed from a built checkout using `target/release/mx launcher-install --uninstall` with its installation directory options.
+Do not delete your source checkout or operational home to uninstall the command.
 
-After normal session startup, inspect state with `multplx doctor` or open the read-only [MX Viz](viz.md) view from the terminal workspace.
-Doctor does not repair state unless its explicit `--fix` option is supplied.
-The dashboard is not a second chat or mutation interface.
+## If something fails
 
-## Build the current candidate from source
+| Symptom | What to do |
+| --- | --- |
+| `cargo` missing or compiler too old | Install/update stable Rust, reopen the terminal and rerun `./install.sh`. |
+| `multplx: command not found` | Add the installer's printed binary directory to `PATH`, then run `multplx paths`. |
+| Existing installation refused | Use `./install.sh --upgrade` for the same full installation; uninstall an old source-mode installation before switching modes. |
+| Harness missing or unauthenticated | Install and sign into the selected provider CLI, then retry `multplx chat NAME`. |
+| Project unavailable | Check `multplx projects list`; repair a moved checkout as described in the command reference. |
+| Upgrade/uninstall says runtime is in use | Stop or reconcile the named owner; do not delete its lock to force replacement. |
+| Runtime trouble after setup | Run `multplx doctor` and follow its specific findings. |
 
-The current lean candidate has not been published as a public release.
-To try this version, check out the candidate revision you intend to evaluate, build its binary and create a matching package.
-For PR 48, check out its `lean-redesign-phase12` branch after cloning; after merge, use the merged revision instead.
-This requires Git, Rust and the runtime tools listed above.
+## Advanced: prebuilt packages
 
-```sh
-git clone https://github.com/KashyapTan/Multplx.git
-cd Multplx
-git switch lean-redesign-phase12
-cargo build --release --workspace --locked
-candidate_dir=$(mktemp -d "${TMPDIR:-/tmp}/multplx-candidate.XXXXXX")
-bin/mx-release-package.sh "$candidate_dir/package" target/release/mx
-"$candidate_dir/package/bin/mx" launcher-install \
-  --package "$candidate_dir/package" \
-  --bin-dir "$HOME/.local/multplx-candidate/bin" \
-  --config-dir "$HOME/.local/multplx-candidate/config" \
-  --data-dir "$HOME/.local/multplx-candidate/data"
-export PATH="$HOME/.local/multplx-candidate/bin:$PATH"
-multplx paths
-```
-
-The package supplies the canonical operating contract and matching runtime assets without activating the development checkout.
-These explicit candidate directories keep an existing default installation separate; use a fresh directory if those candidate paths already contain an installation.
-The `PATH` change applies to the current shell; add the candidate binary directory to your shell configuration only if you want it selected in future shells.
-Continue with [Open the workspace](#open-the-workspace), register your repository and start the main chat.
-Do not run orchestration startup from this development checkout or rename its dormant root contract.
-
-## Source installation
-
-An operational release checkout with its canonical root contract can also be registered directly:
-
-```sh
-cargo build --release --workspace --locked
-bin/mx-launcher-install.sh
-```
-
-This direct source mode is for an activated release checkout, not the dormant lean-development checkout.
-For the current candidate, use the package-building instructions above.
-Use `--root PATH --home PATH` to separate an adopted source checkout and home.
-The legacy `--managed` source mode remains available for advanced use and requires Git and Rust for source updates.
-`multplx update` owns source-mode refresh; package upgrades use a verified new package as shown above.
-Do not replace a live installation with an unmerged development binary.
+If a release distributor supplies a platform archive and matching checksum, verify and extract that archive, then run its bundled `bin/mx launcher-install --package /path/to/extracted-package`.
+The normal source installation above does this packaging automatically.
+Do not guess archive names or assume a public prebuilt release exists.

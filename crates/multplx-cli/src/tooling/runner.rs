@@ -165,6 +165,7 @@ fn family(path: &str) -> &'static str {
         | "mx-herdr-lab.test.sh"
         | "mx-instruction-owners.test.sh"
         | "mx-install-herdr.test.sh"
+        | "mx-source-install.test.sh"
         | "mx-deep-review-lib.test.sh"
         | "mx-deep-review.test.sh"
         | "mx-deep-review-config-contract.test.sh"

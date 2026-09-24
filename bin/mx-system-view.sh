@@ -6,4 +6,4 @@ ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 BINARY=${MX_RUST_BIN:-$ROOT/target/release/mx}
 [ -x "$BINARY" ] || { printf 'mx-system-view: Rust release binary is unavailable at %s\n' "$BINARY" >&2; exit 1; }
 export MX_RUST_SOURCE_ROOT=$ROOT
-exec "$BINARY" session mx-system-view.sh "$@"
+MX_MULTICALL_EXPLICIT=1 exec "$BINARY" session mx-system-view.sh "$@"

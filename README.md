@@ -1,139 +1,124 @@
-<h1 align="center">Multplx</h1>
+# Multplx
 
-<p align="center">
-  <strong>One conversation. Parallel agents. Durable coordination.</strong>
-</p>
+**One conversation. Parallel agents. Durable coordination.**
 
-<p align="center">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" /></a>
-  <a href="https://github.com/KashyapTan/Multplx/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/KashyapTan/Multplx?style=for-the-badge" /></a>
-  <a href="docs/getting-started.md#requirements"><img alt="Platform: macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=for-the-badge" /></a>
-</p>
+Multplx lets you ask one orchestrator to work across several repositories while independent agents implement, research and review in isolated Git worktrees.
+You can follow everything in a terminal workspace or the MX Viz agent graph, answer decisions in one chat, and keep task records when sessions restart.
+Agents can open pull requests; you decide when to merge.
 
-<p align="center">
-  <a href="docs/getting-started.md"><img alt="Get Started" src="https://img.shields.io/badge/Get_Started-0969da?style=for-the-badge" /></a>
-  <a href="docs/user-guide.md"><img alt="User Guide" src="https://img.shields.io/badge/User_Guide-d29922?style=for-the-badge" /></a>
-  <a href="docs/README.md"><img alt="Documentation" src="https://img.shields.io/badge/Documentation-1f883d?style=for-the-badge" /></a>
-  <a href="CONTRIBUTING.md"><img alt="Contributing" src="https://img.shields.io/badge/Contributing-8250df?style=for-the-badge" /></a>
-</p>
+## Install from source
 
-## Multplx
+On macOS or Linux, install [the prerequisites](docs/getting-started.md#prerequisites), including Rust/Cargo and a supported agent CLI.
+Then run:
 
-Multplx is an agent coordination distribution for maintainers who want several software tasks moving without becoming the session manager.
-You work through one orchestrator, which routes implementation and research to independent sub-agents in isolated worktrees and can delegate bounded domains to scoped sub-orchestrators.
+```sh
+git clone https://github.com/KashyapTan/Multplx.git
+cd Multplx
+./install.sh
+export PATH="$HOME/.local/bin:$PATH"
+multplx paths
+```
 
-The distribution includes an orchestration contract, focused skills, local coordination tools and durable state conventions.
-The global `multplx` command opens one workspace from any directory, with the existing harness conversation coordinating work across repositories.
+The installer builds and installs the **full runtime**, including the command, instructions, skills, hooks, workflows and dashboard assets.
+You do not need to find, name or assemble a release package.
+It keeps its runtime and operational home separate from your clone, does not start an agent, and does not require `sudo`.
+The first build can take several minutes; later builds reuse Cargo's cache.
+Add the printed binary directory to your shell's `PATH` once to make the command available in future terminals.
+Use `./install.sh --help` for installation paths and `./install.sh --upgrade` for an existing installation.
 
-## Why Multplx
+### Install without keeping a clone
 
-- **One conversation** - request work, answer real decisions, and receive outcomes through one orchestrator.
-- **Parallel isolation** - sub-agents work independently in built-in Git worktree allocations instead of sharing a checkout.
-- **Durable supervision** - validated status events, a wake queue, and harness-specific turn-end guards keep work observable without an idle model loop.
-- **Clear ownership** - agents coordinate and implement accepted work; the human resolves missing product choices and performs PR merges.
-- **Agent delivery, human merges** - implementers commit, push task branches and open or update PRs; humans perform PR merges.
-- **Restart-proof operation** - disk state and runtime endpoints let a new orchestrator session reconcile work already under way.
+A source-download bootstrap is included as `install-from-github.sh`.
+Once these installer scripts are published on the repository's `main` branch, this command downloads a temporary checkout and performs the same full installation:
 
-## Core Features
+```sh
+curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-from-github.sh | bash
+```
 
-- An orchestrator coordinates independent sub-agents and optional scoped coordinators through the model described in [Architecture](docs/architecture.md).
-- Every implementation or research task receives an isolated worktree and a visible endpoint on the tmux reference backend or an experimental Herdr or cmux backend.
-- Event-driven supervision combines validated reporting, durable wakes, current-state reconciliation, and guarded turn boundaries without making an append-only status log the source of truth.
-- Branch publication uses ordinary authentication and revision-bound evidence as described in [Delivery](docs/delivery.md); local-only tasks stay local and review evidence remains separate.
-- Declarative [workflows](docs/workflows.md) compose explicit human interactions, orchestrator and sub-agent stages, deterministic commands, review, and delivery from immutable run snapshots.
-- [vplan](docs/vplan.md) provides annotated HTML reviews, while [mx-viz](docs/viz.md) renders a disposable read-only system view.
-- [mx-doctor](docs/doctor.md), [task journals](docs/journal-events.md), and timelines expose health and history without becoming control-flow authorities.
-- Dispatch profiles and capacity-aware queuing select verified harnesses without dropping work when local or configured API headroom is tight.
+This is a source build, so the same prerequisites apply.
+The URL is not usable until the new scripts have been pushed to the public repository.
+[Getting started](docs/getting-started.md) covers prerequisites, first use, upgrades, uninstall and troubleshooting.
 
-## Getting Started
+## Your first task
 
-You need macOS or Linux, one supported harness - Claude Code, Codex, Cursor, or Pi - plus the universal toolchain listed in the [getting-started guide](docs/getting-started.md).
-tmux is the reference runtime backend; Herdr and cmux are experimental alternatives.
-
-The lean redesign is currently a release candidate and does not yet have a published public package.
-Until release cutover, follow [Build the current candidate from source](docs/getting-started.md#build-the-current-candidate-from-source) to install an isolated candidate without activating the development checkout.
-Once a public release is available, prefer its verified platform package with matching runtime assets.
-After installation, run `multplx` from any directory.
-The [getting-started guide](docs/getting-started.md) covers package installation and the optional source build.
-Bare `multplx` opens the terminal workspace; `multplx shell` opens an explicit activation shell.
-
-Remember an existing local checkout and enter the same orchestrator conversation:
+Use an existing Git repository with at least one commit and a supported, authenticated harness:
 
 ```sh
 multplx projects register ~/dev/my-app --alias my-app
-multplx my-app
 multplx chat codex
 ```
 
-Discovery roots are optional, and selecting a project never creates another main orchestrator or changes existing task bindings.
-For example, ask in chat:
+Replace `codex` with `claude`, `cursor` or `pi` if that is your installed harness.
+In the chat, ask:
 
 ```text
-Fix login in my-app, investigate the flaky test in repo-two, and research feature C in repo-three.
+Fix the login issue in my-app. Run the relevant tests and open a PR.
 ```
 
-The orchestrator tracks each request independently with its own checkout, starting revision and evidence.
-Existing dirty files remain in the user's checkout while implementation uses isolated worktrees.
-Use `multplx task --project my-app "Fix login"` for durable command-line intake; its receipt confirms acceptance rather than claiming that implementation has started.
+For independent work across repositories, register each checkout and ask:
 
-Continue with [Getting Started](docs/getting-started.md) for installation, local reuse, discovery, connection limits, backend selection and ordinary Git/forge authentication.
-Then use the [User guide](docs/user-guide.md) for multi-repository intake, task tracking, scoped coordinators, workflows, delivery, visualization and recovery.
+```text
+Fix login in my-app, investigate the flaky tests in api, and research the export feature in dashboard.
+```
 
-## Built-in skills
+Open `multplx` in another terminal to see the workspace; press `v` for MX Viz or `c` to connect to the main conversation.
+You can also submit a durable request from the terminal:
 
-Claude uses the slash form shown here; codex uses the same names with `$`, such as `$afk`.
+```sh
+multplx task --project my-app "Fix the login issue"
+multplx workspace --plain
+```
 
-| Skill | Purpose |
+A task receipt means accepted, not already running or finished.
+Implementation starts from a committed revision in an isolated worktree; uncommitted files stay in your original checkout.
+
+## What you can do
+
+| Feature | Why it is useful |
 | --- | --- |
-| `/afk` | Enter away-mode supervision for a walk-away stretch. |
-| `/recap` | Recap visible events since the previous real maintainer message. |
-| `/catchup` | Generate a standalone current-status report from bounded local state. |
-| `/updatemultplx` | Fast-forward a source installation and registered persistent homes to the latest Multplx revision. |
-| `/stow` | Route durable session knowledge to its correct owner before a context reset. |
-| `/create-workflow` | Draft and validate a reusable declarative workflow. |
+| One chat across repositories | Request independent changes and research without managing a conversation per task. |
+| Parallel workers | Implementation, research and review can progress independently in isolated worktrees. |
+| Scoped sub-orchestrators | Give a project or idea its own coordinator, with nested workers and durable parent reports. |
+| Existing local projects | Register checkouts, choose aliases and optionally discover nested repositories without cloning everything again. |
+| Terminal workspace | Browse projects, tasks, decisions and domains; submit work, refresh state and open the main chat. |
+| MX Viz | See the orchestrator/coordinator/worker graph, search or collapse branches, and open exact task details and artifacts. |
+| Durable requests and dependencies | Retry uncertain submissions with the same request ID and delay dependent work until prerequisites finish. |
+| Capacity-aware dispatch | Queue accepted work when capacity is tight instead of losing it. |
+| Persistent assignments | Keep a coordinator or agent registered between tasks and retain its owned work across restarts. |
+| Workflows | Run a reusable sequence of agent, command, review, delivery and explicit human-decision stages. |
+| Optional review tools | Request deep-review or annotated HTML vplan reviews when you need them. |
+| Delivery evidence | Track exact commits, tests, limitations and PRs; keep implementation, checks, review and merge distinct. |
+| Away-mode supervision | Explicitly enter away mode to supervise work and collect decisions while you are away. |
+| Recovery and diagnostics | Inspect health, snapshots, task timelines and durable ownership after a restart or failure. |
+| Harness choice | Use Claude Code, Codex CLI, Cursor CLI or Pi through supported adapters; tmux is the reference backend. |
+| Full local installation | Keep the command, matching runtime assets and operational data separate; upgrade or uninstall without deleting repositories. |
 
-## Architecture
+Read the [human command reference](docs/commands.md) for commands and examples, or the [user guide](docs/user-guide.md) for workflows explained step by step.
 
-```mermaid
-flowchart TB
-    H[Human] <--> O[One main orchestrator]
-    O --> A[Direct sub-agent]
-    O --> C[Scoped coordinator]
-    C --> B[Sub-agent]
-    A --> W1[Isolated project worktree]
-    B --> W2[Isolated project worktree]
-    W1 --> E[Task evidence and local or PR outcome]
-    W2 --> E
-    E --> H
-    S[Durable inbox, ownership and canonical state] -.-> O
-    S -.-> C
-    S -.-> T[Terminal workspace and read-only MX Viz]
-```
+![MX Viz agent graph](docs/images/mx-viz-agent-graph.png)
 
-Sub-agents share one coordination protocol without approval ranks.
-They are autonomous agents with a different workflow scope, coordinated through durable briefs, runtime endpoints, and validated return paths.
+The screenshot uses synthetic example data.
+The dashboard reports missing, partial or stale observations explicitly; it does not infer that an unobserved agent is healthy.
+
+## Practical limits
+
+You provide the agent CLI, its authentication/subscription and ordinary Git/forge credentials.
+Multplx is not a model provider, and Codex Desktop is not a selectable shell backend.
+Current end-to-end candidate evidence covers Codex; other provider acceptance limits are recorded in the [user guide](docs/user-guide.md#release-status).
+Herdr and cmux are experimental runtime backends.
+A recorded task or session does not guarantee unattended completion, and PR merges remain human-only.
 
 ## Documentation
 
-| Read this | For |
+| Guide | Read it for |
 | --- | --- |
-| [Documentation index](docs/README.md) | Reading paths by audience and task |
-| [Getting started](docs/getting-started.md) | Installation, local project reuse and first task intake |
-| [User guide](docs/user-guide.md) | Practical use of projects, tasks, domains, workflows, delivery and recovery |
-| [Architecture](docs/architecture.md) | Orchestration, supervision, state and ownership boundaries |
-| [Configuration](docs/configuration.md) | `MX_HOME`, harnesses, dispatch, toolchain, and local settings |
-| [Delivery](docs/delivery.md) | Branch publication, current evidence, and human-only PR merges |
-| [tmux](docs/tmux-backend.md), [Herdr](docs/herdr-backend.md), [cmux](docs/cmux-backend.md) | Reference and experimental runtime setup |
-| [Operations](docs/doctor.md) | Health checks and recovery entry points |
-| [Contributing](CONTRIBUTING.md) | Development workflow, conventions, and tests |
+| [Getting started](docs/getting-started.md) | Installation, first task, upgrade and uninstall |
+| [Human command reference](docs/commands.md) | Features, commands, examples and terminal keys |
+| [User guide](docs/user-guide.md) | Everyday project, task, coordinator, workflow and recovery use |
+| [Documentation index](docs/README.md) | All maintained operator and architecture references |
+| [Configuration](docs/configuration.md) | Toolchain, dispatch, paths and local settings |
+| [Architecture](docs/architecture.md) | Ownership, isolation, supervision and state |
+| [Contributing](CONTRIBUTING.md) | Development workflow and tests |
 
-Documentation placement and audience ownership are defined in [Documentation audiences](docs/documentation-audiences.md).
-
-## Contributing
-
-Contributions are welcome.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, documentation ownership rules, and focused test commands.
-
-## License
-
+Documentation ownership is defined in [Documentation audiences](docs/documentation-audiences.md).
 Multplx is released under the [MIT License](LICENSE).

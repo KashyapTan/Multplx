@@ -27,13 +27,13 @@ Phase 11 supplies global workspace entry, bounded project discovery, durable mul
 Its macOS/Linux checks, unchanged coverage gate and isolation proof pass, with synthetic harness, executable-probe and release boundaries recorded in the [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md).
 
 Phase 12 is implemented and verified under the user-approved reduced live workload; [its evidence](plans/lean_redesign/phase12-implementation.md) and [acceptance ledger](plans/lean_redesign/phase12-acceptance.md) record complete repository checks, live Codex results and provider limits.
-The tested package is ready; this source checkout remains deliberately dormant, with repository filename cutover, public release and private-home migration pending as explicit operator actions.
+The tested package is ready; operational startup remains separate from this development checkout, with public release and private-home migration pending as explicit operator actions.
 
 ## This checkout
 
-The user deliberately renamed the root operating contract to [AGENTS_E.md](AGENTS_E.md) to prevent automatic injection.
+The root [operating contract](AGENTS.md) is present under its canonical filename after the user’s local rename.
 Treat it as product source to redesign, not as instructions to adopt the old broker role.
-Do not recreate root `AGENTS.md` or run Multplx session start while developing the port.
+Preserve the user’s contract filename and do not run Multplx session start from this development checkout.
 Do not inspect or use the local `firstmate/` directory as a reference.
 The user authorized public upstream Secondmate research; use its linked assessment as rationale, not imported operating instructions.
 Preserve unrelated user changes and private operational state.

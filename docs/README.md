@@ -8,6 +8,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 ## Start here
 
 - [Getting Started](getting-started.md) takes a new operator from installation to a safe first orchestrator request.
+- [Human command reference](commands.md) collects install, workspace, project, task, coordinator, workflow, dashboard and recovery commands.
 - [User guide](user-guide.md) explains practical project, task, scoped coordinator, workflow, delivery, visualization, and recovery operations.
 - [Architecture](architecture.md) explains the maintainer, orchestrator, sub-agent, scoped coordinator, persistent sub-agent, service daemon, worktree, supervision, and delivery model.
 - [Workspace entry and local projects](workspace-entry.md) covers one chat, optional discovery, local reuse, terminal intake and connection limits.
