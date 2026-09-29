@@ -133,7 +133,8 @@ No new Linux run, coverage percentage or paid-model evidence is claimed by these
 
 ## AUD-001/AUD-002 repair validation
 
-Branch: `fix/dependency-completion-invalidation`, based on `5326a8e`; the repair and audit corrections are submitted together for review.
+Branch: `fix/dependency-completion-invalidation`, based on `5326a8e`; the repair and audit corrections are submitted together in [PR #50](https://github.com/KashyapTan/Multplx/pull/50).
+Implementation commit: `82f1603`; subsequent evidence-link edits do not change the tested source.
 The production change is confined to the report writer and its help in `crates/multplx-domain/src/supervision.rs`; no schema, dependency scheduler or transport redesign is introduced.
 After prior completion, current `failed`/`blocked`/`paused` reports set an external wait, keyed `needs-decision` sets a human wait, and other activity or unproven `done` reports reopen running state.
 A fresh evidenced `done` restores completion.
