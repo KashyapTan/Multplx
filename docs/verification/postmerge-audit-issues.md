@@ -72,7 +72,7 @@ This does not prove the historical results were wrong; it limits independent ver
 
 **Required follow-up:** restore the original artifacts from a durable archive if one exists, or separately authorize a fresh bounded live run and retain its evidence durably.
 Do not spend model tokens rerunning the original large matrix merely to conceal the gap.
-The new [134-script runner result](../../plans/lean_redesign/phase12-postmerge-audit-behavior.json) is preserved in the repository unchanged.
+The new 134-script runner result is kept locally at `plans/lean_redesign/phase12-postmerge-audit-behavior.json` and ignored by Git; the check summary is recorded below.
 
 ## AUD-004: roadmap and cutover accounting was stale
 
@@ -162,7 +162,8 @@ The fixture honors `MX_RUST_BIN` for instrumented test runners and does not requ
 | `bash -n tests/mx-report.test.sh`, `target/release/mx doc-audience-check`, `git diff --check` | Pass. |
 
 The full Rust and behavior suites were rerun after the final resumed-wait correction; the results above cover that exact final code.
-The [unaltered fixed-runtime runner result](../../plans/lean_redesign/phase12-dependency-fix-behavior.json) is retained in the repository.
+The unaltered fixed-runtime runner result is kept locally at `plans/lean_redesign/phase12-dependency-fix-behavior.json` and ignored by Git.
+These local files are not durable published evidence; CI owns its separate uploaded timing artifacts.
 Source SHA-256: `supervision.rs` = `f47e86818a78f6672f72a75b00c3c391ccd987a19c0a7e3d93fba54f22219506`; `mx-report.test.sh` = `01486f3af08a928d332f860d6b5b26beae640ae5a5c22505c99d940cb9998674`.
 The tested release binary SHA-256 is `5f55dfb1028e2b311cbc6d463c636a2d638f1d8caa9bb185715c94feae3dd9cc`.
 This is local macOS validation, not a new hosted CI, Linux, full coverage-percentage or paid-provider run.

@@ -192,7 +192,7 @@ The production source and release executable stayed unchanged throughout validat
 | `MX_LAUNCHER_LIVE_E2E=1 target/release/mx test-run tests/mx-launcher-live-e2e.test.sh --json /private/tmp/mx-deep-launcher-probes.json` | Pass, no gates; installed Codex 0.156.1 and Cursor 2026.09.10-fd3934a version routing from an unrelated caller directory. |
 | `target/release/mx doc-audience-check` and `git diff --check` | Pass after the documentation corrections. |
 
-The [unaltered runner artifact](phase12-postmerge-audit-behavior.json) preserves per-script exit codes, timings and gate classifications in the repository rather than relying only on temporary logs.
+The unaltered runner output preserves per-script exit codes, timings and gate classifications locally at `plans/lean_redesign/phase12-postmerge-audit-behavior.json`; it is ignored by Git, with the concise results recorded above.
 The eight full-suite gates are cmux smoke, Claude stop, Codex continuity, authenticated Cursor, launcher live opt-in, Pi live entry, Pi types and Pi/Herdr marker delivery.
 The separate launcher probe closes only its executable-routing gate; it does not close authenticated provider acceptance.
 The suite includes real temporary Git/process/tmux/Herdr integration and mocked provider/forge cases; a green aggregate must not be described as all live integrations passing.
@@ -237,6 +237,6 @@ The specific failure transition and regression gap are now locally verified as f
 The fix changes only the canonical report transition/help and adds owner-driven checks to the existing report suite.
 All 787 Rust tests and 134 behavior scripts pass (eight explicit integration gates), along with release build, formatting, strict Clippy, inventory and documentation checks.
 The original reproduction no longer reaches its stale-completed assertion; fresh regression coverage proves dependents remain queued after failure, old reports are inert and fresh valid completion releases the queue.
-See the [issue log](../../docs/verification/postmerge-audit-issues.md#aud-001aud-002-repair-validation) for exact commands, source/binary hashes, mocked boundaries and the retained fixed-runtime runner artifact.
+See the [issue log](../../docs/verification/postmerge-audit-issues.md#aud-001aud-002-repair-validation) for exact commands, source/binary hashes, mocked boundaries and the locally retained, Git-ignored fixed-runtime runner output.
 Phase 08/12's specific reopened A5 finding is resolved and locally validated on the repair branch; human merge remains pending.
 The 23 missing historical raw artifacts and unrun broader live trials remain separately recorded limits.
