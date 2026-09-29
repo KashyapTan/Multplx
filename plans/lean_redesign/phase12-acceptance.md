@@ -72,11 +72,11 @@ Domain/core unit tests are included by `cargo test --locked --workspace`.
 
 ## Cutover boundary
 
-Required release acceptance is complete under the user-approved reduced workload.
-Keep root `AGENTS_E.md` dormant under the continuing development-checkout restriction; the phase plan explicitly permits delivery of the tested package with source cutover reported pending.
-The package publishes its content as `AGENTS.md` without teaching runtime discovery the development filename.
-A later deliberate repository cutover must rename the source contract, update current links and the documentation inventory, rerun instruction/launcher/documentation checks, and start operational work only in a fresh session.
-A tested local package does not imply public release publication, migration of a private operational home or human merge of the implementation PR.
+The implementation was accepted under the user-approved reduced workload and merged in PR #48; PR #49 subsequently repaired the terminal workspace.
+The user restored canonical `AGENTS.md` in `2f57d21`, and current instruction, launcher and documentation checks validate that tree.
+Earlier records of dormant `AGENTS_E.md` describe historical implementation constraints.
+Source-download installation is published on `main`; a public prebuilt release and migration of any private operational home remain separate operator actions.
+The post-merge audit below distinguishes present verification from historical results whose raw artifacts are no longer available.
 
 ## Original workload design and approved reduced execution
 
@@ -123,3 +123,120 @@ Retain the already recorded local 1/5/10/20-task workspace, worktree and Viz mea
 The reduced live sample does not establish 10/20-task live scalability or an increase in velocity over a one-task live baseline.
 Unavailable human-review, post-merge and opaque model-usage measurements remain unavailable; this approval does not fabricate them.
 All four trials have passing worker and integrated results. The independent runtime defects, interrupted execution and post-fix replay remain recorded; the coupled pair used the same corrected package and retains model-command/observer interventions.
+
+
+## Post-merge audit: 2026-09-28
+
+The [issue log](../../docs/verification/postmerge-audit-issues.md) lists every finding, severity, status and follow-up.
+
+Audit target: `5326a8eb2510590444278225ac3af6fc11026cae` on `main`, including Phase 12/graph merge `bd4a9b9`, installer/source-contract cutover `2f57d21` and terminal repair merge `edb02ac`.
+This audit reads plan requirements, current implementation owners, callers and test assertions, rather than treating CI status or phase labels as proof.
+No private operational home is used as a validation fixture and no new paid model workload is run.
+The original Plans 01-18 (plus 6.5) and Rust-port program are historical predecessors; their superseded policy requirements are not additional unfinished lean phases.
+The twelve lean phases and A1-A11 remain the current accounting boundary, with the approved Phase 01 scaffold, Phase 04 provider and Phase 12 workload exceptions retained.
+
+### Requirement accounting
+
+| Phase | Current implementation and meaningful verification owners | Disposition |
+| --- | --- | --- |
+| 01: contract and skills | `AGENTS.md`, operational skills, `lifecycle/brief.rs`; `mx-brief`, `mx-instruction-owners` | Implemented within the explicitly accepted scaffold boundary; later identity and runtime integration is accounted for below. |
+| 02: identity and transactions | `lifecycle/subagent_model.rs`, `project_registry.rs`, core filesystem transitions; `phase02_model`, transition and registry tests | Implemented: task/attempt/brief identity, stale-result fencing and recoverable filesystem foundations. |
+| 03: worktree lifecycle | `lifecycle/worktree.rs`; `phase03_spawn`, `mx-worktree`, `mx-spawn-worktree-settle` | Implemented: exact allocation path/base, generation fencing, conservative retention and no normal Treehouse runtime dependency; legacy transfer is Phase 09. |
+| 04: delegation and coordination | Core wake queue, `supervision.rs`, backend `headroom.rs`; `phase04_coordination`, wake/report/dispatch tests | Implemented: durable handling, repeat-safe intake and bounded admission; broader authenticated provider coverage remains open as described below. |
+| 05: scoped coordinators | CLI/domain lifecycle and `lifecycle/parent_channel.rs`; `phase05_domain`, `phase05_parent_channel`, `phase05_transfer`, `mx-coordinator-spawn` | Implemented: explicit domain identity, private owners, durable relay, shared capacity, transfer and retained children. |
+| 06: delivery and human merges | `review.rs`, `review_delivery.rs`, `lifecycle/delivery_evidence.rs`; publication retry, exact revision and merge guard tests | Implemented: ordinary publication, typed evidence and supported human-merge backstops; arbitrary credentialed code is not claimed to be sandboxed by command hooks. |
+| 07: optional review | Lazy review/bootstrap/doctor owners and project-scoped review services; deep-review, vplan, bootstrap and workflow tests | Implemented: missing optional assets do not block ordinary work; explicit runs retain checks and revision binding. |
+| 08: workflows | `workflow.rs`, `workflow_runtime.rs`, admission/dependency owners; workflow, decision and dispatch tests | Implemented mechanisms; dependency invalidation defect confirmed below and now fixed with owner-driven regression coverage. |
+| 09: migration | `lifecycle/migration.rs`, core filesystem transition owner; `mx-state-migration` and migration unit tests | Implemented: inspect/apply/rollback, exact backups, interruption recovery and legacy resource transfer; private-home migration is an operator action. |
+| 10: observation and Viz | Domain/CLI snapshot collectors, service `local_services/viz.rs`, `share/viz`; snapshot, service, graph and browser checks | Implemented: bounded read model, exact artifact links, partial state, task/session separation and responsive views; synthetic 20/500-node views do not establish live model concurrency. |
+| 11: global entry | `launcher.rs`, `workspace_tui.rs`, `task.rs`, registry/discovery and `harness_launch.rs`; workspace, launcher/PTY and package tests | Implemented: one-owner connection, immutable per-item bindings, bounded discovery and installed assets; the later Ratatui repair is included. |
+| 12: combined acceptance | This 39-scenario ledger, four-trial committed results, package tests and complete repository checks | Implemented and merged under approved scope; the A5 audit regression is fixed locally; unavailable raw live evidence remains explicit. Wider live-provider/scaling claims remain unverified. |
+
+The cross-repository isolation assertion is concrete: `phase11_workspace.rs` accepts A/C, rejects ambiguous B without creating a partial receipt, then accepts B by exact checkout and verifies all three distinct allocations and artifacts.
+`phase04_coordination.rs` separately checks concurrent retries, invalid starting revision isolation and rejection of receipts copied to another home.
+Migration tests inject before-intent, after-intent, after-write, progress and commit failures; unit tests separately assert repeat-apply and byte-exact rollback.
+Graph normalization assertions cover nested coordinators, identical worker IDs in different homes, conflicting ownership, missing parents, cycles and deterministic 500-node layout.
+These are substantive local integration and fault assertions, not claims of authenticated model behavior.
+
+### Evidence retention and remaining boundaries
+
+All 23 raw artifact paths named by `phase12-live-results.json` are absent on this machine as of this audit.
+They point into the temporary `/private/tmp/mx-phase12-live-matrix` tree.
+The committed results retain worker outcomes, timestamps, resource observations, hashes and limitations, but this audit cannot recheck the missing raw files against those hashes or independently replay their original live outcomes.
+The prior live results remain historical reported evidence; they are not re-certified by current mocked checks or a green CI run.
+A durable raw-artifact archive or a separately authorized fresh live trial is needed to close that reproducibility gap.
+Do not silently relabel the historical summaries as newly verified live integration.
+
+The user-approved reduced workload was four five-task trials, not the original full live 1/5/10/20 matrix.
+Live 10/20-task throughput, unattended completion, complete provider billing and human-review/post-merge quality are not established.
+Claude/Pi/cmux and broader Cursor authenticated candidate verification remain explicit follow-up items; successful executable probes are not provider authentication or model-work evidence.
+The recorded hierarchical trials include observer assistance and mixed-runtime recovery, so they do not prove autonomous throughput gains.
+Public source installation is available; prebuilt public release publication and any private-home migration remain operator actions.
+
+Current documentation corrections reconcile the source filename, PR #48/#49 merge status, Phase 03/11 stale next-step text, predecessor roadmap labels and published installer wording.
+Historical phase implementation narratives retain their original chronology; this dated section supersedes their obsolete pending-work instructions.
+
+### Fresh local validation
+
+Reference machine: macOS arm64; source `5326a8e` with only the accounting-documentation corrections above applied during the check window.
+The production source and release executable stayed unchanged throughout validation.
+
+| Exact check | Result |
+| --- | --- |
+| `cargo build --release --workspace --locked` | Pass before behavior execution. |
+| `cargo fmt --all -- --check` | Pass. |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Pass. |
+| `cargo test --locked --workspace` | 787 passed, zero failed/ignored across 37 result groups. |
+| `target/release/mx test-run --check-coverage` | Pass: 134 scripts; 113 accelerated, 11 serial, 10 Herdr. |
+| `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-deep-all.json` | 134 scripts, zero failures, eight explicit gates, 426.113 seconds with four workers. |
+| `MX_LAUNCHER_LIVE_E2E=1 target/release/mx test-run tests/mx-launcher-live-e2e.test.sh --json /private/tmp/mx-deep-launcher-probes.json` | Pass, no gates; installed Codex 0.156.1 and Cursor 2026.09.10-fd3934a version routing from an unrelated caller directory. |
+| `target/release/mx doc-audience-check` and `git diff --check` | Pass after the documentation corrections. |
+
+The [unaltered runner artifact](phase12-postmerge-audit-behavior.json) preserves per-script exit codes, timings and gate classifications in the repository rather than relying only on temporary logs.
+The eight full-suite gates are cmux smoke, Claude stop, Codex continuity, authenticated Cursor, launcher live opt-in, Pi live entry, Pi types and Pi/Herdr marker delivery.
+The separate launcher probe closes only its executable-routing gate; it does not close authenticated provider acceptance.
+The suite includes real temporary Git/process/tmux/Herdr integration and mocked provider/forge cases; a green aggregate must not be described as all live integrations passing.
+The immediately preceding browser audit on the same runtime passed desktop/phone layouts for 0/1/5/10/20 tasks, exact artifact preview, stable interactions, bounded requests, observation age and failed-refresh warnings; 20 post-data interaction samples had p95 20.896 ms.
+No new coverage percentage is claimed by these local commands, and no Linux or paid-provider rerun is implied.
+
+
+### Confirmed correctness finding: completed dependency survives failure
+
+**Priority: high; reproduced during audit, now fixed and locally verified.**
+The [repair record](../../docs/verification/postmerge-audit-issues.md#aud-001aud-002-repair-validation) supersedes the open-finding disposition below and closes AUD-001/AUD-002 with new tests.
+A current, valid `failed` report after a typed `done` report leaves the canonical schedule at `completed`.
+A newly submitted dependent request can then pass admission and spawn even though its prerequisite has explicitly reported failure.
+The existing passing suites do not cover this transition, so their success does not establish that all accepted correctness requirements are satisfied.
+
+The report writer in `crates/multplx-domain/src/supervision.rs` sets completion after typed evidence and only reopens a completed task for `working` (lines 579-624 at the audit revision).
+It does not clear completed state for a valid `failed` report.
+Backend `headroom.rs:1561-1585` consumes only the saved schedule state when checking prerequisites; reserve and drain paths share that predicate.
+Brief revision and recorded evidence-commit changes do invalidate completion through their existing owners, but they do not repair this report transition.
+The issue conflicts with A5's requirement to schedule only runnable work and with the dependency gate's current-completion contract.
+
+The isolated reproduction uses actual CLI owners in this order:
+
+1. Spawn a canonical implementation prerequisite into its assigned Git worktree.
+2. Record typed delivery evidence for its actual HEAD, then submit a bound `done` report.
+3. Submit a current bound `failed` report and inspect the task: report succeeds, but schedule remains `completed`.
+4. Submit a new request depending on that prerequisite, then spawn it: admission succeeds.
+
+Git, worktree allocation, durable intake, task-model evidence, report transitions and spawn/admission are real.
+A fake tmux executable supplies transport observations, and explicit synthetic capacity inputs avoid host-load interference; no live model was started.
+The [reproduction utility](phase12-dependency-audit-repro.sh) preserves the exact fixture and commands.
+Independent reruns reproduced `DEPENDENT_SPAWNED_AFTER_FAILED_REPORT` on the unchanged release binary; one run retained its owner-generated records under `/private/tmp/mx-audit-dependency-repro.iQYOKQ`.
+This is a newly reproduced runtime defect, distinct from the historical raw-evidence retention gap.
+The original documentation/accounting audit did not include a runtime fix; the user subsequently authorized the repair on `fix/dependency-completion-invalidation`.
+The subsequent repair implements current failure/blocking/decision transition semantics, invalidate completion through its canonical owner, and add regression assertions that dependent admission remains deferred after invalidation while unrelated work remains runnable.
+It should also review whether dependency consumption needs stronger current-evidence checks; artifact mutation alone is not claimed as a separately reproduced defect here.
+The specific failure transition and regression gap are now locally verified as fixed; remaining historical evidence and broader live acceptance limits still apply.
+
+
+### Dependency repair closeout
+
+The fix changes only the canonical report transition/help and adds owner-driven checks to the existing report suite.
+All 787 Rust tests and 134 behavior scripts pass (eight explicit integration gates), along with release build, formatting, strict Clippy, inventory and documentation checks.
+The original reproduction no longer reaches its stale-completed assertion; fresh regression coverage proves dependents remain queued after failure, old reports are inert and fresh valid completion releases the queue.
+See the [issue log](../../docs/verification/postmerge-audit-issues.md#aud-001aud-002-repair-validation) for exact commands, source/binary hashes, mocked boundaries and the retained fixed-runtime runner artifact.
+Phase 08/12's specific reopened A5 finding is resolved and locally validated on the repair branch; human merge remains pending.
+The 23 missing historical raw artifacts and unrun broader live trials remain separately recorded limits.

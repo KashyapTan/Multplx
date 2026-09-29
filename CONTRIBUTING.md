@@ -18,8 +18,8 @@ Deep-review is an optional tool under that target, and PR merges belong to human
 ## Repo conventions
 
 - This repo is a template for running the Multplx multi-agent orchestrator.
-  `AGENTS_E.md` is the dormant operating contract, `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
-- Only shared material is tracked: `AGENTS_E.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
+  `AGENTS.md` is the canonical operating contract, `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
+- Only shared material is tracked, including `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency.
   Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
   The in-repo backlog library owns `data/backlog.md`, its parser, retention defaults, and routine mutations as documented in [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").

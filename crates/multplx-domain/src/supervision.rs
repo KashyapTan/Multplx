@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. A current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -580,8 +580,9 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         // only when a separately typed, current implementation or report
         // artifact proves the result. The status message alone remains status
         // evidence for compatibility.
+        let mut completion_evidence = false;
         if validation.is_ok() && state_name == "done" {
-            let completion_evidence = match record.artifact {
+            completion_evidence = match record.artifact {
                 crate::lifecycle::subagent_model::ArtifactKind::Implementation => {
                     record.current_delivery_evidence().is_some_and(|evidence| {
                         let checkout = record
@@ -614,9 +615,34 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             }
         }
         if validation.is_ok()
-            && state_name == "working"
             && record.schedule.state == crate::lifecycle::subagent_model::WorkState::Completed
+            && !completion_evidence
         {
+            use crate::lifecycle::subagent_model::WorkState;
+            match state_name.as_str() {
+                "paused" | "blocked" | "failed" => {
+                    record.schedule.state = WorkState::WaitingExternal;
+                    record.schedule.waiting_condition = Some(state_name.clone());
+                }
+                "needs-decision" => {
+                    record.schedule.state = WorkState::WaitingHuman;
+                    record.schedule.waiting_condition = parsed.key.clone();
+                }
+                _ => {
+                    record.schedule.state = WorkState::Running;
+                    record.schedule.waiting_condition = None;
+                }
+            }
+        } else if validation.is_ok()
+            && matches!(state_name.as_str(), "working" | "resolved")
+            && record.schedule.state == crate::lifecycle::subagent_model::WorkState::WaitingExternal
+            && matches!(
+                record.schedule.waiting_condition.as_deref(),
+                Some("paused" | "blocked" | "failed")
+            )
+        {
+            // Clear only waits created by reports; coordinator lifecycle waits
+            // and human decisions have their own owners and recovery paths.
             record.schedule.state = crate::lifecycle::subagent_model::WorkState::Running;
             record.schedule.waiting_condition = None;
         }

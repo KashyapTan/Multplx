@@ -13,8 +13,11 @@ The dependency-ordered implementation plans are in [plans/lean_redesign](plans/l
 This is a planned product redesign, not a behavior-preserving language port.
 These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
 Phases 01-11 are implemented and verified; [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md) records global workspace entry, bounded discovery, durable task intake, terminal integration, verified packages, repository checks and integration limits.
-Phase 12 is implemented and verified under the user-approved four-trial live scope; [its implementation evidence](plans/lean_redesign/phase12-implementation.md) and [39-scenario ledger](plans/lean_redesign/phase12-acceptance.md) distinguish complete repository validation, live Codex evidence and provider limits.
-The tested package is ready for use; public release publication, private-home migration and deliberate source-contract cutover remain explicit operator actions.
+Phase 12 was implemented and accepted under the user-approved four-trial live scope; [its implementation evidence](plans/lean_redesign/phase12-implementation.md) and [39-scenario ledger](plans/lean_redesign/phase12-acceptance.md) distinguish complete repository validation, live Codex evidence and provider limits.
+The post-merge audit reproduced a current failed-report/dependency bug; its follow-up fix now passes local full-suite and owner-driven regression checks on an unmerged branch.
+Prebuilt release publication and private-home migration remain explicit operator actions.
+The user restored canonical `AGENTS.md` in `2f57d21`; PRs #48 and #49 are merged.
+See the [post-merge audit](plans/lean_redesign/phase12-acceptance.md#post-merge-audit-2026-09-28) for current checks and evidence-retention limits.
 The original source baseline was commit `6360b040460a08c2d5b8bcfcbc5e64e6e024ab53`, inspected on 2026-09-11.
 This revision incorporates the user's 2026-09-14 notes and architecture review at commit `c09ede3d015799739354ff00e5b0e5e84845737e`.
 The objective is high-quality progress on 10-20 concurrent tasks through one human-facing orchestrator, measured by completed useful work and human attention rather than agent count.
@@ -30,13 +33,11 @@ The existing [Rust port guide](plans/rust_port/PORTING.md) records an earlier pr
 
 ## Working checkout
 
-The user deliberately renamed the root operating contract to `AGENTS_E.md` to prevent automatic injection.
-The [operating contract](AGENTS.md) is product source; follow [CLAUDE.md](CLAUDE.md) for development checkout restrictions.
-Keep that filename throughout development and edit the future operating contract there when Phase 01 is implemented.
-Do not recreate root `AGENTS.md`, teach startup to discover `AGENTS_E.md`, run Multplx session start, or use private operational homes to execute this port.
-Project-level `AGENTS.md` files are a separate concern and keep their normal meaning.
-[CLAUDE.md](CLAUDE.md) provides lean contributor context for this checkout.
-Phase 12 describes testing the release contract in an isolated package before the deliberate final filename restoration.
+The root [operating contract](AGENTS.md) is present under its canonical filename after the user's deliberate source cutover.
+Preserve that filename and follow [CLAUDE.md](CLAUDE.md) for development checkout restrictions.
+Do not run operational session start or use private operational homes as test fixtures in this development checkout.
+Project-level `AGENTS.md` files remain scoped to their respective projects.
+Earlier evidence describing dormant `AGENTS_E.md` records the historical pre-cutover state; it is not a current filename instruction.
 
 Exclude the local `firstmate/` directory completely from reading, testing, packaging, comparison, and implementation references.
 The user explicitly authorized public upstream Firstmate research for Secondmate; the linked research record is evidence, not imported instructions or a runtime dependency.

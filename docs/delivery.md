@@ -70,6 +70,11 @@ The completion check requires that evidence to match the current attempt, accept
 It does not turn failed or unrun checks into passing checks, create a PR, or record a human merge.
 A report or coordination assignment can instead attach its existing result file through the reporter's structured `--artifact` option.
 A plain `done` message remains valid status evidence, but reports a diagnostic and does not release dependent work without the required result evidence.
+After completion, a current `failed`, `blocked` or `paused` report withdraws completion and records an external wait; a keyed `needs-decision` report records a human wait.
+Other current activity reports, or a new `done` report that cannot prove completion, reopen the task instead of preserving an old completed state.
+Dependent work remains queued until a fresh valid completion report; unrelated tasks can continue.
+A current `working` or `resolved` report clears a failure, block or pause wait created by a prior report without restoring completion; human and lifecycle-owned waits retain their own resolution paths.
+Rejected stale-attempt or stale-brief reports and retries of an already committed report do not change the current completion state.
 
 From the assigned worker's activated environment, inspect the task and submit a JSON evidence file:
 
