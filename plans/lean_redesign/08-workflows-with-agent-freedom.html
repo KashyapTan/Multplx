@@ -73,7 +73,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--green
 <div class="plan-num">Lean Redesign 08 · Multplx</div>
 <h1>Ordered Workflows, Autonomous Stages</h1>
 <p class="subtitle">Keep every selected workflow step, support human planning conversations and give sub-agents freedom inside their assigned stages.</p>
-<div class="badges"><span class="badge phase">Phase 08 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Complete · 2026-09-16</span></div>
+<div class="badges"><span class="badge phase">Phase 08 of 12</span><span class="badge effort">Effort: High</span><span class="badge risk">Risk: High</span><span class="badge status">Implemented · dependency fix verified locally · 2026-09-28</span></div>
 </div></header>
 <main class="wrap">
 <div class="callout"><div class="label">Implementation guide</div><p>Read <a href="../../porting.md">porting.md</a> for the shared product contract, skill disposition, migration boundaries and release acceptance. This phase is implemented and verified.</p></div>
@@ -150,7 +150,7 @@ a{color:var(--accent)} td code{overflow-wrap:anywhere} .status{color:var(--green
 </ul>
 <div class="callout warn"><div class="label">Integration risk</div><p>The existing command approve gate executes the command before requesting approval. Do not use an after-the-fact gate as a merge guard or as consent to run an undisclosed optional tool; establish tool selection before execution and keep agent PR merges forbidden.</p></div>
 <h2>Implementation evidence</h2>
-<p>Status: complete. <a href="phase08-implementation.md">Phase 08 implementation evidence</a> records the implementation revision, requirement ledger, exact checks, mocked-versus-live boundary, validation incidents, limitations and Phase 09 readiness.</p>
+<p>Status: implemented and merged; the <a href="phase12-acceptance.md#confirmed-correctness-finding-completed-dependency-survives-failure">post-merge A5 dependency finding</a> is fixed and locally verified on the follow-up branch. <a href="phase08-implementation.md">Phase 08 implementation evidence</a> records the implementation revision, requirement ledger, exact checks, mocked-versus-live boundary, validation incidents, limitations and Phase 09 readiness.</p>
 <nav class="footer-nav"><a href="07-opt-in-review-tools.html">← Previous</a><a href="index.html">Lean redesign index</a><a href="09-state-migration-and-recovery.html">Next →</a></nav>
 </main>
 </body>

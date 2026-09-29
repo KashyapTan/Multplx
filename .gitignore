@@ -19,3 +19,7 @@ config/calm
 config/cmux-socket-password
 config/wedge-alarm
 config/herdr-presentation-spaces
+
+# Local generated audit timing artifacts (summaries live in the issue log).
+/plans/lean_redesign/phase12-postmerge-audit-behavior.json
+/plans/lean_redesign/phase12-dependency-fix-behavior.json

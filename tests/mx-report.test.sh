@@ -197,6 +197,175 @@ test_cwd_metadata_fallback_and_missing_binding() {
   pass "mx-report: cwd metadata fallback is exact and an unbound caller fails closed"
 }
 
+test_current_report_invalidates_dependency_completion() (
+  local home="$TMP_ROOT/dependency-home" project="$TMP_ROOT/dependency-project"
+  local fakebin="$TMP_ROOT/dependency-fakebin" model attempt generation revision allocation commit
+  local project_id checkout_id start output before status_count
+  local mx="${MX_RUST_BIN:-$ROOT/target/release/mx}"
+  mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects" "$project" "$fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/bin/sh
+case "${1:-}" in
+  has-session|new-session) exit 0 ;;
+  new-window) printf '%s\n' '@report-test' ;;
+  display-message) printf '%s\n' '%1' ;;
+  list-windows) printf '%s\n' 'test:window' ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux"
+  export PATH="$fakebin:$PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT"
+  export MX_RUST_SOURCE_ROOT="$ROOT" MX_HEADROOM_SKIP_QUEUE=0
+  export MX_HEADROOM_CPU_COUNT=64 MX_HEADROOM_LOAD1=0
+  export MX_HEADROOM_MEM_AVAILABLE_BYTES=68719476736 MX_HEADROOM_IN_USE=0
+  export MX_HEADROOM_API_CAPACITY=20 MX_MULTICALL_EXPLICIT=1
+  printf 'fixture\n' > "$project/README.md"
+  git -C "$project" init -q -b main || fail 'dependency Git init failed'
+  git -C "$project" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    add README.md || fail 'dependency Git add failed'
+  git -C "$project" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    commit -qm initial || fail 'dependency Git commit failed'
+  "$mx" project register "$project" --alias report-dependency > "$home/project.json" \
+    || fail 'dependency project registration failed'
+  project_id=$(jq -r .project_id "$home/project.json")
+  checkout_id=$(jq -r .checkout_id "$home/project.json")
+  start=$(jq -r .starting_revision "$home/project.json")
+  for task in prerequisite dependent unrelated; do
+    "$mx" brief "$task" report-dependency --role implementer >/dev/null \
+      || fail "brief creation failed for $task"
+    sed "s/{TASK}/Implement $task./" "$home/data/$task/brief.md" \
+      > "$home/data/$task/brief.next"
+    mv "$home/data/$task/brief.next" "$home/data/$task/brief.md"
+  done
+  output=$("$mx" spawn prerequisite report-dependency --role implementer \
+    --backend tmux --harness codex --request-id prerequisite-spawn) \
+    || fail 'prerequisite spawn failed'
+  assert_contains "$output" 'spawned prerequisite ' 'prerequisite endpoint absent'
+  model=$("$mx" task-model inspect prerequisite) || fail 'prerequisite model absent'
+  attempt=$(jq -r .attempt.id <<< "$model")
+  generation=$(jq -r .attempt.generation <<< "$model")
+  revision=$(jq -r .accepted_brief_revision <<< "$model")
+  allocation=$(jq -r .allocation.path <<< "$model")
+  commit=$(git -C "$allocation" rev-parse HEAD) || fail 'allocated HEAD absent'
+  jq -n --arg attempt "$attempt" --arg commit "$commit" \
+    --arg observed "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    --argjson generation "$generation" --argjson revision "$revision" \
+    '{evidence_id:"report-dependency-evidence",attempt_id:$attempt,attempt_generation:$generation,brief_revision:$revision,commit:$commit,checks:[{name:"fixture",outcome:"passed",summary:"passed",artifact:null}],review:null,limitations:[],pr_url:null,outcome:"evidence-updated",observed_at:$observed,mark_current:true,expected_current_commit:null}' \
+    > "$home/delivery.json"
+  "$mx" task-model evidence prerequisite --request-file "$home/delivery.json" >/dev/null \
+    || fail 'current typed delivery evidence rejected'
+  bound_report() {
+    MX_TASK_ID=prerequisite MX_ATTEMPT_ID="$attempt" \
+      MX_ATTEMPT_GENERATION="$generation" MX_BRIEF_REVISION="$revision" \
+      MX_RUST_BIN="$mx" MX_LAUNCH_BIN_PATH="$mx" \
+      "$REPORT" --id prerequisite "$@"
+  }
+  bound_report --state done --message 'evidenced completion' --message-id dependency-done \
+    || fail 'evidenced done report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = completed ] \
+    || fail 'typed done did not complete prerequisite'
+  if bound_report --state failed --message 'stale attempt' --message-id dependency-stale-attempt \
+    --generation "$((generation + 1))" >/dev/null 2>&1; then
+    fail 'stale attempt failure was accepted'
+  fi
+  if bound_report --state failed --message 'stale brief' --message-id dependency-stale-brief \
+    --brief-revision "$((revision + 1))" >/dev/null 2>&1; then
+    fail 'stale brief failure was accepted'
+  fi
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = completed ] \
+    || fail 'rejected stale report invalidated completion'
+  bound_report --state failed --message 'current failure' --message-id dependency-failed \
+    || fail 'current failure report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = waiting-external ] \
+    || fail 'current failure left prerequisite completed'
+  before=$(shasum -a 256 "$home/state/prerequisite.meta")
+  status_count=$(wc -l < "$home/state/prerequisite.status" | tr -d ' ')
+  bound_report --state done --message 'evidenced completion' --message-id dependency-done \
+    || fail 'old done replay failed'
+  [ "$(shasum -a 256 "$home/state/prerequisite.meta")" = "$before" ] \
+    || fail 'old done replay re-completed prerequisite'
+  [ "$(wc -l < "$home/state/prerequisite.status" | tr -d ' ')" = "$status_count" ] \
+    || fail 'old done replay appended duplicate status'
+  "$mx" request submit --batch dependency-test --request dependent-request --task dependent \
+    --client test --project "$project_id" --checkout "$checkout_id" --start "$start" \
+    --brief 1 --scope dependent --depends prerequisite >/dev/null \
+    || fail 'dependent request submission failed'
+  output=$("$mx" spawn dependent report-dependency --role implementer \
+    --backend tmux --harness codex --request-id dependent-request) \
+    || fail 'dependent deferral failed'
+  assert_contains "$output" 'queued: dependent' 'failed prerequisite admitted dependent'
+  [ ! -f "$home/state/dependent.meta" ] || fail 'deferred dependent gained task model'
+  output=$("$mx" headroom --queue-drain) || fail 'blocked dependency drain failed'
+  [ -z "$output" ] || fail 'blocked dependency drained queued dependent'
+  [ -f "$home/state/.dispatch-queue/dependent-request.request" ] \
+    || fail 'blocked dependency lost queued dependent'
+  output=$("$mx" spawn unrelated report-dependency --role implementer \
+    --backend tmux --harness codex --request-id unrelated-spawn) \
+    || fail 'unrelated spawn failed'
+  assert_contains "$output" 'spawned unrelated ' 'failed prerequisite stalled unrelated work'
+  bound_report --state working --message 'failure recovery underway' \
+    --message-id dependency-working-after-failed || fail 'working after failure failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = running ] \
+    || fail 'working report did not clear failed report wait'
+  output=$("$mx" headroom --queue-drain) || fail 'working prerequisite drain failed'
+  [ -z "$output" ] || fail 'working prerequisite released dependent before done'
+  bound_report --state done --message 'fresh evidenced completion' \
+    --message-id dependency-done-fresh || fail 'fresh done report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = completed ] \
+    || fail 'fresh valid done did not recover completion'
+  output=$("$mx" headroom --queue-drain) || fail 'recovered dependency drain failed'
+  assert_contains "$output" 'dependent' 'fresh done did not release queued dependent'
+  [ ! -f "$home/state/.dispatch-queue/dependent-request.request" ] \
+    || fail 'released dependent remained queued'
+  bound_report --state blocked --message 'external blocker' --message-id dependency-blocked \
+    || fail 'blocked report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = waiting-external ] \
+    || fail 'blocked report retained completion'
+  bound_report --state working --message 'blocker being addressed' \
+    --message-id dependency-working-after-blocked || fail 'working after blocker failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = running ] \
+    || fail 'working report did not clear blocked report wait'
+  bound_report --state done --message 'blocker cleared' --message-id dependency-done-after-blocked \
+    || fail 'completion after blocker failed'
+  bound_report --state paused --message 'paused work' --message-id dependency-paused \
+    || fail 'paused report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = waiting-external ] \
+    || fail 'paused report retained completion'
+  bound_report --state resolved --message 'pause ended' \
+    --message-id dependency-resolved-after-pause || fail 'resolved after pause failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = running ] \
+    || fail 'resolved report did not clear paused report wait'
+  bound_report --state done --message 'pause ended' --message-id dependency-done-after-pause \
+    || fail 'completion after pause failed'
+  bound_report --state needs-decision --key route --message 'choose route' \
+    --message-id dependency-decision || fail 'keyed decision report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r '.schedule.state + ":" + .schedule.waiting_condition')" = waiting-human:route ] \
+    || fail 'keyed decision report retained completion'
+  bound_report --state done --message 'decision handled' --message-id dependency-done-after-decision \
+    || fail 'completion after decision failed'
+  bound_report --state needs-decision --key route --message 'choose route' \
+    --message-id dependency-decision-repeated || fail 'repeat keyed decision report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = waiting-human ] \
+    || fail 'repeat current decision retained completion'
+  bound_report --state working --message 'work resumed pending decision' \
+    --message-id dependency-working-with-decision || fail 'working with decision failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = waiting-human ] \
+    || fail 'working report bypassed human decision wait'
+  bound_report --state done --message 'decision handled again' \
+    --message-id dependency-done-after-repeated-decision \
+    || fail 'completion after repeated decision failed'
+  printf 'changed HEAD\n' > "$allocation/changed.txt"
+  git -C "$allocation" add changed.txt || fail 'changed HEAD Git add failed'
+  git -C "$allocation" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    commit -qm changed || fail 'changed HEAD Git commit failed'
+  bound_report --state done --message 'completion without current evidence' \
+    --message-id dependency-unproven-done >/dev/null \
+    || fail 'unproven done report failed'
+  [ "$("$mx" task-model inspect prerequisite | jq -r .schedule.state)" = running ] \
+    || fail 'unproven done retained old completion'
+  pass 'current failure invalidates typed completion, reserve and drain defer, replay stays inert, and fresh done releases work'
+)
+
 test_script_contract
 test_valid_states_and_keyed_grammar
 test_invalid_inputs_never_write
@@ -204,3 +373,4 @@ test_message_passthrough_and_newline_rejection
 test_missing_arguments_and_bad_keys
 test_task_binding_enforcement
 test_cwd_metadata_fallback_and_missing_binding
+test_current_report_invalidates_dependency_completion

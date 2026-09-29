@@ -26,8 +26,9 @@ Its macOS/Linux checks, unchanged coverage gate, browser acceptance and recorded
 Phase 11 supplies global workspace entry, bounded project discovery, durable multi-repository task intake, a shared terminal workspace and verified runtime packages.
 Its macOS/Linux checks, unchanged coverage gate and isolation proof pass, with synthetic harness, executable-probe and release boundaries recorded in the [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md).
 
-Phase 12 is implemented and verified under the user-approved reduced live workload; [its evidence](plans/lean_redesign/phase12-implementation.md) and [acceptance ledger](plans/lean_redesign/phase12-acceptance.md) record complete repository checks, live Codex results and provider limits.
-The tested package is ready; operational startup remains separate from this development checkout, with public release and private-home migration pending as explicit operator actions.
+Phase 12 was implemented and accepted under the user-approved reduced live workload; [its evidence](plans/lean_redesign/phase12-implementation.md) and [acceptance ledger](plans/lean_redesign/phase12-acceptance.md) record complete repository checks, live Codex results and provider limits.
+The [post-merge audit](plans/lean_redesign/phase12-acceptance.md#post-merge-audit-2026-09-28) records a locally verified A5 dependency-completion repair and missing raw historical live artifacts; keep the unmerged repair and broader evidence limits explicit.
+Operational startup remains separate from this development checkout, with public release and private-home migration pending as explicit operator actions.
 
 ## This checkout
 

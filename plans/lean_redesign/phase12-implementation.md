@@ -2,7 +2,10 @@
 
 ## Status and source boundary
 
-Status: complete under the user-approved reduced live scope; tested package delivered, deliberate repository filename cutover pending.
+Status: implemented and merged under the user-approved reduced live scope; tested package delivered and the user’s repository filename cutover completed.
+The [2026-09-28 post-merge audit](phase12-acceptance.md#post-merge-audit-2026-09-28) owns current checks and identifies missing historical raw live-trial artifacts.
+A current failed-report/dependency bug was reproduced in that audit and is now fixed with local full-suite and owner-driven regression verification; see the linked audit for the unmerged repair and remaining evidence limits.
+The sections below preserve chronological evidence, including pre-merge/pre-cutover state and interim failures; they are not current pending-work instructions.
 The final validation and disposition sections below supersede interim open-check statements retained in this chronological record.
 Work started on 2026-09-18 on `lean-redesign-phase12` from merged Phase 11 commit `8535d8e1c6048ac3a3525544394e753bed741256`.
 The checkout was clean before branch creation.

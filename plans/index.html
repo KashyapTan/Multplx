@@ -46,23 +46,24 @@ tr:nth-child(even) td{background:var(--surface)}
 <header class="hero"><div class="wrap">
   <div class="plan-num">Multplx · Implementation Plan Index</div>
   <h1>Multplx Implementation Ledger</h1>
-  <p class="subtitle">Nineteen HTML artifacts document the implementation that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> and its active roadmap: numbered Plans 01-18 plus the inserted Plan 6.5 test-acceleration phase. Plans 01-11 plus 6.5 built the port, Plans 12-15 added post-port operations and observability, Plan 16 completed the human-documentation productization pass, Plan 17 implemented the global launcher and activated shell, and Plan 18 implemented Cursor CLI support plus maintainer-scoped overrides.</p>
+  <p class="subtitle">Nineteen HTML artifacts document the implementation that turned the upstream <code>firstmate</code> orchestrator into <b>Multplx</b> and its historical roadmap: numbered Plans 01-18 plus the inserted Plan 6.5 test-acceleration phase. Plans 01-11 plus 6.5 built the port, Plans 12-15 added post-port operations and observability, Plan 16 completed the human-documentation productization pass, Plan 17 implemented the global launcher and activated shell, and Plan 18 implemented Cursor CLI support plus maintainer-scoped overrides.</p>
 </div></header>
 
 <div class="wrap">
 
 <div class="callout"><div class="label">How to read these plans</div>
-<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order; the inserted 6.5 artifact makes nineteen records across numbered Plans 01-18. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; Multplx uses <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All tracked implementation scripts retain the <code>mx-</code> prefix; Plan 17 installs the user-facing <code>multplx</code> command as a bootstrap into that script surface.</p>
+<p>Each plan is a self-contained design and implementation record grounded against the repository state that existed when it was written. Plans are numbered in execution order; the inserted 6.5 artifact makes nineteen records across numbered Plans 01-18. Old vocabulary (captain, crewmate, fleet) appears only when describing upstream Firstmate; That historical implementation used <b>maintainer</b> (the human), <b>broker</b> (orchestrator agent), <b>actor</b> (task agent), and <b>daemon</b> (persistent domain agent). All tracked implementation scripts retain the <code>mx-</code> prefix; Plan 17 installs the user-facing <code>multplx</code> command as a bootstrap into that script surface.</p>
 </div>
 
 <div class="phase-label">Current program · Lean orchestration redesign</div>
 <a class="card" href="lean_redesign/index.html" style="--card-accent:#39c5cf">
   <div class="top"><span class="num">LEAN REDESIGN</span><span class="title">One Orchestrator, Free Sub-agents</span></div>
-  <div class="desc">Twelve phases (Phases 01-02 complete; later phases planned) keep the main agent focused on orchestration, support researcher/implementer/reviewer sub-agents and free delegation, allow implementer PR publication, retain human-only merges, make review tools opt-in, and implement the accepted filesystem reliability, capacity, ordered workflow and MX Viz improvements with measured 1/5/10/20-task acceptance. Global entry works from any directory, with optional nested project discovery and a thin TUI. Project-scoped sub-orchestrators manage domain work beneath the same main chat, multi-repo delegation is standard, and a built-in Git worktree manager replaces Treehouse.</div>
-  <div class="meta"><span class="tag">Revised · 2026-09-14</span><span class="tag effort-high">Program effort: High</span><span class="tag">Guide: porting.md</span></div>
+  <div class="desc">Twelve implemented and merged phases, with a locally verified follow-up repair for the post-merge A5 dependency finding, keep the main agent focused on orchestration, support researcher/implementer/reviewer sub-agents and free delegation, allow implementer PR publication, retain human-only merges, make review tools opt-in, and implement the accepted filesystem reliability, capacity, ordered workflow and MX Viz improvements with local 1/5/10/20-task measurements and the user-approved four five-task live trials; live 10/20 scaling remains unverified. Global entry works from any directory, with optional nested project discovery and a thin TUI. Project-scoped sub-orchestrators manage domain work beneath the same main chat, multi-repo delegation is standard, and a built-in Git worktree manager replaces Treehouse.</div>
+  <div class="meta"><span class="tag">Audited · 2026-09-28</span><span class="tag effort-high">Program effort: High</span><span class="tag">Guide: porting.md</span></div>
 </a>
 
-<h2>Execution flow</h2>
+<p>The lean redesign supersedes the earlier policy and Rust-port roadmaps. Their numbered plans remain historical implementation records, not additional unfinished phases. See the <a href="lean_redesign/phase12-acceptance.md#post-merge-audit-2026-09-28">current accounting and verification limits</a>.</p>
+<h2>Historical execution flow</h2>
 <div class="flow">
 <b>Phase 1</b> Shrink        → 01 deletions (social relay, glab, shellcheck installer, wedge alarm, zellij/orca/grok/opencode)<br>
 <b>Phase 2</b> Rename        → 02 rebrand (vocabulary, example_agents.md rewrite, fm-→mx- sweep)<br>

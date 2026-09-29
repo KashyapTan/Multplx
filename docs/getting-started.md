@@ -83,11 +83,11 @@ For example, an entirely separate installation is:
 ```
 
 Use `./install.sh --help` for supported options.
-Keep the source checkout for future `git pull` and upgrades, or use the download bootstrap below once published.
+Keep the source checkout for future `git pull` and upgrades, or use the download bootstrap below.
 
 ## Download and install from anywhere
 
-After `install.sh` and `install-from-github.sh` are published on public `main`:
+The published bootstrap installs from the public `main` branch:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-from-github.sh | bash
@@ -95,7 +95,6 @@ curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-fro
 
 The bootstrap downloads a temporary clone of `main`, runs the same installer and removes its temporary checkout afterward.
 It needs the same prerequisites and builds from source; it is not a prebuilt binary download.
-The new URL does not work until these local changes have been pushed.
 To inspect the script before executing it, download it to a file, read it and run it with Bash.
 
 ## Register your first project

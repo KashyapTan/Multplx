@@ -353,6 +353,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/postmerge-audit-issues.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/guards.md",
       "audience": "maintainer-verification"
     },

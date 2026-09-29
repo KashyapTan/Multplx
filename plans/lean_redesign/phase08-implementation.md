@@ -2,7 +2,8 @@
 
 ## Status and source boundary
 
-Status: complete; assigned implementation and acceptance checks passed on 2026-09-16 Eastern time, with final automated results recorded on 2026-09-17 UTC.
+Status: implemented and merged; the [2026-09-28 A5 dependency audit finding](phase12-acceptance.md#confirmed-correctness-finding-completed-dependency-survives-failure) is fixed and locally verified on the follow-up branch; the linked issue log owns exact repair evidence.
+Historically, assigned implementation and acceptance checks passed on 2026-09-16 Eastern time, with final automated results recorded on 2026-09-17 UTC.
 Work started on branch `codex/lean-redesign-phase-08` from clean merged prerequisite `a60661d388349488b73319734d4940b32a442b46`.
 The implementation revision is `b5cd12ca29bfd9c93203ec2493f2f570efc04096`.
 The [phase plan](08-workflows-with-agent-freedom.html) allocates this work and [porting.md](../../porting.md#accepted-architecture-contract) owns the shared contracts.
