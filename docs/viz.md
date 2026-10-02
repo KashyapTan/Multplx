@@ -6,24 +6,31 @@ Agents continue to use the snapshot, catchup projection, and owning lifecycle co
 
 ## Commands
 
-Start or rediscover the dashboard for the current Multplx home:
+After starting your configured orchestrator, run this from any directory to open its dashboard:
 
 ```sh
-bin/mx-viz.sh serve
+mx viz
 ```
 
-The command prints only the loopback URL and never opens a browser.
+`multplx viz` and the terminal workspace's `v` key use the same configured orchestrator home and open the exact URL returned by its service.
+No environment variables are needed for normal installed use.
+`mx viz --no-open` prints the URL for automation; `mx viz serve`, `status` and `stop` retain scriptable service behavior.
+The installer now supplies `mx` alongside `multplx`; an older installation can use `multplx viz` after updating its runtime.
+Explicit advanced root/home overrides remain available for intentionally isolated development homes.
+They select that exact home; the launcher never searches arbitrary active agents or copies state to resolve a mismatch.
+An incomplete or conflicting installation registration is an error to repair, not permission to guess a home or reuse port 4890.
+If another home's dashboard occupies the first port, the command and TUI use the selected home's returned fallback URL.
 
 Inspect the live process and its last snapshot poll:
 
 ```sh
-bin/mx-viz.sh status
+mx viz status
 ```
 
 Stop the dashboard:
 
 ```sh
-bin/mx-viz.sh stop
+mx viz stop
 ```
 
 `serve` is singleton and idempotent per `MX_HOME`.
@@ -135,7 +142,15 @@ Scroll within the graph to explore larger groups; **Show root** returns to the m
 Select an assignment node to inspect its existing task details.
 
 The main orchestrator anchors the hierarchy to the observed Multplx home.
-The snapshot does not report that primary model's session liveness, so its node explicitly says the session is not observed.
+The additive `primary` field (`mx-primary-observation.v1`) reports evidence from this home's registered workspace connection and current session lock.
+A `process live` node requires matching canonical home/state bindings, recorded process start identity, a supported harness process and current lock ownership.
+It establishes process liveness only; working, idle, model responsiveness and conversation contents remain unobserved.
+`unregistered` means no primary registration exists for this home, including external Codex Desktop conversations that have no supported registered adapter.
+`unavailable` means registration or bounded process probes could not establish current evidence; `stale` means observed lifetime or lock evidence conflicts with the registration.
+An absent process and a failed identity probe are conservatively unavailable because the existing process probe does not distinguish their exit reasons.
+Older connection records without home/state bindings require a new managed primary launch before they can establish liveness; older snapshots remain labeled session not observed.
+The collector bounds this one owner probe to two seconds and 16 KiB, without scanning unrelated processes or exposing command lines, process identity markers, terminal routes or conversation text.
+Snapshot/cache freshness remains separate from primary health: fresh evidence can report an unavailable or stale primary, and a stale cached live observation is historical evidence.
 A worker's assignment state is separate from its observed sessions; a queued assignment, completed task or retained home is not presented as a currently running model.
 Opaque native observations do not become invented agent nodes.
 

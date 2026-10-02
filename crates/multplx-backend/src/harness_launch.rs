@@ -9,7 +9,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use multplx_core::filesystem::atomic_replace;
+use multplx_core::filesystem::{atomic_replace, read_bounded_regular};
 use multplx_core::locks::DirectoryLock;
 use multplx_core::process::{ProcessIdentity, ProcessProbe, SystemProcessProbe};
 use multplx_core::session_lock::{SessionLockStatus, harness_regex, status};
@@ -233,6 +233,10 @@ struct ConnectionRecord {
     owner: Option<LifetimeIdentity>,
     harness: String,
     caller_cwd: PathBuf,
+    #[serde(default)]
+    home: Option<PathBuf>,
+    #[serde(default)]
+    state: Option<PathBuf>,
     #[serde(default)]
     backend: Option<String>,
     #[serde(default)]
@@ -465,6 +469,8 @@ fn write_connection(home: &Path, harness: &str, owner: LifetimeIdentity) -> Resu
         owner: Some(owner),
         harness: harness.to_owned(),
         caller_cwd,
+        home: Some(home.to_path_buf()),
+        state: Some(home.join("state")),
         backend,
         target,
         pane,
@@ -534,6 +540,138 @@ fn reservation_state(home: &Path, processes: &impl ProcessProbe) -> ReservationS
         }
         Err(_) => ReservationState::Unknown,
     }
+}
+
+/// Privacy-preserving primary observation from the launcher's exact-home record.
+/// Callers must bound the host probes (the canonical collector uses a child deadline).
+pub fn primary_observation(home: &Path, state: &Path) -> serde_json::Value {
+    observe_primary(home, state, &SystemProcessProbe::default())
+}
+
+fn observe_primary(home: &Path, state: &Path, processes: &impl ProcessProbe) -> serde_json::Value {
+    let result = |status: &str, reason: &str, harness: Option<&str>| {
+        serde_json::json!({
+            "schema":"mx-primary-observation.v1", "home":home, "state":state,
+            "status":status, "reason":reason, "provider":harness,
+            "activity":"unknown", "source":"workspace-connection", "identity_verified":status=="live"
+        })
+    };
+    let path = state.join(CONNECTION_RECORD);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return result(
+                "unregistered",
+                "No registered primary session for this home; external Desktop conversations are not observed.",
+                None,
+            );
+        }
+        Err(_) => return result("unavailable", "Primary registration cannot be read.", None),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 16 * 1024 {
+        return result(
+            "unavailable",
+            "Primary registration is linked, oversized or not a regular file.",
+            None,
+        );
+    }
+    let Some(record) = read_bounded_regular(&path, 16 * 1024)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<ConnectionRecord>(&bytes).ok())
+        .filter(|record| {
+            record.schema == "mx-workspace-connection.v1" && valid_harness(&record.harness)
+        })
+    else {
+        return result(
+            "unavailable",
+            "Primary registration is unreadable or invalid.",
+            None,
+        );
+    };
+    let canonical_home = fs::canonicalize(home).ok();
+    let canonical_state = fs::canonicalize(state).ok();
+    if canonical_home.is_none()
+        || canonical_state.is_none()
+        || record.home != canonical_home
+        || record.state != canonical_state
+        || canonical_state != canonical_home.as_ref().map(|home| home.join("state"))
+    {
+        return result(
+            "unavailable",
+            "Primary registration has no matching canonical home/state binding (legacy records require a new managed launch).",
+            Some(&record.harness),
+        );
+    }
+    let Some(owner) = record
+        .owner
+        .filter(|owner| owner.pid > 0 && !owner.started.is_empty())
+    else {
+        return result(
+            "unavailable",
+            "Primary registration has no process lifetime identity.",
+            Some(&record.harness),
+        );
+    };
+    let Ok(current) = processes.identity(owner.pid) else {
+        return result(
+            "unavailable",
+            "Recorded primary process is absent or its identity probe failed; exit reason is not observed.",
+            Some(&record.harness),
+        );
+    };
+    if lifetime(current) != owner {
+        return result(
+            "stale",
+            "Recorded primary process lifetime no longer matches (PID reuse or replacement).",
+            Some(&record.harness),
+        );
+    }
+    let lock = state.join(".lock");
+    if fs::symlink_metadata(&lock).map_or(true, |meta| {
+        !meta.is_file() || meta.file_type().is_symlink() || meta.len() > 32
+    }) || read_bounded_regular(&lock, 32)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        != Some(owner.pid)
+    {
+        return result(
+            "stale",
+            "Registered primary does not own the current session lock.",
+            Some(&record.harness),
+        );
+    }
+    let Ok(row) = processes.ancestry_row(owner.pid) else {
+        return result(
+            "unavailable",
+            "Primary harness probe failed.",
+            Some(&record.harness),
+        );
+    };
+    let basename = Path::new(&row.command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if !harness_regex().is_match(&format!("{basename} {}", row.arguments)) {
+        return result(
+            "stale",
+            "Recorded process is no longer a supported harness.",
+            Some(&record.harness),
+        );
+    }
+    // Recheck lifetime after the lock and harness observations; never publish a reused PID as live.
+    if processes.identity(owner.pid).ok().map(lifetime).as_ref() != Some(&owner) {
+        return result(
+            "unavailable",
+            "Primary identity changed or became unavailable during collection.",
+            Some(&record.harness),
+        );
+    }
+    result(
+        "live",
+        "Registered primary process lifetime and session lock verified; model activity and responsiveness are not observed.",
+        Some(&record.harness),
+    )
 }
 
 /// Inspect the live owner without changing or stealing its lock.
@@ -944,9 +1082,11 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use super::CONNECTION_RECORD;
     use std::cell::Cell;
     use std::collections::HashMap;
     use std::ffi::OsString;
+    use std::fs;
     use std::path::Path;
     use std::time::Duration;
 
@@ -1289,6 +1429,133 @@ mod tests {
         ));
     }
 
+    struct PrimaryProbe {
+        alive: bool,
+        identity: CoreResult<ProcessIdentity>,
+    }
+    impl ProcessProbe for PrimaryProbe {
+        fn is_alive(&self, _: u32) -> bool {
+            self.alive
+        }
+        fn identity(&self, _: u32) -> CoreResult<ProcessIdentity> {
+            self.identity
+                .as_ref()
+                .cloned()
+                .map_err(|_| CoreError::InvalidIdentifier {
+                    kind: "fixture",
+                    value: "unavailable".into(),
+                })
+        }
+        fn ancestry_row(&self, _: u32) -> CoreResult<AncestryRow> {
+            Ok(AncestryRow {
+                parent_pid: 1,
+                command: "codex".into(),
+                arguments: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn primary_observation_requires_exact_registration_lifetime_and_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = fs::canonicalize(temp.path()).unwrap();
+        let state = home.join("state");
+        fs::create_dir(&state).unwrap();
+        let marker = "Mon Oct 01 01:02:03 2026 codex";
+        let probe = PrimaryProbe {
+            alive: true,
+            identity: Ok(ProcessIdentity {
+                pid: 42,
+                marker: marker.into(),
+            }),
+        };
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "unregistered"
+        );
+        let mut record = ConnectionRecord {
+            schema: "mx-workspace-connection.v1".into(),
+            owner: Some(lifetime(ProcessIdentity {
+                pid: 42,
+                marker: marker.into(),
+            })),
+            harness: "codex".into(),
+            caller_cwd: home.clone(),
+            home: Some(home.clone()),
+            state: Some(state.clone()),
+            backend: None,
+            target: None,
+            pane: None,
+            tmux_socket: None,
+        };
+        let publish = |record: &ConnectionRecord| {
+            fs::write(
+                state.join(CONNECTION_RECORD),
+                serde_json::to_vec(record).unwrap(),
+            )
+            .unwrap()
+        };
+        publish(&record);
+        fs::write(state.join(".lock"), "42\n").unwrap();
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "live"
+        );
+        let alias = home.join("alias-home");
+        std::os::unix::fs::symlink(&home, &alias).unwrap();
+        assert_eq!(
+            super::observe_primary(&alias, &alias.join("state"), &probe)["status"],
+            "live"
+        );
+
+        record.owner.as_mut().unwrap().started = "old lifetime".into();
+        publish(&record);
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "stale"
+        );
+        record.owner = Some(lifetime(ProcessIdentity {
+            pid: 42,
+            marker: marker.into(),
+        }));
+        record.home = None;
+        publish(&record);
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "unavailable"
+        );
+        record.home = Some(home.clone());
+        record.state = Some(home.join("other"));
+        publish(&record);
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "unavailable"
+        );
+        record.state = Some(state.clone());
+        publish(&record);
+        fs::write(state.join(".lock"), "43\n").unwrap();
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "stale"
+        );
+        fs::write(state.join(".lock"), "42\n").unwrap();
+        let failed = PrimaryProbe {
+            alive: false,
+            identity: Err(CoreError::InvalidIdentifier {
+                kind: "PID",
+                value: "42".into(),
+            }),
+        };
+        let observed = super::observe_primary(&home, &state, &failed);
+        assert_eq!(observed["status"], "unavailable"); // dead and failed ps cannot be separated by this probe.
+        assert_eq!(observed["identity_verified"], false);
+        fs::write(state.join(CONNECTION_RECORD), "invalid").unwrap();
+        assert_eq!(
+            super::observe_primary(&home, &state, &probe)["status"],
+            "unavailable"
+        );
+    }
+
     #[test]
     fn live_connection_refuses_missing_non_tmux_and_stale_tmux_routes() {
         let temp = tempfile::tempdir().unwrap();
@@ -1302,6 +1569,8 @@ mod tests {
             owner: Some(owner.clone()),
             harness: "codex".into(),
             caller_cwd: temp.path().into(),
+            home: Some(temp.path().into()),
+            state: Some(temp.path().join("state")),
             backend: Some("herdr".into()),
             target: Some("session:pane".into()),
             pane: None,
@@ -1345,6 +1614,8 @@ mod tests {
             owner: Some(owner),
             harness: "codex".into(),
             caller_cwd: temp.path().into(),
+            home: Some(temp.path().into()),
+            state: Some(temp.path().join("state")),
             backend: None,
             target: None,
             pane: None,

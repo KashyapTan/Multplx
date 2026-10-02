@@ -81,6 +81,8 @@ State recovery does not promise restoration of a provider transcript that the pr
 
 ## Terminal workspace
 
+`mx viz` or `multplx viz` opens the dashboard for that same configured home from any directory; the workspace's `v` key opens its returned URL as well.
+Use `mx viz --no-open` to print the URL without opening a browser.
 Bare `multplx` opens the terminal workspace, while `multplx workspace --plain` provides a noninteractive view.
 The workspace displays projects, cross-repository tasks, pending decisions, current context and connection state.
 Its task and domain facts come from the same canonical projection as CLI status and [MX Viz](viz.md).

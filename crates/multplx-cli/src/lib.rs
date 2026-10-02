@@ -86,6 +86,12 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Serve the dashboard for the configured orchestrator home from any directory.
+    #[command(disable_help_flag = true)]
+    Viz {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Install, upgrade, or uninstall the global Multplx binary.
     #[command(disable_help_flag = true)]
     LauncherInstall {
@@ -175,6 +181,9 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Read one registered primary observation (internal bounded collector adapter).
+    #[command(hide = true)]
+    PrimaryObservation { home: PathBuf, state: PathBuf },
     /// Compute dispatch capacity or operate on its durable queue.
     #[command(hide = true, disable_help_flag = true)]
     Headroom {
@@ -556,6 +565,7 @@ impl Cli {
                 0
             }
             Command::Launcher { args } => launcher::run(&args),
+            Command::Viz { args } => launcher::run_viz(&args),
             Command::LauncherInstall { args } => launcher::run_installer(&args),
             Command::TestRun { args } => tooling::run_tests(&args),
             Command::TestIsolationProof { args } => tooling::run_isolation_proof(&args),
@@ -571,6 +581,13 @@ impl Cli {
             Command::Cmux { args } => run_cmux(&args),
             Command::Harness { args } => run_harness(&args),
             Command::LaunchHarness { args } => run_launch_harness(&args),
+            Command::PrimaryObservation { home, state } => {
+                println!(
+                    "{}",
+                    multplx_backend::harness_launch::primary_observation(&home, &state)
+                );
+                0
+            }
             Command::Headroom { args } => run_headroom(&args),
             Command::Worktree { args } => run_worktree(&args),
             Command::Wake { args } => run_wake(&args),

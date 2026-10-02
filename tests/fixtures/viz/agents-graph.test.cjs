@@ -151,3 +151,22 @@ const domain = (id, taskHome, runtimeHome) => ({
 }
 
 process.stdout.write("agent graph normalization and layout fixtures passed\n");
+
+for (const status of ["live", "unregistered", "stale", "unavailable"]) {
+  const fixture = snapshot([task("healthy-child", home, "root", { state: "working" })]);
+  fixture.roots = { state: `${home}/state` };
+  fixture.primary = { schema: "mx-primary-observation.v1", home, state: `${home}/state`, status, identity_verified: status === "live", reason: "exact evidence" };
+  const root = normalize(fixture).root;
+  assert.equal(root.state, status);
+  assert.equal(root.healthLabel, ({ live: "process live", stale: "evidence stale", unavailable: "observation unavailable", unregistered: "session not registered" })[status]);
+  assert.equal(root.sessionDetails, "exact evidence");
+  assert.equal(root.freshness, "fresh"); // Cache/projection freshness is separate from health.
+  fixture.primary.home = "/other-home";
+  assert.equal(normalize(fixture).root.state, "unknown");
+  fixture.primary.home = home;
+  fixture.primary.state = "/other-state";
+  assert.equal(normalize(fixture).root.state, "unknown");
+  fixture.primary.state = `${home}/state`;
+  fixture.primary.identity_verified = false;
+  if (status === "live") assert.equal(normalize(fixture).root.state, "unknown");
+}

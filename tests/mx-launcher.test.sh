@@ -149,7 +149,7 @@ test_collisions_uninstall_and_private_preservation() {
   printf 'private sentinel\n' >"$root/data/private-sentinel"
   "$INSTALLER" --uninstall \
     --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null
-  [ ! -e "$case_dir/bin/multplx" ] || fail "uninstall left bootstrap"
+  [ ! -e "$case_dir/bin/multplx" ] && [ ! -e "$case_dir/bin/mx" ] || fail "uninstall left bootstrap or mx"
   [ ! -e "$case_dir/config/root" ] && [ ! -e "$case_dir/config/home" ] \
     || fail "uninstall left path records"
   [ "$(cat "$root/data/private-sentinel")" = 'private sentinel' ] \
@@ -161,7 +161,7 @@ test_atomic_interruption_recovery() {
   local root="$TMP_ROOT/atomic-root" source="$TMP_ROOT/atomic-managed-source"
   local target case_dir status
   make_runtime "$root"
-  for target in root home multplx; do
+  for target in root home multplx mx; do
     case_dir="$TMP_ROOT/atomic-$target"
     if MX_LAUNCHER_INSTALL_FAIL_BEFORE=$target install_fixture "$case_dir" "$root" \
       >/dev/null 2>&1; then status=0; else status=$?; fi
@@ -516,6 +516,7 @@ test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
   expect_code 1 "$status" "failure after partial generation publication"
   [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$old_hash" ] \
     || fail "synchronous publication fault did not restore the old binary"
+  [ "$(shasum -a 256 "$case_dir/bin/mx" | awk '{print $1}')" = "$old_hash" ] || fail "rollback did not restore mx alias"
   [ "$(cat "$case_dir/config/binary.sha256")" = "$old_hash" ] \
     || fail "synchronous publication fault did not restore the old digest"
   [ "$(mx_test_stat_mode "$case_dir/bin/multplx")" = 700 ] \
@@ -544,6 +545,7 @@ test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
   expect_code 1 "$status" "recovery followed by pre-publication fault"
   [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$old_hash" ] \
     || fail "crash recovery did not restore the old binary generation"
+  [ "$(shasum -a 256 "$case_dir/bin/mx" | awk '{print $1}')" = "$old_hash" ] || fail "crash recovery did not restore mx alias"
   [ "$(cat "$case_dir/config/binary.sha256")" = "$old_hash" ] \
     || fail "crash recovery did not restore the old digest generation"
 
@@ -588,6 +590,7 @@ test_distinct_upgrade_fault_crash_recovery_and_uninstall_rollback() {
   expect_code 1 "$status" "uninstall publication fault"
   [ "$(shasum -a 256 "$case_dir/bin/multplx" | awk '{print $1}')" = "$final_hash" ] \
     || fail "failed uninstall did not restore the installed binary"
+  [ "$(shasum -a 256 "$case_dir/bin/mx" | awk '{print $1}')" = "$final_hash" ] || fail "uninstall rollback did not restore mx alias"
   [ "$(cat "$case_dir/config/binary.sha256")" = "$final_hash" ] \
     || fail "failed uninstall did not restore the installed digest"
   pass "distinct upgrade and uninstall generations roll back and recover after crashes"
@@ -672,3 +675,104 @@ test_explicit_root_does_not_require_repository_cwd() {
   pass 'native installer honors explicit root and home from a non-repository directory'
 }
 test_explicit_root_does_not_require_repository_cwd
+
+# Configured global command and actual TUI key path share one home and exact service URL.
+test_viz_global_home_and_tui_url() {
+  local root="$TMP_ROOT/viz-runtime" case_dir="$TMP_ROOT/viz-global" home="$TMP_ROOT/viz-home"
+  make_runtime "$root"
+  mkdir -p "$home/config" "$home/data" "$home/state" "$home/projects" "$root/share/viz"
+  cp -R "$ROOT/share/viz/." "$root/share/viz/"
+  mkdir -p "$case_dir/bin"
+  printf 'foreign mx\n' > "$case_dir/bin/mx"
+  if "$INSTALLER" --root "$root" --home "$home" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then fail 'installer replaced foreign mx'; fi
+  [ "$(cat "$case_dir/bin/mx")" = 'foreign mx' ] || fail 'foreign mx bytes changed'
+  rm "$case_dir/bin/mx"
+  "$INSTALLER" --root "$root" --home "$home" --bin-dir "$case_dir/bin" \
+    --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null || fail 'Viz fixture install failed'
+  [ -x "$case_dir/bin/mx" ] || fail 'installer omitted advertised mx entrypoint'
+  python3 - "$case_dir" "$root" "$home" <<'PY'
+import fcntl, json, os, pathlib, pty, select, socket, struct, subprocess, sys, termios, time
+case, root, home = map(pathlib.Path,sys.argv[1:])
+caller=case/'unrelated';caller.mkdir()
+other=case/'other-home'
+for part in ['state','data','config','projects']: (other/part).mkdir(parents=True,exist_ok=True)
+reader=case/'snapshot.sh';reader.write_text('#!/bin/sh\nprintf \'{"schema":"mx-system-snapshot.v1","mx_home":"%s"}\\n\' "$MX_HOME"\n');reader.chmod(0o700)
+env={k:v for k,v in os.environ.items() if not k.startswith('MX_')}
+opener=case/'open.sh'; opened=case/'opened-url'
+opener.write_text('#!/bin/sh\nprintf \'%s\\n\' "$1" > "'+str(opened)+'"\n');opener.chmod(0o700)
+env.update(MX_VIZ_SNAPSHOT_BIN=str(reader),MX_VIZ_OPEN_BIN=str(opener),TERM='xterm-256color')
+with socket.socket() as sock:
+    sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
+env['MX_VIZ_PORT']=str(port)
+mx=case/'bin/mx'; multplx=case/'bin/multplx'
+def run(binary,args,extra={}):
+    return subprocess.check_output([str(binary),*args],cwd=caller,env=dict(env,**extra),text=True).strip()
+def api(url):
+    import urllib.request
+    return json.load(urllib.request.urlopen(url+'api/state'))
+try:
+    for binary in [mx,multplx]:
+        help_text=run(binary,['viz','--help'])
+        assert '--no-open' in help_text and 'configured orchestrator home' in help_text and 'workspace v open' in help_text, help_text
+    raw_help=run(mx,['services','mx-viz.sh','--help'],{'MX_MULTICALL_EXPLICIT':'1'})
+    assert 'never opens a browser' in raw_help and '--no-open' not in raw_help, raw_help
+    wrong=run(mx,['viz','--no-open'],{'MX_HOME':str(other),'MX_ROOT_OVERRIDE':str(root)})
+    correct=run(mx,['viz','--no-open'])
+    assert not opened.exists(), 'no-open launched a browser'
+    assert wrong != correct,(wrong,correct)
+    assert api(wrong)['snapshot']['mx_home']==str(other),api(wrong)
+    assert api(correct)['snapshot']['mx_home']==str(home),api(correct)
+    assert run(multplx,['viz'])==correct
+    assert opened.read_text().strip()==correct
+    opened.unlink()
+    assert str(home) in run(multplx,['paths'])
+    pid,fd=pty.fork()
+    if pid==0:
+        fcntl.ioctl(0,termios.TIOCSWINSZ,struct.pack("HHHH",40,140,0,0))
+        os.chdir(caller);os.execve(str(multplx),[str(multplx)],env)
+    capture=b'';deadline=time.monotonic()+12
+    try:
+        while time.monotonic()<deadline:
+            if select.select([fd],[],[],.1)[0]:
+                try: capture+=os.read(fd,65536)
+                except OSError: break
+            if b'v Viz' in capture or b'v viz' in capture:
+                os.write(fd,b'v');break
+        else: raise AssertionError('TUI footer unavailable: '+repr(capture[-2000:]))
+        while time.monotonic()<deadline:
+            if select.select([fd],[],[],.1)[0]:
+                try: capture+=os.read(fd,65536)
+                except OSError: break
+            done,status=os.waitpid(pid,os.WNOHANG)
+            if done:
+                assert os.waitstatus_to_exitcode(status)==0,repr(capture[-2000:]);break
+        else: raise AssertionError('TUI Viz did not return')
+        assert correct.encode() in capture,repr(capture[-2000:])
+        assert wrong.encode() not in capture,repr(capture[-2000:])
+        assert opened.read_text().strip()==correct, 'TUI did not open exact returned URL'
+    finally:
+        try: os.kill(pid,9)
+        except ProcessLookupError: pass
+        try: os.waitpid(pid,0)
+        except ChildProcessError: pass
+        os.close(fd)
+    # Partial registrations are actionable errors, never a guessed cwd/default-port route.
+    (case/'config/home').rename(case/'config/home.saved')
+    failed=subprocess.run([str(mx),'viz'],cwd=caller,env=env,capture_output=True,text=True)
+    assert failed.returncode != 0 and 'home' in failed.stderr,failed
+    assert run(mx,['viz','--no-open'],{'MX_HOME':str(other),'MX_ROOT_OVERRIDE':str(root)})==wrong, 'explicit alternate home was blocked by incomplete global registration'
+    (case/'config/home.saved').rename(case/'config/home')
+finally:
+    for selected in [home,other]:
+        subprocess.run([str(mx),'viz','stop'],cwd=caller,env=dict(env,MX_HOME=str(selected),MX_ROOT_OVERRIDE=str(root)),capture_output=True)
+PY
+  [ "$?" -eq 0 ] || fail 'configured Viz command/TUI exact-home URL check failed'
+  cp "$case_dir/bin/mx" "$case_dir/mx.saved"
+  printf 'foreign replacement mx\n' > "$case_dir/bin/mx"
+  if "$INSTALLER" --upgrade --root "$root" --home "$home" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then fail 'upgrade replaced foreign mx'; fi
+  if "$INSTALLER" --uninstall --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null 2>&1; then fail 'uninstall removed foreign mx'; fi
+  [ "$(cat "$case_dir/bin/mx")" = 'foreign replacement mx' ] && [ -x "$case_dir/bin/multplx" ] || fail 'foreign mx refusal changed installation'
+  cp "$case_dir/mx.saved" "$case_dir/bin/mx"
+  pass 'mx viz, multplx viz and actual TUI v resolve configured home from unrelated cwd and avoid occupied wrong-home URL'
+}
+test_viz_global_home_and_tui_url

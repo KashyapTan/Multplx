@@ -130,6 +130,7 @@ Fix login in my-app, investigate the flaky tests in api, and research the export
 ```
 
 Open `multplx` in another terminal to browse the workspace; press `v` for MX Viz or `c` to connect to the main conversation.
+Run `mx viz` or `multplx viz` from any directory to open the same dashboard automatically; see the [dashboard guide](docs/viz.md).
 The terminal UI is a dashboard and task-entry surface, not a separate AI chat.
 You can also submit a durable request or print workspace state directly:
 

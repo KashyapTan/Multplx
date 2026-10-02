@@ -5,4 +5,4 @@ SCRIPT_DIR=$(CDPATH='' cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)
 MX_RUST_SOURCE_ROOT=${MX_RUST_SOURCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd -P)}
 MX_BINARY=${MX_RUST_BIN:-$MX_RUST_SOURCE_ROOT/target/release/mx}
 export MX_RUST_SOURCE_ROOT MX_MULTICALL_EXPLICIT=1
-exec "$MX_BINARY" services mx-viz.sh "$@"
+exec "$MX_BINARY" viz "$@"

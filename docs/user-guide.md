@@ -311,16 +311,17 @@ See [Agent delivery and human PR merges](delivery.md) for publication receipts, 
 MX Viz is a disposable read-only view of the same canonical task, domain, decision, workflow, freshness, and delivery state used by the terminal workspace.
 Switch between **Tasks** for detailed task records and **Agents** for the orchestrator, coordinator and worker hierarchy.
 The graph distinguishes assignment state from observed sessions and flags unresolved ownership or partial data.
-The terminal workspace key `v` opens it when available.
-You can also manage the local server directly from an activated shell after changing to `$MX_ROOT_OVERRIDE`:
+After starting the orchestrator, run either command from any directory, or press `v` in the `multplx` terminal workspace:
 
 ```sh
-bin/mx-viz.sh serve
-bin/mx-viz.sh status
-bin/mx-viz.sh stop
+mx viz
+multplx viz
 ```
 
-The server binds only to loopback and prints its URL.
+These entrypoints use the configured orchestrator home automatically and open the returned dashboard URL; no environment variables are needed for normal use.
+Install or upgrade supplies the global `mx` entry alongside `multplx`. An older installed runtime keeps its existing behavior until you upgrade it.
+Use `mx viz --no-open` to print the URL without opening a browser, `mx viz status` to inspect the service, and `mx viz stop` to stop it.
+The server binds only to loopback. If its preferred port is occupied, these entrypoints use the actual returned URL.
 Closing the dashboard does not stop task execution.
 See [Live system dashboard](viz.md) for polling, stale-state display, artifact access, and port configuration.
 

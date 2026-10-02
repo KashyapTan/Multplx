@@ -154,3 +154,64 @@ After the user's CLI update to 0.160.0, the same retained task was relaunched th
 This is live authenticated managed-worker evidence; it does not by itself prove live standing-worker provisioning, nested delegation, other providers or primary-orchestrator health reporting.
 The task retained its original temporary lifecycle identity rather than rewriting existing state.
 The user also confirmed the worker became visible in Viz after the dashboard's home was corrected.
+
+## Follow-up: primary observation for MX Viz (2026-10-01)
+
+The earlier isolated-home check above measured a snapshot that had no primary-health projection.
+It remains historical evidence; it did not verify the observation added in this follow-up.
+
+Canonical snapshots now publish `primary` with the `mx-primary-observation.v1` schema, exact home/state, evidence status, observation timestamp, provider and a plain explanation.
+The workspace launcher adds home/state bindings to its existing connection record rather than creating another session registry.
+A live result requires that binding, the recorded process lifetime, the current session lock and a supported harness process to agree, followed by another lifetime check.
+This uses the launch owner's process-start identity, which survives exec and rejects PID reuse; a bare PID, remembered provider, child session or root graph node cannot establish health.
+The collector runs this read-only owner in one bounded subprocess with a two-second deadline and 16 KiB output cap.
+The child forces internal multicall mode even when the installed TUI executable is named `multplx`; a command-boundary fixture covers that routing requirement.
+Connection and lock reads use the existing bounded no-follow regular-file reader.
+No process scans, daemon, private-home migration, event tracking or dashboard mutation endpoint are added.
+The projected evidence omits command lines, lifetime markers, caller paths and terminal routes.
+
+Deterministic owner fixtures cover a valid registration, canonical caller aliases, missing registration, changed lifetime, different home/state, legacy unbound registration, conflicting lock, malformed registration and absent/failed identity evidence.
+The separate tmux fixture launches a synthetic local harness through the real owner and verifies process-live evidence without claiming model activity.
+Collector fixtures cover timeout, failed start, nonzero exit, invalid output and fresh collection of stale identity evidence.
+Graph fixtures cover primary evidence, unrelated healthy child work, home mismatch, unverified live claims and old snapshots.
+These fixtures establish branch behavior; they are not authenticated primary-provider observations or live green screenshots.
+
+The result distinguishes `live` process evidence, `stale` contradictory identity/lock evidence, `unavailable` incomplete or failed probes and `unregistered` absent registration.
+It does not claim working/idle or model responsiveness, nor infer failed/exited sessions from the boolean process probe: absent processes and failed identity probes remain explicitly unavailable.
+Legacy connection records without exact home/state bindings remain unavailable until a new managed primary launch records those bindings.
+Codex Desktop conversations outside registered Multplx session management remain unregistered and not observed; arbitrary Desktop threads have no implemented supported primary adapter here.
+Cache freshness and agent health remain separate labels.
+The parent must integrate this commit into PR #51 and validate the complete job; no merge or publication occurs in this worker.
+
+### Normal Viz entry and home resolution
+
+The added user scope makes `mx viz`, `multplx viz` and the TUI `v` action use the existing global launcher configuration and service-returned URL.
+The installer adds the verified `mx` binary to its existing atomic generation beside `multplx`; foreign executable collisions remain refused on install, upgrade and uninstall.
+Normal Viz opens the returned loopback URL; `--no-open` and explicit `serve` remain scriptable, and the service itself never opens a browser.
+A fully explicit root/home pair bypasses unrelated missing or stale global registration, preserving deliberate development isolation.
+When that pair matches the selected installation registration, its pending-generation safety check still applies.
+A partial global registration fails visibly rather than silently selecting the caller directory.
+One configured home is authoritative; this does not discover whichever arbitrary agent happens to be running or retarget a user's tasks.
+The previous isolated development home remains separate from the normal globally registered operational home.
+
+The command/TUI fixture installs into temporary directories, starts two real local read-only Viz services with synthetic snapshot readers, occupies the first selected port and checks each API's home identity.
+It launches the actual terminal workspace through a pseudo-terminal, presses `v` and verifies that the browser opener receives the selected home's exact fallback URL.
+The browser opener is a capture fixture; this verifies URL routing, not real browser rendering or authenticated provider execution.
+The fixture also covers no-open behavior, a foreign `mx` collision, partial registration refusal and explicit alternate-home precedence.
+No global installation or private operational-home migration is performed.
+
+Validation of this follow-up (2026-10-02) used a release build before behavior checks:
+
+| Command | Observed result |
+| --- | --- |
+| `cargo build --release --workspace --locked` | Passed. |
+| `cargo test --locked -p multplx-backend harness_launch::tests` | 12 passed. |
+| `cargo test --locked -p multplx-cli --lib` | 120 passed. |
+| `cargo test --locked -p multplx-domain snapshot::tests` | 2 passed. |
+| `cargo test --locked -p multplx-services local_services::viz::tests` | 8 passed. |
+| `target/release/mx test-run tests/mx-launcher-connection.test.sh tests/mx-launcher.test.sh tests/mx-viz.test.sh tests/mx-status-snapshot-projection-reconciliation.test.sh tests/mx-system-snapshot-view.test.sh tests/mx-release-package.test.sh --json /private/tmp/pr51-root-health-checks-final.json` | All 6 passed; no gate skips. |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed. |
+
+The connection fixture observes a real local synthetic harness process, not a live provider conversation. The command/TUI fixture runs installed binaries from an unrelated directory with a captured browser opener, and verifies the selected service's home over its read-only API. It does not upgrade the user's global installation. The separate actual parent-home observation remains `unregistered`; no live green screenshot was fabricated.
+
+After the final public-help correction, the release build, launcher script, CLI unit tests, focused domain/Viz tests and clippy were repeated. Public `mx viz --help` and `multplx viz --help` describe configured-home selection, browser opening and `--no-open`; the raw service help still states that it never opens a browser. Formatting, graph JavaScript syntax/fixtures, documentation audience/link checks and test-manifest coverage also passed.
