@@ -212,6 +212,25 @@ Validation of this follow-up (2026-10-02) used a release build before behavior c
 | `target/release/mx test-run tests/mx-launcher-connection.test.sh tests/mx-launcher.test.sh tests/mx-viz.test.sh tests/mx-status-snapshot-projection-reconciliation.test.sh tests/mx-system-snapshot-view.test.sh tests/mx-release-package.test.sh --json /private/tmp/pr51-root-health-checks-final.json` | All 6 passed; no gate skips. |
 | `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed. |
 
-The connection fixture observes a real local synthetic harness process, not a live provider conversation. The command/TUI fixture runs installed binaries from an unrelated directory with a captured browser opener, and verifies the selected service's home over its read-only API. It does not upgrade the user's global installation. The separate actual parent-home observation remains `unregistered`; no live green screenshot was fabricated.
+The connection fixture observes a real local synthetic harness process, not a live provider conversation.
+The command/TUI fixture runs installed binaries from an unrelated directory with a captured browser opener, and verifies the selected service's home over its read-only API.
+It does not upgrade the user's global installation.
+The separate actual parent-home observation remains `unregistered`; no live green screenshot was fabricated.
 
-After the final public-help correction, the release build, launcher script, CLI unit tests, focused domain/Viz tests and clippy were repeated. Public `mx viz --help` and `multplx viz --help` describe configured-home selection, browser opening and `--no-open`; the raw service help still states that it never opens a browser. Formatting, graph JavaScript syntax/fixtures, documentation audience/link checks and test-manifest coverage also passed.
+After the final public-help correction, the release build, launcher script, CLI unit tests, focused domain/Viz tests and clippy were repeated.
+Public `mx viz --help` and `multplx viz --help` describe configured-home selection, browser opening and `--no-open`; the raw service help still states that it never opens a browser.
+Formatting, graph JavaScript syntax/fixtures, documentation audience/link checks and test-manifest coverage also passed.
+
+### Parent regression correction (2026-10-02)
+
+Parent integration `029aa06` passed 793 Rust tests, but its full 134-script run failed the public Viz help assertion in `tests/mx-viz.test.sh`.
+The original results remain at `/private/tmp/pr51-final-all.log` and `/private/tmp/pr51-final-all.json` (one failure and eight existing gated skips).
+The final public-help interception had omitted the bounded port range, inactivity default and private run-record path that the existing service-header assertion requires.
+The correction restores those contracts alongside configured-home selection and browser-opening guidance, and extends installed `mx` and `multplx` help assertions without weakening the Viz test.
+Missing-task troubleshooting now starts with the normal installed command/TUI flow and keeps environment matching specific to deliberate development isolation.
+
+Correction validation rebuilt with `cargo build --release --workspace --locked` before behavior checks.
+`target/release/mx test-run tests/mx-viz.test.sh tests/mx-launcher.test.sh --json /private/tmp/pr51-root-health-help-correction.json` passed both scripts with zero failures and zero gate skips in 21.239 seconds.
+`cargo test --locked -p multplx-cli --lib` passed 120 tests; clippy with all workspace targets/features and warnings denied, formatting, public/raw help checks, Bash syntax and documentation audience/link checks also passed.
+Logs remain at `/private/tmp/pr51-root-health-help-correction-{build,tests,cli,clippy,static}.log`.
+The parent must integrate this correction and repeat its final regression; this worker does not claim the earlier full-suite failure is a pass.

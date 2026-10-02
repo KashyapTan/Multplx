@@ -714,6 +714,8 @@ try:
     for binary in [mx,multplx]:
         help_text=run(binary,['viz','--help'])
         assert '--no-open' in help_text and 'configured orchestrator home' in help_text and 'workspace v open' in help_text, help_text
+        for contract in ['MX_VIZ_PORT (default 4890) plus 19 upward ports','MX_VIZ_IDLE_SECS (default 1800)','state/.viz/server.run']:
+            assert contract in help_text, help_text
     raw_help=run(mx,['services','mx-viz.sh','--help'],{'MX_MULTICALL_EXPLICIT':'1'})
     assert 'never opens a browser' in raw_help and '--no-open' not in raw_help, raw_help
     wrong=run(mx,['viz','--no-open'],{'MX_HOME':str(other),'MX_ROOT_OVERRIDE':str(root)})
