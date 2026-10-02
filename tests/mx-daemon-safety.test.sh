@@ -2066,7 +2066,7 @@ test_daemon_charter_brief_is_idle_by_default() {
   assert_grep 'empty queue means idle, not invented work or retirement' "$brief" 'empty queue initiates work or retires the home'
   assert_grep "Reconcile your home's recorded children and pending work on restart" "$brief" 'restart loses scoped reconciliation'
   assert_grep 'one bounded assignment' "$brief" 'coordinator scope missing'
-  assert_grep 'Delegate project implementation, code fixes and test-code changes' "$brief" 'coordinator codes directly'
+  assert_grep 'Delegate requested research, investigations, planning deliverables' "$brief" 'coordinator codes directly'
   pass 'persistent coordinator remains scoped and idle by default while preserving restart work'
 }
 

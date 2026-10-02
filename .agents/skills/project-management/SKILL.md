@@ -1,6 +1,6 @@
 ---
 name: project-management
-description: Short reference for project lookup, local checkout selection and project lifecycle commands.
+description: Resolve or register local projects, select exact checkouts and manage project metadata when routing work across repositories.
 user-invocable: false
 metadata:
   internal: true

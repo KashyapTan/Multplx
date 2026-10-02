@@ -1,6 +1,6 @@
 ---
 name: subagent-recovery
-description: Operational reference for startup diagnostics, missing endpoints and recovery of recorded sub-agent work.
+description: Diagnose startup failures, missing endpoints or stalled executions when recorded sub-agent work must be reconciled and safely recovered.
 user-invocable: false
 metadata:
   internal: true
@@ -31,4 +31,4 @@ Repair only the affected dependency or configuration; report unavailable capabil
 | DAEMON_SYNC / DAEMON_LIVENESS / NUDGE_DAEMONS | Recorded home, pending instruction delivery and persistent-home operations. |
 
 Use the emitted home-scoped supervision repair path; never broadly kill watchers or sweep another home's endpoints.
-[A10](../../../porting.md#a10-built-in-git-worktree-lifecycle) assigns allocation inspection and retention to Phase 03's built-in manager; this reference does not invent its pending CLI grammar.
+[A10](../../../porting.md#a10-built-in-git-worktree-lifecycle) assigns allocation inspection and retention to the built-in manager; use `mx worktree --help` for implemented commands.

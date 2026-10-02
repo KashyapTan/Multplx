@@ -12,13 +12,14 @@ The [documentation index](docs/README.md) is the entry point for current operato
 3. Run focused tests for the behavior you changed, then run the complete behavior suite before opening a PR.
 4. Commit your changes, push the branch to your fork, and open the PR against `main`.
 
-The lean redesign is implemented in phases; [porting.md](porting.md) distinguishes target behavior from the existing runtime.
+Read [VISION.md](VISION.md) for contributor context, development checkout restrictions and the implemented redesign history.
+[porting.md](porting.md) records accepted architecture, phase ownership and verification limits.
 Deep-review is an optional tool under that target, and PR merges belong to humans.
 
 ## Repo conventions
 
 - This repo is a template for running the Multplx multi-agent orchestrator.
-  `AGENTS.md` is the canonical operating contract, `CLAUDE.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
+  `AGENTS.md` is the canonical operating contract, `CLAUDE.md` is a relative alias to `AGENTS.md`, `VISION.md` contains contributor context, and `.claude/skills` is a symlink to `.agents/skills`.
 - Only shared material is tracked, including `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live Multplx home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no Multplx dependency.
   Everything personal to one maintainer's system (`.env`, `data/`, `state/`, `config/`, `projects/`) is gitignored; never commit it.
@@ -39,9 +40,9 @@ Deep-review is an optional tool under that target, and PR merges belong to human
 
 ## Development
 
-Read [CLAUDE.md](CLAUDE.md) before editing this checkout.
-Keep the [operating contract](AGENTS.md) short, command mechanics in help, and project-specific facts in their relevant documentation.
-Do not run operational session start or activate the partial redesign in real homes.
+Read [VISION.md](VISION.md) before editing this checkout.
+Keep the [operating contract](AGENTS.md) self-contained for agent responsibilities and lifecycle, command mechanics in help, and project-specific facts in their relevant documentation.
+Do not run operational session start from this development checkout or use private operational homes as test fixtures.
 Use one authoritative owner for each contract; other surfaces link to it.
 Review affected callers and supported harness/backend integrations when changing shared behavior.
 Preserve private state and unrelated changes; never add an agent co-author to commits.

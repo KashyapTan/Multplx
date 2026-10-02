@@ -653,7 +653,10 @@ fn changed_families(
     } else if path.contains("mx-probe-lib") {
         vec!["pure-contract-unit", "session-bootstrap"]
     } else if path.starts_with(".agents/skills/")
-        || matches!(path, "AGENTS.md" | "CLAUDE.md" | "CONTRIBUTING.md")
+        || matches!(
+            path,
+            "AGENTS.md" | "CLAUDE.md" | "VISION.md" | "CONTRIBUTING.md"
+        )
     {
         vec!["pure-contract-unit"]
     } else if path == "tests/lib.sh"

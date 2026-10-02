@@ -41,6 +41,13 @@ else
   exit 1
 fi
 cp "$contract" "$OUTPUT/runtime/AGENTS.md"
+cp "$contract" "$OUTPUT/runtime/CLAUDE.md"
+# Contributor context is loaded only when developing Multplx itself.
+for reference in CONTRIBUTING.md VISION.md; do
+  if [ -f "$ROOT/$reference" ]; then
+    cp "$ROOT/$reference" "$OUTPUT/runtime/$reference"
+  fi
+done
 
 while IFS= read -r -d '' relative; do
   case "$relative" in

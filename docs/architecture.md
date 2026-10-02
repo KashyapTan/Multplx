@@ -238,7 +238,8 @@ The upstream-sync workflow composes that engine with a fetch-only private clone 
 Tasks record report or implementation output separately from researcher, implementer, reviewer or sub-orchestrator assignment and persistence.
 Legacy delivery/scout/daemon kinds are compatibility projections of the [versioned record](subagent-model.md), not delegation permission classes.
 Accepted brief revisions, execution generations and selected checkout identities travel with launch, reports and queued work.
-The [lean intake contract](../porting.md#task-intake-roles-and-quality) makes research task-dependent.
+The [intake contract](../porting.md#task-intake-roles-and-quality) delegates requested research and other substantive deliverables, while allowing coordinators narrow routing inspection, discussion and synthesis.
+Workers execute their recorded assignments; loading a shared operating contract does not turn them into root coordinators.
 
 ## Dispatch profiles
 

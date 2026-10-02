@@ -17,6 +17,8 @@ test_help_includes_entire_header() {
   local help
   help=$("$ROOT/bin/mx-brief.sh" --help)
   assert_contains "$help" "Refuses to overwrite an existing brief." "mx-brief.sh --help omitted its header terminator"
+  assert_contains "$help" "current role takes precedence" "help loses assignment role priority"
+  case "$help" in *"Do not deploy this partial redesign"*) fail "help retains obsolete release restriction" ;; esac
   pass "mx-brief.sh: --help renders the complete header"
 }
 
@@ -156,11 +158,17 @@ test_lean_assignments() {
       assert_no_grep "$arg" "$brief" "retired policy leaked: $arg"
     done
   done
+  for id in lean-implementation lean-research lean-review; do
+    assert_grep 'current worker assignment takes precedence' "$home/data/$id/brief.md" 'worker inherits generic coordinator identity'
+    assert_grep 'Execute the accepted research, implementation or review assignment yourself' "$home/data/$id/brief.md" 'worker recursively delegates its assignment'
+    assert_no_grep 'Delegate requested research' "$home/data/$id/brief.md" 'worker received coordinator delegation default'
+  done
+  assert_grep 'including small tasks' "$home/data/lean-persistent/brief.md" 'coordinator executes small deliverables'
   assert_grep 'researcher sub-agent' "$home/data/lean-research/brief.md" 'research assignment lost'
   assert_grep 'reviewer sub-agent' "$home/data/lean-review/brief.md" 'review assignment lost'
   assert_grep 'exact revision assessed' "$home/data/lean-review/brief.md" 'review evidence revision lost'
   assert_grep 'report.md' "$home/data/lean-research/brief.md" 'report artifact lost'
-  assert_grep 'Delegate project implementation, code fixes and test-code changes' "$home/data/lean-persistent/brief.md" 'child coordinator coding boundary lost'
+  assert_grep 'Delegate requested research, investigations, planning deliverables' "$home/data/lean-persistent/brief.md" 'child coordinator coding boundary lost'
   assert_grep 'include that exact token in your parent status reply' "$home/data/lean-persistent/brief.md" 'parent correlation lost'
   assert_grep "status owner \`$home/state\`" "$home/data/lean-persistent/brief.md" 'parent home lost'
   assert_grep 'project-less domain; bind an explicit repository' "$home/data/lean-persistent/brief.md" 'idea scope narrowed to runtime repo'

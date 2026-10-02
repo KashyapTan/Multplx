@@ -198,10 +198,16 @@ pub fn fast_forward(
     if !ok(dir, &["merge-base", "--is-ancestor", "HEAD", &base]) {
         return skipped(label, format!("diverged from {base}"));
     }
-    let instructions: Vec<&'static str> = ["AGENTS.md", "bin", ".agents/skills"]
-        .into_iter()
-        .filter(|path| !ok(dir, &["diff", "--quiet", "HEAD", &base, "--", path]))
-        .collect();
+    let instructions: Vec<&'static str> = [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "bin",
+        ".agents/skills",
+        ".claude/skills",
+    ]
+    .into_iter()
+    .filter(|path| !ok(dir, &["diff", "--quiet", "HEAD", &base, "--", path]))
+    .collect();
     let before = text(dir, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
     let output = match git(dir, &["merge", "--ff-only", &base]) {
         Ok(output) if output.status.success() => output,
@@ -399,6 +405,46 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
                 continue;
             }
         };
+        // Private homes are not Git checkouts: refresh only their verified
+        // runtime aliases, preserving any uncertain legacy/local instructions.
+        match super::home_seed::read_home_allocation(&context.home.join("data"), &id) {
+            Ok(Some(allocation)) if allocation.git_allocation.is_none() => {
+                let result = if allocation.binding.path != resolved
+                    || allocation.binding.owner_home
+                        != context
+                            .home
+                            .canonicalize()
+                            .unwrap_or_else(|_| context.home.clone())
+                    || allocation.runtime_root != root
+                {
+                    Err(
+                        "private home runtime ownership differs; retained for reconciliation"
+                            .to_owned(),
+                    )
+                } else {
+                    super::home_seed::verify_active_home(&allocation).and_then(|()| {
+                        super::home_seed::refresh_runtime_instructions(&resolved, &root)
+                    })
+                };
+                match result {
+                    Ok(()) => {
+                        lines.push(format!("daemon {id}: current runtime instructions linked"));
+                        if reread && !window.is_empty() {
+                            nudges.push(format!("mx-{id}"));
+                        }
+                    }
+                    Err(error) => lines.push(format!("daemon {id}: skipped: {error}")),
+                }
+                continue;
+            }
+            Err(error) => {
+                lines.push(format!(
+                    "daemon {id}: skipped: home allocation unreadable: {error}"
+                ));
+                continue;
+            }
+            _ => {}
+        }
         let outcome = fast_forward(
             &resolved,
             &format!("daemon {id}"),
@@ -549,6 +595,87 @@ mod tests {
             fast_forward(&repo, "x", &Base::Commit("missing".to_owned()), true, false)
                 .line
                 .contains("does not exist")
+        );
+    }
+
+    #[test]
+    fn update_refreshes_owned_private_homes_and_reports_uncertain_legacy_copies() {
+        use super::super::home_seed::{HomeAllocation, HomeBinding};
+        use std::os::unix::fs::MetadataExt;
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp.path().canonicalize().unwrap();
+        let root = base.join("root");
+        let active = base.join("active");
+        let child = base.join("child");
+        fs::create_dir_all(root.join(".agents/skills")).unwrap();
+        fs::create_dir_all(active.join("data")).unwrap();
+        fs::create_dir_all(active.join("state")).unwrap();
+        fs::create_dir_all(child.join("bin")).unwrap();
+        fs::write(root.join("AGENTS.md"), "delegate\n").unwrap();
+        fs::write(child.join("AGENTS.md"), "delegate\n").unwrap();
+        fs::write(child.join(".mx-daemon-home"), "child\n").unwrap();
+        std::os::unix::fs::symlink(root.join(".agents"), child.join(".agents")).unwrap();
+        let metadata = fs::metadata(&child).unwrap();
+        let allocation = HomeAllocation {
+            version: 1,
+            binding: HomeBinding {
+                id: "child".into(),
+                owner_home: active.clone(),
+                path: child.clone(),
+                lease_id: "fixture".into(),
+                generation: 1,
+            },
+            runtime_root: root.clone(),
+            state: "active".into(),
+            retained_path: None,
+            directory_identity: Some((metadata.dev(), metadata.ino())),
+            git_allocation: None,
+        };
+        fs::write(
+            active.join("data/.home-allocation-child.json"),
+            serde_json::to_vec(&allocation).unwrap(),
+        )
+        .unwrap();
+        let registry = active.join("data/daemons.md");
+        fs::write(
+            &registry,
+            format!(
+                "- child - child (home: {}; scope: test; projects: none; added 2026-01-01)\n",
+                child.display()
+            ),
+        )
+        .unwrap();
+        let context = Context {
+            root: root.clone(),
+            home: active.clone(),
+            marker: ".mx-daemon-home".into(),
+        };
+        let report = update(&context, &active.join("state"), &registry);
+        assert!(
+            report
+                .lines
+                .iter()
+                .any(|line| line.contains("current runtime instructions linked")),
+            "{:?}",
+            report.lines
+        );
+        fs::write(root.join("AGENTS.md"), "new delegation\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(child.join("CLAUDE.md")).unwrap(),
+            "new delegation\n"
+        );
+        fs::remove_file(child.join("AGENTS.md")).unwrap();
+        fs::write(child.join("AGENTS.md"), "unverifiable legacy contract\n").unwrap();
+        let report = update(&context, &active.join("state"), &registry);
+        assert!(
+            report
+                .lines
+                .iter()
+                .any(|line| line.contains("retained for reconciliation"))
+        );
+        assert_eq!(
+            fs::read_to_string(child.join("AGENTS.md")).unwrap(),
+            "unverifiable legacy contract\n"
         );
     }
 

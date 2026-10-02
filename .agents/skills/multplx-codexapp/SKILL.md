@@ -1,6 +1,6 @@
 ---
 name: multplx-codexapp
-description: Optional reference for Codex Desktop host-tool coordination and honest transport limits.
+description: Coordinate Multplx companion tasks with available Codex Desktop host tools when Desktop integration is requested or already in use.
 user-invocable: false
 metadata:
   internal: true

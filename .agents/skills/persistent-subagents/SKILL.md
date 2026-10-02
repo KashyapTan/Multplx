@@ -1,6 +1,6 @@
 ---
 name: persistent-subagents
-description: Operational reference for persistent homes, inherited configuration, parent routing and safe retirement.
+description: Provision, recover, configure or retire persistent homes and scoped coordinators when a standing assignment or parent route is needed.
 user-invocable: false
 metadata:
   internal: true
@@ -9,7 +9,7 @@ metadata:
 # Persistent sub-agent operations
 
 Persistence is independent of assignment role.
-A sub-orchestrator owns a bounded charter, delegates project coding and test changes, and reports through its recorded parent channel.
+A sub-orchestrator owns a bounded charter, delegates requested research, planning deliverables, implementation, testing and reviews, and reports through its recorded parent channel.
 [A11](../../../porting.md#a11-scoped-sub-orchestrators) owns the accepted domain contract.
 The [scoped coordinator reference](../../../docs/scoped-coordinators.md) owns named provisioning, parent outcomes and the verification boundary.
 

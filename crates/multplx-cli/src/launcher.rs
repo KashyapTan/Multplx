@@ -1459,6 +1459,28 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
             });
         }
     }
+    let contract = runtime
+        .iter()
+        .find(|file| file.relative == Path::new("AGENTS.md"))
+        .expect("required contract was checked")
+        .bytes
+        .clone();
+    if let Some(claude) = runtime
+        .iter()
+        .find(|file| file.relative == Path::new("CLAUDE.md"))
+    {
+        if claude.bytes != contract {
+            return Err("release CLAUDE.md must match AGENTS.md".to_owned());
+        }
+    } else {
+        // Older verified packages omitted Claude's contract entry point.
+        // Derive it from the verified canonical bytes during installation.
+        runtime.push(PackagedFile {
+            relative: PathBuf::from("CLAUDE.md"),
+            bytes: contract,
+            mode: 0o644,
+        });
+    }
     runtime.push(PackagedFile {
         relative: PathBuf::from(".multplx-release"),
         bytes: format!("{}\n", env!("CARGO_PKG_VERSION")).into_bytes(),

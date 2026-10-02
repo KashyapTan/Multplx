@@ -5,6 +5,9 @@ Choose the path that matches what you are trying to do; agent operating contract
 
 [Start with the product overview](../README.md), continue to [Getting Started](getting-started.md), or open the [User guide](user-guide.md) for practical day-to-day operation.
 
+[Contributor context and design direction](../VISION.md) covers developing Multplx itself, while [the operating contract](../AGENTS.md) defines agent responsibilities.
+The discoverable [operational skills](../.agents/skills/) include task dispatch, supervision and delivery entry points alongside harness and home operations.
+
 ## Start here
 
 - [Getting Started](getting-started.md) takes a new operator from installation to a safe first orchestrator request.
@@ -43,6 +46,7 @@ Choose the path that matches what you are trying to do; agent operating contract
 - [Durable coordination](durable-coordination.md) describes wake handling, task-scoped messaging and repeat-safe terminal requests.
 - [Decision hold lifecycle](decision-hold-lifecycle.md) explains how unresolved maintainer decisions survive teardown.
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
+- [Orchestrator contract verification](verification/orchestrator-contract.md) records instruction discovery, delivery packaging and bounded behavioral trial evidence.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.
 - [Launcher verification](verification/launcher.md) records global path, shell, lock, harness, and performance evidence.
 - [Rust port final cutover](verification/rust-port-final-cutover.md) records the Portion 13 full-suite, isolation, fresh-session, dependency, and performance closeout evidence.

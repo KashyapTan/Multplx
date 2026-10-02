@@ -36,7 +36,7 @@ while IFS= read -r file; do
   [ -f "$ROOT/$file" ] || continue
   if LC_ALL=C grep -Iq . "$ROOT/$file"; then
     case "$file" in
-      CLAUDE.md|porting.md)
+      CLAUDE.md|VISION.md|porting.md)
         # Accepted upstream research is provenance, not current product naming.
         sed -e 's/public upstream Firstmate research for Secondmate/upstream research/g' \
           -e 's/public upstream Secondmate research/upstream research/g' \

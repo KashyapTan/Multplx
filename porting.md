@@ -4,8 +4,8 @@
 
 Replace Multplx's prescriptive agent operating model with a small coordination contract and a capable CLI.
 The user-facing agent is the **orchestrator** and every delegated worker is a **sub-agent**.
-The main orchestrator handles the human conversation, research and synthesis, planning, delegation, state and communication.
-It delegates project implementation, code fixes and test-code changes to sub-agents.
+The main orchestrator owns intake, discussion, synthesis, coordination plans, task briefs, delegation, state and delivery.
+It delegates requested research, investigations, planning deliverables, implementation, testing and reviews, including small tasks.
 Implementation sub-agents can commit, push branches, and create or update PRs within their assigned scope.
 PR merges remain human-executed.
 The dependency-ordered implementation plans are in [plans/lean_redesign](plans/lean_redesign/index.html).
@@ -14,7 +14,7 @@ This is a planned product redesign, not a behavior-preserving language port.
 These documents define requirements; each phase evidence record distinguishes implemented behavior from remaining targets.
 Phases 01-11 are implemented and verified; [Phase 11 evidence](plans/lean_redesign/phase11-implementation.md) records global workspace entry, bounded discovery, durable task intake, terminal integration, verified packages, repository checks and integration limits.
 Phase 12 was implemented and accepted under the user-approved four-trial live scope; [its implementation evidence](plans/lean_redesign/phase12-implementation.md) and [39-scenario ledger](plans/lean_redesign/phase12-acceptance.md) distinguish complete repository validation, live Codex evidence and provider limits.
-The post-merge audit reproduced a current failed-report/dependency bug; its follow-up fix now passes local full-suite and owner-driven regression checks on an unmerged branch.
+The post-merge audit reproduced a current failed-report/dependency bug; its follow-up fix is merged in PR #50 (`f749bf9`) after full-suite and owner-driven regression checks.
 Prebuilt release publication and private-home migration remain explicit operator actions.
 The user restored canonical `AGENTS.md` in `2f57d21`; PRs #48 and #49 are merged.
 See the [post-merge audit](plans/lean_redesign/phase12-acceptance.md#post-merge-audit-2026-09-28) for current checks and evidence-retention limits.
@@ -34,7 +34,7 @@ The existing [Rust port guide](plans/rust_port/PORTING.md) records an earlier pr
 ## Working checkout
 
 The root [operating contract](AGENTS.md) is present under its canonical filename after the user's deliberate source cutover.
-Preserve that filename and follow [CLAUDE.md](CLAUDE.md) for development checkout restrictions.
+Preserve that filename and follow [VISION.md](VISION.md) for development checkout restrictions.
 Do not run operational session start or use private operational homes as test fixtures in this development checkout.
 Project-level `AGENTS.md` files remain scoped to their respective projects.
 Earlier evidence describing dormant `AGENTS_E.md` records the historical pre-cutover state; it is not a current filename instruction.
@@ -51,7 +51,7 @@ Private `data/`, `state/`, `config/`, credentials, and project clones are not in
 | Area | Target behavior |
 | --- | --- |
 | Identity | One main orchestrator and sub-agents with scoped sub-orchestrator, researcher, implementer or reviewer assignments; remove legacy broker/actor/scout/daemon policy classes. |
-| Orchestrator | Talk with the human, inspect and research, synthesize findings, agree plans, write briefs, launch sub-agents and manage progress; delegate project code and test changes. |
+| Orchestrator | Talk with the human, inspect narrowly for routing, synthesize findings, agree scope, write briefs and manage progress; delegate requested research, investigations, planning deliverables, implementation, testing and reviews. |
 | Delegation | Any agent can delegate within its assigned scope using Multplx sessions or available native agent tools. |
 | Persistence | Long-lived sub-agents remain available as a lifecycle choice, with existing isolated-home and restart mechanics. |
 | Delivery | Commit, branch push, PR creation, PR updates, and ordinary follow-up fixes require no additional Multplx approval ceremony. |
@@ -65,7 +65,7 @@ Private `data/`, `state/`, `config/`, credentials, and project clones are not in
 | Terminal experience | A small TUI provides project search, task/decision visibility and connection to the existing harness conversation; it shares canonical state with CLI status and MX Viz. |
 
 Researcher, implementer, reviewer and sub-orchestrator are supported assignment roles in one lifecycle, not separate state machines or approval ranks.
-Both main and sub-orchestrators delegate project code and test-code changes; role reassignment records the changed responsibility before execution.
+Both main and sub-orchestrators delegate requested substantive deliverables, including research, planning, code, testing and review; role reassignment records the changed responsibility before execution.
 A persistent sub-agent can coordinate further sub-agents without acquiring a different permission class.
 The orchestrator remains responsible for the requested outcome; parenting and home ownership are routing facts, not approval ranks.
 
@@ -76,13 +76,14 @@ They do not justify reintroducing Multplx-wide approval gates for routine engine
 
 ## Task intake, roles and quality
 
-The main agent remains focused on orchestration even when a code change would be small.
-It may author coordination artifacts such as research summaries, plans, task briefs and durable decisions.
+The main agent remains focused on orchestration even when a requested deliverable would be small.
+It may author synthesis of worker findings, coordination plans, task briefs and durable decisions.
+Workers execute their accepted assignments; reading the shared root contract does not promote a researcher, implementer or reviewer to orchestrator.
 It does not implement the requested project change or repair a worker's code itself.
 This is the target product contract, not a requirement to execute this documentation revision through the old Multplx runtime.
 
 For an underspecified task, use research to establish codebase facts, feasible approaches, risks and unresolved questions before sending implementation instructions.
-The orchestrator may inspect narrowly itself or commission a researcher, then synthesize the results with the human into a usable brief.
+The orchestrator may inspect narrowly to understand and route the request, then commission a researcher for the investigation and synthesize the results with the human into a usable brief.
 Research cannot infer product preferences that belong to the human.
 Implementation waits on genuinely missing scope decisions, while unrelated tasks continue.
 A well-specified fix can go straight to an implementer; there is no compulsory research stage for every task.
@@ -382,7 +383,7 @@ Historical references and versioned migration fixtures may retain the old name; 
 Add a sub-orchestrator assignment and spawn command for one bounded project, repository or idea under the main orchestrator.
 This is a coordination responsibility in the common sub-agent model, not a new privilege class, state engine or mandatory delegation gate.
 The main orchestrator remains the user's normal conversation and owns cross-domain priorities and human decisions.
-A sub-orchestrator handles its domain's research, briefs, delegation, integration planning, progress and escalation; it delegates project implementation and test-code changes just as the main orchestrator does.
+A sub-orchestrator owns its domain's synthesis, briefs, delegation, integration coordination, progress and escalation; it delegates requested research, planning deliverables, implementation, testing and reviews just as the main orchestrator does.
 It can freely launch researchers, implementers and reviewers within its accepted scope, including native delegation where available.
 Simple work can still go directly to an implementer; never create a coordinator per repository merely because that repository is selected.
 [Secondmate research and assessment](plans/lean_redesign/sub-orchestrator-assessment.md) records the upstream lessons and current Multplx gaps; Phase 05 owns the integration below.
@@ -503,12 +504,13 @@ Replace the Treehouse worktree provider with A10's built-in Git lifecycle.
 This port does not add a session backend or turn Codex Desktop host tools into a shell-callable backend.
 Inspect connected callers and tests fully when implementing each source slice; this map identifies the redesign boundaries, not a substitute for that implementation read.
 
-## Small operating contract
+## Self-contained operating contract
 
-The released contract should explain only the following everyday facts.
+The released contract should explain the complete working lifecycle and essential role boundaries without requiring agents to discover their job through linked documents.
 
-- You are the main orchestrator; own the human conversation and task coordination, and delegate project implementation to sub-agents.
-- Research and synthesis may happen in the orchestrator; use a researcher sub-agent when uncertainty or workload warrants it.
+- You are the main orchestrator; own the human conversation and task coordination, and delegate substantive requested deliverables to sub-agents, including small tasks.
+- Narrow inspection, discussion and synthesis belong to the orchestrator; requested research, investigations and planning deliverables belong to workers.
+- Recorded assignments distinguish worker execution from coordinator delegation; a shared contract does not promote workers to root.
 - Implementation sub-agents may commit, push branches, open and update PRs; the human performs PR merges.
 - Selected workflow stages and explicit task constraints remain binding.
 - Deep-review and vplan require an explicit user request; ordinary testing and discretionary sub-agent review remain available.
@@ -517,15 +519,17 @@ The released contract should explain only the following everyday facts.
 - Locate command mechanics through help and a small optional operational skill index.
 
 Remove prescribed salutations, escalation templates, fixed retry counts, forced investigative methods and mandatory independent reviewers.
-Retain the main orchestrator's no-coding boundary without preventing its research, planning or coordination-state updates.
+Retain the main orchestrator's delegation boundary while allowing narrow routing inspection, discussion, synthesis, coordination plans and state updates.
 Do not copy these removed procedures into generated prompts, CONTRIBUTING, or a renamed umbrella skill.
 Project-specific build and test facts remain useful contributor documentation.
 Repository conventions should help someone change this repository, not dictate how every managed project is engineered.
-Measure the actual root-contract and ordinary-brief size before and after; aim for a short root contract of roughly 100 lines or less, without adding a new token-budget enforcement subsystem.
+Keep the contract readable and self-contained without an arbitrary line target or a token-budget enforcement subsystem.
+Historical prompt-size metrics describe the earlier reduction, not a current acceptance criterion.
 
 ## Skill disposition
 
-This table is the complete disposition of the 17 current internal skill directories.
+This table records the original disposition of the 17 pre-redesign internal skill directories.
+The current runtime also exposes `task-dispatch`, `task-supervision` and `task-delivery` for actionable assignment, supervision and completion paths.
 Keep operational mechanics only where they offer value beyond command help.
 Consolidation names below describe responsibilities, not a commitment to add one skill per row.
 
@@ -631,7 +635,9 @@ Extract any generic headless agent invocation used by workflow execution from th
 
 Keep immutable workflow snapshots, per-run locks, stage ordering, output validation and restart reconciliation.
 Replace legacy role-based executors with execution choices such as current orchestrator context or a sub-agent session.
-The orchestrator context can host discussion, research, synthesis and planning; implementation stages always use sub-agents.
+The orchestrator context hosts discussion, synthesis and coordination planning and delegates requested substantive stage deliverables to sub-agents.
+An existing orchestrator-placed stage may coordinate delegated research or review within its declared placement; this does not change the workflow schema or migrate existing definitions.
+The selected stage retains responsibility for its ordered outputs and completion contract.
 These are placement choices, not permission classes.
 A stage may delegate as needed, but later stages cannot pass before its declared contract is met.
 Preserve an explicitly chosen `fresh_session` requirement.

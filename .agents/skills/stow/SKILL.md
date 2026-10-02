@@ -1,6 +1,6 @@
 ---
 name: stow
-description: Optionally persist useful session knowledge when requested or when preserving context is useful.
+description: Preserve useful private session knowledge when requested or when maintaining durable context would help ongoing work.
 user-invocable: true
 metadata:
   internal: true

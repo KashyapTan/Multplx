@@ -9,6 +9,10 @@ package="$TMP_ROOT/multplx-package"
 release_binary=${MX_RUST_BIN:-$ROOT/target/release/mx}
 "$ROOT/bin/mx-release-package.sh" "$package" "$release_binary" >/dev/null
 [ -f "$package/runtime/AGENTS.md" ] || fail 'package omitted the runtime contract'
+[ -f "$package/runtime/CLAUDE.md" ] && [ ! -L "$package/runtime/CLAUDE.md" ] \
+  || fail 'package omitted the materialized Claude contract'
+cmp -s "$package/runtime/AGENTS.md" "$package/runtime/CLAUDE.md" \
+  || fail 'Claude and canonical package contracts differ'
 [ ! -e "$package/runtime/AGENTS_E.md" ] || fail 'package exposed the dormant development filename'
 if [ -f "$ROOT/AGENTS.md" ]; then
   source_contract=$ROOT/AGENTS.md
@@ -43,6 +47,52 @@ for required in \
   [ -f "$package/$required" ] || fail "package omitted $required"
 done
 pass 'release package contains version-matched public runtime assets without a source checkout'
+
+# Recompute an explicit fixture manifest so semantic correspondence checks are
+# exercised independently of ordinary checksum corruption rejection.
+fixture_manifest() {
+  local fixture=$1
+  (cd "$fixture"
+    find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z \
+      | while IFS= read -r -d '' file; do
+          local digest mode
+          if command -v shasum >/dev/null 2>&1; then
+            digest=$(shasum -a 256 "$file" | awk '{print $1}')
+          else
+            digest=$(sha256sum "$file" | awk '{print $1}')
+          fi
+          if [ -x "$file" ]; then mode=0755; else mode=0644; fi
+          printf '%s\t%s\t%s\n' "$digest" "$mode" "${file#./}"
+        done >SHA256SUMS)
+}
+legacy_package="$TMP_ROOT/legacy-package"
+cp -R "$package" "$legacy_package"
+rm "$legacy_package/runtime/CLAUDE.md"
+fixture_manifest "$legacy_package"
+"$package/bin/mx" launcher-install --package "$legacy_package" \
+  --bin-dir "$TMP_ROOT/legacy-install/bin" --config-dir "$TMP_ROOT/legacy-install/config" \
+  --data-dir "$TMP_ROOT/legacy-install/data" >/dev/null \
+  || fail 'installer rejected a legacy package without CLAUDE.md'
+cmp -s "$TMP_ROOT/legacy-install/data/runtime/AGENTS.md" "$TMP_ROOT/legacy-install/data/runtime/CLAUDE.md" \
+  || fail 'legacy package installation did not derive Claude instructions'
+"$package/bin/mx" launcher-install --upgrade --package "$package" \
+  --bin-dir "$TMP_ROOT/legacy-install/bin" --config-dir "$TMP_ROOT/legacy-install/config" \
+  --data-dir "$TMP_ROOT/legacy-install/data" >/dev/null \
+  || fail 'legacy derived Claude instructions prevented package upgrade'
+pass 'legacy verified packages derive Claude instructions and upgrade normally'
+
+mismatched_package="$TMP_ROOT/mismatched-package"
+cp -R "$package" "$mismatched_package"
+printf 'stale contributor instructions\n' >"$mismatched_package/runtime/CLAUDE.md"
+fixture_manifest "$mismatched_package"
+if "$package/bin/mx" launcher-install --package "$mismatched_package" \
+  --bin-dir "$TMP_ROOT/mismatched-install/bin" --config-dir "$TMP_ROOT/mismatched-install/config" \
+  --data-dir "$TMP_ROOT/mismatched-install/data" >"$TMP_ROOT/mismatched.out" 2>"$TMP_ROOT/mismatched.err"; then
+  fail 'installer accepted verified but mismatched Claude instructions'
+fi
+assert_grep 'CLAUDE.md must match AGENTS.md' "$TMP_ROOT/mismatched.err" \
+  'installer did not explain the contract mismatch'
+pass 'verified package contracts must agree across harness entry points'
 
 canonical_source="$TMP_ROOT/canonical-source"
 mkdir -p "$canonical_source/bin"
@@ -129,6 +179,12 @@ private_home=$(printf '%s\n' "$home_output" | sed -n 's/^home=//p' | tail -n 1)
   || fail 'packaged persistent home was not a private non-Git directory'
 [ -f "$private_home/AGENTS.md" ] && [ -d "$private_home/.agents/skills" ] \
   || fail 'packaged persistent home lost installed assets'
+[ -L "$private_home/AGENTS.md" ] && [ -L "$private_home/CLAUDE.md" ] \
+  || fail 'private home copied instructions instead of following installed runtime'
+cmp -s "$private_home/CLAUDE.md" "$install/data/runtime/AGENTS.md" \
+  || fail 'private Claude instructions differ from installed runtime'
+[ -d "$private_home/.claude/skills" ] \
+  || fail 'private home has no Claude-discoverable skill path'
 [ "$(cat "$project/untracked-sentinel")" = 'borrowed sentinel' ] \
   || fail 'persistent-home provisioning changed the borrowed repository'
 [ -z "$(git -C "$project" status --porcelain --untracked-files=no)" ] \

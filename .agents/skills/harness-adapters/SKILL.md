@@ -1,6 +1,6 @@
 ---
 name: harness-adapters
-description: Operational reference for supported harness launch, send, interrupt, resume and status reporting.
+description: Control recorded Claude, Codex, Cursor or Pi endpoints when launching, sending, interrupting, resuming or troubleshooting harness supervision.
 user-invocable: false
 metadata:
   internal: true

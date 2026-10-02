@@ -1,8 +1,8 @@
 # Scoped sub-orchestrators
 
 A sub-orchestrator coordinates one accepted project, repository or idea under the main orchestrator.
-It researches, writes briefs, delegates implementation and checks, and returns findings through its recorded parent channel.
-Both coordinator roles delegate project code and test changes.
+It synthesizes findings, writes briefs, coordinates progress and returns outcomes through its recorded parent channel.
+Both coordinator roles delegate requested research, investigations, planning deliverables, implementation, testing and reviews, including small tasks.
 Direct worker delegation remains available, and selecting a project does not create a coordinator.
 
 The [task record contract](subagent-model.md) owns identity, the [configuration guide](configuration.md) owns settings, and [A11](../porting.md#a11-scoped-sub-orchestrators) owns the cross-phase requirements.

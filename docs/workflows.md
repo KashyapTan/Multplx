@@ -80,6 +80,8 @@ An implementer always requires `sub-agent-session`, so project coding cannot run
 A sub-orchestrator also requires `sub-agent-session` and provisions the Phase 05 bounded coordinator form with an exact request identity, project and scope.
 The coordinator remains the one stage owner, may delegate within that stage, and advances only when its own declared contract passes.
 Researcher and reviewer are descriptive assignments rather than privilege classes.
+The main orchestrator delegates requested research and review deliverables; an orchestrator-placed stage may coordinate those workers while retaining its own ordered output and completion contract.
+This operating responsibility does not change the placement schema or migrate existing workflow definitions.
 They default to researcher in orchestrator context and implementer in a sub-agent session when version 2 omits `assignment`.
 
 Version 1 maps `broker` to `orchestrator-context` and `actor` to `sub-agent-session` while retaining the immutable source version.

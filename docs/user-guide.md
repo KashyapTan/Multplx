@@ -23,6 +23,10 @@ Treat deterministic adapter tests and older live evidence separately from a succ
 
 One Multplx home owns one main orchestrator conversation.
 That conversation can coordinate direct sub-agents and optional scoped sub-orchestrators across many repositories.
+The main orchestrator handles discussion, scope, synthesis and supervision, and delegates requested research, investigations, planning deliverables, implementation, testing and reviews, even when small.
+It can inspect narrowly to route work or explain existing findings; a simple fix can go directly to one implementer.
+Workers execute their assigned deliverables, while scoped coordinators apply the same delegation boundary within their bounded domains.
+The shared operating contract respects those recorded roles, so workers do not become root orchestrators by reading it.
 Each accepted task keeps its project, checkout, starting commit, scope, dependencies, and evidence even when you switch the project shown in the terminal.
 
 Multplx remembers existing Git checkouts without taking ownership of their contents.
