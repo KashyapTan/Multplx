@@ -42,7 +42,7 @@ Agents can open pull requests; you decide when to merge.
 - **MX Viz agent graph** - Explore the main orchestrator, nested coordinators and workers, search assignments, collapse branches and open task details and artifacts.
 - **Project registration and discovery** - Reuse local repositories, assign aliases and optionally discover nested checkouts without cloning them again.
 - **Isolated worktrees** - Give implementation tasks separate working directories while preserving uncommitted changes in your original checkout.
-- **Scoped sub-orchestrators** - Assign a project or idea its own coordinator, with nested workers and durable reports to its parent.
+- **Managed standing agents** - Delegate to Multplx-managed standing workers and scoped coordinators by default, including nested work; retain availability for your follow-up after delivery. See the [delegation model](./docs/user-guide.md#the-working-model).
 - **Durable task intake and dependencies** - Retry submissions with the same request ID and hold dependent work until prerequisites finish.
 - **Persistent assignments and recovery** - Retain owned work across restarts and inspect health, snapshots, task timelines and unresolved ownership.
 - **Reusable workflows** - Sequence agent work, commands, reviews, delivery and human decisions; opt into deep-review or annotated HTML vplan reviews when needed.
@@ -130,6 +130,7 @@ Fix login in my-app, investigate the flaky tests in api, and research the export
 ```
 
 Open `multplx` in another terminal to browse the workspace; press `v` for MX Viz or `c` to connect to the main conversation.
+Run `mx viz` or `multplx viz` from any directory to open the same dashboard automatically; see the [dashboard guide](docs/viz.md).
 The terminal UI is a dashboard and task-entry surface, not a separate AI chat.
 You can also submit a durable request or print workspace state directly:
 

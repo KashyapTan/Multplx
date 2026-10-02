@@ -1,6 +1,6 @@
 ---
 name: recap
-description: Optionally summarize visible session events and unanswered questions when requested.
+description: Summarize visible conversation events and unanswered questions when the user requests a session recap.
 user-invocable: true
 metadata:
   internal: true

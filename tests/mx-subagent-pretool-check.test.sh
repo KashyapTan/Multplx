@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Native delegation freedom and the narrow remote PR merge backstop.
+# Explicitly human-selected native capability and the narrow remote PR merge backstop.
+# The contract chooses managed delegation; this hook is not an authorization framework.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -42,7 +43,9 @@ test_stdin_transport_guards_only_remote_merge_actions() {
 }
 
 test_compatibility_grammar_stays_bounded() {
-  "$CHECK" --help | grep -F 'Native delegation is allowed' >/dev/null || fail "help does not explain delegation freedom"
+  "$CHECK" --help | grep -F 'Native delegation is allowed' >/dev/null || fail "help does not explain retained native capability"
+  "$CHECK" --help | grep -F 'explicit human request for that scope' >/dev/null || fail "help omits native policy default"
+  "$CHECK" --help | grep -F 'never falling back automatically' >/dev/null || fail "help permits native fallback"
   "$CHECK" --help | grep -F 'remote PR merge' >/dev/null || fail "help omits the retained merge boundary"
   if "$CHECK" --tool >/dev/null 2>&1; then fail "missing --tool value was accepted"; fi
   if "$CHECK" --command >/dev/null 2>&1; then fail "missing --command value was accepted"; fi

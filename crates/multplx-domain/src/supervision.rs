@@ -866,7 +866,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
     }
 }
 
-const SUBAGENT_USAGE: &str = "Usage: mx-subagent-pretool-check.sh [--tool <tool-name>] [--command <cmd>] [--claude]\n\nNative delegation is allowed. Bash commands are checked only for supported remote PR merge, auto-merge, merge-queue, and target-branch push forms; local git merge and rebase remain available.\n";
+const SUBAGENT_USAGE: &str = "Usage: mx-subagent-pretool-check.sh [--tool <tool-name>] [--command <cmd>] [--claude]\n\nNative delegation is allowed only on explicit human request for that scope under the operating contract; managed agents are the default, never falling back automatically. This hook retains tool capability rather than enforcing human-request authorization. Bash commands are checked only for supported remote PR merge, auto-merge, merge-queue, and target-branch push forms; local git merge and rebase remain available.\n";
 
 fn git_line(directory: &Path, arguments: &[&str]) -> Option<String> {
     let mut child = std::process::Command::new("git")

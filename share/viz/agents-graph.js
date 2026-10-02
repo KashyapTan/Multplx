@@ -9,15 +9,23 @@
     const rootHome = text(snapshot?.mx_home);
     const rootKey = `main-orchestrator:${rootHome || "unknown-home"}`;
     const rootRef = rootHome ? `root-home:${rootHome}` : null;
+    const observation = snapshot?.primary;
+    const primary = observation?.schema === "mx-primary-observation.v1" && rootHome && text(snapshot?.roots?.state)
+      && observation.home === rootHome && observation.state === snapshot?.roots?.state ? observation : null;
+    const primaryStatus = ["live", "stale", "unavailable", "unregistered"].includes(primary?.status)
+      && (primary.status !== "live" || primary.identity_verified === true) ? primary.status : "unknown";
     const root = {
       key: rootKey,
       id: "Main orchestrator",
       kind: "root",
       role: "main orchestrator",
       home: rootHome,
-      state: "unknown",
+      state: primaryStatus,
       freshness: text(snapshot?.portfolio?.freshness?.status) || "unknown",
-      session: "session not observed",
+      session: primaryStatus === "unknown" ? "session not observed" : primaryStatus,
+      healthLabel: ({ live: "process live", stale: "evidence stale", unavailable: "observation unavailable", unregistered: "session not registered" })[primaryStatus] || "session not observed",
+      sessionDetails: text(primary?.reason) || "Primary session evidence is unavailable in this snapshot; no health inferred from child work.",
+      provider: text(primary?.provider),
       issues: rootHome ? [] : ["root home identity unavailable"],
       task: null,
       order: -1,

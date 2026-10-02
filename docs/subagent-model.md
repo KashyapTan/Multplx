@@ -14,6 +14,9 @@ A home owns durable coordination state and may persist beyond any one task or en
 Researcher, implementer, reviewer and sub-orchestrator are assignment values, not separate delegation permission classes.
 Persistence is independent of the assignment and requested report or implementation output.
 Brief and spawn accept `--role` and `--output` independently, with `--persistent` selecting the existing isolated-home lifecycle.
+Agent dispatch selects standing managed workers and coordinators by default; low-level CLI omission remains task-scoped for compatibility.
+Persistent implementation additionally requires `--project` from the seeded home references and `--base` as the exact full accepted commit; spawn binds a separate persistent project allocation and launches at its path.
+Task completion and agent availability remain separate under the [operating contract](../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
 
 Canonical state extends the existing filesystem owners.
 Snapshots are derived views, journals are historical observations, and operation receipts describe recovery progress.

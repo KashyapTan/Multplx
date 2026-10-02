@@ -80,6 +80,97 @@ pub fn read_home_allocation(data: &Path, id: &str) -> Result<Option<HomeAllocati
     Ok(Some(allocation))
 }
 
+/// Keep private homes attached to the installed contract and harness skill paths.
+/// Only replace a legacy copy when its bytes match the current runtime; retain
+/// unknown local instructions rather than overwriting user-owned material.
+pub fn refresh_runtime_instructions(home: &Path, root: &Path) -> Result<(), String> {
+    let contract = resolved(&root.join("AGENTS.md"));
+    if !contract.is_file() {
+        return Err("runtime contract unavailable".into());
+    }
+    let agents = home.join("AGENTS.md");
+    match fs::symlink_metadata(&agents) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if fs::read_link(&agents).map_err(|e| e.to_string())? != contract {
+                return Err(
+                    "AGENTS.md points outside the installed contract; retained for reconciliation"
+                        .into(),
+                );
+            }
+        }
+        Ok(meta) if meta.is_file() => {
+            if fs::read(&agents).map_err(|e| e.to_string())?
+                != fs::read(&contract).map_err(|e| e.to_string())?
+            {
+                return Err("legacy or locally edited AGENTS.md differs from runtime; retained for reconciliation".into());
+            }
+            // Both paths were verified before replacing the managed legacy copy.
+            replace_instruction_alias(&agents, &contract)?;
+        }
+        Ok(_) => return Err("unsafe AGENTS.md; retained for reconciliation".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::os::unix::fs::symlink(&contract, &agents).map_err(|e| e.to_string())?;
+        }
+        Err(e) => return Err(e.to_string()),
+    }
+    instruction_alias(&home.join("CLAUDE.md"), Path::new("AGENTS.md"), &contract)?;
+    let claude = home.join(".claude");
+    match fs::symlink_metadata(&claude) {
+        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&claude).map_err(|e| e.to_string())?;
+        }
+        _ => return Err("unsafe .claude directory; retained for reconciliation".into()),
+    }
+    let skills = home.join(".agents/skills");
+    if skills.is_dir() {
+        if resolved(&skills) != resolved(&root.join(".agents/skills")) {
+            return Err("private skills differ from runtime; retained for reconciliation".into());
+        }
+        instruction_alias(
+            &claude.join("skills"),
+            Path::new("../.agents/skills"),
+            &skills,
+        )?;
+    }
+    Ok(())
+}
+
+fn replace_instruction_alias(path: &Path, target: &Path) -> Result<(), String> {
+    let staging = tempfile::Builder::new()
+        .prefix(".mx-instruction.")
+        .tempdir_in(path.parent().ok_or("instruction parent missing")?)
+        .map_err(|e| e.to_string())?;
+    let link = staging.path().join("alias");
+    std::os::unix::fs::symlink(target, &link).map_err(|e| e.to_string())?;
+    fs::rename(link, path).map_err(|e| e.to_string())
+}
+
+fn instruction_alias(path: &Path, target: &Path, canonical: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(meta)
+            if meta.file_type().is_symlink()
+                && fs::read_link(path).is_ok_and(|value| value == target) =>
+        {
+            Ok(())
+        }
+        Ok(meta)
+            if meta.is_file()
+                && canonical.is_file()
+                && matches!((fs::read(path), fs::read(canonical)), (Ok(local), Ok(runtime)) if local == runtime) =>
+        {
+            replace_instruction_alias(path, target)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::os::unix::fs::symlink(target, path).map_err(|e| e.to_string())
+        }
+        _ => Err(format!(
+            "{} conflicts with runtime instructions; retained for reconciliation",
+            path.display()
+        )),
+    }
+}
+
 /// Retirement preserves private operational material in an explicit archive.
 /// Exact lease identity fences delayed teardown after a home path is reused.
 pub fn retire_home(data: &Path, token: &HomeBinding) -> Result<PathBuf, String> {
@@ -1410,10 +1501,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
                         .map_err(|e| e.to_string())?;
                 }
             }
-            if !home.join("AGENTS.md").exists() {
-                fs::copy(context.root.join("AGENTS.md"), home.join("AGENTS.md"))
-                    .map_err(|e| format!("runtime contract unavailable: {e}"))?;
-            }
+            refresh_runtime_instructions(&home, &context.root)?;
         }
         let home = verify_broker_home(context, &home)?;
         journal.home = path_text(&home, "daemon home")?;
@@ -1663,6 +1751,64 @@ mod tests {
         fs::create_dir_all(context.data.join("durable")).unwrap();
         fs::write(context.root.join("AGENTS.md"), "fixture runtime").unwrap();
         fs::write(context.data.join("durable/brief.md"), "# Charter\nNone. This is a project-less domain\n# Project references\nNone. This is a project-less domain\n# Routing scope\nMeasurement domain\n").unwrap();
+    }
+
+    #[test]
+    fn private_instruction_aliases_follow_runtime_updates_and_preserve_local_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = temp.path().join("runtime");
+        let home = temp.path().join("home");
+        fs::create_dir_all(runtime.join(".agents/skills/task-dispatch")).unwrap();
+        fs::create_dir(&home).unwrap();
+        fs::write(runtime.join("AGENTS.md"), "delegate research\n").unwrap();
+        fs::write(
+            runtime.join(".agents/skills/task-dispatch/SKILL.md"),
+            "dispatch\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(runtime.join(".agents"), home.join(".agents")).unwrap();
+        // A verified same-current legacy copy can safely become an alias.
+        fs::copy(runtime.join("AGENTS.md"), home.join("AGENTS.md")).unwrap();
+        fs::copy(runtime.join("AGENTS.md"), home.join("CLAUDE.md")).unwrap();
+        refresh_runtime_instructions(&home, &runtime).unwrap();
+        assert!(
+            fs::symlink_metadata(home.join("AGENTS.md"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(home.join(".claude/skills/task-dispatch/SKILL.md")).unwrap(),
+            "dispatch\n"
+        );
+        fs::write(runtime.join("AGENTS.md"), "updated delegation\n").unwrap();
+        refresh_runtime_instructions(&home, &runtime).unwrap();
+        assert_eq!(
+            fs::read_to_string(home.join("CLAUDE.md")).unwrap(),
+            "updated delegation\n"
+        );
+        fs::remove_file(home.join("CLAUDE.md")).unwrap();
+        fs::write(home.join("CLAUDE.md"), "user instructions\n").unwrap();
+        assert!(
+            refresh_runtime_instructions(&home, &runtime)
+                .unwrap_err()
+                .contains("retained for reconciliation")
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("CLAUDE.md")).unwrap(),
+            "user instructions\n"
+        );
+        fs::remove_file(home.join("AGENTS.md")).unwrap();
+        fs::write(home.join("AGENTS.md"), "unknown old instructions\n").unwrap();
+        assert!(
+            refresh_runtime_instructions(&home, &runtime)
+                .unwrap_err()
+                .contains("retained for reconciliation")
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("AGENTS.md")).unwrap(),
+            "unknown old instructions\n"
+        );
     }
 
     #[test]

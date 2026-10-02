@@ -17,9 +17,11 @@ use multplx_core::session_lock::{SessionLockStatus, harness_regex, status as ses
 use rustix::fs::OFlags;
 use sha2::{Digest, Sha256};
 
-const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx update\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. Use Tab to change views, arrows/j/k or the mouse wheel to move, / to filter, t to enter a task, c to chat, v for Viz, and q to quit. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
+const VIZ_PUBLIC_HELP: &str = "Open the read-only dashboard for the configured orchestrator home.\n\nUsage:\n  mx viz [--no-open]\n  multplx viz [--no-open]\n  mx viz serve|status|stop\n\nRun from any directory; normal use needs no environment variables.\nBare mx viz, multplx viz, and terminal workspace v open the actual returned\ndashboard URL in your browser. --no-open prints the URL without opening it.\nExplicit serve is scriptable and never opens a browser; status inspects the\nservice and stop stops only the dashboard. Install or upgrade supplies mx\nalongside multplx; an older installed runtime changes only after upgrade.\nAdvanced MX_ROOT_OVERRIDE and MX_HOME overrides remain supported.\nThe server binds loopback only and tries MX_VIZ_PORT (default 4890) plus 19 upward ports.\nIt exits after MX_VIZ_IDLE_SECS (default 1800) without a request.\nThe private run record is state/.viz/server.run; stop verifies process identity.\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` binary and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
+const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx update\n  multplx viz [--no-open|serve|status|stop]\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. Use Tab to change views, arrows/j/k or the mouse wheel to move, / to filter, t to enter a task, c to chat, v for Viz, and q to quit. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
+
+const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -302,38 +304,56 @@ fn resolve_launch_paths(
     config: Option<PathBuf>,
     default_root: &Path,
 ) -> Result<(PathBuf, PathBuf, Option<PathBuf>), String> {
-    let (root, home, config) = if let Some(config) = config {
+    let explicit_root = env::var_os("MX_ROOT_OVERRIDE").map(PathBuf::from);
+    let explicit_home = env::var_os("MX_HOME").map(PathBuf::from);
+    if let (Some(root), Some(home)) = (&explicit_root, &explicit_home) {
+        return Ok((
+            canonical_dir(root, "code root")?,
+            canonical_dir(home, "operational home")?,
+            config.and_then(|config| {
+                let config = canonical_dir(&config, "launcher config").ok()?;
+                let registered_root = read_path_file(&config.join("root"))
+                    .ok()?
+                    .canonicalize()
+                    .ok()?;
+                let registered_home = read_path_file(&config.join("home"))
+                    .ok()?
+                    .canonicalize()
+                    .ok()?;
+                (registered_root == root.canonicalize().ok()?
+                    && registered_home == home.canonicalize().ok()?)
+                .then_some(config)
+            }),
+        ));
+    }
+    let config = if config.is_some() {
+        config
+    } else {
+        let directory = env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .map(|directory| directory.join("multplx"));
+        directory.filter(|directory| {
+            ["root", "home"]
+                .iter()
+                .any(|name| match fs::symlink_metadata(directory.join(name)) {
+                    Ok(_) => true,
+                    Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+                })
+        })
+    };
+    let (registered_root, registered_home, config) = if let Some(config) = config {
         let config = canonical_dir(&config, "launcher config")?;
         (
             read_path_file(&config.join("root"))?,
             read_path_file(&config.join("home"))?,
             Some(config),
         )
-    } else if env::var_os("MX_ROOT_OVERRIDE").is_some() || env::var_os("MX_HOME").is_some() {
-        let root = env::var_os("MX_ROOT_OVERRIDE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| default_root.to_path_buf());
-        let home = env::var_os("MX_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| root.clone());
-        (root, home, None)
     } else {
-        let home_dir = env::var_os("HOME").ok_or("HOME is not set")?;
-        let config = env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(home_dir).join(".config"))
-            .join("multplx");
-        if config.join("root").is_file() && config.join("home").is_file() {
-            let config = canonical_dir(&config, "launcher config")?;
-            (
-                read_path_file(&config.join("root"))?,
-                read_path_file(&config.join("home"))?,
-                Some(config),
-            )
-        } else {
-            (default_root.to_path_buf(), default_root.to_path_buf(), None)
-        }
+        (default_root.to_path_buf(), default_root.to_path_buf(), None)
     };
+    let home = explicit_home.unwrap_or_else(|| explicit_root.clone().unwrap_or(registered_home));
+    let root = explicit_root.unwrap_or(registered_root);
     Ok((
         canonical_dir(&root, "code root")?,
         canonical_dir(&home, "operational home")?,
@@ -495,6 +515,100 @@ fn workspace_chat(
     )
 }
 
+/// The public `mx viz` alias uses the same resolver as `multplx` and its TUI.
+pub(crate) fn run_viz(args: &[OsString]) -> i32 {
+    let mut forwarded = vec![OsString::from("viz")];
+    forwarded.extend_from_slice(args);
+    run(&forwarded)
+}
+
+fn viz_service_args(args: &[OsString]) -> Vec<OsString> {
+    let mut forwarded = vec![OsString::from("services"), OsString::from("mx-viz.sh")];
+    if args.is_empty() {
+        forwarded.push(OsString::from("serve"));
+    } else {
+        forwarded.extend_from_slice(args);
+    }
+    forwarded
+}
+
+fn viz_action(args: &[OsString], environment: &[(OsString, OsString)]) -> i32 {
+    let no_open = args.iter().any(|arg| arg == "--no-open");
+    let service_args = args
+        .iter()
+        .filter(|arg| *arg != "--no-open")
+        .cloned()
+        .collect::<Vec<_>>();
+    let open = service_args.is_empty() && !no_open;
+    let Ok(binary) = current_binary() else {
+        error("running Viz binary unavailable");
+        return 1;
+    };
+    let mut command = Command::new(binary);
+    command
+        .args(viz_service_args(&service_args))
+        .env("MX_MULTICALL_EXPLICIT", "1");
+    apply_environment(&mut command, environment, false);
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(failure) => {
+            error(format!("Viz service could not start: {failure}"));
+            return 1;
+        }
+    };
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    if !output.status.success() {
+        return output.status.code().unwrap_or(1);
+    }
+    if open {
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let valid = url
+            .strip_prefix("http://127.0.0.1:")
+            .and_then(|value| value.strip_suffix('/'))
+            .and_then(|port| port.parse::<u16>().ok())
+            .is_some_and(|port| port > 0);
+        if !valid {
+            error("Viz did not return a valid loopback URL; browser was not opened");
+            return 1;
+        }
+        let opener = env::var_os("MX_VIZ_OPEN_BIN").unwrap_or_else(|| {
+            OsString::from(if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            })
+        });
+        let opened = Command::new(opener)
+            .arg(&url)
+            .spawn()
+            .ok()
+            .is_some_and(|mut child| {
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => return status.success(),
+                        Ok(None) if std::time::Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(10))
+                        }
+                        _ => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return false;
+                        }
+                    }
+                }
+            });
+        if !opened {
+            error(format!(
+                "Browser could not open; use the returned URL {url} (or mx viz --no-open)."
+            ));
+            return 1;
+        }
+    }
+    0
+}
+
 /// Run the installed `multplx` command surface.
 pub(crate) fn run(args: &[OsString]) -> i32 {
     let caller = match env::current_dir().and_then(|path| path.canonicalize()) {
@@ -505,7 +619,16 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         }
     };
     let mut values = args.to_vec();
+    if values.len() == 2
+        && values[0] == "viz"
+        && matches!(values[1].to_str(), Some("--help" | "-h"))
+    {
+        print!("{VIZ_PUBLIC_HELP}");
+        return 0;
+    }
     let mut config = env::var_os("MX_LAUNCH_CONFIG_DIR").map(PathBuf::from);
+    let explicit_pair =
+        env::var_os("MX_ROOT_OVERRIDE").is_some() && env::var_os("MX_HOME").is_some();
     if config.is_none()
         && let Ok(binary) = current_binary()
     {
@@ -516,12 +639,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         match fs::symlink_metadata(&companion) {
             Ok(_) => match read_path_file(&companion) {
                 Ok(path) => config = Some(path),
+                Err(_) if explicit_pair => {}
                 Err(message) => {
                     error(message);
                     return 2;
                 }
             },
-            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error_value)
+                if error_value.kind() == std::io::ErrorKind::NotFound || explicit_pair => {}
             Err(error_value) => {
                 error(format!(
                     "cannot inspect launcher config pointer {}: {error_value}",
@@ -613,6 +738,16 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
                 return 2;
             }
         }
+    }
+    if values.first().is_some_and(|value| value == "viz") {
+        let args = &values[1..];
+        // Browser opening belongs to the normal entrypoint, never the read-only service.
+
+        let environment = vec![
+            (OsString::from("MX_ROOT_OVERRIDE"), root.into_os_string()),
+            (OsString::from("MX_HOME"), home.into_os_string()),
+        ];
+        return viz_action(args, &environment);
     }
     if let Err(message) = validate_root(&root).and_then(|()| validate_home(&home)) {
         error(message);
@@ -720,15 +855,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
                     &mut launch_environment,
                     remove_backend,
                 ),
-                crate::workspace_tui::Action::Viz => exec_binary(
-                    &[
-                        OsString::from("services"),
-                        OsString::from("mx-viz.sh"),
-                        OsString::from("serve"),
-                    ],
-                    &launch_environment,
-                    remove_backend,
-                ),
+                crate::workspace_tui::Action::Viz => viz_action(&[], &launch_environment),
                 crate::workspace_tui::Action::Task {
                     project,
                     domain,
@@ -979,15 +1106,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
                     &mut launch_environment,
                     remove_backend,
                 ),
-                crate::workspace_tui::Action::Viz => exec_binary(
-                    &[
-                        OsString::from("services"),
-                        OsString::from("mx-viz.sh"),
-                        OsString::from("serve"),
-                    ],
-                    &launch_environment,
-                    remove_backend,
-                ),
+                crate::workspace_tui::Action::Viz => viz_action(&[], &launch_environment),
                 crate::workspace_tui::Action::Task {
                     project,
                     domain,
@@ -1459,6 +1578,28 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
             });
         }
     }
+    let contract = runtime
+        .iter()
+        .find(|file| file.relative == Path::new("AGENTS.md"))
+        .expect("required contract was checked")
+        .bytes
+        .clone();
+    if let Some(claude) = runtime
+        .iter()
+        .find(|file| file.relative == Path::new("CLAUDE.md"))
+    {
+        if claude.bytes != contract {
+            return Err("release CLAUDE.md must match AGENTS.md".to_owned());
+        }
+    } else {
+        // Older verified packages omitted Claude's contract entry point.
+        // Derive it from the verified canonical bytes during installation.
+        runtime.push(PackagedFile {
+            relative: PathBuf::from("CLAUDE.md"),
+            bytes: contract,
+            mode: 0o644,
+        });
+    }
     runtime.push(PackagedFile {
         relative: PathBuf::from(".multplx-release"),
         bytes: format!("{}\n", env!("CARGO_PKG_VERSION")).into_bytes(),
@@ -1908,6 +2049,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
     };
     let result = (|| -> Result<(), (i32, String)> {
         let target = bin_dir.join("multplx");
+        let mx_target = bin_dir.join("mx");
         let config_pointer = bin_dir.join(".multplx-config");
         let digest_record = config_dir.join("binary.sha256");
         if options.uninstall {
@@ -1975,6 +2117,12 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 GenerationFile {
                     key: "multplx".to_owned(),
                     path: target.clone(),
+                    mode: 0o755,
+                    desired: None,
+                },
+                GenerationFile {
+                    key: "mx".to_owned(),
+                    path: mx_target.clone(),
                     mode: 0o755,
                     desired: None,
                 },
@@ -2074,41 +2222,45 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     Err(error_value) => return Err((1, error_value.to_string())),
                 }
             }
-            let target_exists = match fs::symlink_metadata(&target) {
-                Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
-                    return Err((
-                        2,
-                        format!(
-                            "refusing to remove a linked or non-regular binary: {}",
-                            target.display()
-                        ),
-                    ));
+            let mut any_target_exists = false;
+            for target in [&target, &mx_target] {
+                let target_exists = match fs::symlink_metadata(target) {
+                    Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                        return Err((
+                            2,
+                            format!(
+                                "refusing to remove a linked or non-regular binary: {}",
+                                target.display()
+                            ),
+                        ));
+                    }
+                    Ok(_) => true,
+                    Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error_value) => return Err((1, error_value.to_string())),
+                };
+                if target_exists {
+                    let expected = fs::read_to_string(&digest_record)
+                        .ok()
+                        .map(|value| value.trim().to_owned());
+                    if expected
+                        .as_deref()
+                        .is_none_or(|expected| hash_file(target).as_deref() != Ok(expected))
+                    {
+                        return Err((
+                            2,
+                            format!(
+                                "refusing to remove an unrecognized binary: {}",
+                                target.display()
+                            ),
+                        ));
+                    }
                 }
-                Ok(_) => true,
-                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => false,
-                Err(error_value) => return Err((1, error_value.to_string())),
-            };
-            if target_exists {
-                let expected = fs::read_to_string(&digest_record)
-                    .ok()
-                    .map(|value| value.trim().to_owned());
-                if expected
-                    .as_deref()
-                    .is_none_or(|expected| hash_file(&target).as_deref() != Ok(expected))
-                {
-                    return Err((
-                        2,
-                        format!(
-                            "refusing to remove an unrecognized binary: {}",
-                            target.display()
-                        ),
-                    ));
-                }
+                any_target_exists |= target_exists;
             }
             if _uninstall_lock.is_some() {
                 apply_generation(&config_dir, &generation, packaged_home.as_deref(), false)
                     .map_err(|message| (1, message))?;
-            } else if target_exists || records.iter().any(|path| path.exists()) {
+            } else if any_target_exists || records.iter().any(|path| path.exists()) {
                 return Err((
                     2,
                     "refusing uninstall without an owned configuration directory".to_owned(),
@@ -2374,6 +2526,12 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 desired: Some(artifact.bytes.clone()),
             },
             GenerationFile {
+                key: "mx".to_owned(),
+                path: mx_target.clone(),
+                mode: 0o755,
+                desired: Some(artifact.bytes.clone()),
+            },
+            GenerationFile {
                 key: "root".to_owned(),
                 path: config_dir.join("root"),
                 mode: 0o600,
@@ -2449,7 +2607,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         recover_generation(&config_dir, &generation).map_err(|message| (2, message))?;
         if matches!(
             env::var("MX_LAUNCHER_INSTALL_FAIL_BEFORE").as_deref(),
-            Ok("root" | "home" | "multplx")
+            Ok("root" | "home" | "multplx" | "mx")
         ) {
             return Err((
                 1,
@@ -2526,35 +2684,38 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 Err(error_value) => return Err((1, error_value.to_string())),
             }
         }
-        match fs::symlink_metadata(&target) {
-            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
-                return Err((
-                    2,
-                    format!(
-                        "refusing linked or non-regular installation target: {}",
-                        target.display()
-                    ),
-                ));
-            }
-            Ok(_) => {
-                let installed_hash = hash_file(&target).map_err(|message| (1, message))?;
-                if installed_hash != artifact.hash
-                    && (!options.upgrade
-                        || (existing_hash.as_deref() != Some(&installed_hash)
-                            && !(existing_hash.is_none()
-                                && recognized_legacy_launcher(&target, &config_dir))))
-                {
+        for target in [&target, &mx_target] {
+            match fs::symlink_metadata(target) {
+                Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
                     return Err((
                         2,
                         format!(
-                            "refusing to overwrite incompatible installation target: {}",
+                            "refusing linked or non-regular installation target: {}",
                             target.display()
                         ),
                     ));
                 }
+                Ok(_) => {
+                    let installed_hash = hash_file(target).map_err(|message| (1, message))?;
+                    if installed_hash != artifact.hash
+                        && (!options.upgrade
+                            || (existing_hash.as_deref() != Some(&installed_hash)
+                                && !(existing_hash.is_none()
+                                    && target != &mx_target
+                                    && recognized_legacy_launcher(target, &config_dir))))
+                    {
+                        return Err((
+                            2,
+                            format!(
+                                "refusing to overwrite incompatible installation target: {}",
+                                target.display()
+                            ),
+                        ));
+                    }
+                }
+                Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error_value) => return Err((1, error_value.to_string())),
             }
-            Err(error_value) if error_value.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error_value) => return Err((1, error_value.to_string())),
         }
         apply_generation(
             &config_dir,

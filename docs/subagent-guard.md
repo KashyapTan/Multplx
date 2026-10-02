@@ -1,6 +1,16 @@
 # Native delegation and observation
 
-Multplx allows available native delegation tools in orchestrator and sub-agent sessions.
+All delegation, including nested delegation, uses Multplx-managed agents by default.
+Native delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.
+Native tool capability remains available for explicit human selection; this contract default does not add a tool permission framework.
+Default to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.
+While the accepted job is active, supervise normally.
+Full completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.
+Before that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.
+Preserve task and accepted-revision evidence when scope changes.
+Once the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.
+The agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.
+Task completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.
 
 `bin/mx-subagent-pretool-check.sh` retains its compatible entry name and permits native delegation without an escape variable.
 It now checks supported shell commands for the human-only remote merge boundary.
@@ -58,7 +68,7 @@ Tracked Claude and Codex hooks route `SubagentStart` to `start` and `SubagentSto
 Claude child start/result observation hooks run asynchronously so observation failure cannot block native delegation.
 Its bounded session-start reconciliation completes before a new child can start.
 
-The hook is dormant in this development checkout because root `AGENTS.md` is deliberately absent.
+Operational session start is forbidden in this development checkout by `VISION.md`; the canonical `AGENTS.md` is present.
 
 Installed runtime and task worktrees resolve the trusted runtime source from `MX_RUST_SOURCE_ROOT` before using the working directory fallback.
 
@@ -76,7 +86,7 @@ It uses the tool-call identifier only for correlation and records the execution 
 Pi recognizes `agent`, `subagent`, `spawn_agent` and `delegate_task` by default.
 `MX_PI_DELEGATION_TOOLS` can name the exact tool identifiers provided by another installed Pi delegation extension; ordinary tools and MCP calls are not guessed to be children.
 
-Absence of observation never becomes a delegation prohibition.
+Absence of observation does not prohibit explicitly human-selected native delegation and does not authorize native fallback.
 
 ## Verification
 

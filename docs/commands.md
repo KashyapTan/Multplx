@@ -15,7 +15,8 @@ From a clone of the repository:
 ./install.sh --upgrade
 ```
 
-The first command builds and installs the complete application, not just a launcher pointing into your clone.
+The first command builds and installs the complete application, including global `multplx` and `mx` entries.
+An older installed runtime keeps its existing behavior until you upgrade it.
 The installer accepts `--bin-dir PATH`, `--config-dir PATH`, `--data-dir PATH` and `--home PATH` for explicit locations.
 It does not install provider CLIs or authenticate them.
 
@@ -150,7 +151,7 @@ Usually ask for this in chat; direct commands are available:
 ```sh
 multplx spawn api-design --sub-orchestrator --project my-app \
   --scope "Coordinate the accepted API compatibility work" \
-  --request-id api-design-initial --harness codex
+  --persistent --request-id api-design-initial --harness codex
 multplx domain inspect api-design
 multplx task --project my-app --domain api-design "Investigate the compatibility failure"
 ```
@@ -164,10 +165,46 @@ multplx spawn onboarding --sub-orchestrator --idea onboarding \
 ```
 
 Use `multplx domain --help` for revision-bound scope changes and project binding, and `multplx spawn --help` for launch options.
-Persistent means available between tasks, not authorized to invent more work.
+Standing workers and coordinators are the agent dispatch default; low-level CLI omission of `--persistent` remains task-scoped for compatibility.
+After the parent validates the full agreed job, resolves gaps and delivers it, stop automatic contact, polling, nudging and work routing; a premature done claim still permits corrections.
+Persistence retains availability for explicit user-directed follow-up, without automatic reuse or retirement.
 See [scoped coordinators](scoped-coordinators.md) for lifecycle and transfer details.
 
+## Standing implementation worker
+
+Use the existing owners to scaffold a worker, fill its task placeholders, seed its private home and launch at a separate exact-base project worktree:
+
+```sh
+mx brief fix-login my-app --persistent --role implementer --output implementation
+# Fill every {TASK} placeholder in data/fix-login/brief.md before seeding.
+mx home-seed fix-login - my-app
+mx spawn fix-login --persistent --role implementer --output implementation \
+  --project my-app --base FULL_ACCEPTED_COMMIT --request-id fix-login-initial
+mx task-model inspect fix-login
+```
+
+`--project` must resolve to a checkout already referenced in the seeded home, and `--base` must be the full accepted starting commit, not a moving branch name.
+Spawn records the project, base and persistent allocation independently of the private home, then launches the implementer at that allocation's exact path.
+The report route remains the parent owner; use the brief's routing instructions and [typed delivery guidance](delivery.md#local-completion-and-dependent-work).
+Completion requires current task/attempt/brief evidence matching that project worktree's actual HEAD; wrong or stale HEAD leaves dependency gates closed.
+Home and endpoint availability survive completion; the parent must validate the full job before ending corrective follow-up.
+Cmux persistent-home launch and persistent task delivery mode/yolo overrides remain unsupported; do not silently fall back to native delegation or temporary lifecycle.
+An explicitly temporary worker omits `--persistent`, passes its project positionally to spawn and needs no home seeding.
+
 ## Dashboard, workflows and advanced tools
+
+After starting the orchestrator, run `mx viz` or `multplx viz` from any directory, or press `v` in the `multplx` terminal workspace.
+They select the configured orchestrator home automatically and open the actual returned dashboard URL, including a fallback port when needed. Normal use requires no environment variables.
+
+| Command | Purpose |
+| --- | --- |
+| `mx viz` or `multplx viz` | Start or reuse the read-only dashboard and open it. |
+| `mx viz --no-open` | Start or reuse the dashboard and print its URL without opening a browser. |
+| `mx viz serve` | Scriptable service entry: print the URL without opening a browser. |
+| `mx viz status` | Show the dashboard service state. |
+| `mx viz stop` | Stop the dashboard, not the agents. |
+
+See [Live system dashboard](viz.md) for advanced home and port overrides.
 
 Some operational tools retain their `bin/` entrypoints instead of a global alias.
 To run them from anywhere, open the installation's activated shell and enter its runtime directory:
@@ -181,9 +218,6 @@ Run the commands below in that shell; `exit` returns to your original shell.
 
 | Command | Purpose |
 | --- | --- |
-| `bin/mx-viz.sh serve` | Start the read-only local dashboard and print its URL. |
-| `bin/mx-viz.sh status` | Show the dashboard service state. |
-| `bin/mx-viz.sh stop` | Stop the dashboard, not the agents. |
 | `bin/mx-workflow.sh validate workflows/new-feature.workflow.md` | Check a workflow definition. |
 | `bin/mx-workflow.sh dry-run workflows/new-feature.workflow.md --input "Add export"` | Preview its stages. |
 | `bin/mx-workflow.sh run workflows/new-feature.workflow.md --project my-app --input "Add export"` | Start a project-bound workflow. |

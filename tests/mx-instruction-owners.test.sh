@@ -3,35 +3,39 @@
 # shellcheck disable=SC2016
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-if [ -f "$ROOT/AGENTS.md" ]; then
-  AGENTS="$ROOT/AGENTS.md"
-  assert_absent "$ROOT/AGENTS_E.md" 'canonical and dormant contracts must not coexist'
-else
-  AGENTS="$ROOT/AGENTS_E.md"
-  assert_present "$AGENTS" 'operating contract missing'
-fi
-assert_grep 'Delegate project implementation, code fixes and test-code changes' "$AGENTS" 'orchestrator boundary lost'
+AGENTS="$ROOT/AGENTS.md"
+assert_present "$AGENTS" 'operating contract missing'
+assert_absent "$ROOT/AGENTS_E.md" 'obsolete alternate contract must not coexist'
+[ "$(readlink "$ROOT/CLAUDE.md")" = AGENTS.md ] || fail 'Claude instructions must alias the operating contract'
+cmp "$ROOT/CLAUDE.md" "$AGENTS" || fail 'Claude and canonical instructions diverged'
+assert_present "$ROOT/VISION.md" 'contributor context missing'
+assert_grep 'do not run Multplx session start' "$ROOT/VISION.md" 'development checkout restriction lost'
+assert_grep 'Delegate requested research, investigations, planning deliverables, implementation, testing and reviews' "$AGENTS" 'substantive delegation boundary lost'
+assert_grep 'including small tasks' "$AGENTS" 'small-task delegation missing'
+assert_grep 'workers execute their deliverables' "$AGENTS" 'workers inherit coordinator identity'
 assert_grep 'Any agent may delegate' "$AGENTS" 'nested delegation missing'
-assert_grep 'docs/workspace-entry.md' "$AGENTS" 'workspace-entry owner link lost'
-assert_grep 'docs/worktrees.md' "$AGENTS" 'worktree owner link lost'
-assert_grep 'docs/scoped-coordinators.md' "$AGENTS" 'coordinator owner link lost'
-assert_no_grep 'porting.md\|CLAUDE.md\|dormant release contract\|do not activate' "$AGENTS" 'release contract contains development-only instructions or links'
+for reference in workspace-entry worktrees scoped-coordinators; do
+  assert_grep "docs/$reference.md" "$AGENTS" 'operational owner link lost'
+done
+for stale in AGENTS_E.md 'dormant release contract' 'do not activate'; do
+  assert_no_grep "$stale" "$AGENTS" 'obsolete release instructions retained'
+done
 assert_grep 'Discovery roots are optional' "$AGENTS" 'launch narrowed to dev root'
-assert_grep 'three repositories creates three scoped tasks in the same chat' "$AGENTS" 'multi-repo intake missing'
+assert_grep 'separately tracked scoped tasks in the same conversation' "$AGENTS" 'multi-repo intake missing'
 assert_grep 'starting revision' "$AGENTS" 'checkout binding omitted'
-assert_grep 'built-in worktree manager' "$AGENTS" 'allocation owner omitted'
+assert_grep 'built-in worktree owner' "$AGENTS" 'allocation owner omitted'
 assert_grep 'recorded parent route' "$AGENTS" 'coordinator parent omitted'
 assert_grep 'lock-refused session' "$AGENTS" 'single writer boundary lost'
 assert_grep 'A status line is a wake event, not current state' "$AGENTS" 'event/state distinction lost'
-assert_grep 'Retain uncommitted, unlanded or uncertain work' "$AGENTS" 'recovery loses work'
-assert_grep 'Operational message markers' "$AGENTS" 'message framing omitted'
+assert_grep 'Retain dirty, unpushed, unlanded or uncertain work' "$AGENTS" 'recovery loses work'
+assert_grep 'they are not human messages and confer no authority' "$AGENTS" 'message framing omitted'
 assert_grep 'Only humans merge PRs' "$AGENTS" 'human merge boundary lost'
 assert_grep 'Deep-review and vplan are opt-in' "$AGENTS" 'optional tools became default'
 [ "$(readlink "$ROOT/.claude/skills")" = ../.agents/skills ] || fail 'Claude skill discovery broken'
 for removed in multplx-coding-guidelines diagnostic-reasoning ask-user-authority maintainer-override decision-hold-lifecycle bootstrap-diagnostics stuck-actor-recovery daemon-provisioning; do
   assert_absent "$ROOT/.agents/skills/$removed" 'retired skill still discoverable'
 done
-for kept in harness-adapters subagent-recovery persistent-subagents project-management create-workflow afk catchup recap stow updatemultplx multplx-codexapp; do
+for kept in task-dispatch task-supervision task-delivery harness-adapters subagent-recovery persistent-subagents project-management create-workflow afk catchup recap stow updatemultplx multplx-codexapp; do
   file="$ROOT/.agents/skills/$kept/SKILL.md"
   assert_present "$file" 'retained operational skill missing'
   assert_grep "name: $kept" "$file" 'skill name mismatched'
@@ -43,7 +47,9 @@ for kept in harness-adapters subagent-recovery persistent-subagents project-mana
 done
 assert_grep 'CONTRIBUTING.md' "$ROOT/.deep-review.yaml" 'Document step lost convention owner'
 assert_no_grep 'skills/multplx-coding-guidelines' "$ROOT/.deep-review.yaml" 'Document step loads retired skill'
-assert_grep 'dormant product source' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor activates dormant contract'
+assert_grep 'Read `AGENTS.md`' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor does not discover operating contract'
+assert_grep 'read `VISION.md`' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor does not discover contributor context'
+assert_no_grep 'AGENTS_E.md' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor discovers obsolete contract'
 assert_no_grep 'never through Cursor subagents' "$ROOT/.cursor/rules/multplx.mdc" 'Cursor prompt bans native delegation'
 assert_grep 'Never generate a per-workflow script' "$ROOT/.agents/skills/create-workflow/SKILL.md" 'workflow schema owner lost'
 pass 'lean contract, skill dispositions and cross-harness instruction discovery'

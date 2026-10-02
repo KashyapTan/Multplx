@@ -50,6 +50,15 @@ for _ in $(seq 1 100); do [ -s "$HOME_DIR/state/.lock" ] && break; sleep .05; do
 for _ in $(seq 1 100); do [ -s "$HOME_DIR/state/workspace-connection.json" ] && break; sleep .02; done
 [ -s "$HOME_DIR/state/workspace-connection.json" ] || fail 'launcher did not publish tmux connection record'
 
+for _ in $(seq 1 100); do
+  primary=$("$BINARY" primary-observation "$HOME_DIR" "$HOME_DIR/state")
+  [ "$(printf '%s' "$primary" | jq -r '.status')" = live ] && break
+  sleep .02
+done
+printf '%s' "$primary" | jq -e --arg home "$HOME_DIR" '.status == "live" and .identity_verified == true and .home == $home and .activity == "unknown"' >/dev/null \
+  || fail "registered synthetic primary process did not yield exact-home live evidence: $primary"
+pass 'registered synthetic primary process is observed without claiming model activity'
+
 "$PYTHON" - "$BINARY" "$RUNTIME" "$HOME_DIR" "$FAKE" "$TMP_ROOT/harness" <<'PY'
 import fcntl, os, pty, select, struct, sys, termios, time
 sys.path.insert(0,os.path.join(os.environ["MX_TEST_ROOT"],"tests"))

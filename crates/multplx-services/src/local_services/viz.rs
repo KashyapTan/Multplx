@@ -1161,7 +1161,11 @@ fn serve_command(root: &Path) -> Result<i32> {
     let _guard = acquire_lock(&lock)?;
     if record.exists() {
         let existing = record_map(&record)?;
-        if record_live(&existing, Some(&home)) {
+        if record_live(&existing, Some(&home))
+            && existing
+                .get("state")
+                .is_some_and(|recorded| Path::new(recorded) == state)
+        {
             let port = existing
                 .get("port")
                 .ok_or_else(|| ServiceError::new("live dashboard record is missing port"))?;

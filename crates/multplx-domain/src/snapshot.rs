@@ -14,6 +14,9 @@ pub const SYSTEM_VIEW_USAGE: &str = "usage: mx-system-view.sh [--json]\n\nRender
 pub struct SystemSnapshot {
     pub schema: String,
     pub mx_home: String,
+    /// Additive exact-home primary evidence; absent in older snapshots.
+    #[serde(default)]
+    pub primary: Option<serde_json::Value>,
     pub roots: SnapshotRoots,
     pub backlog: Backlog,
     pub tasks: Vec<Task>,

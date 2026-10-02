@@ -178,7 +178,7 @@
     },
     {
       "path": "CLAUDE.md",
-      "audience": "maintainer-architecture"
+      "audience": "agent-runtime"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -515,6 +515,26 @@
     {
       "path": "docs/commands.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "VISION.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": ".agents/skills/task-dispatch/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/task-supervision/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/task-delivery/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/verification/orchestrator-contract.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

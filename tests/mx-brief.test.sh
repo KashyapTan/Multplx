@@ -17,6 +17,8 @@ test_help_includes_entire_header() {
   local help
   help=$("$ROOT/bin/mx-brief.sh" --help)
   assert_contains "$help" "Refuses to overwrite an existing brief." "mx-brief.sh --help omitted its header terminator"
+  assert_contains "$help" "current role takes precedence" "help loses assignment role priority"
+  case "$help" in *"Do not deploy this partial redesign"*) fail "help retains obsolete release restriction" ;; esac
   pass "mx-brief.sh: --help renders the complete header"
 }
 
@@ -150,17 +152,29 @@ test_lean_assignments() {
     assert_grep 'When a decision is answered or a blocker clears' "$brief" 'keyed resolution lost'
     assert_grep 'same `--key <slug>`' "$brief" 'decision identity lost'
     assert_grep 'Only humans merge PRs' "$brief" 'merge boundary lost'
-    assert_grep 'available native tools' "$brief" 'nested delegation omitted'
+    assert_grep 'All delegation, including nested delegation, uses Multplx-managed agents by default' "$brief" 'managed nested default omitted'
+    assert_grep 'explicit human request for that scope' "$brief" 'native scope selection omitted'
+    assert_grep 'never an automatic fallback' "$brief" 'native fallback permitted'
+    assert_grep 'Default to standing managed workers and coordinators' "$brief" 'standing dispatch default omitted'
+    assert_grep 'not merely received a worker done claim' "$brief" 'premature done blocks corrective follow-up'
+    assert_grep 're-engage a worker that reported done prematurely' "$brief" 'corrective revision authority lost'
+    assert_grep 'stop contacting, polling, nudging' "$brief" 'completed-job outreach boundary lost'
     assert_grep 'explicitly requested' "$brief" 'optional-tool choice missing'
     for arg in 'same obstacle twice' 'credentialed delivery' 'decision-hold-lifecycle' 'Project memory' 'treehouse' 'read-only GitHub' 'awaiting: {why}' 'Never invoke Multplx lifecycle' 'must drive its local validation'; do
       assert_no_grep "$arg" "$brief" "retired policy leaked: $arg"
     done
   done
+  for id in lean-implementation lean-research lean-review; do
+    assert_grep 'current worker assignment takes precedence' "$home/data/$id/brief.md" 'worker inherits generic coordinator identity'
+    assert_grep 'Execute the accepted research, implementation or review assignment yourself' "$home/data/$id/brief.md" 'worker recursively delegates its assignment'
+    assert_no_grep 'Delegate requested research' "$home/data/$id/brief.md" 'worker received coordinator delegation default'
+  done
+  assert_grep 'including small tasks' "$home/data/lean-persistent/brief.md" 'coordinator executes small deliverables'
   assert_grep 'researcher sub-agent' "$home/data/lean-research/brief.md" 'research assignment lost'
   assert_grep 'reviewer sub-agent' "$home/data/lean-review/brief.md" 'review assignment lost'
   assert_grep 'exact revision assessed' "$home/data/lean-review/brief.md" 'review evidence revision lost'
   assert_grep 'report.md' "$home/data/lean-research/brief.md" 'report artifact lost'
-  assert_grep 'Delegate project implementation, code fixes and test-code changes' "$home/data/lean-persistent/brief.md" 'child coordinator coding boundary lost'
+  assert_grep 'Delegate requested research, investigations, planning deliverables' "$home/data/lean-persistent/brief.md" 'child coordinator coding boundary lost'
   assert_grep 'include that exact token in your parent status reply' "$home/data/lean-persistent/brief.md" 'parent correlation lost'
   assert_grep "status owner \`$home/state\`" "$home/data/lean-persistent/brief.md" 'parent home lost'
   assert_grep 'project-less domain; bind an explicit repository' "$home/data/lean-persistent/brief.md" 'idea scope narrowed to runtime repo'

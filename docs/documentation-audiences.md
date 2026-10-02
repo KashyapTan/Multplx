@@ -16,7 +16,7 @@ The audience classes have one placement purpose each:
 - `agent-runtime` is loaded or rendered as an operating contract for Multplx agents rather than read as product documentation.
 
 [Contributor context](../CONTRIBUTING.md) owns repository writing conventions.
-The [operating contract](../AGENTS.md) is classified as agent runtime; contributor guidance belongs in `CLAUDE.md`.
+The [operating contract](../AGENTS.md) and its `CLAUDE.md` alias are classified as agent runtime; contributor guidance belongs in [VISION.md](../VISION.md).
 Task-specific chronology, delivery transcripts, temporary paths, branches, failed hypotheses, and one-off process identifiers stay in private task reports or PR evidence by default.
 Before removing that evidence from a tracked page, distill every unique current fact into its classified owner and retain a focused regression pointer.
 

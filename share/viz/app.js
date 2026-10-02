@@ -617,6 +617,10 @@ function currentAgeSeconds() {
 }
 
 function renderFreshness() {
+  for (const fact of document.querySelectorAll("[data-primary-cache]")) {
+    fact.textContent = `cache ${serviceCache || "unknown"}`;
+    fact.className = `chip tone-${statusTone(serviceCache || "unknown")}`;
+  }
   const freshness = object(portfolio?.freshness);
   const age = Math.max(Number(freshness.age_seconds) || 0, currentAgeSeconds());
   const sourceStatus = serviceCache === "stale" ? "stale" : freshness.status;
@@ -682,7 +686,7 @@ function agentCard(node, isRoot = false) {
   } else {
     card.tabIndex = 0;
     card.setAttribute("role", "group");
-    card.setAttribute("aria-label", "Main orchestrator; session health is not observed by this snapshot");
+    card.setAttribute("aria-label", `Main orchestrator; ${node.healthLabel}; ${node.sessionDetails}`);
   }
   card.append(
     el("span", "agent-card-role", isRoot ? "Main orchestrator" : node.role),
@@ -691,10 +695,13 @@ function agentCard(node, isRoot = false) {
   if (!isRoot && node.title && node.title !== node.id) card.append(el("span", "agent-card-scope", node.id));
   const facts = el("div", "agent-card-facts");
   if (isRoot) {
-    facts.append(chip("health unknown", "neutral"), chip(`snapshot ${node.freshness}`, node.freshness));
+    const cacheFact = chip(`cache ${serviceCache || "unknown"}`, statusTone(serviceCache || "unknown"));
+    cacheFact.dataset.primaryCache = "";
+    facts.append(chip(node.healthLabel, node.state === "live" ? "green" : "neutral"), chip(`snapshot ${node.freshness}`, statusTone(node.freshness)), cacheFact);
     card.append(facts, el("span", "agent-card-owner", node.home ? `Home · ${agentOwnerLabel(node.home)}` : "Home identity unavailable"));
     card.title = node.home || "Root home identity unavailable";
-    card.append(el("span", "agent-card-scope", "Session not observed · no health inferred from child work."));
+    card.title += `\n${node.sessionDetails}`;
+    card.append(el("span", "agent-card-scope", node.sessionDetails));
     return card;
   }
   facts.append(chip(node.state || "unknown", statusTone(String(node.state || "unknown").toLowerCase())), chip(node.freshness || "freshness unknown", statusTone(String(node.freshness || "unknown").toLowerCase())));
@@ -825,7 +832,7 @@ function renderAgents(snapshot) {
   const coordinators = graph.nodes.filter((node) => node.role === "sub-orchestrator").length;
   const searchSummary = query ? ` · ${matching.size} match${matching.size === 1 ? "" : "es"}${matching.size ? "" : " · no matching assignments"}` : "";
   const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.length} assignments`;
-  const summary = `${assignmentCount} · ${coordinators} coordinators · root session not observed${graph.partial ? " · projection partial" : " · projection complete"}${searchSummary}`;
+  const summary = `${assignmentCount} · ${coordinators} coordinators · root ${graph.root.healthLabel}${graph.partial ? " · projection partial" : " · projection complete"}${searchSummary}`;
   document.querySelector("#agents-summary").textContent = summary;
   const warning = document.querySelector("#agents-warning");
   const warnings = [...graph.partialReasons];

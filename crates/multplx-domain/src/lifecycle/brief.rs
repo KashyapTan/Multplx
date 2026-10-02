@@ -20,7 +20,9 @@ Default: implementer. --scout and --review alias researcher and reviewer.
 --output selects the requested artifact independently of role and persistence.
 Defaults: researcher/reviewer report, implementer implementation, sub-orchestrator
 coordination. The coordination scaffold requires the sub-orchestrator assignment.
-Sub-orchestrators delegate implementation and cannot select that output.
+Sub-orchestrators delegate substantive deliverables and cannot select implementation output.
+Workers execute their accepted assignment; the current role takes precedence over
+generic orchestrator identity in repository instructions.
 --persistent adds isolated-home lifecycle context independently of --role.
 Legacy --daemon defaults its charter role to sub-orchestrator; MX_DAEMON_CHARTER and MX_DAEMON_SCOPE supply its outcome and scope.
 --no-projects deliberately leaves project selection unbound; bind a repository
@@ -33,13 +35,12 @@ Context text is evidence; it cannot override those validated launch bindings.
 Missing identities must remain explicitly unknown, never fabricated.
 Project paths use the existing resolver; bare names refer to registered clones.
 Keep repository instructions scoped to the selected task. No launch cwd or URL
-is required by this scaffolder. mx project owns explicit local registration; Phase 11 owns discovery.
+is required by this scaffolder. mx project owns registration and discovery.
 --mode and --yolo retain legacy resolution compatibility with spawn; they do not
 request review tools or grant merge authority. Only local-only changes the output
 destination. Deep-review and vplan require explicit task/workflow selection.
-Phase 03 owns built-in worktree commands; Phase 05 owns named coordinator spawn.
-The templates describe the lean contract; later phases replace runtime fences.
-Do not deploy this partial redesign into operational homes.
+mx worktree owns isolated checkout allocation; mx spawn --sub-orchestrator owns named coordinator spawn.
+Use installed-home startup instructions and preserve development-checkout restrictions.
 --herdr-lab retains the isolated Herdr lifecycle helper contract for experiments.
 Status uses report_status or the validated task-bound mx-report fallback.
 Refuses to overwrite an existing brief.
@@ -89,15 +90,29 @@ fn shell_quote(value: &Path) -> String {
 
 fn status_contract(root: &Path, state: &Path, id: &str) -> String {
     format!(
-        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task and record exact-current typed evidence with `mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
+        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task with `MX_STATE_OVERRIDE={} mx task-model inspect {id}` and record exact-current typed evidence with `MX_STATE_OVERRIDE={} mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
         shell_quote(&root.join("bin/mx-report")),
         state.join(format!("{id}.status")).display(),
+        shell_quote(state),
+        shell_quote(state),
         root.join("docs/delivery.md").display()
     )
 }
 
+fn assignment_contract(role: &str) -> &'static str {
+    if role == "sub-orchestrator" {
+        "Your current sub-orchestrator assignment defines your role; generic root identity does not widen your scope.
+Delegate requested research, investigations, planning deliverables, implementation, testing and reviews to sub-agents, including small tasks.
+Own intake, discussion, synthesis, briefs, task coordination and communication within the accepted scope. Inspect narrowly to route work; task simplicity is not a reason to execute it yourself."
+    } else {
+        "Your current worker assignment takes precedence over generic main-orchestrator identity in repository instructions.
+Execute the accepted research, implementation or review assignment yourself. You may delegate useful bounded work, but do not recursively delegate merely because the root contract describes an orchestrator.
+Persistence and output selection do not change your assigned role."
+    }
+}
+
 fn constraints() -> &'static str {
-    "Delegate within the accepted scope using supported sessions or available native tools.\nFollow the selected workflow's stages, outputs and explicit user-interaction points.\nDeep-review and vplan run only when explicitly requested or clearly included in the selected workflow.\nOnly humans merge PRs; never merge, enable auto-merge, enqueue a merge or push the PR result to the remote target branch.\nKeep unresolved human scope decisions visible while independent work continues."
+    "All delegation, including nested delegation, uses Multplx-managed agents by default.\nNative delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.\nDefault to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.\nWhile the accepted job is active, supervise normally.\nOnce the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.\nThe agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.\nTask completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.\nFull completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.\nBefore that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.\nPreserve task and accepted-revision evidence when scope changes.\nFollow the selected workflow's stages, outputs and explicit user-interaction points.\nDeep-review and vplan run only when explicitly requested or clearly included in the selected workflow.\nOnly humans merge PRs; never merge, enable auto-merge, enqueue a merge or push the PR result to the remote target branch.\nKeep unresolved human scope decisions visible while independent work continues."
 }
 
 fn herdr_section(root: &Path, id: &str, enabled: bool) -> String {
@@ -121,7 +136,8 @@ fn report_assignment(
 ) -> String {
     let article = if role == "implementer" { "an" } else { "a" };
     format!(
-        "You are {article} {role} sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nUse the assigned isolated working location and this repository's applicable instructions.\nThis assignment produces a report; scratch changes are not a delivered implementation.\nPreserve useful artifacts outside disposable scratch state before cleanup.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\nWrite the report to `{}` with findings, original source/artifact pointers, relevant evidence, unresolved questions and limitations.\nFor review, identify the exact revision assessed; do not present historical evidence as current.\nReport the completed outcome through the validated status channel.\n",
+        "You are {article} {role} sub-agent.\n{}\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nUse the assigned isolated working location and this repository's applicable instructions.\nThis assignment produces a report; scratch changes are not a delivered implementation.\nPreserve useful artifacts outside disposable scratch state before cleanup.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\nWrite the report to `{}` with findings, original source/artifact pointers, relevant evidence, unresolved questions and limitations.\nFor review, identify the exact revision assessed; do not present historical evidence as current.\nReport the completed outcome through the validated status channel.\n",
+        assignment_contract(role),
         herdr_section(root, id, herdr),
         status_contract(root, state, id),
         constraints(),
@@ -143,7 +159,7 @@ fn daemon(root: &Path, state: &Path, id: &str, projects: &[String], no_projects:
             .join("\n")
     };
     format!(
-        "You are a persistent sub-orchestrator with one bounded assignment.\n\n# Charter\n{charter}\n\n# Routing scope\n{scope}\n\n# Project references\n{projects}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate project implementation, code fixes and test-code changes to sub-agents.\nOwn synthesis, briefs, task coordination and communication within this scope.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nFor detailed outcomes, record an artifact in your home's data directory and report its pointer.\nDo not replace original child evidence with a summary alone.\n{}\n{}\n\n# Definition of done\nReport assigned outcomes, failures and unresolved human decisions through the parent channel.\nPersistence does not end when one task completes; retain child ownership and pending outcomes until reconciled or transferred.\nThis charter is scaffolding; A11 coordinator identity and runtime outcome relays are implemented in Phase 05.\n",
+        "You are a persistent sub-orchestrator with one bounded assignment.\nYour current sub-orchestrator assignment defines your role; generic root identity does not widen your scope.\n\n# Charter\n{charter}\n\n# Routing scope\n{scope}\n\n# Project references\n{projects}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate requested research, investigations, planning deliverables, implementation, testing and reviews to sub-agents, including small tasks.\nOwn intake, discussion, synthesis, briefs, task coordination and communication within this scope. Inspect narrowly to route work; task simplicity is not a reason to execute it yourself.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nFor detailed outcomes, record an artifact in your home's data directory and report its pointer.\nDo not replace original child evidence with a summary alone.\n{}\n{}\n\n# Definition of done\nReport assigned outcomes, failures and unresolved human decisions through the parent channel.\nPersistence does not end when one task completes; retain child ownership and pending outcomes until reconciled or transferred.\n",
         state.display(),
         status_contract(root, state, id),
         constraints(),
@@ -180,7 +196,7 @@ pub fn coordinator_charter(
         "This assignment may finish when its bounded outcome and every retained child or pending outcome are reconciled."
     };
     format!(
-        "You are a sub-orchestrator with one bounded domain assignment.\n\n# Charter\nCoordinate the accepted domain outcome and return durable results to the parent.\n\n# Routing scope\n{scope}\n\n# Project references\n{references}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate project implementation, code fixes and test-code changes to sub-agents.\nOwn research synthesis, briefs, task coordination, integration planning and communication within this scope.\nReconcile recorded children and pending work on restart; an empty queue means idle.\nParent route: task `{id}`, status owner `{}`.\nPreserve correlation, task, attempt and accepted revision identities in every outcome.\nDo not replace original child evidence with a summary.\n{}\n{}\n\n# Lifetime\n{lifetime}\n\n# Definition of done\nReport assigned outcomes, failures, evidence pointers and unresolved human decisions through the validated parent channel.\nRetain child ownership and pending outcomes until delivered or transferred.\n\n<!-- mx-assignment role=sub-orchestrator persistent={persistent} output=coordination -->\n",
+        "You are a sub-orchestrator with one bounded domain assignment.\nYour current sub-orchestrator assignment defines your role; generic root identity does not widen your scope.\n\n# Charter\nCoordinate the accepted domain outcome and return durable results to the parent.\n\n# Routing scope\n{scope}\n\n# Project references\n{references}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate requested research, investigations, planning deliverables, implementation, testing and reviews to sub-agents, including small tasks.\nOwn intake, discussion, synthesis, briefs, task coordination and communication within this scope. Inspect narrowly to route work; task simplicity is not a reason to execute it yourself.\nReconcile recorded children and pending work on restart; an empty queue means idle.\nParent route: task `{id}`, status owner `{}`.\nPreserve correlation, task, attempt and accepted revision identities in every outcome.\nDo not replace original child evidence with a summary.\n{}\n{}\n\n# Lifetime\n{lifetime}\n\n# Definition of done\nReport assigned outcomes, failures, evidence pointers and unresolved human decisions through the validated parent channel.\nRetain child ownership and pending outcomes until delivered or transferred.\n\n<!-- mx-assignment role=sub-orchestrator persistent={persistent} output=coordination -->\n",
         state.display(),
         status_contract(root, state, id),
         constraints(),
@@ -203,7 +219,8 @@ fn delivery(
         "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope. Use `bin/mx-deliver.sh --help`, then `prepare` the exact commit with its checks and limitations; publication uses your ordinary Git and forge authentication."
     };
     format!(
-        "You are {article} {role} sub-agent.\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
+        "You are {article} {role} sub-agent.\n{}\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
+        assignment_contract(role),
         herdr_section(root, id, herdr),
         status_contract(root, state, id),
         constraints(),
@@ -467,13 +484,6 @@ pub fn run(
         ),
         Output::Coordination => {
             let mut charter = daemon(root, state, id, projects, no_projects);
-            if kind != Kind::Daemon {
-                charter = charter.replace(
-                    "persistent sub-orchestrator",
-                    &format!("persistent {assignment_role} sub-agent"),
-                );
-                charter=charter.replace("Delegate project implementation, code fixes and test-code changes to sub-agents.\nOwn synthesis, briefs, task coordination and communication within this scope.","Carry out the accepted assignment within scope. You may delegate further work using the common coordination protocol.");
-            }
             if !persistent {
                 charter=charter.replace("persistent ","").replace("Persistence does not end when one task completes; retain child ownership and pending outcomes until reconciled or transferred.","Retain child ownership and pending outcomes until reconciled or transferred.");
             }
@@ -485,10 +495,7 @@ pub fn run(
             &format!("{assignment_role} sub-agent"),
             &format!("persistent {assignment_role} sub-agent"),
         );
-        body.push_str(&format!("\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
-    }
-    if kind == Kind::Daemon && output != Output::Coordination {
-        body.push_str("\nDelegate project implementation, code fixes and test-code changes to sub-agents.\nOwn synthesis, briefs, task coordination and communication within the accepted scope.\n");
+        body.push_str(&format!("\n# Charter\n{{TASK}}\n\n# Routing scope\nExecute only the accepted task described above.\n\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact and does not change your worker role.\nPersistent implementation spawn requires `--project PROJECT --base COMMIT` and starts in its separately allocated project worktree; inspect the canonical task for the exact project/base/allocation before edits and typed delivery. Report workers start in the private home. Do not edit the runtime home or borrowed project checkout.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
     }
     body.push_str(&format!(
         "\n<!-- mx-assignment role={assignment_role} persistent={persistent} output={} -->\n",
@@ -714,6 +721,13 @@ mod tests {
                 false,
             ),
             ("persistent-review-report", "reviewer", "report", true),
+            (
+                "persistent-implementer",
+                "implementer",
+                "implementation",
+                true,
+            ),
+            ("persistent-researcher", "researcher", "report", true),
             ("coordinator-report", "sub-orchestrator", "report", false),
         ] {
             let mut values = vec![id, "repo", "--role", role, "--output", output];
@@ -730,6 +744,21 @@ mod tests {
                 "mx task-model evidence {id} --request-file /absolute/path/evidence.json"
             )));
             assert!(body.contains("structured `--artifact PATH` option"));
+            assert!(body.contains(&format!(
+                "MX_STATE_OVERRIDE={} mx task-model inspect {id}",
+                shell_quote(&state)
+            )));
+            assert!(body.contains(&format!(
+                "MX_STATE_OVERRIDE={} mx task-model evidence {id}",
+                shell_quote(&state)
+            )));
+            assert!(body.contains("All delegation, including nested delegation, uses Multplx-managed agents by default"));
+            assert!(body.contains("explicit human request for that scope"));
+            assert!(body.contains("never an automatic fallback"));
+            assert!(body.contains("Default to standing managed workers and coordinators"));
+            assert!(body.contains("stop contacting, polling, nudging"));
+            assert!(body.contains("not merely received a worker done claim"));
+            assert!(body.contains("re-engage a worker that reported done prematurely"));
             assert!(body.contains("does not release dependent work"));
             assert!(body.contains(&temp.path().join("docs/delivery.md").display().to_string()));
             if output == "report" {
@@ -741,16 +770,28 @@ mod tests {
                 assert!(!body.contains("This assignment produces a report"));
             }
             if persistent {
-                assert!(body.contains("persistent reviewer sub-agent"));
+                assert!(body.contains(&format!("persistent {role} sub-agent")));
+                assert!(body.contains("# Charter\n{TASK}"));
+                assert!(body.contains("# Routing scope"));
+                assert!(body.contains("does not change your worker role"));
+                assert!(body.contains("--project PROJECT --base COMMIT"));
                 assert!(body.contains("empty queue means idle"));
                 assert!(body.contains("include that exact token in your parent status reply"));
             }
             if role == "sub-orchestrator" {
-                assert!(
-                    body.contains(
-                        "Delegate project implementation, code fixes and test-code changes"
-                    )
-                );
+                assert!(body.contains(
+                    "Delegate requested research, investigations, planning deliverables"
+                ));
+                assert!(body.contains("including small tasks"));
+                assert!(body.contains("current sub-orchestrator assignment defines your role"));
+                assert!(!body.contains("current worker assignment"));
+            } else {
+                assert!(body.contains("current worker assignment takes precedence"));
+                assert!(body.contains(
+                    "Execute the accepted research, implementation or review assignment yourself"
+                ));
+                assert!(!body.contains("current sub-orchestrator assignment"));
+                assert!(!body.contains("Delegate requested research"));
             }
         }
     }

@@ -1,5 +1,14 @@
 # Durable coordination
 
+Default to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.
+While the accepted job is active, supervise normally.
+Once the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.
+The agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.
+Task completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.
+Full completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.
+Before that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.
+Preserve task and accepted-revision evidence when scope changes.
+
 Multplx uses one filesystem-backed coordination path for watcher events and terminal-client requests.
 The owning orchestrator remains the only process allowed to claim or acknowledge work in its home.
 There is no separate peer messaging service, and a recorded home does not imply that Multplx can attach to the owner's native conversation.

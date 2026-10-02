@@ -238,7 +238,8 @@ The upstream-sync workflow composes that engine with a fetch-only private clone 
 Tasks record report or implementation output separately from researcher, implementer, reviewer or sub-orchestrator assignment and persistence.
 Legacy delivery/scout/daemon kinds are compatibility projections of the [versioned record](subagent-model.md), not delegation permission classes.
 Accepted brief revisions, execution generations and selected checkout identities travel with launch, reports and queued work.
-The [lean intake contract](../porting.md#task-intake-roles-and-quality) makes research task-dependent.
+The [intake contract](../porting.md#task-intake-roles-and-quality) delegates requested research and other substantive deliverables, while allowing coordinators narrow routing inspection, discussion and synthesis.
+Workers execute their recorded assignments; loading a shared operating contract does not turn them into root coordinators.
 
 ## Dispatch profiles
 
@@ -251,7 +252,10 @@ Persistent-sub-agent launches are exempt because they resolve the legacy daemon 
 Unsupported effort values are still recorded in task meta when passed to `mx-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, and pi while preserving the requested profile for later audit.
 
-## Optional persistent sub-agents
+## Standing sub-agents by default
+
+Dispatch selects standing managed workers and coordinators under the [operating contract](../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
+Persistent implementers launch at a separate exact-base project allocation using the [standing worker commands](commands.md#standing-implementation-worker); the home remains available after verified delivery without automatic reuse.
 
 `data/daemons.md` records persistent sub-agents with natural-language scopes, project references, and home paths.
 `mx-home-seed.sh` provisions a private home, remembers selected project checkouts, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.

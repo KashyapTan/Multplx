@@ -25,7 +25,9 @@ Remote-free repositories work without a fabricated remote.
 Linked checkouts share the allocation store of their common Git directory.
 An unavailable source, unborn repository or invalid base refuses acquisition.
 
-Ordinary spawn acquires before creating the endpoint and writes its allocation into the durable launch intent and canonical task metadata.
+Ordinary spawn and persistent implementation spawn acquire before creating the endpoint and write their project allocation into the durable launch intent and canonical task metadata.
+Persistent implementation uses `mx spawn ID --persistent --role implementer --output implementation --project PROJECT --base FULL_ACCEPTED_COMMIT` after brief completion and home seeding; the home remains separate and the project allocation is persistent.
+Git-backed home provisioning alone reserves the home and does not bind an implementation project allocation; use the explicit persistent implementation launch path.
 The backend receives that exact directory without shell-driven acquisition or cwd polling.
 Spawn and teardown share a per-task lifecycle lock through endpoint and allocation publication, so replacement cannot race a stale endpoint stop.
 Recursive cleanup takes each child's matching lock and rereads its authoritative metadata before acting.

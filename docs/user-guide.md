@@ -1,6 +1,6 @@
 # Multplx user guide
 
-Multplx gives one main orchestrator a durable way to coordinate work across several repositories and independent sub-agents.
+Multplx gives one main orchestrator a durable way to coordinate work across several repositories, using managed standing workers and coordinators by default.
 You can open the workspace from any directory, submit work in chat or from the command line, and leave long-running work attached to its original project and revision.
 
 This guide starts after installation.
@@ -22,7 +22,12 @@ Treat deterministic adapter tests and older live evidence separately from a succ
 ## The working model
 
 One Multplx home owns one main orchestrator conversation.
-That conversation can coordinate direct sub-agents and optional scoped sub-orchestrators across many repositories.
+That conversation delegates to Multplx-managed standing workers and optional standing scoped sub-orchestrators across many repositories by default, including nested delegation.
+Native delegation requires an explicit human request for that scope; a failed managed launch does not select it automatically.
+The main orchestrator handles discussion, scope, synthesis and supervision, and delegates requested research, investigations, planning deliverables, implementation, testing and reviews, even when small.
+It can inspect narrowly to route work or explain existing findings; a simple fix can go directly to one implementer.
+Workers execute their assigned deliverables, while scoped coordinators apply the same delegation boundary within their bounded domains.
+The shared operating contract respects those recorded roles, so workers do not become root orchestrators by reading it.
 Each accepted task keeps its project, checkout, starting commit, scope, dependencies, and evidence even when you switch the project shown in the terminal.
 
 Multplx remembers existing Git checkouts without taking ownership of their contents.
@@ -200,7 +205,7 @@ A missing live provider transcript does not erase durable task, request, worktre
 
 ## Use a scoped sub-orchestrator
 
-A scoped sub-orchestrator is useful when one project, several related repositories, or a research idea needs ongoing coordination beneath the main orchestrator.
+A scoped sub-orchestrator is useful when one project, several related repositories, or a research idea needs bounded coordination beneath the main orchestrator.
 Project selection alone never creates one.
 
 The named `spawn --sub-orchestrator` form creates its charter directly from `--scope`.
@@ -214,7 +219,7 @@ Create a project-backed coordinator explicitly:
 ```sh
 multplx spawn api-design --sub-orchestrator --project customer-api \
   --scope "Coordinate the accepted API compatibility work" \
-  --request-id api-design-initial --harness codex
+  --persistent --request-id api-design-initial --harness codex
 ```
 
 Create a persistent research domain before it has a repository:
@@ -225,10 +230,14 @@ multplx spawn onboarding --sub-orchestrator --idea onboarding \
   --persistent --request-id onboarding-research --harness codex
 ```
 
-`--persistent` makes the assignment available between tasks.
-It does not grant broader authority or imply that its private home owns a repository.
+`--persistent` selects the standing lifecycle used by default in agent dispatch instructions.
+The low-level CLI retains temporary/task-scoped behavior when that flag is omitted for compatibility; choose that lifecycle explicitly when dispatching an agent.
+Standing availability lets you return to the agent and guide it after delivery; it does not authorize automatic reuse or additional work.
+Normal supervision and corrective follow-up continue until the parent has validated the full agreed job, resolved gaps and delivered it, even if a worker reported done earlier.
+After that point, automatic outreach stops.
+Persistence does not grant broader authority or imply that its private home owns a repository.
 
-Inspect a domain and route a new request to it:
+For an explicit user-directed follow-up, inspect a domain and route the new request to it:
 
 ```sh
 multplx domain inspect api-design
@@ -302,16 +311,17 @@ See [Agent delivery and human PR merges](delivery.md) for publication receipts, 
 MX Viz is a disposable read-only view of the same canonical task, domain, decision, workflow, freshness, and delivery state used by the terminal workspace.
 Switch between **Tasks** for detailed task records and **Agents** for the orchestrator, coordinator and worker hierarchy.
 The graph distinguishes assignment state from observed sessions and flags unresolved ownership or partial data.
-The terminal workspace key `v` opens it when available.
-You can also manage the local server directly from an activated shell after changing to `$MX_ROOT_OVERRIDE`:
+After starting the orchestrator, run either command from any directory, or press `v` in the `multplx` terminal workspace:
 
 ```sh
-bin/mx-viz.sh serve
-bin/mx-viz.sh status
-bin/mx-viz.sh stop
+mx viz
+multplx viz
 ```
 
-The server binds only to loopback and prints its URL.
+These entrypoints use the configured orchestrator home automatically and open the returned dashboard URL; no environment variables are needed for normal use.
+Install or upgrade supplies the global `mx` entry alongside `multplx`. An older installed runtime keeps its existing behavior until you upgrade it.
+Use `mx viz --no-open` to print the URL without opening a browser, `mx viz status` to inspect the service, and `mx viz stop` to stop it.
+The server binds only to loopback. If its preferred port is occupied, these entrypoints use the actual returned URL.
 Closing the dashboard does not stop task execution.
 See [Live system dashboard](viz.md) for polling, stale-state display, artifact access, and port configuration.
 

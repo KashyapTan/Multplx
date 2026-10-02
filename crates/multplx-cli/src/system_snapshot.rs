@@ -1106,6 +1106,48 @@ fn daemon_home_summary(paths: &Paths, generated: &str, backlog: &Value, tasks: &
 fn daemon_summary_invalid(home: &Path, generated: &str, invalidity: &Value, reason: &str) -> Value {
     json!({"schema":"mx-daemon-home-summary.v1","generated":generated,"home":home,"valid":false,"reason":reason,"invalidity":invalidity,"state":"unknown","portfolio":Value::Null,"tasks":[],"workflow_runs":[],"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":{"active_children":Value::Null,"decisions_open":Value::Null,"holds":Value::Null,"queued":Value::Null,"landed":Value::Null,"endpoints":Value::Null,"useful_tasks":Value::Null,"sessions":Value::Null,"worker_sessions":Value::Null,"coordinator_sessions":Value::Null,"attempts_known":Value::Null,"coordinator_tasks":Value::Null,"tasks_total":Value::Null,"tasks_shown":Value::Null},"omitted":[]})
 }
+fn primary_observation(paths: &Paths, generated: &str) -> Value {
+    let command = primary_probe_command(&std::env::current_exe().unwrap_or_default(), paths);
+    primary_probe_result(
+        paths,
+        generated,
+        run_bounded(command, Duration::from_secs(2), 16 * 1024),
+    )
+}
+
+fn primary_probe_command(binary: &Path, paths: &Paths) -> Command {
+    let mut command = Command::new(binary);
+    command
+        .arg("primary-observation")
+        .arg(&paths.home)
+        .arg(&paths.state)
+        .env("MX_MULTICALL_EXPLICIT", "1");
+    command
+}
+
+fn primary_probe_result(paths: &Paths, generated: &str, output: TimedOutput) -> Value {
+    let fallback = |reason| json!({"schema":"mx-primary-observation.v1","home":paths.home,"state":paths.state,"status":"unavailable","identity_verified":false,"activity":"unknown","source":"workspace-connection","reason":reason});
+    let mut observation = match output {
+        TimedOutput::Completed {
+            status: 0, stdout, ..
+        } => serde_json::from_slice::<Value>(&stdout)
+            .ok()
+            .filter(|value| {
+                value["schema"] == "mx-primary-observation.v1"
+                    && value["home"] == json!(paths.home)
+                    && value["state"] == json!(paths.state)
+            })
+            .unwrap_or_else(|| fallback("Primary probe returned invalid evidence.")),
+        TimedOutput::TimedOut => {
+            fallback("Primary probe deadline exceeded; no current health observation.")
+        }
+        _ => fallback("Primary probe failed; no current health observation."),
+    };
+    observation["observed_at"] = json!(generated);
+    observation["freshness"] = json!({"status":if observation["status"]=="unavailable" {"unavailable"}else{"fresh"},"observed_at":generated});
+    observation
+}
+
 fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) -> Value {
     let inventory = inventory(&backlog, &tasks);
     let reports = reports(paths, &backlog, &tasks);
@@ -1117,7 +1159,7 @@ fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) ->
     let daemon_landed = daemon_landed(&daemon_current);
     let later_feeds = later(paths);
     let portfolio = portfolio(paths, generated, &backlog, &tasks, &domains, &later_feeds);
-    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"portfolio":portfolio,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later_feeds,"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
+    json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"primary":primary_observation(paths, generated),"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"portfolio":portfolio,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later_feeds,"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
 }
 
 /// Build the task-first read model from existing authoritative records.
@@ -2855,6 +2897,80 @@ fn upstream(paths: &Paths) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn primary_child_forces_internal_dispatch_for_installed_multplx_basename() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = super::Paths {
+            root: temp.path().into(),
+            home: temp.path().into(),
+            state: temp.path().join("state"),
+            data: temp.path().join("data"),
+            config: temp.path().join("config"),
+            projects: temp.path().join("projects"),
+            source_root: temp.path().into(),
+        };
+        let command = super::primary_probe_command(Path::new("/installed/bin/multplx"), &paths);
+        assert_eq!(
+            command.get_program(),
+            std::ffi::OsStr::new("/installed/bin/multplx")
+        );
+        assert_eq!(
+            command.get_args().next(),
+            Some(std::ffi::OsStr::new("primary-observation"))
+        );
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == "MX_MULTICALL_EXPLICIT"
+                    && value == Some(std::ffi::OsStr::new("1")))
+        );
+    }
+
+    #[test]
+    fn primary_probe_failure_and_timeout_never_infer_health() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = super::Paths {
+            root: temp.path().into(),
+            home: temp.path().into(),
+            state: temp.path().join("state"),
+            data: temp.path().join("data"),
+            config: temp.path().join("config"),
+            projects: temp.path().join("projects"),
+            source_root: temp.path().into(),
+        };
+        for output in [
+            super::TimedOutput::TimedOut,
+            super::TimedOutput::StartFailed,
+            super::TimedOutput::Completed {
+                status: 1,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            },
+            super::TimedOutput::Completed {
+                status: 0,
+                stdout: b"{}".to_vec(),
+                stderr: Vec::new(),
+            },
+        ] {
+            let observed = super::primary_probe_result(&paths, "now", output);
+            assert_eq!(observed["status"], "unavailable");
+            assert_eq!(observed["freshness"]["status"], "unavailable");
+            assert_eq!(observed["identity_verified"], false);
+        }
+        let evidence = serde_json::json!({"schema":"mx-primary-observation.v1","home":paths.home,"state":paths.state,"status":"stale","reason":"reused identity"});
+        let observed = super::primary_probe_result(
+            &paths,
+            "now",
+            super::TimedOutput::Completed {
+                status: 0,
+                stdout: serde_json::to_vec(&evidence).unwrap(),
+                stderr: Vec::new(),
+            },
+        );
+        assert_eq!(observed["status"], "stale");
+        assert_eq!(observed["freshness"]["status"], "fresh");
+    }
+
     use super::*;
 
     #[test]

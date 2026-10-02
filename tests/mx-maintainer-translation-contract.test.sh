@@ -4,9 +4,11 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 CONTRACT="$ROOT/AGENTS.md"
-[ -f "$CONTRACT" ] || CONTRACT="$ROOT/AGENTS_E.md"
-assert_grep 'unresolved human questions durable and visible' "$CONTRACT" 'unanswered questions lost'
-assert_grep 'actual revision, exact checks and results, limitations' "$CONTRACT" 'quality evidence missing'
+assert_present "$CONTRACT" 'operating contract missing'
+assert_grep 'unresolved human questions durable, visible and bound to the task and revision' "$CONTRACT" 'unanswered questions lost'
+assert_grep 'actual commit where applicable, exact checks and results, limitations and original artifacts' "$CONTRACT" 'quality evidence missing'
+assert_grep 'actual current revision' "$CONTRACT" 'quality evidence lacks current revision'
+assert_grep 'Evidence identifies the task, attempt, accepted brief' "$CONTRACT" 'evidence loses task and accepted brief binding'
 assert_grep 'PR ready and human merged are separate facts' "$CONTRACT" 'readiness conflated with merge'
 for file in "$CONTRACT" "$ROOT"/.agents/skills/*/SKILL.md; do
   assert_no_grep 'Maintainer, all clear.' "$file" 'fixed acknowledgement retained'
