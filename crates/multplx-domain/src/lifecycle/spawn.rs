@@ -24,6 +24,8 @@ pub struct Request {
     pub id: String,
     pub home: PathBuf,
     pub project: PathBuf,
+    /// Explicit accepted base for a persistent implementation project.
+    pub starting_revision: Option<String>,
     /// Bounded compatibility projection for legacy consumers.
     pub kind: String,
     pub role: String,
@@ -519,6 +521,8 @@ pub fn parse(
     let mut scout = false;
     let mut role: Option<String> = None;
     let mut output: Option<String> = None;
+    let mut implementation_project: Option<String> = None;
+    let mut starting_revision: Option<String> = None;
     let mut backend = "tmux".to_owned();
     let mut harness = None;
     let mut model = "default".to_owned();
@@ -537,7 +541,7 @@ pub fn parse(
             "--scout" => scout = true,
             "--review" => role = Some("reviewer".into()),
             "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" | "--role"
-            | "--output" => {
+            | "--output" | "--project" | "--base" => {
                 let next = args
                     .get(index + 1)
                     .and_then(|value| value.to_str())
@@ -545,6 +549,16 @@ pub fn parse(
                     .to_owned();
                 validate_record_value(value.trim_start_matches("--"), &next)?;
                 match value {
+                    "--project" => {
+                        if implementation_project.replace(next).is_some() {
+                            return Err("duplicate implementation project".into());
+                        }
+                    }
+                    "--base" => {
+                        if starting_revision.replace(next).is_some() {
+                            return Err("duplicate accepted base".into());
+                        }
+                    }
                     "--role" => {
                         if !matches!(
                             next.as_str(),
@@ -693,6 +707,18 @@ pub fn parse(
     if !matches!(backend.as_str(), "tmux" | "herdr" | "cmux") {
         return Err(format!("unknown backend '{backend}'"));
     }
+    if implementation_project.is_some() || starting_revision.is_some() {
+        if !daemon || output != "implementation" {
+            return Err(
+                "--project and --base require a persistent implementation assignment".into(),
+            );
+        }
+        if implementation_project.is_none() || starting_revision.is_none() {
+            return Err("persistent implementation requires both --project and --base".into());
+        }
+    } else if daemon && output == "implementation" {
+        return Err("persistent implementation requires --project and --base".into());
+    }
     if daemon && backend == "cmux" {
         return Err("backend=cmux does not support --daemon spawns yet".to_owned());
     }
@@ -783,6 +809,7 @@ pub fn parse(
             id,
             home: context.home.clone(),
             project,
+            starting_revision: None,
             kind: if output == "report" {
                 "scout"
             } else {
@@ -901,9 +928,25 @@ pub fn parse(
     {
         return Err("daemon registry home does not match spawn target".to_owned());
     }
+    let project = if let Some(selector) = implementation_project {
+        // The seeded home catalog proves that implementation stays in an
+        // accepted project reference; never add an unrelated checkout here.
+        crate::project_registry::resolve_checkout(&home, &selector)
+            .map_err(|_| "persistent implementation project is not bound in the seeded home")?
+            .canonical_path
+    } else {
+        home.clone()
+    };
+    if let Some(base) = starting_revision.as_mut() {
+        let resolved = crate::project_registry::resolve_starting_revision(&project, base)?;
+        if resolved != *base {
+            return Err("--base requires the exact full accepted commit".into());
+        }
+    }
     Ok(Request {
         id,
-        project: home.clone(),
+        project,
+        starting_revision,
         home,
         kind: "daemon".to_owned(),
         role,
@@ -1054,6 +1097,13 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
         }
         if let Some(project) = &record.project {
             crate::project_registry::validate_binding(&context.home, project)?;
+            if request
+                .starting_revision
+                .as_ref()
+                .is_some_and(|base| base != &project.starting_revision)
+            {
+                return Err("launch cannot retarget the recorded starting revision".into());
+            }
             if project.canonical_path != request.project {
                 return Err("launch cannot retarget the recorded checkout".into());
             }
@@ -1153,7 +1203,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
             .source_artifacts
             .push(brief.to_string_lossy().into_owned());
         record.private_home = request.private_home;
-        if !request.private_home {
+        if !request.private_home || artifact == ArtifactKind::Implementation {
             let mut project = if artifact == ArtifactKind::Implementation
                 && let Some(allowed) = parent_domain_projects
             {
@@ -1202,6 +1252,15 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
                     );
                 }
                 project.starting_revision = start;
+            }
+            if let Some(base) = &request.starting_revision {
+                if routed
+                    .as_ref()
+                    .is_some_and(|r| r.starting_revision != *base)
+                {
+                    return Err("accepted base conflicts with routed starting revision".into());
+                }
+                project.starting_revision = base.clone();
             }
             record.project = Some(project);
         }
@@ -1984,7 +2043,7 @@ pub fn publish_meta_for_worktree(
     }
     let fields = optional_registry_fields(&context.data.join("daemons.md"), &request.id)?;
     let projects = fields.get("projects").cloned().unwrap_or_default();
-    let worktree = if request.kind == "daemon" {
+    let worktree = if request.kind == "daemon" && request.output != "implementation" {
         &request.home
     } else {
         actor_worktree
@@ -2462,6 +2521,7 @@ mod tests {
         Request {
             id: "task".into(),
             project: context.root.clone(),
+            starting_revision: None,
             home: context.home.clone(),
             kind: "delivery".into(),
             role: "implementer".into(),
@@ -3359,6 +3419,7 @@ mod tests {
             id: "task".into(),
             home: context.home.clone(),
             project: context.root.clone(),
+            starting_revision: None,
             kind: "delivery".into(),
             role: "implementer".into(),
             output: "implementation".into(),
@@ -3453,6 +3514,7 @@ mod tests {
             id: "task".into(),
             home: temp.path().join("home"),
             project: temp.path().join("project"),
+            starting_revision: None,
             kind: "delivery".into(),
             role: "implementer".into(),
             output: "implementation".into(),

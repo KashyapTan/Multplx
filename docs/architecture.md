@@ -252,7 +252,10 @@ Persistent-sub-agent launches are exempt because they resolve the legacy daemon 
 Unsupported effort values are still recorded in task meta when passed to `mx-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, and pi while preserving the requested profile for later audit.
 
-## Optional persistent sub-agents
+## Standing sub-agents by default
+
+Dispatch selects standing managed workers and coordinators under the [operating contract](../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
+Persistent implementers launch at a separate exact-base project allocation using the [standing worker commands](commands.md#standing-implementation-worker); the home remains available after verified delivery without automatic reuse.
 
 `data/daemons.md` records persistent sub-agents with natural-language scopes, project references, and home paths.
 `mx-home-seed.sh` provisions a private home, remembers selected project checkouts, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.

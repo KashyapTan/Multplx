@@ -1488,10 +1488,38 @@ fn canonical_identity(model: &str) -> Option<Vec<Value>> {
         "/project/canonical_path",
         "/project/starting_revision",
     ];
-    pointers
+    let home_report = value.get("project") == Some(&Value::Null)
+        && (value.get("private_home") == Some(&Value::Bool(true))
+            || value.get("persistent") == Some(&Value::Bool(true)))
+        && matches!(
+            value.get("artifact").and_then(Value::as_str),
+            Some("report" | "coordination")
+        )
+        && value
+            .get("persistent_home")
+            .and_then(Value::as_str)
+            .is_some();
+    let mut identity = pointers
         .iter()
-        .map(|pointer| value.pointer(pointer).cloned())
-        .collect::<Option<Vec<_>>>()
+        .map(|pointer| {
+            value.pointer(pointer).cloned().or_else(|| {
+                (home_report && pointer.starts_with("/project/")).then_some(Value::Null)
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    // Assignment and private-home facts are frozen as well as attempt/project
+    // identity. Missing additive fields stay historical null values.
+    for field in [
+        "role",
+        "artifact",
+        "persistent",
+        "private_home",
+        "persistent_home",
+        "home_allocation",
+    ] {
+        identity.push(value.get(field).cloned().unwrap_or(Value::Null));
+    }
+    Some(identity)
 }
 
 fn exact_metadata_value<'a>(text: &'a str, key: &str) -> Result<Option<&'a str>> {
@@ -2473,7 +2501,42 @@ fn queue_drain_with_headroom(
         .env("MX_HEADROOM_SKIP_QUEUE", "1")
         .env("MX_ADMISSION_REQUEST_ID", &record.request_id)
         .env("MX_SPAWN_RECOVERY_REQUEST", &record.request_id)
-        .args([&record.task_id, &record.project]);
+        .arg(&record.task_id);
+    let model = record
+        .canonical_model
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()
+        .map_err(|error| message(format!("invalid queued model: {error}")))?;
+    if record.kind == "daemon"
+        && let Some(model) = &model
+    {
+        let field = |name: &str| {
+            model
+                .get(name)
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| message(format!("queued persistent worker missing {name}")))
+        };
+        let artifact = field("artifact")?;
+        let output = if artifact == "coordination" {
+            "report"
+        } else {
+            artifact
+        };
+        command
+            .arg(field("persistent_home")?)
+            .args(["--role", field("role")?, "--output", output]);
+        if output == "implementation" {
+            let base = model
+                .get("project")
+                .and_then(|value| value.get("starting_revision"))
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| message("queued persistent implementation missing base"))?;
+            command.args(["--project", &record.project, "--base", base]);
+        }
+    } else {
+        command.arg(&record.project);
+    }
     bind_queued_launch_environment(&mut command, &record)?;
     record.state = DispatchState::Dispatching;
     record.dispatch_started_at = Some(now);
@@ -2499,10 +2562,10 @@ fn queue_drain_with_headroom(
     if !record.backend.is_empty() {
         command.args(["--backend", &record.backend]);
     }
-    if !record.mode.is_empty() {
+    if record.kind != "daemon" && !record.mode.is_empty() {
         command.args(["--mode", &record.mode]);
     }
-    if !record.yolo.is_empty() {
+    if record.kind != "daemon" && !record.yolo.is_empty() {
         command.args(["--yolo", &record.yolo]);
     }
     if let Some(model) = &record.canonical_model {
@@ -3897,6 +3960,104 @@ mod tests {
             );
         }
         assert_eq!(queue_list(&paths).expect("queue after launch"), "");
+    }
+
+    #[test]
+    fn persistent_worker_retry_freezes_home_role_output_and_implementation_base() {
+        for (role, artifact) in [
+            ("implementer", "implementation"),
+            ("researcher", "report"),
+            ("reviewer", "report"),
+            ("implementer", "report"),
+        ] {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let paths = paths(&temp);
+            let mut record = admission_record(&paths, "standing-retry", "standing-worker");
+            let home = temp.path().join("private-worker-home");
+            record.kind = "daemon".into();
+            record.mode = "daemon".into();
+            record.yolo = "off".into();
+            record.canonical_model = Some(
+                serde_json::json!({
+                    "attempt":{"id":"attempt-1","generation":1,"brief_revision":1},
+                    "task_id":record.task_id, "parent_id":record.parent_task_id,
+                    "root_id":format!("root-home:{}", paths.root_home.display()),
+                    "owner_home":record.owner_home, "owner_state":record.owner_state,
+                    "parent_home":record.parent_home, "parent_state":record.parent_state,
+                    "persistent_home":home, "persistent":true, "private_home":true,
+                    "role":role, "artifact":artifact,
+                    "project":{"starting_revision":"a".repeat(40)}
+                })
+                .to_string(),
+            );
+            record.state = DispatchState::Dispatching;
+            record.dispatch_started_at = Some(10);
+            std::fs::create_dir_all(paths.queue_dir()).unwrap();
+            super::atomic_replace(
+                paths.queue_dir().join("standing-retry.request"),
+                &record.render(),
+                0o600,
+            )
+            .unwrap();
+            reserve(&paths, &record, 10).unwrap();
+            admission_finish(
+                &paths,
+                "standing-retry",
+                None,
+                None,
+                Some("old launch never started".into()),
+            )
+            .unwrap();
+            let mut receipt = read_receipt(&paths, "standing-retry").unwrap().unwrap();
+            receipt.owner = Some(ProcessIdentity {
+                pid: u32::MAX,
+                marker: "exited-owner".into(),
+            });
+            write_receipt(&paths, &receipt).unwrap();
+            let spawn = temp.path().join("retry-spawn");
+            std::fs::write(
+                &spawn,
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\nexit 0\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&spawn, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert!(
+                queue_drain_with_headroom(&paths, Some(&spawn), &|_, _| Some(false), &|_| Ok(
+                    synthetic_headroom(8)
+                ))
+                .unwrap()
+                .contains("launched standing-worker")
+            );
+            let args = std::fs::read_to_string(spawn.with_extension("args")).unwrap();
+            let args = args.lines().collect::<Vec<_>>();
+            assert_eq!(args[0], "standing-worker");
+            assert_eq!(args[1], home.to_str().unwrap());
+            assert!(args.windows(2).any(|pair| pair == ["--role", role]));
+            assert!(args.windows(2).any(|pair| pair == ["--output", artifact]));
+            assert!(args.contains(&"--persistent"));
+            assert!(!args.contains(&"--mode"));
+            assert!(!args.contains(&"--yolo"));
+            if artifact == "implementation" {
+                assert!(
+                    args.windows(2)
+                        .any(|pair| pair == ["--project", record.project.as_str()])
+                );
+                assert!(
+                    args.windows(2)
+                        .any(|pair| pair == ["--base", "a".repeat(40).as_str()])
+                );
+            } else {
+                assert!(!args.contains(&"--project"));
+                assert!(!args.contains(&"--base"));
+            }
+            assert_eq!(
+                read_receipt(&paths, "standing-retry")
+                    .unwrap()
+                    .unwrap()
+                    .attempt_id,
+                "attempt-1"
+            );
+        }
     }
 
     #[test]

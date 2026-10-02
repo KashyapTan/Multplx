@@ -9,13 +9,20 @@ metadata:
 # Persistent sub-agent operations
 
 Persistence is independent of assignment role.
+All delegation, including nested delegation, uses Multplx-managed agents by default.
+Native delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.
+Standing agents remain available to the user after verified full-job delivery; do not automatically reuse, supervise or retire them.
+Follow the completion and corrective-follow-up boundary in [AGENTS.md](../../../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
+The dispatch policy selects `--persistent`; low-level CLI omission retains task-scoped compatibility.
+For workers, scaffold with explicit `--role` and `--output`, fill the brief, seed through `mx home-seed`, and launch with those same values; home seeding preserves the worker charter rather than changing its role.
+Cmux persistent launch and task delivery mode/yolo overrides on persistent spawn remain unsupported.
 A sub-orchestrator owns a bounded charter, delegates requested research, planning deliverables, implementation, testing and reviews, and reports through its recorded parent channel.
 [A11](../../../porting.md#a11-scoped-sub-orchestrators) owns the accepted domain contract.
 The [scoped coordinator reference](../../../docs/scoped-coordinators.md) owns named provisioning, parent outcomes and the verification boundary.
 
 | Operation | Existing command reference |
 | --- | --- |
-| Scoped coordinator | `mx spawn <id> --sub-orchestrator --project <selector> --scope <text>`; repeat `--project`, or use `--idea <id>` for repository-free research. Add `--persistent` for a standing domain and `--request-id <id>` for repeat-safe creation. |
+| Scoped coordinator | `mx spawn <id> --sub-orchestrator --project <selector> --scope <text>`; repeat `--project`, or use `--idea <id>` for repository-free research. Select `--persistent` by default for a standing domain; omit it only for an explicitly temporary domain. Use `--request-id <id>` for repeat-safe creation. |
 | Charter scaffold | `mx brief <id> --persistent <project>...` or `--no-projects`; legacy `--daemon`, `MX_DAEMON_CHARTER` and `MX_DAEMON_SCOPE` remain supported. |
 | Provision / validate | `bin/mx-home-seed.sh --help`; validate recorded homes before launch. |
 | Launch / recover | `mx spawn <id> --persistent`; reuse the recorded home and reconcile existing children; `--daemon` remains an alias. |
@@ -38,3 +45,6 @@ Inherited shared maintainer preferences are parent-authoritative and read-only i
 Guarded tracked-file updates and inherited-local-material propagation are separate operations; neither makes a delivered reread pointer proof of model acknowledgement.
 An empty queue is healthy for a persistent assignment and does not initiate work or retirement.
 Retirement must account for children, outstanding replies and retained work; a force option is not permission to discard them.
+
+Persistent implementation spawn takes `--project PROJECT --base COMMIT`, where the project is already referenced in the seeded home and COMMIT is the exact full accepted starting commit.
+The spawn owner binds the project and acquires a separate persistent project worktree; the private home and its availability remain independent of implementation completion.

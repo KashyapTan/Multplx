@@ -58,6 +58,144 @@ file_mode() {
   fi
 }
 
+test_standing_implementation_delivery() {
+  local home sub fakebin log base id worktree attempt generation revision head wrong out
+  home="$TMP_ROOT/standing-implementation-parent"
+  sub="$TMP_ROOT/standing-implementation-worker"
+  id=standing-implementation
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  mx_git_init_commit "$home/projects/alpha"
+  printf '%s\n' '- alpha [local-only] - standing fixture' > "$home/data/projects.md"
+  base=$(git -C "$home/projects/alpha" rev-parse HEAD)
+  MX_HOME="$home" "$ROOT/bin/mx-brief.sh" "$id" alpha --persistent --role implementer --output implementation >/dev/null || fail 'standing brief failed'
+  python3 - "$home/data/$id/brief.md" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); p.write_text(p.read_text().replace('{TASK}', 'Implement the accepted fixture change and return exact evidence.'))
+PY
+  MX_HOME="$home" mx_home_seed "$id" "$sub" alpha >/dev/null || fail 'worker home seed failed'
+  cmp "$home/data/$id/brief.md" "$sub/data/charter.md" || fail 'seed changed worker instructions'
+  assert_grep 'current worker assignment takes precedence' "$sub/data/charter.md" 'standing worker became coordinator'
+  assert_no_grep 'Delegate requested research' "$sub/data/charter.md" 'standing worker inherited coordinator role'
+  if MX_HOME="$home" "$ROOT/bin/mx-spawn.sh" "$id" --persistent --role implementer --output implementation --project alpha --base main --harness codex >/dev/null 2>&1; then fail 'moving branch accepted as standing base'; fi
+  assert_absent "$home/state/$id.meta" 'invalid standing base published task'
+  mx_git_init_commit "$home/projects/unbound"
+  if MX_HOME="$home" "$ROOT/bin/mx-spawn.sh" "$id" --persistent --role implementer --output implementation --project "$home/projects/unbound" --base "$base" --harness codex >/dev/null 2>&1; then fail 'unbound standing project accepted'; fi
+  assert_absent "$home/state/$id.meta" 'unbound standing project published task'
+  fakebin=$(make_fake_tmux "$TMP_ROOT/standing-implementation-fake")
+  log="$TMP_ROOT/standing-implementation-fake/tmux.log"
+  out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/standing-implementation-fake/pane.txt" \
+    "$ROOT/bin/mx-spawn.sh" "$id" --persistent --role implementer --output implementation --project alpha --base "$base" --harness codex --request-id standing-implementation-first 2>&1) || fail "standing spawn failed: $out"
+  MX_HOME="$home" "$MX_RUST_BIN" task-model inspect "$id" > "$home/task.json" || fail 'task inspect failed'
+  jq -e --arg base "$base" --arg sub "$(cd "$sub" && pwd -P)" '.role == "implementer" and .artifact == "implementation" and .persistent and .private_home and .persistent_home == $sub and .project.starting_revision == $base and .allocation.base_revision == $base and .allocation.persistent and .allocation.path != $sub and .accepted_brief_revision == 1' "$home/task.json" >/dev/null || fail 'standing project/home/role/base binding incorrect'
+  worktree=$(jq -r '.allocation.path' "$home/task.json")
+  attempt=$(jq -r '.attempt.id' "$home/task.json")
+  generation=$(jq -r '.attempt.generation' "$home/task.json")
+  revision=$(jq -r '.attempt.brief_revision' "$home/task.json")
+  assert_grep "worktree=$worktree" "$home/state/$id.meta" 'compatibility worktree points at runtime home'
+  assert_grep "$worktree" "$log" 'endpoint did not launch at allocation'
+  [ "$(git -C "$worktree" rev-parse HEAD)" = "$base" ] || fail 'wrong launch HEAD'
+  [ -z "$(git -C "$home/projects/alpha" status --porcelain)" ] || fail 'borrowed checkout changed'
+  printf 'accepted change\n' > "$worktree/standing-result"
+  git -C "$worktree" add standing-result
+  git -C "$worktree" -c user.name=Tests -c user.email=tests@example.invalid commit -qm 'accepted change' || fail 'fixture commit failed'
+  head=$(git -C "$worktree" rev-parse HEAD)
+  # Report to the parent owner from the separately retained private runtime home.
+  standing_evidence() {
+    local commit=$1 evidence_id=$2
+    MX_HOME="$home" "$MX_RUST_BIN" task-model inspect "$id" > "$home/task.json"
+    python3 - "$home/task.json" "$home/evidence.json" "$commit" "$evidence_id" <<'PY'
+from pathlib import Path
+import json,sys,datetime
+t=json.loads(Path(sys.argv[1]).read_text()); a=t['attempt']
+e=dict(evidence_id=sys.argv[4],attempt_id=a['id'],attempt_generation=a['generation'],brief_revision=a['brief_revision'],commit=sys.argv[3],checks=[dict(name='fixture accepted change',outcome='passed',summary='Real local Git commit; mocked endpoint',artifact=None)],review=None,limitations=['Fixture endpoint is mocked'],pr_url=None,outcome='evidence-updated',observed_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),mark_current=True,expected_current_commit=t['delivery']['current_commit'])
+Path(sys.argv[2]).write_text(json.dumps(e))
+PY
+    MX_HOME="$sub" MX_STATE_OVERRIDE="$home/state" "$MX_RUST_BIN" task-model evidence "$id" --request-file "$home/evidence.json" >/dev/null || fail 'standing typed evidence refused'
+  }
+  standing_done() {
+    MX_HOME="$sub" MX_REPORT_STATE_OVERRIDE="$home/state" MX_TASK_ID="$id" MX_ATTEMPT_ID="$attempt" MX_ATTEMPT_GENERATION="$generation" MX_BRIEF_REVISION="$revision" \
+      "$ROOT/bin/mx-report" --id "$id" --state done --message 'fixture accepted outcome' 2> "$home/report.err" || fail 'standing done transport failed'
+    MX_HOME="$home" "$MX_RUST_BIN" task-model inspect "$id" > "$home/task.json"
+  }
+  standing_evidence "$base" wrong-head
+  standing_done
+  assert_grep 'implementation completion was not proven' "$home/report.err" 'wrong HEAD accepted as completion'
+  jq -e '.schedule.state != "completed"' "$home/task.json" >/dev/null || fail 'wrong HEAD opened completion gate'
+  standing_evidence "$head" correct-head
+  standing_done
+  jq -e '.schedule.state == "completed"' "$home/task.json" >/dev/null || fail 'exact HEAD did not complete standing implementation'
+  [ -d "$sub" ] && [ -f "$sub/data/charter.md" ] || fail 'completion removed worker availability'
+  jq -e '.state == "active"' "$home/data/.home-allocation-$id.json" >/dev/null || fail 'completion retired home'
+  assert_no_grep 'kill-window' "$log" 'completion stopped standing endpoint'
+  # A done claim is not final validation: stale HEAD and revisions reopen the gate.
+  printf 'corrective revision\n' >> "$worktree/standing-result"
+  git -C "$worktree" add standing-result
+  git -C "$worktree" -c user.name=Tests -c user.email=tests@example.invalid commit -qm 'corrective revision'
+  standing_done
+  assert_grep 'implementation completion was not proven' "$home/report.err" 'stale HEAD accepted as completion'
+  jq -e '.schedule.state != "completed"' "$home/task.json" >/dev/null || fail 'stale evidence reopened completion gate'
+  MX_HOME="$home" "$MX_RUST_BIN" task-model revise "$id" --expected-revision 1 --scope 'Accepted corrective revision' --reason 'parent validation found gap' --source "$sub/data/charter.md" >/dev/null || fail 'corrective revision refused'
+  if MX_HOME="$sub" MX_REPORT_STATE_OVERRIDE="$home/state" MX_TASK_ID="$id" MX_ATTEMPT_ID="$attempt" MX_ATTEMPT_GENERATION="$generation" MX_BRIEF_REVISION=1 \
+    "$ROOT/bin/mx-report" --id "$id" --state done --message 'stale brief done' >/dev/null 2>&1; then fail 'old accepted revision reported done'; fi
+  revision=2
+  standing_evidence "$(git -C "$worktree" rev-parse HEAD)" corrected-revision
+  standing_done
+  jq -e '.schedule.state == "completed" and (.delivery.history | length) == 3' "$home/task.json" >/dev/null || fail 'corrected revision evidence not complete'
+  unset -f standing_evidence standing_done
+  pass 'standing implementer binds separate project allocation, rejects wrong/stale HEAD and stale revision, completes exact evidence and retains availability'
+}
+
+test_standing_queued_workers() {
+  local home sub id role output base fakebin log out
+  home="$TMP_ROOT/queued-workers-parent"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  mx_git_init_commit "$home/projects/alpha"
+  printf '%s\n' '- alpha [local-only] - queue fixture' > "$home/data/projects.md"
+  base=$(git -C "$home/projects/alpha" rev-parse HEAD)
+  fakebin=$(make_fake_tmux "$TMP_ROOT/queued-workers-fake")
+  log="$TMP_ROOT/queued-workers-fake/tmux.log"
+  for role in implementer researcher reviewer; do
+    id="queued-$role"
+    sub="$TMP_ROOT/$id-home"
+    output=report
+    [ "$role" != implementer ] || output=implementation
+    MX_HOME="$home" "$ROOT/bin/mx-brief.sh" "$id" alpha --persistent --role "$role" --output "$output" >/dev/null || fail 'queued brief failed'
+    python3 - "$home/data/$id/brief.md" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); p.write_text(p.read_text().replace('{TASK}', 'Execute the accepted queued fixture assignment.'))
+PY
+    MX_HOME="$home" mx_home_seed "$id" "$sub" alpha >/dev/null || fail 'queued home seed failed'
+    set --
+    [ "$output" != implementation ] || set -- --project alpha --base "$base"
+    out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_HEADROOM_SKIP_QUEUE=0 MX_HEADROOM_API_CAPACITY=0 MX_HEADROOM_IN_USE=0 MX_FAKE_TMUX_LOG="$log" \
+      "$ROOT/bin/mx-spawn.sh" "$id" --persistent --role "$role" --output "$output" --harness codex --request-id "$id-first" "$@" 2>&1) || fail "queued worker refused: $out"
+    assert_contains "$out" "queued: $id parked" 'worker did not queue under zero capacity'
+    assert_absent "$home/state/$id.meta" 'queued worker published endpoint too early'
+    assert_grep "\"role\":\"$role\"" "$home/state/.dispatch-queue/$id-first.request" 'queue lost role'
+    assert_grep "\"artifact\":\"$output\"" "$home/state/.dispatch-queue/$id-first.request" 'queue lost output'
+    # Keep the accepted base fixed even as the borrowed source advances.
+    if [ "$output" = implementation ]; then
+      printf 'later source revision\n' > "$home/projects/alpha/later-source"
+      git -C "$home/projects/alpha" add later-source
+      git -C "$home/projects/alpha" -c user.name=Tests -c user.email=tests@example.invalid commit -qm 'source advanced while queued'
+    fi
+    out=$(PATH="$fakebin:$PATH" MX_HOME="$home" MX_HEADROOM_SKIP_QUEUE=0 MX_HEADROOM_API_CAPACITY=8 MX_HEADROOM_IN_USE=0 MX_HEADROOM_SPAWN_BIN="$ROOT/bin/mx-spawn.sh" MX_FAKE_TMUX_LOG="$log" \
+      "$ROOT/bin/mx-headroom.sh" --queue-drain 2>&1) || fail "queued worker drain failed: $out"
+    assert_absent "$home/state/.dispatch-queue/$id-first.request" 'drain retained launched request'
+    MX_HOME="$home" "$MX_RUST_BIN" task-model inspect "$id" > "$home/$id.json" || fail 'queued worker inspect failed'
+    jq -e --arg role "$role" --arg output "$output" '.role == $role and .artifact == $output and .persistent and .attempt.generation == 1 and .accepted_brief_revision == 1' "$home/$id.json" >/dev/null || fail 'drain changed accepted worker role/output/identity'
+    if [ "$output" = implementation ]; then
+      jq -e --arg base "$base" '.project.starting_revision == $base and .allocation.base_revision == $base and .allocation.persistent' "$home/$id.json" >/dev/null || fail 'queued standing implementation lost exact allocation/base'
+      [ "$(git -C "$(jq -r '.allocation.path' "$home/$id.json")" rev-parse HEAD)" = "$base" ] || fail 'queued worker launched at latest source HEAD'
+    else
+      jq -e '.project == null and .allocation == null' "$home/$id.json" >/dev/null || fail 'queued report worker acquired implementation allocation'
+    fi
+  done
+  pass 'standing implementation and report workers survive queued admission with frozen role/output/base and separate homes'
+}
+
 test_mx_home_parameterization() {
   local brief home_one home_two out
   home_one="$TMP_ROOT/home one"
@@ -2248,4 +2386,6 @@ test_daemon_idle_pane_is_not_stale
 test_daemon_charter_brief_is_idle_by_default
 test_backlog_handoff_aborts_safely
 test_backlog_handoff_refuses_done_items_and_non_daemon_homes
+test_standing_implementation_delivery
+test_standing_queued_workers
 exit 0

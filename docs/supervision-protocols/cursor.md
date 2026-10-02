@@ -2,5 +2,8 @@
 - Use `bin/mx-watch-checkpoint.sh --seconds 180` as a foreground checkpoint while work is in flight.
 - Handle every wake, then take another checkpoint while work remains.
 - Never use shell `&` for watcher supervision; use the owned checkpoint above.
-- Native task delegation is allowed; available lifecycle events record evidence without granting a native-resume guarantee.
+- All delegation, including nested delegation, defaults to managed standing agents; native delegation requires an explicit human request for that scope and is never a managed-spawn fallback.
+- A worker done claim still permits parent validation, corrections and revision requests until the full agreed job is verified and delivered.
+- After the full accepted job completes, stop automatic contact, polling, nudging and work routing; the agent remains available for user-directed follow-up.
+- Available lifecycle events record evidence without granting a native-resume guarantee.
 - The tracked Cursor stop hook permits at most one continuation and reminds this primary to restore a missing checkpoint.

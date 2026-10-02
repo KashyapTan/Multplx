@@ -43,6 +43,17 @@ Preserve unrelated user changes and private operational state.
 ## Design direction
 
 The main orchestrator owns intake, discussion, synthesis, coordination plans, task briefs, delegation and delivery.
+All delegation, including nested delegation, uses Multplx-managed agents by default.
+Native delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.
+Default to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.
+While the accepted job is active, supervise normally.
+Full completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.
+Before that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.
+Preserve task and accepted-revision evidence when scope changes.
+Once the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.
+The agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.
+Task completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.
+Dispatch instructions choose `--persistent`; the low-level CLI keeps explicit lifecycle compatibility and runtime capability checks.
 It delegates requested research, investigations, planning deliverables, implementation, testing and review, including small tasks.
 Researcher, implementer, reviewer and sub-orchestrator are assignments with one shared coordination protocol.
 A sub-orchestrator owns one bounded project/repository/idea, delegates substantive deliverables, and reports through the durable parent channel to the main orchestrator.

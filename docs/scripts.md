@@ -55,7 +55,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `mx-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `mx-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
-| `mx-subagent-pretool-check.sh` | Allow native delegation and check supported remote merge commands (docs/subagent-guard.md) |
+| `mx-subagent-pretool-check.sh` | Retain explicitly selected native capability and check supported remote merge commands (docs/subagent-guard.md) |
 | `mx-native-observe.sh` | Record attempt-bound provider child lifecycle evidence or an honest session-bound fallback |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `mx-home-seed.sh`        | Transactionally provision a persistent-sub-agent home and maintain `data/daemons.md`       |

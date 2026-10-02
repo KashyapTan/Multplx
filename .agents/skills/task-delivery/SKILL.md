@@ -7,10 +7,18 @@ metadata:
 
 # Deliver an accepted outcome
 
+Validate the full agreed job, resolve gaps and deliver it before ending supervision; a worker done claim still permits corrective follow-up and revision requests.
+Then stop automatic outreach and additional work routing, retaining user-directed availability under [AGENTS.md](../../../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
+Preserve task and accepted-revision evidence when scope changes.
+
 Workers execute their accepted deliverable; coordinators reconcile the result against scope and criteria, synthesize it and present it to the user.
 Inspect `mx task-model inspect TASK_ID` for the current task, attempt, accepted brief, checkout and delivery commit before claiming completion.
 Checks passing, implementation complete, review complete, PR ready and human merged are separate facts.
 Record exact checks and observed results, limitations and original artifact pointers; an omitted or unrun check is not a pass.
+
+A standing worker keeps its runtime home separate from the parent task owner.
+For task-model inspection/evidence, prefix the command with `MX_STATE_OVERRIDE=ABSOLUTE_PARENT_STATE` from the brief; `MX_REPORT_STATE_OVERRIDE` routes reports but does not route task-model commands.
+Preserve current task, attempt and accepted revision identity when submitting evidence.
 
 Implementation completion requires current typed evidence matching the task attempt, brief and actual worktree `HEAD`, followed by a new task-bound `done` report.
 Prepare the closed JSON request documented in [delivery guidance](../../../docs/delivery.md#local-completion-and-dependent-work), using actual inspected values rather than placeholders.

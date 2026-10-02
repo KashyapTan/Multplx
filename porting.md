@@ -52,7 +52,7 @@ Private `data/`, `state/`, `config/`, credentials, and project clones are not in
 | --- | --- |
 | Identity | One main orchestrator and sub-agents with scoped sub-orchestrator, researcher, implementer or reviewer assignments; remove legacy broker/actor/scout/daemon policy classes. |
 | Orchestrator | Talk with the human, inspect narrowly for routing, synthesize findings, agree scope, write briefs and manage progress; delegate requested research, investigations, planning deliverables, implementation, testing and reviews. |
-| Delegation | Any agent can delegate within its assigned scope using Multplx sessions or available native agent tools. |
+| Delegation | Any agent can delegate within its assigned scope using Multplx-managed agents by default; native delegation requires an explicit human request for that scope and is never a managed-spawn fallback. |
 | Persistence | Long-lived sub-agents remain available as a lifecycle choice, with existing isolated-home and restart mechanics. |
 | Delivery | Commit, branch push, PR creation, PR updates, and ordinary follow-up fixes require no additional Multplx approval ceremony. |
 | Merge | No agent merges a PR, enables auto-merge, submits it to a merge queue, or delegates the merge to another agent or automation. |
@@ -174,7 +174,7 @@ Distinguish accepted tasks, runnable work, active sessions, external waits, huma
 Extend the existing headroom/deferred-work mechanism with configured capacity limits, observed resource use, priorities and starvation prevention.
 Queue accepted work when capacity is unavailable, preserve its identity across restart, and permit priority changes through the orchestrator without a new delegation approval step.
 Account for model/session limits, local builds and project-specific shared resources where observable and controllable.
-Declare opaque native-provider limits honestly; absence of child telemetry does not justify blocking native delegation or claiming strict control of invisible children.
+Declare opaque native-provider limits honestly; absence of child telemetry does not justify blocking explicitly human-selected native delegation or claiming strict control of invisible children.
 
 Keep an explicit dependency graph, reject cycles and schedule only runnable work; a blocked task must not stall independent tasks.
 Do not ban concurrent isolated branches merely because they touch the same file.
@@ -384,7 +384,7 @@ Add a sub-orchestrator assignment and spawn command for one bounded project, rep
 This is a coordination responsibility in the common sub-agent model, not a new privilege class, state engine or mandatory delegation gate.
 The main orchestrator remains the user's normal conversation and owns cross-domain priorities and human decisions.
 A sub-orchestrator owns its domain's synthesis, briefs, delegation, integration coordination, progress and escalation; it delegates requested research, planning deliverables, implementation, testing and reviews just as the main orchestrator does.
-It can freely launch researchers, implementers and reviewers within its accepted scope, including native delegation where available.
+It can freely launch managed researchers, implementers and reviewers within its accepted scope; native delegation requires an explicit human request for that scope and is never an automatic fallback.
 Simple work can still go directly to an implementer; never create a coordinator per repository merely because that repository is selected.
 [Secondmate research and assessment](plans/lean_redesign/sub-orchestrator-assessment.md) records the upstream lessons and current Multplx gaps; Phase 05 owns the integration below.
 
@@ -540,7 +540,7 @@ Consolidation names below describe responsibilities, not a commitment to add one
 | `ask-user-authority` | Remove | Ordinary task scope and real missing-input clarification, without reviewer-specific approval ranks. |
 | `maintainer-override` | Remove as the universal procedure | Only mechanics still required by deliberately retained commands; retire records through Phase 09. |
 | `decision-hold-lifecycle` | Remove mandatory completion procedure | Durable explicit user decisions and workflow interactions, without mandatory `complete --none` attestations. |
-| `harness-adapters` | Keep and shorten | Actual launch, send, interrupt, resume, reporting and supervision mechanics; remove effort-selection policy and native-delegation prohibitions. |
+| `harness-adapters` | Keep and shorten | Actual launch, send, interrupt, resume, reporting and supervision mechanics; remove effort-selection policy and blanket native-tool prohibitions while retaining the explicit-human-request default. |
 | `bootstrap-diagnostics` | Consolidate with recovery reference | Interpret CLI diagnostics and target the owning repair command. |
 | `stuck-actor-recovery` | Consolidate and rename for sub-agents | Recover the recorded endpoint and worktree without losing work or duplicating ownership. |
 | `daemon-provisioning` | Consolidate into persistent sub-agent operations | Home leases, transactional provisioning, inherited config, routing and safe retirement. |
@@ -577,14 +577,26 @@ Keep the operational-input prefix and decode old message carriers, including `fr
 Use new orchestrator/parent terminology for newly authored messages and keep correlation IDs stable across retries.
 The marker distinguishes internal messages from user input; it does not grant authority or make message bodies trusted instructions.
 
-Native sub-agents must be usable without an escape flag or a hidden local deny list.
+All delegation, including nested delegation, uses Multplx-managed agents by default.
+Native delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.
+Native sub-agent capability remains available without an escape flag or hidden local deny list for explicit human selection.
+Default to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.
+While the accepted job is active, supervise normally.
+Full completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.
+Before that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.
+Preserve task and accepted-revision evidence when scope changes.
+Once the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.
+The agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.
+Task completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.
+Dispatch selects `--persistent` through existing owners; omission at the low-level CLI remains task-scoped for compatibility.
+Existing unsupported combinations, including cmux persistent-home launch and persistent task delivery mode/yolo overrides, remain unsupported.
 Reuse the existing metadata/status ownership boundary to record their parent, provider/session identity and observable lifetime when an adapter exposes that information.
 When a native provider has no exportable child lifecycle, record the parent task as containing session-bound delegation and keep recovery at the parent.
 Do not fabricate per-child visibility or call a native child restart-surviving when its provider cannot resume it.
-An unavailable optional tracking integration does not prohibit native delegation.
+An unavailable optional tracking integration does not prohibit explicitly human-selected native delegation or authorize native fallback.
 On parent restart, reconcile supported children; mark unrecoverable session-bound work interrupted and preserve its artifacts for continuation.
 
-The normal Multplx CLI path remains available when independent runtime sessions and durable recovery are useful.
+The Multplx CLI path is the default for delegation, including nested assignments.
 Do not force all native work through another wrapper just to restore the old restriction under a different name.
 Locks serialize shared mutations and designate queue ownership; they do not turn sub-agents into read-only processes.
 A child should not acquire a second primary session lock for its parent's home merely to send a report or spawn a child.
@@ -717,7 +729,7 @@ The Rust test runner owns coverage and resource scheduling in `crates/multplx-cl
 The final acceptance scenarios are:
 
 1. A simple project change is assigned by the orchestrator to an implementer and ends at an open PR without unnecessary research, a Multplx skill interview, gate, waiver or delivery approval; the orchestrator does not edit project code.
-2. The orchestrator and a sub-agent can each launch further work through supported CLI and native paths without a delegation refusal.
+2. The orchestrator and a sub-agent each default to managed standing delegation; native capability remains available on explicit human request for that scope without new tool fences or automatic fallback.
 3. Restart preserves independently running sessions, queue entries, pending replies, recorded worktrees and unfinished work; session-bound losses are shown honestly.
 4. Parallel reports and wakes retain valid task bindings, ordering and one active owner per home.
 5. Push or PR-creation retries reconcile partial publication instead of creating duplicate PRs or losing local work.
@@ -782,3 +794,6 @@ It does not alter production role checks, launch permissions, workflows or deliv
 The initial documentation audience check fails because it expects `AGENTS.md` and does not classify `AGENTS_E.md`.
 Other existing documentation also still links to the absent root filename.
 Phase 01 repairs those active owner links and classification; Phase 12 validates the final restored release without undoing the user's rename during development.
+
+Persistent implementation spawn takes `--project PROJECT --base COMMIT`, where the project is already referenced in the seeded home and COMMIT is the exact full accepted starting commit.
+The spawn owner binds the project and acquires a separate persistent project worktree; the private home and its availability remain independent of implementation completion.

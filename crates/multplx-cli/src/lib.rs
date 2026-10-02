@@ -2537,7 +2537,7 @@ fn queue_spawn(
         match value {
             "--scout" | "--review" | "--daemon" | "--persistent" => {}
             "--harness" | "--model" | "--effort" | "--backend" | "--mode" | "--yolo" | "--role"
-            | "--output" => {
+            | "--output" | "--project" | "--base" => {
                 let next = args
                     .get(index + 1)
                     .and_then(|value| value.to_str())
@@ -2980,7 +2980,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
     use multplx_backend::facade::{BackendName, KillOutcome, RuntimeBackend, TaskSpec};
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
         println!(
-            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer] [--output report|implementation] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID] [--authority-state ABSOLUTE_PATH]\n       mx spawn <id> --sub-orchestrator (--project PROJECT)... --scope TEXT [--persistent] [--json] [common options]\n       mx spawn <id> --sub-orchestrator --idea IDEA --scope TEXT [--persistent] [--json] [common options]\nThe named coordinator form transactionally provisions a private home and canonical parent/domain binding before endpoint launch. --project is repeatable; --idea starts repository-free research and requires an explicit later project binding before implementation. --persistent makes the domain a standing assignment; private-home ownership is independent. --request-id makes creation repeat-safe for the same frozen identity. --json emits one unambiguous result envelope on stdout. --authority-state resumes a transferred task from its retained canonical owner only after validating the caller's current coordinator route. --resource requests positive root-scoped capacity units. Roles describe assignments and do not restrict delegation. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation."
+            "Usage: mx spawn <id> <project-path> [--role researcher|implementer|reviewer] [--output report|implementation] [--backend tmux|herdr|cmux] [--harness H] [--model M] [--effort E] [--request-id STABLE_ID] [--resource NAME=UNITS]... [--replace-attempt CURRENT_ID] [--authority-state ABSOLUTE_PATH]\n       mx spawn <id> --persistent --role implementer --output implementation --project PROJECT --base COMMIT [common options]\n       mx spawn <id> --persistent --role researcher|reviewer --output report [common options]\n       mx spawn <id> --sub-orchestrator (--project PROJECT)... --scope TEXT [--persistent] [--json] [common options]\n       mx spawn <id> --sub-orchestrator --idea IDEA --scope TEXT [--persistent] [--json] [common options]\nPersistent workers require a filled brief and a seeded home. Persistent implementation requires one project already referenced in that home and an explicit accepted base; spawn acquires its separate project worktree and binds exact delivery identity. Omission of --persistent remains task-scoped for low-level compatibility. The named coordinator form transactionally provisions a private home and canonical parent/domain binding before endpoint launch. --project is repeatable; --idea starts repository-free research and requires an explicit later project binding before implementation. --persistent makes the domain a standing assignment; private-home ownership is independent. --request-id makes creation repeat-safe for the same frozen identity. --json emits one unambiguous result envelope on stdout. --authority-state resumes a transferred task from its retained canonical owner only after validating the caller's current coordinator route. --resource requests positive root-scoped capacity units. Roles describe assignments and do not restrict delegation. Legacy --scout, --daemon, --mode and --yolo aliases remain bounded readers; yolo never grants merge authority. Existing task identity and accepted brief are preserved; --replace-attempt checks the current identity, isolates its endpoint and creates a new generation."
         );
         return 0;
     }
@@ -3457,7 +3457,9 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 explicit_effort = true;
                 skip_value = true;
             }
-            "--backend" | "--mode" | "--yolo" | "--role" | "--output" => skip_value = true,
+            "--backend" | "--mode" | "--yolo" | "--role" | "--output" | "--project" | "--base" => {
+                skip_value = true
+            }
             value if value.starts_with("--") => {}
             _ => spawn_positionals += 1,
         }
@@ -4125,7 +4127,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         None
     };
     drop(_inherit_lock);
-    let actor_worktree = if request.private_home {
+    let actor_worktree = if request.private_home && request.output != "implementation" {
         request.home.clone()
     } else if request.single_checkout_override.is_some() {
         request.project.clone()
@@ -4165,7 +4167,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                         project,
                         task_id: &request.id,
                         attempt_id: &attempt.id,
-                        persistent: false,
+                        persistent: request.persistent,
                     },
                     None,
                 )?
@@ -4200,7 +4202,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         }
     };
-    if !request.private_home
+    if (!request.private_home || request.output == "implementation")
         && let Err(error) = verify_launch_worktree(&context, &request, &actor_worktree)
     {
         eprintln!("error: {error}");

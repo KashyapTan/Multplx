@@ -31,6 +31,14 @@ The Rust local-service command help and `multplx-services::local_services::viz` 
 The stable shell entry point selects the Rust `multplx-services` implementation before it reads or mutates lifecycle state.
 The service is Rust-native and does not start Node.
 
+## Missing task troubleshooting
+
+Viz is per home: match `MX_HOME` and the state directory used to launch the managed task, then run `bin/mx-viz.sh status` or `serve` with that same home/state.
+Use the returned URL for that home; ports may differ when another home already occupies 4890.
+Do not copy task records to make a node appear or infer root liveness from a visible worker or root node.
+Use the configured shared operational home for future launches unless development isolation is deliberate; when requested, point Viz at that isolated home.
+See [snapshot freshness](#snapshot-polling-and-cache) for unavailable observations and [contract verification](verification/orchestrator-contract.md) for the isolated-home live check.
+
 ## Lifecycle and ports
 
 The server binds only `127.0.0.1`.

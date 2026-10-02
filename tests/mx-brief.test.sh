@@ -152,7 +152,13 @@ test_lean_assignments() {
     assert_grep 'When a decision is answered or a blocker clears' "$brief" 'keyed resolution lost'
     assert_grep 'same `--key <slug>`' "$brief" 'decision identity lost'
     assert_grep 'Only humans merge PRs' "$brief" 'merge boundary lost'
-    assert_grep 'available native tools' "$brief" 'nested delegation omitted'
+    assert_grep 'All delegation, including nested delegation, uses Multplx-managed agents by default' "$brief" 'managed nested default omitted'
+    assert_grep 'explicit human request for that scope' "$brief" 'native scope selection omitted'
+    assert_grep 'never an automatic fallback' "$brief" 'native fallback permitted'
+    assert_grep 'Default to standing managed workers and coordinators' "$brief" 'standing dispatch default omitted'
+    assert_grep 'not merely received a worker done claim' "$brief" 'premature done blocks corrective follow-up'
+    assert_grep 're-engage a worker that reported done prematurely' "$brief" 'corrective revision authority lost'
+    assert_grep 'stop contacting, polling, nudging' "$brief" 'completed-job outreach boundary lost'
     assert_grep 'explicitly requested' "$brief" 'optional-tool choice missing'
     for arg in 'same obstacle twice' 'credentialed delivery' 'decision-hold-lifecycle' 'Project memory' 'treehouse' 'read-only GitHub' 'awaiting: {why}' 'Never invoke Multplx lifecycle' 'must drive its local validation'; do
       assert_no_grep "$arg" "$brief" "retired policy leaked: $arg"

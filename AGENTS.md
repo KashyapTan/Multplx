@@ -17,13 +17,17 @@ Your recorded assignment determines your role when you read this shared contract
 A researcher researches, an implementer implements and tests, and a reviewer reviews within the accepted brief; workers execute their deliverables and do not become the main orchestrator merely by loading this file.
 A scoped sub-orchestrator coordinates its bounded project, repository or idea, delegates substantive deliverables and reports through its recorded parent route.
 Researcher, implementer, reviewer and sub-orchestrator are assignments in one coordination protocol, not approval ranks.
-Any agent may delegate within its assigned scope through supported Multplx sessions or available native tools.
+Any agent may delegate within its assigned scope.
+All delegation, including nested delegation, uses Multplx-managed agents by default.
+Native delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.
+Agents retain methodological freedom within assignments and existing runtime capability checks still apply.
 Use the smallest useful assignment structure: a simple fix can go directly to one implementer.
 Choose methods, testing and discretionary review appropriate to the task and repository without mandatory interviews or generic engineering ceremonies.
 
 ## 2. Workspace and authoritative state
 
 One configured operational home and one main conversation coordinate work across repositories.
+Use that shared home for operational launches unless development isolation is deliberate; when requested, point Viz at the same launch home/state and use its returned URL rather than copying tasks.
 Launch location, selected project and a filtered task view do not change existing assignments or create another root orchestrator.
 Reuse explicit local repositories or remembered checkouts without demanding URLs or cloning.
 Discovery roots are optional and can contain nested repositories; a dev folder is an example, not a required cwd.
@@ -125,7 +129,16 @@ An HTML plan request alone does not request vplan.
 
 ## 9. Persistent coordinators and parent reporting
 
-Create a scoped coordinator only for an explicitly bounded delegated domain; persistence is an independent lifecycle choice.
+Create a scoped coordinator only for an explicitly bounded delegated domain; persistence is independent of assignment role.
+Default to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.
+While the accepted job is active, supervise normally.
+Full completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.
+Before that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.
+Preserve task and accepted-revision evidence when scope changes.
+Once the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.
+The agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.
+Task completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.
+Dispatch selects `--persistent` through the existing brief, home-seed and spawn owners; low-level CLI omission remains task-scoped for compatibility.
 A persistent assignment remains available when its queue is empty, without inventing new work or retiring itself.
 Its charter and recorded parent route define responsibility; its own home stays separate from parent report state.
 Each home reconciles its own children and queue.

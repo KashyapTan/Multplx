@@ -3,6 +3,17 @@
 A sub-orchestrator coordinates one accepted project, repository or idea under the main orchestrator.
 It synthesizes findings, writes briefs, coordinates progress and returns outcomes through its recorded parent channel.
 Both coordinator roles delegate requested research, investigations, planning deliverables, implementation, testing and reviews, including small tasks.
+All delegation, including nested delegation, uses Multplx-managed agents by default.
+Native delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.
+Default to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.
+While the accepted job is active, supervise normally.
+Full completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.
+Before that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.
+Preserve task and accepted-revision evidence when scope changes.
+Once the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.
+The agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.
+Task completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.
+Dispatch selects `--persistent`; low-level CLI omission remains task-scoped for compatibility.
 Direct worker delegation remains available, and selecting a project does not create a coordinator.
 
 The [task record contract](subagent-model.md) owns identity, the [configuration guide](configuration.md) owns settings, and [A11](../porting.md#a11-scoped-sub-orchestrators) owns the cross-phase requirements.
@@ -18,14 +29,14 @@ Project overlap does not grant exclusive ownership of a repository.
 ```sh
 mx spawn api-design --sub-orchestrator --project customer-api \
   --scope 'Coordinate the accepted API compatibility work' \
-  --request-id api-design-initial --harness codex
+  --persistent --request-id api-design-initial --harness codex
 
 mx spawn discovery --sub-orchestrator --idea onboarding \
   --scope 'Research onboarding alternatives and report open questions' \
   --persistent --request-id onboarding-research --harness codex
 ```
 
-`--persistent` makes the assignment a standing domain that may idle between assigned tasks.
+`--persistent` makes the assignment a standing domain available for explicit user-directed follow-up after its full accepted job completes.
 Private coordination state is separate from that persistence choice and from worker Git allocations.
 Provisioning remembers project references without copying repositories into the coordinator home.
 Use `--json` for a structured result containing the coordinator, domain, home, endpoint and request identity, including queued or retained dispositions.

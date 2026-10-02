@@ -7,6 +7,10 @@ metadata:
 
 # Supervise current work
 
+Supervise the accepted job until the parent validates the full agreed scope, resolves gaps and delivers it; a worker done claim still permits guidance, corrections and revision requests.
+After verified delivery, stop automatic contact, polling, nudging and work routing; retain availability for explicit user-directed follow-up as required by [AGENTS.md](../../../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
+Preserve task and accepted-revision evidence when scope changes.
+
 Keep the coordinator available for user discussion and new requests while workers execute asynchronously.
 Use bounded current-state reads and the emitted harness supervision protocol; an old status line is a notification, not current task truth.
 Read `mx task-model inspect TASK_ID` for accepted scope, assignment, attempts and evidence, and `bin/mx-actor-state.sh TASK_ID` for recorded execution state.

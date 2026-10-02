@@ -90,9 +90,11 @@ fn shell_quote(value: &Path) -> String {
 
 fn status_contract(root: &Path, state: &Path, id: &str) -> String {
     format!(
-        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task and record exact-current typed evidence with `mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
+        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task with `MX_STATE_OVERRIDE={} mx task-model inspect {id}` and record exact-current typed evidence with `MX_STATE_OVERRIDE={} mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
         shell_quote(&root.join("bin/mx-report")),
         state.join(format!("{id}.status")).display(),
+        shell_quote(state),
+        shell_quote(state),
         root.join("docs/delivery.md").display()
     )
 }
@@ -110,7 +112,7 @@ Persistence and output selection do not change your assigned role."
 }
 
 fn constraints() -> &'static str {
-    "Delegate within the accepted scope using supported sessions or available native tools.\nFollow the selected workflow's stages, outputs and explicit user-interaction points.\nDeep-review and vplan run only when explicitly requested or clearly included in the selected workflow.\nOnly humans merge PRs; never merge, enable auto-merge, enqueue a merge or push the PR result to the remote target branch.\nKeep unresolved human scope decisions visible while independent work continues."
+    "All delegation, including nested delegation, uses Multplx-managed agents by default.\nNative delegation requires an explicit human request for that scope and is never an automatic fallback when managed spawning fails.\nDefault to standing managed workers and coordinators; select temporary/task-scoped lifecycle only explicitly.\nWhile the accepted job is active, supervise normally.\nOnce the accepted task and full job are finished, stop contacting, polling, nudging or automatically routing additional work to that agent.\nThe agent remains available for the user to return to and guide; explicit user-directed follow-up is allowed.\nTask completion and agent availability are separate; do not invent ongoing work, recurring supervision, automatic reuse by responsibility or automatic retirement.\nFull completion means the parent has validated the full job against the agreed scope, resolved gaps and delivered it, not merely received a worker done claim.\nBefore that point, the parent may guide, correct mistakes, request revisions, re-engage a worker that reported done prematurely and finish missing work through the assigned workers.\nPreserve task and accepted-revision evidence when scope changes.\nFollow the selected workflow's stages, outputs and explicit user-interaction points.\nDeep-review and vplan run only when explicitly requested or clearly included in the selected workflow.\nOnly humans merge PRs; never merge, enable auto-merge, enqueue a merge or push the PR result to the remote target branch.\nKeep unresolved human scope decisions visible while independent work continues."
 }
 
 fn herdr_section(root: &Path, id: &str, enabled: bool) -> String {
@@ -493,7 +495,7 @@ pub fn run(
             &format!("{assignment_role} sub-agent"),
             &format!("persistent {assignment_role} sub-agent"),
         );
-        body.push_str(&format!("\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
+        body.push_str(&format!("\n# Charter\n{{TASK}}\n\n# Routing scope\nExecute only the accepted task described above.\n\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact and does not change your worker role.\nPersistent implementation spawn requires `--project PROJECT --base COMMIT` and starts in its separately allocated project worktree; inspect the canonical task for the exact project/base/allocation before edits and typed delivery. Report workers start in the private home. Do not edit the runtime home or borrowed project checkout.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
     }
     body.push_str(&format!(
         "\n<!-- mx-assignment role={assignment_role} persistent={persistent} output={} -->\n",
@@ -719,6 +721,13 @@ mod tests {
                 false,
             ),
             ("persistent-review-report", "reviewer", "report", true),
+            (
+                "persistent-implementer",
+                "implementer",
+                "implementation",
+                true,
+            ),
+            ("persistent-researcher", "researcher", "report", true),
             ("coordinator-report", "sub-orchestrator", "report", false),
         ] {
             let mut values = vec![id, "repo", "--role", role, "--output", output];
@@ -735,6 +744,21 @@ mod tests {
                 "mx task-model evidence {id} --request-file /absolute/path/evidence.json"
             )));
             assert!(body.contains("structured `--artifact PATH` option"));
+            assert!(body.contains(&format!(
+                "MX_STATE_OVERRIDE={} mx task-model inspect {id}",
+                shell_quote(&state)
+            )));
+            assert!(body.contains(&format!(
+                "MX_STATE_OVERRIDE={} mx task-model evidence {id}",
+                shell_quote(&state)
+            )));
+            assert!(body.contains("All delegation, including nested delegation, uses Multplx-managed agents by default"));
+            assert!(body.contains("explicit human request for that scope"));
+            assert!(body.contains("never an automatic fallback"));
+            assert!(body.contains("Default to standing managed workers and coordinators"));
+            assert!(body.contains("stop contacting, polling, nudging"));
+            assert!(body.contains("not merely received a worker done claim"));
+            assert!(body.contains("re-engage a worker that reported done prematurely"));
             assert!(body.contains("does not release dependent work"));
             assert!(body.contains(&temp.path().join("docs/delivery.md").display().to_string()));
             if output == "report" {
@@ -746,7 +770,11 @@ mod tests {
                 assert!(!body.contains("This assignment produces a report"));
             }
             if persistent {
-                assert!(body.contains("persistent reviewer sub-agent"));
+                assert!(body.contains(&format!("persistent {role} sub-agent")));
+                assert!(body.contains("# Charter\n{TASK}"));
+                assert!(body.contains("# Routing scope"));
+                assert!(body.contains("does not change your worker role"));
+                assert!(body.contains("--project PROJECT --base COMMIT"));
                 assert!(body.contains("empty queue means idle"));
                 assert!(body.contains("include that exact token in your parent status reply"));
             }

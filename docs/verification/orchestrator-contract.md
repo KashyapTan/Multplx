@@ -85,3 +85,59 @@ The change does not replace the workflow engine, add a policy framework or grant
 Deep-review and vplan remain explicitly selected tools.
 Historical phase measurements and provider limitations remain historical evidence rather than being recertified by this update.
 Private operational homes and the user's global installation are not test fixtures and are not upgraded as part of this repository change.
+
+## Follow-up: managed standing delegation default (2026-10-01)
+
+The human changed the contract default after the native behavior trial above.
+All delegation, including nested delegation, now uses Multplx-managed agents by default; native delegation requires an explicit human request for that scope and is never a fallback after a managed launch failure.
+The earlier native trial predates this default and remains historical evidence of role separation and responsiveness, not validation of the new dispatch policy.
+Native capability and its existing observation/capability checks remain available; this change adds no tool-authorization framework.
+
+Dispatch selects standing managed workers and coordinators through the existing brief, home-seed and spawn owners.
+Low-level omission of `--persistent` remains task-scoped for caller compatibility.
+Workers keep their assignment role; standing lifetime does not make them coordinators.
+The parent may guide, correct mistakes, request revisions and re-engage a premature done reporter until it validates the full agreed job, resolves gaps and delivers it.
+Only then does automatic contact, polling, nudging and work routing end; the agent remains available for explicit user-directed follow-up without automatic reuse by responsibility or retirement.
+
+Inspection found that Git-backed home provisioning binds the home reservation, not a separate canonical implementation project allocation.
+The owner-level repair therefore requires persistent implementation spawn to name a referenced `--project` and exact full accepted `--base`, binds that project and acquires its own persistent project worktree before endpoint launch.
+The home and project allocation remain separate, and existing exact-HEAD completion validation is unchanged.
+Generated instructions route task-model inspection/evidence explicitly to the parent state rather than confusing the private home with the report owner.
+Queued admission and recovery preserve role, output, home, accepted base and attempt identity; report workers can reconcile a private-home identity without an implementation project.
+
+### Isolated-home live Viz check
+
+The parent diagnosed the missing worker as a home mismatch: the earlier server at port 4890 read the development checkout, while this managed task belongs to the deliberately isolated development home.
+The parent stopped the old read-only service through its owner and served the assigned home at the same URL.
+Its supplied live API and Firefox accessibility-tree checks found one managed worker connected to the root with a working session; screen capture failed, so this is not screenshot evidence.
+This worker separately read `http://127.0.0.1:4890/api/state` at `2026-10-02T03:10:14.089506Z`: the snapshot reports `/private/tmp/multplx-pr51-managed`, its matching state directory, one task `pr51-managed-default` and its current working managed session.
+Root session health remains unobserved; a root node does not establish liveness, and native event coverage is not claimed complete.
+[The Viz troubleshooting guide](../viz.md#missing-task-troubleshooting) now explains per-home URLs, matching launch home/state and deliberate development isolation without task copying or cross-home scans.
+
+### Validation boundary
+
+The fixture uses real local Git, home provisioning, CLI task/attempt/brief owners, project allocations and typed evidence; its tmux endpoint transport is mocked.
+It verifies persistent implementer launch at the separate exact-base allocation, wrong/stale HEAD and stale-revision refusal, corrective revision completion and retained home/endpoint availability.
+Additional fixtures cover queued implementation/report launch with frozen role/output/base, and recovery of an exact never-started standing-worker admission.
+No authenticated new provider launch, global install update, private operational-home migration, root-health verification or Herdr lifecycle operation was performed.
+The parent will run broad regression after integration; this follow-up uses focused changed-owner checks.
+Cmux persistent-home launch and persistent task delivery mode/yolo overrides remain unsupported and fail explicitly rather than changing transport or lifecycle.
+
+| Follow-up check | Observed result |
+| --- | --- |
+| `cargo build --release --workspace --locked` | Passed before focused shell checks. |
+| `cargo test --locked -p multplx-domain lifecycle::` | Passed: 183 lifecycle tests. |
+| `cargo test --locked -p multplx-domain lifecycle::brief::tests` | Passed: five brief tests, including all worker roles, standing implementation, parent-state evidence routing and corrective-follow-up instructions. |
+| `cargo test --locked -p multplx-backend headroom::tests` | Passed: 28 tests, including exact never-started standing-worker retry with implementation and report role/output preservation. |
+| `cargo test --locked -p multplx-cli --lib` | Passed: 118 unit tests. |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed. |
+| `target/release/mx test-run tests/mx-daemon-safety.test.sh tests/mx-brief.test.sh tests/mx-subagent-pretool-check.test.sh tests/mx-cursor-adapter.test.sh tests/mx-dispatch-queue.test.sh tests/mx-spawn-worktree-settle.test.sh --json /private/tmp/pr51-focused-final.json` | Passed: six scripts, zero failures or skips, 83.070 seconds. The two added standing fixtures execute before the safety script's `exit 0`. |
+| `cargo fmt --all -- --check` | Passed. |
+| `target/release/mx doc-audience-check` | Passed: 100 classified surfaces, 571 local links. |
+| `git diff --check` | Passed. |
+
+The first focused shell run caught the report-worker queue reconciliation's project-only identity assumption; it passed five scripts and failed the new queued report fixture.
+The repair preserves the required implementation project identity while comparing frozen private-home and assignment facts for report workers; the final six-script run above passed.
+Initial brief test iterations exposed an obsolete draft assertion and inherited assignment environment; the obsolete assertion was corrected, and final Rust and shell checks ran with assignment-specific `MX_*` variables cleared before fixture setup.
+No timeout, skip, assertion or validation boundary was weakened.
+Final logs, timing JSON and the live Viz API response are local artifacts under `/private/tmp/pr51-*`; the task result report retains their exact paths alongside the commit and accepted revision.
