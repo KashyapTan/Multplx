@@ -35,6 +35,9 @@ The service is Rust-native and does not start Node.
 
 Viz is per home: match `MX_HOME` and the state directory used to launch the managed task, then run `bin/mx-viz.sh status` or `serve` with that same home/state.
 Use the returned URL for that home; ports may differ when another home already occupies 4890.
+A brief `stale` cache with an `in-flight` refresh can simply mean the next snapshot is being collected; wait for the refresh and next page poll before diagnosing a missing task.
+If observations keep aging across repeated `failed` refreshes, inspect `X-Multplx-Refresh-Error` and `/api/meta` refresh counters for a sustained refresh failure.
+A successful fresh snapshot from the wrong home is a separate issue: compare its home/state identity with the task launch and use the matching service URL.
 Do not copy task records to make a node appear or infer root liveness from a visible worker or root node.
 Use the configured shared operational home for future launches unless development isolation is deliberate; when requested, point Viz at that isolated home.
 See [snapshot freshness](#snapshot-polling-and-cache) for unavailable observations and [contract verification](verification/orchestrator-contract.md) for the isolated-home live check.
