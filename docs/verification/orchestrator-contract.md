@@ -141,3 +141,16 @@ The repair preserves the required implementation project identity while comparin
 Initial brief test iterations exposed an obsolete draft assertion and inherited assignment environment; the obsolete assertion was corrected, and final Rust and shell checks ran with assignment-specific `MX_*` variables cleared before fixture setup.
 No timeout, skip, assertion or validation boundary was weakened.
 Final logs, timing JSON and the live Viz API response are local artifacts under `/private/tmp/pr51-*`; the task result report retains their exact paths alongside the commit and accepted revision.
+
+### Parent integration validation
+
+The parent integrated the managed standing implementation as `6574fa8` and the documentation correction as `2d483c5` on the PR branch.
+On `6574fa8`, `cargo build --release --workspace --locked` passed, `cargo test --locked --workspace` passed 790 tests with zero failures, and `target/release/mx test-run --all --jobs auto --json /private/tmp/pr51-integrated-all.json` passed all 134 scripts with zero failures and eight existing environment-gated skips in 409.915 seconds.
+The following documentation-only commit changes README, user-guide examples and Viz freshness troubleshooting; `target/release/mx doc-audience-check` passed with 100 surfaces and 572 local links, and formatting and diff checks passed after integration.
+The original logs are `/private/tmp/pr51-integrated-build.log`, `/private/tmp/pr51-integrated-rust.log` and `/private/tmp/pr51-integrated-all.log`; timing JSON remains an untracked local artifact.
+
+The original managed model launch failed with Codex CLI 0.156.1 rejecting `gpt-6.1-sol` under ChatGPT authentication.
+After the user's CLI update to 0.160.0, the same retained task was relaunched through `mx spawn` at generation 2 with GPT-6.1 SOL medium and completed this implementation, including a parent-requested documentation correction after its first done report.
+This is live authenticated managed-worker evidence; it does not by itself prove live standing-worker provisioning, nested delegation, other providers or primary-orchestrator health reporting.
+The task retained its original temporary lifecycle identity rather than rewriting existing state.
+The user also confirmed the worker became visible in Viz after the dashboard's home was corrected.
