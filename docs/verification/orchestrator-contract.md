@@ -234,3 +234,51 @@ Correction validation rebuilt with `cargo build --release --workspace --locked` 
 `cargo test --locked -p multplx-cli --lib` passed 120 tests; clippy with all workspace targets/features and warnings denied, formatting, public/raw help checks, Bash syntax and documentation audience/link checks also passed.
 Logs remain at `/private/tmp/pr51-root-health-help-correction-{build,tests,cli,clippy,static}.log`.
 The parent must integrate this correction and repeat its final regression; this worker does not claim the earlier full-suite failure is a pass.
+
+### Final parent integration and live standing-worker evidence (2026-10-02)
+
+The parent integrated worker commit `a301cc168d851166f211af8e568e8ace693df47d` as `029aa06`, then the public-help correction `1a01dd13763ccebe5536c2ac46d8dc796a7cfb00` as `5cb61e4`.
+The first complete integration run passed 793 Rust tests but failed one of 134 behavior scripts: `tests/mx-viz.test.sh` rejected missing bounded port, idle and run-record information in the new public help.
+The worker restored those contracts and added installed-command assertions without weakening the existing check.
+That failed run remains recorded in `/private/tmp/pr51-final-all.log` and `/private/tmp/pr51-final-all.json` (408.020 seconds, one failure, eight existing environment gates).
+
+The second managed worker was provisioned through `mx brief`, `mx home-seed` and `mx spawn --persistent --role implementer --output implementation --project ... --base ... --backend tmux --harness codex --model gpt-6.1-sol --effort medium`.
+It used a separate project worktree and retained private home, accepted revision 2, and generation 1 of its recorded attempt.
+It implemented the requested Viz changes, then accepted a correction after its initial done report and recorded fresh typed completion evidence for `1a01dd1` before its corrected done report.
+The canonical owner reports `persistent: true`, schedule `completed` and that exact delivery commit.
+This is live authenticated standing-worker provisioning, implementation and correction evidence; it does not establish arbitrary nested delegation or another provider's behavior.
+Its home and endpoint remain available for the user, with no automatic reuse or further outreach after parent acceptance.
+The worker's optional publication-prepare refresh refused replacement of an older ready SHA; that record was retained, and current typed local-completion evidence was accepted through its independent owner.
+The parent owns publication into the existing PR, so no machine-owned publication record was hand-edited and no worker publication was claimed.
+
+The rebuilt local dashboard at `http://127.0.0.1:4890/` serves the isolated managed-task home and both completed assignments.
+Its primary observation reports `unregistered` with an explicit explanation that external Desktop conversations are not observed.
+At 04:40:05 UTC, the live read-only `/api/meta` reported 200 refresh successes, zero refresh failures, an idle refresh and no error; the last refresh took 309 ms and the maximum was 880 ms.
+Its 199 stale serves reflect last-good snapshots served during refresh, not 199 failed sessions.
+The user previously confirmed the managed worker appeared after correcting the selected home.
+The final browser reload was blocked by the locked Mac; no new rendering screenshot or authenticated primary-model health observation is claimed.
+An already-open tab needs a reload to receive the changed frontend labels.
+The user's global installation and private operational home remain unchanged; the normal automatic configured-home behavior is delivered by an installed upgrade.
+
+Final checks on integrated source `5cb61e4`:
+
+| Command | Result |
+| --- | --- |
+| `cargo build --release --workspace --locked` | Passed; 59.66 seconds. |
+| `cargo test --locked --workspace` | Passed; 793 tests, zero failures across 37 result groups. |
+| `target/release/mx test-run --all --jobs auto --json /private/tmp/pr51-final2-all.json` | Passed; 134 scripts, zero failures, eight existing environment-gated skips, 407.038 seconds. |
+| `cargo fmt --all -- --check` | Passed. |
+| `target/release/mx doc-audience-check` | Passed; 100 classified surfaces and 574 local links. |
+| `node --check share/viz/app.js` | Passed. |
+| `node tests/fixtures/viz/agents-graph.test.cjs` | Passed. |
+| `bash -n bin/mx-viz.sh tests/mx-launcher.test.sh tests/mx-launcher-connection.test.sh` | Passed. |
+| `target/release/mx shadow-diagnostic` | Passed; Rust shadow ready. |
+| `target/release/mx test-run --check-coverage` | Passed; 134 scripts covered (113 accelerated, 11 serial, 10 Herdr). |
+| `git diff --check` | Passed. |
+
+Worker Clippy validation above applies to the same integrated source; the parent's subsequent edit only records evidence.
+Final build, Rust and behavior logs are `/private/tmp/pr51-final2-build.log`, `/private/tmp/pr51-final2-rust.log` and `/private/tmp/pr51-final2-all.log`.
+Generated timing JSON and logs remain untracked local artifacts.
+The eight environment gates do not constitute live validation of gated providers.
+The earlier PR head `3f0e9d6` passed all 11 GitHub CI jobs, including line coverage in 12 minutes 37 seconds; the newly pushed head requires its own CI run and that earlier result is not substituted for it.
+The canonical delivery is [PR #51](https://github.com/KashyapTan/Multplx/pull/51); publication is separate from human merge and installation.
