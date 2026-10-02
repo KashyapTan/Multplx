@@ -3,6 +3,8 @@
 This record covers the post-redesign role and instruction-distribution update requested on 2026-10-01.
 The user approved delegating substantive requested deliverables, retaining agent freedom within assignments, making the root contract self-contained, exposing operational skills and unifying the Claude entry point.
 The implementation starts from `f749bf9`, after PR #50 merged.
+The verified implementation is commit `d205df45c7b05af82a1dfd7655a71f800944135e`, delivered in [PR #51](https://github.com/KashyapTan/Multplx/pull/51).
+The subsequent evidence update only records this revision and PR reference.
 
 ## Acceptance and repaired gaps
 
