@@ -251,6 +251,17 @@ The per-home spawn, child routing, list-live isolation, exact cleanup, and named
 These tests use synthetic task harnesses and native pane registration; they do not establish new live provider credential or busy-state evidence.
 Focused Rust fixtures additionally cover current and historical label lookup, mixed-prefix presentation ordering, and concise child labels.
 
+The complete isolated presentation suite also passed on 2026-10-03 against Herdr 0.7.4 (`total=1 failed=0 skipped_gate=0 duration_ms=192701`):
+
+```sh
+target/release/mx test-run tests/mx-backend-herdr-presentation-e2e.test.sh
+```
+
+The suite retained its historical `daemon-alpha` and `daemon-bravo` parent labels and verified all three concurrent create/order/cleanup waves, cross-home recovery, exact focus restoration, and unmigrated legacy spaces.
+Its command logger now appends each complete TSV record in one write so concurrent read-only calls cannot corrupt the serialized creation-order evidence.
+An eight-process, 640-record local logger stress check reproduced 629 malformed records with the old argument-at-a-time logger and zero with the complete-record logger.
+This fixes the test evidence path; the exact workspace-order and focus assertions remain unchanged.
+
 The complete projection suite ran on 2026-07-21 against Herdr 0.7.4 protocol 16:
 
 ```sh
