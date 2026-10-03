@@ -1610,7 +1610,7 @@ export default function (pi: ExtensionAPI): void {
         ["watcher", "CURRENT_WATCHER_E2E /tmp/active-probe.status"],
         ["turn-end-guard", "CURRENT_TURN_END_E2E"],
         ["away-supervisor", "CURRENT_AWAY_E2E"],
-        ["from-broker", "corr=0123456789abcdef CURRENT_FROM_MULTPLX_E2E"],
+        ["from-parent", "corr=0123456789abcdef CURRENT_FROM_MULTPLX_E2E"],
         ["launch-brief", "CURRENT_LAUNCH_BRIEF_E2E"],
       ] as const);
       const kind = args.trim() as Parameters<typeof encodeMultplxOperationalInput>[0];
@@ -1732,7 +1732,7 @@ JSON
     "watcher|CURRENT_WATCHER_E2E" \
     "turn-end-guard|CURRENT_TURN_END_E2E" \
     "away-supervisor|CURRENT_AWAY_E2E" \
-    "from-broker|CURRENT_FROM_MULTPLX_E2E" \
+    "from-parent|CURRENT_FROM_MULTPLX_E2E" \
     "launch-brief|CURRENT_LAUNCH_BRIEF_E2E"
   do
     kind=${fixture%%|*}
@@ -1769,7 +1769,7 @@ const expected = new Map([
   ["CURRENT_WATCHER_E2E", "watcher"],
   ["CURRENT_TURN_END_E2E", "turn-end-guard"],
   ["CURRENT_AWAY_E2E", "away-supervisor"],
-  ["CURRENT_FROM_MULTPLX_E2E", "from-broker"],
+  ["CURRENT_FROM_MULTPLX_E2E", "from-parent"],
   ["CURRENT_LAUNCH_BRIEF_E2E", "launch-brief"],
 ]);
 const current = entries.filter((entry) =>
@@ -1783,8 +1783,8 @@ if (current.length !== expected.size) {
 for (const [needle, kind] of expected) {
   const entry = current.find((candidate) => JSON.stringify(candidate.message.content).includes(needle));
   const text = entry?.message.content?.find((item) => item.type === "text")?.text;
-  const exactEnvelope = kind === "from-broker"
-    ? text?.startsWith("[mx-from-broker]\u2063corr=0123456789abcdef ")
+  const exactEnvelope = kind === "from-parent"
+    ? text?.startsWith("[mx-from-parent]\u2063corr=0123456789abcdef ")
     : text?.startsWith(`\u2063MULTPLX_OP: v1 ${kind}: `);
   if (!entry || !exactEnvelope) {
     throw new Error(`expected exact user-role ${needle} as ${kind}, found ${JSON.stringify(entry)}`);

@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report --id <task-id> --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. A current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. A current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -415,8 +415,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         Err(result) => return result,
     };
     if parsed.list {
-        if parsed.id.is_some()
-            || parsed.state.is_some()
+        if parsed.state.is_some()
             || parsed.message.is_some()
             || parsed.key.is_some()
             || parsed.workflow_revision.is_some()
@@ -431,7 +430,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         }
         return CommandResult::success(format!("{}\n", REPORT_STATES.join("\n")));
     }
-    let Some(raw_id) = parsed.id else {
+    let Some(raw_id) = parsed.id.or_else(|| env::var("MX_TASK_ID").ok()) else {
         return usage_error("--id is required");
     };
     let task = match TaskId::parse(&raw_id) {
@@ -500,6 +499,8 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
     );
     let mut identity_detail = serde_json::Value::Null;
     let mut implementation_completed = false;
+    let mut outstanding_requests = Vec::new();
+    let mut reply_reconciliation_error: Option<String> = None;
     let meta_path = state.join(format!("{}.meta", task.as_str()));
     // One scoped lock serializes report acceptance with explicit brief changes.
     let _binding_lock = match multplx_core::locks::DirectoryLock::acquire_wait(
@@ -510,19 +511,21 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         Ok(lock) => lock,
         Err(error) => return binding_error(&error.to_string()),
     };
-    let meta_text =
-        match multplx_core::filesystem::read_bounded_regular(&meta_path, 4 * 1024 * 1024) {
-            Ok(bytes) => match String::from_utf8(bytes) {
-                Ok(text) => text,
-                Err(_) => return binding_error("task metadata is not valid UTF-8"),
-            },
-            Err(multplx_core::error::CoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound =>
-            {
-                String::new()
-            }
-            Err(error) => return binding_error(&error.to_string()),
-        };
+    let meta_text = match multplx_core::filesystem::read_bounded_regular(
+        &meta_path,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    ) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => return binding_error("task metadata is not valid UTF-8"),
+        },
+        Err(multplx_core::error::CoreError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            String::new()
+        }
+        Err(error) => return binding_error(&error.to_string()),
+    };
     let canonical = if meta_text.is_empty() {
         None
     } else {
@@ -535,6 +538,8 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         use crate::lifecycle::subagent_model::{
             Acknowledgement, Attempt, MessageEnvelope, SCHEMA_VERSION, new_identity,
         };
+        let current_completion =
+            record.schedule.state == crate::lifecycle::subagent_model::WorkState::Completed;
         let attempt_id = parsed.attempt_id.or_else(|| env::var("MX_ATTEMPT_ID").ok());
         let generation = parsed
             .generation
@@ -568,7 +573,10 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             recipient: recipient.clone(),
             brief_revision,
             kind: state_name.clone(),
-            correlation_id: parsed.correlation_id.unwrap_or_else(|| message_id.clone()),
+            correlation_id: parsed
+                .correlation_id
+                .clone()
+                .unwrap_or_else(|| message_id.clone()),
             created_at: timestamp(),
             summary: message.clone(),
             artifact: parsed.artifact.clone(),
@@ -576,6 +584,33 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         };
         let validation = validate_report_home(&record, &state)
             .and_then(|()| envelope.validate_current(&record, bound.as_str(), &recipient));
+        if validation.is_ok() {
+            outstanding_requests =
+                match crate::lifecycle::pending_reply::outstanding(&state, task.as_str()) {
+                    Ok(correlations) => correlations,
+                    Err(error) => return binding_error(&error),
+                };
+            if parsed.correlation_id.is_none()
+                && !state
+                    .join("evidence")
+                    .join(format!("{}-{message_id}.json", task.as_str()))
+                    .is_file()
+                && !outstanding_requests.is_empty()
+                && matches!(
+                    state_name.as_str(),
+                    "done" | "blocked" | "needs-decision" | "failed" | "resolved"
+                )
+            {
+                return usage_error(&format!(
+                    "a current parent request requires explicit --correlation-id; choose the request being answered: {}. corr= in --message is not a binding; separate requests require separate replies",
+                    outstanding_requests
+                        .iter()
+                        .map(|id| format!("--correlation-id {id}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
         // A completion report can close the implementation dependency gate
         // only when a separately typed, current implementation or report
         // artifact proves the result. The status message alone remains status
@@ -673,7 +708,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         } else {
             None
         };
-        let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision});
+        let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision,"completion_proven":completion_evidence});
         if let Some(outcome) = &prepared_outcome {
             evidence["parent_outcome"] =
                 serde_json::to_value(outcome).expect("parent outcome JSON");
@@ -740,9 +775,31 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                         let _ = crate::lifecycle::parent_channel::record_report(&state, &envelope);
                     }
                     if let Err(error) = publish_report_wake(&state, &envelope) {
-                        return binding_error(&error);
+                        return binding_error(&format!(
+                            "accepted report retained (message_id={message_id}, correlation_id={}); retry identical payload and --message-id; wake publication needs repair: {error}",
+                            envelope.correlation_id
+                        ));
                     }
-                    return CommandResult::success(String::new());
+                    outstanding_requests =
+                        match crate::lifecycle::pending_reply::outstanding(&state, task.as_str()) {
+                            Ok(correlations) => correlations,
+                            Err(error) => {
+                                reply_reconciliation_error = Some(error);
+                                outstanding_requests
+                            }
+                        };
+                    return CommandResult::success(format!(
+                        "{}\n",
+                        json!({
+                            "accepted": true, "replayed": true, "task_id": task.as_str(),
+                            "state": envelope.kind, "message_id": envelope.message_id,
+                            "correlation_id": envelope.correlation_id,
+                            "completion_proven": current_completion && validation.is_ok(),
+                            "accepted_completion_proven": old["completion_proven"].as_bool().unwrap_or(false),
+                            "outstanding_requests": outstanding_requests,
+                            "reply_reconciliation_error": reply_reconciliation_error,
+                        })
+                    ));
                 }
             }
             if old["accepted"] == false {
@@ -826,12 +883,24 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             && let Err(error) = crate::lifecycle::parent_channel::persist_prepared(&state, outcome)
         {
             return binding_error(&format!(
-                "accepted report retained but parent outcome publication needs repair: {error}"
+                "accepted report retained (message_id={message_id}, correlation_id={}); retry the identical payload and --message-id; parent outcome publication needs repair: {error}",
+                envelope.correlation_id
             ));
         }
         if let Err(error) = publish_report_wake(&state, &envelope) {
-            return binding_error(&error);
+            return binding_error(&format!(
+                "accepted report retained (message_id={message_id}, correlation_id={}); retry identical payload and --message-id; wake publication needs repair: {error}",
+                envelope.correlation_id
+            ));
         }
+        outstanding_requests =
+            match crate::lifecycle::pending_reply::outstanding(&state, task.as_str()) {
+                Ok(correlations) => correlations,
+                Err(error) => {
+                    reply_reconciliation_error = Some(error);
+                    outstanding_requests
+                }
+            };
         identity_detail = serde_json::to_value(&envelope).expect("envelope JSON");
     } else if let Err(error) = append_single_write(
         state.join(format!("{}.status", task.as_str())),
@@ -856,12 +925,26 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
     if let Some(debug) = nudge_watcher(&state) {
         stderr.push_str(&debug);
     }
+    if let Some(error) = &reply_reconciliation_error {
+        stderr.push_str(&format!(
+            "accepted report retained; exact reply reconciliation needs repair: {error}\n"
+        ));
+    }
     if state_name == "done" && !implementation_completed {
         stderr.push_str("done status recorded; implementation completion was not proven, so dependency gates remain closed. Record current revision-bound task-model evidence whose commit matches the bound checkout HEAD, or attach a result artifact for a report assignment.\n");
     }
     CommandResult {
         status: 0,
-        stdout: String::new(),
+        stdout: format!(
+            "{}\n",
+            json!({
+                "accepted": true, "replayed": false, "task_id": task.as_str(), "state": state_name,
+                "message_id": identity_detail.get("message_id"),
+                "correlation_id": identity_detail.get("correlation_id"),
+                "completion_proven": implementation_completed, "outstanding_requests": outstanding_requests,
+                "reply_reconciliation_error": reply_reconciliation_error,
+            })
+        ),
         stderr,
     }
 }
@@ -1202,13 +1285,15 @@ pub fn native_observe(args: &[String], payload: &str, root: &Path) -> CommandRes
             Ok(lock) => lock,
             Err(error) => return CommandResult::error(1, format!("mx-native-observe: {error}\n")),
         };
-        let before =
-            match multplx_core::filesystem::read_bounded_regular(&meta_path, 4 * 1024 * 1024) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    return CommandResult::error(1, format!("mx-native-observe: {error}\n"));
-                }
-            };
+        let before = match multplx_core::filesystem::read_bounded_regular(
+            &meta_path,
+            crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+        ) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return CommandResult::error(1, format!("mx-native-observe: {error}\n"));
+            }
+        };
         let text = match String::from_utf8(before.clone()) {
             Ok(text) => text,
             Err(_) => {
@@ -1397,13 +1482,15 @@ fn reconcile_native_observations(
             Ok(lock) => lock,
             Err(error) => return CommandResult::error(1, format!("mx-native-observe: {error}\n")),
         };
-        let before =
-            match multplx_core::filesystem::read_bounded_regular(&meta_path, 4 * 1024 * 1024) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    return CommandResult::error(1, format!("mx-native-observe: {error}\n"));
-                }
-            };
+        let before = match multplx_core::filesystem::read_bounded_regular(
+            &meta_path,
+            crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+        ) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return CommandResult::error(1, format!("mx-native-observe: {error}\n"));
+            }
+        };
         let text = match String::from_utf8(before.clone()) {
             Ok(text) => text,
             Err(_) => {
@@ -1728,6 +1815,12 @@ mod tests {
         let result = report(&["--list-states".to_owned()], Path::new("/unused"));
         assert_eq!(result.status, 0);
         assert_eq!(result.stdout, format!("{}\n", REPORT_STATES.join("\n")));
+        let scoped = report(
+            &["--list-states".into(), "--id".into(), "worker".into()],
+            Path::new("/unused"),
+        );
+        assert_eq!(scoped.status, 0);
+        assert_eq!(scoped.stdout, result.stdout);
     }
 
     #[test]

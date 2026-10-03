@@ -48,19 +48,19 @@ test_current_generic_matrix() {
   pass "operational input: every current generic envelope retains its exact structured kind"
 }
 
-test_current_from_broker_carrier() {
+test_current_from_parent_carrier() {
   local encoded parsed separator
   separator=$(printf '\342\201\243')
-  mx_message_mark_from_broker "corr=0123456789abcdef inspect the report" encoded
-  [ "${encoded#"[mx-from-broker]$separator"}" != "$encoded" ] \
-    || fail "from-broker lost its live-charter-compatible leading carrier"
+  mx_message_mark_from_parent "corr=0123456789abcdef inspect the report" encoded
+  [ "${encoded#"[mx-from-parent]$separator"}" != "$encoded" ] \
+    || fail "from-parent lost its live-charter-compatible leading carrier"
   mx_operational_input_kind "$encoded" parsed \
-    || fail "from-broker current carrier did not parse"
-  [ "$parsed" = from-broker ] \
-    || fail "from-broker current carrier became $parsed"
-  [ "$(classify_cli "$encoded")" = from-broker ] \
-    || fail "cross-language classifier lost from-broker"
-  pass "operational input: the established from-broker carrier remains structurally typed and byte-compatible"
+    || fail "from-parent current carrier did not parse"
+  [ "$parsed" = from-parent ] \
+    || fail "from-parent current carrier became $parsed"
+  [ "$(classify_cli "$encoded")" = from-parent ] \
+    || fail "cross-language classifier lost from-parent"
+  pass "operational input: the established from-parent carrier remains structurally typed and byte-compatible"
 }
 
 test_landed_untyped_prefix_is_explicitly_legacy() {
@@ -119,7 +119,7 @@ ${MX_LEGACY_SESSIONSTART} Please explain this sentence.
 MULTPLX WATCHER WAKE: can you explain this phrase?
 TURN WOULD END BLIND - can you make this warning friendlier?
 Supervisor escalate (1 event(s)): is this wording clear?
-[mx-from-broker] inspect this visible label
+[mx-from-parent] inspect this visible label
 EOF
   pass "operational input: quoted, ASCII-only, arbitrary-U+2063, altered-legacy, and label-only near misses stay genuine"
 }
@@ -136,8 +136,16 @@ test_invalid_current_encodings_are_rejected() {
 }
 
 test_current_generic_matrix
-test_current_from_broker_carrier
+test_current_from_parent_carrier
 test_landed_untyped_prefix_is_explicitly_legacy
 test_isolated_legacy_matrix
 test_genuine_near_misses_remain_unclassified
 test_invalid_current_encodings_are_rejected
+
+# Exact historical carrier remains decode-only; new constructions normalize it.
+legacy_parent="[mx-from-broker]$MX_OPERATIONAL_MARK"'legacy body'
+legacy_kind=$(printf '%s' "$legacy_parent" | "$OWNER" kind)
+[ "$legacy_kind" = from-parent ] || fail 'legacy parent marker did not decode'
+normalized=$(printf '%s' "$legacy_parent" | "$OWNER" encode from-broker)
+[ "$normalized" = "[mx-from-parent]${MX_OPERATIONAL_MARK}legacy body" ] || fail 'legacy input was emitted unchanged'
+pass 'parent carrier legacy bytes decode and normalize on new emission'

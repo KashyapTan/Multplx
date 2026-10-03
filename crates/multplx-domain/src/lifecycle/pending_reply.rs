@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use crate::operational_input::FROM_BROKER_MARK;
+use crate::operational_input::FROM_PARENT_MARK;
 
 pub const SCHEMA: &str = "mx-pending-reply.v2";
 
@@ -86,8 +86,25 @@ pub fn extract_correlation(text: &str) -> Option<String> {
         .map(|value| value.as_str().to_ascii_lowercase())
 }
 
+/// Only a structural marked request prefix can select a retry chain.
+/// Tokens quoted in ordinary message prose never retarget a new send.
+#[must_use]
+pub fn routing_correlation(message: &str) -> Option<String> {
+    if crate::operational_input::current_kind(message)
+        != Some(crate::operational_input::Kind::FromParent)
+    {
+        return None;
+    }
+    let body = crate::operational_input::body(message)?;
+    Regex::new(r"^corr=([A-Fa-f0-9]{16})(?:[ \t]|$)")
+        .expect("static routing regex")
+        .captures(body)
+        .and_then(|captures| captures.get(1))
+        .map(|token| token.as_str().to_ascii_lowercase())
+}
+
 fn summarize(text: &str) -> String {
-    let text = text.strip_prefix(FROM_BROKER_MARK).unwrap_or(text);
+    let text = crate::operational_input::body(text).unwrap_or(text);
     let mut cleaned: String = text
         .chars()
         .map(|ch| {
@@ -155,17 +172,47 @@ pub fn reusable(state: &Path, correlation: &str, task_id: &str) -> bool {
         && binding_is_current(state, &record)
 }
 
+/// Current, delivered requests still requiring a terminal response from this task.
+/// Resolves only exact validated envelopes; never infers authority from prose.
+pub fn outstanding(state: &Path, task_id: &str) -> Result<Vec<String>, String> {
+    let entries = match fs::read_dir(directory(state)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut correlations = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_file()
+        {
+            continue;
+        }
+        let correlation = entry.file_name().to_string_lossy().into_owned();
+        if reusable(state, &correlation, task_id) && !try_resolve(&entry.path(), &correlation)? {
+            correlations.push(correlation);
+        }
+    }
+    correlations.sort();
+    Ok(correlations)
+}
+
 #[must_use]
 pub fn embed(message: &str, correlation: &str) -> String {
-    let marked = if message.starts_with(FROM_BROKER_MARK) {
-        message.to_owned()
-    } else {
-        format!("{FROM_BROKER_MARK}{message}")
-    };
-    let body = marked.strip_prefix(FROM_BROKER_MARK).unwrap_or(&marked);
+    let marked = crate::operational_input::mark_from_parent(message);
+    let body = marked.strip_prefix(FROM_PARENT_MARK).unwrap_or(&marked);
     let prefix = Regex::new(r"^corr=[A-Fa-f0-9]{16}[ \t]*").expect("static prefix regex");
     let body = prefix.replace(body, "");
-    format!("{FROM_BROKER_MARK}corr={correlation} {body}")
+    let instruction = format!(
+        "Reply binding: use --correlation-id {correlation} with mx-report, or correlation_id={correlation} with report_status; corr= in message prose is not a binding."
+    );
+    if body.starts_with(&instruction) {
+        format!("{FROM_PARENT_MARK}corr={correlation} {body}")
+    } else {
+        format!("{FROM_PARENT_MARK}corr={correlation} {instruction} Request: {body}")
+    }
 }
 
 pub fn create(
@@ -481,7 +528,12 @@ fn binding_is_current(state: &Path, pending: &Path) -> bool {
         return false;
     };
     let expected_home = record_get(pending, "recipient_home");
-    task.owner_home.as_deref() == Some(expected_home.as_str())
+    task.owner_home
+        .as_deref()
+        .and_then(|home| fs::canonicalize(home).ok())
+        .zip(fs::canonicalize(&expected_home).ok())
+        .is_some_and(|(actual, expected)| actual == expected)
+        && task.parent_id.as_deref() == Some(record_get(pending, "parent_task_id").as_str())
         && task.attempt.as_ref().map(|attempt| attempt.id.as_str()) == Some(attempt_id.as_str())
         && task.attempt.as_ref().map(|attempt| attempt.generation)
             == record_get(pending, "attempt_generation")
@@ -603,7 +655,7 @@ fn observe_turn(record: &Path, observation: &str) -> Result<(), String> {
 fn recovery_message(record: &Path, correlation: &str) -> String {
     embed(
         &format!(
-            "REPOST REQUIRED: previous marked request had no correlated parent report. Reply on the parent status channel including corr={correlation}. Original request: {}",
+            "REPOST REQUIRED: previous marked request had no correlated parent report. Reply through report_status with correlation_id={correlation}, or mx-report --correlation-id {correlation}. Putting corr= in --message does not bind a reply. Each outstanding request requires its own correlated response. Original request: {}",
             record_get(record, "request_summary")
         ),
         correlation,
@@ -837,18 +889,19 @@ mod tests {
         assert!(!reusable(&state, "bad", "task"));
         assert_eq!(summarize("\u{7f}  hello\tworld\n"), "hello world");
         let summary = summarize(&format!(
-            "{FROM_BROKER_MARK}corr=0123456789abcdef {}",
+            "{FROM_PARENT_MARK}corr=0123456789abcdef {}",
             "x".repeat(140)
         ));
         assert_eq!(summary, format!("{}...", "x".repeat(117)));
         assert_eq!(fallback_id().len(), 16);
-        assert_eq!(
-            embed(
-                &format!("{FROM_BROKER_MARK}corr=fedcba9876543210 old"),
-                "0123456789abcdef"
-            ),
-            format!("{FROM_BROKER_MARK}corr=0123456789abcdef old")
+        let embedded = embed(
+            &format!("{FROM_PARENT_MARK}corr=fedcba9876543210 old"),
+            "0123456789abcdef",
         );
+        assert!(embedded.starts_with(&format!("{FROM_PARENT_MARK}corr=0123456789abcdef ")));
+        assert!(embedded.ends_with("Request: old"));
+        assert!(embedded.contains("--correlation-id 0123456789abcdef"));
+        assert_eq!(embed(&embedded, "0123456789abcdef"), embedded);
 
         let correlation = create(temp.path(), &state, "task", "request").expect("create");
         let record = path(&state, &correlation);
@@ -1011,6 +1064,33 @@ mod tests {
             fs::read_to_string(state.join("sent.status"))
                 .expect("status")
                 .contains("pending-reply-missed")
+        );
+    }
+
+    #[test]
+    fn retry_routing_requires_exact_marked_prefix() {
+        let token = "0123456789abcdef";
+        assert_eq!(
+            routing_correlation(&format!("{FROM_PARENT_MARK}corr={token} retry")),
+            Some(token.into())
+        );
+        assert_eq!(
+            routing_correlation(&format!("[mx-from-broker]\u{2063}corr={token} retry")),
+            Some(token.into())
+        );
+        assert_eq!(
+            routing_correlation(&format!("new request mentions corr={token}")),
+            None
+        );
+        assert_eq!(
+            routing_correlation(&format!(
+                "{FROM_PARENT_MARK}new request mentions corr={token}"
+            )),
+            None
+        );
+        assert_eq!(
+            routing_correlation(&format!("{FROM_PARENT_MARK}corr={token}abcd")),
+            None
         );
     }
 

@@ -125,6 +125,13 @@ Keep the same evidence ID and identical JSON when retrying an uncertain submissi
 ```
 
 After evidence is accepted, send a new task-bound `done` report using the installed status tool or `mx-report` command.
+For a marked `[mx-from-parent]` request, set the exact token in `report_status`'s `correlation_id` field or `mx-report --correlation-id TOKEN`; putting `corr=TOKEN` in message prose does not bind the reply.
+Set `artifact` in the tool or `--artifact PATH` in the CLI for an existing report or coordination result.
+A CLI report returns a JSON acceptance receipt; the tool returns that receipt as structured content.
+Check `correlation_id`, `outstanding_requests`, and `completion_proven`; unrelated outstanding requests remain pending and require separate responses.
+Use `message_id` or `--message-id` with identical payload for uncertain retries.
+A receipt with `replayed: true` reports historical acceptance without reapplying completion; `accepted_completion_proven` describes the original event and `completion_proven` describes current completion.
+
 A report sent before the evidence existed needs a new message ID after evidence is recorded; replaying an already committed status event does not reinterpret its historical meaning.
 Scope changes, replacement attempts, renewed working reports and a changed current delivery commit reopen completion until fresh evidence is reported.
 

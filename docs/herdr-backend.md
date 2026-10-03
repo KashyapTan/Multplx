@@ -207,7 +207,7 @@ Away-mode injection proceeds only on an affirmative `empty` result, never on unk
 This prevents a dead agent pane from receiving and possibly executing an escalation as shell input.
 
 The current operational envelope starts with U+2063 and `MULTPLX_OP: `.
-The separate routed-request carrier uses `[mx-from-broker]` plus U+2063.
+The separate routed-request carrier uses `[mx-from-parent]` plus U+2063.
 U+2063 survives Herdr terminal input as text, unlike the legacy ASCII control separator that could erase the visible routing label.
 `multplx-domain::operational_input` owns current operational construction and parsing, and the AFK skill owns legacy away-input compatibility.
 No Herdr-specific copy of that protocol exists.

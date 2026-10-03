@@ -359,7 +359,7 @@ test_bootstrap_sweep_nudges_only_instruction_change() {
   assert_not_contains "$out" "NUDGE_DAEMONS:" "successful nudge must not leave a broker action item"
   assert_not_contains "$out" "sm-readme" "readme-only advance is not nudged"
   assert_not_contains "$out" "sm-current" "already-current daemon is not nudged"
-  assert_contains "$(cat "$log")" "[mx-from-broker]" "nudge send should use the marked mx-send daemon path"
+  assert_contains "$(cat "$log")" "[mx-from-parent]" "nudge send should use the marked mx-send daemon path"
   assert_contains "$(cat "$log")" "broker was updated to the latest - please re-read your AGENTS.md" \
     "nudge send should type the exact re-read message"
   marker_dir="$w/home/state/.daemon-nudge-pending"
@@ -395,7 +395,7 @@ test_bootstrap_nudge_send_uses_state_override() {
     "nudge send should resolve mx-sm-instr through the effective state dir"
   assert_not_contains "$out" "NUDGE_DAEMONS:" \
     "effective-state nudge should not fail through MX_HOME/state"
-  assert_contains "$(cat "$log")" "[mx-from-broker]" \
+  assert_contains "$(cat "$log")" "[mx-from-parent]" \
     "effective-state nudge should still use daemon marker metadata"
   marker="$override_state/.daemon-nudge-pending/sm-instr.pending"
   assert_absent "$marker" "successful effective-state nudge should clear its retry marker"

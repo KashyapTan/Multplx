@@ -179,10 +179,10 @@ PATH="$FAKEBIN:$ORIGINAL_PATH" MX_GATE_REFUSE_BYPASS=1 MX_HOME="$SENDER_HOME" \
   "$ROOT/bin/mx-send.sh" "$ID" "$REQUEST" >/dev/null
 wait_for_prompt "$REQUEST" || fail "real Pi did not receive the exact-id mx-send request"
 GOT=$(jq -r --arg needle "$REQUEST" 'select(.prompt | contains($needle)) | .prompt' "$CAPTURE" | tail -1)
-[ "$GOT" = "${MX_FROM_BROKER_MARK}${REQUEST}" ] \
+[ "$GOT" = "${MX_FROM_PARENT_MARK}${REQUEST}" ] \
   || fail "real Pi exact-id prompt did not contain exactly one terminal-safe marker"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$GOT" | od -An -tx1)"
 printf 'evidence: exact-id received-hex=%s\n' "$(printf '%s' "$GOT" | od -An -tx1 | tr -d ' \n')"
-pass "real Pi/Herdr: exact-id MX_HOME send delivers exactly one from-broker marker"
+pass "real Pi/Herdr: exact-id MX_HOME send delivers exactly one from-parent marker"
 wait_for_idle || fail "real Pi did not become idle after the exact-id capture"
 
 # Direct terminal input bypasses mx-send's metadata-routed transformation and
@@ -192,8 +192,8 @@ wait_for_idle || fail "real Pi did not become idle after the exact-id capture"
 wait_for_prompt "$DIRECT" || fail "real Pi did not receive direct terminal input"
 GOT=$(jq -r --arg needle "$DIRECT" 'select(.prompt | contains($needle)) | .prompt' "$CAPTURE" | tail -1)
 [ "$GOT" = "$DIRECT" ] || fail "direct maintainer input was changed or marked"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$GOT" | od -An -tx1)"
-if mx_message_from_broker "$GOT"; then
-  fail "direct maintainer input was classified as from-broker"
+if mx_message_from_parent "$GOT"; then
+  fail "direct maintainer input was classified as from-parent"
 fi
 printf 'evidence: direct-input received-hex=%s\n' "$(printf '%s' "$GOT" | od -An -tx1 | tr -d ' \n')"
 pass "real Pi/Herdr: direct maintainer terminal input stays unmarked"

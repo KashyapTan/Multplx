@@ -90,7 +90,7 @@ fn shell_quote(value: &Path) -> String {
 
 fn status_contract(root: &Path, state: &Path, id: &str) -> String {
     format!(
-        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `paused: {{why}}` for a known external wait; `blocked` when the parent must act.\nWhen a decision is answered or a blocker clears, report `resolved` with the same `--key <slug>`.\nPreserve correlation tokens on replies; report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task with `MX_STATE_OVERRIDE={} mx task-model inspect {id}` and record exact-current typed evidence with `MX_STATE_OVERRIDE={} mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
+        "Report status with `report_status` when available, otherwise:\n`{} --id {id} --state {{state}} --message \"{{one short line}}\"`\nStates: working, paused, needs-decision, blocked, done, failed, resolved.\nNever write to `{}` by hand.\nUse `--state paused --message \"{{why}}\"` for a known external wait, or `--state blocked --message \"{{required parent action}}\"` when the parent must act. Ask a durable question with `--state needs-decision --key <slug> --message \"{{actual short question}}\"`; task/attempt/brief identity comes from the accepted launch binding.\nAfter the parent records the decision answer or a blocker clears, report `--state resolved --key <slug> --message \"{{resolution}}\"` with the same key and resume the accepted work.\nReply to each marked parent request with `--correlation-id TOKEN` (or the `report_status` structured `correlation_id` field). Putting `corr=TOKEN` in message prose does not bind a reply. Multiple outstanding requests require separate responses. A successful report prints an acceptance receipt; check its correlation and completion proof. Report meaningful outcomes and artifact pointers.\nA working event is progress, not task completion.\nFor implementation assignments, inspect the accepted task with `MX_STATE_OVERRIDE={} mx task-model inspect {id}` and record exact-current typed evidence with `MX_STATE_OVERRIDE={} mx task-model evidence {id} --request-file /absolute/path/evidence.json`, then send a new task-bound `done` report. For report/coordination assignments, attach the existing result with the reporter's structured `--artifact PATH` option. Plain status or `done` alone does not release dependent work. This is separate from checks, PR readiness and human merge. See `{}` for the exact evidence request format.",
         shell_quote(&root.join("bin/mx-report")),
         state.join(format!("{id}.status")).display(),
         shell_quote(state),
@@ -107,6 +107,10 @@ Own intake, discussion, synthesis, briefs, task coordination and communication w
     } else {
         "Your current worker assignment takes precedence over generic main-orchestrator identity in repository instructions.
 Execute the accepted research, implementation or review assignment yourself. You may delegate useful bounded work, but do not recursively delegate merely because the root contract describes an orchestrator.
+Reading this home's or a project's AGENTS.md does not promote you to the main orchestrator or widen this assignment.
+Choose methods, checks and useful bounded delegation within the accepted scope; no routine parent approval is required.
+Report concrete missing human decisions or blockers to your recorded parent while continuing independent authorized work.
+Finish the accepted deliverable, retain its evidence and send the task-bound completion report, then end the handling turn. A done report does not retire a standing worker or authorize invented follow-up work.
 Persistence and output selection do not change your assigned role."
     }
 }
@@ -159,7 +163,7 @@ fn daemon(root: &Path, state: &Path, id: &str, projects: &[String], no_projects:
             .join("\n")
     };
     format!(
-        "You are a persistent sub-orchestrator with one bounded assignment.\nYour current sub-orchestrator assignment defines your role; generic root identity does not widen your scope.\n\n# Charter\n{charter}\n\n# Routing scope\n{scope}\n\n# Project references\n{projects}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate requested research, investigations, planning deliverables, implementation, testing and reviews to sub-agents, including small tasks.\nOwn intake, discussion, synthesis, briefs, task coordination and communication within this scope. Inspect narrowly to route work; task simplicity is not a reason to execute it yourself.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nFor detailed outcomes, record an artifact in your home's data directory and report its pointer.\nDo not replace original child evidence with a summary alone.\n{}\n{}\n\n# Definition of done\nReport assigned outcomes, failures and unresolved human decisions through the parent channel.\nPersistence does not end when one task completes; retain child ownership and pending outcomes until reconciled or transferred.\n",
+        "You are a persistent sub-orchestrator with one bounded assignment.\nYour current sub-orchestrator assignment defines your role; generic root identity does not widen your scope.\n\n# Charter\n{charter}\n\n# Routing scope\n{scope}\n\n# Project references\n{projects}\nProject references are non-exclusive; they do not claim unrelated tasks.\n\n# Coordination\nDelegate requested research, investigations, planning deliverables, implementation, testing and reviews to sub-agents, including small tasks.\nOwn intake, discussion, synthesis, briefs, task coordination and communication within this scope. Inspect narrowly to route work; task simplicity is not a reason to execute it yourself.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; bind your parent status reply with `--correlation-id <id>` or the structured `report_status` `correlation_id` field; message prose is not a binding.\nFor detailed outcomes, record an artifact in your home's data directory and report its pointer.\nDo not replace original child evidence with a summary alone.\n{}\n{}\n\n# Definition of done\nReport assigned outcomes, failures and unresolved human decisions through the parent channel.\nPersistence does not end when one task completes; retain child ownership and pending outcomes until reconciled or transferred.\n",
         state.display(),
         status_contract(root, state, id),
         constraints(),
@@ -495,7 +499,7 @@ pub fn run(
             &format!("{assignment_role} sub-agent"),
             &format!("persistent {assignment_role} sub-agent"),
         );
-        body.push_str(&format!("\n# Charter\n{{TASK}}\n\n# Routing scope\nExecute only the accepted task described above.\n\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact and does not change your worker role.\nPersistent implementation spawn requires `--project PROJECT --base COMMIT` and starts in its separately allocated project worktree; inspect the canonical task for the exact project/base/allocation before edits and typed delivery. Report workers start in the private home. Do not edit the runtime home or borrowed project checkout.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; include that exact token in your parent status reply.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
+        body.push_str(&format!("\n# Charter\n{{TASK}}\n\n# Routing scope\nExecute only the accepted task described above.\n\n# Persistent home context\nProject references: {project_reference}.\nPersistence is independent of the requested {} artifact and does not change your worker role.\nPersistent implementation spawn requires `--project PROJECT --base COMMIT` and starts in its separately allocated project worktree; inspect the canonical task for the exact project/base/allocation before edits and typed delivery. Report workers start in the private home. Do not edit the runtime home or borrowed project checkout.\nReconcile your home's recorded children and pending work on restart; an empty queue means idle, not invented work or retirement.\nParent route: task `{id}`, status owner `{}`; keep this separate from your own operational home.\nA marked request carries `corr=<id>`; bind your parent status reply with `--correlation-id <id>` or the structured `report_status` `correlation_id` field; message prose is not a binding.\nRetain the home, child ownership and pending outcomes until reconciled or transferred.\n",output.as_str(),state.display()));
     }
     body.push_str(&format!(
         "\n<!-- mx-assignment role={assignment_role} persistent={persistent} output={} -->\n",
@@ -776,7 +780,7 @@ mod tests {
                 assert!(body.contains("does not change your worker role"));
                 assert!(body.contains("--project PROJECT --base COMMIT"));
                 assert!(body.contains("empty queue means idle"));
-                assert!(body.contains("include that exact token in your parent status reply"));
+                assert!(body.contains("--correlation-id <id>"));
             }
             if role == "sub-orchestrator" {
                 assert!(body.contains(
@@ -787,6 +791,23 @@ mod tests {
                 assert!(!body.contains("current worker assignment"));
             } else {
                 assert!(body.contains("current worker assignment takes precedence"));
+                assert!(
+                    body.contains(
+                        "Reading this home's or a project's AGENTS.md does not promote you"
+                    )
+                );
+                assert!(body.contains("Choose methods, checks and useful bounded delegation"));
+                assert!(body.contains(
+                    "Report concrete missing human decisions or blockers to your recorded parent"
+                ));
+                assert!(
+                    body.contains(
+                        "send the task-bound completion report, then end the handling turn"
+                    )
+                );
+                assert!(body.contains(
+                    "does not retire a standing worker or authorize invented follow-up work"
+                ));
                 assert!(body.contains(
                     "Execute the accepted research, implementation or review assignment yourself"
                 ));
