@@ -1,15 +1,24 @@
-Mode: Codex foreground checkpoint.
-The named `bin/` commands below select the Rust supervision runtime by default.
+Mode: Codex Stop-owned exact-thread queue bridge.
+The named `bin/` commands select the Rust supervision runtime.
 
 When this session owns supervision and away mode is not active:
-1. Drain first with `bin/mx-wake-drain.sh`.
-2. First cycle: run one foreground watcher checkpoint with `bin/mx-watch-checkpoint.sh --seconds "${MX_CODEX_WATCH_CHECKPOINT:-180}"`.
-3. Ordinary wake: if the command prints `signal:`, `stale:`, `check:`, or `heartbeat`, drain queued wakes, handle that wake, then start the next checkpoint.
-4. If the command prints `checkpoint:` or exits 124 with no wake, drain queued wakes anyway, process any queued user message now visible to Codex, then start the next checkpoint.
-5. Never use shell `&` or Codex background tasks for orchestrator watcher supervision.
-6. Do not run `bin/mx-watch-arm.sh` as Codex's normal supervision command.
-   If it is ever shelled anyway, a backgrounded, piped, or bundled anti-pattern is denied automatically by the PreToolUse seatbelt (`bin/mx-arm-pretool-check.sh`) registered in `.codex/hooks.json`.
-7. Failure or missing cycle only: drain queued wakes, inspect the failure, then start a fresh foreground checkpoint.
+1. Claim queued wakes with `bin/mx-wake-drain.sh`, reconcile current task state, record each durable disposition and acknowledge only after handling.
+2. End the handling turn when no immediate work remains.
+   The Stop hook owns a detached singleton watcher bridge, binds the exact hook-supplied thread UUID, `CODEX_HOME` and live session-lock identity, and returns so generation ends.
+3. A real watcher event queues one marked input to that bound thread through `codex queue --thread <uuid> --message <input>`.
+   The bridge owns subsequent watcher cycles; never start a foreground checkpoint or manual arm after an ordinary wake.
+4. Human input remains available while generation is idle.
+   A notification accepted while the thread is busy is handled after its current turn.
+5. Away mode, lost session-lock identity, or no remaining supervision need stops the bridge and its tracked watcher.
+   A queue transport receipt is separate from disposition or acknowledgement, so pending work stays durable until handled.
+6. On a failure warning, inspect `state/.codex-idle-failure` and any uncertain submission before recovery.
+   `bin/mx-codex-idle.sh --retry` requires the same live lock-owning session and its exact `CODEX_THREAD_ID`; use the recorded thread binding, never a guessed ID.
+   An uncertain submission may already have reached Codex, so an explicit retry can duplicate that notification and handling must remain idempotent.
+   The Stop hook retains the failure instead of silently resending or blocking repeatedly.
+7. `bin/mx-codex-idle.sh --end` stops only this thread's bridge and has the same manual identity requirement.
+   `--run` belongs to the runtime owner and is not a model supervision command.
 
-Codex cannot reason while a foreground tool call is running.
-The bounded checkpoint returns control regularly so user messages and queued wakes can be handled without relying on background-task wake semantics.
+If `codex queue --help` does not expose both `--thread` and `--message`, the Stop hook emits a visible compatibility warning.
+Only in that unsupported case, use the explicit foreground fallback `bin/mx-watch-checkpoint.sh --seconds "${MX_CODEX_WATCH_CHECKPOINT:-180}"`.
+The bounded checkpoint returns control for human messages and pending wakes; it does not provide turn-ended event delivery.
+Never use shell `&` or Codex background tool tasks for supervision.

@@ -19,6 +19,10 @@ Documentation corrections below are included with the repair branch.
 | AUD-006 | Verification limits | Explicit follow-up | Broader authenticated providers and live 10/20-task scaling are not established. |
 | AUD-007 | Low / optional test hardening | Not a demonstrated defect | Migration interruption fixtures could compare more retained bytes at each fault boundary. |
 | AUD-008 | Medium / supervision correctness | Fixed and locally verified | Completed standing assignments retain perpetual supervision need. |
+| AUD-009 | Medium / Cursor supervision | Fixed and locally verified | Cursor supervision requires model-authored foreground checkpoints between event turns. |
+| AUD-010 | Medium / Codex supervision | Repair in progress | Codex supervision requires foreground checkpoints despite exact-thread queue support in the installed CLI. |
+| AUD-011 | Medium / integration durability | Repair in progress | A queue receipt published before uncertainty evidence can suppress an unsent wake after a failed second write. |
+| AUD-012 | Medium / integration failure visibility | Review in progress | An idle bridge watcher failure can leave only private failure evidence while the main model stays idle. |
 
 ## AUD-001: failed prerequisite still releases dependent work
 
@@ -150,6 +154,39 @@ Exact focused verification passed after a locked release build:
 The Claude regression proves a completed standing assignment stays idle until a wake, check or reopened assignment requires supervision.
 The Pi regression proves two typed event cycles with one initial arm call and extension-owned successors before delivery.
 Harness/model APIs are synthetic; fresh authenticated Claude and Pi runs remain the separate AUD-006 limitation.
+
+## AUD-009: Cursor model-owned wait loop
+
+At `f7e4412`, `cursor_hook` accepted only `loop_count: 0`, `.cursor/hooks.json` capped native follow-ups at one, and the primary protocol required repeated 180-second foreground checkpoints.
+The model therefore remained responsible for continuing waits instead of ending generation and resuming only on an event or human input.
+Public [Firstmate source at `e31bc6e`](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/bin/fm-turnend-guard-cursor.sh) and its [Cursor protocol](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/docs/supervision-protocols/cursor.md) supplied the stop-park comparison; the prohibited local `firstmate/` directory was not inspected.
+
+Commit `e6fb1c2` replaces that path with the Rust-owned stop park, latest-stop baton, session-process identity checks, tracked child cleanup, bounded failure feedback and explicit automatic follow-up ceiling.
+The existing canonical wake claim, durable disposition and acknowledgement contract is retained.
+The focused Cursor adapter and supervision-renderer scripts passed after a locked release build.
+The isolated real Cursor `2026.10.01-e373342` probe passed two successive watcher follow-up turns, a typed human turn while parked, older-park retirement and away-mode cleanup without model tool calls.
+Controlled native watcher-arm output establishes adapter transport and continuity rather than a live worker-report or forge-poller trial.
+[Cursor verification](cursor-cli.md#event-driven-stop-park-recheck-2026-10-03) contains the exact replay command and retained local evidence pointers.
+
+## AUD-010: Codex checkpoint compatibility gap
+
+The pre-repair primary protocol required another model-authored foreground checkpoint after each wake or quiet timeout.
+The installed Codex CLI now exposes `codex queue --thread --message`; a real isolated exact-thread transport probe showed an idle thread starts a new turn and busy-thread input waits until its current turn completes.
+The requested repair is a Stop-owned bridge that binds the exact thread, `CODEX_HOME` and live session-lock identity while keeping canonical wake disposition separate from queue transport receipts.
+Unsupported CLI versions require a visible compatibility warning and the explicit bounded foreground fallback; upstream Firstmate's Codex checkpoint protocol alone does not establish this modern local capability.
+Final runtime and live-hook verification belong to the active Codex worker's delivery evidence.
+
+## AUD-011/AUD-012: Codex bridge integration review
+
+These findings concern the new implementation under review, rather than a defect attributed to the previously released checkpoint path.
+Readonly review found suppression receipts written before the uncertainty file in `notify_with`.
+If the second write fails after receipt publication, a later explicit retry has no uncertainty keys to release and may permanently suppress a notification that was never enqueued.
+The worker was asked to publish recoverable uncertainty before suppression or bind both facts in one owned transaction, with a failure-boundary regression.
+
+Readonly review also found an unexpected owned-watcher failure recorded only in `.codex-idle-failure` before the bridge exits.
+With the main generation already ended, that private record alone cannot request a handling turn until another human or Stop event occurs.
+The worker was asked to send one bounded operational failure input when the queue transport still works, while retaining durable failure evidence when the queue itself is unavailable.
+A suspected raw-queue restart storm was checked against the real watcher scan and marker path and was not substantiated; it is not recorded as a defect.
 
 ## Validation performed
 

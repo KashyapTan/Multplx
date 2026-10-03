@@ -12,7 +12,7 @@ test_selected_harness_block_only() {
   local out
   out=$("$RENDER" --harness codex)
   assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: codex" "codex heading missing"
-  assert_contains "$out" "Mode: Codex foreground checkpoint." "codex snippet missing"
+  assert_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge." "codex snippet missing"
   assert_contains "$out" "bin/mx-watch-checkpoint.sh" "codex checkpoint helper missing"
   assert_not_contains "$out" "Mode: Claude Stop-hook-owned supervision." "renderer printed the claude snippet too"
   assert_not_contains "$out" "Mode: Pi extension background wake." "renderer printed the pi snippet too"
@@ -35,7 +35,7 @@ test_conditional_stanzas() {
   out=$(MX_HOME="$home" MX_CONFIG_OVERRIDE="$config" "$RENDER" --harness codex --read-only 1 --afk 1)
   assert_contains "$out" "- Lock: read-only" "read-only stanza missing"
   assert_contains "$out" "- Away mode: active" "afk stanza missing"
-  assert_contains "$out" 'Mode: Codex foreground checkpoint.' "codex snippet missing"
+  assert_contains "$out" 'Mode: Codex Stop-owned exact-thread queue bridge.' "codex snippet missing"
   pass "renderer includes read-only and afk current-state stanzas"
 }
 
@@ -45,6 +45,8 @@ test_repair_lines() {
   mkdir -p "$home/state" "$home/config"
   out=$(MX_HOME="$home" MX_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --repair-line)
   assert_contains "$out" "bin/mx-watch-checkpoint.sh --seconds 7" "codex repair line did not use checkpoint helper and env override"
+  assert_contains "$out" "bin/mx-codex-idle.sh --retry" "codex repair line lost its explicit bridge recovery"
+  assert_contains "$out" "exact CODEX_THREAD_ID" "codex repair line lost exact-thread recovery binding"
 
   out=$(MX_HOME="$home" "$RENDER" --harness claude --queue-pending 1 --repair-line)
   assert_contains "$out" "After claiming queued wakes and durably recording disposition plus acknowledgement" "queue-pending prefix missing"
@@ -81,12 +83,22 @@ test_cross_harness_ordinary_continuation_and_repair_matrix() {
 
   out=$("$RENDER" --harness codex)
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
-  assert_contains "$ordinary" "next foreground" "codex ordinary-wake line lost its foreground checkpoint"
-  assert_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "codex ordinary-wake line lost the checkpoint command"
+  assert_contains "$ordinary" "Stop-owned Codex exact-thread queue bridge" "codex ordinary-wake line lost runtime continuity"
+  assert_contains "$ordinary" "end the handling turn" "codex ordinary-wake line lost turn-ended waiting"
+  assert_not_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "codex ordinary-wake line directs a normal model checkpoint"
   assert_not_contains "$ordinary" "bin/mx-watch-arm.sh" "codex ordinary-wake line incorrectly uses a background arm"
   out=$("$RENDER" --harness codex --repair-line)
-  assert_contains "$out" "foreground checkpoint" "codex recovery line lost its checkpoint repair"
+  assert_contains "$out" "queue support is unavailable" "codex recovery line lost its explicit compatibility fallback condition"
   assert_contains "$out" "bin/mx-watch-checkpoint.sh" "codex recovery line lost the checkpoint command"
+
+  out=$("$RENDER" --harness cursor)
+  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+  assert_contains "$ordinary" "Cursor stop hook owns watcher continuity" "cursor ordinary-wake line lost hook ownership"
+  assert_contains "$ordinary" "End the handling turn" "cursor ordinary-wake line lost turn-ended waiting"
+  assert_not_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "cursor ordinary-wake line directs a model checkpoint"
+  out=$("$RENDER" --harness cursor --repair-line)
+  assert_contains "$out" "stop-hook watcher failure" "cursor recovery line lost hook-owned failure repair"
+  assert_contains "$out" "agent --trust" "cursor recovery line lost the interactive trust requirement"
 
   pass "renderer preserves every harness ordinary-continuation and missing-cycle repair path"
 }

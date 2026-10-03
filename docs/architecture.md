@@ -140,7 +140,8 @@ The snapshot strips control sequences, retains only capture metadata and literal
 The default path remains local-only; live GitHub enrichment exists only behind the catchup `--include-prs` opt-in.
 
 At session start, `bin/mx-session-start.sh` emits exactly one primary-harness supervision block rendered by `bin/mx-supervision-instructions.sh` from `docs/supervision-protocols/`.
-That block owns the live wait shape for the running primary harness: Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interactive stop hook owns a watcher park, Codex uses bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
+That block owns the live wait shape for the running primary harness: Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interactive stop hook owns a watcher park, Codex's Stop hook owns an exact-thread queue bridge when the CLI supports it, and Pi uses its two tracked primary extensions.
+Unsupported Codex queue versions emit a visible warning and retain the explicit bounded foreground checkpoint fallback.
 `bin/mx-watch-arm.sh` remains the verified arm wrapper for protocols that call it; it forks the watcher as a tracked child, verifies it is genuinely alive with a fresh liveness beacon, and prints an honest `started`, `attached`, or nonzero `FAILED` status.
 On `attached` it stays live across identity-matched successors, and an unexplained clean child close either attaches to a verified healthy successor or becomes the typed nonzero `watcher: FAILED - cycle ended without an actionable reason` result.
 The arm layer records one bounded lifecycle row per observed cycle in `state/.watch-cycle-exits.log`; `state/.watch-triage.log` remains exclusively the absorbed-wake debug log.

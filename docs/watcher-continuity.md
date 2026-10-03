@@ -22,6 +22,13 @@ Away mode, lost owner identity, termination, or a newer stop retires the old tra
 Human input can run while a hook is parked; the older claim remains eligible for a real event until that human turn's next stop publishes the newer claim.
 The durable claim, disposition and acknowledgement contract remains unchanged.
 
+Codex's Stop hook starts a detached singleton bridge (`bin/mx-codex-idle.sh`) when the installed CLI supports `codex queue --thread --message`.
+The bridge binds the hook-supplied exact thread UUID, canonical `CODEX_HOME`, and live session-lock process identity, owns a watcher child, and queues a marked input for a real actionable event.
+The Stop hook returns without an idle model tool call; subsequent handling turns end normally while the bridge owns watcher continuity.
+Queue receipts suppress repeated transport delivery but never claim, dispose or acknowledge canonical wakes.
+An uncertain queue result retains a failure and requires explicit same-session recovery with `--retry`; recovery may duplicate an already accepted input, so wake handling stays idempotent.
+Away mode, ownership loss, or no remaining supervision need retires the bridge and its tracked watcher.
+
 ## Actionable wake ordering
 
 After an actionable Pi child close, the adapter starts and verifies one singleton successor before it delivers the original wake.
@@ -37,7 +44,7 @@ No PreToolUse hook denies system commands based on watcher status.
 The model no longer re-arms after ordinary wakes.
 Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains defense in depth for the manual recovery path.
 Cursor uses the same next-turn-end re-arm ordering as Claude, with a separate bounded failure-feedback budget and automatic follow-up ceiling.
-Codex retains its bounded foreground checkpoint protocol.
+Codex uses bounded foreground checkpoints only as an explicit fallback when queue capability is unavailable and the Stop hook has emitted a visible warning.
 No adapter starts a replacement with shell `&`.
 
 The turn-end guard remains the final backstop rather than the normal continuity mechanism and cooperates with the auto-arm in its `--claude` mode.
@@ -83,7 +90,8 @@ Only the watcher process touches `state/.last-watcher-beat`; no helper process c
 
 The goal is continuity without a Pi model-memory re-arm step.
 No zero-latency guarantee is claimed because lock verification, watcher startup, and bounded retry delays remain deliberate safety work.
-Claude depends on the Stop `asyncRewake` rewake, and Codex retains bounded foreground checkpoints.
+Claude depends on the Stop `asyncRewake` rewake, and Codex depends on exact-thread queue support for turn-ended event delivery.
+Unsupported Codex queue versions retain the explicit bounded foreground checkpoint fallback after a visible warning.
 Cursor requires interactive `agent --trust`; print mode has no stop events.
 The hook timeout is eight hours, its failure notice budget defaults to three, and automatic follow-ups stop with an explicit notice at 180 consecutive hook-driven turns until the next human message.
 

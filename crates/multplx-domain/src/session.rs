@@ -146,7 +146,7 @@ fn ordinary_wake_line(harness: &str) -> &'static str {
             "- Ordinary wake: the Stop-owned auto-arm (bin/mx-claude-stop-autoarm.sh) already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle yourself. See `mx wake --help`."
         }
         "codex" => {
-            "- Ordinary wake: claim the wake, record its disposition, acknowledge it, then take the next foreground bin/mx-watch-checkpoint.sh checkpoint as directed below. See `mx wake --help`."
+            "- Ordinary wake: the Stop-owned Codex exact-thread queue bridge owns watcher continuity; claim the wake, record its durable disposition, acknowledge it, then end the handling turn. Foreground checkpoints are only the explicit fallback when queue support is unavailable. See `mx wake --help`."
         }
         "pi" => {
             "- Ordinary wake: the Pi extension already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle. See `mx wake --help`."
@@ -180,7 +180,7 @@ fn repair_line(options: &SupervisionOptions, harness: &str, root: &Path) -> Stri
             let seconds =
                 std::env::var("MX_CODEX_WATCH_CHECKPOINT").unwrap_or_else(|_| "180".to_owned());
             format!(
-                "{prefix}repair missing watcher supervision with a foreground checkpoint: bin/mx-watch-checkpoint.sh --seconds {seconds}.\n"
+                "{prefix}inspect state/.codex-idle-failure and reconcile uncertain queue submission before explicitly running bin/mx-codex-idle.sh --retry from the same lock-owning Codex session with its exact CODEX_THREAD_ID. If queue support is unavailable, use the explicit foreground fallback: bin/mx-watch-checkpoint.sh --seconds {seconds}.\n"
             )
         }
         "pi" => format!(
