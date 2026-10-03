@@ -1933,7 +1933,7 @@ mod tests {
                 "--key",
                 "bad/key",
             ],
-            vec!["--list-states", "--id", "task"],
+            vec!["--list-states", "--id", "task", "--state", "working"],
             vec!["--id", "task"],
             vec!["--id", "task", "--state", "done"],
         ];
@@ -1941,6 +1941,13 @@ mod tests {
             let values = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
             assert_ne!(report(&values, Path::new("/unused")).status, 0);
         }
+        let states = report(
+            &["--list-states".into(), "--id".into(), "task".into()],
+            Path::new("/unused"),
+        );
+        assert_eq!(states.status, 0);
+        assert_eq!(states.stdout, format!("{}\n", REPORT_STATES.join("\n")));
+        assert!(states.stderr.is_empty());
         let help = report(&["--help".to_owned()], Path::new("/unused"));
         assert_eq!(help.status, 0);
         assert!(help.stdout.contains("Usage:"));
