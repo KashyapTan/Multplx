@@ -28,9 +28,9 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             value if value.starts_with("--fields=") => {
                 fields = value.trim_start_matches("--fields=").to_owned()
             }
-            "--all-in-flight" | "--all-decisions" | "--all-daemons" | "--all-landed"
-            | "--all-reports" | "--all-queued" | "--all-recorded-prs" | "--all-unhealthy"
-            | "--all-pr-repos" => {
+            "--all-in-flight" | "--all-decisions" | "--all-agents" | "--all-daemons"
+            | "--all-landed" | "--all-reports" | "--all-queued" | "--all-recorded-prs"
+            | "--all-unhealthy" | "--all-pr-repos" => {
                 all.insert(args[index].clone());
             }
             "-h" | "--help" => return (0, usage(), String::new()),
@@ -60,7 +60,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     if all.contains("--all-landed") {
         snapshot_command.env("MX_SNAPSHOT_DAEMON_LANDED_PER_HOME", "0");
     }
-    if all.contains("--all-daemons") {
+    if all.contains("--all-agents") || all.contains("--all-daemons") {
         snapshot_command.env("MX_SNAPSHOT_DAEMONS", "0");
     }
     let snapshot = snapshot_command.output();
@@ -157,7 +157,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
                 && row.get("verb").and_then(Value::as_str) == Some("maintainer-hold")
             {
                 let id = nonnull_str(row.get("id"));
-                decisions.push(json!({"id":format!("{}/{}",nonnull_str(daemon.get("id")),id),"key":row.get("key").cloned().unwrap_or_else(||Value::String(id.clone())),"verb":"maintainer-hold","summary":truncate(&format!("{}: {}",value_or(row.get("summary"),&id),value_or(row.get("reason"),"maintainer decision pending")),90),"owner":daemon["id"]}));
+                decisions.push(json!({"id":format!("{}/{}",nonnull_str(daemon.get("id")),id),"key":row.get("key").cloned().unwrap_or_else(||Value::String(id.clone())),"verb":"maintainer-hold","summary":truncate(&format!("{}: {}",value_or(row.get("summary"),&id),value_or(row.get("reason"),"human decision pending")),90),"owner":daemon["id"]}));
             }
         }
     }
@@ -216,7 +216,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     {
         let reason = value_or(
             root.pointer("/daemon_current/registry/reason"),
-            "Registered daemon table unavailable",
+            "Registered standing-agent table unavailable",
         );
         daemon_rows.push(json!({"id":"(registry)","state":"unknown","doing":reason,"provenance":value_or(root.pointer("/daemon_current/registry/provenance"),"registered-table"),"freshness":value_or(root.pointer("/daemon_current/registry/freshness/status"),"unavailable"),"age_seconds":Value::Null,"contradiction":false,"reason":reason}));
     }
@@ -397,7 +397,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         .and_then(Value::as_bool)
         == Some(false)
     {
-        omitted.push(json!({"surface":format!("daemon registry unavailable: {}",value_or(root.pointer("/daemon_current/registry/reason"),"read failed")),"reveal":"inspect data/daemons.md"}));
+        omitted.push(json!({"surface":format!("standing-agent registry unavailable: {}",value_or(root.pointer("/daemon_current/registry/reason"),"read failed")),"reveal":"inspect the selected standing-agent route registry"}));
     }
     let parent_truncated = daemons
         .iter()
@@ -592,7 +592,7 @@ fn daemon_doing(daemon: &Value, state: &str) -> String {
                 row.get("source").and_then(Value::as_str) == Some("backlog")
                     && row.get("verb").and_then(Value::as_str) == Some("maintainer-hold")
             })
-            .map(|row| value_or(row.get("summary"), "maintainer decision pending"))
+            .map(|row| value_or(row.get("summary"), "human decision pending"))
             .collect::<Vec<_>>()
             .join("; "),
         "externally_held" => {
@@ -870,5 +870,5 @@ fn toon_quote(value: &str) -> String {
     }
 }
 fn usage() -> String {
-    "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-daemons] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n\nJSON and default output share the same bounded task-first portfolio summary. Use mx-system-snapshot.sh --json for the full canonical portfolio detail.\n".into()
+    "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-agents] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n\nJSON and default output share the same bounded task-first portfolio summary. Use mx-system-snapshot.sh --json for the full canonical portfolio detail.\n".into()
 }

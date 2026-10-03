@@ -907,7 +907,7 @@ mod tests {
         }
     }
 
-    fn ok(stdout: &'static [u8]) -> Result<CommandOutput, CommandError> {
+    fn ok(stdout: &[u8]) -> Result<CommandOutput, CommandError> {
         Ok(CommandOutput {
             status: ExitStatus::from_raw(0),
             stdout: stdout.to_vec(),
@@ -934,6 +934,35 @@ mod tests {
             "/tmp/home",
             "/tmp/config",
         )
+    }
+
+    #[test]
+    fn current_titles_adopt_only_exact_legacy_home_labels() {
+        let mut fixture = backend(vec![]);
+        let title = fixture.scoped_title("mx-task").unwrap();
+        let old = format!(
+            "mx-{}-task",
+            multplx_core::backend_hometag::legacy_home_tag(&fixture.root, &fixture.home).unwrap()
+        );
+        fixture.runner.outputs.push_back(ok(format!(
+            r#"{{"workspaces":[{{"id":"wrong","title":"mx-broker-otherhash-task"}},{{"id":"old","title":"{old}"}}]}}"#
+        ).as_bytes()));
+        assert_eq!(
+            fixture.workspace_id_for_label(&title).unwrap().as_deref(),
+            Some("old")
+        );
+        fixture.runner.outputs.push_back(ok(format!(
+            r#"{{"workspaces":[{{"id":"old","title":"{old}"}},{{"id":"new","title":"{title}"}}]}}"#
+        )
+        .as_bytes()));
+        assert_eq!(
+            fixture.workspace_id_for_label(&title).unwrap().as_deref(),
+            Some("new")
+        );
+        fixture.runner.outputs.push_back(ok(
+            br#"{"workspaces":[{"id":"wrong","title":"mx-broker-otherhash-task"}]}"#,
+        ));
+        assert_eq!(fixture.workspace_id_for_label(&title).unwrap(), None);
     }
 
     #[test]

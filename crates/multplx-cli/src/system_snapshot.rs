@@ -34,7 +34,14 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
     let mode = match args {
         [] => "json",
         [argument] if argument == "--json" => "json",
-        [argument] if argument == "--daemon-home-summary" => "daemon-home",
+        [argument]
+            if matches!(
+                argument.as_str(),
+                "--standing-agent-home-summary" | "--daemon-home-summary"
+            ) =>
+        {
+            "daemon-home"
+        }
         [argument] if matches!(argument.as_str(), "-h" | "--help") => {
             return (0, usage(), String::new());
         }
@@ -59,7 +66,7 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
 }
 
 fn usage() -> String {
-    "usage: mx-system-snapshot.sh --json\n       mx-system-snapshot.sh --daemon-home-summary\n\nPrint the read-only canonical orchestration snapshot.\nThe JSON contract includes a task-first mx-portfolio.v1 projection with projects, roles, attempts, briefs, dependencies, decisions, evidence, allocations, domains, and freshness.\nCollection is bounded; unavailable observations remain explicit partial or unknown facts.\n".into()
+    "usage: mx-system-snapshot.sh --json\n       mx-system-snapshot.sh --standing-agent-home-summary\n\nPrint the read-only canonical orchestration snapshot.\nThe JSON contract includes a task-first mx-portfolio.v1 projection with projects, roles, attempts, briefs, dependencies, decisions, evidence, allocations, domains, and freshness.\nCollection is bounded; unavailable observations remain explicit partial or unknown facts.\n".into()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2057,7 +2064,7 @@ fn registry(paths: &Paths, generated: &str) -> Value {
             true,
             false,
             false,
-            Some("registered daemon table is unreadable"),
+            Some("registered standing-agent table is unreadable"),
         );
     }
     let max_bytes = env_usize("MX_SNAPSHOT_REGISTRY_BYTES", 65_536);
@@ -2068,7 +2075,7 @@ fn registry(paths: &Paths, generated: &str) -> Value {
             true,
             false,
             false,
-            Some("registered daemon table is unreadable"),
+            Some("registered standing-agent table is unreadable"),
         );
     };
     let byte_truncated = bytes.len() > max_bytes;
@@ -2106,7 +2113,7 @@ fn registry(paths: &Paths, generated: &str) -> Value {
     }
     for record in &mut records {
         if counts[record["id"].as_str().unwrap_or("")] > 1 {
-            record["registry_error"] = json!("duplicate daemon id in registry");
+            record["registry_error"] = json!("duplicate agent id in registry");
         }
     }
     records.dedup_by(|left, right| left["id"] == right["id"]);
@@ -2168,25 +2175,25 @@ fn validate_home(paths: &Paths, id: &str, home: &Path) -> Result<PathBuf, String
         .canonicalize()
         .unwrap_or_else(|_| paths.root.clone());
     if resolved == Path::new("/") {
-        return Err("daemon home cannot be the filesystem root".into());
+        return Err("standing-agent home cannot be the filesystem root".into());
     }
     if resolved == active {
-        return Err("daemon home cannot be the active Multplx home".into());
+        return Err("standing-agent home cannot be the active Multplx home".into());
     }
     if resolved == root {
-        return Err("daemon home cannot be the Multplx repo".into());
+        return Err("standing-agent home cannot be the Multplx repo".into());
     }
     if resolved.starts_with(&active) {
-        return Err("daemon home cannot be inside the active Multplx home".into());
+        return Err("standing-agent home cannot be inside the active Multplx home".into());
     }
     if resolved.starts_with(&root) {
-        return Err("daemon home cannot be inside the Multplx repo".into());
+        return Err("standing-agent home cannot be inside the Multplx repo".into());
     }
     if active.starts_with(&resolved) {
-        return Err("daemon home cannot be an ancestor of the active Multplx home".into());
+        return Err("standing-agent home cannot be an ancestor of the active Multplx home".into());
     }
     if root.starts_with(&resolved) {
-        return Err("daemon home cannot be an ancestor of the Multplx repo".into());
+        return Err("standing-agent home cannot be an ancestor of the Multplx repo".into());
     }
     for name in ["data", "state", "config", "projects"] {
         let candidate = resolved.join(name);
@@ -2195,14 +2202,14 @@ fn validate_home(paths: &Paths, id: &str, home: &Path) -> Result<PathBuf, String
             if fs::metadata(&candidate)
                 .is_ok_and(|metadata| metadata.permissions().mode() & 0o500 == 0)
             {
-                return Err(format!("daemon {name} directory is unreadable"));
+                return Err(format!("standing-agent {name} directory is unreadable"));
             }
             let child = candidate
                 .canonicalize()
-                .map_err(|_| format!("daemon {name} directory cannot be resolved"))?;
+                .map_err(|_| format!("standing-agent {name} directory cannot be resolved"))?;
             if !child.is_dir() || !child.starts_with(&resolved) || child == resolved {
                 return Err(format!(
-                    "daemon {name} directory must resolve inside the daemon home"
+                    "standing-agent {name} directory must resolve inside the standing-agent home"
                 ));
             }
         }
@@ -2210,15 +2217,15 @@ fn validate_home(paths: &Paths, id: &str, home: &Path) -> Result<PathBuf, String
     let marker =
         multplx_core::agent_home::marker_path(&resolved).map_err(|error| error.to_string())?;
     if fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err("daemon marker must not be a symlink".into());
+        return Err("agent marker must not be a symlink".into());
     }
     let marker_id = fs::read_to_string(&marker)
-        .map_err(|_| "not a seeded daemon home".to_owned())?
+        .map_err(|_| "not a seeded standing-agent home".to_owned())?
         .trim()
         .to_owned();
     if marker_id != id {
         return Err(format!(
-            "marked for daemon {}, expected {id}",
+            "marked for agent {}, expected {id}",
             if marker_id.is_empty() {
                 "unknown"
             } else {
@@ -2244,7 +2251,11 @@ fn read_child_summary_with_timeout(
     let executable = std::env::current_exe().map_err(|_| "structured home snapshot failed")?;
     let mut command = Command::new(executable);
     command
-        .args(["session", "mx-system-snapshot.sh", "--daemon-home-summary"])
+        .args([
+            "session",
+            "mx-system-snapshot.sh",
+            "--standing-agent-home-summary",
+        ])
         .env("MX_ROOT_OVERRIDE", &paths.root)
         .env("MX_HOME", home)
         .env("MX_STATE_OVERRIDE", home.join("state"))
@@ -3839,27 +3850,27 @@ mod tests {
         );
         assert_eq!(
             validate_home(&paths, "worker", &home).unwrap_err(),
-            "daemon home cannot be the active Multplx home"
+            "standing-agent home cannot be the active Multplx home"
         );
         assert_eq!(
             validate_home(&paths, "worker", &root).unwrap_err(),
-            "daemon home cannot be the Multplx repo"
+            "standing-agent home cannot be the Multplx repo"
         );
         let nested_home = home.join("nested");
         fs::create_dir_all(&nested_home).unwrap();
         assert_eq!(
             validate_home(&paths, "worker", &nested_home).unwrap_err(),
-            "daemon home cannot be inside the active Multplx home"
+            "standing-agent home cannot be inside the active Multplx home"
         );
         let nested_root = root.join("nested");
         fs::create_dir_all(&nested_root).unwrap();
         assert_eq!(
             validate_home(&paths, "worker", &nested_root).unwrap_err(),
-            "daemon home cannot be inside the Multplx repo"
+            "standing-agent home cannot be inside the Multplx repo"
         );
         assert_eq!(
             validate_home(&paths, "worker", Path::new("/")).unwrap_err(),
-            "daemon home cannot be the filesystem root"
+            "standing-agent home cannot be the filesystem root"
         );
     }
 
@@ -3886,7 +3897,7 @@ mod tests {
 
         assert_eq!(
             validate_home(&paths, "worker", &ancestor).unwrap_err(),
-            "daemon home cannot be an ancestor of the active Multplx home"
+            "standing-agent home cannot be an ancestor of the active Multplx home"
         );
         let root_ancestor = temp.path().join("root-ancestor");
         let separate_root = root_ancestor.join("repo");
@@ -3903,7 +3914,7 @@ mod tests {
         fs::create_dir_all(&root_paths.home).unwrap();
         assert_eq!(
             validate_home(&root_paths, "worker", &root_ancestor).unwrap_err(),
-            "daemon home cannot be an ancestor of the Multplx repo"
+            "standing-agent home cannot be an ancestor of the Multplx repo"
         );
 
         let candidate = temp.path().join("candidate");
@@ -3930,7 +3941,7 @@ mod tests {
         symlink(&outside, candidate.join("data")).unwrap();
         assert_eq!(
             validate_home(&paths, "worker", &candidate).unwrap_err(),
-            "daemon data directory must resolve inside the daemon home"
+            "daemon data directory must resolve inside the standing-agent home"
         );
         fs::remove_file(candidate.join("data")).unwrap();
 
@@ -3942,14 +3953,14 @@ mod tests {
         .unwrap();
         assert_eq!(
             validate_home(&paths, "worker", &candidate).unwrap_err(),
-            "daemon marker must not be a symlink"
+            "agent marker must not be a symlink"
         );
         fs::remove_file(candidate.join(".mx-daemon-home")).unwrap();
         fs::write(candidate.join(".mx-daemon-home"), "other\n").unwrap();
         assert!(
             validate_home(&paths, "worker", &candidate)
                 .unwrap_err()
-                .contains("marked for daemon other")
+                .contains("marked for agent other")
         );
 
         fs::write(candidate.join(".mx-daemon-home"), "worker\n").unwrap();
@@ -4112,7 +4123,7 @@ mod tests {
                 .iter()
                 .find(|row| row["id"] == "duplicate")
                 .unwrap()["registry_error"],
-            "duplicate daemon id in registry"
+            "duplicate agent id in registry"
         );
 
         let no_endpoint = terminal_capture(

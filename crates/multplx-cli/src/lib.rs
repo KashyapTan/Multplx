@@ -123,7 +123,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Run one decision, maintainer-override, or workflow entry point.
+    /// Run one decision, human policy exception, or workflow entry point.
     #[command(hide = true, disable_help_flag = true)]
     Authority {
         entry: String,
@@ -277,8 +277,13 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Append an optional correlated persistent sub-agent report to its parent status path.
-    #[command(hide = true, disable_help_flag = true)]
+    /// Report a correlated standing-agent result through its validated parent route.
+    #[command(
+        name = "agent-report",
+        alias = "daemon-report",
+        hide = true,
+        disable_help_flag = true
+    )]
     DaemonReport {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
@@ -2119,7 +2124,7 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
 fn run_daemon_report(args: &[OsString]) -> i32 {
     use std::fs::OpenOptions;
 
-    const USAGE: &str = "Report a correlated result through the caller's validated parent route.\n\nUsage:\n  mx-daemon-report.sh <verb> <corr_id> <note...>\n  mx-daemon-report.sh --doc <verb> <corr_id> <doc-path> <note...>\n\nCanonical tasks resolve their status owner and parent from the task record. The historical <status-file> argument is accepted only when it exactly matches that owner; it grants no destination authority.\n";
+    const USAGE: &str = "Report a correlated result through the caller's validated parent route.\n\nUsage:\n  mx-agent-report.sh <verb> <corr_id> <note...>\n  mx-agent-report.sh --doc <verb> <corr_id> <doc-path> <note...>\n\nCanonical tasks resolve their status owner and parent from the task record. The historical <status-file> argument is accepted only when it exactly matches that owner; it grants no destination authority.\n";
     if args
         .iter()
         .any(|value| matches!(value.to_str(), Some("-h" | "--help")))
@@ -3528,7 +3533,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             "error: no launch template for harness '{}'{}",
             request.harness,
             if request.private_home {
-                " (check config/daemon-harness or the explicit selection)"
+                " (check config/standing-agent-harness or the explicit selection)"
             } else {
                 ""
             }
@@ -6258,9 +6263,13 @@ fn run_harness(args: &[OsString]) -> i32 {
         .unwrap_or_default()
     {
         "subagent" | "actor" => Some(settings.actor(own)),
-        "persistent-subagent" | "daemon" => Some(settings.daemon(own)),
-        "persistent-subagent-model" | "daemon-model" => settings.daemon_model(),
-        "persistent-subagent-effort" | "daemon-effort" => settings.daemon_effort(),
+        "standing-agent" | "persistent-subagent" | "daemon" => Some(settings.daemon(own)),
+        "standing-agent-model" | "persistent-subagent-model" | "daemon-model" => {
+            settings.daemon_model()
+        }
+        "standing-agent-effort" | "persistent-subagent-effort" | "daemon-effort" => {
+            settings.daemon_effort()
+        }
         _ => Some(own.to_string()),
     };
     if let Some(value) = value {
@@ -7746,7 +7755,7 @@ fn run_config_inherit(args: &[OsString]) -> i32 {
     }
 }
 
-const CONFIG_PUSH_USAGE: &str = "Usage: mx-config-push.sh [--help]\n\nPush the primary Multplx home's declared inherited local material into each\nlive persistent sub-agent home.\n\nThis is local-material-only:\n  - does not fast-forward tracked files\n  - after successful config/* changes, writes a generation-specific\n    literal-content reread instruction and sends its pointer to that live persistent sub-agent\n    (no message when config is unchanged unless a previous send failure is pending)\n  - reports each live home and each inheritable item as pushed, unchanged,\n    skipped, or error\n  - exits non-zero for real propagation errors or reread-send failures\n\nLive homes come from state/*.meta records with the legacy kind=daemon projection.\nThe legacy data/daemons.md registry is only a fallback for missing home= fields in older or\nincomplete meta records.\n\nEnvironment overrides follow the rest of the orchestrator runtime:\n  MX_HOME            active Multplx home\n  MX_ROOT_OVERRIDE  Multplx repo root\n  MX_STATE_OVERRIDE state dir\n  MX_DATA_OVERRIDE  data dir\n  MX_CONFIG_OVERRIDE config dir\n";
+const CONFIG_PUSH_USAGE: &str = "Usage: mx-config-push.sh [--help]\n\nPush the primary Multplx home's declared inherited local material into each\nlive persistent sub-agent home.\n\nThis is local-material-only:\n  - does not fast-forward tracked files\n  - after successful config/* changes, writes a generation-specific\n    literal-content reread instruction and sends its pointer to that live persistent sub-agent\n    (no message when config is unchanged unless a previous send failure is pending)\n  - reports each live home and each inheritable item as pushed, unchanged,\n    skipped, or error\n  - exits non-zero for real propagation errors or reread-send failures\n\nLive homes come from state/*.meta records with the legacy kind=daemon projection.\nThe selected data/agents.md registry (or existing data/daemons.md layout) is only a fallback for missing home= fields in older or\nincomplete meta records.\n\nEnvironment overrides follow the rest of the orchestrator runtime:\n  MX_HOME            active Multplx home\n  MX_ROOT_OVERRIDE  Multplx repo root\n  MX_STATE_OVERRIDE state dir\n  MX_DATA_OVERRIDE  data dir\n  MX_CONFIG_OVERRIDE config dir\n";
 
 fn last_field(text: &str, key: &str) -> String {
     text.lines()

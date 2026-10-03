@@ -310,12 +310,24 @@ fn native_override_cli_covers_decision_result_audit_and_handoff() {
         })
         .expect("request");
     let words = "Grant workflow.skip-stage for exact operation skip workflow stage test in run run-2 on exact target run-2#test.";
-    let grant = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+    let conflicting = run(mx().env("MX_STATE_OVERRIDE", &state).args([
         "authority",
-        "mx-maintainer-override.sh",
+        "mx-operator-override.sh",
         "grant",
         &id,
+        "--operator-words",
+        words,
         "--maintainer-words",
+        words,
+    ]));
+    assert!(!conflicting.status.success());
+    assert!(String::from_utf8_lossy(&conflicting.stderr).contains("unknown grant argument"));
+    let grant = run(mx().env("MX_STATE_OVERRIDE", &state).args([
+        "authority",
+        "mx-operator-override.sh",
+        "grant",
+        &id,
+        "--operator-words",
         words,
     ]));
     assert!(

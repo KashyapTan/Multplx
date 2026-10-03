@@ -16,7 +16,7 @@
 # Default container shape (D4, decided empirically - see
 # herdr-verification-p2.md "Task container shape", refined by
 # docs/herdr-backend.md "Default task container shape"): ONE herdr workspace PER
-# MULTPLX HOME (the primary, and each daemon, gets its own), ONE herdr TAB
+# MULTPLX HOME (the primary, and each standing agent, gets its own), ONE herdr TAB
 # per task inside its home's workspace. An optional, default-off presentation
 # flag creates a disposable workspace for a clean fresh task instead. That
 # workspace is a non-authoritative visual projection containing only the normal
@@ -57,8 +57,8 @@
 # global before sourcing mx-backend.sh (which sources this file), so this
 # never overrides a real invocation. It exists only so this file's own unit
 # tests, which source it directly without that preamble, resolve to a sane
-# default (the Multplx repo root - never a daemon home, so
-# mx_backend_herdr_workspace_label falls through to "broker" exactly like
+# default (the Multplx repo root - never a standing-agent home, so
+# mx_backend_herdr_workspace_label falls through to "primary" exactly like
 # pre-P3 behavior when a test does not care about home-specific labeling).
 MX_BACKEND_HERDR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MX_ROOT="${MX_ROOT_OVERRIDE:-${MX_ROOT:-$MX_BACKEND_HERDR_ROOT}}"
@@ -98,8 +98,8 @@ MX_BACKEND_HERDR_MIN_WORKSPACE_MOVE_PROTOCOL=16
 # ->blocked edge and a reconnect level-reconcile never re-delivers a still-
 # blocked pane. Mirrors bin/mx-watch.sh's .stale-<key> naming.
 MX_BACKEND_HERDR_ESCALATED_PREFIX=".herdr-escalated-"
-# .mx-daemon-home is written by bin/mx-home-seed.sh (AGENTS.md section 6)
-# at a seeded daemon home's root, containing exactly that daemon's id.
+# .mx-agent-home is written by bin/mx-home-seed.sh (AGENTS.md section 6)
+# at a seeded standing-agent home's root, containing exactly that agent's id.
 # The primary Multplx home never carries this marker.
 MX_BACKEND_HERDR_DAEMON_MARKER=".mx-daemon-home"
 # The default-off presentation projection is intentionally separate from the
@@ -113,7 +113,7 @@ MX_BACKEND_HERDR_DAEMON_MARKER=".mx-daemon-home"
 MX_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
 
 # Derive the visible label for a new standing-agent home workspace.
-# The historical .mx-daemon-home marker remains the durable identity source.
+# The canonical marker and exact historical .mx-daemon-home alias bind the same identity.
 # Lookup also accepts daemon-<id> so existing workspaces stay in place.
 mx_backend_herdr_workspace_label() {
   local id root binary
@@ -175,7 +175,7 @@ mx_backend_herdr_version_check() {
 
 # mx_backend_herdr_session: resolve which named herdr session this normal
 # spawn/op uses. HERDR_SESSION mirrors tmux's $TMUX ambient-selection for
-# adapter workspace/tab/pane operations: an operator (or broker's own
+# adapter workspace/tab/pane operations: an operator (or parent's own
 # isolated test harness) sets it explicitly; absent means herdr's own
 # "default" session. Do not use HERDR_SESSION alone for destructive test
 # cleanup; tests/herdr-test-safety.sh documents and guards that path.
@@ -844,7 +844,7 @@ mx_backend_herdr_workspace_find() {  # <session>
 # "Label collisions") and derives an unlabeled workspace's DISPLAYED label from
 # its pane cwd's basename, so a maintainer launching herdr directly inside a
 # directory named "broker" produces a workspace that looks byte-identical,
-# by label alone, to broker's own auto-created container - one tab, label
+# by label alone, to parent's own auto-created container - one tab, label
 # "1". workspace_find adopted that pre-existing (maintainer-owned, LIVE) workspace
 # by the label match, the heuristic matched too, and the very next spawn
 # closed the maintainer's own live pane 27ms after creating its task tab. The

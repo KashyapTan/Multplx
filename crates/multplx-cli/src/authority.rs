@@ -10,12 +10,13 @@ use multplx_domain::maintainer_override::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const OVERRIDE_USAGE: &str = "Request, decide, consume, inspect, and audit exact maintainer exceptions.\n\nUsage:\n  mx-maintainer-override.sh registry [--json]\n  mx-maintainer-override.sh request --boundary <id> --task <id> --project <slug>\n    --operation <literal operation> --target <identity>\n    --expected-state <sha256> --consequence <one line> [--ttl <seconds>]\n  mx-maintainer-override.sh grant <request-id> --maintainer-words <literal words>\n  mx-maintainer-override.sh deny <request-id> --maintainer-words <literal words>\n  mx-maintainer-override.sh consume <request-id> --boundary <id> --task <id>\n    --project <slug> --operation <literal operation> --target <identity>\n    --expected-state <sha256>\n  mx-maintainer-override.sh result <request-id> --outcome succeeded|failed --detail <text>\n  mx-maintainer-override.sh inspect <request-id>\n  mx-maintainer-override.sh audit [--json]\n  mx-maintainer-override.sh digest <literal text>\n  mx-maintainer-override.sh argv [literal argv...]\n  mx-maintainer-override.sh handoff <request-id>\n";
+const OVERRIDE_USAGE: &str = "Request, decide, consume, inspect, and audit exact human policy exceptions.\n\nUsage:\n  mx-operator-override.sh registry [--json]\n  mx-operator-override.sh request --boundary <id> --task <id> --project <slug>\n    --operation <literal operation> --target <identity>\n    --expected-state <sha256> --consequence <one line> [--ttl <seconds>]\n  mx-operator-override.sh grant <request-id> --operator-words <literal words>\n  mx-operator-override.sh deny <request-id> --operator-words <literal words>\n  mx-operator-override.sh consume <request-id> --boundary <id> --task <id>\n    --project <slug> --operation <literal operation> --target <identity>\n    --expected-state <sha256>\n  mx-operator-override.sh result <request-id> --outcome succeeded|failed --detail <text>\n  mx-operator-override.sh inspect <request-id>\n  mx-operator-override.sh audit [--json]\n  mx-operator-override.sh digest <literal text>\n  mx-operator-override.sh argv [literal argv...]\n  mx-operator-override.sh handoff <request-id>\n";
 
 pub fn run(entry: &str, args: &[OsString]) -> i32 {
     const ENTRIES: &[&str] = &[
         "mx-decision-hold.sh",
         "mx-maintainer-override.sh",
+        "mx-operator-override.sh",
         "mx-override-bindings.sh",
         "mx-override-run.sh",
         "mx-workflow.sh",
@@ -24,7 +25,10 @@ pub fn run(entry: &str, args: &[OsString]) -> i32 {
         eprintln!("error: unknown authority entry point: {entry}");
         return 2;
     }
-    if entry == "mx-maintainer-override.sh" {
+    if matches!(
+        entry,
+        "mx-operator-override.sh" | "mx-maintainer-override.sh"
+    ) {
         return run_override(args);
     }
     if entry == "mx-override-run.sh" {
@@ -493,7 +497,7 @@ pub(crate) fn override_bindings(values: &[String]) -> Result<serde_json::Value, 
                 "session.terminate-owner",
                 "broker-session",
                 "multplx",
-                format!("terminate live broker harness pid {pid} and reacquire session lock"),
+                format!("terminate live parent harness pid {pid} and reacquire session lock"),
                 format!("harness-pid:{pid}"),
                 "Send TERM only to the verified competing harness, prove it exited, then acquire the ordinary lock without bypassing it.",
                 serde_json::json!({"lock_digest": file_digest(&lock), "pid": pid, "verified_harness_command": command}),
@@ -754,7 +758,7 @@ fn override_run(args: &[OsString]) -> i32 {
         current_branch.as_deref(),
     ) {
         eprintln!(
-            "mx-override-run: [{}] {}; maintainer overrides cannot grant PR merge authority",
+            "mx-override-run: [{}] {}; human exceptions cannot grant PR merge authority",
             denial.code, denial.reason
         );
         return 3;
@@ -1628,12 +1632,12 @@ fn text_args(args: &[OsString]) -> Option<Vec<String>> {
 }
 
 fn override_error(message: impl AsRef<str>) -> i32 {
-    eprintln!("mx-maintainer-override: {}", message.as_ref());
+    eprintln!("mx-operator-override: {}", message.as_ref());
     1
 }
 
 fn usage_error(message: impl AsRef<str>) -> i32 {
-    eprintln!("mx-maintainer-override: {}", message.as_ref());
+    eprintln!("mx-operator-override: {}", message.as_ref());
     eprint!("{OVERRIDE_USAGE}");
     2
 }
@@ -1793,8 +1797,10 @@ fn command_decide(store: &OverrideStore, grant: bool, args: &[String]) -> i32 {
         Ok(value) => value,
         Err(error) => return usage_error(error),
     };
-    let Some(words) = required(&options, "maintainer-words") else {
-        return usage_error(format!("{label} requires --maintainer-words"));
+    let Some(words) =
+        required(&options, "operator-words").or_else(|| required(&options, "maintainer-words"))
+    else {
+        return usage_error(format!("{label} requires --operator-words"));
     };
     if options.len() != 1 {
         return usage_error(format!("unknown {label} argument"));

@@ -342,7 +342,7 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
     let read_only = lock_status != 0;
     if read_only {
         let bar = "●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
-        output.push_str(&format!("{bar}\n●  READ-ONLY SESSION - SYSTEM LOCK OWNERSHIP WAS NOT VERIFIED\n●  {}\n●  Skipping every mutating step: PR-check migration, stale Herdr child cleanup,\n●  daemon sync, system sync, and wake-queue drain. Detect-only bootstrap\n●  diagnostics and the rest of this read-only-safe digest still ran below.\n●  Operate read-only until this resolves - do not spawn, steer, merge, or\n●  otherwise mutate system state from this session.\n{bar}\n", lock_output.trim_end()));
+        output.push_str(&format!("{bar}\n●  READ-ONLY SESSION - SYSTEM LOCK OWNERSHIP WAS NOT VERIFIED\n●  {}\n●  Skipping every mutating step: PR-check migration, stale Herdr child cleanup,\n●  standing-agent sync, system sync, and wake-queue drain. Detect-only bootstrap\n●  diagnostics and the rest of this read-only-safe digest still ran below.\n●  Operate read-only until this resolves - do not spawn, steer, merge, or\n●  otherwise mutate system state from this session.\n{bar}\n", lock_output.trim_end()));
     }
     subsection(&mut output, "BOOTSTRAP");
     let mut boot = String::new();
@@ -446,7 +446,7 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
     print_file(
         &mut output,
         &paths.data.join("maintainer-shared.md"),
-        "data/maintainer-shared.md (shared, main-authoritative, read-only in daemon homes)",
+        "data/maintainer-shared.md (shared, parent-authoritative, read-only in standing-agent homes)",
     );
     print_file(
         &mut output,
@@ -470,6 +470,6 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
     } else {
         output.push_str(&format!("Follow the supervision operating instructions block above for harness '{harness}'.\nThis script never starts supervision itself.\n\n"));
     }
-    output.push_str("The digest above is complete for this session start. Do NOT re-read\ndata/projects.md, data/daemons.md, data/maintainer.md,\ndata/maintainer-shared.md, data/learnings.md,\nor state/*.meta now - they were just printed in full.\nDo NOT bulk-read data/backlog.md now either: the compact identity/metadata\nlisting was just printed with a pointer for targeted full-body follow-up.\nDo NOT bulk-read state/*.status now either: their bounded tails were just\nprinted with full log paths for targeted follow-up when older wake-event\nhistory is actually needed. Re-reading everything defeats the entire point\nof this command. Re-read a file only if this digest flagged it ABSENT (then\nrebuild or create it per AGENTS.md), its contents looked unparseable/corrupt,\nor an individual full status log is needed for older wake-event history.\n");
+    output.push_str("The digest above is complete for this session start. Do NOT re-read\ndata/projects.md, data/agents.md (or its historical selected registry), data/maintainer.md,\ndata/maintainer-shared.md, data/learnings.md,\nor state/*.meta now - they were just printed in full.\nDo NOT bulk-read data/backlog.md now either: the compact identity/metadata\nlisting was just printed with a pointer for targeted full-body follow-up.\nDo NOT bulk-read state/*.status now either: their bounded tails were just\nprinted with full log paths for targeted follow-up when older wake-event\nhistory is actually needed. Re-reading everything defeats the entire point\nof this command. Re-read a file only if this digest flagged it ABSENT (then\nrebuild or create it per AGENTS.md), its contents looked unparseable/corrupt,\nor an individual full status log is needed for older wake-event history.\n");
     output
 }

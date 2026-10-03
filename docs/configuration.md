@@ -12,7 +12,7 @@ The shared orchestrator behavior contract lives in the [operating contract](../A
 
 This section is the single owner of the top-level operational-home layout; Rust command help and the owning crate modules define exact child-file fields and mutation contracts.
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `MX_HOME` contains private operational directories.
-`data/` holds durable private system records such as the project and persistent-sub-agent registries, maintainer preferences, optional shared maintainer preferences, learnings, backlog, briefs, and researcher reports.
+`data/` holds durable private system records such as the project and persistent-sub-agent registries, human preferences, optional shared human preferences, learnings, backlog, briefs, and researcher reports.
 `state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, private persistent-sub-agent config-reread generations with their retry and quarantine state, and parent-owned persistent-sub-agent pending-reply records under `state/pending-replies/` (`multplx-domain::lifecycle::pending_reply`).
 `config/` holds local gitignored operating choices, and `projects/` holds the legacy managed project clones; the lean local-checkout model is owned by [A9](../porting.md#a9-launch-anywhere-project-discovery-and-one-shared-chat).
 
@@ -65,7 +65,7 @@ Ambient tmux, Herdr and cmux identifiers pass through unless explicitly overridd
 
 ## Pi Calm preference (config/calm)
 
-The Pi Calm extension stores the maintainer's home-local presentation choice in gitignored `config/calm` under the effective Multplx home, resolved from `MX_HOME`, then `MX_ROOT_OVERRIDE`, then the tracked code root derived from the extension path, or under `MX_CONFIG_OVERRIDE` when that test and specialized-setup override is present.
+The Pi Calm extension stores the human's home-local presentation choice in gitignored `config/calm` under the effective Multplx home, resolved from `MX_HOME`, then `MX_ROOT_OVERRIDE`, then the tracked code root derived from the extension path, or under `MX_CONFIG_OVERRIDE` when that test and specialized-setup override is present.
 The only values it writes are `on` and `off`, each followed by one newline; an absent, unreadable, or unrecognized value defaults to off.
 The `/calm` command replaces the file atomically before changing live presentation, so a failed write leaves the current choice unchanged rather than claiming persistence.
 The extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
@@ -122,7 +122,7 @@ A metadata-routed selector returns the recorded backend target (`window=`), and 
 Only metadata-routed task selectors carry persistent-home-marker and Codex-harness context; explicit endpoint escape hatches do not.
 These five sentences are the single owner of the task-selector vocabulary; backend guides and other documents point here instead of restating the resolution order.
 `mx-teardown.sh <id>` takes a task id directly and uses the same recorded backend target fields after loading `state/<id>.meta`.
-By default, Herdr workspaces are derived from `MX_HOME`: the primary home uses `broker`, and a persistent-sub-agent home marked by `.mx-daemon-home` uses `daemon-<daemon-id>`.
+By default, Herdr workspaces are derived from `MX_HOME`: the primary home uses `primary`, and a standing-agent home marked by `.mx-agent-home` uses `agent-<agent-id>`; exact historical labels are adopted for existing containers.
 The default-container spawn, list-live, and recovery paths read that label from the active home, so a persistent sub-agent's children stay inside that sub-agent home's Herdr space.
 The optional local `config/herdr-presentation-spaces` presence flag instead enables Herdr's default-off disposable single-task visual projection; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns its behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
 The flag is default-off and inherited into persistent-sub-agent homes under the primary-authoritative contract owned by [inherited configuration](configuration.md#persistent-home-inheritance).
@@ -146,7 +146,7 @@ Selecting any other supervisor backend, including `cmux`, refuses when the servi
 ## Away-mode wedge alarm channels (config/wedge-alarm)
 
 When away-mode injection wedges past `MX_MAX_DEFER_SECS`, the sub-supervisor raises a loud, rate-limited alarm.
-Beyond the durable `state/.subsuper-inject-wedged` marker and the tmux status-line flash, it attempts a configured backend-independent active alert that can reach the maintainer even when every pane and its backend status-line is unreadable.
+Beyond the durable `state/.subsuper-inject-wedged` marker and the tmux status-line flash, it attempts a configured backend-independent active alert that can reach the human even when every pane and its backend status-line is unreadable.
 `config/wedge-alarm` (local, gitignored) lists channel directives, one per non-empty, non-comment line; every listed non-`off` channel fires, best-effort.
 `MX_WEDGE_ALARM_CHANNEL` overrides the file with a single directive.
 Directives are `off` (a position-independent kill switch that disables every active alert), `auto`/`default`, `herdr` (herdr UI notification), and `command:<cmd>` (run `<cmd>` via `sh -c`, summary on `$1` and stdin).
@@ -168,22 +168,24 @@ Portable shard evidence and coverage rules are in [mx-test-portable-shards.md](m
 
 ## Maintainer Preferences (data/maintainer.md / data/maintainer-shared.md)
 
-Domain-local preferences for one maintainer's system live locally in each home's `data/maintainer.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/daemons.md`.
+Domain-local preferences for one human's system live locally in each home's `data/maintainer.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/daemons.md`.
 Before changing it, inspect the current file and rewrite or prune the matching bullet in place; add a new bullet only for a genuinely new durable preference.
-Shared maintainer preferences that apply across persistent-sub-agent domains live only in the primary home's optional `data/maintainer-shared.md`.
+Shared human preferences that apply across persistent-sub-agent domains live only in the primary home's optional `data/maintainer-shared.md`.
 The persistent-home inheritance section below owns propagation; the parent-authoritative shared preference header and read-only child copies prevent accidental reverse synchronization.
 
 ## Operational learnings (data/learnings.md)
 
 System-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed after the maintainer-preference files in the session-start context digest.
 The file is created lazily on first learning and follows the same dated, evidence-backed, curated style as `data/maintainer.md`: inspect the current file first, then rewrite or prune stale entries instead of appending forever.
-There is no shared learnings file by maintainer decision.
+There is no shared learnings file by human decision.
 
-## Persistent sub-agent routes (data/daemons.md)
+<a id="persistent-sub-agent-routes-datadaemonsmd"></a>
+
+## Standing agent routes (data/agents.md)
 
 The [scoped coordinator command](scoped-coordinators.md) provisions a named domain and private home without manual route setup.
 The following registry grammar remains the compatibility surface for existing homes.
-Persistent-sub-agent routes live locally in `data/daemons.md`.
+New standing-agent routes live locally in `data/agents.md`; existing `data/daemons.md` layouts remain sticky compatibility reads and writes.
 The existing parser accepts one route per line:
 
 ```text
@@ -203,11 +205,11 @@ The reservation is held under the persistent-sub-agent id across normal restarts
 Teardown retains uncertain Git-backed homes and archives new private homes using their exact recorded lease identity.
 Persistent-sub-agent routes also support local-only and remote-free projects without fabricating a publication remote.
 The optional deep-review command resolves configuration from the explicitly selected task project and requires no per-clone initialization during seeding.
-After creating a persistent sub-agent, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <daemon-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-persistent homes.
-Set `MX_DAEMON_CHARTER` to seed from inline charter text when no filled charter brief exists; set `MX_DAEMON_SCOPE` when the routing scope should differ from the charter text.
+After creating a persistent sub-agent, move existing main-backlog queued items that you have judged in-scope with `mx-backlog-handoff.sh <agent-id> <item-key>...`; it is idempotent and refuses In flight, Done, or non-persistent homes.
+Set `MX_AGENT_CHARTER` to seed from inline charter text when no filled charter brief exists; set `MX_AGENT_SCOPE` when the routing scope should differ from the charter text.
 The seeded home's `data/charter.md` owns the standard persistent-sub-agent lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
-Each seed writes an `.mx-daemon-home` identity marker at the home root.
-The tracked root `.gitignore` ignores that marker, so validation can read it without making a freshly seeded home appear dirty to porcelain-based safety checks.
+Each new seed writes an `.mx-agent-home` identity marker at the home root.
+The tracked root `.gitignore` ignores both canonical and historical markers, so validation can read it without making a freshly seeded home appear dirty to porcelain-based safety checks.
 This does not relax protection for any other untracked file.
 An existing linked-worktree home that predates this rule advances through its marker-only state during its next bootstrap or spawn local sync, after which Git ignores the marker normally.
 A standalone-clone home cannot receive a primary-local commit through that no-fetch sync, so it receives the rule through `/updatemultplx`'s origin refresh instead.
@@ -229,7 +231,7 @@ The full cmux home label also includes a short hash of the resolved `MX_ROOT` pa
 
 claude, codex, cursor, and pi are empirically verified; new harnesses get verified through a monitored trial task before joining the set.
 The trusted project-level [`.codex/config.toml`](../.codex/config.toml) selects `sandbox_mode = "danger-full-access"` for Codex primary sessions because session locking, host-capacity checks, runtime backend control, and sub-agent launch require host operations that the default command sandbox denies.
-The project setting does not change `approval_policy`; Codex approval prompts remain under the maintainer's user-level or command-line policy.
+The project setting does not change `approval_policy`; Codex approval prompts remain under the human's user-level or command-line policy.
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Launch mechanics and verified command templates are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) is its transport-only compatibility entrypoint.
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
@@ -243,12 +245,12 @@ Complete the provider's native one-time hook trust review when prompted; skipped
 An unsupported Codex queue CLI produces a visible compatibility warning and retains the explicit bounded foreground checkpoint fallback.
 `config/subagent-harness` is a local, gitignored file containing one adapter name for ordinary sub-agent launches; `config/actor-harness` remains its legacy alias.
 When it is absent or contains `default`, sub-agents mirror their parent's harness.
-`config/persistent-subagent-harness` selects the harness for persistent launches, optionally followed by model and effort tokens; `config/daemon-harness` remains its legacy alias.
+`config/standing-agent-harness` selects the harness for persistent launches, optionally followed by model and effort tokens; `config/persistent-subagent-harness` and `config/daemon-harness` remain explicit legacy aliases.
 The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort>]`.
 A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
 When the persistent harness token is absent or `default`, launch falls back through `config/subagent-harness` and then the parent's own harness, and no model or effort is read from that file.
-`mx harness persistent-subagent-model` and `mx harness persistent-subagent-effort` expose the optional tokens; `daemon-model` and `daemon-effort` remain command aliases.
-`mx harness subagent` and `mx harness persistent-subagent` resolve the harness defaults, with `actor` and `daemon` retained as aliases.
+`mx harness standing-agent-model` and `mx harness standing-agent-effort` expose the optional tokens; `daemon-model` and `daemon-effort` remain command aliases.
+`mx harness subagent` and `mx harness standing-agent` resolve the harness defaults, with `actor` and `daemon` retained as aliases.
 Conflicting canonical and legacy files refuse launch instead of silently choosing one.
 An explicit harness argument to `mx-spawn.sh` still overrides either config file for that spawn only.
 An explicit `--model` or `--effort` overrides the matching persistent default; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
@@ -400,10 +402,10 @@ A killed refresh (or a teardown process kill) can leave an orphaned `.git/packed
 On that signature only, `mx-system-sync.sh` retries the fetch with a bounded wait for the lock to self-clear, then removes the lock and retries once more only when it can prove the lock stale, exactly like the `mx-teardown.sh` `index.lock` recovery.
 It never removes a live lock, leaves any other failure shape untouched, and prints every wait, retry, and removal to stderr plus a one-line `recovered:` summary to stdout on success so that this session-start relay still surfaces the recovery.
 The locked session-start bootstrap step also runs the guarded local persistent-sub-agent sync for recorded live homes, then propagates declared inherited local material into each validated live home.
-It emits `DAEMON_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared maintainer-preference copy was quarantined.
+It emits `AGENT_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared maintainer-preference copy was quarantined.
 When a running home advances and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, bootstrap sends the re-read nudge itself through the stable `mx-<id>` selector and reports the exact completed send as `BOOTSTRAP_INFO:`.
-If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_DAEMONS:` with the failure reason.
-The same bootstrap run emits `DAEMON_LIVENESS:` only when a registered persistent sub-agent is skipped or its relaunch fails; already-live and successfully relaunched persistent sub-agents are handled silently.
+If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_AGENTS:` with the failure reason.
+The same bootstrap run emits `AGENT_LIVENESS:` only when a registered persistent sub-agent is skipped or its relaunch fails; already-live and successfully relaunched persistent sub-agents are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/mx-config-push.sh`.
 It uses the same live persistent-sub-agent discovery and propagation helper as bootstrap, prints each live home's `actor-dispatch.json`, `actor-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/maintainer-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running home, it sends the literal-content reread pointer described in [inherited configuration](configuration.md#persistent-home-inheritance); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
@@ -540,3 +542,15 @@ A delivered pointer is transport evidence, not proof of model acknowledgement.
 The guarded local tracked-file fast-forward is separate and does not fetch or modify private task state.
 Use `bin/mx-config-push.sh --help` for mid-session convergence and the existing update command for origin refresh.
 The optional [persistent operations reference](../.agents/skills/persistent-subagents/SKILL.md) provides command discovery.
+
+## Standing agent layout compatibility
+
+New managed homes use `.mx-agent-home`, `data/agents.md`, and `config/standing-agent-harness`. Existing legacy-only marker and route-registry layouts remain selected in place; updating the runtime never migrates private homes. `MX_DAEMON_CHARTER` and `MX_DAEMON_SCOPE` are legacy input aliases for `MX_AGENT_CHARTER` and `MX_AGENT_SCOPE`, which take precedence. `mx agent-report` and `bin/mx-agent-report.sh` are the current correlated reporting entry points; `daemon-report` and its script are explicit compatibility aliases.
+
+Canonical and historical identity markers must contain the same exact ID after trimming surrounding whitespace. Internal whitespace, empty IDs, linked files and conflicting IDs refuse use. This tightens the historical whitespace-stripping reader; `wor ker` never identifies `worker`. Route registries with differing bytes refuse reads, and two registry copies refuse mutation even when equal. Keep the original files and pending seed journals for reconciliation; do not delete either copy or copy routes by hand. There is no supported automatic layout-consolidation operation in this release. An operator must resolve the duplicate-layout condition before using a writer; `mx-home-seed.sh validate` checks the selected route ownership without migrating a home.
+
+Existing Herdr and cmux containers are adopted only through the exact historical label for the same resolved home and agent identity. New containers receive current labels. Pi writes `multplx-*` presentation keys; historical presentation entries and already-installed patch guards remain readable without rewriting transcripts. Versioned `kind=daemon` projections, historical migration inputs, compatibility filenames and past verification evidence are retained as data, not agent roles or approval ranks.
+
+`bin/mx-operator-override.sh` is the current human policy-exception command, with `--operator-words` for an exact grant or denial. The historical command and `--maintainer-words` remain aliases for the same single-use, state-bound store; passing both word options is rejected. Stored `maintainer-overrides` paths, human preference filenames and typed human-hold values remain compatibility data. This naming change grants no agent merge authority and creates no new approval rank.
+
+Read-only summary commands advertise `mx-system-snapshot.sh --standing-agent-home-summary` and `mx-status-snapshot.sh --all-agents`; the historical flags remain input aliases. Their version 1 JSON schemas and existing `MX_SNAPSHOT_DAEMON*` projection-bound variables remain wire compatibility surfaces.

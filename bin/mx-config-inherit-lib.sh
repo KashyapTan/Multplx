@@ -1,35 +1,33 @@
 # shellcheck shell=bash
-# Inheritance propagation: the PRIMARY broker pushes a declared, extensible
-# set of LOCAL (gitignored) config items down into each daemon home's
-# config/, so a daemon's OWN actors inherit the primary's settings
-# (e.g. primary config/actor-dispatch.json makes a daemon use the same dispatch
-# profile rules, primary config/actor-harness=codex makes a daemon's actors
+# Inheritance propagation: the parent orchestrator pushes a declared, extensible
+# set of LOCAL (gitignored) config items down into each standing-agent home's
+# config/, so a agent's own children inherit the primary's settings
+# (e.g. primary config/actor-dispatch.json makes a standing agent use the same dispatch
+# profile rules, primary config/actor-harness=codex makes an agent's children
 # spawn on codex too, primary config/backlog-backend=manual makes that home
 # hand-edit backlog files too, and primary config/herdr-presentation-spaces
 # enables the same default-off Herdr presentation projection). It also pushes
 # the one primary-authoritative shared maintainer-preference file,
-# data/maintainer-shared.md, into each daemon home's data/ as a read-only copy.
+# data/maintainer-shared.md, into each standing-agent home's data/ as a read-only copy.
 #
 # Usage: . bin/mx-config-inherit-lib.sh   (no MX_* setup required)
 #
 # Why this is separate from the tracked-files fast-forward (mx-ff-lib.sh): config/
 # is gitignored, so a tracked-files fast-forward never carries these items. This
 # is an explicit copy run at the convergence points the primary owns - a
-# daemon spawn (bin/mx-spawn.sh), the bootstrap daemon sweep
+# standing-agent spawn (bin/mx-spawn.sh), the bootstrap standing-agent sweep
 # (bin/mx-bootstrap.sh), and the focused mid-session config push
 # (bin/mx-config-push.sh). It is PRIMARY-AUTHORITATIVE: the primary's value wins
 # and is re-pushed on every convergence, so the system stays converged on the
 # primary; an item the primary does not set is mirrored as absence downstream.
-# After successful config/* changes under an already-running daemon, callers
+# After successful config/* changes under an already-running standing agent, callers
 # invoke mx_config_send_reread_nudge so the live agent re-reads exact post-write
 # bytes (spawn/respawn already re-reads at launch and needs no redundant nudge).
 #
 # Extensible by design: MX_INHERITABLE_CONFIG is the single declared list of
 # config-dir-relative items the primary propagates. Add an item there and every
-# convergence point inherits it - no other change needed. config/daemon-harness
-# is deliberately NOT in the list: it is the primary's own setting for launching
-# daemons, and a daemon never spawns daemons, so it must not flow
-# downstream.
+# convergence point inherits it. Standing-agent defaults can flow into nested
+# delegation; persistence does not restrict an agent's delegation rights.
 
 # The one shared data file in this inheritance contract. There is deliberately
 # no shared learnings file.
@@ -42,7 +40,7 @@ MX_SHARED_MAINTAINER_MODE="444"
 # callers while Rust owns all active behavior.
 # Items are space-separated config-dir-relative paths and must not contain
 # whitespace.
-MX_INHERITABLE_CONFIG="${MX_INHERITABLE_CONFIG:-actor-dispatch.json actor-harness backlog-backend herdr-presentation-spaces}"
+MX_INHERITABLE_CONFIG="${MX_INHERITABLE_CONFIG:-subagent-dispatch.json subagent-harness standing-agent-harness persistent-subagent-harness actor-dispatch.json actor-harness backlog-backend herdr-presentation-spaces}"
 
 mx_inherit_file_mode() {
   if [ "$(uname)" = Darwin ]; then
@@ -122,7 +120,7 @@ destination_allows_inherited_item() {
 
 # propagate_inheritable_config <src-config-dir> <dest-config-dir>
 # Copy each declared inheritable item from the primary's config dir (src) into a
-# daemon home's config dir (dest). SILENT on stdout - callers parse stdout,
+# standing-agent home's config dir (dest). SILENT on stdout - callers parse stdout,
 # so this writes nothing there. It emits concise stderr diagnostics only for
 # notable events: a guard skip or a copy/remove error. A source item that is
 # present is copied only when its content differs (idempotent: a re-run never
@@ -160,10 +158,10 @@ warn_inheritable_config_error() {
 shared_maintainer_header_valid() {
   local src=$1 head
   head=$(sed -n '1,12p' "$src" 2>/dev/null) || return 1
-  case "$head" in *main-authoritative*) ;; *) return 1 ;; esac
-  case "$head" in *"read-only in daemon homes"*) ;; *) return 1 ;; esac
+  case "$head" in *parent-authoritative*|*main-authoritative*) ;; *) return 1 ;; esac
+  case "$head" in *"read-only in standing-agent homes"*|*"read-only in daemon homes"*) ;; *) return 1 ;; esac
   case "$head" in *"must not be edited there"*) ;; *) return 1 ;; esac
-  case "$head" in *"main broker"*) ;; *) return 1 ;; esac
+  case "$head" in *"parent orchestrator"*|*"main broker"*) ;; *) return 1 ;; esac
   case "$head" in *"marked status"*|*"document pointer"*) ;; *) return 1 ;; esac
 }
 
@@ -329,7 +327,7 @@ propagate_shared_maintainer_preferences() {
         restore_shared_maintainer_readonly "$dest" || true
         return 1
       fi
-      printf 'DAEMON_SYNC: daemon home %s: quarantined %s drift at %s\n' "$dest_home" "$MX_SHARED_MAINTAINER_REL" "$quarantine"
+      printf 'AGENT_SYNC: standing-agent home %s: quarantined %s drift at %s\n' "$dest_home" "$MX_SHARED_MAINTAINER_REL" "$quarantine"
     elif ! shared_maintainer_dir_safe "$dest_parent"; then
       reason="unsafe destination directory"
       warn_inheritable_config_error "$MX_SHARED_MAINTAINER_REL" "$dest_parent" "$reason"
@@ -363,7 +361,7 @@ propagate_shared_maintainer_preferences() {
       return 1
     fi
     if quarantine=$(quarantine_shared_maintainer_dest "$dest" "$dest_parent"); then
-      printf 'DAEMON_SYNC: daemon home %s: quarantined %s drift at %s\n' "$dest_home" "$MX_SHARED_MAINTAINER_REL" "$quarantine"
+      printf 'AGENT_SYNC: standing-agent home %s: quarantined %s drift at %s\n' "$dest_home" "$MX_SHARED_MAINTAINER_REL" "$quarantine"
       record_inheritable_config_result "$MX_SHARED_MAINTAINER_REL" pushed "mirrored primary absence after quarantining local copy at $quarantine"
     else
       reason="failed to quarantine destination before mirroring primary absence"
@@ -444,7 +442,7 @@ propagate_inheritable_config() {
 }
 
 # Relative prefix of per-home instruction files written after a successful
-# config push so the live daemon can re-read exact post-write bytes.
+# config push so the live standing agent can re-read exact post-write bytes.
 # Kept under state/ (gitignored operational dir) so it never dirties the home.
 MX_CONFIG_REREAD_INSTRUCTION_PREFIX_REL="state/.mx-inherited-config-reread"
 MX_CONFIG_REREAD_MAX_SENT=16
@@ -540,7 +538,7 @@ mx_config_reread_retry_queue_is_full() {
 mx_config_reread_retry_pending() {
   local id=$1 dest_home=$2 report retry_out rc
   report=$(mktemp "${TMPDIR:-/tmp}/mx-config-reread-retry.XXXXXX" 2>/dev/null) || {
-    printf 'CONFIG_REREAD: daemon %s: send failed: could not create retry report\n' "$id"
+    printf 'CONFIG_REREAD: standing agent %s: send failed: could not create retry report\n' "$id"
     return 1
   }
   retry_out=$(mx_config_send_reread_nudge "$id" "$dest_home" "$report" 2>&1)
@@ -755,7 +753,7 @@ mx_config_reread_send_failure() {
   if ! mx_config_reread_mark_pending "$instruction_path" "$pending_path"; then
     detail="$detail; could not record retry marker"
   fi
-  printf 'CONFIG_REREAD: daemon %s: send failed: %s\n' "$id" "$detail"
+  printf 'CONFIG_REREAD: standing agent %s: send failed: %s\n' "$id" "$detail"
   return 1
 }
 
@@ -764,12 +762,12 @@ mx_config_reread_send_pointer() {
   local id=$1 instruction_path=$2 pending_path selector out rc send_bin message pending_pointer
   pending_path="$instruction_path.pending"
   if [ ! -f "$instruction_path" ] || [ -L "$instruction_path" ]; then
-    printf 'CONFIG_REREAD: daemon %s: send failed: pending instruction file is missing\n' "$id"
+    printf 'CONFIG_REREAD: standing agent %s: send failed: pending instruction file is missing\n' "$id"
     return 1
   fi
   pending_pointer=$(cat "$pending_path" 2>/dev/null || true)
   if [ "$pending_pointer" != "$instruction_path" ]; then
-    printf 'CONFIG_REREAD: daemon %s: send failed: pending instruction file is mismatched\n' "$id"
+    printf 'CONFIG_REREAD: standing agent %s: send failed: pending instruction file is mismatched\n' "$id"
     return 1
   fi
   selector="mx-$id"
@@ -958,7 +956,7 @@ mx_config_send_reread_nudge() {
   [ -n "$dest_home" ] || return 1
   [ -n "$report" ] && [ -f "$report" ] || return 1
   dest_home_abs=$(cd "$dest_home" 2>/dev/null && pwd -P) || {
-    printf 'CONFIG_REREAD: daemon %s: send failed: destination home is not readable\n' "$id"
+    printf 'CONFIG_REREAD: standing agent %s: send failed: destination home is not readable\n' "$id"
     return 1
   }
   state="$dest_home_abs/${MX_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
@@ -1004,11 +1002,11 @@ mx_config_send_reread_nudge() {
         fi
         stage_paths+="$retry_stage_path"
       elif [ -n "$exact_tmp" ] && [ -f "$exact_tmp" ]; then
-        printf 'CONFIG_REREAD: daemon %s: send failed: retained exact retry temporary %s\n' "$id" "$exact_tmp"
+        printf 'CONFIG_REREAD: standing agent %s: send failed: retained exact retry temporary %s\n' "$id" "$exact_tmp"
         send_failures=1
         break
       else
-        printf 'CONFIG_REREAD: daemon %s: send failed: could not rebuild retry instruction\n' "$id"
+        printf 'CONFIG_REREAD: standing agent %s: send failed: could not rebuild retry instruction\n' "$id"
         send_failures=1
         break
       fi
@@ -1023,31 +1021,31 @@ EOF
   if [ -n "$changed_items" ]; then
     source_home_abs=$(cd "${MX_HOME:-}" 2>/dev/null && pwd -P || true)
     if [ -z "$source_home_abs" ]; then
-      printf 'CONFIG_REREAD: daemon %s: send failed: could not reserve retry instruction\n' "$id"
+      printf 'CONFIG_REREAD: standing agent %s: send failed: could not reserve retry instruction\n' "$id"
       return 1
     fi
     if mx_config_reread_retry_queue_is_full "$source_home_abs" "$id"; then
-      printf 'CONFIG_REREAD: daemon %s: send failed: retry instruction queue is full\n' "$id"
+      printf 'CONFIG_REREAD: standing agent %s: send failed: retry instruction queue is full\n' "$id"
       return 1
     fi
     current_stage_path=$(mx_config_reread_new_retry_stage_path "$source_home_abs" "$id") || {
-      printf 'CONFIG_REREAD: daemon %s: send failed: could not reserve retry instruction\n' "$id"
+      printf 'CONFIG_REREAD: standing agent %s: send failed: could not reserve retry instruction\n' "$id"
       return 1
     }
     if ! mx_config_write_reread_instruction "$dest_home_abs" "$report" "$current_stage_path"; then
       exact_tmp=${MX_CONFIG_REREAD_FAILED_TEMP:-}
       if [ -n "$exact_tmp" ] \
         && mx_config_reread_adopt_exact_temp "$exact_tmp" "$current_stage_path"; then
-        printf 'CONFIG_REREAD: daemon %s: send failed: could not publish retry instruction; retained exact retry generation %s\n' "$id" "$current_stage_path"
+        printf 'CONFIG_REREAD: standing agent %s: send failed: could not publish retry instruction; retained exact retry generation %s\n' "$id" "$current_stage_path"
       elif [ -n "$exact_tmp" ] && [ -f "$exact_tmp" ]; then
         rm -f "$current_stage_path" 2>/dev/null || true
-        printf 'CONFIG_REREAD: daemon %s: send failed: retained exact retry temporary %s\n' "$id" "$exact_tmp"
+        printf 'CONFIG_REREAD: standing agent %s: send failed: retained exact retry temporary %s\n' "$id" "$exact_tmp"
       elif retry_record_path=$(mx_config_reread_save_retry_report "$report" "$current_stage_path"); then
         rm -f "$current_stage_path" 2>/dev/null || true
-        printf 'CONFIG_REREAD: daemon %s: send failed: could not write retry instruction; retained retry report %s\n' "$id" "$retry_record_path"
+        printf 'CONFIG_REREAD: standing agent %s: send failed: could not write retry instruction; retained retry report %s\n' "$id" "$retry_record_path"
       else
         rm -f "$current_stage_path" 2>/dev/null || true
-        printf 'CONFIG_REREAD: daemon %s: send failed: could not write retry instruction or retain retry report\n' "$id"
+        printf 'CONFIG_REREAD: standing agent %s: send failed: could not write retry instruction or retain retry report\n' "$id"
       fi
       return 1
     fi
@@ -1069,7 +1067,7 @@ EOF
         delivery_paths="$instruction_path"
       fi
     else
-      printf 'CONFIG_REREAD: daemon %s: send failed: could not publish retry instruction\n' "$id"
+      printf 'CONFIG_REREAD: standing agent %s: send failed: could not publish retry instruction\n' "$id"
       send_failures=1
       break
     fi

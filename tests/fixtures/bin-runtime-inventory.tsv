@@ -20,7 +20,8 @@ bin/mx-claude-stop-autoarm.sh	minimal-adapter	Stable Claude Stop hook command na
 bin/mx-codex-idle.sh	minimal-adapter	Stable Codex native readiness and exact-thread idle bridge entry.
 bin/mx-config-push.sh	minimal-adapter	Stable configuration push command name.
 bin/mx-cursor-hook.sh	minimal-adapter	Stable Cursor hook command name.
-bin/mx-daemon-report.sh	minimal-adapter	Stable daemon report command name.
+bin/mx-agent-report.sh	minimal-adapter	Stable standing-agent report command name.
+bin/mx-daemon-report.sh	minimal-adapter	Explicit historical alias for the standing-agent report owner.
 bin/mx-decision-hold.sh	minimal-adapter	Stable decision-hold command name.
 bin/mx-deep-review.sh	minimal-adapter	Stable deep-review command name.
 bin/mx-deliver-lib.sh	sourced-shell-abi	Retained delivery record and eligibility function ABI for external sourced callers.
@@ -43,7 +44,8 @@ bin/mx-launcher-install.sh	minimal-adapter	Stable launcher installer command nam
 bin/mx-launcher.sh	minimal-adapter	Stable launcher command name.
 bin/mx-lock.sh	sourced-shell-abi	Session-start and hook fixtures execute the shell-native lock fixture ABI; production session locking is Rust-owned.
 bin/mx-maintainer-override-lib.sh	sourced-shell-abi	Lifecycle, workflow, and review fault tests source the override ABI.
-bin/mx-maintainer-override.sh	minimal-adapter	Stable maintainer-override command name.
+bin/mx-operator-override.sh	minimal-adapter	Current human policy exception command.
+bin/mx-maintainer-override.sh	minimal-adapter	Explicit historical alias for the same exact human exception owner.
 bin/mx-merge-local.sh	minimal-adapter	Stable local-merge command name.
 bin/mx-native-observe.sh	minimal-adapter	Stable provider-native delegation observation command name.
 bin/mx-operational-input.sh	sourced-shell-abi	Daemon, marker, and focused tests source the operational-input ABI.

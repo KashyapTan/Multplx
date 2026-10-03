@@ -53,15 +53,21 @@ mx_backend_tmux_send_text_submit() {  # <target> <text> <retries> <enter-sleep> 
 }
 
 # mx_backend_tmux_container_ensure: reuse the current tmux session when
-# broker itself runs inside tmux, else ensure a dedicated detached
-# "broker" session exists. Mirrors mx-spawn.sh's container-ensure block;
+# the parent runs inside tmux, else adopt the exact existing legacy session
+# or create a detached "primary" session. Mirrors mx-spawn.sh's container-ensure block;
 # prints the resolved session name.
 mx_backend_tmux_container_ensure() {
   if [ -n "${TMUX:-}" ]; then
     tmux display-message -p '#S'
   else
-    tmux has-session -t broker 2>/dev/null || tmux new-session -d -s broker
-    printf 'broker'
+    if tmux has-session -t primary 2>/dev/null; then
+      printf 'primary'
+    elif tmux has-session -t broker 2>/dev/null; then
+      printf 'broker'  # Read compatibility: keep an existing container in place.
+    else
+      tmux new-session -d -s primary || return 1
+      printf 'primary'
+    fi
   fi
 }
 

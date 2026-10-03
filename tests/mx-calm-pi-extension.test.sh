@@ -622,6 +622,7 @@ await handlers.get("session_start")[0]({ reason: "startup" }, commandContext);
 if (workingVisible !== true || hiddenThinkingLabel !== undefined) {
   throw new Error("session start did not restore Pi's stock working and thinking presentation");
 }
+if (!entryRenderers.get("multplx-synthetic-input-presentation")) throw new Error("canonical presentation renderer missing");
 const presentationRenderer = entryRenderers.get("broker-synthetic-input-presentation");
 if (!presentationRenderer) throw new Error("legacy synthetic presentation renderer was not registered");
 const presentationEntry = {
@@ -638,7 +639,7 @@ if (
 }
 
 await calmCommand.handler("", commandContext);
-if (expanded !== true || workingVisible !== true || hiddenThinkingLabel !== "" || statuses.get("broker-calm") !== undefined) {
+if (expanded !== true || workingVisible !== true || hiddenThinkingLabel !== "" || statuses.get("multplx-calm") !== undefined) {
   throw new Error("Calm did not preserve working visibility or apply its thinking and footer presentation controls");
 }
 if (readFileSync(`${process.env.MX_HOME}/config/calm`, "utf8") !== "on\n") {
@@ -828,7 +829,7 @@ if (JSON.stringify(imageRow.render(100)) !== JSON.stringify(imageVisibleBefore))
 if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
   throw new Error("mx_watch_arm_pi did not restore its stock call/result shell");
 }
-if (workingVisible !== true || hiddenThinkingLabel !== undefined || statuses.get("broker-calm") !== undefined) {
+if (workingVisible !== true || hiddenThinkingLabel !== undefined || statuses.get("multplx-calm") !== undefined) {
   throw new Error("turning Calm off did not restore stock presentation controls");
 }
 if (!assistantThinkingTool.render(100).join("\n").includes("Thinking...")) {
@@ -854,7 +855,7 @@ for (const reason of ["startup", "new", "resume", "fork", "reload"]) {
       throw new Error(`${reason} session did not retain the active Calm choice for ${name}`);
     }
   }
-  if (workingVisible !== true || hiddenThinkingLabel !== "" || statuses.get("broker-calm") !== undefined) {
+  if (workingVisible !== true || hiddenThinkingLabel !== "" || statuses.get("multplx-calm") !== undefined) {
     throw new Error(`${reason} session did not retain gapless Calm presentation with native working visibility`);
   }
 }
@@ -1755,7 +1756,7 @@ const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const nativeSessionStart = entries.find((entry) =>
   entry.type === "custom_message" &&
-  entry.customType === "broker-sessionstart-nudge"
+  entry.customType === "multplx-sessionstart-nudge"
 );
 if (
   !nativeSessionStart ||

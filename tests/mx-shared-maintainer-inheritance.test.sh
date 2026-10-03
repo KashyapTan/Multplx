@@ -118,7 +118,7 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" MX_CONFIG_INHERIT_REPORT="$report" \
     propagate_daemon_inheritance "$primary" "$second")
 
-  diag=$(printf '%s\n' "$out" | grep '^DAEMON_SYNC: daemon home ' || true)
+  diag=$(printf '%s\n' "$out" | grep '^AGENT_SYNC: daemon home ' || true)
   [ -n "$diag" ] || fail "drift quarantine should emit a DAEMON_SYNC diagnostic"
   qpath=${diag##* at }
   [ "$qpath" = "$collision.1" ] || fail "collision-safe quarantine name should use .1, got $qpath"
@@ -149,7 +149,7 @@ test_missing_source_mirrors_absence_without_losing_local_bytes() {
 
   out=$(propagate_daemon_inheritance "$primary" "$second")
 
-  diag=$(printf '%s\n' "$out" | grep '^DAEMON_SYNC: daemon home ' || true)
+  diag=$(printf '%s\n' "$out" | grep '^AGENT_SYNC: daemon home ' || true)
   [ -n "$diag" ] || fail "primary absence with a local copy should quarantine before removal"
   qpath=${diag##* at }
   assert_absent "$second/data/maintainer-shared.md" "primary absence should converge destination to absence"
@@ -292,7 +292,7 @@ EOF
     MX_DATA_OVERRIDE="$data_override" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_not_contains "$out" "DAEMON_SYNC: daemon sm: skipped: inheritance failed" \
+  assert_not_contains "$out" "AGENT_SYNC: daemon sm: skipped: inheritance failed" \
     "bootstrap inheritance should succeed"
   cmp -s "$data_override/maintainer-shared.md" "$sm/data/maintainer-shared.md" \
     || fail "bootstrap convergence point did not copy shared maintainer preferences from MX_DATA_OVERRIDE"

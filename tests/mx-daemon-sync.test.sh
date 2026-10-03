@@ -15,9 +15,9 @@
 #   - The bootstrap sweep fast-forwards every live daemon home and sends a
 #     reread nudge ONLY for a running daemon whose instruction surface
 #     actually changed; a successful send is reported as BOOTSTRAP_INFO:, a
-#     failed send is reported as NUDGE_DAEMONS:, an already-current or
+#     failed send is reported as NUDGE_AGENTS:, an already-current or
 #     readme-only home is never nudged, a skipped home is reported as
-#     DAEMON_SYNC:, and a home with no live metadata is never swept.
+#     AGENT_SYNC:, and a home with no live metadata is never swept.
 #   - Spawning a daemon fast-forwards its worktree to the primary's HEAD
 #     before launch, or warns and launches unchanged when the sync is skipped.
 set -u
@@ -356,7 +356,7 @@ test_bootstrap_sweep_nudges_only_instruction_change() {
   [ -n "$info_line" ] || fail "no BOOTSTRAP_INFO nudge line emitted (got: $out)"
   assert_contains "$info_line" "broker was updated to the latest - please re-read your AGENTS.md to pick up the new instructions." \
     "successful nudge report should include the exact message sent"
-  assert_not_contains "$out" "NUDGE_DAEMONS:" "successful nudge must not leave a broker action item"
+  assert_not_contains "$out" "NUDGE_AGENTS:" "successful nudge must not leave a broker action item"
   assert_not_contains "$out" "sm-readme" "readme-only advance is not nudged"
   assert_not_contains "$out" "sm-current" "already-current daemon is not nudged"
   assert_contains "$(cat "$log")" "[mx-from-parent]" "nudge send should use the marked mx-send daemon path"
@@ -393,7 +393,7 @@ test_bootstrap_nudge_send_uses_state_override() {
 
   assert_contains "$out" "BOOTSTRAP_INFO: nudged mx-sm-instr with" \
     "nudge send should resolve mx-sm-instr through the effective state dir"
-  assert_not_contains "$out" "NUDGE_DAEMONS:" \
+  assert_not_contains "$out" "NUDGE_AGENTS:" \
     "effective-state nudge should not fail through MX_HOME/state"
   assert_contains "$(cat "$log")" "[mx-from-parent]" \
     "effective-state nudge should still use daemon marker metadata"
@@ -431,7 +431,7 @@ test_bootstrap_nudge_retry_rejects_malformed_marker_id() {
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_LOG="$log" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_contains "$out" "NUDGE_DAEMONS: daemon ../escape: send failed: retry marker has unsafe id" \
+  assert_contains "$out" "NUDGE_AGENTS: daemon ../escape: send failed: retry marker has unsafe id" \
     "malformed retry marker id should be rejected before target resolution"
   assert_not_contains "$out" "BOOTSTRAP_INFO: nudged mx-../escape" \
     "malformed retry marker id must never send through a path-traversed selector"
@@ -452,7 +452,7 @@ test_bootstrap_nudge_failure_records_retry_marker() {
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_contains "$out" "NUDGE_DAEMONS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
     "failed nudge send should be surfaced as actionable bootstrap output"
   marker="$w/home/state/.daemon-nudge-pending/sm-instr.pending"
   assert_present "$marker" "failed nudge should leave a retry marker"
@@ -473,7 +473,7 @@ test_bootstrap_nudge_retry_is_idempotent() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "NUDGE_DAEMONS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
     "precondition: first nudge should fail"
   marker="$w/home/state/.daemon-nudge-pending/sm-instr.pending"
   assert_present "$marker" "precondition: failed nudge should leave marker"
@@ -501,7 +501,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "NUDGE_DAEMONS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
     "precondition: first nudge should fail"
   marker="$w/home/state/.daemon-nudge-pending/sm-instr.pending"
   assert_present "$marker" "precondition: failed nudge should leave marker"
@@ -515,7 +515,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
 
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "NUDGE_DAEMONS: daemon sm-instr: send failed: retry target home changed" \
+  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed: retry target home changed" \
     "retry must not infer a nudge target outside the recorded failed home"
   assert_present "$marker" "ambiguous retry should keep marker for operator inspection"
   pass "T8e bootstrap nudge retry refuses a changed home instead of guessing"
@@ -613,7 +613,7 @@ SH
     MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_contains "$out" "NUDGE_DAEMONS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
     "stale herdr endpoint should surface a failed immediate nudge"
 
   window=$(grep '^window=' "$meta" | tail -1 | cut -d= -f2-)
@@ -653,7 +653,7 @@ test_bootstrap_sweep_surfaces_skipped_home() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  skip_line=$(printf '%s\n' "$out" | grep '^DAEMON_SYNC: daemon sm-dirty: skipped:' || true)
+  skip_line=$(printf '%s\n' "$out" | grep '^AGENT_SYNC: daemon sm-dirty: skipped:' || true)
   [ -n "$skip_line" ] || fail "no DAEMON_SYNC skip line emitted (got: $out)"
   assert_contains "$skip_line" "dirty working tree" "dirty skipped home reports the actionable reason"
   [ "$(head_of "$w/sm-dirty")" = "$before" ] || fail "dirty home HEAD moved"

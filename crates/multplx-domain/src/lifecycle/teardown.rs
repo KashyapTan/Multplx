@@ -1,4 +1,4 @@
-//! Transactional retirement of persistent daemon homes.
+//! Transactional retirement of persistent standing-agent homes.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -296,13 +296,13 @@ fn validate_task_target(
 }
 
 fn validate_registry_descendants(registry: &Path, home: &Path) -> Result<(), String> {
-    let bytes = match read_regular(registry, "daemon registry") {
+    let bytes = match read_regular(registry, "agent registry") {
         Ok(bytes) => bytes,
         Err(_) if !registry.exists() => return Ok(()),
         Err(error_value) => return Err(error_value),
     };
     let text =
-        String::from_utf8(bytes).map_err(|_| "daemon registry is not valid UTF-8".to_owned())?;
+        String::from_utf8(bytes).map_err(|_| "agent registry is not valid UTF-8".to_owned())?;
     for line in text.lines().filter(|line| line.starts_with("- ")) {
         let Some(value) = registry_home(line) else {
             continue;
@@ -311,7 +311,7 @@ fn validate_registry_descendants(registry: &Path, home: &Path) -> Result<(), Str
         if is_strict_descendant(home, &registered) {
             let id = line[2..].split_whitespace().next().unwrap_or("unknown");
             return Err(format!(
-                "REFUSED: unsafe daemon home removal target {} contains registered daemon home {} for {id}",
+                "REFUSED: unsafe standing-agent home removal target {} contains registered standing-agent home {} for {id}",
                 home.display(),
                 registered.display()
             ));
@@ -997,7 +997,7 @@ fn validate_children(context: &Context, home: &Path) -> Result<Vec<PathBuf>, Str
     let state = fs::canonicalize(&state).map_err(|error_value| error_value.to_string())?;
     if !is_strict_descendant(home, &state) {
         return Err(format!(
-            "REFUSED: unsafe daemon home state directory {} resolves outside the daemon home",
+            "REFUSED: unsafe standing-agent home state directory {} resolves outside the standing-agent home",
             home.join("state").display()
         ));
     }
@@ -1021,8 +1021,8 @@ fn validate_children(context: &Context, home: &Path) -> Result<Vec<PathBuf>, Str
                 .get("home")
                 .filter(|value| !value.is_empty())
                 .or_else(|| values.get("worktree"))
-                .ok_or("child daemon metadata has no home")?;
-            validate_removal_target(context, Path::new(child_home), "child daemon home")?;
+                .ok_or("child standing agent metadata has no home")?;
+            validate_removal_target(context, Path::new(child_home), "child standing-agent home")?;
             let child_home = validate_home(&child_context, &child_id, Path::new(child_home))?;
             let _ = validate_children(context, &child_home)?;
         } else if let Some(worktree) = values.get("worktree").filter(|value| !value.is_empty())
@@ -1145,7 +1145,7 @@ where
                 .get("home")
                 .filter(|value| !value.is_empty())
                 .or_else(|| values.get("worktree"))
-                .ok_or("child daemon has no home")?;
+                .ok_or("child standing agent has no home")?;
             cleanup_children(&child_context, Path::new(child_home), kill)?;
             remove_home(&child_context, Path::new(child_home))?;
             remove_registry_entry(&child_context, &child_id)?;
@@ -1173,20 +1173,20 @@ where
 }
 
 fn validate_home(context: &Context, id: &str, requested: &Path) -> Result<PathBuf, String> {
-    let home = validate_removal_target(context, requested, "daemon home")?;
-    require_owned_directory(&home, "daemon home")?;
+    let home = validate_removal_target(context, requested, "standing-agent home")?;
+    require_owned_directory(&home, "standing-agent home")?;
     let marker = multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
     if !marker.exists() {
         return Err(format!(
-            "REFUSED: unsafe daemon home removal target {} is not a seeded daemon home",
+            "REFUSED: unsafe standing-agent home removal target {} is not a seeded standing-agent home",
             home.display()
         ));
     }
-    let marker_text = String::from_utf8(read_regular(&marker, "daemon home marker")?)
-        .map_err(|_| "daemon home marker is not valid UTF-8".to_owned())?;
+    let marker_text = String::from_utf8(read_regular(&marker, "standing-agent home marker")?)
+        .map_err(|_| "standing-agent home marker is not valid UTF-8".to_owned())?;
     if marker_text.trim_end() != id {
         return Err(format!(
-            "REFUSED: unsafe daemon home removal target {} is marked for daemon {}, expected {id}",
+            "REFUSED: unsafe standing-agent home removal target {} is marked for agent {}, expected {id}",
             home.display(),
             marker_text.trim_end()
         ));
@@ -1200,19 +1200,19 @@ fn validate_home(context: &Context, id: &str, requested: &Path) -> Result<PathBu
         };
         if !metadata.is_dir() && !metadata.file_type().is_symlink() {
             return Err(format!(
-                "REFUSED: unsafe daemon home {name} path {} is not a directory",
+                "REFUSED: unsafe standing-agent home {name} path {} is not a directory",
                 path.display()
             ));
         }
         let canonical = fs::canonicalize(&path).map_err(|_| {
             format!(
-                "REFUSED: unsafe daemon home {name} directory {} resolves outside the daemon home",
+                "REFUSED: unsafe standing-agent home {name} directory {} resolves outside the standing-agent home",
                 path.display()
             )
         })?;
         if !is_strict_descendant(&home, &canonical) {
             return Err(format!(
-                "REFUSED: unsafe daemon home {name} directory {} resolves outside the daemon home",
+                "REFUSED: unsafe standing-agent home {name} directory {} resolves outside the standing-agent home",
                 path.display()
             ));
         }
@@ -1230,7 +1230,7 @@ fn has_children(home: &Path) -> Result<Option<PathBuf>, String> {
     let state = fs::canonicalize(&state).map_err(|error_value| error_value.to_string())?;
     if !is_strict_descendant(home, &state) {
         return Err(format!(
-            "REFUSED: unsafe daemon home state directory {} resolves outside the daemon home",
+            "REFUSED: unsafe standing-agent home state directory {} resolves outside the standing-agent home",
             home.join("state").display()
         ));
     }
@@ -1312,13 +1312,13 @@ fn remove_registry_entry(context: &Context, id: &str) -> Result<(), String> {
     )
     .map_err(|e| format!("cannot acquire home registry publication lock: {e}"))?;
     let registry = agent_registry(&context.data)?;
-    let bytes = match read_regular(&registry, "daemon registry") {
+    let bytes = match read_regular(&registry, "agent registry") {
         Ok(bytes) => bytes,
         Err(_) if !registry.exists() => return Ok(()),
         Err(error_value) => return Err(error_value),
     };
     let text =
-        String::from_utf8(bytes).map_err(|_| "daemon registry is not valid UTF-8".to_owned())?;
+        String::from_utf8(bytes).map_err(|_| "agent registry is not valid UTF-8".to_owned())?;
     let mut retained = text
         .lines()
         .filter(|line| {
@@ -1640,7 +1640,7 @@ fn finish_transaction<F>(
 where
     F: FnMut(&Path) -> Result<(), String>,
 {
-    let home = validate_removal_target(context, Path::new(&journal.home), "daemon home")?;
+    let home = validate_removal_target(context, Path::new(&journal.home), "standing-agent home")?;
     if journal.stage == "prepared" {
         if let Ok(raw) = fs::read_to_string(context.state.join(format!("{}.meta", journal.id))) {
             let task = super::subagent_model::read_meta(&journal.id, &raw)?;
@@ -1670,7 +1670,7 @@ where
         injected("state")?;
     }
     if journal.stage != "committed" {
-        return Err("malformed daemon teardown journal stage".to_owned());
+        return Err("malformed agent teardown journal stage".to_owned());
     }
     fs::remove_file(path).map_err(|error_value| error_value.to_string())
 }
@@ -1839,7 +1839,7 @@ where
         .get("home")
         .filter(|value| !value.is_empty())
         .or_else(|| values.get("worktree"))
-        .ok_or("daemon metadata has no home or worktree")?;
+        .ok_or("standing-agent metadata has no home or worktree")?;
     let home = validate_home(context, id, Path::new(raw_home))?;
     let pending_outcomes = super::parent_channel::pending_outcomes(&home.join("state"))?;
     if pending_outcomes > 0 {
@@ -1849,7 +1849,7 @@ where
     }
     if let Some(child) = has_children(&home)? {
         return Err(format!(
-            "REFUSED: daemon {id} still has in-flight work in {}. Found {}.",
+            "REFUSED: standing agent {id} still has in-flight work in {}. Found {}.",
             home.join("state").display(),
             child.file_name().unwrap_or_default().to_string_lossy()
         ));
@@ -1857,7 +1857,7 @@ where
     let journal_path = context.state.join(format!("{JOURNAL_PREFIX}{id}"));
     let mut journal = Journal {
         id: id.to_owned(),
-        home: path_text(&home, "daemon home")?,
+        home: path_text(&home, "standing-agent home")?,
         stage: "prepared".to_owned(),
         home_allocation: super::subagent_model::read_meta(
             id,
@@ -1998,7 +1998,7 @@ where
             .get("home")
             .filter(|value| !value.is_empty())
             .or_else(|| values.get("worktree"))
-            .ok_or("daemon metadata has no home")?;
+            .ok_or("standing-agent metadata has no home")?;
         let home = validate_home(context, id, Path::new(raw_home))?;
         let pending_outcomes = super::parent_channel::pending_outcomes(&home.join("state"))?;
         if pending_outcomes > 0 {
@@ -2012,7 +2012,7 @@ where
         let journal_path = context.state.join(format!("{JOURNAL_PREFIX}{id}"));
         let mut journal = Journal {
             id: id.to_owned(),
-            home: path_text(&home, "daemon home")?,
+            home: path_text(&home, "standing-agent home")?,
             stage: "prepared".to_owned(),
             home_allocation: super::subagent_model::read_meta(
                 id,
@@ -2334,7 +2334,7 @@ mod tests {
         assert!(
             validate_registry_descendants(&registry, &home)
                 .expect_err("descendant")
-                .contains("contains registered daemon home")
+                .contains("contains registered standing-agent home")
         );
         fs::write(
             &registry,
@@ -2417,7 +2417,7 @@ mod tests {
         assert!(
             validate_home(&context, "other", &home)
                 .expect_err("marker")
-                .contains("marked for daemon daemon")
+                .contains("marked for agent daemon")
         );
         fs::write(home.join(MARKER), "daemon\n").expect("marker");
         let outside = temp.path().join("outside");
@@ -2435,7 +2435,7 @@ mod tests {
         assert!(
             validate_home(&context, "daemon", &unseeded)
                 .expect_err("unseeded")
-                .contains("not a seeded daemon home")
+                .contains("not a seeded standing-agent home")
         );
     }
 
@@ -2795,7 +2795,7 @@ mod tests {
         assert!(
             recover(&context, None, &mut |_| Ok(()))
                 .expect_err("stage")
-                .contains("malformed daemon teardown journal stage")
+                .contains("malformed agent teardown journal stage")
         );
     }
 
@@ -3569,7 +3569,7 @@ mod tests {
         assert!(
             validate_children(&context, &home)
                 .unwrap_err()
-                .contains("outside the daemon home")
+                .contains("outside the standing-agent home")
         );
         let journal = context.state.join(format!("{JOURNAL_PREFIX}busy"));
         fs::write(&journal, "unread while busy").unwrap();

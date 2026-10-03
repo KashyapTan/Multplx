@@ -22,6 +22,22 @@ fn optional_bytes(path: &Path, bound: usize) -> Result<Option<Vec<u8>>> {
     }
 }
 
+fn marker_identity(bytes: &[u8]) -> Result<&str> {
+    let text = std::str::from_utf8(bytes).map_err(|_| CoreError::MalformedRecord {
+        kind: "agent-home marker",
+        reason: "identity is not UTF-8",
+    })?;
+    let id = text.trim();
+    if id.chars().any(char::is_whitespace) {
+        return Err(CoreError::MalformedRecord {
+            kind: "agent-home marker",
+            reason: "identity contains internal whitespace",
+        });
+    }
+    crate::identifiers::PathComponent::parse(id)?;
+    Ok(id)
+}
+
 fn select(
     directory: &Path,
     canonical: &str,
@@ -33,15 +49,14 @@ fn select(
     let old = directory.join(legacy);
     let new_bytes = optional_bytes(&current, bound)?;
     let old_bytes = optional_bytes(&old, bound)?;
+    if marker {
+        for bytes in [&new_bytes, &old_bytes].into_iter().flatten() {
+            marker_identity(bytes)?;
+        }
+    }
     if let (Some(new), Some(old)) = (&new_bytes, &old_bytes) {
         let equal = if marker {
-            new.iter()
-                .copied()
-                .filter(|byte| !byte.is_ascii_whitespace())
-                .eq(old
-                    .iter()
-                    .copied()
-                    .filter(|byte| !byte.is_ascii_whitespace()))
+            marker_identity(new)? == marker_identity(old)?
         } else {
             new == old
         };
@@ -70,16 +85,7 @@ pub fn identity(home: impl AsRef<Path>) -> Result<Option<String>> {
     let Some(bytes) = optional_bytes(&path, 4096)? else {
         return Ok(None);
     };
-    let text = std::str::from_utf8(&bytes).map_err(|_| CoreError::MalformedRecord {
-        kind: "agent-home marker",
-        reason: "identity is not UTF-8",
-    })?;
-    let id = text
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect::<String>();
-    crate::identifiers::PathComponent::parse(id.clone())?;
-    Ok(Some(id))
+    Ok(Some(marker_identity(&bytes)?.to_owned()))
 }
 
 /// Select a read registry without dropping legacy-only route entries.
@@ -164,5 +170,32 @@ mod tests {
         assert!(marker_path(root.path()).is_err());
         fs::create_dir(root.path().join(REGISTRY)).unwrap();
         assert!(registry_path(root.path()).is_err());
+    }
+
+    #[test]
+    fn marker_identity_trims_edges_but_never_merges_different_spellings() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(identity(root.path()).unwrap(), None);
+        for malformed in [
+            "wor ker",
+            "wor\nker",
+            "wor\tker",
+            "wor\u{a0}ker",
+            "",
+            "../worker",
+        ] {
+            fs::write(root.path().join(LEGACY_MARKER), malformed).unwrap();
+            assert!(marker_path(root.path()).is_err(), "{malformed:?}");
+            assert!(identity(root.path()).is_err(), "{malformed:?}");
+        }
+        fs::write(root.path().join(LEGACY_MARKER), " worker \n").unwrap();
+        fs::write(root.path().join(MARKER), "worker\n").unwrap();
+        assert_eq!(identity(root.path()).unwrap().as_deref(), Some("worker"));
+        for different in ["Worker", "worker-", "worker."] {
+            fs::write(root.path().join(MARKER), different).unwrap();
+            assert!(identity(root.path()).is_err(), "{different:?}");
+        }
+        fs::write(root.path().join(MARKER), [0xff]).unwrap();
+        assert!(marker_path(root.path()).is_err());
     }
 }

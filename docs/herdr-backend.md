@@ -40,7 +40,7 @@ It parses JSON with typed Rust code and performs event subscription and `workspa
 ## Watching and task containers
 
 Each Multplx home gets one durable workspace with one task tab per endpoint.
-The primary workspace is `broker`.
+New primary workspaces use `primary`; the existing `broker` workspace is adopted as an exact legacy alias.
 A standing-agent home uses `agent-<id>`, derived from its historical `.mx-daemon-home` identity marker.
 The label is independent of the assignment role, so workers and coordinators use the same convention.
 Existing `daemon-<id>` workspaces remain eligible for lookup and recovery and are never renamed automatically.
@@ -54,7 +54,7 @@ The first workspace in a completely empty Herdr session must become focused beca
 
 Herdr does not enforce workspace or tab label uniqueness.
 Multplx adopts the first workspace matching its current or historical home label in list order and refuses duplicate task tabs inside it.
-Avoid naming a personal workspace `broker`, `agent-<id>`, or `daemon-<id>` because the adapter cannot distinguish that label collision from its own container.
+Avoid naming a personal workspace `primary`, `broker`, `agent-<id>`, or `daemon-<id>` because the adapter cannot distinguish that label collision from its own container.
 An older persistent-sub-agent workspace using `broker-<id>` is not migrated automatically; rename it manually before expecting new tasks or recovery to use it.
 
 Existing task operations use recorded endpoint ids and do not move a live task when labels change.
@@ -104,7 +104,7 @@ The exact projection workspace and focus survive, while the old shell stops occu
 A private version 1 `state/ID.herdr-quiescence` receipt records the previous binding before mutation and the verified holding binding after the presentation journal advances.
 After the worktree owner independently verifies that the worker path has no occupants, final reclaim verifies that receipt against the old metadata, creates the worker endpoint at the exact allocation path, closes the holding pane, and clears the receipt.
 An interruption after journal publication can reconcile only the exact sole holding endpoint with the original pane confirmed gone; uncertain topology, live or unknown agents, corrupt receipts, and changed ownership retain the allocation for recovery.
-The reclaim path never moves, closes, deletes, or renames a workspace and never touches a parent, sibling, maintainer, or foreign pane.
+The reclaim path never moves, closes, deletes, or renames a workspace and never touches a parent, sibling, human, or foreign pane.
 A failed replacement rolls back only the exact response-derived new pane when focus-safe verification permits it.
 Version 1 journals, dead or missing panes, duplicate or absent tokens, renamed or detached spaces, cross-home mismatches, inconsistent endpoint bindings, active target tabs, and ambiguous identity or focus fall back flat without mutating the old projection when duplicate-agent risk is positively absent.
 A live or unknown recorded or token-matched endpoint refuses duplicate launch.
@@ -250,7 +250,7 @@ The pane-independent max-defer alert is configured in [`configuration.md`](confi
 Harnesses with native tracked background execution can run the service daemon in their terminal.
 Pi has no such mechanism.
 `bin/mx-afk-launch.sh` therefore creates a dedicated unfocused Herdr workspace, runs the service daemon there with an explicit supervisor target and backend, records its exact pane, and closes only that pane on stop.
-It never splits the maintainer's active tab and never uses shell `&`.
+It never splits the human's active tab and never uses shell `&`.
 Recovery reconciles only the recorded exact id.
 
 On stop, the service daemon receives termination while `state/.afk` still exists so its final flush can run, the recorded terminal is closed, and the AFK flag is removed last.

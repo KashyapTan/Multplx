@@ -98,7 +98,7 @@ pub const REGISTRY: [Boundary; 19] = [
     Boundary {
         id: "delivery.credentialed-action",
         class: BoundaryClass::Policy,
-        alternate: "bin/mx-maintainer-override.sh handoff",
+        alternate: "bin/mx-operator-override.sh handoff",
     },
     Boundary {
         id: "dependency.install",
@@ -108,7 +108,7 @@ pub const REGISTRY: [Boundary; 19] = [
     Boundary {
         id: "authentication.login",
         class: BoundaryClass::Policy,
-        alternate: "bin/mx-maintainer-override.sh handoff",
+        alternate: "bin/mx-operator-override.sh handoff",
     },
     Boundary {
         id: "integrity.validation-state",
@@ -414,7 +414,7 @@ impl OverrideRecord {
     pub fn deny(&self, words: &str, now: u64) -> Result<Self> {
         self.validate(Some(RecordState::Pending))?;
         if words.is_empty() {
-            return Err(OverrideError::new("maintainer words must not be empty"));
+            return Err(OverrideError::new("human decision words must not be empty"));
         }
         let mut next = self.clone();
         next.decision = Decision::Denied;
@@ -454,7 +454,7 @@ impl OverrideRecord {
             next.outcome_digest = Some(sha256_text(label));
             next.validate(Some(RecordState::Stale))?;
             return Err(OverrideError::new(
-                "grant binding changed or expired; a new maintainer decision is required",
+                "grant binding changed or expired; a new human decision is required",
             ));
         }
         next.decision = Decision::Consumed;

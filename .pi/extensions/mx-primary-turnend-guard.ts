@@ -113,7 +113,7 @@ export default function (pi: ExtensionAPI) {
     if (!nudge) return;
     try {
       pi.sendMessage({
-        customType: "broker-sessionstart-nudge",
+        customType: "multplx-sessionstart-nudge",
         content: nudge,
         display: false,
         details: { kind: "session-start" },

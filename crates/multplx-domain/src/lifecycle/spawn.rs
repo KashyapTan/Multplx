@@ -424,7 +424,7 @@ fn registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, St
         .collect::<Vec<_>>();
     let line = match lines.as_slice() {
         [line] => *line,
-        [] => return Err(format!("no daemon registry entry for {id}")),
+        [] => return Err(format!("no agent registry entry for {id}")),
         _ => {
             return Err(format!(
                 "duplicate persistent sub-agent registry identity: {id}"
@@ -433,12 +433,12 @@ fn registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, String>, St
     };
     let mut fields = BTreeMap::new();
     let Some(start) = line.find("(home: ") else {
-        return Err("malformed daemon registry entry".to_owned());
+        return Err("malformed agent registry entry".to_owned());
     };
     let details = &line[start + 1..];
     let details = details
         .strip_suffix(')')
-        .ok_or("malformed daemon registry entry")?;
+        .ok_or("malformed agent registry entry")?;
     for field in details.split("; ") {
         if let Some((key, value)) = field.split_once(": ")
             && fields.insert(key.to_owned(), value.to_owned()).is_some()
@@ -456,7 +456,7 @@ fn optional_registry_fields(path: &Path, id: &str) -> Result<BTreeMap<String, St
         return Ok(BTreeMap::new());
     }
     match registry_fields(path, id) {
-        Err(error) if error.starts_with("no daemon registry entry for ") => Ok(BTreeMap::new()),
+        Err(error) if error.starts_with("no agent registry entry for ") => Ok(BTreeMap::new()),
         result => result,
     }
 }
@@ -599,7 +599,9 @@ pub fn parse(
                 index += 1;
             }
             value if value.starts_with("--") => {
-                return Err(format!("unsupported native daemon spawn option: {value}"));
+                return Err(format!(
+                    "unsupported native standing-agent spawn option: {value}"
+                ));
             }
             _ => positional.push(value.to_owned()),
         }
@@ -720,9 +722,15 @@ pub fn parse(
         return Err("persistent implementation requires --project and --base".into());
     }
     if daemon && backend == "cmux" {
-        return Err("backend=cmux does not support --daemon spawns yet".to_owned());
+        return Err(
+            "backend=cmux does not support persistent standing-agent spawns yet".to_owned(),
+        );
     }
-    let fields = optional_registry_fields(&context.data.join("daemons.md"), &id)?;
+    let fields = optional_registry_fields(
+        &multplx_core::agent_home::registry_path(&context.data)
+            .map_err(|error| error.to_string())?,
+        &id,
+    )?;
     if !daemon {
         let project_arg = positional.get(1).ok_or("invalid spawn request")?;
         let project = if let Some(relative) = project_arg.strip_prefix("projects/") {
@@ -833,7 +841,9 @@ pub fn parse(
         });
     }
     if selected_mode.is_some() || selected_yolo.is_some() {
-        return Err("daemon spawns do not accept task delivery mode or yolo overrides".to_owned());
+        return Err(
+            "standing-agent spawns do not accept task delivery mode or yolo overrides".to_owned(),
+        );
     }
     let candidate = positional.get(1).map(PathBuf::from);
     let explicit_home = candidate.as_ref().filter(|path| path.is_dir()).cloned();
@@ -868,7 +878,7 @@ pub fn parse(
     };
     if let Some(reason) = reason {
         return Err(format!(
-            "daemon home cannot be {reason}: {}",
+            "standing-agent home cannot be {reason}: {}",
             home.display()
         ));
     }
@@ -883,13 +893,13 @@ pub fn parse(
         if path.exists() || fs::symlink_metadata(&path).is_ok() {
             let canonical = fs::canonicalize(&path).map_err(|_| {
                 format!(
-                    "daemon {name} directory must resolve inside the daemon home: {}",
+                    "standing-agent {name} directory must resolve inside the standing-agent home: {}",
                     path.display()
                 )
             })?;
             if !descendant(&home, &canonical) {
                 return Err(format!(
-                    "daemon {name} directory must resolve inside the daemon home: {}",
+                    "standing-agent {name} directory must resolve inside the standing-agent home: {}",
                     path.display()
                 ));
             }
@@ -898,14 +908,14 @@ pub fn parse(
     let marker = multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
     if !marker.is_file() {
         return Err(format!(
-            "Multplx home {} is not a seeded daemon home",
+            "Multplx home {} is not a seeded standing-agent home",
             home.display()
         ));
     }
     let marker_id = fs::read_to_string(marker).unwrap_or_default();
     if marker_id.trim_end() != id {
         return Err(format!(
-            "Multplx home {} is marked for daemon {}, expected {id}",
+            "Multplx home {} is marked for agent {}, expected {id}",
             home.display(),
             marker_id.trim_end()
         ));
@@ -926,7 +936,7 @@ pub fn parse(
         .get("home")
         .is_some_and(|value| resolved(Path::new(value)) != home)
     {
-        return Err("daemon registry home does not match spawn target".to_owned());
+        return Err("agent registry home does not match spawn target".to_owned());
     }
     let project = if let Some(selector) = implementation_project {
         // The seeded home catalog proves that implementation stays in an
@@ -2044,7 +2054,11 @@ pub fn publish_meta_for_worktree(
             }
         }
     }
-    let fields = optional_registry_fields(&context.data.join("daemons.md"), &request.id)?;
+    let fields = optional_registry_fields(
+        &multplx_core::agent_home::registry_path(&context.data)
+            .map_err(|error| error.to_string())?,
+        &request.id,
+    )?;
     let projects = fields.get("projects").cloned().unwrap_or_default();
     let worktree = if request.kind == "daemon" && request.output != "implementation" {
         &request.home
@@ -3234,7 +3248,7 @@ mod tests {
                 "codex"
             )
             .expect_err("marker")
-            .contains("marked for daemon")
+            .contains("marked for agent")
         );
     }
 

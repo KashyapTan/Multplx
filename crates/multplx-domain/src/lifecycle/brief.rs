@@ -24,7 +24,7 @@ Sub-orchestrators delegate substantive deliverables and cannot select implementa
 Workers execute their accepted assignment; the current role takes precedence over
 generic orchestrator identity in repository instructions.
 --persistent adds isolated-home lifecycle context independently of --role.
-Legacy --daemon defaults its charter role to sub-orchestrator; MX_DAEMON_CHARTER and MX_DAEMON_SCOPE supply its outcome and scope.
+Legacy --daemon defaults its charter role to sub-orchestrator; MX_AGENT_CHARTER and MX_AGENT_SCOPE supply its outcome and scope.
 --no-projects deliberately leaves project selection unbound; bind a repository
 before implementation. It is mutually exclusive with a project list.
 Replace {TASK} with the accepted outcome, acceptance criteria and constraints.
@@ -150,8 +150,12 @@ fn report_assignment(
 }
 
 fn daemon(root: &Path, state: &Path, id: &str, projects: &[String], no_projects: bool) -> String {
-    let charter = env::var("MX_DAEMON_CHARTER").unwrap_or_else(|_| "{TASK}".to_owned());
-    let scope = env::var("MX_DAEMON_SCOPE").unwrap_or_else(|_| charter.clone());
+    let charter = env::var("MX_AGENT_CHARTER")
+        .or_else(|_| env::var("MX_DAEMON_CHARTER"))
+        .unwrap_or_else(|_| "{TASK}".to_owned());
+    let scope = env::var("MX_AGENT_SCOPE")
+        .or_else(|_| env::var("MX_DAEMON_SCOPE"))
+        .unwrap_or_else(|_| charter.clone());
     let projects = if no_projects {
         "None. This is a project-less domain; bind an explicit repository before implementation."
             .to_owned()
@@ -356,7 +360,7 @@ pub fn run(
         ));
     }
     if no_projects && !persistent && kind != Kind::Daemon {
-        return Err(error("--no-projects applies only to --daemon charters"));
+        return Err(error("--no-projects applies only to --persistent charters"));
     }
     let projects = positional.get(1..).unwrap_or_default();
     if persistent || kind == Kind::Daemon {
@@ -367,14 +371,16 @@ pub fn run(
         }
         if !no_projects && projects.is_empty() {
             return Err(error(
-                "--daemon requires at least one project, or --no-projects for a project-less home",
+                "--persistent requires at least one project, or --no-projects for a project-less home",
             ));
         }
     } else if positional.get(1).is_none() {
         return Err(error("missing repo name"));
     }
     if persistent && (selected_mode.is_some() || selected_yolo.is_some()) {
-        return Err(error("daemon briefs do not accept task mode or yolo"));
+        return Err(error(
+            "standing-agent briefs do not accept task mode or yolo",
+        ));
     }
     if !persistent && kind != Kind::Daemon && positional.len() != 2 {
         return Err(error(
@@ -526,11 +532,15 @@ pub fn run(
     file.write_all(body.as_bytes())
         .map_err(|io| error(io.to_string()))?;
     Ok(match kind {
-        Kind::Daemon if env::var("MX_DAEMON_CHARTER").is_ok() => {
-            format!("scaffolded: {} (daemon charter)", path.display())
+        Kind::Daemon
+            if env::var("MX_AGENT_CHARTER")
+                .or_else(|_| env::var("MX_DAEMON_CHARTER"))
+                .is_ok() =>
+        {
+            format!("scaffolded: {} (standing-agent charter)", path.display())
         }
         Kind::Daemon => format!(
-            "scaffolded: {} (daemon charter; replace {{TASK}})",
+            "scaffolded: {} (standing-agent charter; replace {{TASK}})",
             path.display()
         ),
         Kind::Review => format!("scaffolded: {} (review; replace {{TASK}})", path.display()),

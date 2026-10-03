@@ -36,8 +36,9 @@ const CALM_VISIBLE_CLASSES = new Set<CalmTranscriptClass>([
 
 // Legacy session entries from Calm versions before 2026-07-23 retain this
 // presentation type. New operational input stays user-role and is never rerouted.
-export const MULTPLX_SYNTHETIC_PRESENTATION_TYPE = "broker-synthetic-input-presentation";
-export const MULTPLX_CALM_PRESENTATION_EVENT = "broker:calm-presentation";
+export const MULTPLX_SYNTHETIC_PRESENTATION_TYPE = "multplx-synthetic-input-presentation";
+const LEGACY_SYNTHETIC_PRESENTATION_TYPE = "broker-synthetic-input-presentation";
+export const MULTPLX_CALM_PRESENTATION_EVENT = "multplx:calm-presentation";
 
 export type CalmPresentationState = {
   active: boolean;
@@ -85,13 +86,15 @@ export function calmPresentationHides(itemClass: CalmTranscriptClass): boolean {
 }
 
 export function registerMultplxSyntheticPresentation(pi: ExtensionAPI): void {
-  pi.registerEntryRenderer<MultplxSyntheticPresentation>(
-    MULTPLX_SYNTHETIC_PRESENTATION_TYPE,
-    (entry) => {
-      if (calmPresentationHides("synthetic-user")) return undefined;
-      const data = entry.data;
-      if (!data || typeof data.content !== "string") return undefined;
-      return new UserMessageComponent(data.content, getMarkdownTheme());
-    },
-  );
+  for (const type of [MULTPLX_SYNTHETIC_PRESENTATION_TYPE, LEGACY_SYNTHETIC_PRESENTATION_TYPE]) {
+    pi.registerEntryRenderer<MultplxSyntheticPresentation>(
+      type,
+      (entry) => {
+        if (calmPresentationHides("synthetic-user")) return undefined;
+        const data = entry.data;
+        if (!data || typeof data.content !== "string") return undefined;
+        return new UserMessageComponent(data.content, getMarkdownTheme());
+      },
+    );
+  }
 }
