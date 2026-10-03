@@ -219,3 +219,26 @@ Focused macOS verification passed:
 - `cargo fmt --all -- --check`, `target/release/mx doc-audience-check`, `bash -n tests/mx-release-package.test.sh` and `git diff --check`: passed.
 
 This evidence uses temporary installed-layout fixtures and local HTTP services; it does not claim a private-home migration, a user's running-service restart, a released package update, Linux validation or complete repository regression.
+
+### Combined parent validation (2026-10-03)
+
+The parent validated the installed Viz and backlog fixes together with the role-neutral Herdr naming change and its compatibility tests at code revision `2bbed19`.
+The first complete behavior run reported one failure in the Herdr presentation ordering test (`134` scripts, `1` failure, `8` existing gated skips, `425487` ms).
+The actual displayed topology was contiguous, and a separate concurrency experiment demonstrated interleaved argument-by-argument writes in the test's expected-order log.
+The test now appends complete log records and retains its exact ordering, focus and recovery assertions; the original failed expected sequence was not retained, so the causal attribution remains an inference.
+The focused real Herdr presentation run then passed, as recorded in [runtime backend verification](../../docs/verification/runtime-backends.md).
+
+Final combined checks passed:
+
+- `cargo test --locked --workspace`: 796 passed, zero failed or ignored across 37 result groups.
+- `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: passed.
+- `cargo build --release --workspace --locked`: passed after the runtime changes; the final correction changed test instrumentation and evidence only.
+- `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-installed-fixes-final-all.json`: 134 scripts, zero failures, eight existing gated skips, 442982 ms.
+- `cargo fmt --all -- --check`, all `bin/*.sh` and `bin/backends/*.sh` syntax checks, changed presentation-test syntax, and `git diff --check`: passed.
+- `target/release/mx doc-audience-check`: 100 surfaces and 575 local links passed after the final evidence update.
+- `target/release/mx shadow-diagnostic`: Rust shadow ready.
+- `target/release/mx test-run --check-coverage`: 134 scripts covered by the existing inventory and CI partitions.
+
+Raw logs and timing JSON remain untracked under `/private/tmp/mx-installed-fixes-*`.
+This is local macOS verification with temporary installed packages, synthetic task harnesses and guarded real Herdr sessions; remote Linux CI and model-provider trials are separate evidence.
+The user's installed runtime, operational home and existing workspaces were not updated or migrated.
