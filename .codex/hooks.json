@@ -5,6 +5,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash -lc 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-codex-idle.sh\" ] || exit 0; exec \"$root/bin/mx-codex-idle.sh\" --register'",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "bash -lc 'payload=$(cat 2>/dev/null || true); [ -n \"$payload\" ] || exit 0; command -v jq >/dev/null 2>&1 || exit 0; root=$(pwd -P) || exit 0; [ -x \"$root/bin/mx-sessionstart-nudge.sh\" ] || exit 0; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -f \"$root/.codex/hooks.json\" ] || exit 0; jq -e \"any(.hooks.SessionStart[]?.hooks[]?.command?; type == \\\"string\\\" and contains(\\\"mx-sessionstart-nudge.sh\\\"))\" \"$root/.codex/hooks.json\" >/dev/null 2>&1 || exit 0; exec \"$root/bin/mx-sessionstart-nudge.sh\"'",
             "timeout": 10
           },
@@ -56,6 +61,17 @@
             "type": "command",
             "command": "bash -lc 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event result'",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-codex-idle.sh\" ] || exit 0; exec \"$root/bin/mx-codex-idle.sh\" --end'",
+            "timeout": 3
           }
         ]
       }

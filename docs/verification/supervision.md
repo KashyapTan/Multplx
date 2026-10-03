@@ -237,3 +237,25 @@ Completed assignment evidence does not claim that a parent has validated full de
 No standing agent is deleted, retired or automatically reused by this projection.
 
 Fresh installed-version, credentialed two-cycle, user-input responsiveness and absence-of-model-loop evidence remains required for current Claude and Pi runtimes when they are available.
+
+## Codex CLI event-driven queue recheck (2026-10-03)
+
+Installed `codex-cli 0.160.0` was exercised in fresh temporary homes using a local synthetic Responses endpoint, without credentials or changes to existing operational homes.
+The retained probe is [`tests/fixtures/codex-idle-cli-probe.mjs`](../../tests/fixtures/codex-idle-cli-probe.mjs), invoked with absolute paths to the built `mx` and repository.
+It loads the tracked SessionStart registration command, reviews only the fixture's native hook hashes, and starts without a preseeded session lock.
+The registration receipt identified the exact returned thread UUID, canonical `CODEX_HOME`, executable and live CLI server process.
+The final fixture `/tmp/mx-codex-hook-research.Tu7Gmf/evidence.json` retained five actual Stop events for that UUID, each with a distinct turn ID and `stop_hook_active=false`.
+An idle queued message started after 10,027 ms; an ordinary human prompt started after 36 ms; a message queued while busy started after the busy turn completed (event indices 56 and 60).
+Another thread received zero turns. This verifies the installed CLI transport and native hook boundary against a synthetic model, not authenticated provider output or Desktop support.
+
+Four focused Rust unit tests and two instrumented runtime integration tests passed.
+The runtime fixture uses the actual `mx` owner with isolated queue and watcher executables: two report wakes reach the same bridge without a second hook invocation, while repeated Stop cannot duplicate delivery.
+It also checks no-lock and stale-lock registration before lock acquisition, competing or malformed identity refusal, unsupported queue diagnostics, uncertain receipt recovery, watcher-failure durable Check delivery, exact-thread manual cleanup, and retirement after owner loss.
+The installed-layout wrapper uses `MX_RUST_BIN` without a release build tree.
+A managed-launch fixture establishes Codex activation and removes inherited activation from Claude and Pi launches.
+Canonical wake disposition and acknowledgement remain model responsibilities; queue acceptance alone does not settle a wake.
+
+[OpenAI hook documentation](https://learn.chatgpt.com/docs/hooks) describes synchronous Stop continuation and asynchronous output limits.
+The supported idle wake path instead uses the installed CLI's `queue --thread --message`; the tagged [queue service](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/queue/src/service.rs) distinguishes idle dispatch from busy queuing.
+Managed CLI activation still requires enabled and natively trusted owned hooks plus exact-thread readiness after canonical session-lock acquisition.
+Older CLI versions, disabled or untrusted hooks, direct CLI launches without explicit opt-in, and unverified Desktop sessions retain a visible bounded foreground fallback.

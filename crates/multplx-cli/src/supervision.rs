@@ -1,5 +1,7 @@
 //! Native supervision entry-point transactions.
 
+pub(crate) mod codex_idle;
+
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
@@ -1428,11 +1430,7 @@ fn cursor_stop_park(document: &serde_json::Value, source_root: &Path) -> i32 {
 }
 
 fn autoarm_needed(state: &Path) -> bool {
-    fs::read_dir(state).is_ok_and(|entries| {
-        entries
-            .flatten()
-            .any(|entry| entry.path().extension().and_then(|value| value.to_str()) == Some("meta"))
-    })
+    multplx_core::supervision::inspect(state, grace(), SystemTime::now()).needed
 }
 
 fn write_autoarm_epoch(state: &Path, outcome: &str) {
@@ -4450,7 +4448,7 @@ pub(crate) fn guard(root: &Path, home: &Path, source_root: &Path, detected_harne
             .unfinished_count(&SystemProcessProbe::default())
             .is_ok_and(|count| count > 0);
     let marker = state.join(".guard-watcher-stale-banner");
-    if status.in_flight == 0 {
+    if !status.needed && !queue_pending {
         if !read_only {
             let _ = fs::remove_file(marker);
         }
@@ -4599,6 +4597,12 @@ pub(crate) fn turnend_guard(
     source_root: &Path,
     detected_harness: &str,
 ) -> i32 {
+    if detected_harness == "codex"
+        && args.is_empty()
+        && std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1")
+    {
+        return codex_idle::entry(args, payload, root, home, source_root);
+    }
     let mut claude = false;
     for argument in args {
         if argument == "--claude" {

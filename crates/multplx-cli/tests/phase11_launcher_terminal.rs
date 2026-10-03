@@ -143,3 +143,43 @@ fn harness_launch_rejects_invalid_boundaries_and_runs_a_short_lived_child() {
     std::fs::create_dir(home.join("config")).unwrap();
     assert_code(&launch_harness(&["codex"], &codex), 0);
 }
+
+#[test]
+fn managed_launch_enables_idle_bridge_only_for_codex() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = temp.path().join("runtime");
+    let home = temp.path().join("home");
+    for path in [runtime.join("bin"), home.join("state"), home.join("config")] {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
+    let lock = runtime.join("bin/mx-lock.sh");
+    std::fs::write(&lock, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let real = temp.path().join("fake-harness");
+    std::fs::write(
+        &real,
+        "#!/bin/sh\nprintf '%s' \"${MX_CODEX_IDLE_CLI-unset}\" > \"$MX_HOME/flag\"\nsleep .1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+    for (harness, real_variable, expected) in [
+        ("codex", "MX_REAL_CODEX", "1"),
+        ("claude", "MX_REAL_CLAUDE", "unset"),
+        ("pi", "MX_REAL_PI", "unset"),
+    ] {
+        let environment = [
+            ("MX_ROOT_OVERRIDE", runtime.as_path()),
+            ("MX_HOME", home.as_path()),
+            ("MX_LAUNCH_VALIDATED", Path::new("1")),
+            (real_variable, real.as_path()),
+            ("MX_CODEX_IDLE_CLI", Path::new("inherited")),
+        ];
+        assert_code(&launch_harness(&[harness], &environment), 0);
+        assert_eq!(
+            std::fs::read_to_string(home.join("flag")).unwrap(),
+            expected
+        );
+    }
+}

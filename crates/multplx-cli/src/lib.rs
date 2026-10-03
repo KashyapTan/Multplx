@@ -1058,6 +1058,7 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
         "mx-arm-pretool-check.sh",
         "mx-cd-pretool-check.sh",
         "mx-claude-stop-autoarm.sh",
+        "mx-codex-idle.sh",
         "mx-cursor-hook.sh",
         "mx-guard.sh",
         "mx-native-observe.sh",
@@ -1079,6 +1080,21 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
         let (root, _, _) = active_paths();
         let source_root = runtime_root(&root);
         return supervision::cursor_hook(args, &payload, &source_root);
+    }
+    if entry == "mx-codex-idle.sh" {
+        let mut payload = String::new();
+        use std::io::IsTerminal;
+        if (args.is_empty()
+            || args
+                .first()
+                .is_some_and(|arg| arg == "--end" || arg == "--register"))
+            && !io::stdin().is_terminal()
+        {
+            let _ = io::stdin().read_to_string(&mut payload);
+        }
+        let (root, home, _) = active_paths();
+        let source_root = runtime_root(&root);
+        return supervision::codex_idle::entry(args, &payload, &root, &home, &source_root);
     }
     if entry == "mx-claude-stop-autoarm.sh" {
         let mut payload = String::new();
@@ -4669,7 +4685,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         );
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "{common_environment} {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
+                "{common_environment} MX_CODEX_IDLE_CLI=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
                 "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false {harness_word} --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",
