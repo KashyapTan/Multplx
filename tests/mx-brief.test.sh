@@ -167,6 +167,10 @@ test_lean_assignments() {
   for id in lean-implementation lean-research lean-review; do
     assert_grep 'current worker assignment takes precedence' "$home/data/$id/brief.md" 'worker inherits generic coordinator identity'
     assert_grep 'Execute the accepted research, implementation or review assignment yourself' "$home/data/$id/brief.md" 'worker recursively delegates its assignment'
+    assert_grep "Reading this home's or a project's AGENTS.md does not promote you" "$home/data/$id/brief.md" 'shared home instructions changed worker identity'
+    assert_grep 'Choose methods, checks and useful bounded delegation' "$home/data/$id/brief.md" 'worker method freedom omitted'
+    assert_grep 'Report concrete missing human decisions or blockers to your recorded parent' "$home/data/$id/brief.md" 'worker question route omitted'
+    assert_grep 'send the task-bound completion report, then end the handling turn' "$home/data/$id/brief.md" 'worker cannot finish its handling turn'
     assert_no_grep 'Delegate requested research' "$home/data/$id/brief.md" 'worker received coordinator delegation default'
   done
   assert_grep 'including small tasks' "$home/data/lean-persistent/brief.md" 'coordinator executes small deliverables'
