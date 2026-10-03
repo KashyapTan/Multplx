@@ -500,7 +500,7 @@ test_home_seed_refuses_missing_filled_charter() {
   if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a direct seed without a filled charter"
   fi
-  grep -F 'no filled daemon charter brief' "$err" >/dev/null \
+  grep -F 'no filled standing-agent charter brief' "$err" >/dev/null \
     || fail "seed did not explain missing filled charter refusal"
   [ ! -e "$subhome" ] || fail "missing charter seed left a generated subhome"
   [ ! -e "$home/data/design/brief.md" ] || fail "missing charter seed generated a placeholder charter"
@@ -1137,7 +1137,7 @@ test_home_seed_refuses_project_destinations_outside_subhome() {
   if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed followed a subhome projects symlink outside the subhome"
   fi
-  grep -F 'daemon projects directory must resolve inside the daemon home' "$err" >/dev/null \
+  grep -F 'standing-agent projects directory must resolve inside the standing-agent home' "$err" >/dev/null \
     || fail "seed did not explain unsafe project destination rejection"
   [ ! -e "$sink/alpha" ] || fail "seed cloned a project through an unsafe projects symlink"
   [ ! -f "$subhome/.mx-agent-home" ] || fail "seed marked subhome after unsafe project destination rejection"
@@ -1165,7 +1165,7 @@ test_home_seed_refuses_operational_dirs_outside_subhome() {
     if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
       fail "seed accepted a subhome with $opdir symlinked outside the subhome"
     fi
-    grep -F "daemon $opdir directory must resolve inside the daemon home" "$err" >/dev/null \
+    grep -F "standing-agent $opdir directory must resolve inside the standing-agent home" "$err" >/dev/null \
       || fail "seed did not explain unsafe $opdir directory rejection"
     [ ! -f "$subhome/.mx-agent-home" ] || fail "seed marked subhome after unsafe $opdir directory rejection"
   done
@@ -1316,7 +1316,7 @@ SH
     "$ROOT/bin/mx-spawn.sh" domain "$wronghome" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted a home marked for another daemon"
   fi
-  grep -F 'marked for daemon other, expected domain' "$err" >/dev/null || fail "spawn did not explain marker mismatch"
+  grep -F 'marked for agent other, expected domain' "$err" >/dev/null || fail "spawn did not explain marker mismatch"
 
   printf 'domain\n' > "$marker_only/.mx-agent-home"
   printf 'charter\n' > "$marker_only/data/charter.md"
@@ -1406,7 +1406,7 @@ test_daemon_spawn_refuses_operational_dirs_outside_subhome() {
       "$ROOT/bin/mx-spawn.sh" domain "$subhome" codex --daemon >/dev/null 2>"$err"; then
       fail "daemon spawn accepted a subhome with $opdir symlinked outside the subhome"
     fi
-    grep -F "daemon $opdir directory must resolve inside the daemon home" "$err" >/dev/null \
+    grep -F "standing-agent $opdir directory must resolve inside the standing-agent home" "$err" >/dev/null \
       || fail "spawn did not explain unsafe $opdir directory rejection"
     grep -F 'new-window' "$log" >/dev/null && fail "spawn created a window before unsafe $opdir directory validation"
   done
@@ -1941,7 +1941,7 @@ EOF
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared ancestor meta after nested-home refusal"
   [ -e "$home/state/nested.meta" ] || fail "teardown cleared nested meta after nested-home refusal"
   grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before nested-home refusal"
-  grep -F 'contains registered daemon home' "$err" >/dev/null || fail "teardown did not explain registered nested-home refusal"
+  grep -F 'contains registered standing-agent home' "$err" >/dev/null || fail "teardown did not explain registered nested-home refusal"
   pass "daemon teardown refuses homes containing registered nested homes"
 }
 
@@ -1977,7 +1977,7 @@ EOF
   [ -d "$nested" ] || fail "teardown removed child-registry nested home after refusal"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared parent meta after child-registry refusal"
   grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before child-registry refusal"
-  grep -F 'contains registered daemon home' "$err" >/dev/null || fail "teardown did not explain child-registry nested-home refusal"
+  grep -F 'contains registered standing-agent home' "$err" >/dev/null || fail "teardown did not explain child-registry nested-home refusal"
   pass "daemon teardown refuses nested homes from the child registry"
 }
 

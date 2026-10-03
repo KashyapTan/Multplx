@@ -75,7 +75,7 @@ phase_seed() {
   SUB_ABS=$(cd "$SUB" && pwd -P)
 
   assert_contains "$out" "home=$SUB_ABS" "seed did not report the subhome"
-  assert_present "$SUB/.mx-daemon-home" "seed did not mark the subhome"
+  assert_present "$SUB/.mx-agent-home" "seed did not mark the subhome"
   assert_present "$SUB/data/charter.md" "seed did not copy the charter into the subhome"
   assert_grep 'customer onboarding charter' "$SUB/data/charter.md" "charter body was not copied verbatim"
 
@@ -91,10 +91,10 @@ phase_seed() {
   jq -e '.state == "active"' "$HOME_DIR/data/.home-allocation-design.json" >/dev/null || fail 'home ownership was not activated'
 
   # Registry line: scope from the filled brief, project list, no legacy owns field.
-  assert_grep '- design - customer onboarding charter' "$HOME_DIR/data/daemons.md" "registry summary not from the charter"
-  assert_grep 'scope: customer onboarding from brief' "$HOME_DIR/data/daemons.md" "registry scope not from the filled brief"
-  assert_grep 'projects: alpha, beta, gamma' "$HOME_DIR/data/daemons.md" "registry did not record the project list"
-  assert_no_grep 'owns:' "$HOME_DIR/data/daemons.md" "registry used the legacy owns field"
+  assert_grep '- design - customer onboarding charter' "$HOME_DIR/data/agents.md" "registry summary not from the charter"
+  assert_grep 'scope: customer onboarding from brief' "$HOME_DIR/data/agents.md" "registry scope not from the filled brief"
+  assert_grep 'projects: alpha, beta, gamma' "$HOME_DIR/data/agents.md" "registry did not record the project list"
+  assert_no_grep 'owns:' "$HOME_DIR/data/agents.md" "registry used the legacy owns field"
 
   # Delivery modes preserved in the subhome registry; validation passes.
   [ "$(MX_HOME="$SUB" "$ROOT/bin/mx-project-mode.sh" alpha)" = "direct-PR on" ] \
@@ -245,7 +245,7 @@ phase_teardown() {
   assert_present "$archived/data/charter.md" 'retirement lost persistent charter'
   assert_present "$archived/data/backlog.md" 'retirement lost persistent backlog'
   assert_absent "$HOME_DIR/state/design.meta" "teardown did not clear the parent meta"
-  assert_no_grep '- design ' "$HOME_DIR/data/daemons.md" "teardown did not remove the registry route"
+  assert_no_grep '- design ' "$HOME_DIR/data/agents.md" "teardown did not remove the registry route"
   # The parent's source projects are untouched (no write through a parent home).
   assert_present "$HOME_DIR/projects/alpha" "teardown disturbed a parent project"
   pass "teardown: archives persistent state, then clears metadata and the registry route"

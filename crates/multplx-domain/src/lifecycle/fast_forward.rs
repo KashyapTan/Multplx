@@ -412,7 +412,7 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
         let resolved = match validate_daemon_home(context, &id, &raw) {
             Ok(home) => home,
             Err(error) => {
-                lines.push(format!("daemon {id}: skipped: unsafe home: {error}"));
+                lines.push(format!("standing agent {id}: skipped: unsafe home: {error}"));
                 continue;
             }
         };
@@ -439,18 +439,18 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
                 };
                 match result {
                     Ok(()) => {
-                        lines.push(format!("daemon {id}: current runtime instructions linked"));
+                        lines.push(format!("standing agent {id}: current runtime instructions linked"));
                         if reread && !window.is_empty() {
                             nudges.push(format!("mx-{id}"));
                         }
                     }
-                    Err(error) => lines.push(format!("daemon {id}: skipped: {error}")),
+                    Err(error) => lines.push(format!("standing agent {id}: skipped: {error}")),
                 }
                 continue;
             }
             Err(error) => {
                 lines.push(format!(
-                    "daemon {id}: skipped: home allocation unreadable: {error}"
+                    "standing agent {id}: skipped: home allocation unreadable: {error}"
                 ));
                 continue;
             }
@@ -458,7 +458,7 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
         }
         let outcome = fast_forward(
             &resolved,
-            &format!("daemon {id}"),
+            &format!("standing agent {id}"),
             &Base::Origin,
             true,
             true,
@@ -785,7 +785,7 @@ mod tests {
         assert!(lines.iter().any(|line| line == "nudge-agents: none"));
         assert!(lines.iter().any(|line| {
             line.starts_with(
-                "daemon fallback: skipped: unsafe home: not a seeded standing-agent home",
+                "standing agent fallback: skipped: unsafe home: not a seeded standing-agent home",
             )
         }));
     }
@@ -853,7 +853,7 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line.starts_with("daemon helper: updated"))
+                .any(|line| line.starts_with("standing agent helper: updated"))
         );
         assert!(lines.iter().any(|line| line == "reread-parent: yes"));
         assert!(lines.iter().any(|line| line == "nudge-agents: mx-helper"));

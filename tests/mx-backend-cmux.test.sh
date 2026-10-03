@@ -1009,7 +1009,7 @@ test_daemon_spawn_refuses_cmux_backend() {
     "$ROOT/bin/mx-spawn.sh" sm-cmux-test --daemon --backend cmux 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "mx-spawn.sh should refuse a --daemon spawn with --backend cmux"
-  assert_contains "$out" "does not support --daemon" "mx-spawn.sh did not report the cmux daemon refusal"
+  assert_contains "$out" "does not support persistent standing-agent spawns" "mx-spawn.sh did not report the cmux daemon refusal"
   pass "mx-spawn.sh: refuses backend=cmux for --daemon spawns (no daemon launch design exists yet)"
 }
 

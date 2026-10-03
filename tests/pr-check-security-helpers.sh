@@ -2091,9 +2091,9 @@ SH
     "$state/.pr-check-migration.log" "isolated bootstrap migration did not publish a durable repair diagnostic"
   assert_grep 'migration did not complete safely' "$dir/bootstrap.err" \
     "isolated bootstrap migration did not surface its incomplete status"
-  assert_grep 'DAEMON_SYNC: daemon daemon-a: skipped:' "$dir/bootstrap.out" \
+  assert_grep 'AGENT_SYNC: standing agent daemon-a: skipped:' "$dir/bootstrap.out" \
     "incomplete poll migration suppressed daemon sync"
-  assert_grep 'DAEMON_LIVENESS: daemon daemon-a: skipped: existing endpoint has ambiguous agent process' "$dir/bootstrap.out" \
+  assert_grep 'AGENT_LIVENESS: standing agent daemon-a: skipped: existing endpoint has ambiguous agent process' "$dir/bootstrap.out" \
     "incomplete poll migration suppressed persistent supervisor recovery"
   [ -e "$system_marker" ] || fail "incomplete poll migration suppressed system refresh"
   assert_grep 'SYSTEM_SYNC: alpha: recovered: continued after isolated migration failure' "$dir/bootstrap.out" \

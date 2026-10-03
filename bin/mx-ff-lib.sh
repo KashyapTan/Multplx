@@ -407,7 +407,7 @@ process_daemon() {
   home_real=$(resolve_path "$home")
   [ "$home_real" != "$mx_root_real" ] || return 0
   if ! validate_daemon_home "$id" "$home"; then
-    echo "daemon $id: skipped: unsafe home: $VALIDATION_ERROR"
+    echo "standing agent $id: skipped: unsafe home: $VALIDATION_ERROR"
     return 0
   fi
   home_real="$VALIDATED_HOME"
@@ -416,7 +416,7 @@ process_daemon() {
   esac
   FF_SEEN_HOMES="$FF_SEEN_HOMES $home_real"
 
-  ff_target "$home_real" "daemon $id" "$base_mode" yes yes
+  ff_target "$home_real" "standing agent $id" "$base_mode" yes yes
   if [ "$FF_STATUS" = "updated" ] && [ -n "$window" ]; then
     if [ "$nudge_requires_instr" = yes ] && [ -z "$FF_INSTR" ]; then
       return 0

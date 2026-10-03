@@ -606,10 +606,10 @@ EOF
   assert_contains "$out" "- demo [deep-review] - a demo project (added 2026-07-01)" "digest did not print projects.md content"
 
   assert_contains "$out" "data/maintainer.md" "digest did not label the maintainer.md section"
-  assert_contains "$out" "data/maintainer-shared.md (shared, main-authoritative, read-only in daemon homes)" \
+  assert_contains "$out" "data/maintainer-shared.md (shared, parent-authoritative, read-only in standing-agent homes)" \
     "digest did not label the shared maintainer section"
 
-  assert_contains "$out" "data/daemons.md" "digest did not label the daemons.md section"
+  assert_contains "$out" "data/agents.md" "digest did not label the selected fresh agent registry section"
   assert_contains "$out" "data/learnings.md" "digest did not label the learnings.md section"
 
   # Exactly four context ABSENT markers (daemons.md, maintainer-shared.md,
@@ -960,10 +960,10 @@ EOF
 
   out=$(run_session_start_daemon "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" missing)
 
-  assert_not_contains "$out" "DAEMON_LIVENESS:" "successful missing-window recovery should stay non-actionable"
+  assert_not_contains "$out" "AGENT_LIVENESS:" "successful missing-window recovery should stay non-actionable"
   assert_contains "$(cat "$log")" "new-window" "session start did not relaunch the missing Pi daemon"
   assert_not_contains "$(cat "$log")" "kill-window" "session start tried to kill an already-absent window"
-  assert_contains "$out" "endpoint: alive (backend=tmux window=broker:mx-$SESSION_START_DAEMON_ID)" \
+  assert_contains "$out" "endpoint: alive (backend=tmux window=primary:mx-$SESSION_START_DAEMON_ID)" \
     "the later system read did not confirm the relaunched window"
   assert_grep 'harness=pi' "$home/state/$SESSION_START_DAEMON_ID.meta" \
     "the real respawn path did not preserve the Pi harness: $(cat "$home/state/$SESSION_START_DAEMON_ID.meta")"
@@ -986,10 +986,10 @@ EOF
 
   out=$(run_session_start_daemon "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" ambiguous)
 
-  assert_contains "$out" "DAEMON_LIVENESS: daemon $SESSION_START_DAEMON_ID: skipped: existing endpoint has ambiguous agent process (backend=tmux)" \
+  assert_contains "$out" "AGENT_LIVENESS: standing agent $SESSION_START_DAEMON_ID: skipped: existing endpoint has ambiguous agent process (backend=tmux)" \
     "session start did not distinguish an existing Pi-shaped process from a missing window"
   [ ! -s "$log" ] || fail "session start touched an ambiguous existing Pi process: $(cat "$log")"
-  assert_contains "$out" "endpoint: alive (backend=tmux window=broker:mx-$SESSION_START_DAEMON_ID)" \
+  assert_contains "$out" "endpoint: alive (backend=tmux window=primary:mx-$SESSION_START_DAEMON_ID)" \
     "the later system read should still see the ambiguous endpoint"
   pass "session start: an existing ambiguous Pi process prevents duplicate recovery"
 }
@@ -1003,10 +1003,10 @@ EOF
 
   out=$(run_session_start_daemon "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" unreadable)
 
-  assert_contains "$out" "DAEMON_LIVENESS: daemon $SESSION_START_DAEMON_ID: skipped: endpoint probe unreadable (backend=tmux)" \
+  assert_contains "$out" "AGENT_LIVENESS: standing agent $SESSION_START_DAEMON_ID: skipped: endpoint probe unreadable (backend=tmux)" \
     "session start did not distinguish transient unreadability from absence"
   [ ! -s "$log" ] || fail "session start touched a transiently unreadable target: $(cat "$log")"
-  assert_contains "$out" "endpoint: dead (backend=tmux window=broker:mx-$SESSION_START_DAEMON_ID)" \
+  assert_contains "$out" "endpoint: dead (backend=tmux window=primary:mx-$SESSION_START_DAEMON_ID)" \
     "the later cheap presence read should preserve the visible offline symptom"
   pass "session start: transient tmux unreadability never licenses a relaunch"
 }
@@ -1020,11 +1020,11 @@ EOF
 
   out=$(run_session_start_daemon "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" shell)
 
-  assert_not_contains "$out" "DAEMON_LIVENESS:" "successful bare-shell recovery should stay non-actionable"
-  assert_contains "$(cat "$log")" "kill-window -t broker:mx-$SESSION_START_DAEMON_ID" \
+  assert_not_contains "$out" "AGENT_LIVENESS:" "successful bare-shell recovery should stay non-actionable"
+  assert_contains "$(cat "$log")" "kill-window -t primary:mx-$SESSION_START_DAEMON_ID" \
     "the proven bare-shell path did not remove its existing dead endpoint"
   assert_contains "$(cat "$log")" "new-window" "the proven bare-shell path did not relaunch"
-  assert_contains "$out" "endpoint: alive (backend=tmux window=broker:mx-$SESSION_START_DAEMON_ID)" \
+  assert_contains "$out" "endpoint: alive (backend=tmux window=primary:mx-$SESSION_START_DAEMON_ID)" \
     "the later system read did not confirm the bare-shell relaunch"
   pass "session start: the proven bare-shell recovery path remains intact"
 }
@@ -1038,7 +1038,7 @@ EOF
 
   out=$(run_session_start_herdr_daemon "$root" "$home" "$fakebin" "$mate" "$log" "$state")
 
-  assert_not_contains "$out" "DAEMON_LIVENESS:" "successful Herdr husk recovery should stay non-actionable"
+  assert_not_contains "$out" "AGENT_LIVENESS:" "successful Herdr husk recovery should stay non-actionable"
   assert_contains "$(cat "$log")" "pane close p-old" "session start did not close the confirmed Herdr husk"
   assert_contains "$(cat "$log")" "tab create" "session start did not relaunch the Herdr daemon"
   assert_contains "$out" "endpoint: alive (backend=herdr window=default:p-new)" \

@@ -893,7 +893,7 @@ const assertMissingLock = (result, label) => {
   if (!result.details.message.includes("bin/mx-session-start.sh") || !result.details.message.includes("re-arm")) {
     throw new Error(`${label} missing reclaim and re-arm guidance: ${result.details.message}`);
   }
-  if (result.details.message.includes("held by another broker session")) {
+  if (result.details.message.includes("held by another orchestrator session")) {
     throw new Error(`${label} was misreported as a live other holder: ${result.details.message}`);
   }
 };
@@ -908,7 +908,7 @@ try {
   writeFileSync(lock, `${other.pid}\n`);
   const liveOther = await callArm();
   if (liveOther.details?.ok !== false) throw new Error(`live other holder unexpectedly armed: ${JSON.stringify(liveOther.details)}`);
-  if (liveOther.details.message !== "watcher: read-only - session lock is held by another broker session") {
+  if (liveOther.details.message !== "watcher: read-only - session lock is held by another orchestrator session") {
     throw new Error(`unexpected live-other response: ${liveOther.details.message}`);
   }
 } finally {

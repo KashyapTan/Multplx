@@ -413,7 +413,7 @@ test_spawn_unverified_daemon_harness_refused() {
   [ "$rc" -ne 0 ] || fail "unverified: spawn should have failed"
   assert_contains "$(cat "$err")" "no launch template for harness 'bogus'" \
     "unverified: error names the rejected harness"
-  assert_contains "$(cat "$err")" "config/daemon-harness" \
+  assert_contains "$(cat "$err")" "config/standing-agent-harness" \
     "unverified: error names the daemon-harness source"
   [ -e "$w/home/state/sm.meta" ] && fail "unverified: a meta was written despite the abort"
   pass "B6 spawn: an unverified resolved daemon harness is refused (guard intact)"
@@ -1124,7 +1124,7 @@ test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home() {
   printf 'manual\n' > "$w/home/config/backlog-backend"
   out=$(run_bootstrap "$w")
 
-  assert_contains "$out" "DAEMON_SYNC: daemon sm: skipped: diverged from" \
+  assert_contains "$out" "AGENT_SYNC: standing agent sm: skipped: diverged from" \
     "stale dispatch: expected fast-forward skip"
   [ ! -e "$w/sm/config/actor-dispatch.json" ] \
     || fail "stale dispatch: actor-dispatch.json was copied before the home ignored it"
@@ -1171,7 +1171,7 @@ test_bootstrap_sweep_surfaces_config_propagation_failure() {
 
   out=$(run_bootstrap "$w")
 
-  fail_line=$(printf '%s\n' "$out" | grep '^DAEMON_SYNC: daemon sm: skipped: inheritance failed' || true)
+  fail_line=$(printf '%s\n' "$out" | grep '^AGENT_SYNC: standing agent sm: skipped: inheritance failed' || true)
   [ -n "$fail_line" ] || fail "bootstrap did not surface inheritance propagation failure (got: $out)"
   [ -d "$w/sm/config/actor-harness" ] || fail "failed propagation removed the wrong path"
   pass "B11 bootstrap sweep surfaces config propagation failures"
@@ -1187,7 +1187,7 @@ test_bootstrap_rereads_after_partial_propagation() {
   log="$w/boot-prop-partial.tmux.log"
 
   out=$(run_bootstrap "$w" "$log")
-  assert_contains "$out" "DAEMON_SYNC: daemon sm: skipped: inheritance failed" \
+  assert_contains "$out" "AGENT_SYNC: standing agent sm: skipped: inheritance failed" \
     "partial bootstrap propagation did not remain diagnostic"
   [ "$(cat "$w/sm/config/actor-dispatch.json")" = '{"default":{"harness":"codex"}}' ] \
     || fail "partial bootstrap propagation did not retain the completed config write"
@@ -1225,7 +1225,7 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   expect_code 0 "$status" "config push should succeed"
   assert_contains "$out" "config-push: $w/home -> live persistent sub-agent homes" \
     "config push lacked the header"
-  assert_contains "$out" "daemon sm ($sm_real):" \
+  assert_contains "$out" "standing agent sm ($sm_real):" \
     "config push did not discover the live daemon through registry fallback"
   assert_contains "$out" "actor-dispatch.json: pushed" \
     "config push did not report actor-dispatch as pushed"
@@ -1295,7 +1295,7 @@ test_config_push_reports_skips_dirty_and_invalid_home() {
     "config push did not report stale home"
   assert_contains "$out" "actor-dispatch.json: skipped - destination does not allow inherited item" \
     "config push did not report non-allowing item skip"
-  assert_contains "$out" "daemon bad ($bad_home): skipped - unsafe home: not a seeded daemon home" \
+  assert_contains "$out" "standing agent bad ($bad_home): skipped - unsafe home: not a seeded standing-agent home" \
     "config push did not report invalid daemon home"
   err_text=$(cat "$err")
   assert_contains "$err_text" "mx-config-inherit: warning: skipped actor-dispatch.json" \
@@ -1316,7 +1316,7 @@ test_config_push_exits_nonzero_on_copy_error() {
   out=$(run_config_push "$w" 2>"$err"); status=$?
 
   expect_code 1 "$status" "copy-error config push should exit non-zero"
-  assert_contains "$out" "daemon sm ($sm_real):" \
+  assert_contains "$out" "standing agent sm ($sm_real):" \
     "config push error output missed the home"
   assert_contains "$out" "actor-harness: error - failed to copy" \
     "config push did not report the per-item copy error"
@@ -1542,7 +1542,7 @@ test_config_reread_isolation_and_absent_and_send_failure() {
     MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-config-push.sh" 2>"$err"); status=$?
   expect_code 1 "$status" "send failure should make config-push exit non-zero"
-  assert_contains "$out" "CONFIG_REREAD: daemon" "send failure diagnostic missing"
+  assert_contains "$out" "CONFIG_REREAD: standing agent" "send failure diagnostic missing"
   assert_contains "$out" "send failed" "send failure must say send failed"
   assert_not_contains "$out" "config-reread: sent" \
     "must not claim reread landed when send failed"
@@ -1615,7 +1615,7 @@ SH
     MX_SEND_SETTLE=0 MX_CONFIG_INHERIT_TEST_FAIL_PUBLISH=1 \
     "$ROOT/bin/mx-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "publication failure should remain diagnostic"
-  assert_contains "$out" "CONFIG_REREAD: daemon" "publication failure diagnostic missing"
+  assert_contains "$out" "CONFIG_REREAD: standing agent" "publication failure diagnostic missing"
   assert_not_contains "$out" "config-reread: sent" \
     "publication failure must not claim reread delivery"
   [ "$(cat "$w/alpha/config/actor-harness")" = codex ] \
@@ -1900,7 +1900,7 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 mx_config_send_reread_nudge sm "$w/sm" "$report" 2>&1); status=$?
   expect_code 1 "$status" "mixed delivery failure should remain diagnostic"
-  assert_contains "$out" "CONFIG_REREAD: daemon sm: send failed" \
+  assert_contains "$out" "CONFIG_REREAD: standing agent sm: send failed" \
     "mixed delivery failure diagnostic missing"
   count=0
   for path in "$state_real"/.mx-inherited-config-reread.*; do
@@ -1947,7 +1947,7 @@ SH
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_LOG="$log" \
     mx_config_send_reread_nudge sm "$w/sm" "$report" 2>&1); status=$?
   expect_code 1 "$status" "an older failed generation should remain diagnostic"
-  assert_contains "$out" "CONFIG_REREAD: daemon sm: send failed" \
+  assert_contains "$out" "CONFIG_REREAD: standing agent sm: send failed" \
     "older generation failure diagnostic missing"
   assert_not_contains "$(cat "$log" 2>/dev/null || true)" ".0001-new" \
     "newer generation was delivered after an older failure"
@@ -2177,7 +2177,7 @@ SH
     MX_FAKE_LAUNCH_LOG="$launchlog" \
     "$ROOT/bin/mx-spawn.sh" sm "$sm" --daemon 2>&1); status=$?
   expect_code 0 "$status" "spawn should remain available after reread cleanup failure"
-  assert_contains "$out" "CONFIG_REREAD: daemon sm: quarantined pre-relaunch generations" \
+  assert_contains "$out" "CONFIG_REREAD: standing agent sm: quarantined pre-relaunch generations" \
     "spawn cleanup failure did not emit a CONFIG_REREAD quarantine diagnostic"
   assert_no_reread_pending "$sm"
   assert_no_reread_instructions "$sm"

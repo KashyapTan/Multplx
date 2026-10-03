@@ -2600,7 +2600,7 @@ fn queue_spawn(
                 index += 1;
             }
             value if value.starts_with("--") => {
-                return Err(format!("unsupported native daemon spawn option: {value}"));
+                return Err(format!("unsupported native standing-agent spawn option: {value}"));
             }
             _ => positional.push(value.to_owned()),
         }
@@ -3320,7 +3320,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         let mut coordinator_args = vec![
             OsString::from(&spec.id),
             prepared.home.as_os_str().to_owned(),
-            OsString::from("--daemon"),
+            OsString::from("--persistent"),
             OsString::from("--role"),
             OsString::from("sub-orchestrator"),
         ];
@@ -4118,7 +4118,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         {
             let outcome = multplx_domain::lifecycle::fast_forward::fast_forward(
                 &request.home,
-                &format!("daemon {}", request.id),
+                &format!("standing agent {}", request.id),
                 &multplx_domain::lifecycle::fast_forward::Base::Commit(commit),
                 true,
                 true,
@@ -4129,13 +4129,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     .split_once(": skipped: ")
                     .map_or(outcome.line.as_str(), |(_, reason)| reason);
                 eprintln!(
-                    "warning: daemon {} sync skipped before launch: {reason}",
+                    "warning: standing agent {} sync skipped before launch: {reason}",
                     request.id
                 );
             }
         } else {
             eprintln!(
-                "warning: daemon {} sync skipped before launch: primary default-branch commit cannot be resolved",
+                "warning: standing agent {} sync skipped before launch: primary default-branch commit cannot be resolved",
                 request.id
             );
         }
@@ -4145,7 +4145,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             Ok(lock) => lock,
             Err(error_value) => {
                 eprintln!(
-                    "error: could not acquire daemon inheritance lock for {}: {error_value}",
+                    "error: could not acquire standing-agent inheritance lock for {}: {error_value}",
                     request.home.display()
                 );
                 return 1;
@@ -4162,14 +4162,14 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 eprint!("{}", outcome.stderr);
                 if outcome.failed {
                     eprintln!(
-                        "warning: daemon {} inheritance failed for {}",
+                        "warning: standing agent {} inheritance failed for {}",
                         request.id,
                         request.home.display()
                     );
                 }
             }
             Err(error_value) => eprintln!(
-                "warning: daemon {} inheritance failed for {}: {error_value}",
+                "warning: standing agent {} inheritance failed for {}: {error_value}",
                 request.id,
                 request.home.display()
             ),
@@ -4396,7 +4396,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                         .lines()
                         .rev()
                         .find_map(|line| line.strip_prefix("herdr_workspace_id="))
-                        .ok_or("recovering Herdr daemon has no recorded workspace")?;
+                        .ok_or("recovering Herdr standing agent has no recorded workspace")?;
                     multplx_backend::facade::ContainerId::for_backend(
                         BackendName::Herdr,
                         format!("{session}:{workspace}"),
@@ -4884,12 +4884,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 Some(&context.home),
             ) {
                 eprintln!(
-                    "CONFIG_REREAD: daemon {}: quarantined pre-relaunch generations after cleanup failure",
+                    "CONFIG_REREAD: standing agent {}: quarantined pre-relaunch generations after cleanup failure",
                     request.id
                 );
             } else {
                 eprintln!(
-                    "CONFIG_REREAD: daemon {}: cleanup failed; pre-relaunch generations were force-cleared where possible",
+                    "CONFIG_REREAD: standing agent {}: cleanup failed; pre-relaunch generations were force-cleared where possible",
                     request.id
                 );
             }
@@ -7858,7 +7858,7 @@ fn run_config_push(args: &[OsString]) -> i32 {
     for (id, raw_home, metadata) in records {
         if raw_home.is_empty() {
             println!(
-                "daemon {id}: skipped - no home= in {} and no registry home",
+                "standing agent {id}: skipped - no home= in {} and no registry home",
                 metadata.display()
             );
             continue;
@@ -7867,19 +7867,19 @@ fn run_config_push(args: &[OsString]) -> i32 {
         {
             Ok(home) => home,
             Err(error) => {
-                println!("daemon {id} ({raw_home}): skipped - unsafe home: {error}");
+                println!("standing agent {id} ({raw_home}): skipped - unsafe home: {error}");
                 continue;
             }
         };
         let target = validated.path;
         if !seen.insert(target.clone()) {
             println!(
-                "daemon {id} ({}): skipped - already processed for another live meta",
+                "standing agent {id} ({}): skipped - already processed for another live meta",
                 target.display()
             );
             continue;
         }
-        println!("daemon {id} ({}):", target.display());
+        println!("standing agent {id} ({}):", target.display());
         if std::process::Command::new("git")
             .args([
                 "-C",
@@ -8832,7 +8832,7 @@ mod tests {
         assert!(
             park_spawn_if_at_limit(&args(&["--unknown"]), None, None)
                 .expect_err("unknown")
-                .contains("unsupported native daemon spawn option")
+                .contains("unsupported native standing-agent spawn option")
         );
         assert!(
             park_spawn_if_at_limit(&args(&[]), None, None)

@@ -141,7 +141,7 @@ test_ff_updated() {
   run_ff "$w/sm" "$base"
 
   [ "$FF_STATUS" = updated ] || fail "FF_STATUS: expected updated, got '$FF_STATUS'"
-  assert_contains "$FF_OUT" "daemon sm: updated " "updated home prints an advance line"
+  assert_contains "$FF_OUT" "standing agent sm: updated " "updated home prints an advance line"
   assert_contains "$FF_INSTR" "AGENTS.md" "instruction change is recorded in FF_INSTR"
   [ "$(head_of "$w/sm")" = "$base" ] || fail "home did not advance to the primary's local HEAD"
   git -C "$w/sm" symbolic-ref -q HEAD >/dev/null && fail "home is no longer detached"
@@ -162,7 +162,7 @@ test_ff_current() {
   run_ff "$w/sm" "$base"
 
   [ "$FF_STATUS" = current ] || fail "FF_STATUS: expected current, got '$FF_STATUS'"
-  assert_contains "$FF_OUT" "daemon sm: already current" "current home reports already current"
+  assert_contains "$FF_OUT" "standing agent sm: already current" "current home reports already current"
   [ -z "$FF_INSTR" ] || fail "a no-op must not report instruction changes (would trigger a nudge)"
   [ "$(head_of "$w/sm")" = "$base" ] || fail "current home HEAD moved"
   pass "T2 current: an already-current home is a no-op and reports no instruction change"
@@ -182,7 +182,7 @@ test_ff_dirty() {
   run_ff "$w/sm" "$base"
 
   [ "$FF_STATUS" = skipped ] || fail "FF_STATUS: expected skipped, got '$FF_STATUS'"
-  assert_contains "$FF_OUT" "daemon sm: skipped: dirty working tree" "dirty home is skipped"
+  assert_contains "$FF_OUT" "standing agent sm: skipped: dirty working tree" "dirty home is skipped"
   [ "$(head_of "$w/sm")" = "$before" ] || fail "dirty home HEAD moved"
   grep -q 'uncommitted local edit' "$w/sm/AGENTS.md" || fail "dirty edit was discarded"
   pass "T3 dirty: an uncommitted home is skipped, its edit preserved"
@@ -204,7 +204,7 @@ test_ff_diverged() {
   run_ff "$w/sm" "$base"
 
   [ "$FF_STATUS" = skipped ] || fail "FF_STATUS: expected skipped, got '$FF_STATUS'"
-  assert_contains "$FF_OUT" "daemon sm: skipped: diverged from $base" "diverged home is skipped"
+  assert_contains "$FF_OUT" "standing agent sm: skipped: diverged from $base" "diverged home is skipped"
   [ "$(head_of "$w/sm")" = "$before" ] || fail "diverged home HEAD moved (unlanded work at risk)"
   pass "T4 diverged: a home that is not an ancestor of the primary's HEAD is skipped"
 }
@@ -227,7 +227,7 @@ test_ff_inflight_feature_branch() {
   run_ff "$w/sm" "$base"
 
   [ "$FF_STATUS" = skipped ] || fail "FF_STATUS: expected skipped, got '$FF_STATUS'"
-  assert_contains "$FF_OUT" "daemon sm: skipped: on feature/wip, expected main" \
+  assert_contains "$FF_OUT" "standing agent sm: skipped: on feature/wip, expected main" \
     "a home on a feature branch is skipped"
   [ "$(head_of "$w/sm")" = "$before" ] || fail "in-flight home HEAD moved (work at risk)"
   pass "T5 in-flight: a home on a feature branch is skipped, its work preserved"
@@ -354,13 +354,13 @@ test_bootstrap_sweep_nudges_only_instruction_change() {
 
   info_line=$(printf '%s\n' "$out" | grep '^BOOTSTRAP_INFO: nudged mx-sm-instr ' || true)
   [ -n "$info_line" ] || fail "no BOOTSTRAP_INFO nudge line emitted (got: $out)"
-  assert_contains "$info_line" "broker was updated to the latest - please re-read your AGENTS.md to pick up the new instructions." \
+  assert_contains "$info_line" "The parent runtime was updated - please re-read your AGENTS.md to pick up the new instructions." \
     "successful nudge report should include the exact message sent"
   assert_not_contains "$out" "NUDGE_AGENTS:" "successful nudge must not leave a broker action item"
   assert_not_contains "$out" "sm-readme" "readme-only advance is not nudged"
   assert_not_contains "$out" "sm-current" "already-current daemon is not nudged"
   assert_contains "$(cat "$log")" "[mx-from-parent]" "nudge send should use the marked mx-send daemon path"
-  assert_contains "$(cat "$log")" "broker was updated to the latest - please re-read your AGENTS.md" \
+  assert_contains "$(cat "$log")" "The parent runtime was updated - please re-read your AGENTS.md" \
     "nudge send should type the exact re-read message"
   marker_dir="$w/home/state/.daemon-nudge-pending"
   [ ! -e "$marker_dir/sm-instr.pending" ] || fail "successful nudge should clear its retry marker"
@@ -431,7 +431,7 @@ test_bootstrap_nudge_retry_rejects_malformed_marker_id() {
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_LOG="$log" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_contains "$out" "NUDGE_AGENTS: daemon ../escape: send failed: retry marker has unsafe id" \
+  assert_contains "$out" "NUDGE_AGENTS: standing agent ../escape: send failed: retry marker has unsafe id" \
     "malformed retry marker id should be rejected before target resolution"
   assert_not_contains "$out" "BOOTSTRAP_INFO: nudged mx-../escape" \
     "malformed retry marker id must never send through a path-traversed selector"
@@ -452,12 +452,12 @@ test_bootstrap_nudge_failure_records_retry_marker() {
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: standing agent sm-instr: send failed:" \
     "failed nudge send should be surfaced as actionable bootstrap output"
   marker="$w/home/state/.daemon-nudge-pending/sm-instr.pending"
   assert_present "$marker" "failed nudge should leave a retry marker"
   assert_grep "selector=mx-sm-instr" "$marker" "retry marker should pin the stable selector"
-  assert_grep "message=broker was updated to the latest - please re-read your AGENTS.md to pick up the new instructions." \
+  assert_grep "message=The parent runtime was updated - please re-read your AGENTS.md to pick up the new instructions." \
     "$marker" "retry marker should pin the exact message"
   pass "T8c failed bootstrap nudge is surfaced and recorded for retry"
 }
@@ -473,7 +473,7 @@ test_bootstrap_nudge_retry_is_idempotent() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: standing agent sm-instr: send failed:" \
     "precondition: first nudge should fail"
   marker="$w/home/state/.daemon-nudge-pending/sm-instr.pending"
   assert_present "$marker" "precondition: failed nudge should leave marker"
@@ -501,7 +501,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 MX_FAKE_TMUX_FAIL_LITERAL=1 \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: standing agent sm-instr: send failed:" \
     "precondition: first nudge should fail"
   marker="$w/home/state/.daemon-nudge-pending/sm-instr.pending"
   assert_present "$marker" "precondition: failed nudge should leave marker"
@@ -515,7 +515,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
 
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     MX_SEND_SETTLE=0 "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed: retry target home changed" \
+  assert_contains "$out" "NUDGE_AGENTS: standing agent sm-instr: send failed: retry target home changed" \
     "retry must not infer a nudge target outside the recorded failed home"
   assert_present "$marker" "ambiguous retry should keep marker for operator inspection"
   pass "T8e bootstrap nudge retry refuses a changed home instead of guessing"
@@ -613,7 +613,7 @@ SH
     MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  assert_contains "$out" "NUDGE_AGENTS: daemon sm-instr: send failed:" \
+  assert_contains "$out" "NUDGE_AGENTS: standing agent sm-instr: send failed:" \
     "stale herdr endpoint should surface a failed immediate nudge"
 
   window=$(grep '^window=' "$meta" | tail -1 | cut -d= -f2-)
@@ -653,7 +653,7 @@ test_bootstrap_sweep_surfaces_skipped_home() {
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$w/home" MX_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/mx-bootstrap.sh" 2>/dev/null)
 
-  skip_line=$(printf '%s\n' "$out" | grep '^AGENT_SYNC: daemon sm-dirty: skipped:' || true)
+  skip_line=$(printf '%s\n' "$out" | grep '^AGENT_SYNC: standing agent sm-dirty: skipped:' || true)
   [ -n "$skip_line" ] || fail "no DAEMON_SYNC skip line emitted (got: $out)"
   assert_contains "$skip_line" "dirty working tree" "dirty skipped home reports the actionable reason"
   [ "$(head_of "$w/sm-dirty")" = "$before" ] || fail "dirty home HEAD moved"
@@ -726,7 +726,7 @@ SH
     "$ROOT/bin/mx-spawn.sh" sm "$w/sm" codex --daemon >/dev/null 2>"$err" || true
 
   assert_contains "$(cat "$err")" \
-    "warning: daemon sm sync skipped before launch: dirty working tree" \
+    "warning: standing agent sm sync skipped before launch: dirty working tree" \
     "spawn warning reports the skipped sync reason"
   [ "$(head_of "$w/sm")" = "$before" ] || fail "dirty spawn home HEAD moved"
   grep -q 'uncommitted local edit' "$w/sm/AGENTS.md" || fail "dirty spawn edit was discarded"
@@ -798,7 +798,7 @@ test_seed_marker_does_not_mask_real_dirt() {
   run_ff "$w/sm" "$base"
 
   [ "$FF_STATUS" = skipped ] || fail "a genuinely dirty home must skip, got '$FF_STATUS'"
-  assert_contains "$FF_OUT" "daemon sm: skipped: dirty working tree" \
+  assert_contains "$FF_OUT" "standing agent sm: skipped: dirty working tree" \
     "a genuinely dirty home is skipped even with the marker present"
   [ "$(head_of "$w/sm")" = "$before" ] || fail "genuinely dirty home HEAD moved (work at risk)"
   grep -q 'real local change' "$w/sm/AGENTS.md" || fail "genuine local edit was discarded"

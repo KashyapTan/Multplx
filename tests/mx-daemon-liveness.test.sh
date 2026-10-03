@@ -326,9 +326,9 @@ test_sweep_respawns_confirmed_dead_daemon() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
 
-  assert_not_contains "$out" "AGENT_LIVENESS: daemon sm1: respawned" \
+  assert_not_contains "$out" "AGENT_LIVENESS: standing agent sm1: respawned" \
     "a successfully respawned daemon should be handled silently"
-  assert_contains "$(cat "$log")" "kill-window -t broker:mx-sm1" \
+  assert_contains "$(cat "$log")" "kill-window -t primary:mx-sm1" \
     "the stale endpoint must be killed before respawn (tmux refuses a same-named window over a live one)"
   assert_contains "$(cat "$log")" "new-window" \
     "a confirmed-dead daemon should actually be relaunched"
@@ -344,12 +344,12 @@ test_sweep_leaves_alive_daemon_untouched() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" claude "$log")
 
-  assert_not_contains "$out" "AGENT_LIVENESS: daemon sm1: already-live" \
+  assert_not_contains "$out" "AGENT_LIVENESS: standing agent sm1: already-live" \
     "an already-live daemon should be handled silently"
   [ ! -s "$log" ] || fail "an already-live daemon must never be killed or respawned: $(cat "$log")"
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" claude "$log" MX_BOOTSTRAP_VERBOSE_FACTS=1)
-  assert_contains "$out" "BOOTSTRAP_INFO: daemon sm1 already live (backend=tmux)" \
+  assert_contains "$out" "BOOTSTRAP_INFO: standing agent sm1 already live (backend=tmux)" \
     "verbose diagnostics should identify the already-live outcome"
   [ ! -s "$log" ] || fail "verbose reporting must not touch an already-live daemon: $(cat "$log")"
   pass "sweep: an already-live daemon is untouched and distinguishable in verbose diagnostics"
@@ -379,7 +379,7 @@ test_sweep_never_acts_on_ambiguous_existing_process() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" node "$log")
 
-  assert_contains "$out" "AGENT_LIVENESS: daemon sm1: skipped: existing endpoint has ambiguous agent process" \
+  assert_contains "$out" "AGENT_LIVENESS: standing agent sm1: skipped: existing endpoint has ambiguous agent process" \
     "an existing Pi-shaped node process should be reported as ambiguous"
   [ ! -s "$log" ] || fail "an ambiguous existing process must never trigger kill or relaunch: $(cat "$log")"
   pass "sweep: an existing ambiguous Pi process prevents duplicate recovery"
@@ -394,7 +394,7 @@ test_sweep_never_acts_on_transient_unreadability() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" unreadable "$log")
 
-  assert_contains "$out" "AGENT_LIVENESS: daemon sm1: skipped: endpoint probe unreadable" \
+  assert_contains "$out" "AGENT_LIVENESS: standing agent sm1: skipped: endpoint probe unreadable" \
     "a transiently unreadable target should be distinguished from an absent one"
   [ ! -s "$log" ] || fail "an unreadable target must never trigger kill or relaunch: $(cat "$log")"
   pass "sweep: transient target unreadability never licenses recovery"
@@ -409,7 +409,7 @@ test_sweep_reports_missing_endpoint_relaunch_failure() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log" MX_TEST_FAIL_NEW_WINDOW=1)
 
-  assert_contains "$out" "AGENT_LIVENESS: daemon sm1: respawn failed after recorded endpoint confidently missing" \
+  assert_contains "$out" "AGENT_LIVENESS: standing agent sm1: respawn failed after recorded endpoint confidently missing" \
     "a failed missing-endpoint relaunch should retain its authorizing cause"
   pass "sweep: failed relaunch diagnostics distinguish a confidently missing endpoint"
 }
@@ -423,7 +423,7 @@ test_sweep_never_acts_on_unverified_harness_dead_reading() {
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
 
-  assert_contains "$out" "AGENT_LIVENESS: daemon sm1: skipped: recorded harness 'custom-agent' is unverified for recovery" \
+  assert_contains "$out" "AGENT_LIVENESS: standing agent sm1: skipped: recorded harness 'custom-agent' is unverified for recovery" \
     "an unverified harness should not let a dead endpoint become actionable"
   [ ! -s "$log" ] || fail "an unverified harness must never trigger kill or relaunch: $(cat "$log")"
   pass "sweep: an unverified harness blocks recovery with a concrete diagnostic"
@@ -438,14 +438,14 @@ test_sweep_converges_no_retouch_once_alive() {
 
   # Round 1: dead -> respawned silently (kill + new-window logged).
   out1=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
-  assert_not_contains "$out1" "AGENT_LIVENESS: daemon sm1: respawned" "round 1 should handle the successful respawn silently"
+  assert_not_contains "$out1" "AGENT_LIVENESS: standing agent sm1: respawned" "round 1 should handle the successful respawn silently"
   [ -s "$log" ] || fail "round 1 should have logged the kill+respawn window operations"
 
   # Round 2: the (now-respawned) daemon is genuinely alive - a second
   # sweep must converge to a pure no-op, not respawn again.
   : > "$log"
   out2=$(run_bootstrap "$tmuxfb:$fb" "$w/home" claude "$log")
-  assert_not_contains "$out2" "AGENT_LIVENESS: daemon sm1: already-live" "round 2 should handle the already-live daemon silently"
+  assert_not_contains "$out2" "AGENT_LIVENESS: standing agent sm1: already-live" "round 2 should handle the already-live daemon silently"
   [ ! -s "$log" ] || fail "round 2 must not re-kill or re-respawn an already-live daemon: $(cat "$log")"
   pass "sweep: idempotent by construction - a live daemon is never re-touched on a later run"
 }

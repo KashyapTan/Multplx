@@ -337,3 +337,13 @@ The real fixture keeps both prefix-only sessions intact, verifies creation of th
 `container_adoption_requires_exact_existing_names` passed 1/1; the authoritative `mx-backend-tmux-smoke.test.sh` runner passed in 982 ms using the worktree debug binary.
 The fixture cleaned up only its own private socket and did not inspect or mutate the user's default tmux server.
 This adds live tmux evidence; Herdr/cmux remain deterministic CLI-fixture evidence with no new live backend claim.
+
+### Broad-run vocabulary reconciliation
+
+The first centralized release behavior run exposed stale assertions in sourced helper files as well as script entry files.
+The reconciliation therefore scans all tracked Rust and shell tests, including helpers, and updates exact current diagnostics, fresh-home filenames and newly created container labels.
+Historical marker/config inputs, the retained old nudge retry message, existing legacy container inventories and versioned metadata projections remain unchanged.
+The same scan found current launch/config-push warnings and snapshot omission reasons that still used old actor names; those current message literals are corrected without changing routing or JSON field names.
+The redundant `must_use` annotation on the Herdr workspace-label Result was removed to satisfy clippy.
+Fresh tmux fixture launches now record primary endpoints, so recovery assertions follow those recorded endpoints while unverified legacy fixtures retain their old explicit targets.
+Focused reconciliation results and the final centralized release/coverage result are recorded after validation.

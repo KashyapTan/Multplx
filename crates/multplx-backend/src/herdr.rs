@@ -228,7 +228,6 @@ impl<R: CommandRunner> HerdrBackend<R> {
     }
 
     /// Derive the persistent workspace label for this Multplx home.
-    #[must_use]
     pub fn workspace_label(&self) -> Result<String, BackendError> {
         multplx_core::agent_home::identity(&self.home)
             .map(|id| id.map_or_else(|| "primary".to_owned(), |id| format!("agent-{id}")))
