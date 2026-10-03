@@ -1009,7 +1009,7 @@ fn remote_merge_git_context(command: &str) -> (Vec<String>, Option<String>) {
         .or_else(|| env::var_os("MX_STATE_OVERRIDE"))
         .map(PathBuf::from)
         .or_else(|| env::var_os("MX_HOME").map(|home| PathBuf::from(home).join("state")));
-    if let (Some(state), Ok(task)) = (state, env::var("MX_TASK_ID"))
+    if let (Some(state), Ok(task)) = (&state, env::var("MX_TASK_ID"))
         && let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
             state.join(format!("{task}.ready-to-push")),
             64 * 1024,
@@ -1021,6 +1021,27 @@ fn remote_merge_git_context(command: &str) -> (Vec<String>, Option<String>) {
         && !targets.iter().any(|target| target == base)
     {
         targets.push(base.to_owned());
+    }
+    // The canonical binding survives ready-request archival and direct PR
+    // registration. Ambient overrides may add protection, never replace it.
+    if let (Some(state), Ok(task_id)) = (&state, env::var("MX_TASK_ID"))
+        && let Ok(task_id) = crate::review_delivery::OperationalTaskId::parse(task_id)
+        && let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+            state.join(format!("{task_id}.meta")),
+            crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+        )
+        && let Ok(text) = String::from_utf8(bytes)
+        && let Ok(task) = crate::lifecycle::subagent_model::read_meta(task_id.as_str(), &text)
+    {
+        for base in task
+            .publication_base
+            .iter()
+            .chain(&task.publication_base_history)
+        {
+            if !targets.contains(&base.branch) {
+                targets.push(base.branch.clone());
+            }
+        }
     }
     let current = git_line(&directory, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
     (targets, current)

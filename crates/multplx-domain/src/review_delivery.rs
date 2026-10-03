@@ -414,6 +414,9 @@ pub fn ref_valid(value: &str) -> bool {
         && !value.starts_with('/')
         && !value.ends_with(['/', '.'])
         && !["..", "@{", "//"].iter().any(|part| value.contains(part))
+        && !value
+            .split('/')
+            .any(|part| part.starts_with('.') || part.ends_with(".lock"))
         && !value.contains([' ', '~', '^', ':', '?', '[', '\\'])
         && value
             .bytes()
@@ -661,37 +664,57 @@ impl DeliveryRecord {
     }
 }
 
+/// Read-only compatibility adapter; metadata mode remains a caller concern.
+/// File ownership shape, bounds and canonical parsing are shared with Rust.
+pub fn metadata_pr_file(path: &Path) -> Result<PrIdentity, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    let device = fs::metadata(path.parent().ok_or("metadata parent unavailable")?)
+        .map_err(|error| error.to_string())?
+        .dev();
+    let file = read_task_metadata_compat(path, metadata.permissions().mode() & 0o7777, device)?;
+    metadata_pr(&file.bytes)
+}
+
+/// Compatibility metadata preserves its existing mode while enforcing the
+/// same no-follow, single-link, device and authority-size checks.
+pub fn read_task_metadata_compat(
+    path: &Path,
+    mode: u32,
+    device: u64,
+) -> Result<SecureFile, String> {
+    read_private_bounded(
+        path,
+        mode,
+        device,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+}
+
 pub fn metadata_pr(bytes: &[u8]) -> Result<PrIdentity, String> {
     crate::lifecycle::subagent_model::validate_metadata_size(bytes)?;
     let text = std::str::from_utf8(bytes).map_err(|_| "metadata is not UTF-8")?;
-    let mut found = None;
-    let mut after = false;
-    for line in text.lines() {
-        if let Some(value) = line.strip_prefix("pr=") {
-            if found.is_some() {
-                return Err("metadata contains duplicate PR identity".to_owned());
-            }
-            found = Some(PrIdentity::parse(value)?);
-            after = true;
-        } else if after
-            && !line.starts_with("pr_head=")
-            && ![
-                "x_request=",
-                "x_request_ts=",
-                "x_followups=",
-                "x_platform=",
-                "x_reply_max_chars=",
-            ]
-            .iter()
-            .any(|prefix| line.starts_with(prefix))
-        {
-            return Err("metadata contains fields after PR identity".to_owned());
-        }
-        if after && line.starts_with("pr_head=") && !head_valid(&line[8..]) {
-            return Err("metadata PR head is invalid".to_owned());
-        }
+    let fields = crate::lifecycle::subagent_model::fields(text)?;
+    crate::lifecycle::subagent_model::validate_publication_metadata_order(text)?;
+    if fields.get("pr_head").is_some_and(|head| !head_valid(head)) {
+        return Err("metadata PR head is invalid".into());
     }
-    found.ok_or_else(|| "metadata has no canonical PR identity".to_owned())
+    let identity = PrIdentity::parse(
+        fields
+            .get("pr")
+            .ok_or("metadata has no canonical PR identity")?,
+    )?;
+    if let Some(raw) = fields.get("canonical_model") {
+        let value: serde_json::Value =
+            serde_json::from_str(raw).map_err(|_| "malformed canonical task")?;
+        let task_id = value["task_id"]
+            .as_str()
+            .ok_or("canonical task identity missing")?;
+        if fields.get("task").is_some_and(|outer| *outer != task_id) {
+            return Err("metadata and canonical task identity conflict".into());
+        }
+        crate::lifecycle::subagent_model::read_meta(task_id, text)?;
+    }
+    Ok(identity)
 }
 
 pub fn publish_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1061,6 +1084,56 @@ mod tests {
         assert!(publish_private_task_metadata(&link, &bytes).is_err());
         fs::hard_link(&path, temp.path().join("hardlink")).unwrap();
         assert!(read_private_task_metadata(&path, device).is_err());
+    }
+
+    #[test]
+    fn registered_pr_survives_canonical_evidence_and_status_rewrites() {
+        use crate::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+        let mut task = TaskRecord::new(
+            "task-a".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "parent".into(),
+            "parent".into(),
+            "/tmp/home".into(),
+        );
+        let registered = format!(
+            "task=task-a\npr=https://github.com/o/r/pull/7\npr_head={}\nx_platform=github\n",
+            "a".repeat(40)
+        );
+        let canonical = write_meta(&registered, &task).unwrap();
+        // Older revision owners appended the recognized compatibility kind.
+        let historical = format!("{canonical}kind=delivery\n");
+        assert_eq!(metadata_pr(historical.as_bytes()).unwrap().number, "7");
+        assert!(metadata_pr(format!("{canonical}kind=scout\n").as_bytes()).is_err());
+        assert!(metadata_pr(format!("{registered}kind=delivery\n").as_bytes()).is_err());
+        assert_eq!(metadata_pr(canonical.as_bytes()).unwrap().number, "7");
+        // Canonical owners change embedded delivery/status facts and append the
+        // model after the already registered PR, including affected old records.
+        task.schedule.priority = 3;
+        task.select_publication_base("mx/predecessor").unwrap();
+        let rewritten = write_meta(&canonical, &task).unwrap();
+        assert!(metadata_pr(rewritten.replace("task=task-a", "task=other").as_bytes()).is_err());
+        assert_eq!(
+            metadata_pr(rewritten.as_bytes()).unwrap().url,
+            "https://github.com/o/r/pull/7"
+        );
+        for suffix in [
+            "unknown=value\n",
+            "pr_head=bad\n",
+            "pr=https://github.com/o/r/pull/8\n",
+        ] {
+            assert!(metadata_pr(format!("{rewritten}{suffix}").as_bytes()).is_err());
+            assert!(write_meta(&format!("{rewritten}{suffix}"), &task).is_err());
+        }
+        assert!(metadata_pr(b"pr_head=bad\npr=https://github.com/o/r/pull/7\n").is_err());
+        assert!(
+            metadata_pr(format!("{registered}schema_version=2\ncanonical_model={{}}\n").as_bytes())
+                .is_err()
+        );
     }
 
     #[test]

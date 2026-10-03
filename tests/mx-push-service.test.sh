@@ -84,9 +84,9 @@ case "${1:-} ${2:-}" in
     ;;
   "pr list")
     if [ -e "$MX_TEST_PR_EXISTS" ] || [ -n "${MX_TEST_EXISTING_PR_URL:-}" ]; then
-      printf '[{"url":"%s","headRefName":"%s","baseRefName":"main","state":"OPEN","isCrossRepository":false}]\n' \
+      printf '[{"url":"%s","headRefName":"%s","baseRefName":"%s","state":"OPEN","isCrossRepository":false}]\n' \
         "${MX_TEST_EXISTING_PR_URL:-${MX_TEST_PR_URL:-https://github.com/example/repo/pull/42}}" \
-        "${MX_TEST_PR_HEAD_BRANCH:-mx/task-x1}"
+        "${MX_TEST_PR_HEAD_BRANCH:-mx/task-x1}" "${MX_TEST_PR_BASE:-main}"
     else
       printf '[]\n'
     fi
@@ -94,9 +94,9 @@ case "${1:-} ${2:-}" in
   "pr view")
     case "$*" in
       *url,headRefName,baseRefName,state,isCrossRepository*)
-        printf '{"url":"%s","headRefName":"%s","baseRefName":"main","state":"OPEN","isCrossRepository":false,"headRefOid":"%s"}\n' \
+        printf '{"url":"%s","headRefName":"%s","baseRefName":"%s","state":"OPEN","isCrossRepository":false,"headRefOid":"%s"}\n' \
           "${MX_TEST_EXISTING_PR_URL:-${MX_TEST_PR_URL:-https://github.com/example/repo/pull/42}}" \
-          "${MX_TEST_PR_HEAD_BRANCH:-mx/task-x1}" \
+          "${MX_TEST_PR_HEAD_BRANCH:-mx/task-x1}" "${MX_TEST_PR_BASE:-main}" \
           "$($REAL_GIT -C "$MX_TEST_WORKTREE" rev-parse HEAD)"
         ;;
       *) "$REAL_GIT" -C "$MX_TEST_WORKTREE" rev-parse HEAD ;;
@@ -398,6 +398,24 @@ test_growing_canonical_metadata_publication() {
     >"$case_dir/out" 2>"$case_dir/err" || fail "large metadata prepare failed: $(cat "$case_dir/err")"
   run_delivery "$case_dir" task-x1 >"$case_dir/out" 2>"$case_dir/err" \
     || fail "large metadata publication failed: $(cat "$case_dir/err")"
+  # Update through the real canonical evidence owner after PR registration.
+  # This appends schema/model fields after pr= in already affected metadata.
+  jq -n --arg head "$head" '{
+    evidence_id:"after-registration",attempt_id:"attempt-task-x1",attempt_generation:1,brief_revision:1,
+    commit:$head,checks:[{name:"post-registration check",outcome:"passed",summary:"observed pass",artifact:null}],
+    review:null,limitations:[],pr_url:"https://github.com/example/repo/pull/42",outcome:"evidence-updated",
+    observed_at:"2026-10-03T00:00:00Z",mark_current:true,expected_current_commit:$head
+  }' > "$case_dir/evidence.json"
+  MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
+    "$MX_RUST_BIN" task-model evidence task-x1 --request-file "$case_dir/evidence.json" >/dev/null \
+    || fail 'canonical update after registration failed'
+  run_delivery "$case_dir" task-x1 >"$case_dir/updated-retry-out" 2>"$case_dir/updated-retry-err" \
+    || fail "canonical rewrite broke PR reconciliation: $(cat "$case_dir/updated-retry-err")"
+  # The retained shell compatibility API uses the same Rust parser.
+  . "$ROOT/bin/mx-pr-lib.sh"
+  mx_pr_metadata_identity_parse "$case_dir/state/task-x1.meta" \
+    || fail 'shell compatibility parser rejected canonical rewrite'
+  [ "$MX_PR_META_URL" = https://github.com/example/repo/pull/42 ] || fail 'shell parser lost canonical identity'
   # Explicit registration and refresh must keep the same PR/history/current SHA.
   local DELIVER="$ROOT/bin/mx-pr-check.sh"
   run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 \
@@ -712,3 +730,144 @@ test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history() {
   pass 'existing PR revisions preserve receipts and refuse unsafe history or changed PR identity before push'
 }
 test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history
+
+
+revise_publication_fixture() {
+  local case_dir=$1
+  printf 'Accepted revision: retarget the existing task PR.\n' > "$case_dir/brief.md"
+  MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" "$MX_RUST_BIN" task-model revise task-x1 \
+    --expected-revision 1 --scope 'retarget the stack' --reason 'parent revised publication base' \
+    --brief-file "$case_dir/brief.md" >/dev/null || fail 'publication fixture revision failed'
+}
+
+test_task_bound_stacked_base_and_revision() {
+  local case_dir head model before old_archive ready_archive
+  case_dir=$(make_case stacked-base)
+  canonicalize_task "$case_dir"
+  head=$($REAL_GIT -C "$case_dir/wt" rev-parse HEAD)
+  $REAL_GIT -C "$case_dir/wt" branch mx/predecessor main
+  $REAL_GIT -C "$case_dir/wt" push -q origin mx/predecessor
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Stacked change' --base mx/predecessor \
+    >/dev/null || fail 'stacked base prepare failed'
+  assert_grep 'base=mx/predecessor' "$case_dir/state/task-x1.ready-to-push" 'stacked request lost base'
+  local DELIVER="$ROOT/bin/mx-review-diff.sh"
+  run_delivery "$case_dir" task-x1 --stat >"$case_dir/diff-out" 2>"$case_dir/diff-err" \
+    || fail "stacked review diff failed: $(cat "$case_dir/diff-err")"
+  assert_grep 'origin/mx/predecessor' "$case_dir/diff-out" 'review diff ignored selected stack base'
+  local DELIVER="$ROOT/bin/mx-deliver.sh"
+  model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" "$MX_RUST_BIN" task-model inspect task-x1)
+  printf '%s' "$model" | jq -e '.publication_base == {branch:"mx/predecessor",brief_revision:1}' >/dev/null \
+    || fail 'stacked base was not revision-bound'
+  before=$(shasum -a 256 "$case_dir/state/task-x1.meta" "$case_dir/state/task-x1.ready-to-push")
+  if run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Stacked change' --base main \
+    >"$case_dir/reject-out" 2>"$case_dir/reject-err"; then fail 'same brief changed frozen publication base'; fi
+  assert_grep 'frozen' "$case_dir/reject-err" 'base revision policy diagnostic absent'
+  [ "$(shasum -a 256 "$case_dir/state/task-x1.meta" "$case_dir/state/task-x1.ready-to-push")" = "$before" ] \
+    || fail 'rejected base change mutated publication identity'
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Stacked change' >/dev/null \
+    || fail 'omitted base failed to reuse frozen stack identity'
+  MX_TEST_PR_BASE=mx/predecessor run_delivery "$case_dir" task-x1 >"$case_dir/out" 2>"$case_dir/err" \
+    || fail "stacked publication failed: $(cat "$case_dir/err")"
+  assert_grep '--base mx/predecessor' "$case_dir/gh.log" 'forge create lost stacked base'
+  cp "$case_dir/state/task-x1.delivered" "$case_dir/prior-receipt"
+  if MX_TASK_ID=task-x1 MX_STATE_OVERRIDE="$case_dir/state" MX_REPORT_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/mx-subagent-pretool-check.sh" --command "git -C $case_dir/wt push origin HEAD:mx/predecessor" \
+    >"$case_dir/guard-out" 2>"$case_dir/guard-err"; then fail 'archived stack base lost target push protection'; fi
+  assert_grep 'remote-target-push' "$case_dir/guard-err" 'stack push refusal lacked target identity'
+  MX_TASK_ID=task-x1 MX_STATE_OVERRIDE="$case_dir/state" MX_REPORT_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/mx-subagent-pretool-check.sh" --command "git -C $case_dir/wt push origin HEAD:mx/task-x1" \
+    >/dev/null 2>&1 || fail 'stack protection refused ordinary task branch publication'
+  MX_TEST_PR_BASE=mx/predecessor run_delivery "$case_dir" task-x1 >/dev/null \
+    || fail 'stacked completed retry failed'
+  local DELIVER="$ROOT/bin/mx-pr-check.sh"
+  MX_TEST_PR_BASE=mx/predecessor run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 >/dev/null \
+    || fail 'stacked registration refresh lost base'
+  if MX_TEST_PR_BASE=unrelated run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 \
+    >"$case_dir/wrong-out" 2>"$case_dir/wrong-err"; then fail 'unrelated forge base accepted'; fi
+  local DELIVER="$ROOT/bin/mx-deliver.sh"
+  revise_publication_fixture "$case_dir"
+  if run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Retargeted change' >/dev/null 2>&1; then
+    fail 'new brief silently carried a historical base forward'
+  fi
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Retargeted change' --base main >/dev/null \
+    || fail 'revised explicit base prepare failed'
+  # Canonical publication must not silently retarget the existing forge PR.
+  if MX_TEST_PR_BASE=mx/predecessor run_delivery "$case_dir" task-x1 \
+    >"$case_dir/old-base-out" 2>"$case_dir/old-base-err"; then
+    fail 'revised delivery accepted an existing PR still targeting the historical base'
+  fi
+  cmp "$case_dir/prior-receipt" "$case_dir/state/task-x1.delivered" || fail 'refused retarget changed current receipt'
+  assert_present "$case_dir/state/task-x1.ready-to-push" 'refused retarget lost pending request'
+  # The next mock observation represents an explicit ordinary forge retarget.
+  run_delivery "$case_dir" task-x1 >"$case_dir/next-out" 2>"$case_dir/next-err" \
+    || fail "revised base publication failed: $(cat "$case_dir/next-err")"
+  old_archive=$(find "$case_dir/state" -name 'task-x1.delivered-*-*' -type f | head -1)
+  [ -n "$old_archive" ] || fail 'prior stacked receipt not archived'
+  cmp "$case_dir/prior-receipt" "$old_archive" || fail 'prior stacked receipt changed bytes'
+  [ "$(grep -c '^pr create ' "$case_dir/gh.log")" -eq 1 ] || fail 'base revision created duplicate PR'
+  run_delivery "$case_dir" task-x1 >/dev/null || fail 'revised base completed retry failed'
+  if MX_TASK_ID=task-x1 MX_STATE_OVERRIDE="$case_dir/state" MX_REPORT_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/mx-subagent-pretool-check.sh" --command "git -C $case_dir/wt push origin HEAD:mx/predecessor" \
+    >/dev/null 2>&1; then fail 'retargeted stack lost historical base push protection'; fi
+
+  case_dir=$(make_case stacked-pending-revision)
+  canonicalize_task "$case_dir"
+  head=$($REAL_GIT -C "$case_dir/wt" rev-parse HEAD)
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Pending stack' --base mx/predecessor >/dev/null \
+    || fail 'pending stack prepare failed'
+  cp "$case_dir/state/task-x1.ready-to-push" "$case_dir/prior-request"
+  revise_publication_fixture "$case_dir"
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Revised pending stack' --base main >/dev/null \
+    || fail 'new brief could not supersede pending publication'
+  ready_archive=$(find "$case_dir/state" -name 'task-x1.ready-to-push-superseded-*' -type f | head -1)
+  [ -n "$ready_archive" ] || fail 'superseded pending request missing'
+  cmp "$case_dir/prior-request" "$ready_archive" || fail 'superseded request changed bytes'
+  pass 'stacked base is frozen, reused on retries and refreshed only after explicit revision with preserved history'
+}
+test_task_bound_stacked_base_and_revision
+
+test_direct_stacked_registration_validates_before_binding() {
+  local case_dir before model base
+  case_dir=$(make_case direct-stacked-registration)
+  canonicalize_task "$case_dir"
+  before=$(shasum -a 256 "$case_dir/state/task-x1.meta")
+  local DELIVER="$ROOT/bin/mx-pr-check.sh"
+  if run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 --base mx/predecessor \
+    >"$case_dir/rejected-out" 2>"$case_dir/rejected-err"; then fail 'mismatched direct base registered'; fi
+  [ "$(shasum -a 256 "$case_dir/state/task-x1.meta")" = "$before" ] \
+    || fail 'rejected forge validation mutated base binding'
+  for base in mx/task-x1 bad.lock .hidden; do
+    if run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 --base "$base" >/dev/null 2>&1; then
+      fail "invalid publication base accepted: $base"
+    fi
+  done
+  MX_TEST_PR_BASE=mx/predecessor run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 --base mx/predecessor \
+    >"$case_dir/out" 2>"$case_dir/err" || fail "direct stacked registration failed: $(cat "$case_dir/err")"
+  model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" "$MX_RUST_BIN" task-model inspect task-x1)
+  printf '%s' "$model" | jq -e '.publication_base.branch == "mx/predecessor" and .publication_base.brief_revision == 1' >/dev/null \
+    || fail 'direct stacked registration missing canonical base'
+  MX_TEST_PR_BASE=mx/predecessor run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 >/dev/null \
+    || fail 'direct stacked registration refresh failed'
+  pass 'direct PR registration validates forge identity before persisting a selected stacked base'
+}
+test_direct_stacked_registration_validates_before_binding
+
+
+test_historical_prepared_base_stays_frozen() {
+  local case_dir
+  case_dir=$(make_case historical-frozen-base)
+  canonicalize_task "$case_dir"
+  write_record "$case_dir" approved
+  # Only the isolated Git fixture changes its default branch. Production must
+  # preserve the already prepared request's base instead of editing origin/HEAD.
+  $REAL_GIT -C "$case_dir/wt" branch alternative main
+  $REAL_GIT -C "$case_dir/wt" update-ref refs/remotes/origin/alternative main
+  $REAL_GIT -C "$case_dir/wt" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/alternative
+  run_delivery "$case_dir" task-x1 >"$case_dir/out" 2>"$case_dir/err" \
+    || fail "historical frozen-base publication failed: $(cat "$case_dir/err")"
+  assert_grep 'base=main' "$case_dir/state/task-x1.delivered" 'historical request silently changed base'
+  [ "$($REAL_GIT -C "$case_dir/wt" symbolic-ref --short refs/remotes/origin/HEAD)" = origin/alternative ] \
+    || fail 'publication changed shared origin/HEAD to force its base'
+  pass 'historical prepared publication honors its frozen base when the repository default changes'
+}
+test_historical_prepared_base_stays_frozen

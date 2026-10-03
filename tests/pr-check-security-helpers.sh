@@ -411,6 +411,29 @@ EOF
   pass "raw-byte parser accepts canonical URLs and rejects the complete adversarial matrix"
 }
 
+test_pr_check_help_has_zero_side_effects() {
+  local dir before flag
+  dir=$(make_case help-entrypoints)
+  write_task_meta "$dir"
+  before=$(state_snapshot "$dir/home/state")
+  for flag in --help -h; do
+    run_check_entry "$dir" "$flag" > "$dir/stdout" 2> "$dir/stderr" || fail 'PR check help failed'
+    assert_grep 'Usage: mx-pr-check.sh' "$dir/stdout" 'PR check help omitted usage'
+    assert_grep '--base' "$dir/stdout" 'PR check help omitted base selector'
+    [ ! -s "$dir/stderr" ] || fail 'PR check help emitted errors'
+    [ "$(state_snapshot "$dir/home/state")" = "$before" ] || fail 'PR check help mutated state'
+  done
+  for flag in --help -h --base; do
+    if run_check_entry "$dir" "$flag" extra >/dev/null 2>&1; then fail 'malformed help or base request accepted'; fi
+  done
+  if run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --base >/dev/null 2>&1; then
+    fail 'missing base value accepted'
+  fi
+  [ ! -s "$dir/gh.log" ] && [ ! -s "$dir/guard.log" ] || fail 'PR check help or malformed request called forge/guard'
+  [ "$(state_snapshot "$dir/home/state")" = "$before" ] || fail 'malformed help/base request mutated state'
+  pass 'PR check help succeeds before state and forge access while malformed requests remain strict'
+}
+
 test_invalid_entrypoints_have_zero_side_effects() {
   local dir before after value rc
   dir=$(make_case invalid-entrypoints)
@@ -2949,6 +2972,7 @@ test_retirement_queue_failure_and_receipt_tampering() {
 case "${MX_TEST_CASE_GROUP:-all}" in
   parser-entrypoints)
     test_parser_matrix
+    test_pr_check_help_has_zero_side_effects
     test_invalid_entrypoints_have_zero_side_effects
     test_valid_recording_and_merge_derivation
     test_rejected_metacharacter_bytes_are_inert
@@ -2997,6 +3021,7 @@ case "${MX_TEST_CASE_GROUP:-all}" in
     test_external_merge_transition_retires_only_terminal_poll
     test_retirement_refuses_replacement_and_nonterminal_results
     test_retirement_queue_failure_and_receipt_tampering
+    test_pr_check_help_has_zero_side_effects
     test_invalid_entrypoints_have_zero_side_effects
     test_valid_recording_and_merge_derivation
     test_rejected_metacharacter_bytes_are_inert

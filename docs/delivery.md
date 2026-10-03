@@ -38,6 +38,16 @@ Register a directly opened PR through the same canonical owner:
 bin/mx-pr-check.sh task https://github.com/OWNER/REPO/pull/NUMBER
 ```
 
+For a stacked PR, add `--base mx/predecessor` to `prepare`, or to direct PR registration.
+The canonical task records that branch with its accepted brief revision; omission reuses the recorded base or selects the repository default for an unbound task.
+An explicit base must be a valid Git branch name and differ from the task's head branch.
+Repository, head and base validation remains required; no ambient variable changes this publication identity.
+The base stays frozen for that accepted revision.
+To change it, record a newer assignment revision through `mx task-model revise`, then select the new `--base` explicitly and prepare fresh evidence.
+Pending requests superseded by a newer revision and previous delivery receipts retain their original bytes as history.
+Retarget an existing PR through ordinary forge commands before registration or publication can validate its revised base.
+Retries, PR refresh and merge polling retain the canonical PR identity, while push protection includes the selected base after publication.
+
 Registration keeps the validated PR identity, read-only merge poll and later cleanup connected to the task.
 Publication uses the task-bound repository, not a globally selected project.
 A remote-free or local-only task returns its local branch and evidence without inventing a forge destination.
