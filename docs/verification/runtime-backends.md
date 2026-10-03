@@ -238,6 +238,19 @@ HERDR_LAB_HELPER=bin/mx-herdr-lab.sh \
 
 Observed guarantee: the primary and daemon used distinct home workspaces, a child launched by the daemon stayed in that daemon workspace, list-live remained home-scoped, and exact cleanup did not affect sibling homes.
 
+The standing-agent workspace naming change was verified on 2026-10-03 against the installed Herdr 0.7.4 client in guarded, non-default lab sessions:
+
+```sh
+target/release/mx test-run tests/mx-backend-herdr-smoke.test.sh tests/mx-backend-herdr-workspace-per-home-e2e.test.sh
+```
+
+Both scripts passed without gate skips (`total=2 failed=0 skipped_gate=0 duration_ms=14497`).
+The real workspace list showed `agent-<id>` for a newly created standing-agent home.
+An independently created historical `daemon-<id>` workspace was adopted with the same workspace id, label, focus, and empty seed-pruning authority, with a byte-identical before/after workspace list.
+The per-home spawn, child routing, list-live isolation, exact cleanup, and named-session restart checks passed with the default-session tripwire intact.
+These tests use synthetic task harnesses and native pane registration; they do not establish new live provider credential or busy-state evidence.
+Focused Rust fixtures additionally cover current and historical label lookup, mixed-prefix presentation ordering, and concise child labels.
+
 The complete projection suite ran on 2026-07-21 against Herdr 0.7.4 protocol 16:
 
 ```sh

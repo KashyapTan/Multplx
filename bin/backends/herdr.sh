@@ -112,25 +112,15 @@ MX_BACKEND_HERDR_DAEMON_MARKER=".mx-daemon-home"
 # No send, capture, allocation, or general task-ownership path reads it.
 MX_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
 
-# mx_backend_herdr_workspace_label: the per-broker-HOME herdr workspace
-# label (docs/herdr-backend.md "Default task container shape"). The PRIMARY home (no
-# daemon marker) resolves to the constant "broker", byte-identical to
-# every pre-existing task's recorded label - no forced migration. A DAEMON
-# home resolves to "daemon-<daemon-id>", so its tasks land in their own
-# workspace, obviously distinguishable from the primary's (and from every
-# other daemon's) in herdr's spaces sidebar. Read fresh from MX_HOME on
-# every call rather than cached at source time: MX_HOME is the home's own
-# durable identity, not env plumbing threaded through a call chain, so the
-# label is automatically stable across every respawn/recovery for the life of
-# that home. mx-spawn.sh briefly shadows MX_HOME to a daemon's own home
-# when the PRIMARY spawns that daemon (its own process's MX_HOME still
-# names the primary at that point) - see mx-spawn.sh's herdr case arm.
+# Derive the visible label for a new standing-agent home workspace.
+# The historical .mx-daemon-home marker remains the durable identity source.
+# Lookup also accepts daemon-<id> so existing workspaces stay in place.
 mx_backend_herdr_workspace_label() {
   local marker="$MX_HOME/$MX_BACKEND_HERDR_DAEMON_MARKER" id
   if [ -f "$marker" ]; then
     id=$(tr -d '[:space:]' < "$marker" 2>/dev/null)
     if [ -n "$id" ]; then
-      printf 'daemon-%s' "$id"
+      printf 'agent-%s' "$id"
       return 0
     fi
   fi
@@ -401,14 +391,14 @@ mx_backend_herdr_projection_journal_replace_endpoint() {  # <journal> <task-id> 
 
 # mx_backend_herdr_projection_concise_task_label: strip redundant owner
 # prefixes from a task id used only in the presentation workspace label.
-# Removes broker/, daemon-<id>/, and a presentation-level mx- owner
+# Removes broker/, agent-<id>/, legacy daemon-<id>/, and an mx- owner
 # prefix when present. The ordinary task tab remains mx-<id> and is not
 # built by this helper.
 mx_backend_herdr_projection_concise_task_label() {  # <task-id>
   local task=$1
   case "$task" in
     broker/*) task=${task#broker/} ;;
-    daemon-*/*) task=${task#*/} ;;
+    agent-*/*|daemon-*/*) task=${task#*/} ;;
   esac
   case "$task" in
     mx-*) task=${task#mx-} ;;
@@ -631,7 +621,7 @@ mx_backend_herdr_projection_close_pane_focus_preserving() {  # <session> <pane-i
 # returned by THIS projected create immediately after its owning parent's
 # contiguous child block and before the next parent.
 #
-# <parent-label> is the owning MX_HOME label (broker or daemon-<id>).
+# <parent-label> is the owning MX_HOME label (broker, agent-<id>, or legacy daemon-<id>).
 # New-format └ ... · p:<token> children and, for compatibility only, already
 # adjacent old-format broker/... or daemon-<id>/... projections may extend
 # the block read-only; they are never renamed or moved.
@@ -662,13 +652,13 @@ mx_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
       (.label | type) == "string" and .label == $parent;
     def is_top_level_parent:
       (.label | type) == "string"
-      and ((.label == "broker") or (.label | test("^daemon-[^/]+$")));
+      and ((.label == "broker") or (.label | test("^(agent|daemon)-[^/]+$")));
     def is_new_child:
       (.label | type) == "string"
       and (.label | test("^└ .+ · p:[A-Za-z0-9_-]{22}$"));
     def is_legacy_child:
       (.label | type) == "string"
-      and (.label | test("^(broker|daemon-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"));
+      and (.label | test("^(broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"));
     def is_legacy_child_for($owner):
       is_legacy_child and (.label | startswith($owner + "/"));
     def is_child_for($owner):
@@ -820,23 +810,25 @@ mx_backend_herdr_server_ensure() {  # <session>
 }
 
 # mx_backend_herdr_workspace_find: this HOME's own workspace id inside
-# <session> (mx_backend_herdr_workspace_label), or empty (never creates).
+# <session> under its current or historical home label, or empty (never creates).
 # Read-only, safe for recovery/list paths. Label-collision semantics
 # (docs/herdr-backend.md "Label collisions"): herdr enforces no label
 # uniqueness at all, so this adopts the FIRST matching workspace `jq` returns
 # (list order, normally creation order/oldest) rather than disambiguating -
 # identical in spirit to the pre-existing tab duplicate-label check below.
 mx_backend_herdr_workspace_find() {  # <session>
-  local session=$1 label list
+  local session=$1 label legacy list
   label=$(mx_backend_herdr_workspace_label)
+  legacy=$label
+  case "$label" in agent-*) legacy="daemon-${label#agent-}" ;; esac
   list=$(mx_backend_herdr_cli "$session" workspace list 2>/dev/null) || return 0
   # NOTE: the jq variable is $want, NOT $label - `label` is a jq reserved
   # keyword (label/break), so declaring a jq variable named "label" is a
   # compile error that `2>/dev/null` would silently swallow, making this find
   # ALWAYS return empty and every spawn mint a fresh "broker" workspace
   # (the workspace leak).
-  printf '%s' "$list" | jq -r --arg want "$label" \
-    '.result.workspaces[]? | select(.label == $want) | .workspace_id' 2>/dev/null | head -1
+  printf '%s' "$list" | jq -r --arg want "$label" --arg legacy "$legacy" \
+    '.result.workspaces[]? | select(.label == $want or .label == $legacy) | .workspace_id' 2>/dev/null | head -1
 }
 
 # mx_backend_herdr_workspace_prune_seeded_default_tab: close EXACTLY
@@ -1362,7 +1354,7 @@ mx_backend_herdr_projection_live_binding_matches() {  # <session> <token> <works
         and (.label | test("^└ .+ · p:[A-Za-z0-9_-]{22}$"));
       def is_legacy_child_for($owner):
         (.label | type) == "string"
-        and (.label | test("^(broker|daemon-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"))
+        and (.label | test("^(broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"))
         and (.label | startswith($owner + "/"));
       (.result.workspaces // null) as $spaces
       | select(($spaces | type) == "array")

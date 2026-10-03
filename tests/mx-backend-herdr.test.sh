@@ -250,8 +250,8 @@ test_workspace_label_daemon_home_uses_marker_id() {
   home="$TMP_ROOT/daemon-home"; mkdir -p "$home"
   printf 'sshhip-h7\n' > "$home/.mx-daemon-home"
   out=$( MX_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "daemon-sshhip-h7" ] || fail "a daemon home should resolve to 'daemon-<id>', got '$out'"
-  pass "mx_backend_herdr_workspace_label: a daemon home (.mx-daemon-home) resolves to 'daemon-<id>'"
+  [ "$out" = "agent-sshhip-h7" ] || fail "a daemon home should resolve to 'agent-<id>', got '$out'"
+  pass "mx_backend_herdr_workspace_label: a daemon home (.mx-daemon-home) resolves to 'agent-<id>'"
 }
 
 test_workspace_label_daemon_marker_trims_whitespace() {
@@ -259,7 +259,7 @@ test_workspace_label_daemon_marker_trims_whitespace() {
   home="$TMP_ROOT/daemon-home-ws"; mkdir -p "$home"
   printf '  sshhip-h7  \n\n' > "$home/.mx-daemon-home"
   out=$( MX_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "daemon-sshhip-h7" ] || fail "the marker id should be trimmed of surrounding whitespace, got '$out'"
+  [ "$out" = "agent-sshhip-h7" ] || fail "the marker id should be trimmed of surrounding whitespace, got '$out'"
   pass "mx_backend_herdr_workspace_label: trims whitespace around the marker's daemon id"
 }
 
@@ -278,8 +278,8 @@ test_workspace_label_different_daemons_get_different_labels() {
   home2="$TMP_ROOT/daemon-b"; mkdir -p "$home2"; printf 'bravo-b2\n' > "$home2/.mx-daemon-home"
   out1=$( MX_HOME="$home1" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
   out2=$( MX_HOME="$home2" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out1" = "daemon-alpha-a1" ] || fail "daemon home1 label mismatch: $out1"
-  [ "$out2" = "daemon-bravo-b2" ] || fail "daemon home2 label mismatch: $out2"
+  [ "$out1" = "agent-alpha-a1" ] || fail "daemon home1 label mismatch: $out1"
+  [ "$out2" = "agent-bravo-b2" ] || fail "daemon home2 label mismatch: $out2"
   [ "$out1" != "$out2" ] || fail "two different daemon homes must not collide on the same label"
   pass "mx_backend_herdr_workspace_label: two different daemon homes get two different, non-colliding labels"
 }
@@ -611,12 +611,12 @@ test_container_ensure_uses_daemon_home_label() {
   printf '{"client":{"version":"0.7.1","protocol":14}}\n' > "$resp/1.out"
   printf '{"server":{"running":true}}\n' > "$resp/2.out"
   printf '{"result":{"workspaces":[]}}\n' > "$resp/3.out"
-  printf '{"result":{"workspace":{"workspace_id":"w9","label":"daemon-sshhip-h7"},"tab":{"tab_id":"w9:t1"},"root_pane":{"pane_id":"w9:p1"}}}\n' > "$resp/4.out"
+  printf '{"result":{"workspace":{"workspace_id":"w9","label":"agent-sshhip-h7"},"tab":{"tab_id":"w9:t1"},"root_pane":{"pane_id":"w9:p1"}}}\n' > "$resp/4.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" MX_HOME="$home" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" MX_HERDR_SCRIPT_STATUS=1 HERDR_SESSION=fmtest \
     bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_container_ensure /tmp' "$ROOT" )
   [ "$out" = $'fmtest:w9\tw9:t1' ] || fail "container_ensure did not echo the expected session:workspace_id + seeded default tab id, got '$out'"
-  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''daemon-sshhip-h7' \
+  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''agent-sshhip-h7' \
     "container_ensure did not create the workspace under this daemon home's own label"
   pass "mx_backend_herdr_container_ensure: creates the workspace under the DAEMON home's own label, not 'broker'"
 }
@@ -1459,19 +1459,18 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk() {
 # --- workspace_find: scoped to THIS home's own label, not just any match ----
 
 test_workspace_find_matches_only_this_homes_own_label() {
-  local dir log resp fb out home
-  dir="$TMP_ROOT/find-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  local dir log resp fb out home prefix
   home="$TMP_ROOT/find-scoped-home"; mkdir -p "$home"; printf 'bravo-b2\n' > "$home/.mx-daemon-home"
-  # A workspace list carrying BOTH the primary's "broker" space and this
-  # daemon's own "daemon-bravo-b2" space (as would be true once several
-  # homes share one herdr session) - find must pick the one matching THIS
-  # home's own label, never the primary's or a sibling daemon's.
-  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"broker"},{"workspace_id":"w2","label":"daemon-bravo-b2"},{"workspace_id":"w3","label":"daemon-alpha-a1"}]}}\n' > "$resp/1.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" MX_HOME="$home" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_find fmtest' "$ROOT" )
-  [ "$out" = "w2" ] || fail "workspace_find should have matched this home's own label (daemon-bravo-b2 -> w2), got '$out'"
-  pass "mx_backend_herdr_workspace_find: matches only THIS home's own label among several coexisting workspaces"
+  for prefix in agent daemon; do
+    dir="$TMP_ROOT/find-scoped-$prefix"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+    printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"broker"},{"workspace_id":"w2","label":"%s-bravo-b2"},{"workspace_id":"w3","label":"%s-alpha-a1"}]}}\n' "$prefix" "$prefix" > "$resp/1.out"
+    fb=$(make_herdr_fakebin "$dir")
+    out=$( PATH="$fb:$PATH" MX_HOME="$home" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+      bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_find fmtest' "$ROOT" )
+    [ "$out" = "w2" ] || fail "workspace_find should match this home's $prefix label, got '$out'"
+    [ "$(wc -l < "$log" | tr -d ' ')" = 1 ] || fail "workspace lookup must only issue one read-only list call"
+  done
+  pass "mx_backend_herdr_workspace_find: current and historical labels resolve this exact home without mutations"
 }
 
 # --- list_live: scoped to this home's own workspace only ---------------------
@@ -1481,7 +1480,7 @@ test_list_live_scoped_to_this_homes_workspace_only() {
   dir="$TMP_ROOT/list-live-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   home="$TMP_ROOT/list-live-scoped-home"; mkdir -p "$home"; printf 'bravo-b2\n' > "$home/.mx-daemon-home"
   # 1: workspace_find's `workspace list` - two homes coexist, daemon's is w2
-  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"broker"},{"workspace_id":"w2","label":"daemon-bravo-b2"}]}}\n' > "$resp/1.out"
+  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"broker"},{"workspace_id":"w2","label":"agent-bravo-b2"}]}}\n' > "$resp/1.out"
   # 2: tab list --workspace w2 (this daemon's own tabs only)
   printf '{"result":{"tabs":[{"tab_id":"w2:t1","label":"mx-daemontask"}]}}\n' > "$resp/2.out"
   # 3: pane_for_tab's `pane list --workspace w2`

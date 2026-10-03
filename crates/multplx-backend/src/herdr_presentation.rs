@@ -291,7 +291,7 @@ pub fn quiesce_projection_before_allocation<R: CommandRunner>(
         || previous.task_id != request.task_id
         || previous.home != home_identity(request.home)?
         || previous.session != session
-        || previous.parent_label != backend.workspace_label()
+        || !backend.matches_workspace_label(&previous.parent_label)
         || previous.task_label != request.task_label
     {
         return Err(BackendError::Metadata(
@@ -425,7 +425,6 @@ pub fn spawn_projection(
     request: &ProjectionSpawnRequest<'_>,
 ) -> Result<ProjectionSpawnOutcome, BackendError> {
     let session = backend.session().to_owned();
-    let parent_label = backend.workspace_label();
     if let Err(error) = backend.server_ensure(&session) {
         if request.recovering {
             return Err(BackendError::Command(format!(
@@ -454,6 +453,9 @@ pub fn spawn_projection(
             });
         }
     };
+    let parent_label = backend
+        .workspace_find_entry(&session)
+        .map_or_else(|| backend.workspace_label(), |(_, label)| label);
     let journal = journal_path(request.state, request.task_id);
     if request.recovering {
         let meta_path = request.state.join(format!("{}.meta", request.task_id));
@@ -880,7 +882,8 @@ pub fn concise_task_label(task_id: &str) -> &str {
         .strip_prefix("broker/")
         .or_else(|| {
             task_id
-                .strip_prefix("daemon-")
+                .strip_prefix("agent-")
+                .or_else(|| task_id.strip_prefix("daemon-"))
                 .and_then(|rest| rest.split_once('/').map(|(_, task)| task))
         })
         .unwrap_or(task_id);
@@ -1865,7 +1868,8 @@ fn validate_remainder(spaces: &[Value]) -> Result<(), BackendError> {
 fn is_parent_label(label: &str) -> bool {
     label == "broker"
         || label
-            .strip_prefix("daemon-")
+            .strip_prefix("agent-")
+            .or_else(|| label.strip_prefix("daemon-"))
             .is_some_and(|suffix| !suffix.is_empty() && !suffix.contains('/'))
 }
 
@@ -2310,6 +2314,7 @@ mod tests {
     fn labels_preserve_current_unicode_and_concise_owner_shape() {
         assert_eq!(concise_task_label("broker/mx-one"), "one");
         assert_eq!(concise_task_label("daemon-wheelhouse/mx-two"), "two");
+        assert_eq!(concise_task_label("agent-wheelhouse/mx-two"), "two");
         assert_eq!(
             projection_workspace_label("broker/mx-one", TOKEN),
             format!("└ one · p:{TOKEN}")
@@ -2329,6 +2334,22 @@ mod tests {
         assert_eq!(analysis.desired, 2);
         assert_eq!(analysis.existing, ["parent", "old", "other"]);
         assert!(analyze_order(&value, "missing", "broker").is_err());
+    }
+
+    #[test]
+    fn ordering_accepts_standing_parents_and_historical_blocks() {
+        for owner in ["agent-worker", "daemon-worker"] {
+            let value = json!({"result":{"workspaces":[
+                {"workspace_id":"parent","label":owner},
+                {"workspace_id":"old","label":format!("{owner}/old · p:{TOKEN}")},
+                {"workspace_id":"other","label":"agent-coordinator"},
+                {"workspace_id":"other-child","label":format!("└ sibling · p:{TOKEN}")},
+                {"workspace_id":"new","label":format!("└ new · p:{TOKEN}")}
+            ]}});
+            let analysis = analyze_order(&value, "new", owner).expect("home block");
+            assert_eq!(analysis.desired, 2);
+            assert_eq!(analysis.existing, ["parent", "old", "other", "other-child"]);
+        }
     }
 
     #[test]

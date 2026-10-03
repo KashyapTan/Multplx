@@ -190,8 +190,8 @@ pass "real herdr: a daemon-shaped home (.mx-daemon-home) gets its OWN herdr work
 
 SM_WSID=${SM_CONTAINER#*:}
 SM_LABEL_REAL=$(herdr workspace list --session "$SESSION" 2>&1 | jq -r --arg id "$SM_WSID" '.result.workspaces[]? | select(.workspace_id == $id) | .label')
-[ "$SM_LABEL_REAL" = "daemon-smoketest-sm1" ] || fail "the daemon workspace's real herdr label should be daemon-smoketest-sm1, got '$SM_LABEL_REAL'"
-pass "real herdr: the daemon-shaped home's workspace is labeled daemon-<daemon-id> in herdr itself"
+[ "$SM_LABEL_REAL" = "agent-smoketest-sm1" ] || fail "the daemon workspace's real herdr label should be agent-smoketest-sm1, got '$SM_LABEL_REAL'"
+pass "real herdr: the standing-agent home workspace is labeled agent-<id> in Herdr itself"
 
 SM_TASK_LABEL="mx-smtask1"
 SM_TASK_IDS=$(MX_HOME="$SM_HOME" mx_backend_herdr_create_task "$SM_CONTAINER" "$SM_TASK_LABEL" /tmp "$SM_SEEDED_TAB_ID") || fail "daemon create_task failed"
@@ -218,6 +218,23 @@ case "$SM_LIVE" in
 esac
 pass "real herdr: list_live stays scoped to each home's own workspace - neither home sees the other's tasks"
 
+# Historical workspace names remain discoverable without creating or renaming.
+LEGACY_HOME="$SM_SCRATCH/legacy-home"
+mkdir -p "$LEGACY_HOME"
+printf 'legacy-sm1\n' > "$LEGACY_HOME/.mx-daemon-home"
+LEGACY_CREATE=$(mx_herdr_lab_cli "$SESSION" workspace create --cwd /tmp --label daemon-legacy-sm1 --no-focus) \
+  || fail "could not create isolated historical workspace"
+LEGACY_WSID=$(printf '%s' "$LEGACY_CREATE" | jq -r '.result.workspace.workspace_id')
+LEGACY_BEFORE=$(mx_herdr_lab_cli "$SESSION" workspace list)
+LEGACY_CONTAINER_RAW=$(MX_HOME="$LEGACY_HOME" mx_backend_herdr_container_ensure /tmp) \
+  || fail "historical workspace adoption failed"
+[ "$LEGACY_CONTAINER_RAW" = "$SESSION:$LEGACY_WSID"$'\t' ] \
+  || fail "historical adoption changed workspace identity or granted seed authority"
+LEGACY_AFTER=$(mx_herdr_lab_cli "$SESSION" workspace list)
+[ "$LEGACY_BEFORE" = "$LEGACY_AFTER" ] \
+  || fail "historical adoption mutated the existing workspace list"
+pass "real Herdr: an existing daemon-<id> workspace is adopted with unchanged ids, labels, focus, and no seed authority"
+
 # --- restart stability in the MULTI-workspace shape --------------------------
 # P2 (herdr-verification-p2.md "ID stability") verified this for a single
 # workspace only. Both this suite's workspaces (and their tabs/panes) must
@@ -231,7 +248,7 @@ mx_backend_herdr_server_ensure "$SESSION" || fail "the isolated session's server
 
 POST_LIST=$(herdr workspace list --session "$SESSION" 2>&1)
 POST_PRIMARY_ID=$(printf '%s' "$POST_LIST" | jq -r '.result.workspaces[]? | select(.label == "broker") | .workspace_id')
-POST_SM_ID=$(printf '%s' "$POST_LIST" | jq -r --arg l "daemon-smoketest-sm1" '.result.workspaces[]? | select(.label == $l) | .workspace_id')
+POST_SM_ID=$(printf '%s' "$POST_LIST" | jq -r --arg l "agent-smoketest-sm1" '.result.workspaces[]? | select(.label == $l) | .workspace_id')
 [ "$POST_PRIMARY_ID" = "${CONTAINER#*:}" ] || fail "the primary workspace id did not survive the restart: before=${CONTAINER#*:} after=$POST_PRIMARY_ID"
 [ "$POST_SM_ID" = "$SM_WSID" ] || fail "the daemon workspace id did not survive the restart: before=$SM_WSID after=$POST_SM_ID"
 
