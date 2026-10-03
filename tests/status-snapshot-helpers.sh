@@ -314,7 +314,7 @@ test_parent_activity_evidence_is_bounded_and_disclosed() {
   json=$(MX_SNAPSHOT_PARENT_ACTIVITY_LINES=4 MX_SNAPSHOT_PARENT_ACTIVITY_BYTES=4096 \
     MX_SNAPSHOT_PARENT_ACTIVITIES=2 run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
-    .omitted | any(.surface == "daemon parent activity evidence truncated for 1 record(s)")
+    .omitted | any(.surface == "standing-agent parent activity evidence truncated for 1 record(s)")
   ' >/dev/null || fail "catchup did not disclose bounded parent activity evidence: $json"
   pass "parent activity evidence is bounded and disclosed"
 }
@@ -794,7 +794,7 @@ test_registry_unavailability_and_bounds_are_explicit() {
   printf '%s' "$json" | jq -e '
     (.daemons | any(.[]; .id == "(registry)" and .state == "unknown"
       and .provenance == "registered-table" and .freshness == "unavailable"))
-      and (.omitted | any(.surface | contains("daemon registry unavailable")))
+      and (.omitted | any(.surface | contains("standing-agent registry unavailable")))
   ' >/dev/null || fail "unreadable registry disappeared from catchup: $json"
   home=$(make_home registry-bounds)
   : > "$home/data/daemons.md"
@@ -838,7 +838,7 @@ test_registry_unavailability_and_bounds_are_explicit() {
   ' >/dev/null || fail "registry newline byte boundary hid truncation: $canonical"
   json=$(MX_SNAPSHOT_REGISTRY_RECORDS=2 run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
-    .omitted | any(.surface == "daemon registry records omitted by bounded read")
+    .omitted | any(.surface == "standing-agent registry records omitted by bounded read")
   ' >/dev/null || fail "catchup omitted registry truncation disclosure: $json"
   mate="$TMP_ROOT/registry-z-hidden"
   make_valid_daemon_home z-hidden "$mate"

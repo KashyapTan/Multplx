@@ -72,9 +72,9 @@ project.direct-write	policy	bin/mx-override-run.sh
 isolation.single-checkout	policy	bin/mx-spawn.sh
 session.terminate-owner	policy	bin/mx-lock.sh
 security.one-action-elevation	policy	bin/mx-override-run.sh
-delivery.credentialed-action	policy	bin/mx-maintainer-override.sh handoff
+delivery.credentialed-action	policy	bin/mx-operator-override.sh handoff
 dependency.install	policy	bin/mx-override-run.sh
-authentication.login	policy	bin/mx-maintainer-override.sh handoff
+authentication.login	policy	bin/mx-operator-override.sh handoff
 integrity.validation-state	integrity	coded alternate required; facts remain unchanged
 integrity.object-identity	integrity	coded alternate required; facts remain unchanged
 integrity.session-lock	integrity	coded alternate required; facts remain unchanged
@@ -248,7 +248,13 @@ mx_override_record_validate() {
   boundary=$(jq -r '.boundary_id' "$file") || return 1
   [ "$(mx_override_boundary_class "$boundary" 2>/dev/null || true)" = policy ] || return 1
   recorded_alternate=$(jq -r '.alternate' "$file") || return 1
-  [ "$(mx_override_boundary_alternate "$boundary" 2>/dev/null || true)" = "$recorded_alternate" ]
+  if [ "$(mx_override_boundary_alternate "$boundary" 2>/dev/null || true)" = "$recorded_alternate" ]; then
+    return 0
+  fi
+  case "$boundary:$recorded_alternate" in
+    'authentication.login:bin/mx-maintainer-override.sh handoff'|'delivery.credentialed-action:bin/mx-maintainer-override.sh handoff') return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 mx_override_lock_acquire() {

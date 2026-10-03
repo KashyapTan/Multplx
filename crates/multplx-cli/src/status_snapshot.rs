@@ -355,7 +355,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         .and_then(Value::as_array)
         .map_or(0, Vec::len);
     if unreadable > 0 {
-        omitted.push(json!({"surface":format!("daemon home(s) with unreadable backlog: {unreadable}"),"reveal":"inspect the listed daemon home backlogs"}));
+        omitted.push(json!({"surface":format!("standing-agent home(s) with unreadable backlog: {unreadable}"),"reveal":"inspect the listed standing-agent home backlogs"}));
     }
     let orphaned = root
         .pointer("/main_inventory/orphan_in_flight")
@@ -383,14 +383,14 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         .and_then(Value::as_bool)
         == Some(true)
     {
-        omitted.push(json!({"surface":"daemon registry input truncated by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_LINES or MX_SNAPSHOT_REGISTRY_BYTES"}));
+        omitted.push(json!({"surface":"standing-agent registry input truncated by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_LINES or MX_SNAPSHOT_REGISTRY_BYTES"}));
     }
     if root
         .pointer("/daemon_current/registry/records_truncated")
         .and_then(Value::as_bool)
         == Some(true)
     {
-        omitted.push(json!({"surface":"daemon registry records omitted by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_RECORDS"}));
+        omitted.push(json!({"surface":"standing-agent registry records omitted by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_RECORDS"}));
     }
     if root
         .pointer("/daemon_current/registry/available")
@@ -412,7 +412,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         })
         .count();
     if parent_truncated > 0 {
-        omitted.push(json!({"surface":format!("daemon parent activity evidence truncated for {parent_truncated} record(s)"),"reveal":"raise MX_SNAPSHOT_PARENT_ACTIVITY_LINES, MX_SNAPSHOT_PARENT_ACTIVITY_BYTES, or MX_SNAPSHOT_PARENT_ACTIVITIES"}));
+        omitted.push(json!({"surface":format!("standing-agent parent activity evidence truncated for {parent_truncated} record(s)"),"reveal":"raise MX_SNAPSHOT_PARENT_ACTIVITY_LINES, MX_SNAPSHOT_PARENT_ACTIVITY_BYTES, or MX_SNAPSHOT_PARENT_ACTIVITIES"}));
     }
     let parent_unavailable = daemons
         .iter()
@@ -423,7 +423,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         })
         .count();
     if parent_unavailable > 0 {
-        omitted.push(json!({"surface":format!("daemon parent activity evidence unavailable for {parent_unavailable} record(s)"),"reveal":"inspect the parent status logs"}));
+        omitted.push(json!({"surface":format!("standing-agent parent activity evidence unavailable for {parent_unavailable} record(s)"),"reveal":"inspect the parent status logs"}));
     }
     if !unhealthy.is_empty() {
         model["unhealthy_endpoints"] = Value::Array(take(
@@ -463,7 +463,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             .pointer("/daemon_landed/truncated")
             .and_then(Value::as_array)
             .map_or(0, Vec::len);
-        model["omitted"].as_array_mut().unwrap().push(json!({"surface":format!("daemon home Done capped at the snapshot layer for {count} home(s)"),"reveal":"--all-landed"}));
+        model["omitted"].as_array_mut().unwrap().push(json!({"surface":format!("standing-agent home Done capped at the snapshot layer for {count} home(s)"),"reveal":"--all-landed"}));
     }
     if include_prs {
         let (rows, failures, repo_total, repo_shown, capped) =

@@ -2404,9 +2404,9 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             home: task["paths"]["home"]["path"].as_str().map(PathBuf::from),
             registered: complete.then_some(false),
             error: Some(if complete {
-                "daemon metadata is not registered".into()
+                "standing-agent metadata is not registered".into()
             } else {
-                "daemon registration is unknown because the registry read is incomplete or unavailable".into()
+                "standing-agent registration is unknown because the registry read is incomplete or unavailable".into()
             }),
             parent: task.clone(),
         });
@@ -2427,7 +2427,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
         let mut reason = route.error.clone();
         let mut home = route.home.clone();
         if reason.is_none() && home.is_none() {
-            reason = Some("no recorded daemon home".into());
+            reason = Some("no recorded standing-agent home".into());
         }
         if reason.is_none() {
             match validate_home(paths, &route.id, home.as_ref().expect("checked")) {
@@ -3931,7 +3931,7 @@ mod tests {
         fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
         assert_eq!(
             validate_home(&paths, "worker", &candidate).unwrap_err(),
-            "daemon state directory is unreadable"
+            "standing-agent state directory is unreadable"
         );
         fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o700)).unwrap();
         fs::remove_dir(&unreadable).unwrap();

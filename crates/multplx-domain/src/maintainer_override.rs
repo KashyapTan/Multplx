@@ -332,7 +332,11 @@ impl OverrideRecord {
         let registered = boundary(&self.boundary_id)
             .filter(|entry| entry.class == BoundaryClass::Policy)
             .ok_or_else(|| OverrideError::new("record boundary is not a policy exception"))?;
-        if self.alternate != registered.alternate
+        let legacy_handoff = matches!(
+            registered.id,
+            "authentication.login" | "delivery.credentialed-action"
+        ) && self.alternate == "bin/mx-maintainer-override.sh handoff";
+        if (self.alternate != registered.alternate && !legacy_handoff)
             || self.action_digest != sha256_text(&self.action_argv_or_operation)
         {
             return Err(OverrideError::new(
@@ -991,6 +995,32 @@ mod tests {
             boundary("dependency.install").expect("policy").class,
             BoundaryClass::Policy
         );
+    }
+
+    #[test]
+    fn handoff_records_accept_only_the_exact_historical_alias() {
+        let digest = sha256_text("state-v1");
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("state");
+        fs::create_dir(&state).unwrap();
+        let store = OverrideStore::new(&state);
+        for boundary in ["authentication.login", "delivery.credentialed-action"] {
+            let mut input = request(&digest);
+            input.boundary = boundary;
+            let id = store.request(&input).unwrap();
+            let (_, _, mut record) = store.find(&id).unwrap();
+            assert_eq!(record.alternate, "bin/mx-operator-override.sh handoff");
+            record.alternate = "bin/mx-maintainer-override.sh handoff".into();
+            assert!(record.validate(Some(RecordState::Pending)).is_ok());
+            record.alternate = "bin/mx-maintainer-override.sh handoff other".into();
+            assert!(record.validate(None).is_err());
+            record.alternate = "bin/mx-override-run.sh".into();
+            assert!(record.validate(None).is_err());
+        }
+        let id = store.request(&request(&digest)).unwrap();
+        let (_, _, mut record) = store.find(&id).unwrap();
+        record.alternate = "bin/mx-maintainer-override.sh handoff".into();
+        assert!(record.validate(None).is_err());
     }
 
     #[test]
