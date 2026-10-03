@@ -71,6 +71,7 @@ The page polls `/api/state` at `MX_VIZ_POLL_MS`, which defaults to 2500 millisec
 It schedules the next request only after the prior request settles, so client polls never overlap.
 Hidden tabs wait at least 15 seconds between requests and resume promptly when shown.
 The server invokes `bin/mx-system-snapshot.sh --json` only on demand and permits one refresh at a time across every viewer.
+Snapshot, doctor and timeline wrappers receive the running service binary as `MX_RUST_BIN`, so an installed asset tree does not need a source checkout release binary.
 `MX_VIZ_REFRESH_SECS`, which defaults to 2 seconds, bounds repeated snapshot work while clients are active.
 No service mutex is held while a reader command runs.
 The first request performs one bounded refresh; concurrent requests report an explicitly unavailable initial cache instead of launching more readers.

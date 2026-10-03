@@ -78,6 +78,7 @@ struct Runtime {
 
 struct ServerContext {
     root: PathBuf,
+    runtime_binary: PathBuf,
     asset_directory: PathBuf,
     home: PathBuf,
     state: PathBuf,
@@ -171,6 +172,10 @@ fn response_file(path: &Path, transform: Option<&dyn Fn(String) -> String>) -> R
 
 fn environment(context: &ServerContext) -> Vec<(OsString, OsString)> {
     vec![
+        (
+            OsString::from("MX_RUST_BIN"),
+            context.runtime_binary.as_os_str().to_owned(),
+        ),
         (
             OsString::from("MX_ROOT_OVERRIDE"),
             context.root.as_os_str().to_owned(),
@@ -1079,6 +1084,11 @@ pub(super) fn run_server(args: &[OsString]) -> Result<i32> {
     let started = utc_now();
     let context = Arc::new(ServerContext {
         root,
+        runtime_binary: std::env::current_exe().map_err(|error| {
+            ServiceError::new(format!(
+                "could not locate running dashboard binary: {error}"
+            ))
+        })?,
         asset_directory,
         home,
         state,
@@ -1371,6 +1381,7 @@ mod tests {
     ) -> Arc<ServerContext> {
         let started = "2026-08-12T12:00:00Z".to_owned();
         Arc::new(ServerContext {
+            runtime_binary: std::env::current_exe().expect("test binary"),
             asset_directory: root.join("share/viz"),
             home: root.clone(),
             state: root.join("state"),

@@ -142,6 +142,68 @@ assert_contains "$output" "root=$install/data/runtime" 'installed package did no
 assert_contains "$output" "home=$install/data/home" 'installed package lost its persistent home'
 pass 'package installs and launches from an unrelated directory without Rust or a source checkout'
 
+# Exercise the installed asset tree and actual readers without inherited MX_*.
+python3 - "$package" "$TMP_ROOT" <<'PY_INSTALLED'
+import json, os, pathlib, socket, subprocess, sys, urllib.request
+package, temporary = map(pathlib.Path, sys.argv[1:])
+case = temporary / 'fresh-installed-runtime'
+caller = temporary / 'unrelated'
+env = {key: value for key, value in os.environ.items() if not key.startswith('MX_')}
+env.update(HOME=str(case), XDG_CONFIG_HOME=str(case / 'xdg-config'),
+           XDG_DATA_HOME=str(case / 'xdg-data'))
+def run(binary, args, extra=None, success=True):
+    result = subprocess.run([str(binary), *args], cwd=caller, env=dict(env, **(extra or {})),
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0 if success else result.returncode != 0, result
+    return result.stdout.strip()
+run(package / 'bin/mx', ['launcher-install', '--package', str(package),
+    '--bin-dir', str(case / 'bin'), '--config-dir', str(case / 'config'),
+    '--data-dir', str(case / 'data')])
+mx = case / 'bin/mx'
+home = case / 'data/home'
+backlog = home / 'data/backlog.md'
+assert not (case / 'data/runtime/target/release/mx').exists()
+assert not backlog.exists(), 'fixture is not a fresh installed home'
+# Operator commands run with the operational home selected, as in a launched session.
+operator = {'MX_HOME': str(home)}
+run(mx, ['backlog', 'add', 'bad/id', 'Bad'], operator, success=False)
+assert not backlog.exists(), 'invalid add initialized the backlog'
+for task, title in [('notetaker-sqlite', 'NoteTaker: replace PostgreSQL with SQLite and publish PR'),
+                    ('notes-review', 'Review notes'), ('notes-tests', 'Test notes'),
+                    ('notes-release', 'Release notes')]:
+    run(mx, ['backlog', 'add', task, title], operator)
+run(mx, ['backlog', 'block', 'notes-release', '--by', 'notetaker-sqlite'], operator)
+run(mx, ['backlog', 'validate'], operator)
+assert 'blocked_by: notetaker-sqlite' in run(mx, ['backlog', 'show', 'notes-release'], operator)
+(home / 'state/notetaker-sqlite.journal').write_text(json.dumps({
+    'ts': '2026-10-03T12:00:00Z', 'task': 'notetaker-sqlite', 'source': 'fixture',
+    'event': 'task.spawned', 'detail': {}}) + '\n')
+with socket.socket() as sock:
+    sock.bind(('127.0.0.1', 0))
+    env['MX_VIZ_PORT'] = str(sock.getsockname()[1])
+env['MX_VIZ_IDLE_SECS'] = '30'
+def api(url, path):
+    with urllib.request.urlopen(url + path, timeout=15) as response:
+        assert response.status == 200
+        return json.load(response)
+try:
+    for binary in [mx, case / 'bin/multplx']:
+        url = run(binary, ['viz', '--no-open'])
+        snapshot = api(url, 'api/state')['snapshot']
+        assert snapshot['mx_home'] == str(home), snapshot
+        assert snapshot['schema'] == 'mx-system-snapshot.v1', snapshot
+        doctor = api(url, 'api/doctor')
+        assert doctor['schema'] == 'mx-doctor.v1', doctor
+        timeline = api(url, 'api/timeline/notetaker-sqlite')
+        assert timeline['records'][0]['task'] == 'notetaker-sqlite', timeline
+        meta = api(url, 'api/meta')
+        assert meta['refresh']['error'] is None, meta
+finally:
+    run(mx, ['viz', 'stop'])
+PY_INSTALLED
+[ "$?" -eq 0 ] || fail 'fresh installed backlog and real Viz readers failed'
+pass 'fresh package backlog initializes atomically and Viz uses actual installed reader wrappers'
+
 launcher_help=$(env -u MX_MULTICALL_EXPLICIT "$install/bin/multplx" --help) \
   || fail 'installed multplx --help failed without explicit multicall mode'
 assert_contains "$launcher_help" 'multplx PATH|ALIAS' \

@@ -772,8 +772,16 @@ impl BacklogStore {
         &self,
         callback: impl FnOnce(&Backlog) -> Result<String, BacklogError>,
     ) -> Result<(), BacklogError> {
+        self.mutate_with_missing(false, callback)
+    }
+
+    fn mutate_with_missing(
+        &self,
+        allow_missing: bool,
+        callback: impl FnOnce(&Backlog) -> Result<String, BacklogError>,
+    ) -> Result<(), BacklogError> {
         let _locks = lock_paths(std::slice::from_ref(&self.path))?;
-        let opened = open(&self.path, false)?;
+        let opened = open(&self.path, allow_missing)?;
         let next = callback(&opened.backlog)?;
         if next != opened.backlog.text {
             publish(&self.path, &next, opened.mode)?;
@@ -800,7 +808,7 @@ impl BacklogStore {
         if blockers.iter().any(|blocker| !valid_id(blocker)) {
             return Err(BacklogError::new("--blocked-by requires a valid id"));
         }
-        self.mutate(|backlog| {
+        self.mutate_with_missing(true, |backlog| {
             if backlog.item(id).is_some() {
                 return Err(BacklogError::new(format!(
                     "backlog item already exists: {id}"
@@ -1169,7 +1177,7 @@ pub fn move_items(source: &Path, destination: &Path, ids: &[String]) -> Result<(
 }
 
 /// Stable help text from the legacy operator entry point.
-pub const USAGE: &str = "Usage:\n  mx-backlog.sh list [--file <path>] [--limit <n>]\n  mx-backlog.sh show <id> [--file <path>] [--full]\n  mx-backlog.sh add <id> <title> [--file <path>] [options]\n  mx-backlog.sh done <id> [--file <path>] [--report p | --note s | --pr url]\n  mx-backlog.sh ready [--file <path>]\n  mx-backlog.sh hold <id> [--file <path>] --reason <text> --kind <kind>\n  mx-backlog.sh update <id> [--file <path>] (--body <text> | --body-file <path>) [--archive-body]\n  mx-backlog.sh block <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh unblock <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh mv <id>... --file <source> --to <destination>\n  mx-backlog.sh validate [--file <path>]\n";
+pub const USAGE: &str = "Usage:\n  mx-backlog.sh list [--file <path>] [--limit <n>]\n  mx-backlog.sh show <id> [--file <path>] [--full]\n  mx-backlog.sh add <id> <title> [--file <path>] [options]\n  mx-backlog.sh done <id> [--file <path>] [--report p | --note s | --pr url]\n  mx-backlog.sh ready [--file <path>]\n  mx-backlog.sh hold <id> [--file <path>] --reason <text> --kind <kind>\n  mx-backlog.sh update <id> [--file <path>] (--body <text> | --body-file <path>) [--archive-body]\n  mx-backlog.sh block <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh unblock <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh mv <id>... --file <source> --to <destination>\n  mx-backlog.sh validate [--file <path>]\n\nA successful add creates a missing backlog with the canonical sections.\nExisting files must pass validation; reads never create or repair them.\n";
 
 fn usage_failure() -> CliFailure {
     CliFailure {
@@ -1512,10 +1520,65 @@ mod tests {
     }
 
     #[test]
+    fn fresh_backlog_is_created_only_by_a_valid_add_and_bad_files_are_preserved() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("fresh-home/data/backlog.md");
+        let call = |args: &[&str]| {
+            run_cli(
+                &args.iter().map(OsString::from).collect::<Vec<_>>(),
+                path.clone(),
+            )
+        };
+        for args in [
+            vec!["list"],
+            vec!["ready"],
+            vec!["validate"],
+            vec!["block", "missing", "--by", "other"],
+            vec!["add", "bad/id", "Title"],
+            vec!["add", "valid", ""],
+            vec!["add", "valid", "Title", "--blocked-by", "bad/id"],
+            vec!["add", "valid", "Title", "--unknown"],
+            vec!["add", "valid"],
+        ] {
+            assert!(call(&args).is_err(), "{args:?}");
+            assert!(
+                !path.exists(),
+                "failed operation created a backlog: {args:?}"
+            );
+        }
+        call(&["add", "first", "First"]).expect("bootstrap");
+        call(&["add", "second", "Second", "--start"]).expect("second");
+        call(&["block", "second", "--by", "first"]).expect("dependency");
+        call(&["validate"]).expect("canonical sections");
+        assert_eq!(open(&path, false).expect("backlog").backlog.items.len(), 2);
+        let before = fs::read(&path).expect("before duplicate");
+        assert!(call(&["add", "first", "Duplicate"]).is_err());
+        assert_eq!(fs::read(&path).expect("after duplicate"), before);
+        fs::write(&path, "malformed existing backlog\n").expect("malformed");
+        assert!(call(&["add", "third", "Third"]).is_err());
+        assert_eq!(
+            fs::read_to_string(&path).expect("preserved"),
+            "malformed existing backlog\n"
+        );
+        fs::remove_file(&path).expect("remove");
+        let destination = temp.path().join("foreign");
+        fs::write(&destination, SCAFFOLD).expect("foreign");
+        std::os::unix::fs::symlink(&destination, &path).expect("symlink");
+        assert!(call(&["add", "third", "Third"]).is_err());
+        assert_eq!(
+            fs::read_to_string(&destination).expect("foreign preserved"),
+            SCAFFOLD
+        );
+        fs::remove_file(&path).expect("unlink");
+        fs::create_dir(&path).expect("directory");
+        assert!(call(&["add", "third", "Third"]).is_err());
+        assert!(path.is_dir());
+    }
+
+    #[test]
     fn concurrent_adds_serialize_without_lost_items() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let path = temp.path().join("backlog.md");
-        scaffold(&path);
+        let path = temp.path().join("fresh-home/data/backlog.md");
         std::thread::scope(|scope| {
             for index in 0..12 {
                 let path = path.clone();

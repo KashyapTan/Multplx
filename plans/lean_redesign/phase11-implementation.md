@@ -198,3 +198,24 @@ The original 200 ms refresh interval, 500 ms command deadline, two-second failur
 Eight consecutive focused Viz suite runs passed; shell syntax, ShellCheck, workflow YAML parsing, documentation classification and whitespace checks passed.
 The updated CI contract suite also passed, with the coverage command and threshold preserved.
 The second follow-up will be pushed for the user to monitor; it does not claim a completed new remote coverage result.
+
+## Installed runtime regression repair (2026-10-03)
+
+A globally installed Viz could serve its UI while `/api/state` failed because the early Viz launcher branch did not propagate `MX_RUST_BIN` and the snapshot wrapper defaulted to the absent installed `runtime/target/release/mx`.
+The Viz service now supplies its own running executable to snapshot, doctor and timeline wrappers, including services launched directly through the service command.
+A fresh package installation creates operational home directories without a backlog file, and the backlog owner's strict mutation read incorrectly rejected the first `mx backlog add` with `ENOENT`.
+A successful first add now publishes the canonical backlog scaffold and item together under the existing backlog lock; invalid commands, malformed existing files, symlinks and directories remain refused without file repair.
+These are application bugs rather than orchestrator command misuse; dependent block commands work once the adds succeed.
+The regression fixture installs an actual verified package into temporary directories, removes inherited `MX_*` variables, verifies the installed tree has no source release binary, adds four items, records a dependency and requests the actual snapshot, doctor and timeline wrappers through both public Viz entrypoints.
+The Rust backlog tests also cover invalid adds and read-only operations without initialization, existing-byte preservation, malformed and non-regular files, and twelve concurrent writers starting with an absent backlog and parent directory.
+
+Focused macOS verification passed:
+
+- `cargo build --release --workspace --locked`: passed.
+- `cargo test --locked -p multplx-domain backlog::tests`: 12 passed, zero failures.
+- `cargo test --locked -p multplx-services local_services::viz::tests`: 8 passed, zero failures.
+- `cargo test --locked -p multplx-cli --test services_runtime viz_native_lifecycle_routes_cache_and_security_are_complete`: 1 passed, zero failures.
+- `target/release/mx test-run tests/mx-release-package.test.sh tests/mx-backlog-lib.test.sh tests/mx-viz.test.sh --jobs auto`: 3 suites passed, zero failures or gates, 56,578 ms.
+- `cargo fmt --all -- --check`, `target/release/mx doc-audience-check`, `bash -n tests/mx-release-package.test.sh` and `git diff --check`: passed.
+
+This evidence uses temporary installed-layout fixtures and local HTTP services; it does not claim a private-home migration, a user's running-service restart, a released package update, Linux validation or complete repository regression.
