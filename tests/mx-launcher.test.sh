@@ -239,7 +239,8 @@ test_plan13_adapters_are_exec_only() {
     bin/mx-supervision-instructions.sh bin/mx-system-sync.sh bin/mx-system-view.sh \
     bin/mx-review-diff.sh bin/mx-test-isolation-proof.sh bin/mx-test-run.sh bin/mx-timeline.sh \
     bin/mx-update.sh bin/mx-validation-waive.sh bin/mx-viz.sh bin/mx-vplan.sh bin/mx-wake-drain.sh; do
-    lines=$(wc -l <"$ROOT/$adapter" | tr -d ' ')
+    # Usage comments do not add executable transport logic.
+    lines=$(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$ROOT/$adapter" | wc -l | tr -d ' ')
     [ "$lines" -le 10 ] || fail "$adapter contains more than minimal transport logic"
     grep -Eq '^(MX_MULTICALL_EXPLICIT=1 )?exec ' "$ROOT/$adapter" \
       || fail "$adapter does not end at an exec boundary"

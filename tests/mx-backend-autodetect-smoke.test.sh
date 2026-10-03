@@ -80,8 +80,10 @@ trap on_exit EXIT
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/codex" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' autodetect-smoke-ok
+#!/usr/bin/env python3
+import signal
+print('autodetect-smoke-ok', flush=True)
+signal.pause()
 SH
 chmod +x "$FAKEBIN/codex"
 export PATH="$FAKEBIN:$PATH"
