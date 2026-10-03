@@ -332,7 +332,15 @@ fn wake_cli_requires_owner_and_help_does_not_consume_claims() {
         .env("MX_STATE_OVERRIDE", &state)
         .args(["wake", "claim"]));
     assert!(!foreign.status.success());
-    assert!(String::from_utf8_lossy(&foreign.stderr).contains("verified orchestrator session"));
+    let refusal = String::from_utf8_lossy(&foreign.stderr);
+    let owner = std::process::id();
+    assert!(
+        refusal.contains(&format!(
+            "session owner PID {owner} does not identify an active verified orchestrator session"
+        )) || (refusal.contains("caller belongs to harness PID")
+            && refusal.contains(&format!("but this home is owned by PID {owner}"))),
+        "{refusal}"
+    );
     assert!(state.join(".wake-queue").metadata().expect("queue").len() > 0);
     fs::remove_file(state.join(".lock")).expect("remove fixture lock");
 

@@ -2023,7 +2023,7 @@ mod tests {
         assert!(
             validate_daemon_home("worker", &daemon, &active, &root)
                 .expect_err("marker symlink")
-                .contains("marker must not be a symlink")
+                .contains("open no-follow file")
         );
         fs::remove_file(daemon.join(".mx-daemon-home")).expect("remove marker symlink");
         assert!(

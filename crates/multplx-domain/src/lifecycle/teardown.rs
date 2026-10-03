@@ -3240,10 +3240,11 @@ mod tests {
         );
         fs::remove_file(home.join("data")).expect("remove");
         fs::write(home.join(MARKER), [0xff]).expect("marker");
+        let marker_error = validate_home(&context, "daemon", &home).expect_err("marker utf8");
         assert!(
-            validate_home(&context, "daemon", &home)
-                .expect_err("marker utf8")
-                .contains("marker is not valid UTF-8")
+            marker_error.contains("agent-home marker")
+                && marker_error.contains("identity is not UTF-8"),
+            "{marker_error}"
         );
 
         let state = temp.path().join("quarantine-state");

@@ -3941,7 +3941,7 @@ mod tests {
         symlink(&outside, candidate.join("data")).unwrap();
         assert_eq!(
             validate_home(&paths, "worker", &candidate).unwrap_err(),
-            "daemon data directory must resolve inside the standing-agent home"
+            "standing-agent data directory must resolve inside the standing-agent home"
         );
         fs::remove_file(candidate.join("data")).unwrap();
 
@@ -3951,10 +3951,12 @@ mod tests {
             candidate.join(".mx-daemon-home"),
         )
         .unwrap();
-        assert_eq!(
-            validate_home(&paths, "worker", &candidate).unwrap_err(),
-            "agent marker must not be a symlink"
+        let marker_error = validate_home(&paths, "worker", &candidate).unwrap_err();
+        assert!(
+            marker_error.contains("open no-follow file"),
+            "{marker_error}"
         );
+        assert!(marker_error.contains(".mx-daemon-home"), "{marker_error}");
         fs::remove_file(candidate.join(".mx-daemon-home")).unwrap();
         fs::write(candidate.join(".mx-daemon-home"), "other\n").unwrap();
         assert!(

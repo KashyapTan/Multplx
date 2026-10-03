@@ -1012,14 +1012,14 @@ mod tests {
         assert!(
             validate_daemon_home(&context, "id", &daemon)
                 .unwrap_err()
-                .contains("marker must not be a symlink")
+                .contains("open no-follow file")
         );
         fs::remove_file(daemon.join(".mx-daemon-home")).expect("remove marker link");
         fs::create_dir(daemon.join(".mx-daemon-home")).expect("marker dir");
         assert!(
             validate_daemon_home(&context, "id", &daemon)
                 .unwrap_err()
-                .contains("not a seeded")
+                .contains("opened path is not a regular file")
         );
     }
 }
