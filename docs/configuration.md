@@ -75,6 +75,8 @@ This preference is local to each Multplx home and is not part of persistent-sub-
 
 The typed Rust `BacklogStore` is the single owner of the markdown backlog schema, parsing rules, mutation semantics, and retention defaults.
 The public functions in `bin/mx-backlog-lib.sh` and the `bin/mx-backlog.sh` command are transport adapters to it by default.
+The first successful `mx backlog add` creates a missing backlog with the canonical sections under the backlog mutation lock.
+Invalid adds do not create a backlog, existing malformed files are refused, and read-only commands do not initialize or repair files.
 It stores live work in `data/backlog.md`, keeps the newest 10 Done items inline by default, and moves retention overflow to `data/done-archive.md`.
 When the default backend is selected, the orchestrator uses the library for routine backlog mutations with no external package or version probe.
 Persistent-sub-agent handoffs are separate and unconditional: `mx-backlog-handoff.sh` keeps its system-level validation and routes the item move through the library's atomic `mx_backlog_mv`.

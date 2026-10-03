@@ -59,15 +59,11 @@ HERDR_SERVER_PATH="$HARNESS_BIN:$HERDR_ORIGINAL_PATH"
 cat > "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
-{
-  first=1
-  for arg in "$@"; do
-    [ "$first" -eq 0 ] && printf '\t'
-    printf '%s' "$arg"
-    first=0
-  done
-  printf '\n'
-} >> "$HERDR_CALL_LOG"
+# Concurrent read-only calls can run while another spawn owns the presentation
+# lock. Append one complete record so their arguments cannot splice into the
+# create-order evidence consumed by projection_labels_from_log.
+printf -v call_record '%s\t' "$@"
+printf '%s\n' "${call_record%$'\t'}" >> "$HERDR_CALL_LOG"
 args=("$@")
 last_index=$((${#args[@]} - 1))
 flag_index=$((last_index - 1))
@@ -222,15 +218,8 @@ SH
 cat > "$FAKEBIN/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
-{
-  first=1
-  for arg in "$@"; do
-    [ "$first" -eq 0 ] && printf '\t'
-    printf '%s' "$arg"
-    first=0
-  done
-  printf '\n'
-} >> "$TREEHOUSE_CALL_LOG"
+printf -v call_record '%s\t' "$@"
+printf '%s\n' "${call_record%$'\t'}" >> "$TREEHOUSE_CALL_LOG"
 if [ -d "$POST_CREATE_ABORT_CONTROL" ] && [ "${1:-}" = get ]; then
   exit 0
 fi
@@ -944,7 +933,7 @@ for ROUND in 1 2 3; do
   WAVE_EXPECTED=$(printf 'broker\n%s\ndaemon-alpha\ndaemon-bravo' "$WAVE_LABELS")
   WAVE_ACTUAL=$(lab workspace list | jq -r '.result.workspaces[] | select(.label == "broker" or (.label | startswith("└ ")) or (.label | startswith("daemon-"))) | .label')
   [ "$WAVE_ACTUAL" = "$WAVE_EXPECTED" ] \
-    || fail "focus wave $ROUND lost stable contiguous ordering: $WAVE_ACTUAL"
+    || fail "focus wave $ROUND lost stable contiguous ordering"$'\n'"expected:"$'\n'"$WAVE_EXPECTED"$'\n'"actual:"$'\n'"$WAVE_ACTUAL"
   WAVE_SECOND_ORDER=$(lab workspace list | jq -r '.result.workspaces[] | select(.label | startswith("daemon-")) | .workspace_id')
   [ "$WAVE_SECOND_ORDER" = "$SECOND_ORDER_BEFORE" ] \
     || fail "focus wave $ROUND changed daemon relative order"

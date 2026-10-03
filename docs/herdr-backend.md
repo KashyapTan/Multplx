@@ -41,7 +41,9 @@ It parses JSON with typed Rust code and performs event subscription and `workspa
 
 Each Multplx home gets one durable workspace with one task tab per endpoint.
 The primary workspace is `broker`.
-A persistent-sub-agent home uses `daemon-<daemon-id>`, derived from its validated `.mx-daemon-home` marker.
+A standing-agent home uses `agent-<id>`, derived from its historical `.mx-daemon-home` identity marker.
+The label is independent of the assignment role, so workers and coordinators use the same convention.
+Existing `daemon-<id>` workspaces remain eligible for lookup and recovery and are never renamed automatically.
 The persistent sub-agent and every child it launches resolve the same home label; a persistent sub-agent launched by the primary receives a narrowly scoped home override during container creation.
 
 Attach to the selected named Herdr session and switch to the relevant home workspace to watch its task tabs.
@@ -51,8 +53,8 @@ Workspace and tab creation use `--no-focus`.
 The first workspace in a completely empty Herdr session must become focused because no prior target exists, but later task creation does not intentionally steal focus.
 
 Herdr does not enforce workspace or tab label uniqueness.
-Multplx adopts the first workspace matching its derived home label and refuses duplicate task tabs inside it.
-Avoid naming a personal workspace `broker` or `daemon-<id>` because the adapter cannot distinguish that label collision from its own container.
+Multplx adopts the first workspace matching its current or historical home label in list order and refuses duplicate task tabs inside it.
+Avoid naming a personal workspace `broker`, `agent-<id>`, or `daemon-<id>` because the adapter cannot distinguish that label collision from its own container.
 An older persistent-sub-agent workspace using `broker-<id>` is not migrated automatically; rename it manually before expecting new tasks or recovery to use it.
 
 Existing task operations use recorded endpoint ids and do not move a live task when labels change.

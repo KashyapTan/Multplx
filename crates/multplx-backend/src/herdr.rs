@@ -240,7 +240,7 @@ impl<R: CommandRunner> HerdrBackend<R> {
                     .collect()
             })
             .filter(|value: &String| !value.is_empty())
-            .map_or_else(|| "broker".to_owned(), |id| format!("daemon-{id}"))
+            .map_or_else(|| "broker".to_owned(), |id| format!("agent-{id}"))
     }
 
     /// Start and poll the exact named server without touching an ambient session.
@@ -284,18 +284,34 @@ impl<R: CommandRunner> HerdrBackend<R> {
             == Some(true)
     }
 
-    /// Find the first home-label workspace in the exact named session.
-    pub fn workspace_find(&mut self, session: &str) -> Option<String> {
-        let label = self.workspace_label();
-        self.json_scoped(session, ["workspace", "list"])
-            .ok()
-            .and_then(|value| {
-                array_at(&value, "/result/workspaces")?
-                    .iter()
-                    .find(|workspace| string_at(workspace, "/label") == Some(label.as_str()))
-                    .and_then(|workspace| string_at(workspace, "/workspace_id"))
-                    .map(str::to_owned)
+    /// Accept the current visible label and the historical label for this exact home.
+    /// Existing workspaces are never renamed as part of lookup or recovery.
+    #[must_use]
+    pub(crate) fn matches_workspace_label(&self, label: &str) -> bool {
+        let current = self.workspace_label();
+        label == current
+            || current
+                .strip_prefix("agent-")
+                .is_some_and(|id| label == format!("daemon-{id}"))
+    }
+
+    /// Find the first current or historical home-label workspace in list order.
+    pub(crate) fn workspace_find_entry(&mut self, session: &str) -> Option<(String, String)> {
+        let value = self.json_scoped(session, ["workspace", "list"]).ok()?;
+        array_at(&value, "/result/workspaces")?
+            .iter()
+            .find_map(|workspace| {
+                let label = string_at(workspace, "/label")?;
+                self.matches_workspace_label(label).then(|| {
+                    string_at(workspace, "/workspace_id")
+                        .map(|id| (id.to_owned(), label.to_owned()))
+                })?
             })
+    }
+
+    /// Find this home's workspace, including its historical visible label.
+    pub fn workspace_find(&mut self, session: &str) -> Option<String> {
+        self.workspace_find_entry(session).map(|(id, _)| id)
     }
 
     /// Ensure the persistent home workspace and preserve create-vs-adopt seed authority.
@@ -1376,9 +1392,66 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::write(temp.path().join(".mx-daemon-home"), "wheelhouse\n").expect("marker");
         let backend = HerdrBackend::new(NeverRunner, "herdr", "named", temp.path().to_owned());
-        assert_eq!(backend.workspace_label(), "daemon-wheelhouse");
+        assert_eq!(backend.workspace_label(), "agent-wheelhouse");
         let primary = HerdrBackend::new(NeverRunner, "herdr", "named", PathBuf::from("/missing"));
         assert_eq!(primary.workspace_label(), "broker");
+    }
+
+    #[test]
+    fn standing_workspace_creation_and_historical_adoption_preserve_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join(".mx-daemon-home"), "worker\n").expect("marker");
+        let mut fresh = HerdrBackend::new(
+            SmartRunner::default(),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(
+            fresh
+                .workspace_ensure("named", temp.path())
+                .expect("create"),
+            "w1"
+        );
+        let created = fresh
+            .runner
+            .calls
+            .iter()
+            .find(|call| {
+                call.args.first().is_some_and(|arg| arg == "workspace")
+                    && call.args.get(1).is_some_and(|arg| arg == "create")
+            })
+            .expect("workspace create");
+        assert!(
+            created
+                .args
+                .windows(2)
+                .any(|pair| pair[0] == "--label" && pair[1] == "agent-worker")
+        );
+        assert_eq!(fresh.seeded_tab_id(), Some("w1:t1"));
+        for label in ["daemon-worker", "agent-worker"] {
+            let response = serde_json::json!({"result":{"workspaces":[
+                {"workspace_id":"foreign", "label":"agent-other"},
+                {"workspace_id":"existing", "label":label},
+                {"workspace_id":"later", "label":"agent-worker"}
+            ]}});
+            let mut existing = HerdrBackend::new(
+                SequenceRunner::new([success(serde_json::to_vec(&response).expect("json"))]),
+                "herdr",
+                "named",
+                temp.path().to_owned(),
+            );
+            assert_eq!(
+                existing
+                    .workspace_ensure("named", temp.path())
+                    .expect("adopt"),
+                "existing"
+            );
+            assert_eq!(existing.seeded_tab_id(), None);
+            assert!(existing.runner.outputs.is_empty());
+            assert!(existing.matches_workspace_label(label));
+            assert!(!existing.matches_workspace_label("daemon-other"));
+        }
     }
 
     #[test]

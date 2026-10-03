@@ -725,6 +725,7 @@ test_portfolio_scale_fixtures_and_ui_contract() {
   node --check "$ROOT/share/viz/app.js" || fail "dashboard client has invalid JavaScript syntax"
   node --check "$ROOT/share/viz/agents-graph.js" || fail "agent graph module has invalid JavaScript syntax"
   node "$ROOT/tests/fixtures/viz/agents-graph.test.cjs" || fail "agent graph normalization/layout fixtures failed"
+  node "$ROOT/tests/fixtures/viz/attention.test.cjs" || fail "attention rendering DOM regressions failed"
   grep -F 'Agents and assignments' "$ROOT/share/viz/index.html" >/dev/null \
     || fail "dashboard lost its agent hierarchy view"
   ! grep -REn 'data-approve|data-merge|data-spawn|method="post"' "$ROOT/share/viz" >/dev/null \

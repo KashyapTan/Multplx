@@ -164,7 +164,7 @@ SM_WSID=$(herdr pane get "$SM_PANE" --session "$SESSION" 2>/dev/null | jq -r '.r
 [ -n "$SM_WSID" ] || fail "could not read e2esm1's pane workspace_id"
 [ "$SM_WSID" != "$CM1_WSID" ] || fail "the daemon's tab must NOT land in the primary's workspace, but it shares $CM1_WSID"
 SM_WS_LABEL=$(herdr workspace list --session "$SESSION" 2>&1 | jq -r --arg id "$SM_WSID" '.result.workspaces[]? | select(.workspace_id == $id) | .label')
-[ "$SM_WS_LABEL" = "daemon-e2esm1" ] || fail "a --daemon spawn should land in 'daemon-<id>', got '$SM_WS_LABEL'"
+[ "$SM_WS_LABEL" = "agent-e2esm1" ] || fail "a --daemon spawn should land in 'agent-<id>', got '$SM_WS_LABEL'"
 pass "real herdr E2E: a --daemon spawn by the PRIMARY lands in the DAEMON's own labeled workspace, distinct from the primary's"
 
 # --- 3. an actor spawned FROM the daemon-shaped home lands in the SAME

@@ -198,3 +198,80 @@ The original 200 ms refresh interval, 500 ms command deadline, two-second failur
 Eight consecutive focused Viz suite runs passed; shell syntax, ShellCheck, workflow YAML parsing, documentation classification and whitespace checks passed.
 The updated CI contract suite also passed, with the coverage command and threshold preserved.
 The second follow-up will be pushed for the user to monitor; it does not claim a completed new remote coverage result.
+
+## Installed runtime regression repair (2026-10-03)
+
+A globally installed Viz could serve its UI while `/api/state` failed because the early Viz launcher branch did not propagate `MX_RUST_BIN` and the snapshot wrapper defaulted to the absent installed `runtime/target/release/mx`.
+The Viz service now supplies its own running executable to snapshot, doctor and timeline wrappers, including services launched directly through the service command.
+A fresh package installation creates operational home directories without a backlog file, and the backlog owner's strict mutation read incorrectly rejected the first `mx backlog add` with `ENOENT`.
+A successful first add now publishes the canonical backlog scaffold and item together under the existing backlog lock; invalid commands, malformed existing files, symlinks and directories remain refused without file repair.
+These are application bugs rather than orchestrator command misuse; dependent block commands work once the adds succeed.
+The regression fixture installs an actual verified package into temporary directories, removes inherited `MX_*` variables, verifies the installed tree has no source release binary, adds four items, records a dependency and requests the actual snapshot, doctor and timeline wrappers through both public Viz entrypoints.
+The Rust backlog tests also cover invalid adds and read-only operations without initialization, existing-byte preservation, malformed and non-regular files, and twelve concurrent writers starting with an absent backlog and parent directory.
+
+Focused macOS verification passed:
+
+- `cargo build --release --workspace --locked`: passed.
+- `cargo test --locked -p multplx-domain backlog::tests`: 12 passed, zero failures.
+- `cargo test --locked -p multplx-services local_services::viz::tests`: 8 passed, zero failures.
+- `cargo test --locked -p multplx-cli --test services_runtime viz_native_lifecycle_routes_cache_and_security_are_complete`: 1 passed, zero failures.
+- `target/release/mx test-run tests/mx-release-package.test.sh tests/mx-backlog-lib.test.sh tests/mx-viz.test.sh --jobs auto`: 3 suites passed, zero failures or gates, 56,578 ms.
+- `cargo fmt --all -- --check`, `target/release/mx doc-audience-check`, `bash -n tests/mx-release-package.test.sh` and `git diff --check`: passed.
+
+This evidence uses temporary installed-layout fixtures and local HTTP services; it does not claim a private-home migration, a user's running-service restart, a released package update, Linux validation or complete repository regression.
+
+### Combined parent validation (2026-10-03)
+
+The parent validated the installed Viz and backlog fixes together with the role-neutral Herdr naming change and its compatibility tests at code revision `2bbed19`.
+The first complete behavior run reported one failure in the Herdr presentation ordering test (`134` scripts, `1` failure, `8` existing gated skips, `425487` ms).
+The actual displayed topology was contiguous, and a separate concurrency experiment demonstrated interleaved argument-by-argument writes in the test's expected-order log.
+The test now appends complete log records and retains its exact ordering, focus and recovery assertions; the original failed expected sequence was not retained, so the causal attribution remains an inference.
+The focused real Herdr presentation run then passed, as recorded in [runtime backend verification](../../docs/verification/runtime-backends.md).
+
+Final combined checks passed:
+
+- `cargo test --locked --workspace`: 796 passed, zero failed or ignored across 37 result groups.
+- `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: passed.
+- `cargo build --release --workspace --locked`: passed after the runtime changes; the final correction changed test instrumentation and evidence only.
+- `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-installed-fixes-final-all.json`: 134 scripts, zero failures, eight existing gated skips, 442982 ms.
+- `cargo fmt --all -- --check`, all `bin/*.sh` and `bin/backends/*.sh` syntax checks, changed presentation-test syntax, and `git diff --check`: passed.
+- `target/release/mx doc-audience-check`: 100 surfaces and 575 local links passed after the final evidence update.
+- `target/release/mx shadow-diagnostic`: Rust shadow ready.
+- `target/release/mx test-run --check-coverage`: 134 scripts covered by the existing inventory and CI partitions.
+
+Raw logs and timing JSON remain untracked under `/private/tmp/mx-installed-fixes-*`.
+This is local macOS verification with temporary installed packages, synthetic task harnesses and guarded real Herdr sessions; remote Linux CI and model-provider trials are separate evidence.
+The user's installed runtime, operational home and existing workspaces were not updated or migrated.
+
+### Viz human-attention follow-up (2026-10-03)
+
+Human Attention exposed the complete scaffolded worker brief as a task title and promoted agent-owned delivery follow-up into apparent human actions.
+The snapshot now derives a label from the accepted brief revision's task or charter section while retaining the original scope.
+The client also handles historical multiline and flattened scaffold titles, uses a concise task label, bounds previews and keeps full original text accessible in a keyboard-scrollable disclosure.
+Unanswered nonempty human questions say to reply in the main orchestrator chat.
+A PR review card requires recorded `state=ready`, explicit `pr_ready=true` and a safe absolute HTTP(S) PR URL; incomplete agent checks, dependencies, reviews and report-only delivery remain in task details unless there is an explicit question.
+Browser verification caught disclosure collapse on polling; stable task and decision identities now preserve open state, keyboard focus and scroll position.
+
+The actual-renderer DOM regressions run in the existing Viz behavior suite.
+An isolated synthetic browser fixture verified desktop and 390-pixel layouts, three meaningful action cards, no horizontal overflow, literal HTML-like text, the exact PR URL, exact task navigation and complete retained text.
+Closed cards measured at most 112 pixels in the desktop check and 131 pixels in the narrow check; expanded details retained over 8,000 characters in a 256-pixel keyboard-scrollable region and survived refreshes.
+The optional repository browser runner includes corresponding checks, but the parent used the supported in-app browser for its live browser observations rather than executing that runner.
+No private operational home or running dashboard was modified; the temporary browser tab and fixture services were closed after verification.
+
+Final local validation at source revision `16ecbfd` passed:
+
+- `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-pr52-attention-final-all.json`: 134 scripts, zero failures, eight existing gated skips, 422299 ms.
+- `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: passed on the updated Rust implementation.
+- `cargo fmt --all -- --check`, `target/release/mx doc-audience-check`, changed JavaScript/Python/Bash syntax checks and `git diff --check`: passed.
+- The instrumented Rust run passed 797 tests and measured 93.14 percent line coverage.
+
+The unchanged coverage command is:
+
+```sh
+cargo llvm-cov --locked --workspace --all-targets --ignore-filename-regex '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)' --fail-under-lines 93
+```
+
+[CI run 37101351885](https://github.com/KashyapTan/Multplx/actions/runs/37101351885) passed all jobs and independently measured 93.14 percent line coverage at `b874182`.
+The later `16ecbfd` correction changes only frontend code, fixtures and documentation; Rust source is unchanged from that CI revision.
+An earlier local full run overlapped frontend edits and failed when the old DOM test referenced the renamed renderer helper; it is retained as nonpassing evidence in `/private/tmp/mx-pr52-attention-all.log`, not counted as final validation.
+The final frozen-source run above passed, and raw coverage/behavior logs remain untracked under `/private/tmp/mx-pr52-attention-*`.
