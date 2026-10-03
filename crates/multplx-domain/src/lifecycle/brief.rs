@@ -222,9 +222,13 @@ fn delivery(
 ) -> String {
     let article = if role == "implementer" { "an" } else { "a" };
     let destination = if selected_mode == DeliveryMode::LocalOnly {
-        "The destination is **local-only**: deliver the scoped local branch and evidence without a remote push or PR."
+        "The destination is **local-only**: deliver the scoped local branch and evidence without a remote push or PR.".to_owned()
     } else {
-        "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope. Use `bin/mx-deliver.sh --help`, then `prepare` the exact commit with its checks and limitations; publication uses your ordinary Git and forge authentication."
+        format!(
+            "You may commit, push your task branch, open or update its PR and make ordinary follow-up fixes within scope. Use `{} --help`, then `prepare` the exact commit with its checks and limitations; publication uses your ordinary Git and forge authentication. Register a directly opened PR with `{} {id} PR_URL`. These runtime helper paths work from the assigned project checkout.",
+            shell_quote(&root.join("bin/mx-deliver.sh")),
+            shell_quote(&root.join("bin/mx-pr-check.sh"))
+        )
     };
     format!(
         "You are {article} {role} sub-agent.\n{}\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
@@ -563,6 +567,47 @@ mod tests {
     }
 
     #[test]
+    fn delivery_helpers_execute_from_external_checkout_with_quoted_runtime_path() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("runtime's install with spaces");
+        let external = temp.path().join("external project");
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(&external).unwrap();
+        for name in ["mx-deliver.sh", "mx-pr-check.sh"] {
+            let path = root.join("bin").join(name);
+            fs::write(&path, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let body = delivery(
+            &root,
+            &temp.path().join("state"),
+            "worker",
+            "external",
+            false,
+            DeliveryMode::DirectPr,
+            "implementer",
+        );
+        for (name, arguments, expected) in [
+            ("mx-deliver.sh", "--help", "--help\n"),
+            ("mx-pr-check.sh", "worker PR_URL", "worker\nPR_URL\n"),
+        ] {
+            let command = format!("{} {arguments}", shell_quote(&root.join("bin").join(name)));
+            assert!(body.contains(&format!("`{command}`")));
+            let result = Command::new("sh")
+                .args(["-c", &command])
+                .current_dir(&external)
+                .output()
+                .unwrap();
+            assert!(result.status.success());
+            assert_eq!(String::from_utf8(result.stdout).unwrap(), expected);
+        }
+        assert!(!external.join("bin").exists());
+    }
+
+    #[test]
     fn scaffolds_every_brief_kind_and_delivery_mode() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().join("root");
@@ -583,7 +628,10 @@ mod tests {
         assert!(direct.contains("mode=direct-PR"));
         let direct_body = fs::read_to_string(data.join("deliver/brief.md")).expect("brief");
         assert!(direct_body.contains("You may commit, push your task branch"));
-        assert!(direct_body.contains("bin/mx-deliver.sh --help"));
+        assert!(direct_body.contains(&format!(
+            "{} --help",
+            shell_quote(&root.join("bin/mx-deliver.sh"))
+        )));
         assert!(direct_body.contains("Herdr lifecycle declaration - NOT ENABLED"));
 
         run(

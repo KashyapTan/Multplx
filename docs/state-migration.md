@@ -8,6 +8,8 @@ Do not run an older writer against a migrated home.
 
 Bring the main harness and participating persistent sessions to a safe boundary first.
 Inspection is read-only and reports conversions, retained compatibility records, explicit role mappings and blockers.
+The low-level `mx migrate` command uses its active home when `--home` is omitted, which can default to the current directory outside an activated environment.
+Use an explicit absolute `--home` when inspecting from another checkout; doctor supplies the exact home it diagnosed in its migration suggestion.
 
 ```sh
 mx migrate inspect --home /absolute/multplx-home --operation lean-phase09-v1

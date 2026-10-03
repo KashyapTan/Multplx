@@ -150,10 +150,6 @@ pub struct HumanReviewEntry {
     pub blocked_by: Vec<String>,
 }
 
-fn valid_text(value: &str, max: usize) -> bool {
-    !value.trim().is_empty() && value.len() <= max && !value.contains(['\r', '\n'])
-}
-
 fn valid_scope(value: &str) -> bool {
     !value.trim().is_empty()
         && value.len() <= 100_000
@@ -173,21 +169,24 @@ fn valid_time(value: &str) -> bool {
     time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).is_ok()
 }
 
-fn check_valid(check: &DeliveryCheck) -> bool {
-    valid_text(&check.name, 200)
-        && valid_text(&check.summary, 20_000)
-        && check
-            .artifact
-            .as_deref()
-            .is_none_or(|artifact| valid_text(artifact, 4096))
+fn validate_text(value: &str, max: usize, field: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("{field} must be nonempty"));
+    }
+    if value.len() > max {
+        return Err(format!("{field} exceeds {max} bytes (got {})", value.len()));
+    }
+    if value.contains(['\r', '\n']) {
+        return Err(format!("{field} must be a single line (no CR or LF)"));
+    }
+    Ok(())
 }
 
-fn review_valid(review: &DeliveryReview) -> bool {
-    valid_text(&review.summary, 20_000)
-        && review
-            .artifact
-            .as_deref()
-            .is_none_or(|artifact| valid_text(artifact, 4096))
+fn validate_artifact(artifact: Option<&str>, field: &str) -> Result<(), String> {
+    if let Some(value) = artifact {
+        validate_text(value, 4096, field)?;
+    }
+    Ok(())
 }
 
 fn attempt_known(task: &TaskRecord, evidence: &DeliveryEvidence) -> bool {
@@ -210,37 +209,83 @@ impl DeliveryFacts {
             .as_deref()
             .is_some_and(|commit| !valid_commit(commit))
         {
-            return Err("invalid current delivery commit".into());
+            return Err(
+                "current_commit must be a full 40- or 64-byte lowercase hexadecimal commit".into(),
+            );
         }
         let mut ids = BTreeSet::new();
-        for evidence in &self.history {
-            if multplx_core::identifiers::TaskId::parse(&evidence.evidence_id).is_err()
-                || !ids.insert(&evidence.evidence_id)
-                || !attempt_known(task, evidence)
-                || evidence.attempt_generation == 0
-                || evidence.brief_revision == 0
-                || !valid_commit(&evidence.commit)
-                || !valid_scope(&evidence.accepted_scope)
-                || evidence.checks.iter().any(|check| !check_valid(check))
-                || evidence
-                    .review
-                    .as_ref()
-                    .is_some_and(|review| !review_valid(review))
-                || evidence
-                    .limitations
-                    .iter()
-                    .any(|limitation| !valid_text(limitation, 20_000))
-                || evidence
-                    .pr_url
-                    .as_deref()
-                    .is_some_and(|url| crate::review_delivery::PrIdentity::parse(url).is_err())
-                || matches!(
-                    evidence.outcome,
-                    DeliveryOutcome::Published | DeliveryOutcome::HumanMerged
-                ) && evidence.pr_url.is_none()
-                || !valid_time(&evidence.observed_at)
-            {
-                return Err("invalid revision-bound delivery evidence".into());
+        for (index, evidence) in self.history.iter().enumerate() {
+            let field = |name: &str| format!("history[{index}].{name}");
+            TaskId::parse(&evidence.evidence_id)
+                .map_err(|error| format!("{}: {error}", field("evidence_id")))?;
+            if !ids.insert(&evidence.evidence_id) {
+                return Err(format!(
+                    "{} duplicates an evidence identity",
+                    field("evidence_id")
+                ));
+            }
+            if evidence.attempt_generation == 0 {
+                return Err(format!("{} must be positive", field("attempt_generation")));
+            }
+            if evidence.brief_revision == 0 {
+                return Err(format!("{} must be positive", field("brief_revision")));
+            }
+            if !attempt_known(task, evidence) {
+                return Err(format!(
+                    "{} / {} / {} do not identify a retained attempt and brief",
+                    field("attempt_id"),
+                    field("attempt_generation"),
+                    field("brief_revision")
+                ));
+            }
+            if !valid_commit(&evidence.commit) {
+                return Err(format!(
+                    "{} must be a full 40- or 64-byte lowercase hexadecimal commit",
+                    field("commit")
+                ));
+            }
+            if !valid_scope(&evidence.accepted_scope) {
+                return Err(format!(
+                    "{} must be nonempty, at most 100000 bytes, and contain no controls except LF or tab",
+                    field("accepted_scope")
+                ));
+            }
+            for (index, check) in evidence.checks.iter().enumerate() {
+                validate_text(&check.name, 200, &field(&format!("checks[{index}].name")))?;
+                validate_text(
+                    &check.summary,
+                    20_000,
+                    &field(&format!("checks[{index}].summary")),
+                )?;
+                validate_artifact(
+                    check.artifact.as_deref(),
+                    &field(&format!("checks[{index}].artifact")),
+                )?;
+            }
+            if let Some(review) = &evidence.review {
+                validate_text(&review.summary, 20_000, &field("review.summary"))?;
+                validate_artifact(review.artifact.as_deref(), &field("review.artifact"))?;
+            }
+            for (index, limitation) in evidence.limitations.iter().enumerate() {
+                validate_text(limitation, 20_000, &field(&format!("limitations[{index}]")))?;
+            }
+            if let Some(url) = &evidence.pr_url {
+                crate::review_delivery::PrIdentity::parse(url)
+                    .map_err(|error| format!("{}: {error}", field("pr_url")))?;
+            } else if matches!(
+                evidence.outcome,
+                DeliveryOutcome::Published | DeliveryOutcome::HumanMerged
+            ) {
+                return Err(format!(
+                    "{} is required for published or human-merged outcome",
+                    field("pr_url")
+                ));
+            }
+            if !valid_time(&evidence.observed_at) {
+                return Err(format!(
+                    "{} must be an RFC3339 timestamp",
+                    field("observed_at")
+                ));
             }
         }
         Ok(())
@@ -888,6 +933,142 @@ mod tests {
             observed_at: "2026-09-15T12:00:00Z".into(),
             mark_current: true,
             expected_current_commit: task.delivery.current_commit.clone(),
+        }
+    }
+
+    #[test]
+    fn evidence_field_errors_preserve_task_and_accept_exact_byte_boundaries() {
+        let mut task = task("worker");
+        let mut boundary = request(&task, "boundary", 'a');
+        boundary.checks[0].name = "é".repeat(100);
+        boundary.checks[0].summary = "x".repeat(20_000);
+        task.apply_delivery_evidence(&boundary).unwrap();
+        let before = task.clone();
+        type InvalidCase = (&'static str, fn(&mut EvidenceRequest));
+        let cases: Vec<InvalidCase> = vec![
+            ("checks[0].name exceeds 200 bytes (got 201)", |r| {
+                r.checks[0].name = "x".repeat(201)
+            }),
+            ("checks[0].summary exceeds 20000 bytes (got 20001)", |r| {
+                r.checks[0].summary = "x".repeat(20_001)
+            }),
+            ("checks[0].name must be nonempty", |r| {
+                r.checks[0].name = " ".into()
+            }),
+            ("checks[0].summary must be a single line", |r| {
+                r.checks[0].summary = "two\nlines".into()
+            }),
+            ("checks[0].artifact exceeds 4096 bytes", |r| {
+                r.checks[0].artifact = Some("x".repeat(4097))
+            }),
+            ("review.summary must be nonempty", |r| {
+                r.review = Some(DeliveryReview {
+                    outcome: ReviewOutcome::Passed,
+                    summary: "".into(),
+                    artifact: None,
+                })
+            }),
+            ("review.artifact must be nonempty", |r| {
+                r.review = Some(DeliveryReview {
+                    outcome: ReviewOutcome::Passed,
+                    summary: "passed".into(),
+                    artifact: Some("".into()),
+                })
+            }),
+            ("limitations[0] must be nonempty", |r| {
+                r.limitations = vec!["".into()]
+            }),
+            ("observed_at must be an RFC3339 timestamp", |r| {
+                r.observed_at = "yesterday".into()
+            }),
+            ("pr_url", |r| r.pr_url = Some("bad-url".into())),
+            ("pr_url is required", |r| r.pr_url = None),
+            ("commit must be a full", |r| r.commit = "bad".into()),
+            ("evidence_id", |r| r.evidence_id = "bad id".into()),
+        ];
+        for (expected, mutate) in cases {
+            let mut invalid = request(&task, "invalid", 'b');
+            mutate(&mut invalid);
+            let error = task.apply_delivery_evidence(&invalid).unwrap_err();
+            assert!(error.contains(expected), "{error} should name {expected}");
+            assert_eq!(task, before);
+        }
+        let mut long_command = request(&task, "long-command", 'b');
+        long_command.checks[0].name = "isolated integration suite".into();
+        long_command.checks[0].summary = format!(
+            "passed: {} cargo test --locked",
+            "MX_STATE_OVERRIDE=/long/project/path ".repeat(20)
+        );
+        task.apply_delivery_evidence(&long_command).unwrap();
+        assert_eq!(
+            task.current_delivery_evidence().unwrap().checks,
+            long_command.checks
+        );
+        let mut unknown = serde_json::to_value(&long_command).unwrap();
+        unknown["checks"][0]["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<EvidenceRequest>(unknown).is_err());
+    }
+
+    #[test]
+    fn retained_evidence_identity_errors_identify_fields() {
+        let mut task = task("worker");
+        task.apply_delivery_evidence(&request(&task, "first", 'a'))
+            .unwrap();
+        type InvalidCase = (&'static str, fn(&mut DeliveryFacts));
+        let cases: Vec<InvalidCase> = vec![
+            ("current_commit", |d| d.current_commit = Some("bad".into())),
+            ("evidence_id duplicates", |d| {
+                d.history.push(d.history[0].clone())
+            }),
+            ("attempt_generation must be positive", |d| {
+                d.history[0].attempt_generation = 0
+            }),
+            ("brief_revision must be positive", |d| {
+                d.history[0].brief_revision = 0
+            }),
+            ("do not identify a retained attempt", |d| {
+                d.history[0].attempt_id = "unknown".into()
+            }),
+            ("accepted_scope must be nonempty", |d| {
+                d.history[0].accepted_scope = "".into()
+            }),
+        ];
+        for (expected, mutate) in cases {
+            let mut facts = task.delivery.clone();
+            mutate(&mut facts);
+            let error = facts.validate(&task).unwrap_err();
+            assert!(error.contains(expected), "{error} should name {expected}");
+        }
+    }
+
+    #[test]
+    fn rejected_evidence_does_not_write_metadata_or_parent_outcomes() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let state = home.join("state");
+        let root = format!("root-home:{}", home.display());
+        let mut task = TaskRecord::new(
+            "worker".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            root.clone(),
+            root,
+            home.to_string_lossy().into_owned(),
+        );
+        task.briefs[0].scope = "test rejection".into();
+        persist_task(&state, &task);
+        let before = std::fs::read(state.join("worker.meta")).unwrap();
+        let mut invalid = request(&task, "invalid", 'a');
+        invalid.checks[0].name = "x".repeat(201);
+        assert!(
+            record(&state, "worker", &invalid)
+                .unwrap_err()
+                .contains("checks[0].name exceeds 200 bytes")
+        );
+        assert_eq!(std::fs::read(state.join("worker.meta")).unwrap(), before);
+        for directory in ["delivery-outcomes", "parent-outbox", ".transitions"] {
+            assert!(!state.join(directory).exists());
         }
     }
 

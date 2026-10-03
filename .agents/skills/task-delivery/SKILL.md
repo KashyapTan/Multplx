@@ -21,6 +21,7 @@ For task-model inspection/evidence, prefix the command with `MX_STATE_OVERRIDE=A
 Preserve current task, attempt and accepted revision identity when submitting evidence.
 
 Implementation completion requires current typed evidence matching the task attempt, brief and actual worktree `HEAD`, followed by a new task-bound `done` report.
+Keep check names short (nonempty single lines, at most 200 bytes); record exact commands and observed results in the summary (at most 20,000 bytes) or linked artifact.
 Prepare the closed JSON request documented in [delivery guidance](../../../docs/delivery.md#local-completion-and-dependent-work), using actual inspected values rather than placeholders.
 Submit it through:
 
@@ -39,7 +40,9 @@ A done report submitted before evidence needs a new message ID after evidence is
 Current failure, block, pause or renewed work withdraws completion; stale attempts and superseded briefs cannot establish readiness.
 
 Workers may commit, push their task branch, open/update PRs and make ordinary scoped fixes without an extra Multplx publication approval.
-Inspect `bin/mx-deliver.sh --help` for preparation and repeat-safe publication; directly opened PRs register through `bin/mx-pr-check.sh TASK_ID PR_URL`.
+Use the shell-quoted absolute `mx-deliver.sh` and `mx-pr-check.sh` helper paths provided by the generated brief; they are rooted in the runtime installation and work from the assigned project checkout.
+Append `--help` to that delivery helper for preparation and repeat-safe publication; register a directly opened PR by passing `TASK_ID PR_URL` to that PR-check helper.
+If an older brief lacks these paths, resolve the actual runtime installation before using its `bin/` helpers.
 Reconcile uncertain forge outcomes by canonical repository, branch and base identity before another publication attempt.
 Task-bound publication never uses a newly selected global project.
 Local-only or remote-free delivery returns its branch and evidence without inventing a PR.

@@ -100,6 +100,10 @@ Use the actual task attempt, brief revision, current full commit SHA and observe
 The placeholder strings are not literal values to submit.
 Use `null` for `expected_current_commit` only when the inspected task has no current delivery commit; otherwise use that existing commit as the concurrency token.
 Keep the same evidence ID and identical JSON when retrying an uncertain submission.
+Use a short check label in `checks[].name` (nonempty, at most 200 bytes); put the exact command and observed result in `checks[].summary` (nonempty, at most 20,000 bytes), or keep full details in the linked `artifact`.
+These text fields must be single lines without CR or LF; optional artifact references are nonempty single lines of at most 4096 bytes.
+Review summaries and each limitation have the same 20,000-byte single-line bound.
+Rejected evidence identifies the offending field and preserves the current task facts.
 
 ```json
 {
@@ -109,9 +113,9 @@ Keep the same evidence ID and identical JSON when retrying an uncertain submissi
   "brief_revision": 1,
   "commit": "FULL_CURRENT_COMMIT_SHA",
   "checks": [{
-    "name": "EXACT_CHECK_COMMAND",
+    "name": "SHORT_CHECK_LABEL",
     "outcome": "passed",
-    "summary": "ACTUAL_RESULT",
+    "summary": "EXACT_CHECK_COMMAND and ACTUAL_RESULT",
     "artifact": null
   }],
   "review": null,
