@@ -152,3 +152,11 @@ gate-skips.
 The removed grok harness support previously installed a global
 `~/.grok/hooks/fm-turn-end.json` hook on operator machines via `fm-spawn.sh`.
 That file is inert without this repo's hooks and can be deleted manually.
+
+
+## Event-driven supervision source comparison (2026-10-03)
+
+The authorized public Firstmate review used commit `e31bc6e620ca532c2e0e0b72f3fd7c0869a12270`.
+Its [Cursor stop hook](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/bin/fm-turnend-guard-cursor.sh) and [Cursor protocol](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/docs/supervision-protocols/cursor.md) supplied the native stop-park comparison.
+The review read public documentation before code in a temporary public checkout; the local reference directory was not inspected.
+[The audit finding](verification/postmerge-audit-issues.md#aud-009-cursor-model-owned-wait-loop) records the scoped Multplx repair and validation.

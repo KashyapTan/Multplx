@@ -159,7 +159,7 @@ Harness/model APIs are synthetic; fresh authenticated Claude and Pi runs remain 
 
 At `f7e4412`, `cursor_hook` accepted only `loop_count: 0`, `.cursor/hooks.json` capped native follow-ups at one, and the primary protocol required repeated 180-second foreground checkpoints.
 The model therefore remained responsible for continuing waits instead of ending generation and resuming only on an event or human input.
-Public [Firstmate source at `e31bc6e`](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/bin/fm-turnend-guard-cursor.sh) and its [Cursor protocol](https://github.com/kunchenguid/firstmate/blob/e31bc6e620ca532c2e0e0b72f3fd7c0869a12270/docs/supervision-protocols/cursor.md) supplied the stop-park comparison; the prohibited local `firstmate/` directory was not inspected.
+The [public upstream source and Cursor protocol pinned at `e31bc6e`](../upstream.md#event-driven-supervision-source-comparison-2026-10-03) supplied the stop-park comparison; the prohibited local reference directory was not inspected.
 
 Commit `e6fb1c2` replaces that path with the Rust-owned stop park, latest-stop baton, session-process identity checks, tracked child cleanup, bounded failure feedback and explicit automatic follow-up ceiling.
 The existing canonical wake claim, durable disposition and acknowledgement contract is retained.
@@ -173,7 +173,7 @@ Controlled native watcher-arm output establishes adapter transport and continuit
 The pre-repair primary protocol required another model-authored foreground checkpoint after each wake or quiet timeout.
 The installed Codex CLI now exposes `codex queue --thread --message`; a real isolated exact-thread transport probe showed an idle thread starts a new turn and busy-thread input waits until its current turn completes.
 The requested repair is a Stop-owned bridge that binds the exact thread, `CODEX_HOME` and live session-lock identity while keeping canonical wake disposition separate from queue transport receipts.
-Unsupported CLI versions require a visible compatibility warning and the explicit bounded foreground fallback; upstream Firstmate's Codex checkpoint protocol alone does not establish this modern local capability.
+Unsupported CLI versions require a visible compatibility warning and the explicit bounded foreground fallback; the upstream Codex checkpoint protocol alone does not establish this modern local capability.
 Final runtime and live-hook verification belong to the active Codex worker's delivery evidence.
 The accepted activation boundary is managed Codex CLI launchers setting `MX_CODEX_IDLE_CLI=1` automatically, or a direct terminal CLI user explicitly opting in with that flag.
 Inactive sessions keep the bounded foreground protocol, and the renderer selects a separate inactive instruction block rather than claiming a bridge is running.
