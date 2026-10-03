@@ -240,7 +240,7 @@ mx_backend_cmux_ping_state() {
 # matrix) plus the config/backend opt-out for a caller who only landed on
 # cmux via auto-detection.
 mx_backend_cmux_refuse_denied() {
-  echo "error: backend=cmux socket rejected the connection (automation.socketControlMode is cmuxOnly, the default, which never admits an external CLI like broker). In cmux Settings > Automation set Socket Control Mode to 'Automation mode' (recommended - same-user external clients, no password), or 'Password mode' plus config/cmux-socket-password/CMUX_SOCKET_PASSWORD, or 'Full open access' (NOT recommended - admits every local user) - see docs/cmux-backend.md 'Setup' - or set config/backend to tmux (or pass --backend tmux) if you did not mean to use cmux." >&2
+  echo "error: backend=cmux socket rejected the connection (automation.socketControlMode is cmuxOnly, the default, which never admits an external CLI like Multplx). In cmux Settings > Automation set Socket Control Mode to 'Automation mode' (recommended - same-user external clients, no password), or 'Password mode' plus config/cmux-socket-password/CMUX_SOCKET_PASSWORD, or 'Full open access' (NOT recommended - admits every local user) - see docs/cmux-backend.md 'Setup' - or set config/backend to tmux (or pass --backend tmux) if you did not mean to use cmux." >&2
 }
 
 mx_backend_cmux_refuse_unauth() {
@@ -327,9 +327,13 @@ mx_backend_cmux_scoped_title() {  # <mx-task-label>
 # so this adopts the FIRST match `jq` returns, mirroring herdr's own
 # duplicate-check posture.
 mx_backend_cmux_workspace_id_for_label() {  # <label>
-  local label=$1
+  local label=$1 current legacy old_label
+  current="mx-$(mx_backend_cmux_home_label)-"
+  legacy="mx-$(mx_backend_legacy_hometag)-"
+  old_label=$label
+  case "$label" in "$current"*) old_label="$legacy${label#"$current"}" ;; esac
   mx_backend_cmux_cli workspace list --json --id-format uuids 2>/dev/null \
-    | jq -r --arg want "$label" '.workspaces[]? | select(.title == $want) | .id' 2>/dev/null | head -1
+    | jq -r --arg want "$label" --arg old "$old_label" '[.workspaces[]? | select(.title == $want)] + [.workspaces[]? | select(.title == $old)] | .[0].id // empty' 2>/dev/null
 }
 
 mx_backend_cmux_surface_id_for_workspace() {  # <workspace_id>
@@ -403,14 +407,15 @@ mx_backend_cmux_surface_exists() {  # <workspace_id> <surface_id>
 # mx_backend_cmux_target_ready: parse the target and verify it is live via
 # mx_backend_cmux_surface_exists (never read-screen - see that function's
 # header for the fresh-surface pitfall this avoids). When the caller knows
-# the owning broker task label, refresh stale workspace/surface ids by label.
+# the owning parent task label, refresh stale workspace/surface ids by label.
 mx_backend_cmux_target_ready() {  # <target> [expected-label]
-  local expected_label=${2:-} expected_title title wsid sfid
+  local expected_label=${2:-} expected_title legacy_title title wsid sfid
   mx_backend_cmux_parse_target "$1" || return 1
   if [ -n "$expected_label" ]; then
     expected_title=$(mx_backend_cmux_scoped_title "$expected_label")
+    legacy_title="mx-$(mx_backend_legacy_hometag)-${expected_label#mx-}"
     title=$(mx_backend_cmux_cli workspace list --json --id-format uuids 2>/dev/null | jq -r --arg id "$MX_BACKEND_CMUX_WORKSPACE" '.workspaces[]? | select(.id == $id) | .title' 2>/dev/null)
-    if [ "$title" = "$expected_title" ]; then
+    if [ "$title" = "$expected_title" ] || [ "$title" = "$legacy_title" ]; then
       mx_backend_cmux_surface_exists "$MX_BACKEND_CMUX_WORKSPACE" "$MX_BACKEND_CMUX_SURFACE" && return 0
       wsid=$MX_BACKEND_CMUX_WORKSPACE
     elif [ -n "$title" ]; then
@@ -644,16 +649,18 @@ mx_backend_cmux_kill() {  # <target> [unused] [expected-label]
 # One "<workspace_id>:<surface_id>\t<mx-id>" line per live task workspace.
 # Read-only: an unreachable cmux simply lists nothing.
 mx_backend_cmux_list_live() {
-  local wss wsid title sfid home prefix plain
+  local wss wsid title sfid home prefix legacy_prefix plain
   home=$(mx_backend_cmux_home_label)
   prefix="mx-$home-"
+  legacy_prefix="mx-$(mx_backend_legacy_hometag)-"
   wss=$(mx_backend_cmux_cli workspace list --json --id-format uuids 2>/dev/null) || return 0
   while IFS=$'\t' read -r wsid title; do
     [ -n "$wsid" ] || continue
     plain=${title#"$prefix"}
+    if [ "$plain" = "$title" ]; then plain=${title#"$legacy_prefix"}; fi
     [ -n "$plain" ] || continue
     sfid=$(mx_backend_cmux_surface_id_for_workspace "$wsid")
     [ -n "$sfid" ] || continue
     printf '%s:%s\tmx-%s\n' "$wsid" "$sfid" "$plain"
-  done < <(printf '%s' "$wss" | jq -r --arg prefix "$prefix" '.workspaces[]? | select(.title | startswith($prefix)) | "\(.id)\t\(.title)"' 2>/dev/null)
+  done < <(printf '%s' "$wss" | jq -r --arg prefix "$prefix" --arg old "$legacy_prefix" '.workspaces[]? | select(.title | startswith($prefix) or startswith($old)) | "\(.id)\t\(.title)"' 2>/dev/null)
 }

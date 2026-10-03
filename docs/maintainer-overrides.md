@@ -1,13 +1,13 @@
-# Maintainer-scoped exceptions
+# Operator-scoped exceptions
 
-This document is the human-facing owner for exact, single-use maintainer exceptions.
+This document is the human-facing owner for exact, single-use operator exceptions.
 The universal agent procedure was retired in lean Phase 01; legacy records and commands remain until their owning delivery/migration phases, while `multplx-domain::maintainer_override` owns the executable schema, registry, validation, locking, and transitions.
 `bin/mx-maintainer-override-lib.sh` remains the sourced-function adapter for callers that require the shell ABI.
 
 ## Invariant
 
-A maintainer decision changes authority for one action and never changes facts.
-A failed gate may become maintainer-waived but not passed, red checks remain red after a maintainer-directed merge, discarded work is not landed, and a single checkout is not isolated.
+An operator decision changes authority for one action and never changes facts.
+A failed gate may become operator-waived but not passed, red checks remain red after a human-directed merge, discarded work is not landed, and a single checkout is not isolated.
 Integrity and capability failures are therefore inventoried separately from consumable policy exceptions.
 
 There is no generic force flag, environment bypass, standing grant, inherited grant, wildcard boundary, or post-hoc approval.
@@ -25,7 +25,7 @@ Grant wording must name the exact boundary, operation, and target.
 The subsystem owner recomputes fresh state and atomically moves a matching grant to `consumed` before the exceptional mutation.
 A mismatch or expiry moves the record to `stale`, a denial preserves the ordinary path, and a consumed outcome is immutable after `succeeded` or `failed` is recorded.
 
-Use `bin/mx-maintainer-override.sh registry --json` for the current machine-readable inventory, `audit --json` for validation, and `inspect <request>` for one record.
+Use `bin/mx-operator-override.sh registry --json` for the current machine-readable inventory, `audit --json` for validation, and `inspect <request>` for one record.
 Never repair, copy, move, or hand-edit an authority record.
 
 ## Registered policy alternates
@@ -48,7 +48,7 @@ Historical grants remain evidence and cannot authorize an agent PR merge; [deliv
 | `authentication.login` | Produce an already-consumed exact interactive-login handoff and re-check authentication afterward. |
 
 The command runner first prints fresh bindings with `bin/mx-override-run.sh --print-bindings ... -- <argv>` and later accepts the granted request id with the same arguments.
-For an explicitly selected operator handoff, `bin/mx-maintainer-override.sh handoff <request>` prints only an atomically consumed request and leaves its outcome `not-run` until the operator reports the real result.
+For an explicitly selected operator handoff, `bin/mx-operator-override.sh handoff <request>` prints only an atomically consumed request and leaves its outcome `not-run` until the operator reports the real result.
 Ordinary branch publication inherits user authentication and requires no override or handoff; none of these records grants agent merge authority.
 
 ## Factual boundaries
@@ -66,4 +66,4 @@ The Rust review command exposed through `bin/mx-pr-merge.sh --print-override-bin
 `bin/mx-validation-waive.sh`, `bin/mx-workflow.sh`, `bin/mx-teardown.sh`, `bin/mx-spawn.sh`, `bin/mx-lock.sh`, `bin/mx-pr-merge.sh`, and `bin/mx-override-run.sh` each consume immediately before their own exceptional action.
 
 The ordinary command remains the default when no exact grant exists.
-Supplying a wrong, stale, denied, expired, consumed, duplicated, or unrelated request cannot widen the command and requires a new maintainer decision for current facts.
+Supplying a wrong, stale, denied, expired, consumed, duplicated, or unrelated request cannot widen the command and requires a new operator decision for current facts.

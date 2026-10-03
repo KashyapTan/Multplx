@@ -630,12 +630,12 @@ fn daemon_liveness_with(
             &backend_text
         };
         let Ok(backend_name) = BackendName::parse(backend_text) else {
-            output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: agent recovery classifier unverified (backend={backend_text})\n"));
+            output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: agent recovery classifier unverified (backend={backend_text})\n"));
             continue;
         };
         let Ok(target) = BackendTarget::new(backend_name, target_text, Some(format!("mx-{id}")))
         else {
-            output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: endpoint probe unreadable (backend={backend_text})\n"));
+            output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: endpoint probe unreadable (backend={backend_text})\n"));
             continue;
         };
         let state = agent_state(backend_name, &target);
@@ -643,10 +643,10 @@ fn daemon_liveness_with(
         let verified_harness = matches!(harness.as_str(), "claude" | "codex" | "cursor" | "pi");
         match state {
             AgentState::Alive if verbose => output.push_str(&format!(
-                "BOOTSTRAP_INFO: daemon {id} already live (backend={backend_text})\n"
+                "BOOTSTRAP_INFO: standing agent {id} already live (backend={backend_text})\n"
             )),
             AgentState::Alive => {}
-            AgentState::Dead | AgentState::Missing if !verified_harness => output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: recorded harness '{harness}' is unverified for recovery (backend={backend_text})\n")),
+            AgentState::Dead | AgentState::Missing if !verified_harness => output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: recorded harness '{harness}' is unverified for recovery (backend={backend_text})\n")),
             AgentState::Dead | AgentState::Missing => {
                 let cause = if state == AgentState::Dead {
                     kill_verified(backend_name, &target);
@@ -654,29 +654,30 @@ fn daemon_liveness_with(
                 } else { "recorded endpoint confidently missing" };
                 let daemon_home = meta_value(&raw, "home");
                 let spawned = Command::new(paths.root.join("bin/mx-spawn.sh"))
-                    .args([id.as_ref(), daemon_home.as_str(), harness.as_str(), "--daemon"])
+                    .args([id.as_ref(), daemon_home.as_str(), harness.as_str(), "--persistent"])
                     .env("MX_SPAWN_NO_GUARD", "1")
                     .env("MX_SPAWN_RECOVERY", "1")
                     .output();
                 match spawned {
-                    Ok(result) if result.status.success() => if verbose { output.push_str(&format!("BOOTSTRAP_INFO: daemon {id} relaunched after {cause} (backend={backend_text})\n")); },
+                    Ok(result) if result.status.success() => if verbose { output.push_str(&format!("BOOTSTRAP_INFO: standing agent {id} relaunched after {cause} (backend={backend_text})\n")); },
                     Ok(result) => {
                         let stdout = String::from_utf8_lossy(&result.stdout);
                         let stderr = String::from_utf8_lossy(&result.stderr);
                         let detail = stdout.lines().next().or_else(|| stderr.lines().next()).unwrap_or("unknown error");
-                        output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: respawn failed after {cause}: {detail}\n"));
+                        output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: respawn failed after {cause}: {detail}\n"));
                     }
-                    Err(error) => output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: respawn failed after {cause}: {error}\n")),
+                    Err(error) => output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: respawn failed after {cause}: {error}\n")),
                 }
             }
-            AgentState::Ambiguous => output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: existing endpoint has ambiguous agent process (backend={backend_text})\n")),
-            AgentState::Unreadable => output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: endpoint probe unreadable (backend={backend_text})\n")),
-            AgentState::Unverified => output.push_str(&format!("DAEMON_LIVENESS: daemon {id}: skipped: agent recovery classifier unverified (backend={backend_text})\n")),
+            AgentState::Ambiguous => output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: existing endpoint has ambiguous agent process (backend={backend_text})\n")),
+            AgentState::Unreadable => output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: endpoint probe unreadable (backend={backend_text})\n")),
+            AgentState::Unverified => output.push_str(&format!("AGENT_LIVENESS: standing agent {id}: skipped: agent recovery classifier unverified (backend={backend_text})\n")),
         }
     }
 }
 
-const DAEMON_NUDGE: &str = "broker was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.";
+const LEGACY_DAEMON_NUDGE: &str = "broker was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.";
+const DAEMON_NUDGE: &str = "The parent runtime was updated - please re-read your AGENTS.md to pick up the new instructions.";
 
 fn safe_id(id: &str) -> bool {
     !id.is_empty()
@@ -730,13 +731,13 @@ fn send_nudge(
 ) {
     if !safe_id(id) {
         output.push_str(&format!(
-            "NUDGE_DAEMONS: daemon {id}: send failed: unsafe id\n"
+            "NUDGE_AGENTS: standing agent {id}: send failed: unsafe id\n"
         ));
         return;
     }
     if !write_nudge_marker(paths, id, home, commit, instructions) {
         output.push_str(&format!(
-            "NUDGE_DAEMONS: daemon {id}: send failed: cannot record retry marker\n"
+            "NUDGE_AGENTS: standing agent {id}: send failed: cannot record retry marker\n"
         ));
         return;
     }
@@ -764,11 +765,11 @@ fn send_nudge(
                 .or_else(|| stderr.lines().next())
                 .unwrap_or("unknown error");
             output.push_str(&format!(
-                "NUDGE_DAEMONS: daemon {id}: send failed: {detail}\n"
+                "NUDGE_AGENTS: standing agent {id}: send failed: {detail}\n"
             ));
         }
         Err(error) => output.push_str(&format!(
-            "NUDGE_DAEMONS: daemon {id}: send failed: {error}\n"
+            "NUDGE_AGENTS: standing agent {id}: send failed: {error}\n"
         )),
     }
 }
@@ -791,33 +792,33 @@ fn retry_nudges(
         let id = meta_value(&raw, "id");
         if !safe_id(&id) {
             output.push_str(&format!(
-                "NUDGE_DAEMONS: daemon {}: send failed: retry marker has unsafe id\n",
+                "NUDGE_AGENTS: standing agent {}: send failed: retry marker has unsafe id\n",
                 if id.is_empty() { "unknown" } else { &id }
             ));
             continue;
         }
         if marker_path(paths, &id).as_deref() != Some(marker.as_path()) {
             output.push_str(&format!(
-                "NUDGE_DAEMONS: daemon {id}: send failed: retry marker filename mismatch\n"
+                "NUDGE_AGENTS: standing agent {id}: send failed: retry marker filename mismatch\n"
             ));
             continue;
         }
         if meta_value(&raw, "selector") != format!("mx-{id}") {
             output.push_str(&format!(
-                "NUDGE_DAEMONS: daemon {id}: send failed: retry marker selector mismatch\n"
+                "NUDGE_AGENTS: standing agent {id}: send failed: retry marker selector mismatch\n"
             ));
             continue;
         }
-        if meta_value(&raw, "message") != DAEMON_NUDGE {
+        if ![DAEMON_NUDGE, LEGACY_DAEMON_NUDGE].contains(&meta_value(&raw, "message").as_str()) {
             output.push_str(&format!(
-                "NUDGE_DAEMONS: daemon {id}: send failed: retry marker message mismatch\n"
+                "NUDGE_AGENTS: standing agent {id}: send failed: retry marker message mismatch\n"
             ));
             continue;
         }
         let meta_raw =
             fs::read_to_string(paths.state.join(format!("{id}.meta"))).unwrap_or_default();
         if meta_value(&meta_raw, "kind") != "daemon" {
-            output.push_str(&format!("NUDGE_DAEMONS: daemon {id}: send failed: retry target has no live daemon metadata\n"));
+            output.push_str(&format!("NUDGE_AGENTS: standing agent {id}: send failed: retry target has no live standing-agent metadata\n"));
             continue;
         }
         let home_raw = meta_value(&meta_raw, "home");
@@ -829,14 +830,14 @@ fn retry_nudges(
             Ok(home) => home,
             Err(error) => {
                 output.push_str(&format!(
-                    "NUDGE_DAEMONS: daemon {id}: send failed: retry target home unsafe: {error}\n"
+                    "NUDGE_AGENTS: standing agent {id}: send failed: retry target home unsafe: {error}\n"
                 ));
                 continue;
             }
         };
         if home.to_string_lossy() != meta_value(&raw, "home") {
             output.push_str(&format!(
-                "NUDGE_DAEMONS: daemon {id}: send failed: retry target home changed\n"
+                "NUDGE_AGENTS: standing agent {id}: send failed: retry target home changed\n"
             ));
             continue;
         }
@@ -848,7 +849,7 @@ fn retry_nudges(
             .map(|v| String::from_utf8_lossy(&v.stdout).trim().to_owned())
             .unwrap_or_default();
         if head != meta_value(&raw, "commit") {
-            output.push_str(&format!("NUDGE_DAEMONS: daemon {id}: send failed: retry target is not at recorded instruction commit\n"));
+            output.push_str(&format!("NUDGE_AGENTS: standing agent {id}: send failed: retry target is not at recorded instruction commit\n"));
             continue;
         }
         send_nudge(paths, &id, &home, &head, &[], output);
@@ -863,9 +864,16 @@ fn daemon_sync(paths: &Paths, output: &mut String) {
     let context = multplx_domain::lifecycle::fast_forward::Context {
         root: paths.root.clone(),
         home: paths.home.clone(),
-        marker: ".mx-daemon-home".to_owned(),
+        marker: multplx_core::agent_home::MARKER.to_owned(),
     };
     retry_nudges(paths, &context, output);
+    let registry = match multplx_core::agent_home::registry_path(&paths.data) {
+        Ok(path) => path,
+        Err(error) => {
+            output.push_str(&format!("AGENT_SYNC: registry unavailable: {error}\n"));
+            return;
+        }
+    };
     let inheritance = multplx_domain::inheritance::InheritancePlanner::new(
         &paths.home,
         &paths.config,
@@ -888,7 +896,7 @@ fn daemon_sync(paths: &Paths, output: &mut String) {
         let id = meta.file_stem().unwrap_or_default().to_string_lossy();
         let mut home = meta_value(&raw, "home");
         if home.is_empty() {
-            home = registry_home(&paths.data.join("daemons.md"), &id);
+            home = registry_home(&registry, &id);
         }
         if home.is_empty() {
             continue;
@@ -901,20 +909,20 @@ fn daemon_sync(paths: &Paths, output: &mut String) {
             Ok(home) => home,
             Err(error) => {
                 output.push_str(&format!(
-                    "DAEMON_SYNC: daemon {id}: skipped: unsafe home: {error}\n"
+                    "AGENT_SYNC: standing agent {id}: skipped: unsafe home: {error}\n"
                 ));
                 continue;
             }
         };
         let result = multplx_domain::lifecycle::fast_forward::fast_forward(
             &home,
-            &format!("daemon {id}"),
+            &format!("standing agent {id}"),
             &multplx_domain::lifecycle::fast_forward::Base::Commit(primary.clone()),
             true,
             true,
         );
         if result.status == multplx_domain::lifecycle::fast_forward::Status::Skipped {
-            output.push_str(&format!("DAEMON_SYNC: {}\n", result.line));
+            output.push_str(&format!("AGENT_SYNC: {}\n", result.line));
         }
         if result.status == multplx_domain::lifecycle::fast_forward::Status::Updated
             && !result.instructions.is_empty()
@@ -941,16 +949,16 @@ fn daemon_sync(paths: &Paths, output: &mut String) {
                         output.push_str(&reread_output);
                         if outcome.failed {
                             output.push_str(&format!(
-                                "DAEMON_SYNC: daemon {id}: skipped: inheritance failed\n"
+                                "AGENT_SYNC: standing agent {id}: skipped: inheritance failed\n"
                             ));
                         }
                     }
                     Err(_) => output.push_str(&format!(
-                        "DAEMON_SYNC: daemon {id}: skipped: inheritance failed\n"
+                        "AGENT_SYNC: standing agent {id}: skipped: inheritance failed\n"
                     )),
                 },
                 _ => output.push_str(&format!(
-                    "DAEMON_SYNC: daemon {id}: skipped: inheritance failed\n"
+                    "AGENT_SYNC: standing agent {id}: skipped: inheritance failed\n"
                 )),
             }
         }
@@ -1037,7 +1045,7 @@ pub(crate) fn run(args: &[String], paths: &Paths) -> (i32, String, String) {
                 if meta_value(&raw, "kind") == "daemon" {
                     let id = meta.file_stem().unwrap_or_default().to_string_lossy();
                     output.push_str(&format!(
-                        "DAEMON_SYNC: daemon {id}: skipped: PR check migration is incomplete\n"
+                        "AGENT_SYNC: standing agent {id}: skipped: PR check migration is incomplete\n"
                     ));
                 }
             }
@@ -1390,7 +1398,7 @@ mod tests {
         assert!(output.contains("retry marker filename mismatch"));
         assert!(output.contains("retry marker selector mismatch"));
         assert!(output.contains("retry marker message mismatch"));
-        assert!(output.contains("retry target has no live daemon metadata"));
+        assert!(output.contains("retry target has no live standing-agent metadata"));
 
         output.clear();
         send_nudge(
@@ -1571,7 +1579,7 @@ mod tests {
             &["AGENTS.md"],
             &mut output,
         );
-        assert!(output.contains("NUDGE_DAEMONS: daemon daemon: send failed:"));
+        assert!(output.contains("NUDGE_AGENTS: standing agent daemon: send failed:"));
         assert!(marker_path(&fixture, "daemon").expect("marker").is_file());
     }
 
@@ -1626,7 +1634,7 @@ mod tests {
         .expect("meta");
         let mut output = String::new();
         daemon_sync(&fixture, &mut output);
-        assert!(output.contains("DAEMON_SYNC: daemon daemon: skipped: unsafe home"));
+        assert!(output.contains("AGENT_SYNC: standing agent daemon: skipped: unsafe home"));
     }
 
     #[test]

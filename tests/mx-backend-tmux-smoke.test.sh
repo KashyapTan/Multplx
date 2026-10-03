@@ -51,6 +51,31 @@ export PATH
 . "$ROOT/bin/mx-backend.sh"
 mx_backend_source tmux || fail "mx_backend_source tmux failed"
 
+# Prefix matches are not ownership: exercise both owners on this private socket.
+unset TMUX
+for owner in shell rust; do
+  tmux new-session -d -s primary-other || fail "prefix fixture primary failed"
+  tmux new-session -d -s broker-other || fail "prefix fixture legacy failed"
+  ensure_fixture_container() {
+    if [ "$owner" = shell ]; then
+      ( . "$ROOT/bin/backends/tmux.sh"; mx_backend_tmux_container_ensure )
+    else
+      mx_backend_tmux_rust container-ensure
+    fi
+  }
+  [ "$(ensure_fixture_container)" = primary ] || fail "$owner adopted a prefix-only session"
+  tmux has-session -t =primary || fail "$owner did not create the exact primary session"
+  tmux has-session -t =primary-other || fail "$owner changed the primary prefix fixture"
+  tmux has-session -t =broker-other || fail "$owner changed the legacy prefix fixture"
+  tmux kill-session -t =primary
+  tmux new-session -d -s broker || fail "exact legacy fixture failed"
+  [ "$(ensure_fixture_container)" = broker ] || fail "$owner did not adopt the exact legacy session"
+  tmux new-session -d -s primary || fail "exact current fixture failed"
+  [ "$(ensure_fixture_container)" = primary ] || fail "$owner did not prefer the exact current session"
+  for name in primary broker primary-other broker-other; do tmux kill-session -t "=$name"; done
+done
+pass "real isolated tmux: both owners refuse prefix-only adoption and retain exact legacy sessions"
+
 SESSION="smoke"
 WINDOW="mx-smoke1"
 TARGET="$SESSION:$WINDOW"

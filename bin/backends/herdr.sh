@@ -16,7 +16,7 @@
 # Default container shape (D4, decided empirically - see
 # herdr-verification-p2.md "Task container shape", refined by
 # docs/herdr-backend.md "Default task container shape"): ONE herdr workspace PER
-# MULTPLX HOME (the primary, and each daemon, gets its own), ONE herdr TAB
+# MULTPLX HOME (the primary, and each standing agent, gets its own), ONE herdr TAB
 # per task inside its home's workspace. An optional, default-off presentation
 # flag creates a disposable workspace for a clean fresh task instead. That
 # workspace is a non-authoritative visual projection containing only the normal
@@ -57,8 +57,8 @@
 # global before sourcing mx-backend.sh (which sources this file), so this
 # never overrides a real invocation. It exists only so this file's own unit
 # tests, which source it directly without that preamble, resolve to a sane
-# default (the Multplx repo root - never a daemon home, so
-# mx_backend_herdr_workspace_label falls through to "broker" exactly like
+# default (the Multplx repo root - never a standing-agent home, so
+# mx_backend_herdr_workspace_label falls through to "primary" exactly like
 # pre-P3 behavior when a test does not care about home-specific labeling).
 MX_BACKEND_HERDR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MX_ROOT="${MX_ROOT_OVERRIDE:-${MX_ROOT:-$MX_BACKEND_HERDR_ROOT}}"
@@ -98,8 +98,8 @@ MX_BACKEND_HERDR_MIN_WORKSPACE_MOVE_PROTOCOL=16
 # ->blocked edge and a reconnect level-reconcile never re-delivers a still-
 # blocked pane. Mirrors bin/mx-watch.sh's .stale-<key> naming.
 MX_BACKEND_HERDR_ESCALATED_PREFIX=".herdr-escalated-"
-# .mx-daemon-home is written by bin/mx-home-seed.sh (AGENTS.md section 6)
-# at a seeded daemon home's root, containing exactly that daemon's id.
+# .mx-agent-home is written by bin/mx-home-seed.sh (AGENTS.md section 6)
+# at a seeded standing-agent home's root, containing exactly that agent's id.
 # The primary Multplx home never carries this marker.
 MX_BACKEND_HERDR_DAEMON_MARKER=".mx-daemon-home"
 # The default-off presentation projection is intentionally separate from the
@@ -113,18 +113,14 @@ MX_BACKEND_HERDR_DAEMON_MARKER=".mx-daemon-home"
 MX_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
 
 # Derive the visible label for a new standing-agent home workspace.
-# The historical .mx-daemon-home marker remains the durable identity source.
+# The canonical marker and exact historical .mx-daemon-home alias bind the same identity.
 # Lookup also accepts daemon-<id> so existing workspaces stay in place.
 mx_backend_herdr_workspace_label() {
-  local marker="$MX_HOME/$MX_BACKEND_HERDR_DAEMON_MARKER" id
-  if [ -f "$marker" ]; then
-    id=$(tr -d '[:space:]' < "$marker" 2>/dev/null)
-    if [ -n "$id" ]; then
-      printf 'agent-%s' "$id"
-      return 0
-    fi
-  fi
-  printf 'broker'
+  local id root binary
+  root=${MX_RUST_SOURCE_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)}
+  binary=${MX_RUST_BIN:-$root/target/release/mx}
+  id=$("$binary" primitive agent-home-id "$MX_HOME") || return 1
+  if [ -n "$id" ]; then printf 'agent-%s' "$id"; else printf 'primary'; fi
 }
 
 # mx_backend_herdr_cli: run `herdr <args...>` scoped to <session>, setting
@@ -179,7 +175,7 @@ mx_backend_herdr_version_check() {
 
 # mx_backend_herdr_session: resolve which named herdr session this normal
 # spawn/op uses. HERDR_SESSION mirrors tmux's $TMUX ambient-selection for
-# adapter workspace/tab/pane operations: an operator (or broker's own
+# adapter workspace/tab/pane operations: an operator (or parent's own
 # isolated test harness) sets it explicitly; absent means herdr's own
 # "default" session. Do not use HERDR_SESSION alone for destructive test
 # cleanup; tests/herdr-test-safety.sh documents and guards that path.
@@ -397,6 +393,7 @@ mx_backend_herdr_projection_journal_replace_endpoint() {  # <journal> <task-id> 
 mx_backend_herdr_projection_concise_task_label() {  # <task-id>
   local task=$1
   case "$task" in
+    primary/*) task=${task#primary/} ;;
     broker/*) task=${task#broker/} ;;
     agent-*/*|daemon-*/*) task=${task#*/} ;;
   esac
@@ -652,13 +649,13 @@ mx_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
       (.label | type) == "string" and .label == $parent;
     def is_top_level_parent:
       (.label | type) == "string"
-      and ((.label == "broker") or (.label | test("^(agent|daemon)-[^/]+$")));
+      and ((.label == "primary" or .label == "broker") or (.label | test("^(agent|daemon)-[^/]+$")));
     def is_new_child:
       (.label | type) == "string"
       and (.label | test("^└ .+ · p:[A-Za-z0-9_-]{22}$"));
     def is_legacy_child:
       (.label | type) == "string"
-      and (.label | test("^(broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"));
+      and (.label | test("^(primary|broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"));
     def is_legacy_child_for($owner):
       is_legacy_child and (.label | startswith($owner + "/"));
     def is_child_for($owner):
@@ -818,9 +815,12 @@ mx_backend_herdr_server_ensure() {  # <session>
 # identical in spirit to the pre-existing tab duplicate-label check below.
 mx_backend_herdr_workspace_find() {  # <session>
   local session=$1 label legacy list
-  label=$(mx_backend_herdr_workspace_label)
+  label=$(mx_backend_herdr_workspace_label) || return 1
   legacy=$label
-  case "$label" in agent-*) legacy="daemon-${label#agent-}" ;; esac
+  case "$label" in
+    primary) legacy=broker ;;
+    agent-*) legacy="daemon-${label#agent-}" ;;
+  esac
   list=$(mx_backend_herdr_cli "$session" workspace list 2>/dev/null) || return 0
   # NOTE: the jq variable is $want, NOT $label - `label` is a jq reserved
   # keyword (label/break), so declaring a jq variable named "label" is a
@@ -847,7 +847,7 @@ mx_backend_herdr_workspace_find() {  # <session>
 # "Label collisions") and derives an unlabeled workspace's DISPLAYED label from
 # its pane cwd's basename, so a maintainer launching herdr directly inside a
 # directory named "broker" produces a workspace that looks byte-identical,
-# by label alone, to broker's own auto-created container - one tab, label
+# by label alone, to parent's own auto-created container - one tab, label
 # "1". workspace_find adopted that pre-existing (maintainer-owned, LIVE) workspace
 # by the label match, the heuristic matched too, and the very next spawn
 # closed the maintainer's own live pane 27ms after creating its task tab. The
@@ -934,13 +934,13 @@ mx_backend_herdr_workspace_ensure() {  # <session> <cwd>
   local session=$1 cwd=$2 wsid out label
   MX_BACKEND_HERDR_WS_ID=""
   MX_BACKEND_HERDR_WS_SEEDED_TAB_ID=""
-  wsid=$(mx_backend_herdr_workspace_find "$session")
+  wsid=$(mx_backend_herdr_workspace_find "$session") || return 1
   if [ -n "$wsid" ]; then
     MX_BACKEND_HERDR_WS_ID=$wsid
     printf '%s' "$wsid"
     return 0
   fi
-  label=$(mx_backend_herdr_workspace_label)
+  label=$(mx_backend_herdr_workspace_label) || return 1
   out=$(mx_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   wsid=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
   [ -n "$wsid" ] || return 1
@@ -969,9 +969,9 @@ mx_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
   mx_backend_herdr_version_check || return 1
   session=$(mx_backend_herdr_session)
   mx_backend_herdr_server_ensure "$session" || return 1
-  mx_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || { label=$(mx_backend_herdr_workspace_label); echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2; return 1; }
+  mx_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || { label=$(mx_backend_herdr_workspace_label) || return 1; echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2; return 1; }
   if [ -z "$MX_BACKEND_HERDR_WS_ID" ]; then
-    label=$(mx_backend_herdr_workspace_label)
+    label=$(mx_backend_herdr_workspace_label) || return 1
     echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2
     return 1
   fi
@@ -1354,7 +1354,7 @@ mx_backend_herdr_projection_live_binding_matches() {  # <session> <token> <works
         and (.label | test("^└ .+ · p:[A-Za-z0-9_-]{22}$"));
       def is_legacy_child_for($owner):
         (.label | type) == "string"
-        and (.label | test("^(broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"))
+        and (.label | test("^(primary|broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"))
         and (.label | startswith($owner + "/"));
       (.result.workspaces // null) as $spaces
       | select(($spaces | type) == "array")

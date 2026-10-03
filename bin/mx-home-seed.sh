@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compatibility transport for native transactional daemon-home seeding.
+# Compatibility transport for native transactional standing-agent home seeding.
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

@@ -14,16 +14,19 @@ type CalmAssistantLayoutPatch = {
 };
 
 const CALM_ASSISTANT_LAYOUT_PATCH = Symbol.for(
-  "broker:calm-assistant-layout:pi-0.81.1",
+  "multplx:calm-assistant-layout:pi-0.81.1",
 );
+// Reuse an already-installed historical patch on extension reload.
+const LEGACY_LAYOUT_PATCH = Symbol.for("broker:calm-assistant-layout:pi-0.81.1");
 
 export function installCalmAssistantLayout(): void {
   const registry = globalThis as typeof globalThis & {
     [key: symbol]: CalmAssistantLayoutPatch | undefined;
   };
   const hidesThinking = (): boolean => calmPresentationHides("assistant-thinking");
-  const installed = registry[CALM_ASSISTANT_LAYOUT_PATCH];
+  const installed = registry[CALM_ASSISTANT_LAYOUT_PATCH] ?? registry[LEGACY_LAYOUT_PATCH];
   if (installed) {
+    registry[CALM_ASSISTANT_LAYOUT_PATCH] = installed;
     installed.hidesThinking = hidesThinking;
     return;
   }

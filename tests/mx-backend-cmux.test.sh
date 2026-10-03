@@ -122,12 +122,12 @@ cmux_expected_home_label() {  # [home] [root]
   if [ -f "$marker" ]; then
     id=$(tr -d '[:space:]' < "$marker" 2>/dev/null)
     if [ -n "$id" ]; then
-      prefix="daemon-$id"
+      prefix="agent-$id"
     else
-      prefix="broker"
+      prefix="primary"
     fi
   else
-    prefix="broker"
+    prefix="primary"
   fi
   printf '%s-%s' "$prefix" "$(cmux_expected_root_hash "$root")"
 }
@@ -280,7 +280,7 @@ test_scoped_title_uses_primary_home_label() {
   expected=$(cmux_expected_scoped_title mx-task1 "$dir")
   out=$( MX_HOME="$dir" bash -c '. "$0/bin/backends/cmux.sh"; mx_backend_cmux_scoped_title mx-task1' "$ROOT" )
   [ "$out" = "$expected" ] || fail "primary scoped title should be $expected, got '$out'"
-  pass "mx_backend_cmux_scoped_title: scopes a primary task title with broker plus root hash"
+  pass "mx_backend_cmux_scoped_title: scopes a primary task title with primary plus root hash"
 }
 
 test_scoped_title_uses_daemon_home_label() {
@@ -1009,7 +1009,7 @@ test_daemon_spawn_refuses_cmux_backend() {
     "$ROOT/bin/mx-spawn.sh" sm-cmux-test --daemon --backend cmux 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "mx-spawn.sh should refuse a --daemon spawn with --backend cmux"
-  assert_contains "$out" "does not support --daemon" "mx-spawn.sh did not report the cmux daemon refusal"
+  assert_contains "$out" "does not support persistent standing-agent spawns" "mx-spawn.sh did not report the cmux daemon refusal"
   pass "mx-spawn.sh: refuses backend=cmux for --daemon spawns (no daemon launch design exists yet)"
 }
 

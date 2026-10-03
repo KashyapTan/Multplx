@@ -685,7 +685,7 @@ fn fail(message: impl Into<String>) -> HandoffFailure {
 fn registry_home(registry: &Path, id: &str) -> Result<PathBuf, HandoffFailure> {
     let text = fs::read_to_string(registry).map_err(|_| {
         fail(format!(
-            "error: no daemon registry at {}",
+            "error: no standing-agent registry at {}",
             registry.display()
         ))
     })?;
@@ -701,7 +701,7 @@ fn registry_home(registry: &Path, id: &str) -> Result<PathBuf, HandoffFailure> {
     }
     let line = matching.ok_or_else(|| {
         fail(format!(
-            "error: daemon {id} is not registered in {}",
+            "error: standing agent {id} is not registered in {}",
             registry.display()
         ))
     })?;
@@ -713,21 +713,21 @@ fn registry_home(registry: &Path, id: &str) -> Result<PathBuf, HandoffFailure> {
     }
     let Some(start) = line.find(marker) else {
         return Err(fail(format!(
-            "error: daemon {id} has no home in {}",
+            "error: standing agent {id} has no home in {}",
             registry.display()
         )));
     };
     let remainder = line[start + marker.len()..].trim_start();
     let Some(end) = remainder.find(';') else {
         return Err(fail(format!(
-            "error: daemon {id} has no home in {}",
+            "error: standing agent {id} has no home in {}",
             registry.display()
         )));
     };
     let home = remainder[..end].trim_end();
     if home.is_empty() {
         return Err(fail(format!(
-            "error: daemon {id} has no home in {}",
+            "error: standing agent {id} has no home in {}",
             registry.display()
         )));
     }
@@ -809,7 +809,8 @@ pub fn run(
             "usage: mx backlog-handoff <persistent-subagent-id> <item-key>... (queued work between home owners)",
         ));
     }
-    let registry = data.join("daemons.md");
+    let registry =
+        multplx_core::agent_home::registry_path(data).map_err(|error| fail(error.to_string()))?;
     let raw_home = registry_home(&registry, id)?;
     let destination_home = validate_daemon_home(id, &raw_home, home, root).map_err(|reason| {
         fail(format!(
@@ -820,7 +821,7 @@ pub fn run(
     let source = data.join("backlog.md");
     let destination = destination_home.path.join("data/backlog.md");
     validate_backlog("main backlog", &source)?;
-    validate_backlog("daemon backlog", &destination)?;
+    validate_backlog("standing-agent backlog", &destination)?;
 
     let mut to_move = Vec::new();
     let mut already = Vec::new();
@@ -1066,7 +1067,7 @@ mod tests {
         assert!(
             error
                 .message
-                .contains("daemon backlog is not a regular file")
+                .contains("standing-agent backlog is not a regular file")
         );
     }
 
@@ -1115,7 +1116,7 @@ mod tests {
             )
             .expect_err("missing registry")
             .message
-            .contains("no daemon registry")
+            .contains("no standing-agent registry")
         );
     }
 

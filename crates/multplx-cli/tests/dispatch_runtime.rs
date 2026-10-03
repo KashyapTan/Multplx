@@ -897,6 +897,9 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
     for (args, expected) in [
         (vec!["harness", "actor"], "codex\n"),
         (vec!["harness", "daemon"], "pi\n"),
+        (vec!["harness", "standing-agent"], "pi\n"),
+        (vec!["harness", "standing-agent-model"], "model\n"),
+        (vec!["harness", "standing-agent-effort"], "high\n"),
         (vec!["harness", "daemon-model"], "model\n"),
         (vec!["harness", "daemon-effort"], "high\n"),
     ] {

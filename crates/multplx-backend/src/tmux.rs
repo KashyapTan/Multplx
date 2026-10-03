@@ -245,11 +245,19 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
         if self.inside_tmux {
             return ContainerId::parse(self.text(["display-message", "-p", "#S"])?.trim());
         }
-        let has_session = self.run(["has-session", "-t", "broker"])?;
-        if !has_session.status.success() {
-            self.success(["new-session", "-d", "-s", "broker"])?;
+        if self
+            .run(["has-session", "-t", "=primary"])?
+            .status
+            .success()
+        {
+            return ContainerId::parse("primary");
         }
-        ContainerId::parse("broker")
+        // Existing installations keep their exact historical container.
+        if self.run(["has-session", "-t", "=broker"])?.status.success() {
+            return ContainerId::parse("broker");
+        }
+        self.success(["new-session", "-d", "-s", "primary"])?;
+        ContainerId::parse("primary")
     }
 
     fn task_create(
@@ -631,6 +639,7 @@ mod tests {
         let runner = FakeRunner {
             outputs: VecDeque::from([
                 output(1, b"", b"missing"),
+                output(1, b"", b"missing"),
                 output(0, b"", b""),
                 output(0, b"", b""),
                 output(0, b"@9\n", b""),
@@ -642,11 +651,11 @@ mod tests {
         let mut backend = TmuxBackend::new(runner, "tmux", false);
         assert_eq!(
             backend.container_ensure().expect("container").as_str(),
-            "broker"
+            "primary"
         );
         let created = backend
             .task_create(
-                &ContainerId::parse("broker").expect("container"),
+                &ContainerId::parse("primary").expect("container"),
                 &TaskSpec {
                     label: "mx-one".to_owned(),
                     working_directory: PathBuf::from("/tmp/project"),
@@ -657,26 +666,51 @@ mod tests {
         let calls = &backend.runner.calls;
         assert_eq!(
             calls[0].args,
-            ["has-session", "-t", "broker"].map(OsString::from)
+            ["has-session", "-t", "=primary"].map(OsString::from)
         );
         assert_eq!(
             calls[1].args,
-            ["new-session", "-d", "-s", "broker"].map(OsString::from)
+            ["has-session", "-t", "=broker"].map(OsString::from)
         );
         assert_eq!(
             calls[2].args,
-            ["list-windows", "-t", "broker", "-F", "#{window_name}"].map(OsString::from)
+            ["new-session", "-d", "-s", "primary"].map(OsString::from)
         );
-        assert_eq!(calls[3].args[0], "new-window");
-        assert_eq!(calls[3].args.last().expect("cwd"), "/tmp/project");
         assert_eq!(
-            calls[4].args,
+            calls[3].args,
+            ["list-windows", "-t", "primary", "-F", "#{window_name}"].map(OsString::from)
+        );
+        assert_eq!(calls[4].args[0], "new-window");
+        assert_eq!(calls[4].args.last().expect("cwd"), "/tmp/project");
+        assert_eq!(
+            calls[5].args,
             ["set-window-option", "-t", "@9", "automatic-rename", "off"].map(OsString::from)
         );
         assert_eq!(
-            calls[5].args,
+            calls[6].args,
             ["set-window-option", "-t", "@9", "allow-rename", "off"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn container_adoption_requires_exact_existing_names() {
+        for (outputs, expected) in [
+            (vec![output(0, b"", b"")], "primary"),
+            (vec![output(1, b"", b""), output(0, b"", b"")], "broker"),
+        ] {
+            let mut backend = TmuxBackend::new(
+                FakeRunner {
+                    outputs: outputs.into(),
+                    ..FakeRunner::default()
+                },
+                "tmux",
+                false,
+            );
+            assert_eq!(backend.container_ensure().unwrap().as_str(), expected);
+            assert!(backend.runner.calls.iter().all(|call| {
+                call.args[0] == "has-session" && call.args[2].to_string_lossy().starts_with('=')
+            }));
+        }
     }
 
     #[test]

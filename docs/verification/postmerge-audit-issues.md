@@ -280,10 +280,35 @@ Five deterministic brief role/output tests passed; these are template checks, no
 
 A tracked-source census found active broker/daemon actor wording in parent markers, watcher diagnostics, generated preferences, standing-home helpers and maintained documentation.
 The reporting repair emits the role-neutral `[mx-from-parent]` marker and retains a narrow decoder for existing marked input.
-A separate vocabulary repair is in progress for the remaining current surfaces and compatibility-sensitive home/configuration names.
+The separate vocabulary repair updates the remaining current surfaces and compatibility-sensitive home/configuration names; its final validation status is recorded in PR #55 below.
 Historical verification records, legacy decoder fixtures and legitimate background-process or human-operator concepts must retain their meaning; lexical matches alone do not prove an obsolete agent role remains enforced.
 No mandatory review rank or role-based delegation prohibition was found in the inspected brief, launch and task-model paths.
-This issue remains open until the remaining active-surface inventory and migration-boundary checks are recorded.
+The separate `fix/standing-agent-vocabulary` implementation and [retained-term census](orchestrator-contract.md#worker-identity-and-standing-agent-vocabulary-audit-2026-10-03) account for current producers, compatibility aliases, stored schema keys and historical records.
+
+Hosted Linux CI exposed `ETXTBSY` when the installed idle-wrapper fixture executed its newly written script.
+The fixture shares a process with the parallel Python test, which can fork and temporarily inherit a writable descriptor before close-on-exec; this is the identified race path, rather than a reproduced Linux trace.
+The two tests now share an executable-fixture mutex, separating writable-script publication from the other fixture's process creation while retaining direct shebang execution.
+This correction changes test scheduling only, with no retries, sleeps or production runtime changes.
+`cargo test -p multplx-cli --test codex_idle_runtime -- --test-threads=2` passed both tests locally in 7.81 seconds; the hosted Linux rerun remains separate evidence.
+New homes use `.mx-agent-home` and `data/agents.md`; legacy-only layouts remain readable and unchanged, while conflicting identities fail closed.
+The census records why background services, human authority and historical evidence are distinct from the retired agent hierarchy.
+Review found and repaired two compatibility hazards before publication: rollback of an interrupted legacy home-seed journal, and tmux prefix matching that could adopt an unrelated similarly named session.
+The journal regression preserves conflicting identity evidence; both tmux owners now use exact targets, and an isolated real-tmux test confirmed prefix-only refusal and exact legacy adoption.
+Integration also found consumed legacy operator handoffs rejected by the renamed strict registry.
+Both validators now accept the exact historical alternate only for the two existing authentication handoff boundaries; appended command text and wrong-boundary use still refuse.
+Seven domain tests and both operator/snapshot release scripts passed after that correction.
+The snapshot failure itself was an obsolete diagnostic assertion: unknown registry ownership, unavailable freshness and the omission reason remained visible.
+Preserved Herdr fixtures exposed a missing shell `primary`-to-`broker` lookup and ignored invalid-home errors in shell workspace lookup/creation; those paths now match the Rust owner's exact compatibility and failure behavior.
+Four focused Herdr scripts passed, including real Herdr 0.7.4 in guarded named lab sessions, unchanged legacy projection adoption, restart/focus checks and no backend calls after malformed or conflicting identities.
+The real backend probes use inert harnesses and do not constitute authenticated model-provider evidence or private-home migration.
+The final current-output census also found two alias integration gaps: the provenance classifier did not recognize `agent-report`, and `--all-agents` disabled only the upstream snapshot bound while leaving catchup's local limit active.
+Canonical and historical report helpers now share provenance classification; catchup normalizes the new flag to its existing internal option and compares both spellings under an intentionally low fixture limit.
+These are separately tested behavior corrections, not merely updated wording assertions.
+The first broad vocabulary run exposed 19 failures, mainly old-label assertions plus the compatibility defects described above.
+The subsequent full Rust run exposed six exact diagnostic/default assertions; test-only commit `d2c759d` corrected them, and all four affected targets passed together (454 tests).
+The foreign-session refusal regression still requires the exact owning PID and a retained inbox, while allowing the two valid refusal paths exposed by Desktop process detection.
+No failure check, fault injection, coverage exclusion or safety gate was removed.
+Final combined release, coverage and hosted-CI results are recorded in [vocabulary delivery PR #55](https://github.com/KashyapTan/Multplx/pull/55); the focused evidence above retains its own scope.
 
 ## Worker reporting repair validation, 2026-10-03
 
@@ -316,6 +341,8 @@ cargo llvm-cov --locked --workspace --all-targets --no-fail-fast \
 
 The final source revision is `27b2546`; the subsequent edit records evidence only.
 The final full coverage log is `/private/tmp/mx-worker-reporting-final-coverage.log`.
+Hosted [CI run 37111065601](https://github.com/KashyapTan/Multplx/actions/runs/37111065601) passed all 11 jobs for reporting PR head `fb6c840`, including Linux/macOS Rust, all behavior lanes and Rust line coverage.
+This hosted result applies to the reporting repair, not the subsequent vocabulary changes.
 Raw timing and coverage artifacts remain outside Git; no generated multi-thousand-line JSON is added.
 The new evidence uses isolated local state, real local Git/process operations and mocked provider/forge transport where applicable.
 Pi static checks passed, while unavailable Pi package/live-provider checks remain explicit gates.

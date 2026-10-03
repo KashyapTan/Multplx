@@ -1,30 +1,30 @@
 # shellcheck shell=bash
-# Shared fast-forward machinery for broker self-sync.
+# Shared fast-forward machinery for parent self-sync.
 # Usage: . bin/mx-ff-lib.sh   (after MX_ROOT and MX_HOME are set)
 #
 # This is the one implementation of "advance a Multplx checkout to a base by a
 # clean fast-forward, never forcing, merging, or stashing" used by every sync
 # path:
 #   - /updatemultplx (bin/mx-update.sh) pulls from origin: base_mode "origin".
-#   - the local-HEAD daemon sync (bin/mx-spawn.sh on launch, bin/mx-bootstrap.sh
+#   - the local-HEAD standing-agent sync (bin/mx-spawn.sh on launch, bin/mx-bootstrap.sh
 #     on startup) follows the PRIMARY checkout's current default-branch commit:
 #     base_mode is that local commit, with NO fetch and no origin dependency.
 #
-# A linked-worktree daemon home already holds the primary's commit in the
+# A linked-worktree standing-agent home already holds the primary's commit in the
 # shared object store, so its local-HEAD sync is a purely local fast-forward that
 # never touches the network. A standalone clone moves through that path only when
 # it already has the target; otherwise it is skipped until the origin path updates it.
 # A tracked-files fast-forward never touches the gitignored operational dirs
 # (data/, state/, config/, projects/), so it cannot disturb a
-# daemon's backlog, projects, or in-flight work.
-# The seeded .mx-daemon-home identity marker is gitignored too; the local
+# agent's backlog, projects, or in-flight work.
+# The seeded .mx-agent-home identity marker is gitignored too; the local
 # sync tolerates only that marker during the one-time upgrade of pre-ignore
 # linked-worktree homes.
 # Homes are leased at a detached HEAD on the
 # default branch, so the fast-forward advances HEAD only and never moves the
 # shared default branch or any other worktree's checkout.
 
-SUB_HOME_MARKER="${SUB_HOME_MARKER:-.mx-daemon-home}"
+SUB_HOME_MARKER="${SUB_HOME_MARKER:-.mx-agent-home}"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -49,7 +49,7 @@ default_branch() {
 }
 
 # Resolve the PRIMARY checkout's current default-branch commit - the local-HEAD
-# sync target every daemon follows. Reads the default branch *ref* rather than
+# sync target every standing agent follows. Reads the default branch *ref* rather than
 # HEAD, so even a primary stranded on a feature branch (the worktree tangle of
 # section 8) still yields the true default-branch tip instead of propagating a
 # stray feature branch to the system. Echoes the commit SHA, or returns 1.
@@ -90,30 +90,30 @@ validate_operational_dirs() {
   for name in data state config projects; do
     dir="$abs_home/$name"
     if [ -L "$dir" ] && [ ! -e "$dir" ]; then
-      VALIDATION_ERROR="daemon $name directory must resolve inside the daemon home"
+      VALIDATION_ERROR="standing-agent $name directory must resolve inside the standing-agent home"
       return 1
     fi
     if [ -d "$dir" ]; then
       abs_dir=$(cd "$dir" && pwd -P) || {
-        VALIDATION_ERROR="daemon $name directory cannot be resolved"
+        VALIDATION_ERROR="standing-agent $name directory cannot be resolved"
         return 1
       }
     elif [ -e "$dir" ]; then
-      VALIDATION_ERROR="daemon $name path is not a directory"
+      VALIDATION_ERROR="standing-agent $name path is not a directory"
       return 1
     else
       abs_dir="$abs_home/$name"
     fi
     if ! path_is_ancestor_of "$abs_home" "$abs_dir"; then
-      VALIDATION_ERROR="daemon $name directory must resolve inside the daemon home"
+      VALIDATION_ERROR="standing-agent $name directory must resolve inside the standing-agent home"
       return 1
     fi
     if [ "$abs_dir" = "$abs_active_home" ] || path_is_ancestor_of "$abs_active_home" "$abs_dir"; then
-      VALIDATION_ERROR="daemon $name directory cannot be inside the active Multplx home"
+      VALIDATION_ERROR="standing-agent $name directory cannot be inside the active Multplx home"
       return 1
     fi
     if [ "$abs_dir" = "$abs_root" ] || path_is_ancestor_of "$abs_root" "$abs_dir"; then
-      VALIDATION_ERROR="daemon $name directory cannot be inside the Multplx repo"
+      VALIDATION_ERROR="standing-agent $name directory cannot be inside the Multplx repo"
       return 1
     fi
   done
@@ -136,45 +136,57 @@ validate_daemon_home() {
     return 1
   }
   if [ "$abs_home" = "/" ]; then
-    VALIDATION_ERROR="daemon home cannot be the filesystem root"
+    VALIDATION_ERROR="standing-agent home cannot be the filesystem root"
     return 1
   fi
   if [ "$abs_home" = "$abs_active_home" ]; then
-    VALIDATION_ERROR="daemon home cannot be the active Multplx home"
+    VALIDATION_ERROR="standing-agent home cannot be the active Multplx home"
     return 1
   fi
   if [ "$abs_home" = "$abs_root" ]; then
-    VALIDATION_ERROR="daemon home cannot be the Multplx repo"
+    VALIDATION_ERROR="standing-agent home cannot be the Multplx repo"
     return 1
   fi
   if path_is_ancestor_of "$abs_active_home" "$abs_home"; then
-    VALIDATION_ERROR="daemon home cannot be inside the active Multplx home"
+    VALIDATION_ERROR="standing-agent home cannot be inside the active Multplx home"
     return 1
   fi
   if path_is_ancestor_of "$abs_root" "$abs_home"; then
-    VALIDATION_ERROR="daemon home cannot be inside the Multplx repo"
+    VALIDATION_ERROR="standing-agent home cannot be inside the Multplx repo"
     return 1
   fi
   if path_is_ancestor_of "$abs_home" "$abs_active_home"; then
-    VALIDATION_ERROR="daemon home cannot be an ancestor of the active Multplx home"
+    VALIDATION_ERROR="standing-agent home cannot be an ancestor of the active Multplx home"
     return 1
   fi
   if path_is_ancestor_of "$abs_home" "$abs_root"; then
-    VALIDATION_ERROR="daemon home cannot be an ancestor of the Multplx repo"
+    VALIDATION_ERROR="standing-agent home cannot be an ancestor of the Multplx repo"
     return 1
   fi
   validate_operational_dirs "$abs_home" "$abs_active_home" "$abs_root" || return 1
-  if [ -L "$abs_home/$SUB_HOME_MARKER" ]; then
-    VALIDATION_ERROR="daemon marker must not be a symlink"
-    return 1
-  fi
-  if [ ! -f "$abs_home/$SUB_HOME_MARKER" ]; then
-    VALIDATION_ERROR="not a seeded daemon home"
-    return 1
-  fi
-  marker_id=$(cat "$abs_home/$SUB_HOME_MARKER" 2>/dev/null || true)
+  case "$SUB_HOME_MARKER" in
+    .mx-agent-home|.mx-daemon-home)
+      local runtime=${MX_RUST_BIN:-${MX_RUST_SOURCE_ROOT:-$MX_ROOT}/target/release/mx}
+      marker_id=$("$runtime" primitive agent-home-id "$abs_home") || {
+        VALIDATION_ERROR="unsafe or conflicting standing-agent home identity"
+        return 1
+      }
+      [ -n "$marker_id" ] || { VALIDATION_ERROR="not a seeded standing-agent home"; return 1; }
+      ;;
+    *)
+    if [ -L "$abs_home/$SUB_HOME_MARKER" ]; then
+      VALIDATION_ERROR="agent marker must not be a symlink"
+      return 1
+    fi
+    if [ ! -f "$abs_home/$SUB_HOME_MARKER" ]; then
+      VALIDATION_ERROR="not a seeded standing-agent home"
+      return 1
+    fi
+    marker_id=$(cat "$abs_home/$SUB_HOME_MARKER" 2>/dev/null || true)
+      ;;
+  esac
   if [ "$marker_id" != "$id" ]; then
-    VALIDATION_ERROR="marked for daemon ${marker_id:-unknown}, expected $id"
+    VALIDATION_ERROR="marked for agent ${marker_id:-unknown}, expected $id"
     return 1
   fi
   if [ ! -f "$abs_home/AGENTS.md" ]; then
@@ -225,7 +237,7 @@ changed_instr() {
 dirty_status() {
   local dir=$1 ignore_seed_marker=${2:-no}
   if [ "$ignore_seed_marker" = yes ]; then
-    git -C "$dir" status --porcelain 2>/dev/null | awk -v marker="?? $SUB_HOME_MARKER" '$0 != marker { print; exit }'
+    git -C "$dir" status --porcelain 2>/dev/null | awk -v marker="?? $SUB_HOME_MARKER" '$0 != marker && $0 != "?? .mx-daemon-home" && $0 != "?? .mx-agent-home" { print; exit }'
   else
     git -C "$dir" status --porcelain 2>/dev/null | head -1
   fi
@@ -274,7 +286,7 @@ live_daemon_meta_records() {
 #   origin       - fetch origin and advance to origin/<default> (the /updatemultplx
 #                  path); requires an origin remote and network reachability.
 #   <commit-ish> - advance to that LOCAL commit with NO fetch and no origin
-#                  dependency (the local-HEAD daemon sync). The commit must
+#                  dependency (the local-HEAD standing-agent sync). The commit must
 #                  already exist in the target's object store, which it always does
 #                  for a worktree of this same repo; a standalone clone that lacks
 #                  it is skipped rather than fetched.
@@ -377,7 +389,7 @@ ff_target() {
 FF_NUDGE_WINDOWS=""
 FF_SEEN_HOMES=""
 
-# Validate and fast-forward one daemon home, accumulating its stable
+# Validate and fast-forward one standing-agent home, accumulating its stable
 # mx-<id> task selector into FF_NUDGE_WINDOWS when it should be live-converged.
 # Args:
 #   id home window base_mode nudge_requires_instr
@@ -395,7 +407,7 @@ process_daemon() {
   home_real=$(resolve_path "$home")
   [ "$home_real" != "$mx_root_real" ] || return 0
   if ! validate_daemon_home "$id" "$home"; then
-    echo "daemon $id: skipped: unsafe home: $VALIDATION_ERROR"
+    echo "standing agent $id: skipped: unsafe home: $VALIDATION_ERROR"
     return 0
   fi
   home_real="$VALIDATED_HOME"
@@ -404,7 +416,7 @@ process_daemon() {
   esac
   FF_SEEN_HOMES="$FF_SEEN_HOMES $home_real"
 
-  ff_target "$home_real" "daemon $id" "$base_mode" yes yes
+  ff_target "$home_real" "standing agent $id" "$base_mode" yes yes
   if [ "$FF_STATUS" = "updated" ] && [ -n "$window" ]; then
     if [ "$nudge_requires_instr" = yes ] && [ -z "$FF_INSTR" ]; then
       return 0
@@ -423,8 +435,9 @@ process_daemon() {
 # FF_NUDGE_WINDOWS / FF_SEEN_HOMES, which the caller resets before and reads after.
 # The registry argument is only for home= fallback on older or incomplete meta records.
 sweep_live_daemon_metas() {
-  local state=$1 base_mode=$2 nudge_requires_instr=${3:-no} registry=${4:-$MX_HOME/data/daemons.md} id home window meta
+  local state=$1 base_mode=$2 nudge_requires_instr=${3:-no} registry=${4:-} id home window meta
   [ -d "$state" ] || return 0
+  if [ -z "$registry" ]; then registry=$("$_MX_FF_RUST_BIN" primitive agent-registry-path "$MX_HOME/data") || return 1; fi
   while IFS='|' read -r id home window meta; do
     process_daemon "$id" "$home" "$window" "$base_mode" "$nudge_requires_instr"
   done < <(live_daemon_meta_records "$state" "$registry")

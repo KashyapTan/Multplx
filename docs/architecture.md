@@ -25,7 +25,7 @@ Portion 06 adds the typed cmux runtime, harness detection and primary launch, co
 Portion 07 adds typed task and persistent-sub-agent lifecycle state machines behind the stable lifecycle entry points.
 Portion 08 makes Rust the production entry owner for supervision, watcher, wake, hook, reporting, and away-mode paths.
 Portion 09 makes Rust the production entry owner for session start, bootstrap, doctor, snapshots, system view, supervision instructions, the native session-start nudge, and timeline rendering.
-Portion 10 makes Rust the production entry owner for decisions, maintainer overrides, canonical exception bindings, exact-command exceptions, and workflows.
+Portion 10 makes Rust the production entry owner for decisions, human overrides, canonical exception bindings, exact-command exceptions, and workflows.
 Native override transitions, decision identities, workflow validation, workflow dry-run rendering, snapshot construction, and stage-order checks live in `multplx-domain`.
 The Portion 09 snapshot module parses the canonical JSON into typed task, endpoint, backlog, queue, persistent-sub-agent, lifecycle-run, and artifact containers before the native human renderer consumes it.
 The interface covers tool and version checks, container and task lifecycle, readiness, current path, bounded capture, composer state, literal and key sends, verified submission, native state, recovery-grade liveness, verified kill, live inventory, and optional event waits.
@@ -107,7 +107,7 @@ No operational component reads a journal, and an absent, malformed, torn, or unw
 vplan provides an explicitly requested maintainer-facing review surface for plans, structured reports, comparisons, and other responses that benefit from visual hierarchy.
 `bin/mx-vplan.sh review` starts one loopback-only Rust service, injects the vendored comment SDK into the served copy, and records the exact process identity under `state/.vplan/`.
 The run record binds the selected project root, artifact path and SHA-256, plus task, attempt and accepted brief revision when supplied.
-The maintainer queues element or text-anchored comments and confirms once.
+The human queues element or text-anchored comments and confirms once.
 The server atomically merges those comments into an inert `#vplan-comments` JSON block in the artifact, removes its matching run record, and exits.
 The artifact is the feedback channel, so vplan adds no polling protocol, persistent service, or parallel completion policy.
 [`vplan.md`](vplan.md) owns the lifecycle and persistence contracts, while [`vplan-authoring.md`](vplan-authoring.md) owns artifact design.
@@ -125,7 +125,7 @@ One snapshot refresh runs at a time, outside the service runtime mutex, while re
 Content revisions are separate from observation age, and browser polling preserves filters, focus and expanded task details.
 Doctor and timeline detail use their sanctioned readers on explicit request.
 [`viz.md`](viz.md) owns the lifecycle, cache, artifact, and read-only boundaries.
-Unresolved maintainer decisions return to `decision-hold-lifecycle` before the originating review is treated as complete.
+Unresolved human decisions return to `decision-hold-lifecycle` before the originating review is treated as complete.
 
 ### Registered persistent-sub-agent current state
 
@@ -192,10 +192,10 @@ That poll loop is the default event source for backends with no native push even
 For capable Herdr sessions, the same watcher replaces its terminal sleep with a bounded native event wait that immediately surfaces `blocked`; [Push events and polling fallback](herdr-backend.md#push-events-and-polling-fallback) owns the current mechanism and capability gates, while [runtime backend verification](verification/runtime-backends.md#native-blocked-event) owns the active evidence.
 The deeper session-start agent-process liveness probe is separate from that busy-state poll: tmux and Herdr have verified classifiers for persistent-sub-agent recovery, and cmux does not support persistent-sub-agent spawns.
 Herdr is experimental and can be selected explicitly or by runtime auto-detection: the built-in Git lifecycle supplies its worktrees, [`herdr-backend.md`](herdr-backend.md) owns current setup and safety limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#herdr) owns active empirical evidence.
-Herdr's durable default container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `broker`, persistent-sub-agent homes use `daemon-<daemon-id>`, and recovery/list-live scopes to the current `MX_HOME`'s workspace.
+Herdr's durable default container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `primary`, standing-agent homes use `agent-<agent-id>`, and recovery/list-live scopes to the current `MX_HOME`'s workspace.
 Its optional default-off presentation projection may place one clean new task in a disposable workspace without changing endpoint authority or lifecycle ownership; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns that conditional design and its narrow home-local restored-shell cleanup at locked session start.
 cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or by runtime auto-detection from its primary `CMUX_WORKSPACE_ID` marker plus documented fallback signals: the built-in Git lifecycle supplies its worktrees, [`cmux-backend.md`](cmux-backend.md) owns current setup and limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) owns active source and live evidence.
-cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `MX_ROOT` path, and `--daemon` spawns are refused.
+cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `MX_ROOT` path, and `--persistent` spawns (including the historical `--daemon` alias) are refused.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
 ## Worktrees, not branches in your checkout
@@ -253,7 +253,7 @@ The dispatch file is intentionally judgment-based: the orchestrator reads the na
 The Rust owner validates the JSON shape and verified harness/effort combinations without parsing task intent or selecting profiles.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses sub-agent launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
-Persistent-sub-agent launches are exempt because they resolve the legacy daemon harness alias and any optional model or effort tokens instead.
+Persistent-sub-agent launches are exempt because they resolve the standing-agent harness configuration and its explicit legacy aliases and any optional model or effort tokens instead.
 Unsupported effort values are still recorded in task meta when passed to `mx-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, and pi while preserving the requested profile for later audit.
 
@@ -262,7 +262,7 @@ That keeps spawn launch compatible across claude, codex, and pi while preserving
 Dispatch selects standing managed workers and coordinators under the [operating contract](../AGENTS.md#9-persistent-coordinators-and-parent-reporting).
 Persistent implementers launch at a separate exact-base project allocation using the [standing worker commands](commands.md#standing-implementation-worker); the home remains available after verified delivery without automatic reuse.
 
-`data/daemons.md` records persistent sub-agents with natural-language scopes, project references, and home paths.
+`data/agents.md` records standing agents (existing `data/daemons.md` layouts remain compatible) with natural-language scopes, project references, and home paths.
 `mx-home-seed.sh` provisions a private home, remembers selected project checkouts, copies the charter to `data/charter.md`, and `mx spawn --persistent` launches it through the common session-provider and report path; `--daemon` remains a compatibility alias.
 A deliberate `--no-projects` seed creates a project-less home; later project work receives isolated allocations from its explicitly selected repository.
 The signal cannot be mixed with project names or omitted accidentally, and a populated home cannot be converted in place; the full seed contract is in [configuration.md](configuration.md#persistent-sub-agent-routes-datadaemonsmd).
@@ -277,24 +277,24 @@ The same project may appear in multiple persistent-sub-agent homes when their sc
 Persistent sub-agents are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
 When called with `MX_HOME=<this-parent-home>` or when `MX_HOME` is already set to the active Multplx home, metadata-routed `mx-send.sh` requests to a live `kind=daemon` use the canonical `from-parent` carrier owned by `multplx-domain::operational_input`, so the persistent sub-agent returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.
 The parent guards every marked request against a missing correlated report without reading the persistent sub-agent's conversation; `multplx-domain::lifecycle::pending_reply` owns the correlation, recovery, escalation, and retention contract.
-Explicit backend-target sends and direct human typing stay unmarked, so maintainer intervention in a persistent-sub-agent pane remains conversational.
+Explicit backend-target sends and direct human typing stay unmarked, so human intervention in a persistent-sub-agent pane remains conversational.
 After seeding a persistent sub-agent, `mx-backlog-handoff.sh` validates the system-specific handoff, then atomically routes already-judged in-scope queued item moves through the owned backlog library so the domain queue starts in the right place.
-Idle persistent-sub-agent panes are healthy; teardown is explicit and refuses while the persistent-sub-agent home has in-flight work unless the maintainer has approved discard with `--force`.
+Idle persistent-sub-agent panes are healthy; teardown is explicit and refuses while the persistent-sub-agent home has in-flight work unless the human has approved discard with `--force`.
 
 Persistent-sub-agent homes converge conservatively to the primary's version and declared inherited local material at launch and during locked session start.
 [Configuration](configuration.md#persistent-home-inheritance) owns the full guarded sync, propagation, nudge, and mid-session local-material push contract.
 
 Persistent sub-agents can run on a different verified harness than their child sub-agents.
-`config/persistent-subagent-harness` controls persistent launch defaults, with `config/daemon-harness` retained as its alias, and may carry model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
+`config/standing-agent-harness` controls persistent launch defaults, with `config/persistent-subagent-harness` and `config/daemon-harness` retained as legacy aliases, and may carry model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
 A bare harness line remains harness-only, so existing `config/daemon-harness` files keep their previous behavior.
 When the harness token is unset or `default`, launch falls back to `config/actor-harness`, then to the primary's own harness, and the model and effort tokens are ignored.
 Those optional tokens are re-read on every persistent-sub-agent spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
-An explicit per-spawn verified harness does not inherit model or effort tokens from `config/daemon-harness`.
+An explicit per-spawn verified harness does not inherit model or effort tokens from the selected standing-agent harness configuration.
 `config/actor-harness` remains the sub-agent harness alias and is inherited into persistent-sub-agent homes.
 `config/actor-dispatch.json` is inherited too; persistent sub-agents use the same natural-language dispatch profiles when spawning their own child sub-agents.
 [Configuration](configuration.md#persistent-home-inheritance) owns the complete inherited-local-material allowlist and propagation contract.
 
-The `data/daemons.md` line contract is owned by the [route schema](configuration.md#persistent-sub-agent-routes-datadaemonsmd), and the persistent-sub-agent compatibility environment variables are documented in [configuration.md](configuration.md).
+The `data/agents.md` line contract (also used by existing `data/daemons.md` layouts) is owned by the [route schema](configuration.md#persistent-sub-agent-routes-datadaemonsmd), and the persistent-sub-agent compatibility environment variables are documented in [configuration.md](configuration.md).
 
 ## Project modes are explicit
 
@@ -326,7 +326,7 @@ It refuses a case-variant real memory file such as a lowercase `agents.md`, whos
 ## Operational memory routing
 
 `/stow` sweeps the current session for durable knowledge that only exists in conversation and routes each finding to the most specific disk home.
-Home-domain maintainer preferences go to `data/maintainer.md`, cross-domain shared maintainer preferences go to the primary home's `data/maintainer-shared.md`, system-local operational facts and gotchas go to home-local `data/learnings.md`, project-intrinsic knowledge can remain in task artifacts or appropriate scoped project documentation, and task-scoped notes or undone next steps go to the backlog.
+Home-domain human preferences go to `data/maintainer.md`, cross-domain shared human preferences go to the primary home's `data/maintainer-shared.md`, system-local operational facts and gotchas go to home-local `data/learnings.md`, project-intrinsic knowledge can remain in task artifacts or appropriate scoped project documentation, and task-scoped notes or undone next steps go to the backlog.
 Memory writes use inspect-then-update: read the current destination first, then rewrite or prune matching bullets or notes in place instead of appending by default.
 Task-scoped notes use `bin/mx-backlog.sh show <id>` followed by `bin/mx-backlog.sh update <id> --body-file <path>`, adding `--archive-body` when the prior body should remain recoverable.
 Generalizable orchestrator knowledge goes to shared tracked docs through the normal PR pipeline; the orchestrator-internal `/stow` deliberately never stores findings in either skill directory.

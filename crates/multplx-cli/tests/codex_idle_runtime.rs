@@ -1,10 +1,17 @@
 //! Instrumented runtime proof with isolated owner and queue/watch fixtures.
 use std::fs;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+// Linux exec refuses an inode still open for writing in another process.
+// Keep executable-fixture writes separate from the other fixture's fork/exec:
+// a child can inherit the writable descriptor before close-on-exec runs.
+static EXECUTABLE_FIXTURE: Mutex<()> = Mutex::new(());
 
 #[test]
 fn installed_idle_wrapper_uses_canonical_binary_without_release_tree() {
+    let _fixture = EXECUTABLE_FIXTURE.lock().unwrap();
     use std::os::unix::fs::PermissionsExt;
     let layout = tempfile::tempdir().unwrap();
     let wrapper = layout.path().join("mx-codex-idle.sh");
@@ -27,6 +34,7 @@ fn installed_idle_wrapper_uses_canonical_binary_without_release_tree() {
 
 #[test]
 fn codex_idle_runtime_two_cycles_identity_retry_and_cleanup() {
+    let _fixture = EXECUTABLE_FIXTURE.lock().unwrap();
     let fixture = tempfile::tempdir().unwrap();
     let script = fixture.path().join("codex_fixture.py");
     fs::write(&script, r#"

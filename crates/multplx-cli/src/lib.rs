@@ -123,7 +123,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Run one decision, maintainer-override, or workflow entry point.
+    /// Run one decision, human policy exception, or workflow entry point.
     #[command(hide = true, disable_help_flag = true)]
     Authority {
         entry: String,
@@ -277,8 +277,13 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// Append an optional correlated persistent sub-agent report to its parent status path.
-    #[command(hide = true, disable_help_flag = true)]
+    /// Report a correlated standing-agent result through its validated parent route.
+    #[command(
+        name = "agent-report",
+        alias = "daemon-report",
+        hide = true,
+        disable_help_flag = true
+    )]
     DaemonReport {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
@@ -437,6 +442,16 @@ enum BackendCommand {
 
 #[derive(Debug, Subcommand)]
 enum PrimitiveCommand {
+    BackendLegacyHomeTag {
+        root: PathBuf,
+        home: PathBuf,
+    },
+    AgentHomeId {
+        home: PathBuf,
+    },
+    AgentRegistryPath {
+        data: PathBuf,
+    },
     BackendHomeTag {
         root: PathBuf,
         home: PathBuf,
@@ -644,13 +659,17 @@ impl Cli {
                 let context = multplx_domain::lifecycle::fast_forward::Context {
                     root,
                     home,
-                    marker: ".mx-daemon-home".to_owned(),
+                    marker: multplx_core::agent_home::MARKER.to_owned(),
                 };
-                let report = multplx_domain::lifecycle::fast_forward::update(
-                    &context,
-                    &state,
-                    &data.join("daemons.md"),
-                );
+                let registry = match multplx_core::agent_home::registry_path(&data) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        eprintln!("{error}");
+                        return 1;
+                    }
+                };
+                let report =
+                    multplx_domain::lifecycle::fast_forward::update(&context, &state, &registry);
                 let broker_status = report.broker_status;
                 for line in report.lines {
                     println!("{line}");
@@ -2105,7 +2124,7 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
 fn run_daemon_report(args: &[OsString]) -> i32 {
     use std::fs::OpenOptions;
 
-    const USAGE: &str = "Report a correlated result through the caller's validated parent route.\n\nUsage:\n  mx-daemon-report.sh <verb> <corr_id> <note...>\n  mx-daemon-report.sh --doc <verb> <corr_id> <doc-path> <note...>\n\nCanonical tasks resolve their status owner and parent from the task record. The historical <status-file> argument is accepted only when it exactly matches that owner; it grants no destination authority.\n";
+    const USAGE: &str = "Report a correlated result through the caller's validated parent route.\n\nUsage:\n  mx-agent-report.sh <verb> <corr_id> <note...>\n  mx-agent-report.sh --doc <verb> <corr_id> <doc-path> <note...>\n\nCanonical tasks resolve their status owner and parent from the task record. The historical <status-file> argument is accepted only when it exactly matches that owner; it grants no destination authority.\n";
     if args
         .iter()
         .any(|value| matches!(value.to_str(), Some("-h" | "--help")))
@@ -2581,7 +2600,9 @@ fn queue_spawn(
                 index += 1;
             }
             value if value.starts_with("--") => {
-                return Err(format!("unsupported native daemon spawn option: {value}"));
+                return Err(format!(
+                    "unsupported native standing-agent spawn option: {value}"
+                ));
             }
             _ => positional.push(value.to_owned()),
         }
@@ -3301,7 +3322,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         let mut coordinator_args = vec![
             OsString::from(&spec.id),
             prepared.home.as_os_str().to_owned(),
-            OsString::from("--daemon"),
+            OsString::from("--persistent"),
             OsString::from("--role"),
             OsString::from("sub-orchestrator"),
         ];
@@ -3514,7 +3535,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             "error: no launch template for harness '{}'{}",
             request.harness,
             if request.private_home {
-                " (check config/daemon-harness or the explicit selection)"
+                " (check config/standing-agent-harness or the explicit selection)"
             } else {
                 ""
             }
@@ -4099,7 +4120,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         {
             let outcome = multplx_domain::lifecycle::fast_forward::fast_forward(
                 &request.home,
-                &format!("daemon {}", request.id),
+                &format!("standing agent {}", request.id),
                 &multplx_domain::lifecycle::fast_forward::Base::Commit(commit),
                 true,
                 true,
@@ -4110,13 +4131,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     .split_once(": skipped: ")
                     .map_or(outcome.line.as_str(), |(_, reason)| reason);
                 eprintln!(
-                    "warning: daemon {} sync skipped before launch: {reason}",
+                    "warning: standing agent {} sync skipped before launch: {reason}",
                     request.id
                 );
             }
         } else {
             eprintln!(
-                "warning: daemon {} sync skipped before launch: primary default-branch commit cannot be resolved",
+                "warning: standing agent {} sync skipped before launch: primary default-branch commit cannot be resolved",
                 request.id
             );
         }
@@ -4126,7 +4147,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
             Ok(lock) => lock,
             Err(error_value) => {
                 eprintln!(
-                    "error: could not acquire daemon inheritance lock for {}: {error_value}",
+                    "error: could not acquire standing-agent inheritance lock for {}: {error_value}",
                     request.home.display()
                 );
                 return 1;
@@ -4143,14 +4164,14 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 eprint!("{}", outcome.stderr);
                 if outcome.failed {
                     eprintln!(
-                        "warning: daemon {} inheritance failed for {}",
+                        "warning: standing agent {} inheritance failed for {}",
                         request.id,
                         request.home.display()
                     );
                 }
             }
             Err(error_value) => eprintln!(
-                "warning: daemon {} inheritance failed for {}: {error_value}",
+                "warning: standing agent {} inheritance failed for {}: {error_value}",
                 request.id,
                 request.home.display()
             ),
@@ -4377,7 +4398,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                         .lines()
                         .rev()
                         .find_map(|line| line.strip_prefix("herdr_workspace_id="))
-                        .ok_or("recovering Herdr daemon has no recorded workspace")?;
+                        .ok_or("recovering Herdr standing agent has no recorded workspace")?;
                     multplx_backend::facade::ContainerId::for_backend(
                         BackendName::Herdr,
                         format!("{session}:{workspace}"),
@@ -4865,12 +4886,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 Some(&context.home),
             ) {
                 eprintln!(
-                    "CONFIG_REREAD: daemon {}: quarantined pre-relaunch generations after cleanup failure",
+                    "CONFIG_REREAD: standing agent {}: quarantined pre-relaunch generations after cleanup failure",
                     request.id
                 );
             } else {
                 eprintln!(
-                    "CONFIG_REREAD: daemon {}: cleanup failed; pre-relaunch generations were force-cleared where possible",
+                    "CONFIG_REREAD: standing agent {}: cleanup failed; pre-relaunch generations were force-cleared where possible",
                     request.id
                 );
             }
@@ -5553,7 +5574,7 @@ fn run_fast_forward(args: &[OsString]) -> i32 {
                 root: PathBuf::from(&values[1]),
                 home: PathBuf::from(&values[2]),
                 marker: std::env::var("SUB_HOME_MARKER")
-                    .unwrap_or_else(|_| ".mx-daemon-home".to_owned()),
+                    .unwrap_or_else(|_| multplx_core::agent_home::MARKER.to_owned()),
             };
             match fast_forward::validate_daemon_home(&context, &values[3], Path::new(&values[4])) {
                 Ok(path) => {
@@ -6244,9 +6265,13 @@ fn run_harness(args: &[OsString]) -> i32 {
         .unwrap_or_default()
     {
         "subagent" | "actor" => Some(settings.actor(own)),
-        "persistent-subagent" | "daemon" => Some(settings.daemon(own)),
-        "persistent-subagent-model" | "daemon-model" => settings.daemon_model(),
-        "persistent-subagent-effort" | "daemon-effort" => settings.daemon_effort(),
+        "standing-agent" | "persistent-subagent" | "daemon" => Some(settings.daemon(own)),
+        "standing-agent-model" | "persistent-subagent-model" | "daemon-model" => {
+            settings.daemon_model()
+        }
+        "standing-agent-effort" | "persistent-subagent-effort" | "daemon-effort" => {
+            settings.daemon_effort()
+        }
         _ => Some(own.to_string()),
     };
     if let Some(value) = value {
@@ -6344,7 +6369,12 @@ fn run_herdr(args: &[OsString]) -> i32 {
             }
             "workspace-label" => {
                 require_len(args, 1)?;
-                print!("{}", backend.workspace_label());
+                print!(
+                    "{}",
+                    backend
+                        .workspace_label()
+                        .map_err(|error| error.to_string())?
+                );
                 Ok(0)
             }
             "tool-check" => {
@@ -7727,7 +7757,7 @@ fn run_config_inherit(args: &[OsString]) -> i32 {
     }
 }
 
-const CONFIG_PUSH_USAGE: &str = "Usage: mx-config-push.sh [--help]\n\nPush the primary Multplx home's declared inherited local material into each\nlive persistent sub-agent home.\n\nThis is local-material-only:\n  - does not fast-forward tracked files\n  - after successful config/* changes, writes a generation-specific\n    literal-content reread instruction and sends its pointer to that live persistent sub-agent\n    (no message when config is unchanged unless a previous send failure is pending)\n  - reports each live home and each inheritable item as pushed, unchanged,\n    skipped, or error\n  - exits non-zero for real propagation errors or reread-send failures\n\nLive homes come from state/*.meta records with the legacy kind=daemon projection.\nThe legacy data/daemons.md registry is only a fallback for missing home= fields in older or\nincomplete meta records.\n\nEnvironment overrides follow the rest of the orchestrator runtime:\n  MX_HOME            active Multplx home\n  MX_ROOT_OVERRIDE  Multplx repo root\n  MX_STATE_OVERRIDE state dir\n  MX_DATA_OVERRIDE  data dir\n  MX_CONFIG_OVERRIDE config dir\n";
+const CONFIG_PUSH_USAGE: &str = "Usage: mx-config-push.sh [--help]\n\nPush the primary Multplx home's declared inherited local material into each\nlive persistent sub-agent home.\n\nThis is local-material-only:\n  - does not fast-forward tracked files\n  - after successful config/* changes, writes a generation-specific\n    literal-content reread instruction and sends its pointer to that live persistent sub-agent\n    (no message when config is unchanged unless a previous send failure is pending)\n  - reports each live home and each inheritable item as pushed, unchanged,\n    skipped, or error\n  - exits non-zero for real propagation errors or reread-send failures\n\nLive homes come from state/*.meta records with the legacy kind=daemon projection.\nThe selected data/agents.md registry (or existing data/daemons.md layout) is only a fallback for missing home= fields in older or\nincomplete meta records.\n\nEnvironment overrides follow the rest of the orchestrator runtime:\n  MX_HOME            active Multplx home\n  MX_ROOT_OVERRIDE  Multplx repo root\n  MX_STATE_OVERRIDE state dir\n  MX_DATA_OVERRIDE  data dir\n  MX_CONFIG_OVERRIDE config dir\n";
 
 fn last_field(text: &str, key: &str) -> String {
     text.lines()
@@ -7809,7 +7839,14 @@ fn run_config_push(args: &[OsString]) -> i32 {
     let config = std::env::var_os("MX_CONFIG_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("config"));
-    let records = live_daemons(&state, &data.join("daemons.md"));
+    let registry = match multplx_core::agent_home::registry_path(&data) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+    let records = live_daemons(&state, &registry);
     if records.is_empty() {
         println!("config-push: no live persistent sub-agent homes found");
         return 0;
@@ -7823,7 +7860,7 @@ fn run_config_push(args: &[OsString]) -> i32 {
     for (id, raw_home, metadata) in records {
         if raw_home.is_empty() {
             println!(
-                "daemon {id}: skipped - no home= in {} and no registry home",
+                "standing agent {id}: skipped - no home= in {} and no registry home",
                 metadata.display()
             );
             continue;
@@ -7832,19 +7869,19 @@ fn run_config_push(args: &[OsString]) -> i32 {
         {
             Ok(home) => home,
             Err(error) => {
-                println!("daemon {id} ({raw_home}): skipped - unsafe home: {error}");
+                println!("standing agent {id} ({raw_home}): skipped - unsafe home: {error}");
                 continue;
             }
         };
         let target = validated.path;
         if !seen.insert(target.clone()) {
             println!(
-                "daemon {id} ({}): skipped - already processed for another live meta",
+                "standing agent {id} ({}): skipped - already processed for another live meta",
                 target.display()
             );
             continue;
         }
-        println!("daemon {id} ({}):", target.display());
+        println!("standing agent {id} ({}):", target.display());
         if std::process::Command::new("git")
             .args([
                 "-C",
@@ -7856,7 +7893,7 @@ fn run_config_push(args: &[OsString]) -> i32 {
             .is_ok_and(|output| {
                 String::from_utf8_lossy(&output.stdout)
                     .lines()
-                    .any(|line| line != "?? .mx-daemon-home")
+                    .any(|line| !matches!(line, "?? .mx-agent-home" | "?? .mx-daemon-home"))
             })
         {
             println!("  home: dirty working tree - local-material push continuing");
@@ -7969,6 +8006,28 @@ fn run_primitive(command: PrimitiveCommand) -> Result<i32, String> {
     use multplx_core::classification::{Heuristic, NativeState, RunStep};
 
     match command {
+        PrimitiveCommand::BackendLegacyHomeTag { root, home } => {
+            print!(
+                "{}",
+                multplx_core::backend_hometag::legacy_home_tag(root, home)
+                    .map_err(|error| error.to_string())?
+            );
+        }
+        PrimitiveCommand::AgentHomeId { home } => {
+            if let Some(id) =
+                multplx_core::agent_home::identity(home).map_err(|error| error.to_string())?
+            {
+                print!("{id}");
+            }
+        }
+        PrimitiveCommand::AgentRegistryPath { data } => {
+            print!(
+                "{}",
+                multplx_core::agent_home::registry_path(data)
+                    .map_err(|error| error.to_string())?
+                    .display()
+            );
+        }
         PrimitiveCommand::BackendHomeTag { root, home } => {
             print!(
                 "{}",
@@ -8775,7 +8834,7 @@ mod tests {
         assert!(
             park_spawn_if_at_limit(&args(&["--unknown"]), None, None)
                 .expect_err("unknown")
-                .contains("unsupported native daemon spawn option")
+                .contains("unsupported native standing-agent spawn option")
         );
         assert!(
             park_spawn_if_at_limit(&args(&[]), None, None)

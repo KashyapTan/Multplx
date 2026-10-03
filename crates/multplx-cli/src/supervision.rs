@@ -1989,7 +1989,7 @@ fn afk_launch_herdr(state: &Path, home: &Path, target: &str, source_root: &Path)
     };
     let label = std::env::var("MX_AFK_LAUNCH_LABEL").unwrap_or_else(|_| {
         format!(
-            "broker-afk-daemon-{}-{}",
+            "multplx-afk-service-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

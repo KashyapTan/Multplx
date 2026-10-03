@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# mx-pending-reply-lib.sh - parent-owned daemon missed-report guards.
+# mx-pending-reply-lib.sh - parent-owned standing-agent missed-report guards.
 #
-# When the main broker delivers a marked from-parent request to a
-# daemon, this library records a durable parent-owned pending-reply
+# When a parent delivers a marked from-parent request to a
+# standing agent, this library records a durable parent-owned pending-reply
 # expectation BEFORE delivery, embeds a privacy-safe correlation id in the
 # outbound message, and later resolves that expectation only from a correlated
 # parent status line or status-pointed document - never from transport success,
 # chat content, or unrelated status activity.
 #
-# Safety property (maintainer direction 2026-07-22): a daemon agent may ignore
+# Safety property (maintainer direction 2026-07-22): a standing agent may ignore
 # the marker and answer only in its visible conversation. The parent must notice
 # the missing correlated report without scraping that conversation, send exactly
 # one automatic recovery request asking for a repost through the parent channel,
@@ -50,7 +50,7 @@
 #   wrong_home_scan_signature=
 #   grace_secs=             bounded grace before recovery is eligible
 #
-# Sourced by bin/mx-send.sh, bin/mx-watch.sh, bin/mx-daemon-report.sh, and
+# Sourced by bin/mx-send.sh, bin/mx-watch.sh, bin/mx-agent-report.sh (plus its historical alias), and
 # tests. No side effects on source. set -u / set -e safe.
 #
 # Tunables (env):
@@ -446,7 +446,7 @@ mx_pending_reply_resolve_via_of_line() {  # <line>
     *data/*report*|*report.md*|*document*|*pointer*)
       printf 'document'
       ;;
-    *via-helper*|*mx-daemon-report*)
+    *via-helper*|*mx-agent-report*|*mx-daemon-report*)
       printf 'helper'
       ;;
     *)

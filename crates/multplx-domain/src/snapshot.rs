@@ -661,7 +661,7 @@ pub fn render_system_view(snapshot: &SystemSnapshot) -> String {
             }
         }
     }
-    output.push_str("\n## Daemons\n");
+    output.push_str("\n## Standing agents\n");
     output.push_str(&snapshot.daemon_guidance.note);
     output.push('\n');
     output

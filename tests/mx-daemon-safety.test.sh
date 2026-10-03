@@ -272,16 +272,16 @@ EOF
     MX_DAEMON_SCOPE='feature design for alpha beta' \
     mx_home_seed design "$design" alpha beta >/dev/null \
     || fail "initial seed failed"
-  assert_grep '- design - feature design for alpha beta' "$home/data/daemons.md" "design registry line missing"
-  assert_grep 'projects: alpha, beta' "$home/data/daemons.md" "design project clone list missing"
-  assert_no_grep 'owns:' "$home/data/daemons.md" "registry used the legacy owns field"
+  assert_grep '- design - feature design for alpha beta' "$home/data/agents.md" "design registry line missing"
+  assert_grep 'projects: alpha, beta' "$home/data/agents.md" "design project clone list missing"
+  assert_no_grep 'owns:' "$home/data/agents.md" "registry used the legacy owns field"
 
   # beta is shared with a second daemon of a different scope (overlap allowed).
   MX_HOME="$home" MX_DAEMON_CHARTER='issue triage for beta' \
     MX_DAEMON_SCOPE='issue triage for beta' \
     mx_home_seed other "$other" beta >/dev/null 2>&1 \
     || fail "seed refused overlapping project clones across different scopes"
-  assert_grep '- other - issue triage for beta' "$home/data/daemons.md" "overlapping registry line missing"
+  assert_grep '- other - issue triage for beta' "$home/data/agents.md" "overlapping registry line missing"
   MX_HOME="$home" mx_home_seed validate >/dev/null || fail "registry validation rejected overlapping clones"
 
   if MX_HOME="$home" mx_home_seed owner alpha >/dev/null 2>&1; then
@@ -297,7 +297,7 @@ test_home_seed_validate_rejects_duplicate_homes() {
   err="$TMP_ROOT/duplicate-home.err"
   mkdir -p "$home/data" "$subhome"
   subhome_abs=$(cd "$subhome" && pwd -P)
-  cat > "$home/data/daemons.md" <<EOF
+  cat > "$home/data/agents.md" <<EOF
 - design - design domain mentions home: $TMP_ROOT/ignored-summary-home (home: $subhome_abs; scope: design work mentions home: $TMP_ROOT/ignored-scope-home; projects: alpha; added 2026-06-22)
 - triage - triage domain (home: $subhome_abs; scope: issue triage; projects: beta; added 2026-06-22)
 EOF
@@ -305,7 +305,7 @@ EOF
   if MX_HOME="$home" mx_home_seed validate >/dev/null 2>"$err"; then
     fail "registry validation accepted two daemons with the same home"
   fi
-  grep -F 'duplicate daemon home assignment' "$err" >/dev/null \
+  grep -F 'duplicate standing-agent home assignment' "$err" >/dev/null \
     || fail "registry validation did not explain duplicate home assignment"
   pass "home seed validation rejects duplicate home routes"
 }
@@ -319,7 +319,7 @@ test_home_seed_validate_rejects_duplicate_ids() {
   mkdir -p "$home/data" "$first" "$second"
   first_abs=$(cd "$first" && pwd -P)
   second_abs=$(cd "$second" && pwd -P)
-  cat > "$home/data/daemons.md" <<EOF
+  cat > "$home/data/agents.md" <<EOF
 - design - design domain (home: $first_abs; scope: design work; projects: alpha; added 2026-06-22)
 - design - design domain (home: $second_abs; scope: design work; projects: beta; added 2026-06-22)
 EOF
@@ -327,7 +327,7 @@ EOF
   if MX_HOME="$home" mx_home_seed validate >/dev/null 2>"$err"; then
     fail "registry validation accepted two homes for the same daemon id"
   fi
-  grep -F 'duplicate daemon id assignment' "$err" >/dev/null \
+  grep -F 'duplicate agent id assignment' "$err" >/dev/null \
     || fail "registry validation did not explain duplicate id assignment"
   pass "home seed validation rejects duplicate id routes"
 }
@@ -341,7 +341,7 @@ test_home_seed_validate_rejects_nested_homes() {
   mkdir -p "$home/data" "$ancestor" "$descendant"
   ancestor_abs=$(cd "$ancestor" && pwd -P)
   descendant_abs=$(cd "$descendant" && pwd -P)
-  cat > "$home/data/daemons.md" <<EOF
+  cat > "$home/data/agents.md" <<EOF
 - design - design domain (home: $ancestor_abs; scope: design work; projects: alpha; added 2026-06-22)
 - triage - triage domain (home: $descendant_abs; scope: issue triage; projects: beta; added 2026-06-22)
 EOF
@@ -349,7 +349,7 @@ EOF
   if MX_HOME="$home" mx_home_seed validate >/dev/null 2>"$err"; then
     fail "registry validation accepted nested daemon homes"
   fi
-  grep -F 'overlapping daemon home assignment' "$err" >/dev/null \
+  grep -F 'overlapping standing-agent home assignment' "$err" >/dev/null \
     || fail "registry validation did not explain nested home assignment"
   pass "home seed validation rejects nested home routes"
 }
@@ -373,12 +373,12 @@ test_home_seed_creates_owned_private_home() {
   [ -f "$home/data/.home-allocation-dash.json" ] || fail "missing durable private home allocation"
   jq -e '.version == 1 and .state == "active" and .binding.generation == 1' "$home/data/.home-allocation-dash.json" >/dev/null || fail "invalid home allocation"
   assert_no_grep treehouse "$log" "external provider was invoked"
-  [ -f "$acquired/.mx-daemon-home" ] || fail "seed did not mark acquired home"
-  [ "$(cat "$acquired/.mx-daemon-home")" = dash ] || fail "wrong home marker"
+  [ -f "$acquired/.mx-agent-home" ] || fail "seed did not mark acquired home"
+  [ "$(cat "$acquired/.mx-agent-home")" = dash ] || fail "wrong home marker"
   [ ! -e "$acquired/.git" ] || fail "private home fabricated a Git repository"
   [ ! -e "$acquired/projects/alpha" ] || fail "private home copied project"
   jq -e --arg source "$(cd "$home/projects/alpha" && pwd -P)" '.projects[0].checkouts[0].canonical_path == $source' "$acquired/data/projects.json" >/dev/null || fail "source reference missing"
-  grep -F "home: $acquired_abs" "$home/data/daemons.md" >/dev/null || fail "registry missing"
+  grep -F "home: $acquired_abs" "$home/data/agents.md" >/dev/null || fail "registry missing"
   pass "private homes retain durable ownership and borrow source projects without cloning"
 
 }
@@ -394,7 +394,7 @@ test_home_seed_preserves_foreign_home_on_assignment_failure() {
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   make_activated_broker_clone "$acquired"
   acquired_abs=$(cd "$acquired" && pwd -P)
-  printf 'other\n' > "$acquired/.mx-daemon-home"
+  printf 'other\n' > "$acquired/.mx-agent-home"
   fakebin=$(make_fake_tmux "$TMP_ROOT/dash-fail-fake")
   log="$TMP_ROOT/dash-fail-fake/tmux.log"
 
@@ -404,9 +404,9 @@ test_home_seed_preserves_foreign_home_on_assignment_failure() {
     fail "seed reused an acquired home marked for another daemon"
   fi
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not explain acquired marked-home rejection"
-  [ -f "$acquired/.mx-daemon-home" ] || fail "foreign marker removed"
-  [ "$(cat "$acquired/.mx-daemon-home")" = other ] || fail "foreign marker changed"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- dash ' "$home/data/daemons.md" >/dev/null; then
+  [ -f "$acquired/.mx-agent-home" ] || fail "foreign marker removed"
+  [ "$(cat "$acquired/.mx-agent-home")" = other ] || fail "foreign marker changed"
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- dash ' "$home/data/agents.md" >/dev/null; then
     fail "failed acquired seed left a registry route"
   fi
   pass "home seeding preserves foreign home ownership"
@@ -423,7 +423,7 @@ test_home_seed_recovers_retained_private_reservation() {
   grep -F 'retained unfinished home' "$err" >/dev/null || fail "partial home not retained"
   path=$(jq -r '.binding.path' "$home/data/.home-allocation-dash.json")
   [ -d "$path" ] || fail "reserved home disappeared"
-  [ ! -e "$home/data/daemons.md" ] || fail "failed seed published route"
+  [ ! -e "$home/data/agents.md" ] || fail "failed seed published route"
   MX_HOME="$home" MX_DAEMON_CHARTER=scope MX_DAEMON_SCOPE=scope mx_home_seed dash - --no-projects >/dev/null || fail "same home seed did not recover"
   jq -e '.state == "active"' "$home/data/.home-allocation-dash.json" >/dev/null || fail "recovery did not commit ownership"
   pass "home-seed interruption retains its reservation and recovers the same private home"
@@ -445,7 +445,7 @@ test_home_seed_preserves_unsafe_requested_paths() {
     MX_DAEMON_CHARTER=scope mx_home_seed dash "$home" alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home matching the active Multplx home"
   fi
-  grep -F 'daemon home cannot be the active Multplx home' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active acquired-home rejection"
   assert_no_grep treehouse "$log" "unsafe-home refusal invoked external provider"
   [ -d "$home/projects/alpha" ] || fail "unsafe acquired-home rollback removed the active home"
@@ -456,7 +456,7 @@ test_home_seed_preserves_unsafe_requested_paths() {
     MX_DAEMON_CHARTER=scope mx_home_seed dash "$descendant" alpha >/dev/null 2>"$err"; then
     fail "seed accepted an acquired home inside the active Multplx home"
   fi
-  grep -F 'daemon home cannot be inside the active Multplx home' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be inside the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active descendant acquired-home rejection"
   assert_no_grep treehouse "$log" "unsafe-descendant refusal invoked external provider"
   [ -d "$descendant" ] || fail "unsafe acquired-home rollback removed the active descendant"
@@ -500,7 +500,7 @@ test_home_seed_refuses_missing_filled_charter() {
   if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a direct seed without a filled charter"
   fi
-  grep -F 'no filled daemon charter brief' "$err" >/dev/null \
+  grep -F 'no filled standing-agent charter brief' "$err" >/dev/null \
     || fail "seed did not explain missing filled charter refusal"
   [ ! -e "$subhome" ] || fail "missing charter seed left a generated subhome"
   [ ! -e "$home/data/design/brief.md" ] || fail "missing charter seed generated a placeholder charter"
@@ -577,10 +577,10 @@ test_home_seed_no_projects_end_to_end() {
   printf '%s\n' "$out" | grep -F "home=$sub_abs" >/dev/null || fail "seed did not report the project-less subhome"
 
   # Registered with an empty projects field, marked, charter copied, no clones.
-  assert_grep '- fdev - broker self-development' "$home/data/daemons.md" "project-less registry line missing"
-  assert_grep 'scope: Multplx repo work' "$home/data/daemons.md" "project-less registry scope missing"
-  assert_grep 'projects: ;' "$home/data/daemons.md" "project-less registry did not render an empty projects field"
-  [ "$(cat "$sub/.mx-daemon-home")" = fdev ] || fail "project-less seed did not mark the subhome"
+  assert_grep '- fdev - broker self-development' "$home/data/agents.md" "project-less registry line missing"
+  assert_grep 'scope: Multplx repo work' "$home/data/agents.md" "project-less registry scope missing"
+  assert_grep 'projects: ;' "$home/data/agents.md" "project-less registry did not render an empty projects field"
+  [ "$(cat "$sub/.mx-agent-home")" = fdev ] || fail "project-less seed did not mark the subhome"
   assert_present "$sub/data/charter.md" "project-less seed did not copy the charter"
   [ -z "$(ls -A "$sub/projects" 2>/dev/null)" ] || fail "project-less seed cloned a project"
   MX_HOME="$home" mx_home_seed validate >/dev/null || fail "registry validation failed after project-less seed"
@@ -631,14 +631,14 @@ test_home_seed_refuses_projectful_reused_charter_for_projectless_home() {
   fi
   grep -F 'existing charter brief' "$err" >/dev/null \
     || fail "project-less charter refusal did not name the stale charter conflict"
-  grep -F 'mx-brief.sh stale --daemon --no-projects' "$err" >/dev/null \
+  grep -F 'mx-brief.sh stale --persistent --role sub-orchestrator --no-projects' "$err" >/dev/null \
     || fail "project-less charter refusal did not explain how to re-scaffold"
   cmp -s "$stale_brief_before" "$stale_brief" \
     || fail "project-less charter refusal changed the reused charter"
-  assert_absent "$stale_sub/.mx-daemon-home" "project-less charter refusal wrote a home marker"
+  assert_absent "$stale_sub/.mx-agent-home" "project-less charter refusal wrote a home marker"
   assert_absent "$stale_sub/data/charter.md" "project-less charter refusal copied a charter"
   assert_absent "$stale_sub/projects" "project-less charter refusal created a projects directory"
-  if grep -F -- '- stale ' "$home/data/daemons.md" >/dev/null; then
+  if grep -F -- '- stale ' "$home/data/agents.md" >/dev/null; then
     fail "project-less charter refusal wrote a parent registry route"
   fi
   pass "home seeding validates reused project-less charters before mutation"
@@ -671,10 +671,10 @@ EOF
   assert_present "$sub/projects/existing-clone/.git" "project-less conversion refusal removed the existing clone"
   [ "$registry_before" = "$(cat "$sub/data/projects.md")" ] \
     || fail "project-less conversion refusal changed the project registry"
-  assert_absent "$sub/.mx-daemon-home" "project-less conversion refusal wrote a home marker"
+  assert_absent "$sub/.mx-agent-home" "project-less conversion refusal wrote a home marker"
   assert_absent "$sub/data/charter.md" "project-less conversion refusal copied a charter"
   assert_absent "$sub/state" "project-less conversion refusal left an operational directory"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- fdev ' "$home/data/daemons.md" >/dev/null; then
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- fdev ' "$home/data/agents.md" >/dev/null; then
     fail "project-less conversion refusal wrote a parent registry route"
   fi
   pass "home seeding refuses project-less conversion of a populated home"
@@ -702,10 +702,10 @@ test_home_seed_refuses_projectless_home_with_uninspectable_projects() {
   grep -F 'resolve its access permissions or retire or clean this home' "$err" >/dev/null \
     || fail "project-less seed did not explain how to resolve the inspection failure"
   assert_present "$sub/projects/hidden-clone/.git" "project-less inspection refusal removed the existing clone"
-  assert_absent "$sub/.mx-daemon-home" "project-less inspection refusal wrote a home marker"
+  assert_absent "$sub/.mx-agent-home" "project-less inspection refusal wrote a home marker"
   assert_absent "$sub/data/charter.md" "project-less inspection refusal copied a charter"
   assert_absent "$sub/state" "project-less inspection refusal left an operational directory"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- fdev ' "$home/data/daemons.md" >/dev/null; then
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- fdev ' "$home/data/agents.md" >/dev/null; then
     fail "project-less inspection refusal wrote a parent registry route"
   fi
   pass "home seeding refuses project-less homes whose projects directory cannot be inspected"
@@ -738,10 +738,10 @@ test_home_seed_refuses_projectless_home_with_symlinked_projects() {
   [ -L "$sub/projects" ] || fail "project-less symlink refusal changed the projects symlink"
   [ "$(readlink "$sub/projects")" = "$target" ] \
     || fail "project-less symlink refusal retargeted the projects symlink"
-  assert_absent "$sub/.mx-daemon-home" "project-less symlink refusal wrote a home marker"
+  assert_absent "$sub/.mx-agent-home" "project-less symlink refusal wrote a home marker"
   assert_absent "$sub/data/charter.md" "project-less symlink refusal copied a charter"
   assert_absent "$sub/state" "project-less symlink refusal left an operational directory"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- fdev ' "$home/data/daemons.md" >/dev/null; then
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- fdev ' "$home/data/agents.md" >/dev/null; then
     fail "project-less symlink refusal wrote a parent registry route"
   fi
   pass "home seeding refuses project-less homes with symlinked projects directories"
@@ -768,10 +768,10 @@ test_home_seed_refuses_projectless_home_with_non_directory_projects() {
     || fail "project-less seed did not explain the non-directory projects path refusal"
   [ "$projects_before" = "$(cat "$sub/projects")" ] \
     || fail "project-less non-directory refusal changed the projects path"
-  assert_absent "$sub/.mx-daemon-home" "project-less non-directory refusal wrote a home marker"
+  assert_absent "$sub/.mx-agent-home" "project-less non-directory refusal wrote a home marker"
   assert_absent "$sub/data/charter.md" "project-less non-directory refusal copied a charter"
   assert_absent "$sub/state" "project-less non-directory refusal left an operational directory"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- fdev ' "$home/data/daemons.md" >/dev/null; then
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- fdev ' "$home/data/agents.md" >/dev/null; then
     fail "project-less non-directory refusal wrote a parent registry route"
   fi
   pass "home seeding refuses project-less homes with non-directory projects paths"
@@ -801,11 +801,11 @@ test_home_seed_refuses_projectless_home_with_uninspectable_registry() {
     || fail "project-less seed did not explain how to resolve the project registry inspection failure"
   [ "$registry_before" = "$(cat "$sub/data/projects.md")" ] \
     || fail "project-less inspection refusal changed the project registry"
-  assert_absent "$sub/.mx-daemon-home" "project-less registry inspection refusal wrote a home marker"
+  assert_absent "$sub/.mx-agent-home" "project-less registry inspection refusal wrote a home marker"
   assert_absent "$sub/data/charter.md" "project-less registry inspection refusal copied a charter"
   assert_absent "$sub/state" "project-less registry inspection refusal left an operational directory"
   assert_absent "$sub/projects" "project-less registry inspection refusal created a projects directory"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- fdev ' "$home/data/daemons.md" >/dev/null; then
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- fdev ' "$home/data/agents.md" >/dev/null; then
     fail "project-less registry inspection refusal wrote a parent registry route"
   fi
   pass "home seeding refuses project-less homes whose project registry cannot be inspected"
@@ -826,7 +826,7 @@ test_home_seed_refuses_missing_projects_without_signal() {
     fail "seed accepted a project-less home without the deliberate --no-projects signal"
   fi
   assert_absent "$sub" "loud-failure seed created a subhome"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- fdev ' "$home/data/daemons.md" >/dev/null; then
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- fdev ' "$home/data/agents.md" >/dev/null; then
     fail "loud-failure seed left a registry route"
   fi
 
@@ -872,10 +872,10 @@ test_home_seed_refuses_registry_delimiter_home() {
   if MX_HOME="$home" MX_DAEMON_CHARTER='delimiter charter' mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home path with registry delimiters"
   fi
-  grep -F 'daemon home path contains registry delimiters' "$err" >/dev/null \
+  grep -F 'standing-agent home path contains registry delimiters' "$err" >/dev/null \
     || fail "seed did not explain delimiter home refusal"
-  [ ! -e "$subhome/.mx-daemon-home" ] || fail "delimiter home seed wrote a marker"
-  if [ -f "$home/data/daemons.md" ] && grep -F -- '- design ' "$home/data/daemons.md" >/dev/null; then
+  [ ! -e "$subhome/.mx-agent-home" ] || fail "delimiter home seed wrote a marker"
+  if [ -f "$home/data/agents.md" ] && grep -F -- '- design ' "$home/data/agents.md" >/dev/null; then
     fail "delimiter home seed wrote a registry route"
   fi
   pass "home seeding refuses registry delimiter home paths"
@@ -901,34 +901,34 @@ test_home_seed_refuses_active_home_and_root() {
   if MX_HOME="$home" mx_home_seed design "$home" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to reuse active MX_HOME"
   fi
-  grep -F 'daemon home cannot be the active Multplx home' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active MX_HOME rejection"
 
   if MX_HOME="$home" mx_home_seed design "$active_descendant" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home inside active MX_HOME"
   fi
-  grep -F 'daemon home cannot be inside the active Multplx home' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be inside the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active MX_HOME descendant rejection"
   [ ! -e "$home/nested" ] || fail "seed created a directory inside active MX_HOME before descendant rejection"
 
   if MX_HOME="$home" mx_home_seed design "$active_ancestor" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to contain active MX_HOME"
   fi
-  grep -F 'daemon home cannot be an ancestor of the active Multplx home' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be an ancestor of the active Multplx home' "$err" >/dev/null \
     || fail "seed did not explain active MX_HOME ancestor rejection"
-  [ ! -f "$active_ancestor/.mx-daemon-home" ] || fail "seed marked an ancestor of active MX_HOME"
+  [ ! -f "$active_ancestor/.mx-agent-home" ] || fail "seed marked an ancestor of active MX_HOME"
 
   if MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT" mx_home_seed design "$ROOT" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to reuse MX_ROOT"
   fi
-  grep -F 'daemon home cannot be the Multplx repo' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be the Multplx repo' "$err" >/dev/null \
     || fail "seed did not explain MX_ROOT rejection"
 
   make_activated_broker_clone "$root_clone"
   if MX_HOME="$home" MX_ROOT_OVERRIDE="$root_clone" mx_home_seed design "$root_descendant" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home inside MX_ROOT"
   fi
-  grep -F 'daemon home cannot be inside the Multplx repo' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be inside the Multplx repo' "$err" >/dev/null \
     || fail "seed did not explain MX_ROOT descendant rejection"
   [ ! -e "$root_clone/tmp" ] || fail "seed created a directory inside MX_ROOT before descendant rejection"
 
@@ -937,9 +937,9 @@ test_home_seed_refuses_active_home_and_root() {
   if MX_HOME="$home" MX_ROOT_OVERRIDE="$root_inside" mx_home_seed design "$root_ancestor" alpha >/dev/null 2>"$err"; then
     fail "seed allowed daemon home to contain MX_ROOT"
   fi
-  grep -F 'daemon home cannot be an ancestor of the Multplx repo' "$err" >/dev/null \
+  grep -F 'standing-agent home cannot be an ancestor of the Multplx repo' "$err" >/dev/null \
     || fail "seed did not explain MX_ROOT ancestor rejection"
-  [ ! -f "$root_ancestor/.mx-daemon-home" ] || fail "seed marked an ancestor of MX_ROOT"
+  [ ! -f "$root_ancestor/.mx-agent-home" ] || fail "seed marked an ancestor of MX_ROOT"
   pass "home seeding refuses active home and repo root"
 }
 
@@ -952,7 +952,7 @@ test_home_seed_refuses_home_marked_for_another_id() {
   mx_git_init_commit "$home/projects/alpha"
   mx_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/marked-alpha.git"
   make_activated_broker_clone "$subhome"
-  printf 'other\n' > "$subhome/.mx-daemon-home"
+  printf 'other\n' > "$subhome/.mx-agent-home"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for marked-home seed test"
 
@@ -960,7 +960,7 @@ test_home_seed_refuses_home_marked_for_another_id() {
     fail "seed reused a home marked for another daemon"
   fi
   grep -F 'already marked for other' "$err" >/dev/null || fail "seed did not explain marked-home rejection"
-  [ "$(cat "$subhome/.mx-daemon-home")" = "other" ] || fail "seed overwrote another daemon marker"
+  [ "$(cat "$subhome/.mx-agent-home")" = "other" ] || fail "seed overwrote another daemon marker"
   pass "home seeding refuses homes marked for another id"
 }
 
@@ -975,14 +975,14 @@ test_home_seed_refuses_home_registered_to_another_id() {
   make_activated_broker_clone "$subhome"
   subhome_abs=$(cd "$subhome" && pwd -P)
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  printf '%s\n' '- other - other domain (home: '"$subhome_abs"'; scope: other domain; projects: beta; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- other - other domain (home: '"$subhome_abs"'; scope: other domain; projects: beta; added 2026-06-22)' > "$home/data/agents.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for registered-home seed test"
 
   if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed reused a home registered to another daemon"
   fi
   grep -F 'already registered to other' "$err" >/dev/null || fail "seed did not explain registered-home rejection"
-  [ ! -e "$subhome/.mx-daemon-home" ] || fail "seed wrote a marker before rejecting a registered home"
+  [ ! -e "$subhome/.mx-agent-home" ] || fail "seed wrote a marker before rejecting a registered home"
   pass "home seeding refuses homes registered to another id"
 }
 
@@ -1006,14 +1006,14 @@ test_home_seed_refuses_reassigning_existing_id_to_different_home() {
     mx_home_seed design "$second" alpha >/dev/null 2>"$err"; then
     fail "seed reassigned an existing daemon id to a different home"
   fi
-  grep -F "daemon id design is already registered to home $first_abs" "$err" >/dev/null \
+  grep -F "agent id design is already registered to home $first_abs" "$err" >/dev/null \
     || fail "seed did not explain same-id different-home rejection"
   [ ! -e "$second" ] || fail "failed id reassignment created the new subhome"
-  [ "$(cat "$first/.mx-daemon-home")" = design ] || fail "failed id reassignment changed the original marker"
-  grep -F "home: $first_abs" "$home/data/daemons.md" >/dev/null \
+  [ "$(cat "$first/.mx-agent-home")" = design ] || fail "failed id reassignment changed the original marker"
+  grep -F "home: $first_abs" "$home/data/agents.md" >/dev/null \
     || fail "failed id reassignment did not preserve the original registry route"
   second_abs=$(cd "$(dirname "$second")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$second")")
-  grep -F "home: $second_abs" "$home/data/daemons.md" >/dev/null \
+  grep -F "home: $second_abs" "$home/data/agents.md" >/dev/null \
     && fail "failed id reassignment recorded the rejected home"
   pass "home seeding refuses same-id reassignment to a different home"
 }
@@ -1032,7 +1032,7 @@ test_home_seed_refuses_home_overlapping_registered_home() {
   make_activated_broker_clone "$registered_parent"
   make_activated_broker_clone "$registered_child"
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
-  cat > "$home/data/daemons.md" <<EOF
+  cat > "$home/data/agents.md" <<EOF
 - parent - parent domain (home: $registered_parent; scope: parent domain; projects: beta; added 2026-06-22)
 - child - child domain (home: $registered_child; scope: child domain; projects: gamma; added 2026-06-22)
 EOF
@@ -1040,16 +1040,16 @@ EOF
   if MX_HOME="$home" MX_DAEMON_CHARTER=scope mx_home_seed design "$nested" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home inside a registered daemon home"
   fi
-  grep -F 'overlaps registered daemon home' "$err" >/dev/null \
+  grep -F 'overlaps registered standing-agent home' "$err" >/dev/null \
     || fail "seed did not explain registered ancestor overlap"
   [ ! -e "$nested" ] || fail "seed created a nested home inside a registered home"
 
   if MX_HOME="$home" MX_DAEMON_CHARTER=scope mx_home_seed design "$parent" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home containing a registered daemon home"
   fi
-  grep -F 'overlaps registered daemon home' "$err" >/dev/null \
+  grep -F 'overlaps registered standing-agent home' "$err" >/dev/null \
     || fail "seed did not explain registered descendant overlap"
-  [ ! -f "$parent/.mx-daemon-home" ] || fail "seed marked a home containing a registered home"
+  [ ! -f "$parent/.mx-agent-home" ] || fail "seed marked a home containing a registered home"
   pass "home seeding refuses registered home overlaps"
 }
 
@@ -1090,7 +1090,7 @@ test_home_seed_refuses_existing_remote_backed_project_with_wrong_origin() {
   fi
   assert_grep 'existing project checkout conflicts with borrowed reference' "$err" 'seed did not identify conflicting destination'
   [ "$(git -C "$subhome/projects/alpha" remote get-url origin)" = "$home/projects/alpha" ] || fail 'refusal changed existing clone origin'
-  assert_absent "$subhome/.mx-daemon-home" 'refusal marked conflicting home'
+  assert_absent "$subhome/.mx-agent-home" 'refusal marked conflicting home'
   pass 'subhome seeding refuses existing project checkout that conflicts with borrowed source'
 
 }
@@ -1137,10 +1137,10 @@ test_home_seed_refuses_project_destinations_outside_subhome() {
   if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed followed a subhome projects symlink outside the subhome"
   fi
-  grep -F 'daemon projects directory must resolve inside the daemon home' "$err" >/dev/null \
+  grep -F 'standing-agent projects directory must resolve inside the standing-agent home' "$err" >/dev/null \
     || fail "seed did not explain unsafe project destination rejection"
   [ ! -e "$sink/alpha" ] || fail "seed cloned a project through an unsafe projects symlink"
-  [ ! -f "$subhome/.mx-daemon-home" ] || fail "seed marked subhome after unsafe project destination rejection"
+  [ ! -f "$subhome/.mx-agent-home" ] || fail "seed marked subhome after unsafe project destination rejection"
   pass "home seeding refuses project destinations outside the subhome"
 }
 
@@ -1165,9 +1165,9 @@ test_home_seed_refuses_operational_dirs_outside_subhome() {
     if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
       fail "seed accepted a subhome with $opdir symlinked outside the subhome"
     fi
-    grep -F "daemon $opdir directory must resolve inside the daemon home" "$err" >/dev/null \
+    grep -F "standing-agent $opdir directory must resolve inside the standing-agent home" "$err" >/dev/null \
       || fail "seed did not explain unsafe $opdir directory rejection"
-    [ ! -f "$subhome/.mx-daemon-home" ] || fail "seed marked subhome after unsafe $opdir directory rejection"
+    [ ! -f "$subhome/.mx-agent-home" ] || fail "seed marked subhome after unsafe $opdir directory rejection"
   done
   pass "home seeding refuses operational directories outside the subhome"
 }
@@ -1182,14 +1182,14 @@ test_home_seed_refuses_symlinked_leaf_files() {
   printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
   scaffold_daemon_charter "$home" design 'design domain' alpha || fail "charter scaffold failed for symlink leaf seed test"
 
-  for leaf in data/projects.md data/charter.md .mx-daemon-home; do
+  for leaf in data/projects.md data/charter.md .mx-agent-home; do
     subhome="$TMP_ROOT/symlink-leaf-subhome-${leaf//\//-}"
     sink="$home/data/symlink-leaf-${leaf//\//-}"
     rm -rf "$subhome" "$sink"
     make_activated_broker_clone "$subhome"
     mkdir -p "$(dirname "$subhome/$leaf")" "$(dirname "$sink")"
     expected=outside
-    if [ "$leaf" = ".mx-daemon-home" ]; then
+    if [ "$leaf" = ".mx-agent-home" ]; then
       expected=design
     fi
     printf '%s\n' "$expected" > "$sink"
@@ -1197,11 +1197,17 @@ test_home_seed_refuses_symlinked_leaf_files() {
     if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
       fail "seed accepted symlinked leaf file $leaf"
     fi
-    grep -F 'daemon leaf file must not be a symlink:' "$err" >/dev/null \
-      || fail "seed did not explain symlinked leaf refusal for $leaf"
+    if [ "$leaf" = ".mx-agent-home" ]; then
+      grep -F 'open no-follow file' "$err" >/dev/null \
+        && grep -F "$subhome/.mx-agent-home" "$err" >/dev/null \
+        || fail "seed did not identify the no-follow marker refusal for $leaf"
+    else
+      grep -F 'agent leaf file must not be a symlink:' "$err" >/dev/null \
+        || fail "seed did not explain symlinked leaf refusal for $leaf"
+    fi
     target=$(cat "$sink")
     [ "$target" = "$expected" ] || fail "seed overwrote outside symlink target for $leaf"
-    [ ! -f "$subhome/.mx-daemon-home" ] || [ "$leaf" = ".mx-daemon-home" ] || fail "seed marked subhome after symlinked leaf refusal"
+    [ ! -f "$subhome/.mx-agent-home" ] || [ "$leaf" = ".mx-agent-home" ] || fail "seed marked subhome after symlinked leaf refusal"
   done
   pass "home seeding refuses symlinked leaf files"
 }
@@ -1243,8 +1249,8 @@ test_home_seed_crash_recovery_and_concurrency() {
     || fail "native home seed recovery left the generated charter"
   [ ! -e "$home/data/.home-seed.transaction.crash" ] \
     || fail "native home seed recovery left its journal"
-  if [ -f "$home/data/daemons.md" ]; then
-    ! grep -F -- '- crash ' "$home/data/daemons.md" >/dev/null \
+  if [ -f "$home/data/agents.md" ]; then
+    ! grep -F -- '- crash ' "$home/data/agents.md" >/dev/null \
       || fail "native home seed recovery left a registry route"
   fi
 
@@ -1263,11 +1269,11 @@ test_home_seed_crash_recovery_and_concurrency() {
   if wait "$pid_b"; then status_b=0; else status_b=$?; fi
   [ "$status_a:$status_b" = 0:0 ] \
     || fail "concurrent native home seeds did not serialize successfully"
-  grep -F -- '- first ' "$home/data/daemons.md" >/dev/null \
-    && grep -F -- '- second ' "$home/data/daemons.md" >/dev/null \
+  grep -F -- '- first ' "$home/data/agents.md" >/dev/null \
+    && grep -F -- '- second ' "$home/data/agents.md" >/dev/null \
     || fail "concurrent native home seeds lost a registry generation"
-  [ "$(cat "$first/.mx-daemon-home")" = first ] \
-    && [ "$(cat "$second/.mx-daemon-home")" = second ] \
+  [ "$(cat "$first/.mx-agent-home")" = first ] \
+    && [ "$(cat "$second/.mx-agent-home")" = second ] \
     || fail "concurrent native home seeds published mismatched identities"
   pass "native home seed journals recover crashes and serialize concurrent generations"
 }
@@ -1305,20 +1311,20 @@ SH
     "$ROOT/bin/mx-spawn.sh" domain "$subhome" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted an unseeded home"
   fi
-  grep -F 'not a seeded daemon home' "$err" >/dev/null || fail "spawn did not explain missing seed marker"
+  grep -F 'not a seeded standing-agent home' "$err" >/dev/null || fail "spawn did not explain missing seed marker"
   # Canonical ordering proof: validation runs before any tmux side-effect. Every rejection
   # reason below shares this one linear pre-launch path, so they each assert only their own
   # refusal message rather than re-proving "no window created before validation" each time.
   grep -F 'new-window' "$log" >/dev/null && fail "spawn created a window before validation"
 
-  printf 'other\n' > "$wronghome/.mx-daemon-home"
+  printf 'other\n' > "$wronghome/.mx-agent-home"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$wronghome" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted a home marked for another daemon"
   fi
-  grep -F 'marked for daemon other, expected domain' "$err" >/dev/null || fail "spawn did not explain marker mismatch"
+  grep -F 'marked for agent other, expected domain' "$err" >/dev/null || fail "spawn did not explain marker mismatch"
 
-  printf 'domain\n' > "$marker_only/.mx-daemon-home"
+  printf 'domain\n' > "$marker_only/.mx-agent-home"
   printf 'charter\n' > "$marker_only/data/charter.md"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$marker_only" codex --daemon >/dev/null 2>"$err"; then
@@ -1333,50 +1339,50 @@ SH
   fi
   grep -F 'not a Multplx home (missing bin/)' "$err" >/dev/null || fail "spawn did not explain missing bin"
 
-  printf 'domain\n' > "$home/.mx-daemon-home"
+  printf 'domain\n' > "$home/.mx-agent-home"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$home" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted the active home"
   fi
-  grep -F 'daemon home cannot be the active Multplx home' "$err" >/dev/null || fail "spawn did not reject active home"
+  grep -F 'standing-agent home cannot be the active Multplx home' "$err" >/dev/null || fail "spawn did not reject active home"
 
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$ROOT" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted the Multplx repo root"
   fi
-  grep -F 'daemon home cannot be the Multplx repo' "$err" >/dev/null || fail "spawn did not reject Multplx repo root"
+  grep -F 'standing-agent home cannot be the Multplx repo' "$err" >/dev/null || fail "spawn did not reject Multplx repo root"
 
-  printf 'domain\n' > "$active_descendant/.mx-daemon-home"
+  printf 'domain\n' > "$active_descendant/.mx-agent-home"
   printf 'charter\n' > "$active_descendant/data/charter.md"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$active_descendant" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted a home inside the active Multplx home"
   fi
-  grep -F 'daemon home cannot be inside the active Multplx home' "$err" >/dev/null || fail "spawn did not reject active home descendant"
+  grep -F 'standing-agent home cannot be inside the active Multplx home' "$err" >/dev/null || fail "spawn did not reject active home descendant"
 
-  printf 'domain\n' > "$active_ancestor/.mx-daemon-home"
+  printf 'domain\n' > "$active_ancestor/.mx-agent-home"
   printf 'charter\n' > "$active_ancestor/data/charter.md"
   if PATH="$fakebin:$PATH" MX_HOME="$ancestor_active_home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$active_ancestor" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted a home containing the active Multplx home"
   fi
-  grep -F 'daemon home cannot be an ancestor of the active Multplx home' "$err" >/dev/null || fail "spawn did not reject active home ancestor"
+  grep -F 'standing-agent home cannot be an ancestor of the active Multplx home' "$err" >/dev/null || fail "spawn did not reject active home ancestor"
 
-  printf 'domain\n' > "$root_descendant/.mx-daemon-home"
+  printf 'domain\n' > "$root_descendant/.mx-agent-home"
   printf 'charter\n' > "$root_descendant/data/charter.md"
   if PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$fakeroot" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$root_descendant" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted a home inside the Multplx repo"
   fi
-  grep -F 'daemon home cannot be inside the Multplx repo' "$err" >/dev/null || fail "spawn did not reject repo root descendant"
+  grep -F 'standing-agent home cannot be inside the Multplx repo' "$err" >/dev/null || fail "spawn did not reject repo root descendant"
 
-  printf 'domain\n' > "$root_ancestor/.mx-daemon-home"
+  printf 'domain\n' > "$root_ancestor/.mx-agent-home"
   printf 'charter\n' > "$root_ancestor/data/charter.md"
   if PATH="$fakebin:$PATH" MX_ROOT_OVERRIDE="$root_inside" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/mx-spawn.sh" domain "$root_ancestor" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted a home containing the Multplx repo"
   fi
-  grep -F 'daemon home cannot be an ancestor of the Multplx repo' "$err" >/dev/null || fail "spawn did not reject repo ancestor"
+  grep -F 'standing-agent home cannot be an ancestor of the Multplx repo' "$err" >/dev/null || fail "spawn did not reject repo ancestor"
 
   pass "daemon spawn validates homes before launch"
 }
@@ -1394,7 +1400,7 @@ test_daemon_spawn_refuses_operational_dirs_outside_subhome() {
     sink="$home/data/spawn-opdir-$opdir"
     rm -rf "$subhome" "$sink"
     mkdir -p "$subhome/data" "$subhome/state" "$subhome/config" "$subhome/projects" "$sink"
-    printf 'domain\n' > "$subhome/.mx-daemon-home"
+    printf 'domain\n' > "$subhome/.mx-agent-home"
     printf 'charter\n' > "$subhome/data/charter.md"
     rm -rf "${subhome:?}/${opdir:?}"
     ln -s "$sink" "$subhome/$opdir"
@@ -1406,7 +1412,7 @@ test_daemon_spawn_refuses_operational_dirs_outside_subhome() {
       "$ROOT/bin/mx-spawn.sh" domain "$subhome" codex --daemon >/dev/null 2>"$err"; then
       fail "daemon spawn accepted a subhome with $opdir symlinked outside the subhome"
     fi
-    grep -F "daemon $opdir directory must resolve inside the daemon home" "$err" >/dev/null \
+    grep -F "standing-agent $opdir directory must resolve inside the standing-agent home" "$err" >/dev/null \
       || fail "spawn did not explain unsafe $opdir directory rejection"
     grep -F 'new-window' "$log" >/dev/null && fail "spawn created a window before unsafe $opdir directory validation"
   done
@@ -1459,7 +1465,7 @@ test_daemon_teardown_retires_empty_home() {
   assert_grep 'retained durable context' "$retained/data/context.md" 'retirement lost persistent data'
   assert_absent "$subhome" 'retired home remains active'
   assert_absent "$home/state/domain.meta" 'retirement did not clear parent metadata'
-  assert_no_grep '- domain ' "$home/data/daemons.md" 'retirement retained route'
+  assert_no_grep '- domain ' "$home/data/agents.md" 'retirement retained route'
   assert_no_grep 'treehouse' "$log" 'retirement invoked external provider'
   pass 'daemon teardown retires its exact private-home generation and preserves durable context'
 }
@@ -1473,7 +1479,7 @@ test_daemon_teardown_retains_legacy_linked_home() {
   make_broker_git_root "$fmroot"
   git -C "$fmroot" worktree add --quiet --detach "$subhome" HEAD
   mkdir -p "$home/state" "$home/data" "$subhome/state"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
@@ -1486,7 +1492,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/teardown-return-fail-fake")
   log="$TMP_ROOT/teardown-return-fail-fake/tmux.log"
 
@@ -1501,7 +1507,7 @@ EOF
   assert_grep 'retained' "$err" 'teardown did not explain retained legacy home'
   [ -d "$subhome" ] || fail "teardown removed a leased home after return failed"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared meta after leased home return failed"
-  grep -F -- '- domain ' "$home/data/daemons.md" >/dev/null || fail "teardown removed registry route after leased home return failed"
+  grep -F -- '- domain ' "$home/data/agents.md" >/dev/null || fail "teardown removed registry route after leased home return failed"
   pass "daemon teardown retains legacy linked homes for explicit migration"
 }
 
@@ -1511,7 +1517,7 @@ test_daemon_teardown_retains_legacy_plain_home() {
   subhome="$TMP_ROOT/plain-clone-teardown-subhome"
   mkdir -p "$home/state" "$home/data" "$subhome/state"
   mark_broker_home "$subhome"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
@@ -1524,7 +1530,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/plain-clone-teardown-fake")
   log="$TMP_ROOT/plain-clone-teardown-fake/tmux.log"
 
@@ -1533,7 +1539,7 @@ EOF
   fi
   assert_present "$subhome" 'teardown deleted an unowned legacy home'
   assert_present "$home/state/domain.meta" 'teardown lost legacy routing metadata'
-  assert_grep '- domain ' "$home/data/daemons.md" 'teardown removed legacy route'
+  assert_grep '- domain ' "$home/data/agents.md" 'teardown removed legacy route'
   assert_no_grep 'treehouse' "$log" 'teardown invoked retired provider'
   pass 'daemon teardown retains plain legacy homes without ownership receipts'
 
@@ -1577,7 +1583,7 @@ test_daemon_teardown_crash_recovery_and_concurrency() {
     || fail "native teardown did not recover the crashed generation"
   [ ! -e "$home/state/.teardown.transaction.crash" ] \
     && [ ! -e "$home/state/crash.meta" ] \
-    && ! grep -F -- '- crash ' "$home/data/daemons.md" >/dev/null \
+    && ! grep -F -- '- crash ' "$home/data/agents.md" >/dev/null \
     || fail "native teardown recovery did not finish the crashed generation"
 
   PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" \
@@ -1595,7 +1601,7 @@ test_daemon_teardown_crash_recovery_and_concurrency() {
   [ ! -e "$first_home" ] && [ ! -e "$second_home" ] \
     && [ ! -e "$home/state/first.meta" ] && [ ! -e "$home/state/second.meta" ] \
     || fail "concurrent native daemon teardowns left resources behind"
-  ! grep -E '^- (first|second) ' "$home/data/daemons.md" >/dev/null \
+  ! grep -E '^- (first|second) ' "$home/data/agents.md" >/dev/null \
     || fail "concurrent native daemon teardowns lost a registry generation"
   pass "native daemon teardown journals recover crashes and serialize concurrent retirements"
 }
@@ -1608,7 +1614,7 @@ test_daemon_override_retains_unowned_child_work() {
   childwt="$TMP_ROOT/force-child-worktree"
   mkdir -p "$home/state" "$home/data" "$subhome/state"
   mx_git_worktree "$childproj" "$childwt" force-child
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -1620,7 +1626,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -1643,7 +1649,7 @@ EOF
   assert_present "$childwt" 'override removed unowned child worktree'
   assert_present "$home/state/domain.meta" 'override lost parent metadata'
   assert_present "$subhome/state/child.meta" 'override lost child metadata'
-  assert_grep '- domain ' "$home/data/daemons.md" 'override removed legacy route'
+  assert_grep '- domain ' "$home/data/agents.md" 'override removed legacy route'
   pass 'daemon override retains child work without exact allocation ownership'
 
 }
@@ -1658,7 +1664,7 @@ test_daemon_force_teardown_refuses_child_quarantine_symlink() {
   err="$TMP_ROOT/force-quarantine.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$external"
   mx_git_worktree "$childproj" "$childwt" force-quarantine-child
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -1670,7 +1676,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -1719,7 +1725,7 @@ test_daemon_force_teardown_preserves_child_on_unproven_lock() {
   childproj=$(cd "$childproj" && pwd -P)
   MX_HOME="$subhome" "$MX_RUST_BIN" worktree acquire "$childproj" --request child --task child --attempt child-attempt --base "$(git -C "$childproj" rev-parse HEAD)" > "$home/child-allocation.json" || fail 'child allocation fixture failed'
   childwt=$(jq -r '.binding.path' "$home/child-allocation.json")
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -1731,7 +1737,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -1791,7 +1797,7 @@ test_daemon_force_teardown_allows_operational_dir_symlinks_inside_home() {
       fail "force teardown did not remove subhome with inside $opdir symlink: $(cat "$err")"
     fi
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
-    grep -F 'kill-window -t broker:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
+    grep -F 'kill-window -t primary:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
   done
   pass "force teardown allows operational directory symlinks inside the subhome"
 }
@@ -1803,7 +1809,7 @@ test_daemon_force_teardown_refuses_operational_dir_symlink_outside_home() {
   external_state="$home/data/external-state"
   err="$TMP_ROOT/symlink-state-teardown.err"
   mkdir -p "$home/state" "$home/data" "$subhome" "$external_state"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   ln -s "$external_state" "$subhome/state"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
@@ -1816,7 +1822,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-state-teardown-fake")
   log="$TMP_ROOT/symlink-state-teardown-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-state-teardown-fake/pane.txt" \
@@ -1826,7 +1832,7 @@ EOF
   [ -d "$subhome" ] || fail "force teardown removed subhome after symlinked state refusal"
   [ -d "$external_state" ] || fail "force teardown removed external symlink target"
   grep -F 'state directory' "$err" >/dev/null || fail "teardown did not explain symlinked state refusal"
-  grep -F 'resolves outside the daemon home' "$err" >/dev/null || fail "teardown did not identify unsafe state symlink"
+  grep -F 'resolves outside the standing-agent home' "$err" >/dev/null || fail "teardown did not identify unsafe state symlink"
   grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before symlinked state refusal"
   pass "force teardown refuses operational directory symlinks outside the subhome"
 }
@@ -1846,18 +1852,18 @@ test_daemon_teardown_path_boundary_matrix() {
       unmarked)
         home="$base/main"; subhome="$base/sub"
         mkdir -p "$home/state" "$home/data" "$subhome/state"
-        # No .mx-daemon-home marker on purpose.
+        # No .mx-agent-home marker on purpose.
         ;;
       ancestor)
         # The home being torn down is an ANCESTOR of the active Multplx home.
         subhome="$base/anc"; home="$subhome/main-home"
         mkdir -p "$home/state" "$home/data" "$subhome/state"
-        printf 'domain\n' > "$subhome/.mx-daemon-home"
+        printf 'domain\n' > "$subhome/.mx-agent-home"
         ;;
       active-descendant)
         home="$base/desc"; subhome="$home/data/domain-home"
         mkdir -p "$home/state" "$home/data" "$subhome/state"
-        printf 'domain\n' > "$subhome/.mx-daemon-home"
+        printf 'domain\n' > "$subhome/.mx-agent-home"
         ;;
       repo-descendant)
         home="$base/home"; fmroot="$base/root"; subhome="$fmroot/tmp/domain-home"; tid='repo-domain'
@@ -1867,12 +1873,12 @@ test_daemon_teardown_path_boundary_matrix() {
 exit 0
 SH
         chmod +x "$fmroot/bin/mx-guard.sh"
-        printf 'repo-domain\n' > "$subhome/.mx-daemon-home"
+        printf 'repo-domain\n' > "$subhome/.mx-agent-home"
         ;;
     esac
     mx_write_daemon_meta "$home/state/$tid.meta" "$subhome"
     printf -- '- %s - design domain (home: %s; scope: design domain; projects: alpha; added 2026-06-22)\n' \
-      "$tid" "$subhome" > "$home/data/daemons.md"
+      "$tid" "$subhome" > "$home/data/agents.md"
     fakebin=$(make_fake_tmux "$base/fake")
     log="$base/fake/tmux.log"
     err="$base/teardown.err"
@@ -1884,10 +1890,10 @@ SH
     grep -F "$expect" "$err" >/dev/null || fail "teardown ($row) did not explain the refusal (expected '$expect'): $(cat "$err")"
     [ -d "$subhome" ] || fail "teardown ($row) removed the protected home after refusal"
     [ -e "$home/state/$tid.meta" ] || fail "teardown ($row) cleared the parent meta after refusal"
-    grep -F -- "- $tid " "$home/data/daemons.md" >/dev/null || fail "teardown ($row) removed the registry route after refusal"
+    grep -F -- "- $tid " "$home/data/agents.md" >/dev/null || fail "teardown ($row) removed the registry route after refusal"
     grep -F 'kill-window' "$log" >/dev/null && fail "teardown ($row) killed a window before validation"
   done <<'ROWS'
-unmarked|not a seeded daemon home
+unmarked|not a seeded standing-agent home
 ancestor|ancestor of the active Multplx home
 active-descendant|inside the active Multplx home
 repo-descendant|inside the Multplx repo
@@ -1902,8 +1908,8 @@ test_daemon_teardown_refuses_registered_nested_home() {
   nested="$subhome/nested-domain"
   err="$TMP_ROOT/nested-teardown.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$nested/state"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
-  printf 'nested\n' > "$nested/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
+  printf 'nested\n' > "$nested/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -1926,7 +1932,7 @@ yolo=off
 home=$nested
 projects=beta
 EOF
-  cat > "$home/data/daemons.md" <<EOF
+  cat > "$home/data/agents.md" <<EOF
 - domain - design domain (home: $subhome; scope: design domain; projects: alpha; added 2026-06-22)
 - nested - nested domain mentions home: $TMP_ROOT/ignored-summary-home (home: $nested; scope: nested domain mentions home: $TMP_ROOT/ignored-scope-home; projects: beta; added 2026-06-22)
 EOF
@@ -1941,7 +1947,7 @@ EOF
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared ancestor meta after nested-home refusal"
   [ -e "$home/state/nested.meta" ] || fail "teardown cleared nested meta after nested-home refusal"
   grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before nested-home refusal"
-  grep -F 'contains registered daemon home' "$err" >/dev/null || fail "teardown did not explain registered nested-home refusal"
+  grep -F 'contains registered standing-agent home' "$err" >/dev/null || fail "teardown did not explain registered nested-home refusal"
   pass "daemon teardown refuses homes containing registered nested homes"
 }
 
@@ -1952,8 +1958,8 @@ test_daemon_teardown_refuses_child_registry_nested_home() {
   nested="$subhome/nested-domain"
   err="$TMP_ROOT/child-registry-teardown.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$subhome/data" "$nested/state"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
-  printf 'nested\n' > "$nested/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
+  printf 'nested\n' > "$nested/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -1965,8 +1971,8 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
-  printf '%s\n' '- nested - nested domain (home: '"$nested"'; scope: nested domain; projects: beta; added 2026-06-22)' > "$subhome/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
+  printf '%s\n' '- nested - nested domain (home: '"$nested"'; scope: nested domain; projects: beta; added 2026-06-22)' > "$subhome/data/agents.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/child-registry-teardown-fake")
   log="$TMP_ROOT/child-registry-teardown-fake/tmux.log"
   if PATH="$fakebin:$PATH" MX_HOME="$home" MX_FAKE_TMUX_LOG="$log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/child-registry-teardown-fake/pane.txt" \
@@ -1977,7 +1983,7 @@ EOF
   [ -d "$nested" ] || fail "teardown removed child-registry nested home after refusal"
   [ -e "$home/state/domain.meta" ] || fail "teardown cleared parent meta after child-registry refusal"
   grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before child-registry refusal"
-  grep -F 'contains registered daemon home' "$err" >/dev/null || fail "teardown did not explain child-registry nested-home refusal"
+  grep -F 'contains registered standing-agent home' "$err" >/dev/null || fail "teardown did not explain child-registry nested-home refusal"
   pass "daemon teardown refuses nested homes from the child registry"
 }
 
@@ -2000,7 +2006,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -2021,7 +2027,7 @@ EOF
   [ -e "$home/state/domain.meta" ] || fail "force teardown cleared parent meta before validation"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta before validation"
   grep -F 'kill-window' "$log" >/dev/null && fail "force teardown killed windows before subhome validation"
-  grep -F 'not a seeded daemon home' "$err" >/dev/null || fail "force teardown did not explain missing seed marker"
+  grep -F 'not a seeded standing-agent home' "$err" >/dev/null || fail "force teardown did not explain missing seed marker"
   pass "force teardown validates subhome before child cleanup"
 }
 
@@ -2033,7 +2039,7 @@ test_daemon_force_teardown_refuses_child_active_home_descendant() {
   childwt="$home/data"
   err="$TMP_ROOT/child-active-descendant.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -2045,7 +2051,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -2084,7 +2090,7 @@ test_daemon_force_teardown_refuses_child_repo_descendant() {
 exit 0
 SH
   chmod +x "$fakeroot/bin/mx-guard.sh"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -2096,7 +2102,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -2129,7 +2135,7 @@ test_daemon_force_teardown_refuses_unregistered_child_worktree() {
   childwt="$TMP_ROOT/unregistered-child-worktree"
   err="$TMP_ROOT/unregistered-child.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj" "$childwt"
-  printf 'domain\n' > "$subhome/.mx-daemon-home"
+  printf 'domain\n' > "$subhome/.mx-agent-home"
   cat > "$home/state/domain.meta" <<EOF
 window=broker:mx-domain
 worktree=$subhome
@@ -2141,7 +2147,7 @@ yolo=off
 home=$subhome
 projects=alpha
 EOF
-  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/daemons.md"
+  printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/agents.md"
   cat > "$subhome/state/child.meta" <<EOF
 window=broker:mx-child
 worktree=$childwt
@@ -2218,7 +2224,7 @@ test_backlog_handoff_aborts_safely() {
   mkdir -p "$home/data" "$home/state"
   seed_daemon_home_marker "$subhome" design
   subhome_abs=$(cd "$subhome" && pwd -P)
-  printf -- '- design - feature work (home: %s; scope: feature work; projects: alpha; added 2026-06-22)\n' "$subhome_abs" > "$home/data/daemons.md"
+  printf -- '- design - feature work (home: %s; scope: feature work; projects: alpha; added 2026-06-22)\n' "$subhome_abs" > "$home/data/agents.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
 - [ ] live-task - active work (repo: alpha, since 2026-06-20)
@@ -2267,7 +2273,7 @@ test_backlog_handoff_refuses_done_items_and_non_daemon_homes() {
   seed_daemon_home_marker "$subhome" archive
   subhome_abs=$(cd "$subhome" && pwd -P)
   printf '## Queued\n- [ ] keep-me - stays (repo: alpha)\n' > "$subhome/data/backlog.md"
-  printf -- '- archive - archival (home: %s; scope: archival; projects: alpha; added 2026-06-22)\n' "$subhome_abs" > "$home/data/daemons.md"
+  printf -- '- archive - archival (home: %s; scope: archival; projects: alpha; added 2026-06-22)\n' "$subhome_abs" > "$home/data/agents.md"
   printf '##\tDone\n- [x] delivered-task - delivered thing - local main (merged 2026-06-19)\n' > "$home/data/backlog.md"
   before_main="$TMP_ROOT/handoff-safety-main.before"
   before_sub="$TMP_ROOT/handoff-safety-sub.before"
@@ -2285,20 +2291,20 @@ test_backlog_handoff_refuses_done_items_and_non_daemon_homes() {
   cmp -s "$before_sub" "$subhome/data/backlog.md" \
     || fail "Done-item refusal mutated the daemon backlog"
 
-  # A registered home that is not a seeded daemon home (e.g. a project clone)
+  # A registered home that is not a seeded standing-agent home (e.g. a project clone)
   # is refused, and nothing is written into it.
   mx_git_init_commit "$projhome"
   projhome_abs=$(cd "$projhome" && pwd -P)
-  printf -- '- proj-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$projhome_abs" >> "$home/data/daemons.md"
+  printf -- '- proj-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$projhome_abs" >> "$home/data/agents.md"
   if MX_HOME="$home" "$ROOT/bin/mx-backlog-handoff.sh" proj-sm delivered-task >/dev/null 2>&1; then
-    fail "handoff wrote into a destination that is not a seeded daemon home"
+    fail "handoff wrote into a destination that is not a seeded standing-agent home"
   fi
   [ ! -e "$projhome/data/backlog.md" ] || fail "handoff created a backlog inside a non-daemon home"
 
   mkdir -p "$markerhome/data"
   markerhome_abs=$(cd "$markerhome" && pwd -P)
-  printf 'marker-sm\n' > "$markerhome/.mx-daemon-home"
-  printf -- '- marker-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$markerhome_abs" >> "$home/data/daemons.md"
+  printf 'marker-sm\n' > "$markerhome/.mx-agent-home"
+  printf -- '- marker-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$markerhome_abs" >> "$home/data/agents.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
 - [ ] marker-task - should not move (repo: alpha)
@@ -2314,7 +2320,7 @@ EOF
   mkdir -p "$outside"
   rm -rf "$symlinkhome/data"
   ln -s "$outside" "$symlinkhome/data"
-  printf -- '- symlink-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$symlinkhome_abs" >> "$home/data/daemons.md"
+  printf -- '- symlink-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$symlinkhome_abs" >> "$home/data/agents.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
 - [ ] symlink-task - should not move (repo: alpha)

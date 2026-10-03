@@ -230,7 +230,7 @@ export default function (pi: ExtensionAPI) {
     publishPresentationState();
     ctx.ui.setWorkingVisible(true);
     ctx.ui.setHiddenThinkingLabel(calmPresentationIsActive() ? "" : undefined);
-    ctx.ui.setStatus("broker-calm", undefined);
+    ctx.ui.setStatus("multplx-calm", undefined);
     removeTerminalInputHandler?.();
     removeTerminalInputHandler = ctx.ui.onTerminalInput((data) => {
       if (!getKeybindings().matches(data, "tui.input.submit")) return;
@@ -267,7 +267,7 @@ export default function (pi: ExtensionAPI) {
       publishPresentationState();
       ctx.ui.setWorkingVisible(true);
       ctx.ui.setHiddenThinkingLabel(active ? "" : undefined);
-      ctx.ui.setStatus("broker-calm", undefined);
+      ctx.ui.setStatus("multplx-calm", undefined);
 
       const expanded = ctx.ui.getToolsExpanded();
       ctx.ui.setToolsExpanded(!expanded);

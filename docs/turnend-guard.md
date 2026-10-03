@@ -19,7 +19,7 @@ The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) o
 ## Shared predicate
 
 The guard first calls the shared primary scope.
-A persistent-sub-agent home runs its own primary Multplx session, so a genuine `.mx-daemon-home` marker includes it whether the home is a linked worktree or plain clone.
+A persistent-sub-agent home runs its own primary Multplx session, so a genuine `.mx-agent-home` marker (or its validated historical `.mx-daemon-home` alias) includes it whether the home is a linked worktree or plain clone.
 The marker must be a regular non-symlink file whose whitespace-stripped first line is a non-empty identifier containing only letters, digits, dots, underscores, and dashes.
 An unmarked checkout or invalid marker falls through to the git-dir check.
 That check keeps sub-agent linked worktrees inert because their git dir differs from their git common dir.

@@ -19,15 +19,15 @@ No provisioning is required before the first task.
 For the best visible experience, launch the primary harness inside a tmux session:
 
 ```sh
-tmux new -s broker
+tmux new -s primary
 ```
 
 Sub-agent tasks become windows in that session.
 `tmux display-message -p '#S'` prints its name.
-If the primary harness runs outside tmux, Multplx creates or reuses a detached session named `broker`:
+If the primary harness runs outside tmux, Multplx creates or reuses a detached session named `primary` (or adopts the existing exact historical `broker` session):
 
 ```sh
-tmux attach -t broker
+tmux attach -t primary
 ```
 
 Each task window is named `mx-<id>`.

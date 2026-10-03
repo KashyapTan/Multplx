@@ -57,7 +57,7 @@ mx_delivery_agent_ambience() {
 
 mx_delivery_refuse_agent_ambience() {
   mx_delivery_agent_ambience || return 0
-  echo "error: credentialed delivery must run outside every broker, actor, daemon, and gate session" >&2
+  echo "error: credentialed delivery must run outside every orchestrator, worker, coordinator, and gate session" >&2
   return 3
 }
 

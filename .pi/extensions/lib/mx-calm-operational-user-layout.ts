@@ -40,8 +40,10 @@ type CalmOperationalUserLayoutPatch = {
 };
 
 const CALM_OPERATIONAL_USER_LAYOUT_PATCH = Symbol.for(
-  "broker:calm-operational-user-layout:pi-0.81.1",
+  "multplx:calm-operational-user-layout:pi-0.81.1",
 );
+// Reuse an already-installed historical patch on extension reload.
+const LEGACY_LAYOUT_PATCH = Symbol.for("broker:calm-operational-user-layout:pi-0.81.1");
 const LEGACY_CALM_OPERATIONAL_PREFIX = "\u2063Supervisor escalate (";
 
 function contentIsTextOnly(content: unknown): boolean {
@@ -68,8 +70,9 @@ export function installCalmOperationalUserLayout(): void {
       text.startsWith(LEGACY_CALM_OPERATIONAL_PREFIX)
     );
   };
-  const installed = registry[CALM_OPERATIONAL_USER_LAYOUT_PATCH];
+  const installed = registry[CALM_OPERATIONAL_USER_LAYOUT_PATCH] ?? registry[LEGACY_LAYOUT_PATCH];
   if (installed) {
+    registry[CALM_OPERATIONAL_USER_LAYOUT_PATCH] = installed;
     installed.hidesOperationalInput = hidesOperationalInput;
     installed.isOperationalInput = isOperationalInput;
     return;

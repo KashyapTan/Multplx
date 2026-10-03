@@ -16,9 +16,10 @@ use multplx_core::process::SystemProcessProbe;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
-pub const DEFAULT_ALLOWLIST: [&str; 7] = [
+pub const DEFAULT_ALLOWLIST: [&str; 8] = [
     "subagent-dispatch.json",
     "subagent-harness",
+    "standing-agent-harness",
     "persistent-subagent-harness",
     "actor-dispatch.json",
     "actor-harness",
@@ -328,10 +329,11 @@ fn header_valid(path: &Path) -> bool {
         return false;
     };
     let head = text.lines().take(12).collect::<Vec<_>>().join("\n");
-    head.contains("main-authoritative")
-        && head.contains("read-only in daemon homes")
+    (head.contains("parent-authoritative") || head.contains("main-authoritative"))
+        && (head.contains("read-only in standing-agent homes")
+            || head.contains("read-only in daemon homes"))
         && head.contains("must not be edited there")
-        && head.contains("main broker")
+        && (head.contains("parent orchestrator") || head.contains("main broker"))
         && (head.contains("marked status") || head.contains("document pointer"))
 }
 
@@ -459,7 +461,7 @@ pub fn propagate_shared(source_data: &Path, destination_data: &Path) -> Outcome 
             match quarantine_shared(&destination) {
                 Ok(path) => {
                     outcome.stdout.push_str(&format!(
-                        "DAEMON_SYNC: daemon home {destination_home}: quarantined {SHARED_REL} drift at {}\n",
+                        "AGENT_SYNC: standing agent home {destination_home}: quarantined {SHARED_REL} drift at {}\n",
                         path.display()
                     ));
                     if copy_atomic(&source, &destination, SHARED_MODE).is_ok() {
@@ -502,7 +504,7 @@ pub fn propagate_shared(source_data: &Path, destination_data: &Path) -> Outcome 
         match quarantine_shared(&destination) {
             Ok(path) => {
                 outcome.stdout.push_str(&format!(
-                    "DAEMON_SYNC: daemon home {destination_home}: quarantined {SHARED_REL} drift at {}\n",
+                    "AGENT_SYNC: standing agent home {destination_home}: quarantined {SHARED_REL} drift at {}\n",
                     path.display()
                 ));
                 outcome.row(
@@ -906,7 +908,7 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
         Ok(path) => path,
         Err(_) => {
             output.push_str(&format!(
-                "CONFIG_REREAD: daemon {}: send failed: destination home is not readable\n",
+                "CONFIG_REREAD: standing agent {}: send failed: destination home is not readable\n",
                 context.id
             ));
             return (false, output);
@@ -932,7 +934,7 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
             }
             _ => {
                 output.push_str(&format!(
-                    "CONFIG_REREAD: daemon {}: send failed: could not rebuild retry instruction\n",
+                    "CONFIG_REREAD: standing agent {}: send failed: could not rebuild retry instruction\n",
                     context.id
                 ));
                 return (false, output);
@@ -942,7 +944,7 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
     if !changed.is_empty() {
         if retry_queue_full(context.source_home, context.id) {
             output.push_str(&format!(
-                "CONFIG_REREAD: daemon {}: send failed: retry instruction queue is full\n",
+                "CONFIG_REREAD: standing agent {}: send failed: retry instruction queue is full\n",
                 context.id
             ));
             return (false, output);
@@ -959,7 +961,7 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
                     _ => "could not write retry instruction",
                 };
                 output.push_str(&format!(
-                    "CONFIG_REREAD: daemon {}: send failed: {detail}\n",
+                    "CONFIG_REREAD: standing agent {}: send failed: {detail}\n",
                     context.id
                 ));
                 return (false, output);
@@ -980,7 +982,7 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
             }
             Err(_) => {
                 output.push_str(&format!(
-                    "CONFIG_REREAD: daemon {}: send failed: could not publish retry instruction\n",
+                    "CONFIG_REREAD: standing agent {}: send failed: could not publish retry instruction\n",
                     context.id
                 ));
                 failed = true;
@@ -1008,7 +1010,7 @@ pub fn send_reread(context: &RereadContext<'_>) -> (bool, String) {
             Err(detail) => {
                 let _ = mark_pending(&instruction);
                 output.push_str(&format!(
-                    "CONFIG_REREAD: daemon {}: send failed: {detail}\n",
+                    "CONFIG_REREAD: standing agent {}: send failed: {detail}\n",
                     context.id
                 ));
                 failed = true;
@@ -1168,77 +1170,83 @@ pub fn validate_daemon_home(
         .map_err(|_| "active Multplx home is not a directory".to_owned())?;
     let root = fs::canonicalize(root).map_err(|_| "Multplx repo is not a directory".to_owned())?;
     if home == Path::new("/") {
-        return Err("daemon home cannot be the filesystem root".to_owned());
+        return Err("standing-agent home cannot be the filesystem root".to_owned());
     }
     for (left, right, message) in [
         (
             &home,
             &active,
-            "daemon home cannot be the active Multplx home",
+            "standing-agent home cannot be the active Multplx home",
         ),
-        (&home, &root, "daemon home cannot be the Multplx repo"),
+        (
+            &home,
+            &root,
+            "standing-agent home cannot be the Multplx repo",
+        ),
     ] {
         if left == right {
             return Err(message.to_owned());
         }
     }
     if ancestor_of(&active, &home) {
-        return Err("daemon home cannot be inside the active Multplx home".to_owned());
+        return Err("standing-agent home cannot be inside the active Multplx home".to_owned());
     }
     if ancestor_of(&root, &home) {
-        return Err("daemon home cannot be inside the Multplx repo".to_owned());
+        return Err("standing-agent home cannot be inside the Multplx repo".to_owned());
     }
     if ancestor_of(&home, &active) {
-        return Err("daemon home cannot be an ancestor of the active Multplx home".to_owned());
+        return Err(
+            "standing-agent home cannot be an ancestor of the active Multplx home".to_owned(),
+        );
     }
     if ancestor_of(&home, &root) {
-        return Err("daemon home cannot be an ancestor of the Multplx repo".to_owned());
+        return Err("standing-agent home cannot be an ancestor of the Multplx repo".to_owned());
     }
     for name in ["data", "state", "config", "projects"] {
         let path = home.join(name);
         let resolved = if path.exists() {
             if !path.is_dir() {
-                return Err(format!("daemon {name} path is not a directory"));
+                return Err(format!("standing-agent {name} path is not a directory"));
             }
             fs::canonicalize(&path)
-                .map_err(|_| format!("daemon {name} directory cannot be resolved"))?
+                .map_err(|_| format!("standing-agent {name} directory cannot be resolved"))?
         } else if fs::symlink_metadata(&path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
         {
             return Err(format!(
-                "daemon {name} directory must resolve inside the daemon home"
+                "standing-agent {name} directory must resolve inside the standing-agent home"
             ));
         } else {
             path
         };
         if !ancestor_of(&home, &resolved) {
             return Err(format!(
-                "daemon {name} directory must resolve inside the daemon home"
+                "standing-agent {name} directory must resolve inside the standing-agent home"
             ));
         }
         if resolved == active || ancestor_of(&active, &resolved) {
             return Err(format!(
-                "daemon {name} directory cannot be inside the active Multplx home"
+                "standing-agent {name} directory cannot be inside the active Multplx home"
             ));
         }
         if resolved == root || ancestor_of(&root, &resolved) {
             return Err(format!(
-                "daemon {name} directory cannot be inside the Multplx repo"
+                "standing-agent {name} directory cannot be inside the Multplx repo"
             ));
         }
     }
-    let marker = home.join(".mx-daemon-home");
+    let marker = multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
     if fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err("daemon marker must not be a symlink".to_owned());
+        return Err("agent marker must not be a symlink".to_owned());
     }
     if !marker.is_file() {
-        return Err("not a seeded daemon home".to_owned());
+        return Err("not a seeded standing-agent home".to_owned());
     }
     let marker_id = fs::read_to_string(&marker).unwrap_or_default();
     let marker_id = marker_id.trim_end_matches('\n');
     if marker_id != id {
         return Err(format!(
-            "marked for daemon {}, expected {id}",
+            "marked for agent {}, expected {id}",
             if marker_id.is_empty() {
                 "unknown"
             } else {
@@ -1291,6 +1299,25 @@ mod tests {
 
     fn shared_header() -> &'static str {
         "# Shared maintainer preferences\n\nThis file is main-authoritative in the main Multplx home.\nIn daemon homes it is read-only in daemon homes and must not be edited there.\nRoute discoveries to the main broker through marked status or a document pointer.\n"
+    }
+
+    #[test]
+    fn canonical_and_historical_shared_headers_remain_readable() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("shared.md");
+        fs::write(&path, shared_header()).unwrap();
+        assert!(header_valid(&path));
+        fs::write(
+            &path,
+            shared_header()
+                .replace("main-authoritative", "parent-authoritative")
+                .replace("daemon homes", "standing-agent homes")
+                .replace("main broker", "parent orchestrator"),
+        )
+        .unwrap();
+        assert!(header_valid(&path));
+        fs::write(&path, "arbitrary preferences without ownership warning").unwrap();
+        assert!(!header_valid(&path));
     }
 
     #[test]
@@ -1757,7 +1784,7 @@ mod tests {
         assert!(
             validate_daemon_home("other", &daemon, &active, &root)
                 .expect_err("wrong marker")
-                .contains("marked for daemon")
+                .contains("marked for agent")
         );
         assert!(
             validate_daemon_home("worker", &active, &active, &root)
@@ -1987,7 +2014,7 @@ mod tests {
         assert!(
             validate_daemon_home("worker", &daemon, &active, &root)
                 .expect_err("escape")
-                .contains("inside the daemon home")
+                .contains("inside the standing-agent home")
         );
         fs::remove_file(daemon.join("data")).expect("remove data symlink");
         fs::create_dir(daemon.join("data")).expect("restore data");
@@ -1996,7 +2023,7 @@ mod tests {
         assert!(
             validate_daemon_home("worker", &daemon, &active, &root)
                 .expect_err("marker symlink")
-                .contains("marker must not be a symlink")
+                .contains("open no-follow file")
         );
         fs::remove_file(daemon.join(".mx-daemon-home")).expect("remove marker symlink");
         assert!(

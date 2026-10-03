@@ -98,7 +98,7 @@ pub const REGISTRY: [Boundary; 19] = [
     Boundary {
         id: "delivery.credentialed-action",
         class: BoundaryClass::Policy,
-        alternate: "bin/mx-maintainer-override.sh handoff",
+        alternate: "bin/mx-operator-override.sh handoff",
     },
     Boundary {
         id: "dependency.install",
@@ -108,7 +108,7 @@ pub const REGISTRY: [Boundary; 19] = [
     Boundary {
         id: "authentication.login",
         class: BoundaryClass::Policy,
-        alternate: "bin/mx-maintainer-override.sh handoff",
+        alternate: "bin/mx-operator-override.sh handoff",
     },
     Boundary {
         id: "integrity.validation-state",
@@ -332,7 +332,11 @@ impl OverrideRecord {
         let registered = boundary(&self.boundary_id)
             .filter(|entry| entry.class == BoundaryClass::Policy)
             .ok_or_else(|| OverrideError::new("record boundary is not a policy exception"))?;
-        if self.alternate != registered.alternate
+        let legacy_handoff = matches!(
+            registered.id,
+            "authentication.login" | "delivery.credentialed-action"
+        ) && self.alternate == "bin/mx-maintainer-override.sh handoff";
+        if (self.alternate != registered.alternate && !legacy_handoff)
             || self.action_digest != sha256_text(&self.action_argv_or_operation)
         {
             return Err(OverrideError::new(
@@ -414,7 +418,7 @@ impl OverrideRecord {
     pub fn deny(&self, words: &str, now: u64) -> Result<Self> {
         self.validate(Some(RecordState::Pending))?;
         if words.is_empty() {
-            return Err(OverrideError::new("maintainer words must not be empty"));
+            return Err(OverrideError::new("human decision words must not be empty"));
         }
         let mut next = self.clone();
         next.decision = Decision::Denied;
@@ -454,7 +458,7 @@ impl OverrideRecord {
             next.outcome_digest = Some(sha256_text(label));
             next.validate(Some(RecordState::Stale))?;
             return Err(OverrideError::new(
-                "grant binding changed or expired; a new maintainer decision is required",
+                "grant binding changed or expired; a new human decision is required",
             ));
         }
         next.decision = Decision::Consumed;
@@ -991,6 +995,32 @@ mod tests {
             boundary("dependency.install").expect("policy").class,
             BoundaryClass::Policy
         );
+    }
+
+    #[test]
+    fn handoff_records_accept_only_the_exact_historical_alias() {
+        let digest = sha256_text("state-v1");
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("state");
+        fs::create_dir(&state).unwrap();
+        let store = OverrideStore::new(&state);
+        for boundary in ["authentication.login", "delivery.credentialed-action"] {
+            let mut input = request(&digest);
+            input.boundary = boundary;
+            let id = store.request(&input).unwrap();
+            let (_, _, mut record) = store.find(&id).unwrap();
+            assert_eq!(record.alternate, "bin/mx-operator-override.sh handoff");
+            record.alternate = "bin/mx-maintainer-override.sh handoff".into();
+            assert!(record.validate(Some(RecordState::Pending)).is_ok());
+            record.alternate = "bin/mx-maintainer-override.sh handoff other".into();
+            assert!(record.validate(None).is_err());
+            record.alternate = "bin/mx-override-run.sh".into();
+            assert!(record.validate(None).is_err());
+        }
+        let id = store.request(&request(&digest)).unwrap();
+        let (_, _, mut record) = store.find(&id).unwrap();
+        record.alternate = "bin/mx-maintainer-override.sh handoff".into();
+        assert!(record.validate(None).is_err());
     }
 
     #[test]

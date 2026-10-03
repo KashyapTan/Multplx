@@ -296,24 +296,39 @@ test_exact_command_alternates_and_capability_verification() {
 }
 
 test_operator_handoff_requires_consumption() {
-  local operation target state_digest request out
+  local operation target state_digest request out boundary file
   operation='perform interactive Cursor authentication for the configured local account'
   target='cursor-agent-local-login'
   state_digest=$(digest cursor-login-required)
-  request=$(mx_override_request authentication.login auth-18 multplx "$operation" "$target" "$state_digest" \
-    'Open only the official interactive login, then re-check authenticated status.') || fail "login request failed"
-  grant_one "$request" || fail "login grant failed"
-  if "$ROOT/bin/mx-maintainer-override.sh" handoff "$request" >/dev/null 2>&1; then
-    fail "operator handoff printed before atomic consumption"
-  fi
-  mx_override_consume "$request" authentication.login auth-18 multplx "$operation" "$target" "$state_digest" >/dev/null \
-    || fail "login handoff consumption failed"
-  out=$("$ROOT/bin/mx-maintainer-override.sh" handoff "$request") || fail "consumed operator handoff failed"
-  assert_contains "$out" 'boundary=authentication.login' "handoff omitted boundary"
-  assert_contains "$out" "operation=$operation" "handoff omitted exact operation"
-  [ "$(jq -r '.outcome' "$STATE/maintainer-overrides/consumed/$request.json")" = not-run ] \
-    || fail "printing a handoff forged a successful login"
-  mx_override_result "$request" succeeded 'operator completed login and authenticated status was re-checked'
+  for boundary in authentication.login delivery.credentialed-action; do
+    request=$(mx_override_request "$boundary" auth-18 multplx "$operation" "$target" "$state_digest" \
+      'Open only the official interactive login, then re-check authenticated status.') || fail "login request failed"
+    file=$(mx_override_find_record "$request") || fail "handoff request missing"
+    [ "$(jq -r '.alternate' "$file")" = 'bin/mx-operator-override.sh handoff' ] \
+      || fail "new shell request did not select the current handoff owner"
+    jq '.alternate = "bin/mx-maintainer-override.sh handoff extra"' "$file" > "$file.tmp"
+    chmod 600 "$file.tmp"; mv "$file.tmp" "$file"
+    if mx_override_record_validate "$file" pending || "$ROOT/bin/mx-operator-override.sh" inspect "$request" >/dev/null 2>&1; then
+      fail "handoff owner with extra authority validated"
+    fi
+    # A retained record from before the rename binds the exact historical owner.
+    jq '.alternate = "bin/mx-maintainer-override.sh handoff"' "$file" > "$file.tmp"
+    chmod 600 "$file.tmp"; mv "$file.tmp" "$file"
+    mx_override_record_validate "$file" pending || fail "historical handoff failed shell validation"
+    "$ROOT/bin/mx-operator-override.sh" inspect "$request" >/dev/null || fail "historical handoff failed runtime validation"
+    grant_one "$request" || fail "login grant failed"
+    if "$ROOT/bin/mx-maintainer-override.sh" handoff "$request" >/dev/null 2>&1; then
+      fail "operator handoff printed before atomic consumption"
+    fi
+    mx_override_consume "$request" "$boundary" auth-18 multplx "$operation" "$target" "$state_digest" >/dev/null \
+      || fail "login handoff consumption failed"
+    out=$("$ROOT/bin/mx-maintainer-override.sh" handoff "$request") || fail "consumed operator handoff failed"
+    assert_contains "$out" "boundary=$boundary" "handoff omitted boundary"
+    assert_contains "$out" "operation=$operation" "handoff omitted exact operation"
+    [ "$(jq -r '.outcome' "$STATE/maintainer-overrides/consumed/$request.json")" = not-run ] \
+      || fail "printing a handoff forged a successful login"
+    mx_override_result "$request" succeeded 'operator completed login and authenticated status was re-checked'
+  done
   pass "authentication capability becomes an exact consumed operator handoff, never forged success"
 }
 

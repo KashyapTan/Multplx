@@ -295,7 +295,7 @@ export default function (pi: ExtensionAPI) {
   function startArm(predecessorArmPid = ""): ArmResult {
     if (stopping) return { ok: false, message: "watcher: not armed - Pi session is shutting down" };
     const ownership = lockOwnership();
-    if (ownership === "other") return { ok: false, message: "watcher: read-only - session lock is held by another broker session" };
+    if (ownership === "other") return { ok: false, message: "watcher: read-only - session lock is held by another orchestrator session" };
     if (ownership === "missing") {
       return {
         ok: false,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compatibility transport for the Rust broker update command.
+# Compatibility transport for the Rust parent update command.
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

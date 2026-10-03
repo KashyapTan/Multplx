@@ -28,10 +28,14 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             value if value.starts_with("--fields=") => {
                 fields = value.trim_start_matches("--fields=").to_owned()
             }
-            "--all-in-flight" | "--all-decisions" | "--all-daemons" | "--all-landed"
-            | "--all-reports" | "--all-queued" | "--all-recorded-prs" | "--all-unhealthy"
-            | "--all-pr-repos" => {
-                all.insert(args[index].clone());
+            "--all-in-flight" | "--all-decisions" | "--all-agents" | "--all-daemons"
+            | "--all-landed" | "--all-reports" | "--all-queued" | "--all-recorded-prs"
+            | "--all-unhealthy" | "--all-pr-repos" => {
+                all.insert(if args[index] == "--all-agents" {
+                    "--all-daemons".to_owned()
+                } else {
+                    args[index].clone()
+                });
             }
             "-h" | "--help" => return (0, usage(), String::new()),
             _ => return (2, String::new(), usage()),
@@ -60,7 +64,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     if all.contains("--all-landed") {
         snapshot_command.env("MX_SNAPSHOT_DAEMON_LANDED_PER_HOME", "0");
     }
-    if all.contains("--all-daemons") {
+    if all.contains("--all-agents") || all.contains("--all-daemons") {
         snapshot_command.env("MX_SNAPSHOT_DAEMONS", "0");
     }
     let snapshot = snapshot_command.output();
@@ -157,7 +161,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
                 && row.get("verb").and_then(Value::as_str) == Some("maintainer-hold")
             {
                 let id = nonnull_str(row.get("id"));
-                decisions.push(json!({"id":format!("{}/{}",nonnull_str(daemon.get("id")),id),"key":row.get("key").cloned().unwrap_or_else(||Value::String(id.clone())),"verb":"maintainer-hold","summary":truncate(&format!("{}: {}",value_or(row.get("summary"),&id),value_or(row.get("reason"),"maintainer decision pending")),90),"owner":daemon["id"]}));
+                decisions.push(json!({"id":format!("{}/{}",nonnull_str(daemon.get("id")),id),"key":row.get("key").cloned().unwrap_or_else(||Value::String(id.clone())),"verb":"maintainer-hold","summary":truncate(&format!("{}: {}",value_or(row.get("summary"),&id),value_or(row.get("reason"),"human decision pending")),90),"owner":daemon["id"]}));
             }
         }
     }
@@ -216,7 +220,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     {
         let reason = value_or(
             root.pointer("/daemon_current/registry/reason"),
-            "Registered daemon table unavailable",
+            "Registered standing-agent table unavailable",
         );
         daemon_rows.push(json!({"id":"(registry)","state":"unknown","doing":reason,"provenance":value_or(root.pointer("/daemon_current/registry/provenance"),"registered-table"),"freshness":value_or(root.pointer("/daemon_current/registry/freshness/status"),"unavailable"),"age_seconds":Value::Null,"contradiction":false,"reason":reason}));
     }
@@ -348,14 +352,14 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     }
     let daemon_limit = bound("MX_STATUS_DAEMONS", 20);
     if !all.contains("--all-daemons") && daemon_total > daemon_limit {
-        omitted.push(json!({"surface":format!("daemons showing {daemon_limit} of {daemon_total}"),"reveal":"--all-daemons"}));
+        omitted.push(json!({"surface":format!("standing agents showing {daemon_limit} of {daemon_total}"),"reveal":"--all-agents"}));
     }
     let unreadable = root
         .pointer("/daemon_landed/unreadable")
         .and_then(Value::as_array)
         .map_or(0, Vec::len);
     if unreadable > 0 {
-        omitted.push(json!({"surface":format!("daemon home(s) with unreadable backlog: {unreadable}"),"reveal":"inspect the listed daemon home backlogs"}));
+        omitted.push(json!({"surface":format!("standing-agent home(s) with unreadable backlog: {unreadable}"),"reveal":"inspect the listed standing-agent home backlogs"}));
     }
     let orphaned = root
         .pointer("/main_inventory/orphan_in_flight")
@@ -376,28 +380,28 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         .and_then(Value::as_u64)
         .unwrap_or(0);
     if daemon_truncated > 0 {
-        omitted.push(json!({"surface":format!("registered daemons omitted by snapshot bound: {daemon_truncated}"),"reveal":"raise MX_SNAPSHOT_DAEMONS"}));
+        omitted.push(json!({"surface":format!("registered standing agents omitted by snapshot bound: {daemon_truncated}"),"reveal":"raise MX_SNAPSHOT_DAEMONS"}));
     }
     if root
         .pointer("/daemon_current/registry/input_truncated")
         .and_then(Value::as_bool)
         == Some(true)
     {
-        omitted.push(json!({"surface":"daemon registry input truncated by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_LINES or MX_SNAPSHOT_REGISTRY_BYTES"}));
+        omitted.push(json!({"surface":"standing-agent registry input truncated by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_LINES or MX_SNAPSHOT_REGISTRY_BYTES"}));
     }
     if root
         .pointer("/daemon_current/registry/records_truncated")
         .and_then(Value::as_bool)
         == Some(true)
     {
-        omitted.push(json!({"surface":"daemon registry records omitted by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_RECORDS"}));
+        omitted.push(json!({"surface":"standing-agent registry records omitted by bounded read","reveal":"raise MX_SNAPSHOT_REGISTRY_RECORDS"}));
     }
     if root
         .pointer("/daemon_current/registry/available")
         .and_then(Value::as_bool)
         == Some(false)
     {
-        omitted.push(json!({"surface":format!("daemon registry unavailable: {}",value_or(root.pointer("/daemon_current/registry/reason"),"read failed")),"reveal":"inspect data/daemons.md"}));
+        omitted.push(json!({"surface":format!("standing-agent registry unavailable: {}",value_or(root.pointer("/daemon_current/registry/reason"),"read failed")),"reveal":"inspect the selected standing-agent route registry"}));
     }
     let parent_truncated = daemons
         .iter()
@@ -412,7 +416,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         })
         .count();
     if parent_truncated > 0 {
-        omitted.push(json!({"surface":format!("daemon parent activity evidence truncated for {parent_truncated} record(s)"),"reveal":"raise MX_SNAPSHOT_PARENT_ACTIVITY_LINES, MX_SNAPSHOT_PARENT_ACTIVITY_BYTES, or MX_SNAPSHOT_PARENT_ACTIVITIES"}));
+        omitted.push(json!({"surface":format!("standing-agent parent activity evidence truncated for {parent_truncated} record(s)"),"reveal":"raise MX_SNAPSHOT_PARENT_ACTIVITY_LINES, MX_SNAPSHOT_PARENT_ACTIVITY_BYTES, or MX_SNAPSHOT_PARENT_ACTIVITIES"}));
     }
     let parent_unavailable = daemons
         .iter()
@@ -423,7 +427,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         })
         .count();
     if parent_unavailable > 0 {
-        omitted.push(json!({"surface":format!("daemon parent activity evidence unavailable for {parent_unavailable} record(s)"),"reveal":"inspect the parent status logs"}));
+        omitted.push(json!({"surface":format!("standing-agent parent activity evidence unavailable for {parent_unavailable} record(s)"),"reveal":"inspect the parent status logs"}));
     }
     if !unhealthy.is_empty() {
         model["unhealthy_endpoints"] = Value::Array(take(
@@ -463,7 +467,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             .pointer("/daemon_landed/truncated")
             .and_then(Value::as_array)
             .map_or(0, Vec::len);
-        model["omitted"].as_array_mut().unwrap().push(json!({"surface":format!("daemon home Done capped at the snapshot layer for {count} home(s)"),"reveal":"--all-landed"}));
+        model["omitted"].as_array_mut().unwrap().push(json!({"surface":format!("standing-agent home Done capped at the snapshot layer for {count} home(s)"),"reveal":"--all-landed"}));
     }
     if include_prs {
         let (rows, failures, repo_total, repo_shown, capped) =
@@ -592,7 +596,7 @@ fn daemon_doing(daemon: &Value, state: &str) -> String {
                 row.get("source").and_then(Value::as_str) == Some("backlog")
                     && row.get("verb").and_then(Value::as_str) == Some("maintainer-hold")
             })
-            .map(|row| value_or(row.get("summary"), "maintainer decision pending"))
+            .map(|row| value_or(row.get("summary"), "human decision pending"))
             .collect::<Vec<_>>()
             .join("; "),
         "externally_held" => {
@@ -870,5 +874,5 @@ fn toon_quote(value: &str) -> String {
     }
 }
 fn usage() -> String {
-    "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-daemons] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n\nJSON and default output share the same bounded task-first portfolio summary. Use mx-system-snapshot.sh --json for the full canonical portfolio detail.\n".into()
+    "usage: mx-status-snapshot.sh [--json] [--include-prs] [--fields <list>] [--all-in-flight] [--all-decisions] [--all-agents] [--all-landed] [--all-reports] [--all-queued] [--all-recorded-prs] [--all-unhealthy] [--all-pr-repos]\n\nJSON and default output share the same bounded task-first portfolio summary. Use mx-system-snapshot.sh --json for the full canonical portfolio detail.\n".into()
 }

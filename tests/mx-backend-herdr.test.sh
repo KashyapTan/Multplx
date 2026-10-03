@@ -241,17 +241,17 @@ test_workspace_label_primary_home_no_marker() {
   local home
   home="$TMP_ROOT/primary-home-no-marker"; mkdir -p "$home"
   out=$( MX_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "broker" ] || fail "a primary home (no .mx-daemon-home marker) should resolve to label 'broker', got '$out'"
-  pass "mx_backend_herdr_workspace_label: a primary home (no marker) resolves to 'broker'"
+  [ "$out" = "primary" ] || fail "a primary home (no identity marker) should resolve to label 'primary', got '$out'"
+  pass "mx_backend_herdr_workspace_label: a primary home (no marker) resolves to 'primary'"
 }
 
 test_workspace_label_daemon_home_uses_marker_id() {
   local home
   home="$TMP_ROOT/daemon-home"; mkdir -p "$home"
-  printf 'sshhip-h7\n' > "$home/.mx-daemon-home"
+  printf 'sshhip-h7\n' > "$home/.mx-agent-home"
   out=$( MX_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "agent-sshhip-h7" ] || fail "a daemon home should resolve to 'agent-<id>', got '$out'"
-  pass "mx_backend_herdr_workspace_label: a daemon home (.mx-daemon-home) resolves to 'agent-<id>'"
+  [ "$out" = "agent-sshhip-h7" ] || fail "a standing-agent home should resolve to 'agent-<id>', got '$out'"
+  pass "mx_backend_herdr_workspace_label: a standing-agent home (.mx-agent-home) resolves to 'agent-<id>'"
 }
 
 test_workspace_label_daemon_marker_trims_whitespace() {
@@ -263,13 +263,42 @@ test_workspace_label_daemon_marker_trims_whitespace() {
   pass "mx_backend_herdr_workspace_label: trims whitespace around the marker's daemon id"
 }
 
-test_workspace_label_empty_marker_falls_back_to_primary() {
-  local home
+test_workspace_label_empty_marker_refuses_adoption() {
+  local home status
   home="$TMP_ROOT/daemon-home-empty"; mkdir -p "$home"
   : > "$home/.mx-daemon-home"
-  out=$( MX_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "broker" ] || fail "an empty/unreadable marker should fall back to 'broker', got '$out'"
-  pass "mx_backend_herdr_workspace_label: an empty marker file falls back to the primary label 'broker'"
+  out=$( MX_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_workspace_label' "$ROOT" 2>&1 )
+  status=$?
+  [ "$status" -ne 0 ] || fail "an empty identity marker must refuse container adoption"
+  assert_contains "$out" "invalid path component" "empty marker diagnostic missing"
+  pass "mx_backend_herdr_workspace_label: an empty legacy identity refuses container adoption"
+}
+
+test_workspace_identity_errors_refuse_query_and_creation() {
+  local case_name operation dir home log resp fb out status expected
+  for case_name in malformed conflicting; do
+    for operation in find ensure; do
+      dir="$TMP_ROOT/identity-$case_name-$operation"
+      home="$dir/home"; mkdir -p "$home" "$dir/responses"
+      log="$dir/log"; resp="$dir/responses"; : > "$log"
+      if [ "$case_name" = malformed ]; then
+        printf 'internal space\n' > "$home/.mx-agent-home"
+        expected='identity contains internal whitespace'
+      else
+        printf 'alpha\n' > "$home/.mx-agent-home"
+        printf 'bravo\n' > "$home/.mx-daemon-home"
+        expected='conflicting'
+      fi
+      fb=$(make_herdr_fakebin "$dir")
+      out=$( PATH="$fb:$PATH" MX_HOME="$home" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" \
+        bash -c '. "$0/bin/backends/herdr.sh"; if [ "$1" = find ]; then mx_backend_herdr_workspace_find identity-test; else mx_backend_herdr_workspace_ensure identity-test "$MX_HOME"; fi' "$ROOT" "$operation" 2>&1 )
+      status=$?
+      [ "$status" -ne 0 ] || fail "$operation accepted $case_name home identity"
+      assert_contains "$out" "$expected" "$operation lost $case_name identity diagnostic"
+      [ ! -s "$log" ] || fail "$operation queried or mutated Herdr despite $case_name home identity: $(cat "$log")"
+    done
+  done
+  pass "Herdr workspace find/ensure: malformed and conflicting identities fail before any query or creation"
 }
 
 test_workspace_label_different_daemons_get_different_labels() {
@@ -313,19 +342,19 @@ test_container_ensure_starts_server_and_workspace() {
   # 3: `herdr server` backgrounded launch - no meaningful output
   # 4: server_ensure poll -> now running
   printf '{"server":{"running":true}}\n' > "$resp/4.out"
-  # 5: workspace list -> empty (no "broker" workspace yet)
+  # 5: workspace list -> empty (no current primary workspace yet)
   printf '{"result":{"workspaces":[]}}\n' > "$resp/5.out"
   # 6: workspace create -> w1, seeding default tab w1:t9 (real herdr returns
   # the seeded tab/pane ids in the SAME response - verified empirically).
-  printf '{"result":{"workspace":{"workspace_id":"w1","label":"broker"},"tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9"}}}\n' > "$resp/6.out"
+  printf '{"result":{"workspace":{"workspace_id":"w1","label":"primary"},"tab":{"tab_id":"w1:t9"},"root_pane":{"pane_id":"w1:p9"}}}\n' > "$resp/6.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" MX_HERDR_SCRIPT_STATUS=1 HERDR_SESSION=fmtest \
     bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_container_ensure /tmp' "$ROOT" )
   [ "$out" = $'fmtest:w1\tw1:t9' ] || fail "container_ensure should echo '<session>:<workspace_id>\\t<seeded_default_tab_id>', got '$out'"
   assert_contains "$(cat "$log")" "HERDR_SESSION=fmtest"$'\x1f''server' "container_ensure did not start the herdr server"
-  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''broker' \
-    "container_ensure did not create the broker workspace with the given cwd"
-  pass "mx_backend_herdr_container_ensure: version-gates, starts the server, ensures the broker workspace, echoes session:workspace_id + the seeded default tab id"
+  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''primary' \
+    "container_ensure did not create the primary workspace with the given cwd"
+  pass "mx_backend_herdr_container_ensure: version-gates, starts the server, ensures the primary workspace, echoes session:workspace_id + the seeded default tab id"
 }
 
 test_container_ensure_reuses_existing_workspace() {
@@ -594,12 +623,12 @@ test_container_ensure_creates_with_no_focus_flag() {
   printf '{"client":{"version":"0.7.1","protocol":14}}\n' > "$resp/1.out"
   printf '{"server":{"running":true}}\n' > "$resp/2.out"
   printf '{"result":{"workspaces":[]}}\n' > "$resp/3.out"
-  printf '{"result":{"workspace":{"workspace_id":"w1","label":"broker"},"tab":{"tab_id":"w1:t1"},"root_pane":{"pane_id":"w1:p1"}}}\n' > "$resp/4.out"
+  printf '{"result":{"workspace":{"workspace_id":"w1","label":"primary"},"tab":{"tab_id":"w1:t1"},"root_pane":{"pane_id":"w1:p1"}}}\n' > "$resp/4.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" MX_HERDR_LOG="$log" MX_HERDR_RESPONSES="$resp" MX_HERDR_SCRIPT_STATUS=1 HERDR_SESSION=fmtest \
     bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_container_ensure /tmp' "$ROOT" )
   [ "$out" = $'fmtest:w1\tw1:t1' ] || fail "container_ensure should still echo '<session>:<workspace_id>\\t<seeded_default_tab_id>', got '$out'"
-  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''broker'$'\x1f''--no-focus' \
+  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''primary'$'\x1f''--no-focus' \
     "container_ensure's workspace create did not pass --no-focus (focus-safety: never steal the maintainer's attention on spawn)"
   pass "mx_backend_herdr_container_ensure: workspace create passes --no-focus"
 }
@@ -2447,9 +2476,9 @@ EOF
       bash -c '. "$0/bin/backends/herdr.sh"; mx_backend_herdr_kill "$1"' "$ROOT" "fmtest:$pane" \
       || fail "cycle $i: kill failed"
   done
-  # exactly one broker workspace survives three spawn/teardown cycles
-  wscount=$(jq -r '[.workspaces[]|select(.label=="broker")]|length' "$state")
-  [ "$wscount" = 1 ] || fail "expected exactly 1 broker workspace after 3 cycles, got $wscount: $(jq -c '.workspaces' "$state")"
+  # Exactly one freshly created primary workspace survives three spawn/teardown cycles.
+  wscount=$(jq -r '[.workspaces[]|select(.label=="primary")]|length' "$state")
+  [ "$wscount" = 1 ] || fail "expected exactly 1 primary workspace after 3 cycles, got $wscount: $(jq -c '.workspaces' "$state")"
   # and no orphaned workspaces of any label
   total=$(jq -r '.workspaces|length' "$state")
   [ "$total" = 1 ] || fail "expected no orphaned workspaces after 3 cycles, got $total total: $(jq -c '.workspaces' "$state")"
@@ -2459,7 +2488,7 @@ EOF
   # the workspace was minted once and reused thereafter, never re-created
   created=$(grep -c $'\x1f''workspace'$'\x1f''create' "$log")
   [ "$created" = 1 ] || fail "workspace create should run exactly once across 3 cycles (reuse, not re-mint), ran $created times"
-  pass "herdr repeated spawn/teardown: one persistent broker workspace reused, zero orphans, default tab pruned, create ran once"
+  pass "herdr repeated spawn/teardown: one persistent primary workspace reused, zero orphans, default tab pruned, create ran once"
 }
 
 # --- created-vs-adopted default-tab-prune safety (2026-07-02 self-kill fix) -
@@ -2921,7 +2950,8 @@ test_version_check_refuses_missing_herdr
 test_workspace_label_primary_home_no_marker
 test_workspace_label_daemon_home_uses_marker_id
 test_workspace_label_daemon_marker_trims_whitespace
-test_workspace_label_empty_marker_falls_back_to_primary
+test_workspace_label_empty_marker_refuses_adoption
+test_workspace_identity_errors_refuse_query_and_creation
 test_workspace_label_different_daemons_get_different_labels
 test_cli_helper_sets_env_and_appends_trailing_session_flag
 test_container_ensure_starts_server_and_workspace

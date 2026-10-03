@@ -47,7 +47,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |
 | `mx-session-lock-lib.sh` | Shared session-lock harness identity (ancestry walk and holder liveness) for mx-lock.sh and the Claude Stop auto-arm |
 | `mx-cursor-hook.sh` | Translate tracked Cursor session-start, command, native-child observation, and bounded stop hooks into shared Multplx supervision |
-| `mx-maintainer-override.sh` | Request, decide, consume, inspect, audit, and hand off exact single-use maintainer exceptions |
+| `mx-operator-override.sh` | Request, decide, consume, inspect, audit, and hand off exact single-use human policy exceptions |
+| `mx-maintainer-override.sh` | Historical alias for the same human policy exception owner |
 | `mx-maintainer-override-lib.sh` | Preserve the inventoried source-compatible exception ABI for existing callers and fixtures |
 | `mx-override-bindings.sh` | Print fresh subsystem-owned bindings for workflow, validation, cleanup, isolation, and lock exceptions |
 | `mx-override-run.sh` | Bind and run exact direct-write, one-action elevation, and verified dependency-install exceptions |
@@ -58,7 +59,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-subagent-pretool-check.sh` | Retain explicitly selected native capability and check supported remote merge commands (docs/subagent-guard.md) |
 | `mx-native-observe.sh` | Record attempt-bound provider child lifecycle evidence or an honest session-bound fallback |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
-| `mx-home-seed.sh`        | Transactionally provision a persistent-sub-agent home and maintain `data/daemons.md`       |
+| `mx-home-seed.sh`        | Transactionally provision a persistent-sub-agent home and maintain `data/agents.md` (existing `data/daemons.md` layouts remain compatible)       |
 | `mx-spawn.sh`            | Spawn sub-agents, `id=repo` batches, and persistent sub-agents on the resolved harness and runtime backend |
 | `mx-backend.sh`          | Transport runtime-backend selection, target resolution, and operation dispatch to Rust |
 | `mx-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for cmux workspace titles |
@@ -76,7 +77,8 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-review-diff.sh`      | Enter the Rust review-delivery boundary for a bounded authoritative-base diff review |
 | `mx-marker-lib.sh`       | Compatibility entry point for the parent-request carrier owned by `mx-operational-input.sh` |
 | `mx-pending-reply-lib.sh` | Parent-owned persistent-sub-agent pending-reply expectations, recovery, and one-shot escalation |
-| `mx-daemon-report.sh` | Optional helper to append a correlated persistent-sub-agent status or document-pointer report       |
+| `mx-daemon-report.sh` | Historical alias forwarding to the current standing-agent report owner |
+| `mx-agent-report.sh` | Current standing-agent correlated status or document-pointer report owner       |
 | `mx-report`           | Validate and durably append a task-bound status event, then best-effort nudge the identity-matched watcher |
 | `mx-report-mcp`       | Rust stdio MCP server exposing `report_status` through the shared task-bound reporter    |
 | `mx-gate-refuse-lib.sh`  | Refuse lifecycle entrypoints whenever a deep-review agent marker is present             |

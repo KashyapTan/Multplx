@@ -23,7 +23,7 @@ The [scoped coordinator reference](../../../docs/scoped-coordinators.md) owns na
 | Operation | Existing command reference |
 | --- | --- |
 | Scoped coordinator | `mx spawn <id> --sub-orchestrator --project <selector> --scope <text>`; repeat `--project`, or use `--idea <id>` for repository-free research. Select `--persistent` by default for a standing domain; omit it only for an explicitly temporary domain. Use `--request-id <id>` for repeat-safe creation. |
-| Charter scaffold | `mx brief <id> --persistent <project>...` or `--no-projects`; legacy `--daemon`, `MX_DAEMON_CHARTER` and `MX_DAEMON_SCOPE` remain supported. |
+| Charter scaffold | `mx brief <id> --persistent <project>...` or `--no-projects`; legacy `--daemon`, `MX_AGENT_CHARTER` and `MX_AGENT_SCOPE` supply new charter text; the historical environment aliases remain supported. |
 | Provision / validate | `bin/mx-home-seed.sh --help`; validate recorded homes before launch. |
 | Launch / recover | `mx spawn <id> --persistent`; reuse the recorded home and reconcile existing children; `--daemon` remains an alias. |
 | Inherited settings | `bin/mx-config-push.sh --help`; owned propagation preserves generations and pending reread delivery. |
@@ -32,7 +32,7 @@ The [scoped coordinator reference](../../../docs/scoped-coordinators.md) owns na
 
 [Configuration](../../../docs/configuration.md) and the [inheritance implementation](../../../crates/multplx-domain/src/inheritance.rs) own the legacy registry, configuration allowlist and propagation schema.
 The [sub-agent record contract](../../../docs/subagent-model.md) distinguishes persistence, assignment, accepted brief and attempt identity.
-The seeded `data/charter.md` owns the assignment text; `.mx-daemon-home` binds the home identity.
+The seeded `data/charter.md` owns the assignment text; `.mx-agent-home` binds the home identity; historical markers are read in place with exact conflict checks.
 Home validation rejects duplicate, nested or overlapping registered homes.
 Interrupted provisioning restores recorded parent artifacts and retains the reserved home; a persistent reservation survives zero live processes and ordinary restarts.
 [Worktree operations](../../../docs/worktrees.md) describe built-in allocation and private home reservations.

@@ -110,7 +110,7 @@ if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then
   }
   if [ "$old" != "$me" ] && mx_harness_pid_alive "$old"; then
     if [ -z "$TERMINATE_OVERRIDE" ]; then
-      echo "error: another live broker session holds the lock (pid $old); operate read-only or request an exact session.terminate-owner grant" >&2
+      echo "error: another live orchestrator session holds the lock (pid $old); operate read-only or request an exact session.terminate-owner grant" >&2
       exit 1
     fi
     bindings=$(MX_ROOT_OVERRIDE="$MX_ROOT" MX_HOME="$MX_HOME" MX_STATE_OVERRIDE="$STATE" \

@@ -1,33 +1,16 @@
 #!/usr/bin/env bash
-# Shared marker-or-plain-checkout predicate for tracked hooks that must act only
-# in a genuine broker primary home.
-# This file is sourced by hook entrypoints and has no side effects on source.
+# Read-only home identity and scope ABI; Rust owns canonical/legacy validation.
+_mx_scope_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+_mx_scope_binary=${MX_RUST_BIN:-${MX_RUST_SOURCE_ROOT:-$(cd -- "$_mx_scope_dir/.." && pwd -P)}/target/release/mx}
 
-# Return 0 when $1 carries a genuine daemon-home marker.
-mx_root_is_daemon_home() {
-  local marker="$1/.mx-daemon-home" id LC_ALL=C
-  [ -L "$marker" ] && return 1
-  [ -f "$marker" ] || return 1
-  IFS= read -r id < "$marker" 2>/dev/null || return 1
-  id=${id//[[:space:]]/}
-  [ -n "$id" ] || return 1
-  case "$id" in
-    *[!A-Za-z0-9._-]*) return 1 ;;
-  esac
-  return 0
+mx_root_is_agent_home() {
+  local id
+  id=$("$_mx_scope_binary" primitive agent-home-id "$1") || return 1
+  [ -n "$id" ]
 }
+# Source-compatible historical function name; no legacy identity is emitted.
+mx_root_is_daemon_home() { mx_root_is_agent_home "$@"; }
 
-# Return 0 when $1 is a genuine primary root whose effective state dir is $2.
-# A valid daemon marker force-includes a linked daemon home.
-# Otherwise only a plain checkout is primary, never a linked task worktree.
 mx_primary_scope_matches() {
-  local root=$1 state=$2 git_dir git_common_dir
-  if ! mx_root_is_daemon_home "$root"; then
-    git_dir=$(git -C "$root" rev-parse --git-dir 2>/dev/null) || return 1
-    git_common_dir=$(git -C "$root" rev-parse --git-common-dir 2>/dev/null) || return 1
-    [ "$git_dir" = "$git_common_dir" ] || return 1
-  fi
-  [ -f "$root/AGENTS.md" ] || return 1
-  [ -d "$root/bin" ] || return 1
-  [ -d "$state" ] || return 1
+  "$_mx_scope_binary" primitive primary-scope "$1" "$2"
 }

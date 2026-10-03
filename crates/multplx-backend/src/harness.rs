@@ -123,6 +123,8 @@ impl HarnessConfig {
     pub fn validate_aliases(&self) -> Result<(), String> {
         for (canonical, legacy) in [
             ("subagent-harness", "actor-harness"),
+            ("standing-agent-harness", "persistent-subagent-harness"),
+            ("standing-agent-harness", "daemon-harness"),
             ("persistent-subagent-harness", "daemon-harness"),
             ("subagent-dispatch.json", "actor-dispatch.json"),
         ] {
@@ -162,7 +164,13 @@ impl HarnessConfig {
     }
 
     fn daemon_fields(&self) -> Vec<String> {
-        self.config_text("persistent-subagent-harness", "daemon-harness")
+        self.config_text("standing-agent-harness", "persistent-subagent-harness")
+            .or_else(|| {
+                (!self.directory.join("standing-agent-harness").exists()
+                    && !self.directory.join("persistent-subagent-harness").exists())
+                .then(|| fs::read_to_string(self.directory.join("daemon-harness")).ok())
+                .flatten()
+            })
             .and_then(|text| {
                 text.lines()
                     .map(str::trim)
@@ -212,6 +220,7 @@ impl HarnessConfig {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs;
 
     use multplx_core::error::{CoreError, Result};
     use multplx_core::process::{AncestryRow, ProcessIdentity, ProcessProbe};
@@ -324,5 +333,30 @@ mod tests {
         assert_eq!(config.daemon(Harness::Cursor), "cursor");
         assert_eq!(config.daemon_model(), None);
         assert_eq!(config.daemon_effort(), None);
+    }
+
+    #[test]
+    fn standing_agent_configuration_aliases_require_equal_contents() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = HarnessConfig::new(temp.path());
+        fs::write(
+            temp.path().join("standing-agent-harness"),
+            "pi model high\n",
+        )
+        .unwrap();
+        assert_eq!(config.daemon(Harness::Claude), "pi");
+        assert_eq!(config.daemon_model().as_deref(), Some("model"));
+        fs::write(
+            temp.path().join("persistent-subagent-harness"),
+            "pi model high\n",
+        )
+        .unwrap();
+        fs::write(temp.path().join("daemon-harness"), "pi model high\n").unwrap();
+        assert!(config.validate_aliases().is_ok());
+        for alias in ["persistent-subagent-harness", "daemon-harness"] {
+            fs::write(temp.path().join(alias), "codex\n").unwrap();
+            assert!(config.validate_aliases().is_err(), "{alias}");
+            fs::write(temp.path().join(alias), "pi model high\n").unwrap();
+        }
     }
 }

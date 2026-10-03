@@ -69,7 +69,7 @@ The spawn refusal explains how to finish cmux setup or opt back into tmux.
 
 Each task owns one cmux workspace with one surface.
 The caller-facing label remains `mx-<id>`, while the visible workspace title is `mx-<home-label>-<id>`.
-The home label is `broker` or `daemon-<id>` plus a stable short hash of the resolved Multplx root.
+New home labels use `primary` or `agent-<id>` (exact historical `broker` or `daemon-<id>` containers remain adoptable) plus a stable short hash of the resolved Multplx root.
 cmux does not enforce title uniqueness, so create, recovery, list, and cleanup paths all validate this scoped title.
 Relocating the Multplx installation changes the hash and leaves old titles unmatched, consistent with recorded worktree paths also becoming stale.
 

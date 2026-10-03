@@ -21,7 +21,11 @@ use time::OffsetDateTime;
 
 pub const USAGE: &str = "Seed a persistent sub-agent home; ownership survives idle sessions.\nusage: mx home-seed <id> <home|-> {<project>...|--no-projects} [--git-allocation PROJECT ALLOCATION]\n       mx home-seed validate\nA new home is a private directory using installed runtime assets.\nFor a deliberate Git-backed home, first acquire a persistent worktree for this id, then pass its exact path and allocation.\n";
 
-const MARKER: &str = ".mx-daemon-home";
+fn agent_registry(data: impl AsRef<Path>) -> Result<PathBuf, String> {
+    multplx_core::agent_home::registry_write_path(data).map_err(|error| error.to_string())
+}
+
+const MARKER: &str = multplx_core::agent_home::MARKER;
 const TRANSACTION_PREFIX: &str = ".home-seed.transaction.";
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -430,8 +434,8 @@ fn path_text(path: &Path, label: &str) -> Result<String, String> {
         .to_str()
         .ok_or_else(|| format!("{label} path is not valid UTF-8"))?;
     if value.contains(['\n', '\r', ';', ')']) {
-        return Err(if label == "daemon home" {
-            format!("daemon home path contains registry delimiters: {value}")
+        return Err(if label == "standing-agent home" {
+            format!("standing-agent home path contains registry delimiters: {value}")
         } else {
             format!("{label} path contains a registry delimiter: {value}")
         });
@@ -470,7 +474,7 @@ pub fn validate_registry(path: &Path) -> Result<(), String> {
             && owner != &route.id
         {
             return Err(format!(
-                "error: duplicate daemon home assignment:\n{}: {}, {}\n",
+                "error: duplicate standing-agent home assignment:\n{}: {}, {}\n",
                 route.home.display(),
                 owner,
                 route.id
@@ -479,7 +483,7 @@ pub fn validate_registry(path: &Path) -> Result<(), String> {
         homes.insert(route.home.clone(), route.id.clone());
         if let Some(home) = ids.get(&route.id) {
             return Err(format!(
-                "error: duplicate daemon id assignment:\n{}: {}, {}\n",
+                "error: duplicate agent id assignment:\n{}: {}, {}\n",
                 route.id,
                 home.display(),
                 route.home.display()
@@ -497,7 +501,7 @@ pub fn validate_registry(path: &Path) -> Result<(), String> {
                 continue;
             };
             return Err(format!(
-                "error: overlapping daemon home assignment:\n{} ({}) contains {} ({})\n",
+                "error: overlapping standing-agent home assignment:\n{} ({}) contains {} ({})\n",
                 container.home.display(),
                 container.id,
                 child.home.display(),
@@ -559,26 +563,26 @@ fn validate_home_boundary(context: &Context, home: &Path) -> Result<PathBuf, Str
     let root = resolved(&context.root);
     if home == Path::new("/") {
         return Err(format!(
-            "daemon home cannot be the filesystem root: {}",
+            "standing-agent home cannot be the filesystem root: {}",
             home.display()
         ));
     }
     for (protected, label) in [(&active, "active Multplx home"), (&root, "Multplx repo")] {
         if home == *protected {
             return Err(format!(
-                "daemon home cannot be the {label}: {}",
+                "standing-agent home cannot be the {label}: {}",
                 home.display()
             ));
         }
         if ancestor(protected, &home) {
             return Err(format!(
-                "daemon home cannot be inside the {label}: {}",
+                "standing-agent home cannot be inside the {label}: {}",
                 home.display()
             ));
         }
         if ancestor(&home, protected) {
             return Err(format!(
-                "daemon home cannot be an ancestor of the {label}: {}",
+                "standing-agent home cannot be an ancestor of the {label}: {}",
                 home.display()
             ));
         }
@@ -591,7 +595,7 @@ fn validate_child(home: &Path, child: &Path, label: &str) -> Result<PathBuf, Str
     let child = resolved(child);
     if !ancestor(&home, &child) {
         return Err(format!(
-            "daemon {label} must resolve inside the daemon home: {}",
+            "standing-agent {label} must resolve inside the standing-agent home: {}",
             child.display()
         ));
     }
@@ -605,7 +609,7 @@ fn validate_operational_dirs(context: &Context, home: &Path) -> Result<(), Strin
             && !path.exists()
         {
             return Err(format!(
-                "daemon {name} directory must resolve inside the daemon home: {}",
+                "standing-agent {name} directory must resolve inside the standing-agent home: {}",
                 path.display()
             ));
         }
@@ -614,13 +618,13 @@ fn validate_operational_dirs(context: &Context, home: &Path) -> Result<(), Strin
         let root = resolved(&context.root);
         if child == active || ancestor(&active, &child) {
             return Err(format!(
-                "daemon {name} directory cannot be inside the active Multplx home: {}",
+                "standing-agent {name} directory cannot be inside the active Multplx home: {}",
                 path.display()
             ));
         }
         if child == root || ancestor(&root, &child) {
             return Err(format!(
-                "daemon {name} directory cannot be inside the Multplx repo: {}",
+                "standing-agent {name} directory cannot be inside the Multplx repo: {}",
                 path.display()
             ));
         }
@@ -629,11 +633,16 @@ fn validate_operational_dirs(context: &Context, home: &Path) -> Result<(), Strin
 }
 
 fn validate_leaf_files(home: &Path) -> Result<(), String> {
-    for relative in ["data/projects.md", "data/charter.md", MARKER] {
+    for relative in [
+        "data/projects.md",
+        "data/charter.md",
+        MARKER,
+        multplx_core::agent_home::LEGACY_MARKER,
+    ] {
         let path = home.join(relative);
         if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
             return Err(format!(
-                "daemon leaf file must not be a symlink: {}",
+                "agent leaf file must not be a symlink: {}",
                 path.display()
             ));
         }
@@ -645,7 +654,7 @@ fn validate_leaf_files(home: &Path) -> Result<(), String> {
 }
 
 fn validate_assignment(registry: &Path, id: &str, home: &Path) -> Result<(), String> {
-    let marker = home.join(MARKER);
+    let marker = multplx_core::agent_home::marker_path(home).map_err(|error| error.to_string())?;
     if marker.is_file() {
         let owner = fs::read_to_string(&marker)
             .unwrap_or_default()
@@ -653,7 +662,7 @@ fn validate_assignment(registry: &Path, id: &str, home: &Path) -> Result<(), Str
             .to_owned();
         if owner != id {
             return Err(format!(
-                "daemon home {} is already marked for {}",
+                "standing-agent home {} is already marked for {}",
                 home.display(),
                 if owner.is_empty() { "unknown" } else { &owner }
             ));
@@ -662,21 +671,21 @@ fn validate_assignment(registry: &Path, id: &str, home: &Path) -> Result<(), Str
     for route in routes(registry) {
         if route.id == id && route.home != home {
             return Err(format!(
-                "daemon id {id} is already registered to home {}; retire it before assigning {}",
+                "agent id {id} is already registered to home {}; retire it before assigning {}",
                 route.home.display(),
                 home.display()
             ));
         }
         if route.id != id && route.home == home {
             return Err(format!(
-                "daemon home {} is already registered to {}",
+                "standing-agent home {} is already registered to {}",
                 home.display(),
                 route.id
             ));
         }
         if route.id != id && (ancestor(&route.home, home) || ancestor(home, &route.home)) {
             return Err(format!(
-                "daemon home {} overlaps registered daemon home {} for {}",
+                "standing-agent home {} overlaps registered standing-agent home {} for {}",
                 home.display(),
                 route.home.display(),
                 route.id
@@ -688,7 +697,7 @@ fn validate_assignment(registry: &Path, id: &str, home: &Path) -> Result<(), Str
 
 fn verify_broker_home(context: &Context, home: &Path) -> Result<PathBuf, String> {
     let home = validate_home_boundary(context, home)?;
-    let home = real_directory(&home, "daemon home")?;
+    let home = real_directory(&home, "standing-agent home")?;
     if !home.join("AGENTS.md").is_file() {
         return Err(format!(
             "{} is not a Multplx home (missing AGENTS.md)",
@@ -701,7 +710,7 @@ fn verify_broker_home(context: &Context, home: &Path) -> Result<PathBuf, String>
             home.display()
         ));
     }
-    require_owned(&home, "daemon home")?;
+    require_owned(&home, "standing-agent home")?;
     validate_operational_dirs(context, &home)?;
     Ok(home)
 }
@@ -762,33 +771,39 @@ fn normalize_registry_text(value: &str) -> String {
 fn charter_fields(path: &Path) -> Result<(String, String), String> {
     let text = fs::read_to_string(path).map_err(|error_value| {
         format!(
-            "cannot read daemon charter brief at {}: {error_value}",
+            "cannot read standing-agent charter brief at {}: {error_value}",
             path.display()
         )
     })?;
     if text.contains("{TASK}") {
         return Err(format!(
-            "daemon charter brief at {} still contains {{TASK}}; fill it before seeding",
+            "standing-agent charter brief at {} still contains {{TASK}}; fill it before seeding",
             path.display()
         ));
     }
-    let summary = env::var("MX_DAEMON_CHARTER").ok().map_or_else(
-        || normalize_registry_text(&section(&text, "Charter")),
-        |value| normalize_registry_text(&value),
-    );
+    let summary = env::var("MX_AGENT_CHARTER")
+        .or_else(|_| env::var("MX_DAEMON_CHARTER"))
+        .ok()
+        .map_or_else(
+            || normalize_registry_text(&section(&text, "Charter")),
+            |value| normalize_registry_text(&value),
+        );
     if summary.is_empty() {
         return Err(format!(
-            "daemon charter brief at {} has an empty Charter section; fill it before seeding",
+            "standing-agent charter brief at {} has an empty Charter section; fill it before seeding",
             path.display()
         ));
     }
-    let scope = env::var("MX_DAEMON_SCOPE").ok().map_or_else(
-        || normalize_registry_text(&section(&text, "Routing scope")),
-        |value| normalize_registry_text(&value),
-    );
+    let scope = env::var("MX_AGENT_SCOPE")
+        .or_else(|_| env::var("MX_DAEMON_SCOPE"))
+        .ok()
+        .map_or_else(
+            || normalize_registry_text(&section(&text, "Routing scope")),
+            |value| normalize_registry_text(&value),
+        );
     if scope.is_empty() {
         return Err(format!(
-            "daemon charter brief at {} has an empty Routing scope section; fill it before seeding",
+            "standing-agent charter brief at {} has an empty Routing scope section; fill it before seeding",
             path.display()
         ));
     }
@@ -934,12 +949,12 @@ fn backup_file(
 ) -> Result<(), String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => Err(format!(
-            "daemon seed file must be absent or regular: {}",
+            "agent seed file must be absent or regular: {}",
             path.display()
         )),
         Ok(_) => {
             let backup = format!("backup-{key}");
-            let (bytes, mode) = read_owned_regular_nofollow(path, "daemon seed file")?;
+            let (bytes, mode) = read_owned_regular_nofollow(path, "agent seed file")?;
             atomic_replace(transaction.join(&backup), &bytes, 0o600)
                 .map_err(|error_value| error_value.to_string())?;
             journal.originals.push(OriginalFile {
@@ -1065,20 +1080,27 @@ fn recover(context: &Context) -> Result<(), String> {
                 || !journal.originals.is_empty()
             {
                 return Err(
-                    "home seed recovery journal records mutations without a daemon home".to_owned(),
+                    "home seed recovery journal records mutations without a standing-agent home"
+                        .to_owned(),
                 );
             }
             fs::remove_dir_all(&transaction).map_err(|error_value| error_value.to_string())?;
             continue;
         }
         let home = validate_home_boundary(context, Path::new(&journal.home))?;
+        // Check present layouts for conflicts, while admitting either exact historical
+        // transaction target when a crash occurred before that file was created.
+        agent_registry(&context.data)?;
+        multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
         let allowed = [
-            context.data.join("daemons.md"),
+            context.data.join(multplx_core::agent_home::REGISTRY),
+            context.data.join(multplx_core::agent_home::LEGACY_REGISTRY),
             context.data.join(&journal.id).join("brief.md"),
             home.join("data/projects.md"),
             home.join("data/projects.json"),
             home.join("data/charter.md"),
-            home.join(MARKER),
+            home.join(multplx_core::agent_home::MARKER),
+            home.join(multplx_core::agent_home::LEGACY_MARKER),
         ]
         .into_iter()
         .map(|path| resolved(&path))
@@ -1183,7 +1205,7 @@ fn projectless_empty(home: &Path) -> Result<(), String> {
     }
     if !clones.is_empty() || !registry_projects.is_empty() {
         let mut message = format!(
-            "cannot seed project-less daemon home {} because it contains project data",
+            "cannot seed project-less standing-agent home {} because it contains project data",
             home.display()
         );
         if !clones.is_empty() {
@@ -1209,8 +1231,8 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     if args.len() < 3 {
         return Err(USAGE.trim_end().to_owned());
     }
-    let id = args[0].to_str().ok_or("daemon id is not valid UTF-8")?;
-    TaskId::parse(id).map_err(|_| format!("invalid daemon id: {id}"))?;
+    let id = args[0].to_str().ok_or("agent id is not valid UTF-8")?;
+    TaskId::parse(id).map_err(|_| format!("invalid agent id: {id}"))?;
     let requested = PathBuf::from(&args[1]);
     let mut no_projects = false;
     let mut projects = Vec::new();
@@ -1244,7 +1266,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     }
     if !no_projects && projects.is_empty() {
         return Err(
-            "daemon needs at least one project, or --no-projects for a project-less home"
+            "standing agent needs at least one project, or --no-projects for a project-less home"
                 .to_owned(),
         );
     }
@@ -1256,18 +1278,21 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     path_text(&context.home, "active Multplx home")?;
     path_text(&context.data, "active data")?;
     if requested != Path::new("-") {
-        path_text(&requested, "daemon home")?;
+        path_text(&requested, "standing-agent home")?;
     }
-    validate_registry(&context.data.join("daemons.md"))
+    validate_registry(&agent_registry(&context.data)?)
         .map_err(|value| value.trim_start_matches("error: ").trim_end().to_owned())?;
     let existing_brief = context.data.join(id).join("brief.md");
     if existing_brief.is_file() {
         charter_fields(&existing_brief)?;
     } else {
-        match env::var("MX_DAEMON_CHARTER").ok() {
+        match env::var("MX_AGENT_CHARTER")
+            .or_else(|_| env::var("MX_DAEMON_CHARTER"))
+            .ok()
+        {
             None => {
                 return Err(format!(
-                    "no filled daemon charter brief at {}; set MX_DAEMON_CHARTER or scaffold one and replace {{TASK}}",
+                    "no filled standing-agent charter brief at {}; set MX_AGENT_CHARTER or scaffold one and replace {{TASK}}",
                     existing_brief.display()
                 ));
             }
@@ -1276,7 +1301,9 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
             }
             _ => {}
         }
-        if env::var("MX_DAEMON_SCOPE").is_ok_and(|value| normalize_registry_text(&value).is_empty())
+        if env::var("MX_AGENT_SCOPE")
+            .or_else(|_| env::var("MX_DAEMON_SCOPE"))
+            .is_ok_and(|value| normalize_registry_text(&value).is_empty())
         {
             return Err("empty Routing scope section".into());
         }
@@ -1347,7 +1374,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     )
     .map_err(|error_value| format!("cannot acquire home seed lock: {error_value}"))?;
     recover(context)?;
-    validate_registry(&context.data.join("daemons.md"))
+    validate_registry(&agent_registry(&context.data)?)
         .map_err(|value| value.trim_start_matches("error: ").trim_end().to_owned())?;
 
     let transaction = journal_path(context, id);
@@ -1381,10 +1408,10 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
             resolved(&requested)
         };
         let home = validate_home_boundary(context, &home)?;
-        journal.home = path_text(&home, "daemon home")?;
+        journal.home = path_text(&home, "standing-agent home")?;
         journal.created_home = !home.exists();
         publish_journal(&transaction, &journal)?;
-        validate_assignment(&context.data.join("daemons.md"), id, &home)?;
+        validate_assignment(&agent_registry(&context.data)?, id, &home)?;
         if let Some(prior) = read_home_allocation(&context.data, id)? {
             if prior.binding.owner_home != resolved(&context.home) {
                 return Err("home allocation belongs to another owner; retained".into());
@@ -1504,10 +1531,10 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
             refresh_runtime_instructions(&home, &context.root)?;
         }
         let home = verify_broker_home(context, &home)?;
-        journal.home = path_text(&home, "daemon home")?;
+        journal.home = path_text(&home, "standing-agent home")?;
         journal.home_binding = read_home_allocation(&context.data, id)?.map(|a| a.binding);
         publish_journal(&transaction, &journal)?;
-        validate_assignment(&context.data.join("daemons.md"), id, &home)?;
+        validate_assignment(&agent_registry(&context.data)?, id, &home)?;
         validate_operational_dirs(context, &home)?;
         validate_leaf_files(&home)?;
         if no_projects {
@@ -1518,7 +1545,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
                     .map_err(|error_value| error_value.to_string())?;
                 if !projectless_charter(&text) {
                     return Err(format!(
-                        "cannot seed project-less daemon home because existing charter brief at {} conflicts with --no-projects\nerror: re-scaffold it with mx-brief.sh {id} --daemon --no-projects or remove the stale brief before seeding",
+                        "cannot seed project-less standing-agent home because existing charter brief at {} conflicts with --no-projects\nerror: re-scaffold it with mx-brief.sh {id} --persistent --role sub-orchestrator --no-projects or remove the stale brief before seeding",
                         existing_brief.display()
                     ));
                 }
@@ -1537,28 +1564,37 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         }
         let parent_brief = context.data.join(id).join("brief.md");
         for (key, path) in [
-            ("parent-registry", context.data.join("daemons.md")),
+            ("parent-registry", agent_registry(&context.data)?),
             ("parent-brief", parent_brief.clone()),
             ("sub-registry", home.join("data/projects.md")),
             ("project-catalog", home.join("data/projects.json")),
             ("charter", home.join("data/charter.md")),
-            ("marker", home.join(MARKER)),
+            (
+                "marker",
+                multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?,
+            ),
         ] {
             backup_file(&transaction, &path, key, &mut journal)?;
         }
         publish_journal(&transaction, &journal)?;
 
         if !parent_brief.is_file() {
-            if env::var("MX_DAEMON_CHARTER")
+            if env::var("MX_AGENT_CHARTER")
+                .or_else(|_| env::var("MX_DAEMON_CHARTER"))
                 .ok()
                 .is_none_or(|value| value.is_empty())
             {
                 return Err(format!(
-                    "no filled daemon charter brief at {}; set MX_DAEMON_CHARTER or scaffold one and replace {{TASK}}",
+                    "no filled standing-agent charter brief at {}; set MX_AGENT_CHARTER or scaffold one and replace {{TASK}}",
                     parent_brief.display()
                 ));
             }
-            let mut brief_args = vec![OsString::from(id), OsString::from("--daemon")];
+            let mut brief_args = vec![
+                OsString::from(id),
+                OsString::from("--persistent"),
+                OsString::from("--role"),
+                OsString::from("sub-orchestrator"),
+            ];
             if no_projects {
                 brief_args.push(OsString::from("--no-projects"));
             } else {
@@ -1578,7 +1614,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
                 fs::read_to_string(&parent_brief).map_err(|error_value| error_value.to_string())?;
             if !projectless_charter(&text) {
                 return Err(format!(
-                    "cannot seed project-less daemon home because existing charter brief at {} conflicts with --no-projects\nerror: re-scaffold it with mx-brief.sh {id} --daemon --no-projects or remove the stale brief before seeding",
+                    "cannot seed project-less standing-agent home because existing charter brief at {} conflicts with --no-projects\nerror: re-scaffold it with mx-brief.sh {id} --persistent --role sub-orchestrator --no-projects or remove the stale brief before seeding",
                     parent_brief.display()
                 ));
             }
@@ -1626,10 +1662,14 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         let charter = fs::read(&parent_brief).map_err(|error_value| error_value.to_string())?;
         atomic_replace(home.join("data/charter.md"), &charter, 0o600)
             .map_err(|error_value| error_value.to_string())?;
-        atomic_replace(home.join(MARKER), format!("{id}\n").as_bytes(), 0o600)
-            .map_err(|error_value| error_value.to_string())?;
+        atomic_replace(
+            multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?,
+            format!("{id}\n").as_bytes(),
+            0o600,
+        )
+        .map_err(|error_value| error_value.to_string())?;
 
-        let registry = context.data.join("daemons.md");
+        let registry = agent_registry(&context.data)?;
         let mut lines = fs::read_to_string(&registry)
             .unwrap_or_default()
             .lines()
@@ -1679,7 +1719,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
 
 pub fn run(args: &[OsString], context: &Context) -> Output {
     if args.len() == 1 && args[0] == "validate" {
-        return match validate_registry(&context.data.join("daemons.md")) {
+        return match agent_registry(&context.data).and_then(|path| validate_registry(&path)) {
             Ok(()) => Output::default(),
             Err(stderr) => Output {
                 status: 1,
@@ -2084,5 +2124,57 @@ mod tests {
         recover(&context).expect("recovery");
 
         assert!(!transaction.exists());
+    }
+
+    #[test]
+    fn recovery_accepts_exact_missing_legacy_targets_but_rejects_conflicting_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        let home = temp.path().join("worker");
+        fs::create_dir_all(&context.data).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        let transaction = journal_path(&context, "crash");
+        let journal = SeedJournal {
+            state: "prepared".into(),
+            id: "crash".into(),
+            home: home.to_string_lossy().into_owned(),
+            created_home: false,
+            acquired_home: false,
+            home_binding: None,
+            created_projects: Vec::new(),
+            originals: [
+                home.join(multplx_core::agent_home::LEGACY_MARKER),
+                context.data.join(multplx_core::agent_home::LEGACY_REGISTRY),
+            ]
+            .into_iter()
+            .map(|path| OriginalFile {
+                path: path.to_string_lossy().into_owned(),
+                backup: None,
+                mode: 0o600,
+            })
+            .collect(),
+        };
+        fs::create_dir(&transaction).unwrap();
+        publish_journal(&transaction, &journal).unwrap();
+        recover(&context).unwrap();
+        assert!(!transaction.exists());
+        assert!(!home.join(multplx_core::agent_home::MARKER).exists());
+        assert!(
+            !context
+                .data
+                .join(multplx_core::agent_home::REGISTRY)
+                .exists()
+        );
+
+        fs::create_dir(&transaction).unwrap();
+        publish_journal(&transaction, &journal).unwrap();
+        fs::write(home.join(multplx_core::agent_home::MARKER), "crash").unwrap();
+        fs::write(home.join(multplx_core::agent_home::LEGACY_MARKER), "other").unwrap();
+        assert!(recover(&context).is_err());
+        assert!(transaction.exists());
+        assert_eq!(
+            fs::read_to_string(home.join(multplx_core::agent_home::LEGACY_MARKER)).unwrap(),
+            "other"
+        );
     }
 }

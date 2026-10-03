@@ -453,9 +453,10 @@ pub fn spawn_projection(
             });
         }
     };
-    let parent_label = backend
-        .workspace_find_entry(&session)
-        .map_or_else(|| backend.workspace_label(), |(_, label)| label);
+    let parent_label = match backend.workspace_find_entry(&session) {
+        Some((_, label)) => label,
+        None => backend.workspace_label()?,
+    };
     let journal = journal_path(request.state, request.task_id);
     if request.recovering {
         let meta_path = request.state.join(format!("{}.meta", request.task_id));
@@ -879,7 +880,8 @@ fn checked_identity(value: &str) -> Result<String, BackendError> {
 #[must_use]
 pub fn concise_task_label(task_id: &str) -> &str {
     let task = task_id
-        .strip_prefix("broker/")
+        .strip_prefix("primary/")
+        .or_else(|| task_id.strip_prefix("broker/"))
         .or_else(|| {
             task_id
                 .strip_prefix("agent-")
@@ -1866,7 +1868,8 @@ fn validate_remainder(spaces: &[Value]) -> Result<(), BackendError> {
 }
 
 fn is_parent_label(label: &str) -> bool {
-    label == "broker"
+    label == "primary"
+        || label == "broker"
         || label
             .strip_prefix("agent-")
             .or_else(|| label.strip_prefix("daemon-"))

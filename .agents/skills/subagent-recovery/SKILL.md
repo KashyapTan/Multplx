@@ -28,7 +28,7 @@ Repair only the affected dependency or configuration; report unavailable capabil
 | Active vplan asset failure | Repair or stop only the explicitly requested vplan run; unrelated work continues. |
 | TANGLE / SYSTEM_SYNC | Recorded Git state and `bin/mx-system-sync.sh --help`; retain dirty, diverged or unlanded work. |
 | PR_CHECK_MIGRATION | Named migration outcome and `bin/mx-pr-check.sh --help`; quarantined polls stay unexecuted. |
-| DAEMON_SYNC / DAEMON_LIVENESS / NUDGE_DAEMONS | Recorded home, pending instruction delivery and persistent-home operations. |
+| AGENT_SYNC / AGENT_LIVENESS / NUDGE_AGENTS | Recorded home, pending instruction delivery and persistent-home operations. |
 
 Use the emitted home-scoped supervision repair path; never broadly kill watchers or sweep another home's endpoints.
 [A10](../../../porting.md#a10-built-in-git-worktree-lifecycle) assigns allocation inspection and retention to the built-in manager; use `mx worktree --help` for implemented commands.

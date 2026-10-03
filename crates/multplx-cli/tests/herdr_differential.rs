@@ -263,7 +263,7 @@ esac
 
     assert_eq!(
         success_output(run(&fake, &log, &home, &["herdr", "workspace-label"])),
-        b"broker"
+        b"primary"
     );
     success_output(run(&fake, &log, &home, &["herdr", "tool-check"]));
     success_output(run(&fake, &log, &home, &["herdr", "version-check"]));

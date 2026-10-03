@@ -72,7 +72,7 @@ They expose project and checkout identity, lineage, role, accepted brief, workfl
 The only freshness status values are `fresh`, `partial`, `stale` and `unknown`; unavailable task or provider facts remain null with a reason instead of becoming idle, complete or passing.
 Decision waiting time comes from the accepted `needs-decision` evidence envelope when that durable owner record is available; older or bounded-away evidence leaves it unknown.
 Child-home task rows and domain observations are bounded, and omitted rows remain visible through counts and partial-state markers.
-Domain coordinators expose `validated_home` only after the recorded runtime home passes daemon-home identity and containment validation.
+Domain coordinators expose `validated_home` only after the recorded runtime home passes standing-agent home identity and containment validation.
 MX Viz uses that field to authorize exact nested-home evidence links.
 
 ## Delivery evidence and human review

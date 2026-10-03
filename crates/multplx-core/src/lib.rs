@@ -5,6 +5,7 @@
 //! until their owning portions cut over, while the APIs here are exercised by
 //! Rust-native and differential compatibility tests.
 
+pub mod agent_home;
 pub mod backend_hometag;
 pub mod checks;
 pub mod classification;

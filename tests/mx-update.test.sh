@@ -107,10 +107,10 @@ test_updates_main_and_daemon() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "broker: updated " "broker fast-forwarded"
-  assert_contains "$out" "daemon sm1: updated " "daemon fast-forwarded"
-  assert_contains "$out" "reread-broker: yes" "instruction change triggers reread"
-  assert_contains "$out" "nudge-daemons: mx-sm1" "updated daemon is nudged"
+  assert_contains "$out" "parent: updated " "broker fast-forwarded"
+  assert_contains "$out" "standing agent sm1: updated " "daemon fast-forwarded"
+  assert_contains "$out" "reread-parent: yes" "instruction change triggers reread"
+  assert_contains "$out" "nudge-agents: mx-sm1" "updated daemon is nudged"
 
   # Fast-forward landed: HEAD == origin/main on both targets.
   [ "$(git -C "$w/main" rev-parse HEAD)" = "$(git -C "$w/main" rev-parse origin/main)" ] \
@@ -139,10 +139,10 @@ test_reread_gate_is_instruction_only() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "broker: updated " "broker still advanced"
-  assert_contains "$out" "reread-broker: no" "non-instruction change skips reread"
+  assert_contains "$out" "parent: updated " "broker still advanced"
+  assert_contains "$out" "reread-parent: no" "non-instruction change skips reread"
   # The daemon still advanced, so it is still nudged (update-based nudge).
-  assert_contains "$out" "nudge-daemons: mx-sm1" "advanced daemon still nudged"
+  assert_contains "$out" "nudge-agents: mx-sm1" "advanced daemon still nudged"
   pass "T3 reread gates on instruction surface, nudge on advancement"
 }
 
@@ -156,7 +156,7 @@ test_dirty_daemon_skipped() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "daemon sm1: skipped: dirty working tree" "dirty home skipped"
+  assert_contains "$out" "standing agent sm1: skipped: dirty working tree" "dirty home skipped"
   assert_not_contains "$out" "mx-sm1" "skipped daemon is not nudged"
   grep -q 'uncommitted local edit' "$w/sm1/AGENTS.md" \
     || fail "dirty edit was discarded"
@@ -177,7 +177,7 @@ test_diverged_daemon_skipped() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "daemon sm1: skipped: diverged from origin/main" "diverged home skipped"
+  assert_contains "$out" "standing agent sm1: skipped: diverged from origin/main" "diverged home skipped"
   assert_not_contains "$out" "mx-sm1" "diverged daemon is not nudged"
   [ "$(git -C "$w/sm1" rev-parse HEAD)" = "$before" ] \
     || fail "diverged daemon HEAD moved (unlanded work at risk)"
@@ -194,10 +194,10 @@ test_idempotent_already_current() {
 
   out=$(run_update "$w")       # second run: nothing to do
 
-  assert_contains "$out" "broker: already current" "broker already current"
-  assert_contains "$out" "daemon sm1: already current" "daemon already current"
-  assert_contains "$out" "reread-broker: no" "no reread when nothing changed"
-  assert_contains "$out" "nudge-daemons: none" "no nudge when nothing advanced"
+  assert_contains "$out" "parent: already current" "broker already current"
+  assert_contains "$out" "standing agent sm1: already current" "daemon already current"
+  assert_contains "$out" "reread-parent: no" "no reread when nothing changed"
+  assert_contains "$out" "nudge-agents: none" "no nudge when nothing advanced"
   pass "T6 idempotent: a second run is a no-op"
 }
 
@@ -223,16 +223,16 @@ test_registry_backstop_dedup_and_self_exclusion() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "daemon reg1: updated " "registry-only daemon fast-forwarded"
-  assert_contains "$out" "daemon sm1: updated " "meta+registry daemon fast-forwarded"
-  count=$(printf '%s\n' "$out" | grep -c '^daemon sm1:' || true)
+  assert_contains "$out" "standing agent reg1: updated " "registry-only daemon fast-forwarded"
+  assert_contains "$out" "standing agent sm1: updated " "meta+registry daemon fast-forwarded"
+  count=$(printf '%s\n' "$out" | grep -c '^standing agent sm1:' || true)
   [ "$count" -eq 1 ] || fail "daemon sm1 processed $count times, expected 1 (dedup across meta+registry)"
-  assert_not_contains "$out" "daemon selfish" "Multplx repo re-processed as its own daemon"
+  assert_not_contains "$out" "standing agent selfish" "Multplx repo re-processed as its own daemon"
   # sm1 has live metadata, so it is nudged; reg1 has none, so it is not. Pin the
   # nudge line exactly and confirm reg1 is absent from it (not from the whole
-  # output, where 'daemon reg1: updated' legitimately appears).
+  # output, where 'standing agent reg1: updated' legitimately appears).
   local nudge_line
-  nudge_line=$(printf '%s\n' "$out" | grep '^nudge-daemons:')
+  nudge_line=$(printf '%s\n' "$out" | grep '^nudge-agents:')
   assert_contains "$nudge_line" "mx-sm1" "live-meta daemon is nudged"
   assert_not_contains "$nudge_line" "reg1" "registry-only daemon without live metadata is not nudged"
   pass "T7 registry backstop resolves, dedups meta+registry, excludes the Multplx repo"
@@ -249,8 +249,8 @@ test_broker_wrong_branch_skipped() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "broker: skipped: on feature/wip, expected main" "off-default broker skipped"
-  assert_contains "$out" "reread-broker: no" "no reread when broker was skipped"
+  assert_contains "$out" "parent: skipped: on feature/wip, expected main" "off-default broker skipped"
+  assert_contains "$out" "reread-parent: no" "no reread when broker was skipped"
   [ "$(git -C "$w/main" rev-parse HEAD)" = "$before" ] \
     || fail "skipped broker HEAD moved"
   pass "T9 broker off its default branch is skipped, not forced"
@@ -265,8 +265,8 @@ test_broker_detached_head_skipped() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "broker: skipped: detached HEAD, expected main" "detached broker skipped"
-  assert_contains "$out" "reread-broker: no" "no reread when detached broker was skipped"
+  assert_contains "$out" "parent: skipped: detached HEAD, expected main" "detached broker skipped"
+  assert_contains "$out" "reread-parent: no" "no reread when detached broker was skipped"
   [ "$(git -C "$w/main" rev-parse HEAD)" = "$before" ] \
     || fail "detached broker HEAD moved"
   pass "T10 broker detached HEAD is skipped"
@@ -286,9 +286,9 @@ test_unsafe_daemon_home_skipped_before_git_update() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "daemon bad: skipped: unsafe home: daemon home cannot be inside the active Multplx home" \
+  assert_contains "$out" "standing agent bad: skipped: unsafe home: standing-agent home cannot be inside the active Multplx home" \
     "unsafe project-like home skipped"
-  assert_contains "$out" "nudge-daemons: none" "unsafe home is not nudged"
+  assert_contains "$out" "nudge-agents: none" "unsafe home is not nudged"
   [ "$(git -C "$bad" rev-parse HEAD)" = "$before" ] \
     || fail "unsafe daemon home HEAD moved"
   pass "T11 unsafe daemon home is not fast-forwarded"
@@ -327,7 +327,7 @@ SH
     MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
     "$UPDATE" 2>"$w/update.err") \
     || fail "registered launcher update failed: $(cat "$w/update.err")"
-  assert_contains "$out" "broker: updated " "source checkout fast-forwarded before binary update"
+  assert_contains "$out" "parent: updated " "source checkout fast-forwarded before binary update"
   assert_contains "$out" "launcher-binary: updated" "installed launcher update was not reported"
   [ "$(shasum -a 256 "$installed" | awk '{print $1}')" = "$new_hash" ] \
     || fail "installed launcher did not receive the rebuilt artifact"
@@ -391,7 +391,7 @@ SH
     MX_LAUNCH_CONFIG_DIR="$config" MX_LAUNCH_BIN_PATH="$installed" \
     "$UPDATE" 2>"$w/retry.err") \
     || fail "pending launcher update did not retry: $(cat "$w/retry.err")"
-  assert_contains "$out" "broker: already current" "retry unexpectedly moved source again"
+  assert_contains "$out" "parent: already current" "retry unexpectedly moved source again"
   assert_contains "$out" "launcher-binary: updated" "pending launcher update was not retried"
   [ "$(shasum -a 256 "$installed" | awk '{print $1}')" = "$new_hash" ] \
     && [ "$(cat "$config/binary.sha256")" = "$new_hash" ] \

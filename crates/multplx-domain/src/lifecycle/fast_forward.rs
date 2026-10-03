@@ -176,9 +176,9 @@ pub fn fast_forward(
         return skipped(label, format!("on {current}, expected {default}"));
     }
     let dirty = text(dir, &["status", "--porcelain"]).unwrap_or_default();
-    let dirty = dirty
-        .lines()
-        .any(|line| !(ignore_seed_marker && line == "?? .mx-daemon-home"));
+    let dirty = dirty.lines().any(|line| {
+        !(ignore_seed_marker && matches!(line, "?? .mx-daemon-home" | "?? .mx-agent-home"))
+    });
     if dirty {
         return skipped(label, "dirty working tree");
     }
@@ -244,74 +244,85 @@ pub fn validate_daemon_home(context: &Context, id: &str, home: &Path) -> Result<
     let root = fs::canonicalize(&context.root)
         .map_err(|_| "Multplx repo is not a directory".to_owned())?;
     if home == Path::new("/") {
-        return Err("daemon home cannot be the filesystem root".to_owned());
+        return Err("standing-agent home cannot be the filesystem root".to_owned());
     }
     if home == active {
-        return Err("daemon home cannot be the active Multplx home".to_owned());
+        return Err("standing-agent home cannot be the active Multplx home".to_owned());
     }
     if home == root {
-        return Err("daemon home cannot be the Multplx repo".to_owned());
+        return Err("standing-agent home cannot be the Multplx repo".to_owned());
     }
     if is_strict_child(&active, &home) {
-        return Err("daemon home cannot be inside the active Multplx home".to_owned());
+        return Err("standing-agent home cannot be inside the active Multplx home".to_owned());
     }
     if is_strict_child(&root, &home) {
-        return Err("daemon home cannot be inside the Multplx repo".to_owned());
+        return Err("standing-agent home cannot be inside the Multplx repo".to_owned());
     }
     if is_strict_child(&home, &active) {
-        return Err("daemon home cannot be an ancestor of the active Multplx home".to_owned());
+        return Err(
+            "standing-agent home cannot be an ancestor of the active Multplx home".to_owned(),
+        );
     }
     if is_strict_child(&home, &root) {
-        return Err("daemon home cannot be an ancestor of the Multplx repo".to_owned());
+        return Err("standing-agent home cannot be an ancestor of the Multplx repo".to_owned());
     }
     for name in ["data", "state", "config", "projects"] {
         let path = home.join(name);
         let resolved = if path.exists() {
             if !path.is_dir() {
-                return Err(format!("daemon {name} path is not a directory"));
+                return Err(format!("standing-agent {name} path is not a directory"));
             }
             if rustix::fs::access(&path, Access::EXEC_OK).is_err() {
-                return Err(format!("daemon {name} directory cannot be resolved"));
+                return Err(format!(
+                    "standing-agent {name} directory cannot be resolved"
+                ));
             }
             fs::canonicalize(&path)
-                .map_err(|_| format!("daemon {name} directory cannot be resolved"))?
+                .map_err(|_| format!("standing-agent {name} directory cannot be resolved"))?
         } else if fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
             return Err(format!(
-                "daemon {name} directory must resolve inside the daemon home"
+                "standing-agent {name} directory must resolve inside the standing-agent home"
             ));
         } else {
             path
         };
         if !is_strict_child(&home, &resolved) {
             return Err(format!(
-                "daemon {name} directory must resolve inside the daemon home"
+                "standing-agent {name} directory must resolve inside the standing-agent home"
             ));
         }
         if resolved == active || is_strict_child(&active, &resolved) {
             return Err(format!(
-                "daemon {name} directory cannot be inside the active Multplx home"
+                "standing-agent {name} directory cannot be inside the active Multplx home"
             ));
         }
         if resolved == root || is_strict_child(&root, &resolved) {
             return Err(format!(
-                "daemon {name} directory cannot be inside the Multplx repo"
+                "standing-agent {name} directory cannot be inside the Multplx repo"
             ));
         }
     }
-    let marker = home.join(&context.marker);
+    let marker = if matches!(
+        context.marker.as_str(),
+        multplx_core::agent_home::MARKER | multplx_core::agent_home::LEGACY_MARKER
+    ) {
+        multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?
+    } else {
+        home.join(&context.marker)
+    };
     let marker_meta =
-        fs::symlink_metadata(&marker).map_err(|_| "not a seeded daemon home".to_owned())?;
+        fs::symlink_metadata(&marker).map_err(|_| "not a seeded standing-agent home".to_owned())?;
     if marker_meta.file_type().is_symlink() {
-        return Err("daemon marker must not be a symlink".to_owned());
+        return Err("agent marker must not be a symlink".to_owned());
     }
     if !marker_meta.is_file() {
-        return Err("not a seeded daemon home".to_owned());
+        return Err("not a seeded standing-agent home".to_owned());
     }
     let marker_id = fs::read_to_string(&marker).unwrap_or_default();
-    if marker_id.trim_end_matches(['\n', '\r']) != id {
+    if marker_id.trim() != id {
         let value = marker_id.trim();
         return Err(format!(
-            "marked for daemon {}, expected {id}",
+            "marked for agent {}, expected {id}",
             if value.is_empty() { "unknown" } else { value }
         ));
     }
@@ -346,7 +357,7 @@ fn registry_fields(line: &str) -> Option<(String, String)> {
 /// Update the primary checkout and all registered daemon homes from origin.
 pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport {
     let mut lines = Vec::new();
-    let broker = fast_forward(&context.root, "broker", &Base::Origin, false, false);
+    let broker = fast_forward(&context.root, "parent", &Base::Origin, false, false);
     let broker_status = broker.status;
     let reread = broker.status == Status::Updated && !broker.instructions.is_empty();
     lines.push(broker.line);
@@ -401,7 +412,9 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
         let resolved = match validate_daemon_home(context, &id, &raw) {
             Ok(home) => home,
             Err(error) => {
-                lines.push(format!("daemon {id}: skipped: unsafe home: {error}"));
+                lines.push(format!(
+                    "standing agent {id}: skipped: unsafe home: {error}"
+                ));
                 continue;
             }
         };
@@ -428,18 +441,20 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
                 };
                 match result {
                     Ok(()) => {
-                        lines.push(format!("daemon {id}: current runtime instructions linked"));
+                        lines.push(format!(
+                            "standing agent {id}: current runtime instructions linked"
+                        ));
                         if reread && !window.is_empty() {
                             nudges.push(format!("mx-{id}"));
                         }
                     }
-                    Err(error) => lines.push(format!("daemon {id}: skipped: {error}")),
+                    Err(error) => lines.push(format!("standing agent {id}: skipped: {error}")),
                 }
                 continue;
             }
             Err(error) => {
                 lines.push(format!(
-                    "daemon {id}: skipped: home allocation unreadable: {error}"
+                    "standing agent {id}: skipped: home allocation unreadable: {error}"
                 ));
                 continue;
             }
@@ -447,7 +462,7 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
         }
         let outcome = fast_forward(
             &resolved,
-            &format!("daemon {id}"),
+            &format!("standing agent {id}"),
             &Base::Origin,
             true,
             true,
@@ -458,11 +473,11 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
         lines.push(outcome.line);
     }
     lines.push(format!(
-        "reread-broker: {}",
+        "reread-parent: {}",
         if reread { "yes" } else { "no" }
     ));
     lines.push(format!(
-        "nudge-daemons: {}",
+        "nudge-agents: {}",
         if nudges.is_empty() {
             "none".to_owned()
         } else {
@@ -713,7 +728,7 @@ mod tests {
         assert!(
             validate_daemon_home(&context, "other", &daemon)
                 .unwrap_err()
-                .contains("marked for daemon helper")
+                .contains("marked for agent helper")
         );
         fs::remove_file(daemon.join(".mx-daemon-home")).expect("remove marker");
         assert!(
@@ -768,12 +783,14 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line.starts_with("broker: skipped:"))
+                .any(|line| line.starts_with("parent: skipped:"))
         );
-        assert!(lines.iter().any(|line| line == "reread-broker: no"));
-        assert!(lines.iter().any(|line| line == "nudge-daemons: none"));
+        assert!(lines.iter().any(|line| line == "reread-parent: no"));
+        assert!(lines.iter().any(|line| line == "nudge-agents: none"));
         assert!(lines.iter().any(|line| {
-            line.starts_with("daemon fallback: skipped: unsafe home: not a seeded daemon home")
+            line.starts_with(
+                "standing agent fallback: skipped: unsafe home: not a seeded standing-agent home",
+            )
         }));
     }
 
@@ -836,14 +853,14 @@ mod tests {
         commit(&seed, "advance");
         run_git(&seed, &["push", "origin", "main", "--quiet"]);
         let lines = update(&context, &state, &temp.path().join("missing-registry"));
-        assert!(lines.iter().any(|line| line.starts_with("broker: updated")));
+        assert!(lines.iter().any(|line| line.starts_with("parent: updated")));
         assert!(
             lines
                 .iter()
-                .any(|line| line.starts_with("daemon helper: updated"))
+                .any(|line| line.starts_with("standing agent helper: updated"))
         );
-        assert!(lines.iter().any(|line| line == "reread-broker: yes"));
-        assert!(lines.iter().any(|line| line == "nudge-daemons: mx-helper"));
+        assert!(lines.iter().any(|line| line == "reread-parent: yes"));
+        assert!(lines.iter().any(|line| line == "nudge-agents: mx-helper"));
 
         let no_origin = temp.path().join("no-origin");
         fs::create_dir(&no_origin).expect("no origin");
@@ -952,7 +969,7 @@ mod tests {
         assert!(
             validate_daemon_home(&context, "id", &daemon)
                 .unwrap_err()
-                .contains("resolve inside the daemon home")
+                .contains("resolve inside the standing-agent home")
         );
         fs::remove_file(daemon.join("data")).expect("remove dangling link");
         #[cfg(unix)]
@@ -960,7 +977,7 @@ mod tests {
         assert!(
             validate_daemon_home(&context, "id", &daemon)
                 .unwrap_err()
-                .contains("resolve inside the daemon home")
+                .contains("resolve inside the standing-agent home")
         );
         fs::remove_file(daemon.join("data")).expect("remove link");
 
@@ -995,14 +1012,14 @@ mod tests {
         assert!(
             validate_daemon_home(&context, "id", &daemon)
                 .unwrap_err()
-                .contains("marker must not be a symlink")
+                .contains("open no-follow file")
         );
         fs::remove_file(daemon.join(".mx-daemon-home")).expect("remove marker link");
         fs::create_dir(daemon.join(".mx-daemon-home")).expect("marker dir");
         assert!(
             validate_daemon_home(&context, "id", &daemon)
                 .unwrap_err()
-                .contains("not a seeded")
+                .contains("opened path is not a regular file")
         );
     }
 }
