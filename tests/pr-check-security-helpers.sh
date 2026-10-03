@@ -431,7 +431,7 @@ test_pr_check_help_has_zero_side_effects() {
   fi
   [ ! -s "$dir/gh.log" ] && [ ! -s "$dir/guard.log" ] || fail 'PR check help or malformed request called forge/guard'
   [ "$(state_snapshot "$dir/home/state")" = "$before" ] || fail 'malformed help/base request mutated state'
-  pass 'PR check help succeeds before state and forge access while malformed requests remain strict'
+  pass "PR check help succeeds before state and forge access while malformed requests remain strict"
 }
 
 test_invalid_entrypoints_have_zero_side_effects() {
@@ -1442,6 +1442,12 @@ test_ambiguous_failure_accepts_validated_replacement() {
     || fail "ambiguous partial migration did not persist recovery obligations"
 
   rmdir "$state/task-a.pr-poll"
+  # The original ambiguous fixture contains duplicate ownership fields. A
+  # validated replacement starts from repaired metadata, without relaxing the
+  # publication parser or treating duplicate identity as trustworthy.
+  ! mx_pr_metadata_identity_parse "$state/task-a.meta" \
+    || fail "ambiguous duplicate metadata unexpectedly became trustworthy"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/10
   MX_HOME="$dir/home" MX_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
     "$PR_CHECK" task-a https://github.com/o/r/pull/10 >/dev/null \
     || fail "validated replacement poll could not be published"
