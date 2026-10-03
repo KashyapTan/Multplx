@@ -18,9 +18,9 @@
 # stop`.
 #
 # Covers, at minimum (per the task brief):
-#   - a primary-shaped home (no .mx-daemon-home marker) spawning a
-#     actor into the "broker" workspace
-#   - a daemon-shaped home (with .mx-daemon-home) getting its own
+#   - a primary-shaped home (no .mx-agent-home marker) spawning a
+#     actor into the "primary" workspace
+#   - a daemon-shaped home (with .mx-agent-home) getting its own
 #     labeled workspace when the PRIMARY spawns it (mx-spawn.sh's MX_HOME
 #     shadow for --daemon)
 #   - an actor spawned FROM that daemon-shaped home (the daemon
@@ -97,7 +97,7 @@ printf 'trivial e2e primary actor brief: nothing to do.\n' > "$PRIMARY_HOME/data
 SM_HOME="$TMP_ROOT/daemon-home"
 mkdir -p "$SM_HOME/state" "$SM_HOME/data/cm2" "$SM_HOME/config" "$SM_HOME/projects" "$SM_HOME/bin"
 printf '# scratch daemon home AGENTS.md placeholder\n' > "$SM_HOME/AGENTS.md"
-printf 'e2esm1\n' > "$SM_HOME/.mx-daemon-home"
+printf 'e2esm1\n' > "$SM_HOME/.mx-agent-home"
 printf 'trivial e2e daemon charter: nothing to do.\n' > "$SM_HOME/data/charter.md"
 printf 'trivial e2e daemon-owned actor brief: nothing to do.\n' > "$SM_HOME/data/cm2/brief.md"
 
@@ -113,7 +113,7 @@ make_scratch_project() {  # <dir>
 PROJ1="$TMP_ROOT/scratch-project-1"; make_scratch_project "$PROJ1"
 PROJ2="$TMP_ROOT/scratch-project-2"; make_scratch_project "$PROJ2"
 
-# --- 1. primary-shaped home: an actor spawns into the "broker" space ---
+# --- 1. primary-shaped home: an actor spawns into the "primary" space ---
 
 CM1_OUT="$TMP_ROOT/cm1.out"; CM1_ERR="$TMP_ROOT/cm1.err"
 MX_SPAWN_NO_GUARD=1 MX_HOME="$PRIMARY_HOME" MX_ROOT_OVERRIDE="$ROOT" \
@@ -137,8 +137,8 @@ assert_contains_local "$CM1_CAPTURE" "primary-actors-ok" "cm1's verified inert h
 CM1_WSID=$(herdr pane get "$CM1_PANE" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty')
 [ -n "$CM1_WSID" ] || fail "could not read cm1's pane workspace_id"
 CM1_WS_LABEL=$(herdr workspace list --session "$SESSION" 2>&1 | jq -r --arg id "$CM1_WSID" '.result.workspaces[]? | select(.workspace_id == $id) | .label')
-[ "$CM1_WS_LABEL" = "broker" ] || fail "a primary-shaped home's actor should land in the 'broker' workspace, got '$CM1_WS_LABEL'"
-pass "real herdr E2E: the primary-shaped home's actor landed in the 'broker' workspace"
+[ "$CM1_WS_LABEL" = "primary" ] || fail "a primary-shaped home's actor should land in the 'primary' workspace, got '$CM1_WS_LABEL'"
+pass "real herdr E2E: the primary-shaped home's actor landed in the 'primary' workspace"
 
 # --- 2. the PRIMARY spawns a daemon: its tab lands in the DAEMON's own space ---
 # (mx-spawn.sh's herdr case arm shadows MX_HOME to the daemon's home for

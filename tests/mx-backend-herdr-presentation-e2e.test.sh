@@ -746,9 +746,9 @@ remember_meta_worktree "$ORDER_B_META" >/dev/null
 
 ORDER_LIST=$(lab workspace list) || fail "could not inspect concurrent presentation ordering"
 CREATED_LABELS=$(projection_labels_from_log "$PROJECTION_ORDER_START")
-EXPECTED_LABELS=$(printf 'broker\n%s\n%s\ndaemon-alpha\ndaemon-bravo' "$PROJECTED_LABEL" "$CREATED_LABELS")
+EXPECTED_LABELS=$(printf 'primary\n%s\n%s\ndaemon-alpha\ndaemon-bravo' "$PROJECTED_LABEL" "$CREATED_LABELS")
 ACTUAL_LABELS=$(printf '%s' "$ORDER_LIST" | jq -r '.result.workspaces[].label')
-[ "$ACTUAL_LABELS" = "$EXPECTED_LABELS" ] || fail "workspace order was not broker, stable primary block, daemons: $ACTUAL_LABELS"
+[ "$ACTUAL_LABELS" = "$EXPECTED_LABELS" ] || fail "workspace order was not primary, stable primary block, legacy agent parents: $ACTUAL_LABELS"
 PRIMARY_IDS=$(printf '%s' "$ORDER_LIST" | jq -r '
   .result.workspaces[]
   | select((.label | startswith("└ ")) or (.label | startswith("broker/")))
@@ -930,8 +930,8 @@ for ROUND in 1 2 3; do
   assert_focus_is "$MAINTAINER_FOCUS" "focus wave $ROUND concurrent spawns"
   assert_raw_presentation_mutations_preserved_since "$WAVE_FOCUS_START" "focus wave $ROUND concurrent spawns"
   WAVE_LABELS=$(projection_labels_from_log "$WAVE_LOG_START")
-  WAVE_EXPECTED=$(printf 'broker\n%s\ndaemon-alpha\ndaemon-bravo' "$WAVE_LABELS")
-  WAVE_ACTUAL=$(lab workspace list | jq -r '.result.workspaces[] | select(.label == "broker" or (.label | startswith("└ ")) or (.label | startswith("daemon-"))) | .label')
+  WAVE_EXPECTED=$(printf 'primary\n%s\ndaemon-alpha\ndaemon-bravo' "$WAVE_LABELS")
+  WAVE_ACTUAL=$(lab workspace list | jq -r '.result.workspaces[] | select(.label == "primary" or (.label | startswith("└ ")) or (.label | startswith("daemon-"))) | .label')
   [ "$WAVE_ACTUAL" = "$WAVE_EXPECTED" ] \
     || fail "focus wave $ROUND lost stable contiguous ordering"$'\n'"expected:"$'\n'"$WAVE_EXPECTED"$'\n'"actual:"$'\n'"$WAVE_ACTUAL"
   WAVE_SECOND_ORDER=$(lab workspace list | jq -r '.result.workspaces[] | select(.label | startswith("daemon-")) | .workspace_id')
@@ -959,7 +959,7 @@ for ROUND in 1 2 3; do
   rm -rf "$PROJECTION_CLEANUP_LOCK_CONTROL"
   assert_focus_is "$MAINTAINER_FOCUS" "focus wave $ROUND concurrent teardowns"
   WAVE_REMAINING=$(lab workspace list | jq -r '.result.workspaces[].label')
-  [ "$WAVE_REMAINING" = $'broker\ndaemon-alpha\ndaemon-bravo' ] \
+  [ "$WAVE_REMAINING" = $'primary\ndaemon-alpha\ndaemon-bravo' ] \
     || fail "focus wave $ROUND cleanup left a projected workspace behind: $WAVE_REMAINING"
 done
 pass "real Herdr lab: three repeated concurrent create/order/cleanup waves have zero active workspace or tab drift"
@@ -1082,7 +1082,7 @@ MULTI_LIST=$(lab workspace list) || fail "could not list multi-home topology"
 MULTI_LABELS=$(printf '%s' "$MULTI_LIST" | jq -r '
   .result.workspaces[]
   | select(
-      .label == "broker"
+      .label == "primary"
       or .label == "daemon-alpha"
       or .label == "daemon-bravo"
       or (.label | startswith("└ "))
@@ -1090,7 +1090,7 @@ MULTI_LABELS=$(printf '%s' "$MULTI_LIST" | jq -r '
   | .label
 ')
 MULTI_EXPECTED=$(printf '%s\n' \
-  broker "$P1_LABEL" "$P2_LABEL" \
+  primary "$P1_LABEL" "$P2_LABEL" \
   daemon-alpha "$A1_LABEL" "$A2_LABEL" \
   daemon-bravo "$B1_LABEL" "$B2_LABEL")
 [ "$MULTI_LABELS" = "$MULTI_EXPECTED" ] \
@@ -1119,7 +1119,7 @@ assert_focus_is "$MAINTAINER_FOCUS" "cross-home concurrent wave"
 assert_raw_presentation_mutations_preserved_since "$WAVE_CROSS_FOCUS" "cross-home concurrent wave"
 CROSS_LIST=$(lab workspace list)
 printf '%s' "$CROSS_LIST" | jq -e '
-  ([.result.workspaces[].label] | index("broker")) as $fm
+  ([.result.workspaces[].label] | index("primary")) as $fm
   | ([.result.workspaces[].label] | index("daemon-alpha")) as $a
   | ([.result.workspaces[].label] | index("daemon-bravo")) as $b
   | $fm != null and $a != null and $b != null
@@ -1128,7 +1128,7 @@ printf '%s' "$CROSS_LIST" | jq -e '
 PCW_LABEL=$(lab workspace get "$(grep '^herdr_workspace_id=' "$HOME_DIR/state/pcw.meta" | cut -d= -f2-)" | jq -r '.result.workspace.label')
 ACW_LABEL=$(lab workspace get "$(grep '^herdr_workspace_id=' "$SECOND_HOME_A/state/acw.meta" | cut -d= -f2-)" | jq -r '.result.workspace.label')
 BCW_LABEL=$(lab workspace get "$(grep '^herdr_workspace_id=' "$SECOND_HOME_B/state/bcw.meta" | cut -d= -f2-)" | jq -r '.result.workspace.label')
-case "$PCW_LABEL" in $'└ pcw · p:'*|broker) ;; *) fail "cross-home primary label wrong: $PCW_LABEL" ;; esac
+case "$PCW_LABEL" in $'└ pcw · p:'*|primary) ;; *) fail "cross-home primary label wrong: $PCW_LABEL" ;; esac
 case "$ACW_LABEL" in $'└ acw · p:'*|daemon-alpha) ;; *) fail "cross-home A label wrong: $ACW_LABEL" ;; esac
 case "$BCW_LABEL" in $'└ bcw · p:'*|daemon-bravo) ;; *) fail "cross-home B label wrong: $BCW_LABEL" ;; esac
 pass "real Herdr lab: concurrent primary/A/B spawns preserve parent order and exact focus"
