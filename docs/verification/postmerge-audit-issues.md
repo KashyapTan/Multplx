@@ -177,6 +177,8 @@ Unsupported CLI versions require a visible compatibility warning and the explici
 Final runtime and live-hook verification belong to the active Codex worker's delivery evidence.
 The accepted activation boundary is managed Codex CLI launchers setting `MX_CODEX_IDLE_CLI=1` automatically, or a direct terminal CLI user explicitly opting in with that flag.
 Inactive sessions keep the bounded foreground protocol, and the renderer selects a separate inactive instruction block rather than claiming a bridge is running.
+Native hook trust review can leave project hooks unloaded even with that launch flag, so readiness also requires a native SessionStart receipt matching the exact provider thread and live lock owner.
+The renderer requires its current `CODEX_THREAD_ID` to match; a flag, receipt UUID or shared process ancestry alone never establishes current-thread readiness.
 Codex Desktop event delivery remains unverified; this CLI integration does not activate the development Desktop conversation.
 
 ## AUD-011/AUD-012: Codex bridge integration review
@@ -186,11 +188,16 @@ Readonly review found suppression receipts written before the uncertainty file i
 If the second write fails after receipt publication, a later explicit retry has no uncertainty keys to release and may permanently suppress a notification that was never enqueued.
 The worker was asked to publish recoverable uncertainty before suppression or bind both facts in one owned transaction, with a failure-boundary regression.
 The write reordering removes the original second-write gap, but review also identified a crash after suppression publication and before the failure marker: pre-existing uncertainty must itself stop silent suppression and require visible reconciliation.
-AUD-011 remains open pending the final uncertainty guard and regression evidence.
+**AUD-011 resolved locally:** uncertainty is published before suppression receipts, and either retained uncertainty or a failure marker refuses silent bridge restart until exact-thread explicit reconciliation.
+The final `codex_idle_runtime_two_cycles_identity_retry_and_cleanup` integration regression passed the crash interleaving with receipts plus uncertainty but no failure marker, refused automatic restart, and allowed explicit retry without discarding earlier successful receipts.
 
 Readonly review also found an unexpected owned-watcher failure recorded only in `.codex-idle-failure` before the bridge exits.
 With the main generation already ended, that private record alone cannot request a handling turn until another human or Stop event occurs.
 The worker was asked to send one bounded operational failure input when the queue transport still works, while retaining durable failure evidence when the queue itself is unavailable.
+**AUD-012 resolved locally:** an unexpected watcher exit creates a canonical durable Check and submits one bounded operational failure input when queue transport remains available.
+The same integration regression passed watcher exit 7, preserved the private failure record, and observed the Check in a fifth queued operational wake.
+Both instrumented runtime integration tests passed in 8.07 seconds; the queue and watcher endpoints are isolated fixtures, not authenticated model providers.
+The separate installed Codex CLI native-hook and queue probe uses a synthetic Responses endpoint; [verification evidence](supervision.md#codex-cli-event-driven-queue-recheck-2026-10-03) records that boundary.
 A suspected raw-queue restart storm was checked against the real watcher scan and marker path and was not substantiated; it is not recorded as a defect.
 
 ## Validation performed

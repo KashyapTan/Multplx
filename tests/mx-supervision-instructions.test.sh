@@ -8,6 +8,23 @@ set -u
 TMP_ROOT=$(mx_test_tmproot mx-supervision-instructions)
 RENDER="$ROOT/bin/mx-supervision-instructions.sh"
 unset MX_CODEX_IDLE_CLI
+export CODEX_THREAD_ID=123e4567-e89b-12d3-a456-426614174000
+export MX_STATE_OVERRIDE="$TMP_ROOT/ready-state"
+export CODEX_HOME="$TMP_ROOT/codex-provider"
+mkdir -p "$MX_STATE_OVERRIDE" "$CODEX_HOME"
+printf '%s\n' "$$" > "$MX_STATE_OVERRIDE/.lock"
+READY_MARKER=$("${MX_RUST_BIN:-$ROOT/target/release/mx}" primitive process-identity "$$")
+write_ready_receipt() {
+  python3 - "$MX_STATE_OVERRIDE" "$CODEX_HOME" "$$" "$READY_MARKER" <<'PY'
+import json, pathlib, sys
+state, home, pid, marker = sys.argv[1:]
+(pathlib.Path(state)/'.codex-idle-hook-ready.json').write_text(json.dumps({
+    'thread':'123e4567-e89b-12d3-a456-426614174000',
+    'codex_home':str(pathlib.Path(home).resolve()), 'executable':'/bin/true',
+    'owner':{'pid':int(pid),'marker':marker}}))
+PY
+}
+write_ready_receipt
 
 test_selected_harness_block_only() {
   local out
@@ -114,7 +131,7 @@ test_codex_inactive_fallback_is_truthful() {
     fi
     ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
     assert_contains "$out" "Mode: Codex bounded foreground fallback; queue bridge inactive." "inactive Codex rendered active bridge instructions"
-    assert_contains "$ordinary" "queue bridge is inactive here" "inactive ordinary-wake line claims bridge ownership"
+    assert_contains "$ordinary" "queue bridge is inactive or native hooks are not ready here" "inactive ordinary-wake line claims bridge ownership"
     assert_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "inactive ordinary-wake line omits bounded waiting"
     assert_not_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge." "inactive renderer leaked active protocol"
     assert_contains "$out" "Desktop event delivery is unverified" "inactive protocol overclaims Desktop support"
@@ -126,6 +143,40 @@ test_codex_inactive_fallback_is_truthful() {
   assert_contains "$out" "Managed \`multplx codex\`" "active protocol lost managed automatic activation"
   assert_contains "$out" "MX_CODEX_IDLE_CLI=1 codex" "active protocol lost direct CLI opt-in"
   pass "Codex renderer separates explicit CLI activation from inactive and unverified Desktop fallback"
+}
+
+test_codex_readiness_is_session_bound() {
+  local out
+  rm "$MX_STATE_OVERRIDE/.codex-idle-hook-ready.json"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "flag alone incorrectly proves native hook readiness"
+  assert_contains "$out" "native hook trust review" "unready session lost native trust diagnostic"
+  write_ready_receipt
+  rm "$MX_STATE_OVERRIDE/.lock"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "candidate hook receipt became active before lock acquisition"
+  printf '%s\n' "$$" > "$MX_STATE_OVERRIDE/.lock"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge" "candidate receipt did not activate after its owner acquired the lock"
+  out=$(env -u CODEX_THREAD_ID MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "missing current thread identity inherited ready status"
+  out=$(MX_CODEX_IDLE_CLI=1 CODEX_THREAD_ID=123e4567-e89b-12d3-a456-426614174001 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "another thread inherited ready status"
+  out=$(MX_CODEX_IDLE_CLI=1 CODEX_THREAD_ID=123e4567-e89b-12d3-a456-426614174000 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge" "matching thread lost native readiness"
+  python3 - "$MX_STATE_OVERRIDE/.codex-idle-hook-ready.json" <<'PY'
+import json, pathlib, sys
+path=pathlib.Path(sys.argv[1]); value=json.loads(path.read_text())
+value['owner']['marker']='recycled-pid-identity'; path.write_text(json.dumps(value))
+PY
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "stale process identity inherited ready status"
+  write_ready_receipt
+  printf '%s\n' 99999999 > "$MX_STATE_OVERRIDE/.lock"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "changed owner inherited ready status"
+  printf '%s\n' "$$" > "$MX_STATE_OVERRIDE/.lock"
+  pass "Codex hook readiness requires a matching native receipt, thread, live identity and newly acquired lock owner"
 }
 
 test_pi_snippet_uses_effective_extension_path() {
@@ -150,4 +201,5 @@ test_conditional_stanzas
 test_repair_lines
 test_cross_harness_ordinary_continuation_and_repair_matrix
 test_codex_inactive_fallback_is_truthful
+test_codex_readiness_is_session_bound
 test_pi_snippet_uses_effective_extension_path

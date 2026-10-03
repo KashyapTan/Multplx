@@ -143,6 +143,8 @@ At session start, `bin/mx-session-start.sh` emits exactly one primary-harness su
 That block owns the live wait shape for the running primary harness: Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interactive stop hook owns a watcher park, Codex's Stop hook owns an exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` activates it and the CLI supports it, and Pi uses its two tracked primary extensions.
 Managed Codex CLI launchers set the flag automatically; direct terminal CLI launches require explicit opt-in, and inactive sessions keep bounded foreground checkpoints.
 Codex Desktop event delivery is unverified and is not automatically activated by the CLI adapter.
+The CLI flag is insufficient without a matched native SessionStart registration receipt; the renderer and Stop adapter share the read-only thread, provider-home and process-identity verifier.
+Skipped native hook review or disabled hooks retain the bounded foreground fallback rather than promising queue delivery.
 Unsupported Codex queue versions emit a visible warning and retain the explicit bounded foreground checkpoint fallback.
 `bin/mx-watch-arm.sh` remains the verified arm wrapper for protocols that call it; it forks the watcher as a tracked child, verifies it is genuinely alive with a fresh liveness beacon, and prints an honest `started`, `attached`, or nonzero `FAILED` status.
 On `attached` it stays live across identity-matched successors, and an unexplained clean child close either attaches to a verified healthy successor or becomes the typed nonzero `watcher: FAILED - cycle ended without an actionable reason` result.

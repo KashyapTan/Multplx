@@ -47,6 +47,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/mx-turnend-guard.sh --claude`, and `bin/mx-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Multplx-shaped hook-bearing root, and starts the exact-thread queue bridge using the original hook payload.
   This path requires `MX_CODEX_IDLE_CLI=1`, set automatically by managed Codex CLI launchers and explicitly by direct CLI opt-in.
+  The native SessionStart `--register` handshake must also publish a readiness receipt matching this thread, `CODEX_HOME` and live session-lock identity; the renderer and Stop adapter use the same read-only verifier.
   Without activation, the existing bounded foreground guard remains; Codex Desktop event delivery is unverified.
   Its short readiness check returns so model generation ends while the bridge owns watcher delivery.
 - Cursor registers a lower-camel `stop` hook in `.cursor/hooks.json`; `bin/mx-cursor-hook.sh stop` owns a tracked watcher park and returns a marked `followup_message` on a real event or bounded failure.

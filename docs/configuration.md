@@ -238,6 +238,8 @@ Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interact
 Managed `multplx codex` and managed Codex worker launches set the flag automatically without a user setting.
 A direct terminal CLI launch requires explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in; without it, use bounded foreground checkpoints.
 Codex Desktop event delivery is unverified and is not automatically activated by this CLI integration.
+Queue activation also requires the tracked native SessionStart `--register` handshake to publish a readiness receipt matching the exact thread, `CODEX_HOME` and live session-lock owner.
+Complete the provider's native one-time hook trust review when prompted; skipped review or disabled hooks retain bounded foreground supervision, and the integration does not override disabled hooks or change private trust state.
 An unsupported Codex queue CLI produces a visible compatibility warning and retains the explicit bounded foreground checkpoint fallback.
 `config/subagent-harness` is a local, gitignored file containing one adapter name for ordinary sub-agent launches; `config/actor-harness` remains its legacy alias.
 When it is absent or contains `default`, sub-agents mirror their parent's harness.

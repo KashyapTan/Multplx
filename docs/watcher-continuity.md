@@ -25,6 +25,9 @@ The durable claim, disposition and acknowledgement contract remains unchanged.
 Codex's Stop hook starts a detached singleton bridge (`bin/mx-codex-idle.sh`) when `MX_CODEX_IDLE_CLI=1` activates it and the installed CLI supports `codex queue --thread --message`.
 Managed Multplx Codex CLI launchers set the flag automatically; direct terminal CLI launches require explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in.
 Without activation, the Stop hook retains the bounded foreground protocol; Codex Desktop event delivery remains unverified.
+The tracked native SessionStart `--register` handshake must also establish a matching readiness receipt before that queue path can run.
+The receipt is bound to the hook-supplied thread and provider home and must match the subsequently acquired session-lock process lifetime; a flag alone or another session's receipt is insufficient.
+Skipped native hook trust review or disabled hooks retain bounded foreground supervision without changing private trust state or forcing hooks enabled.
 The bridge binds the hook-supplied exact thread UUID, canonical `CODEX_HOME`, and live session-lock process identity, owns a watcher child, and queues a marked input for a real actionable event.
 The Stop hook returns without an idle model tool call; subsequent handling turns end normally while the bridge owns watcher continuity.
 Queue receipts suppress repeated transport delivery but never claim, dispose or acknowledge canonical wakes.
