@@ -288,6 +288,7 @@ This issue remains open until the remaining active-surface inventory and migrati
 ## Worker reporting repair validation, 2026-10-03
 
 The implementation is on `fix/worker-reporting-contracts`, based on event-driven supervision commit `86e8377`.
+The canonical delivery is [PR #54](https://github.com/KashyapTan/Multplx/pull/54), which depends on PR #53 and targets `main` for the repository's hosted CI.
 Commits `a99a51e`, `0502492` and `d7c9491` repair metadata bounds, parent reporting and legacy shell source compatibility; `8ddd9f2` strengthens assignment-first identity.
 Commits `b0230fd` and `27b2546` update old test expectations for explicit report receipts, launch-bound task-ID defaults and read-only state listing.
 The initial complete behavior run found two obsolete assertions, and the initial instrumented Rust run found the third; all three were corrected without changing production behavior or weakening refusal checks.
