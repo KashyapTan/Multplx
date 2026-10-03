@@ -22,7 +22,8 @@
     "stop": [
       {
         "command": "./bin/mx-cursor-hook.sh stop",
-        "loop_limit": 1
+        "timeout": 28800,
+        "loop_limit": 200
       }
     ]
   }

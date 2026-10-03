@@ -1029,6 +1029,79 @@ EOF
   pass "Pi process-exit cleanup stops the attached arm child"
 }
 
+test_pi_two_event_cycles_preserve_idle_silence() {
+  local repo="$TMP_ROOT/pi-two-event-root" home="$TMP_ROOT/pi-two-event-home" out status
+  install_pi_watch_extension_fixture "$repo"
+  mkdir -p "$home/state" "$home/config"
+  : > "$home/state/task.meta"
+  cat > "$repo/bin/mx-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+N=1
+[ ! -f "$MX_HOME/state/count" ] || N=$(( $(cat "$MX_HOME/state/count") + 1 ))
+echo "$N" > "$MX_HOME/state/count"
+echo "arm=$N pid=$$ predecessor=${MX_WATCH_PREDECESSOR_ARM_PID:-none}" >> "$MX_HOME/state/arm.log"
+trap 'exit 0' TERM INT
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+while [ ! -e "$MX_HOME/state/event-$N" ]; do sleep 0.02; done
+printf 'signal: fixture-event-%s\n' "$N"
+SH
+  chmod +x "$repo/bin/mx-watch-arm.sh"
+  out=$(MX_RUST_BIN="${MX_RUST_BIN:-$ROOT/target/release/mx}" PLUGIN="$repo/.pi/extensions/mx-primary-pi-watch.ts" MX_HOME="$home" MX_ROOT_OVERRIDE="$repo" NODE_NO_WARNINGS=1 node --input-type=module <<'JS'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+let tool;
+const wakes = [];
+const handlers = new Map();
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const armLog = `${process.env.MX_HOME}/state/arm.log`;
+const rows = () => existsSync(armLog) ? readFileSync(armLog, "utf8").trim().split("\n") : [];
+async function waitFor(predicate) {
+  for (let i = 0; i < 400; i += 1) {
+    if (predicate()) return;
+    await pause(10);
+  }
+  throw new Error("timed out waiting for event delivery");
+}
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  registerCommand() {},
+  registerTool(candidate) { tool = candidate; },
+  async sendUserMessage(content, options) {
+    wakes.push({ content, options, arms: rows().length });
+  },
+};
+writeFileSync(`${process.env.MX_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("initial-fixture-arm", {}, undefined, undefined, {});
+await waitFor(() => rows().length === 1);
+await pause(300);
+if (wakes.length || rows().length !== 1) throw new Error("unsolicited idle wake or arm");
+for (let cycle = 1; cycle <= 2; cycle += 1) {
+  writeFileSync(`${process.env.MX_HOME}/state/event-${cycle}`, "event\n");
+  await waitFor(() => wakes.length === cycle);
+  const wake = wakes[cycle - 1];
+  if (rows().length !== cycle + 1 || wake.arms !== cycle + 1) {
+    throw new Error("successor was not established before delivery");
+  }
+  if (!wake.content.includes(`fixture-event-${cycle}`) || wake.options.deliverAs !== "followUp") {
+    throw new Error("incorrect typed event wake");
+  }
+  await pause(150);
+  if (wakes.length !== cycle || rows().length !== cycle + 1) throw new Error("idle successor loop");
+}
+await handlers.get("session_shutdown")?.({}, {});
+console.log("PASS single initial tool call, two extension-owned successors, shutdown");
+JS
+  )
+  status=$?
+  expect_code 0 "$status" "Pi two event cycles must preserve idle silence and host-owned continuation"
+  assert_contains "$out" "PASS single initial tool call" "Pi model arm was replayed"
+  pass "Pi two event cycles preserve idle silence and extension-owned successors"
+}
+
+test_pi_two_event_cycles_preserve_idle_silence
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder
 test_pi_extension_reports_external_healthy_watcher

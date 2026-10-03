@@ -205,6 +205,7 @@ fn native_nudge_and_supervision_cover_scope_lock_and_usage_edges() {
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("unknown argument"));
     let repair = run(mx()
         .env("MX_RUST_SOURCE_ROOT", &source)
+        .env_remove("MX_CODEX_IDLE_CLI")
         .env("MX_CODEX_WATCH_CHECKPOINT", "45")
         .args([
             "session",
@@ -218,7 +219,7 @@ fn native_nudge_and_supervision_cover_scope_lock_and_usage_edges() {
     assert!(repair.status.success());
     assert_eq!(
         String::from_utf8_lossy(&repair.stdout),
-        "After claiming queued wakes and durably recording disposition plus acknowledgement, repair missing watcher supervision with a foreground checkpoint: bin/mx-watch-checkpoint.sh --seconds 45.\n"
+        "After claiming queued wakes and durably recording disposition plus acknowledgement, the Codex queue bridge is inactive or native hooks are not ready here; restore bounded foreground supervision with bin/mx-watch-checkpoint.sh --seconds 45. Managed Multplx CLI launches set activation automatically; direct Codex CLI requires explicit MX_CODEX_IDLE_CLI=1 opt-in. Complete the provider's native hook trust review and ensure hooks are enabled; a matched SessionStart readiness receipt is required before queue delivery. Desktop event delivery is unverified.\n"
     );
     for (harness, extra, expected) in [
         (

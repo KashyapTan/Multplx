@@ -57,21 +57,51 @@ test_predicate_completed_ordinary_metadata_is_not_inflight() {
   printf '%s\n' \
     'schema_version=2' \
     'kind=daemon' \
-    'canonical_model={"schema_version":2,"task_id":"standing","role":"sub-orchestrator","artifact":"coordination","persistent":true,"private_home":true,"legacy_unknown":false,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    'canonical_model={"schema_version":2,"task_id":"standing","role":"sub-orchestrator","artifact":"coordination","persistent":true,"private_home":true,"legacy_unknown":false,"accepted_brief_revision":1,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
     > "$state/standing.meta"
   printf '%s\n' \
     'schema_version=2' \
     'kind=daemon' \
-    'canonical_model={"schema_version":2,"task_id":"persistent-worker","role":"implementer","artifact":"implementation","persistent":true,"private_home":true,"legacy_unknown":false,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    'canonical_model={"schema_version":2,"task_id":"persistent-worker","role":"implementer","artifact":"implementation","persistent":true,"private_home":true,"legacy_unknown":false,"accepted_brief_revision":1,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
     > "$state/persistent-worker.meta"
   printf '%s\n' 'id=legacy' > "$state/legacy.meta"
   printf '%s\n' 'schema_version=2' 'kind=delivery' 'canonical_model={bad}' \
     > "$state/malformed.meta"
   printf 'pending wake\n' > "$state/.wake-queue"
   mx_supervision_status "$state" 300
-  [ "$MX_SUP_IN_FLIGHT" -ge 1 ] || fail "completed persistent coordinator was not retained in flight"
+  if command -v jq >/dev/null 2>&1; then
+    [ "$MX_SUP_IN_FLIGHT" -eq 3 ] || fail "completed standing assignments should be idle; reopened/legacy/malformed records retained: $MX_SUP_IN_FLIGHT"
+  fi
+  [ "$MX_SUP_NEEDED" = true ] || fail "pending wake lost supervision need"
   [ "$MX_SUP_QUEUE_PENDING" = true ] || fail "pending wake stopped being visible"
-  pass "completed ordinary metadata is excluded; reopened and standing work plus pending wakes remain visible"
+  rm "$state/ordinary.meta" "$state/legacy.meta" "$state/malformed.meta"
+  mx_supervision_status "$state" 300
+  if command -v jq >/dev/null 2>&1; then
+    [ "$MX_SUP_IN_FLIGHT" -eq 0 ] || fail "completed standing assignments still count active"
+  fi
+  [ "$MX_SUP_NEEDED" = true ] || fail "pending done wake must still need supervision"
+  rm "$state/.wake-queue"
+  : > "$state/standing.check.sh"
+  mx_supervision_status "$state" 300
+  [ "$MX_SUP_NEEDED" = true ] || fail "explicit check must still need supervision"
+  rm "$state/standing.check.sh"
+  mx_supervision_status "$state" 300
+  if command -v jq >/dev/null 2>&1; then
+    [ "$MX_SUP_NEEDED" = false ] || fail "completed standing assignments should be idle"
+  fi
+  mkdir -p "$state/wake-inbox"
+  printf '%s\n' '{"schema":"mx-wake-inbox.v1","event_id":"wake-00000000000000000001","record":{"epoch":1,"sequence":1,"kind":"signal","key":"result.status","payload":"done"},"claim":null,"acknowledged_at":null,"disposition":null}' > "$state/wake-inbox/wake-00000000000000000001.json"
+  mx_supervision_status "$state" 300
+  [ "$MX_SUP_QUEUE_PENDING" = true ] && [ "$MX_SUP_NEEDED" = true ] || fail "drained unfinished inbox work lost supervision"
+  printf '%s\n' '{"schema":"mx-wake-inbox.v1","event_id":"wake-00000000000000000001","record":{"epoch":1,"sequence":1,"kind":"signal","key":"result.status","payload":"done"},"claim":null,"acknowledged_at":1,"disposition":{"kind":"waiting","recorded_at":1,"detail":"wait","condition":"review","resume_trigger":"user answer","recheck_after_epoch":null,"follow_up_id":null}}' > "$state/wake-inbox/wake-00000000000000000001.json"
+  mx_supervision_status "$state" 300
+  [ "$MX_SUP_NEEDED" = true ] || fail "acknowledged waiting continuation lost supervision"
+  printf '%s\n' '{"schema":"mx-wake-inbox.v1","event_id":"wake-00000000000000000001","record":{"epoch":1,"sequence":1,"kind":"signal","key":"result.status","payload":"done"},"claim":null,"acknowledged_at":1,"disposition":{"kind":"handled","recorded_at":1,"detail":"done","condition":null,"resume_trigger":null,"recheck_after_epoch":null,"follow_up_id":null}}' > "$state/wake-inbox/wake-00000000000000000001.json"
+  mx_supervision_status "$state" 300
+  if command -v jq >/dev/null 2>&1; then
+    [ "$MX_SUP_NEEDED" = false ] || fail "acknowledged handled inbox history should be idle"
+  fi
+  pass "completed ordinary and standing assignments are idle; reopened, legacy and pending wakes remain supervised"
 }
 
 test_predicate_unhealthy_no_beacon() {

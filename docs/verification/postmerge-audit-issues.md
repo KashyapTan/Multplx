@@ -18,6 +18,12 @@ Documentation corrections below are included with the repair branch.
 | AUD-005 | Low / onboarding | Corrected locally | Published source installers are still described as unavailable in the getting-started guide. |
 | AUD-006 | Verification limits | Explicit follow-up | Broader authenticated providers and live 10/20-task scaling are not established. |
 | AUD-007 | Low / optional test hardening | Not a demonstrated defect | Migration interruption fixtures could compare more retained bytes at each fault boundary. |
+| AUD-008 | Medium / supervision correctness | Fixed and locally verified | Completed standing assignments retain perpetual supervision need. |
+| AUD-009 | Medium / Cursor supervision | Fixed and locally verified | Cursor supervision requires model-authored foreground checkpoints between event turns. |
+| AUD-010 | Medium / Codex supervision | Repair in progress | Codex supervision requires foreground checkpoints despite exact-thread queue support in the installed CLI. |
+| AUD-011 | Medium / integration durability | Repair in progress | A queue receipt published before uncertainty evidence can suppress an unsent wake after a failed second write. |
+| AUD-012 | Medium / integration failure visibility | Review in progress | An idle bridge watcher failure can leave only private failure evidence while the main model stays idle. |
+| AUD-013 | Medium / local HTTP correctness | Fixed and locally verified | Valid delayed headers on inherited nonblocking sockets are rejected with HTTP 400. |
 
 ## AUD-001: failed prerequisite still releases dependent work
 
@@ -107,6 +113,13 @@ These are disclosed limits rather than newly demonstrated implementation failure
 **Follow-up:** keep these limitations visible and scope any new paid trials explicitly.
 Do not describe synthetic graph scale, mocked transports or gated tests as live-provider success.
 
+### Claude and Pi follow-up on 2026-10-03
+
+The event-driven supervision recheck found neither Claude nor Pi installed in the available runtime.
+Focused deterministic hook/extension checks passed, and the Pi fixture now retains two event cycles with one initial tool arm and extension-owned successors.
+This does not close authenticated provider, current installed-version or live user-input responsiveness verification.
+The [current supervision evidence](supervision.md#claude-and-pi-event-driven-recheck-2026-10-03) distinguishes these checks from the dated historical live results.
+
 ## AUD-007: optional migration fault-test strengthening
 
 Current migration tests inject before-intent, after-intent, after-write, progress and commit failures, then recover and roll back.
@@ -116,6 +129,107 @@ No migration defect was found.
 
 **Optional follow-up:** compare the canonical post-recovery state and retained reply/workflow bytes at each boundary, plus the exact pre-apply manifest after rollback.
 This is a test-strengthening opportunity, not a reason to claim the existing recovery mechanism is missing.
+
+## AUD-008: completed standing assignments retain perpetual supervision need
+
+The 2026-10-03 event-driven recheck found that the shared supervision predicate excluded only completed ordinary assignments.
+Completed persistent workers and coordinators remained in flight solely because their retained metadata existed.
+Claude Stop auto-arm separately counted every metadata file, including completed ordinary assignments.
+These projections could retain watcher and heartbeat model wakes after evidenced assignment completion, contrary to the standing-agent idle contract.
+
+**Resolved locally:** all recognized well-formed current completed assignments share the same idle projection.
+Canonical task identity, accepted attempt/brief revision, compatibility fields and explicit completion remain required.
+Legacy, malformed, mismatched and reopened records still require supervision.
+Unread source wakes, claimed or waiting inbox work and explicit checks independently retain supervision, preserving parent validation and external monitoring.
+The Rust observer uses lock-free `observe_unfinished_count`; a read failure conservatively retains need.
+The shell compatibility layer uses that existing Rust projection for inbox work and remains conservative when the runtime is unavailable.
+Claude auto-arm uses the common predicate instead of raw metadata existence.
+No persistent agent or retained result is removed or retired.
+
+Exact focused verification passed after a locked release build:
+
+- `cargo test --locked -p multplx-core supervision::tests`: four tests passed, including an occupied live wake lock, retained claimed inbox bytes, pending wake/check need and reopened/mismatched assignment identity.
+- `target/release/mx test-run tests/mx-claude-stop-autoarm.test.sh tests/mx-turnend-guard.test.sh tests/mx-pi-watch-extension.test.sh`: three scripts passed, zero failures or gates, 101.325 seconds.
+- Shell syntax, documentation audience/local links and whitespace checks passed.
+
+The Claude regression proves a completed standing assignment stays idle until a wake, check or reopened assignment requires supervision.
+The Pi regression proves two typed event cycles with one initial arm call and extension-owned successors before delivery.
+Harness/model APIs are synthetic; fresh authenticated Claude and Pi runs remain the separate AUD-006 limitation.
+
+## AUD-009: Cursor model-owned wait loop
+
+At `f7e4412`, `cursor_hook` accepted only `loop_count: 0`, `.cursor/hooks.json` capped native follow-ups at one, and the primary protocol required repeated 180-second foreground checkpoints.
+The model therefore remained responsible for continuing waits instead of ending generation and resuming only on an event or human input.
+The [public upstream source and Cursor protocol pinned at `e31bc6e`](../upstream.md#event-driven-supervision-source-comparison-2026-10-03) supplied the stop-park comparison; the prohibited local reference directory was not inspected.
+
+Commit `e6fb1c2` replaces that path with the Rust-owned stop park, latest-stop baton, session-process identity checks, tracked child cleanup, bounded failure feedback and explicit automatic follow-up ceiling.
+The existing canonical wake claim, durable disposition and acknowledgement contract is retained.
+The focused Cursor adapter and supervision-renderer scripts passed after a locked release build.
+The isolated real Cursor `2026.10.01-e373342` probe passed two successive watcher follow-up turns, a typed human turn while parked, older-park retirement and away-mode cleanup without model tool calls.
+Controlled native watcher-arm output establishes adapter transport and continuity rather than a live worker-report or forge-poller trial.
+[Cursor verification](cursor-cli.md#event-driven-stop-park-recheck-2026-10-03) contains the exact replay command and retained local evidence pointers.
+
+## AUD-010: Codex checkpoint compatibility gap
+
+The pre-repair primary protocol required another model-authored foreground checkpoint after each wake or quiet timeout.
+The installed Codex CLI now exposes `codex queue --thread --message`; a real isolated exact-thread transport probe showed an idle thread starts a new turn and busy-thread input waits until its current turn completes.
+**Resolved locally:** runtime commit `c88b045` provides a Stop-owned bridge binding the exact thread, `CODEX_HOME` and live session-lock identity while keeping canonical wake disposition separate from queue transport receipts.
+Unsupported CLI versions require a visible compatibility warning and the explicit bounded foreground fallback; the upstream Codex checkpoint protocol alone does not establish this modern local capability.
+[Current Codex verification](supervision.md#codex-cli-event-driven-queue-recheck-2026-10-03) records four focused Rust unit checks, two instrumented runtime integrations and installed CLI native-hook/queue evidence against a synthetic Responses endpoint.
+This evidence does not establish authenticated provider output or Desktop delivery.
+The accepted activation boundary is managed Codex CLI launchers setting `MX_CODEX_IDLE_CLI=1` automatically, or a direct terminal CLI user explicitly opting in with that flag.
+Inactive sessions keep the bounded foreground protocol, and the renderer selects a separate inactive instruction block rather than claiming a bridge is running.
+Native hook trust review can leave project hooks unloaded even with that launch flag, so readiness also requires a native SessionStart receipt matching the exact provider thread and live lock owner.
+The renderer requires its current `CODEX_THREAD_ID` to match; a flag, receipt UUID or shared process ancestry alone never establishes current-thread readiness.
+Codex Desktop event delivery remains unverified; this CLI integration does not activate the development Desktop conversation.
+
+## AUD-011/AUD-012: Codex bridge integration review
+
+These findings concern the new implementation under review, rather than a defect attributed to the previously released checkpoint path.
+Readonly review found suppression receipts written before the uncertainty file in `notify_with`.
+If the second write fails after receipt publication, a later explicit retry has no uncertainty keys to release and may permanently suppress a notification that was never enqueued.
+The worker was asked to publish recoverable uncertainty before suppression or bind both facts in one owned transaction, with a failure-boundary regression.
+The write reordering removes the original second-write gap, but review also identified a crash after suppression publication and before the failure marker: pre-existing uncertainty must itself stop silent suppression and require visible reconciliation.
+**AUD-011 resolved locally:** uncertainty is published before suppression receipts, and either retained uncertainty or a failure marker refuses silent bridge restart until exact-thread explicit reconciliation.
+The final `codex_idle_runtime_two_cycles_identity_retry_and_cleanup` integration regression passed the crash interleaving with receipts plus uncertainty but no failure marker, refused automatic restart, and allowed explicit retry without discarding earlier successful receipts.
+
+Readonly review also found an unexpected owned-watcher failure recorded only in `.codex-idle-failure` before the bridge exits.
+With the main generation already ended, that private record alone cannot request a handling turn until another human or Stop event occurs.
+The worker was asked to send one bounded operational failure input when the queue transport still works, while retaining durable failure evidence when the queue itself is unavailable.
+**AUD-012 resolved locally:** an unexpected watcher exit creates a canonical durable Check and submits one bounded operational failure input when queue transport remains available.
+The same integration regression passed watcher exit 7, preserved the private failure record, and observed the Check in a fifth queued operational wake.
+Both instrumented runtime integration tests passed in 8.07 seconds; the queue and watcher endpoints are isolated fixtures, not authenticated model providers.
+The separate installed Codex CLI native-hook and queue probe uses a synthetic Responses endpoint; [verification evidence](supervision.md#codex-cli-event-driven-queue-recheck-2026-10-03) records that boundary.
+A suspected raw-queue restart storm was checked against the real watcher scan and marker path and was not substantiated; it is not recorded as a defect.
+
+## Initial broad validation of event-driven repairs
+
+The first broad release run exposed startup-hook indexing and missing runtime-inventory entries; commit `3698ee1` selects the startup command by identity and inventories the new idle adapter.
+Commit `9fcb3b3` corrected provenance naming by retaining exact source URLs in the existing upstream reference owner; the naming check and documentation audience check passed.
+The `mx-launcher-connection`, `mx-report` and `mx-viz` scripts passed their focused rerun in 21.723 seconds; the first two have no substantiated new defect or code repair.
+Separate Viz investigation reproduced valid delayed HTTP headers rejected with status 400 in three of three runs; AUD-013 records the parser repair and passing regression.
+A subsequent coverage run found a stale exact inactive-Codex repair-string assertion; commit `ef75715` corrected that test expectation, and the full clean rerun passed.
+[Final event-driven validation](supervision.md#final-event-driven-integration-validation-2026-10-03) records the passing 134-script suite, 807 Rust tests and unchanged-exclusion 93.10 percent line coverage.
+The older validation sections below retain their original revision and evidence scope.
+
+## AUD-013: valid delayed HTTP headers are rejected on nonblocking sockets
+
+The broad behavior run's Viz stale-caller failure included an HTTP 400 response, rather than proving a snapshot-reader stall.
+A separate isolated dashboard probe connected to the server, waited 100 ms and sent a valid GET request; all three attempts received HTTP 400.
+The nonblocking listener's accepted socket retained its mode on this macOS host.
+The shared HTTP parser treated an early `WouldBlock` before headers arrived as malformed input.
+
+**Resolved locally:** the bounded HTTP parser restores blocking mode before reading request framing.
+The existing five-second read/write timeouts and all framing limits remain unchanged.
+A portable Rust regression explicitly marks the accepted socket nonblocking, then sends delayed fragmented headers.
+The Viz behavior fixture also requires HTTP 200 from a real delayed, fragmented client connection.
+The same isolated dashboard probe returned HTTP 200 on all three attempts after the fix.
+
+`cargo test --locked -p multplx-services http::tests` passed all four tests after the repair.
+The locked release build passed before the final focused behavior rerun.
+`target/release/mx test-run tests/mx-launcher-connection.test.sh tests/mx-report.test.sh tests/mx-viz.test.sh` passed all three scripts with zero failures or gates in 22.348 seconds.
+This is an HTTP framing repair, not a relaxation of launcher lock, backend-command or stale-cache timing assertions.
+The launcher and report failures did not reproduce in their focused rerun and have no substantiated code repair.
 
 ## Validation performed
 

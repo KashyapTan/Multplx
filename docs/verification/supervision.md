@@ -212,3 +212,79 @@ A 200-process comparison of the same `blocked` transition-policy decision took 0
 The comparison is a process-bound shadow check rather than a claim about future in-process service performance, and it shows no material regression at the current compatibility boundary.
 All 18 Portion 02 legacy source files remain present.
 A bounded caller inventory found 78 current shell, test, skill, and documentation files referencing the transferred helper families, so no deletion or caller cutover is eligible in this portion.
+
+## Claude and Pi event-driven recheck (2026-10-03)
+
+The available environment has Node 24.14.1 and tmux 3.7c, but neither a Claude executable nor a Pi executable or installed Pi coding-agent package.
+No fresh authenticated Claude or Pi model run is claimed, and historical versions above remain dated evidence.
+The existing credentialed tests were inspected for isolation without launching, installing a provider, copying authentication material or changing a private operational home.
+The full Pi live test also performs unrelated Recap and presentation model calls, so it was not used as a minimal continuity probe.
+
+The baseline focused release checks passed both `tests/mx-claude-stop-autoarm.test.sh` and `tests/mx-pi-watch-extension.test.sh`, with no failures or gates.
+Claude fixtures establish hook-owned arm and rewake translation, idle silence, single-flight ownership, AFK and live-other-owner boundaries.
+Pi fixtures establish an extension-owned successor before `followUp` wake delivery, bounded failure restoration and child retirement.
+The retained two-event Pi regression additionally checks a silent idle interval, two distinct event cycles, exactly one initial arm-tool invocation and extension-owned successor creation before each typed wake.
+Its Pi API and provider are synthetic; the real tracked TypeScript extension and real isolated child processes run under Node.
+The responsiveness assertion concerns the mocked host event loop and does not establish interactive provider responsiveness.
+
+The common supervision predicate now excludes well-formed current completed persistent and coordinator assignments as well as ordinary assignments.
+Unread or unfinished wakes, explicit checks, reopened current work and unknown or malformed metadata continue to require supervision.
+The observer does not acquire a wake lock or alter claim/inbox state.
+The four focused Rust predicate tests pass, including an occupied live wake lock, byte-preserved claimed inbox work, reopened assignments and mismatched task/revision identity.
+After the locked release build, the final Claude auto-arm, turn-end guard and Pi watcher selection passed all three scripts with no failures or gates in 101.325 seconds.
+[AUD-008](postmerge-audit-issues.md#aud-008-completed-standing-assignments-retain-perpetual-supervision-need) records the corrected completed-standing-assignment projection and exact checks.
+Completed assignment evidence does not claim that a parent has validated full delivery; unread completion wakes retain the reconciliation path.
+No standing agent is deleted, retired or automatically reused by this projection.
+
+Fresh installed-version, credentialed two-cycle, user-input responsiveness and absence-of-model-loop evidence remains required for current Claude and Pi runtimes when they are available.
+
+## Codex CLI event-driven queue recheck (2026-10-03)
+
+Installed `codex-cli 0.160.0` was exercised in fresh temporary homes using a local synthetic Responses endpoint, without credentials or changes to existing operational homes.
+The retained probe is [`tests/fixtures/codex-idle-cli-probe.mjs`](../../tests/fixtures/codex-idle-cli-probe.mjs), invoked with absolute paths to the built `mx` and repository.
+It loads the tracked SessionStart registration command, reviews only the fixture's native hook hashes, and starts without a preseeded session lock.
+The registration receipt identified the exact returned thread UUID, canonical `CODEX_HOME`, executable and live CLI server process.
+The final fixture `/tmp/mx-codex-hook-research.Tu7Gmf/evidence.json` retained five actual Stop events for that UUID, each with a distinct turn ID and `stop_hook_active=false`.
+An idle queued message started after 10,027 ms; an ordinary human prompt started after 36 ms; a message queued while busy started after the busy turn completed (event indices 56 and 60).
+Another thread received zero turns.
+This verifies the installed CLI transport and native hook boundary against a synthetic model, not authenticated provider output or Desktop support.
+
+Four focused Rust unit tests and two instrumented runtime integration tests passed.
+The runtime fixture uses the actual `mx` owner with isolated queue and watcher executables: two report wakes reach the same bridge without a second hook invocation, while repeated Stop cannot duplicate delivery.
+It also checks no-lock and stale-lock registration before lock acquisition, competing or malformed identity refusal, unsupported queue diagnostics, uncertain receipt recovery, watcher-failure durable Check delivery, exact-thread manual cleanup, and retirement after owner loss.
+The installed-layout wrapper uses `MX_RUST_BIN` without a release build tree.
+A managed-launch fixture establishes Codex activation and removes inherited activation from Claude and Pi launches.
+Canonical wake disposition and acknowledgement remain model responsibilities; queue acceptance alone does not settle a wake.
+
+[OpenAI hook documentation](https://learn.chatgpt.com/docs/hooks) describes synchronous Stop continuation and asynchronous output limits.
+The supported idle wake path instead uses the installed CLI's `queue --thread --message`; the tagged [queue service](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/queue/src/service.rs) distinguishes idle dispatch from busy queuing.
+Managed CLI activation still requires enabled and natively trusted owned hooks plus exact-thread readiness after canonical session-lock acquisition.
+Older CLI versions, disabled or untrusted hooks, direct CLI launches without explicit opt-in, and unverified Desktop sessions retain a visible bounded foreground fallback.
+
+
+## Final event-driven integration validation (2026-10-03)
+
+The local macOS integration branch builds on open PR #52.
+The final production source includes the HTTP framing repair at `2df70c7`; test correction `ef75715` and documentation correction `aaa37d5` complete the tested revision.
+The locked workspace release build passed in 1 minute 8 seconds after the HTTP repair.
+
+`target/release/mx test-run --all --jobs auto --json /private/tmp/mx-event-idle-final-all.json` passed all 134 scripts with zero failures and eight explicit gates in 441,817 ms.
+The inventory check accounts for all 134 scripts.
+The final clean coverage command was:
+
+```sh
+cargo llvm-cov --locked --workspace --all-targets --no-fail-fast \
+  --ignore-filename-regex '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)' \
+  --fail-under-lines 93
+```
+
+It exited zero with 807 Rust tests across 32 result groups, zero failures or ignored tests, and 68,951 of 74,061 lines covered (93.10 percent).
+The existing exclusion expression is unchanged; the new Codex idle module is covered.
+The retained local coverage log is `/private/tmp/mx-event-idle-clean-coverage.log`.
+An earlier coverage run exposed a stale exact repair-string assertion; `ef75715` corrected the expected inactive-readiness text before this full clean rerun.
+Final formatting, strict all-target/all-feature Clippy, documentation audience/local links (101 surfaces, 583 links), shell syntax, Node syntax, inventory and shadow checks passed.
+
+[The audit log](postmerge-audit-issues.md#initial-broad-validation-of-event-driven-repairs) retains initial failures and their dispositions.
+[Cursor evidence](cursor-cli.md#event-driven-stop-park-recheck-2026-10-03), the Claude/Pi recheck above and the Codex queue recheck above retain their provider-specific limits.
+These results do not claim a fresh Linux run, hosted CI, authenticated Claude/Pi run or Codex Desktop delivery.
+The user's existing runtime, operational homes and private configuration were unchanged.

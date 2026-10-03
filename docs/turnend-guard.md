@@ -26,12 +26,14 @@ That check keeps sub-agent linked worktrees inert because their git dir differs 
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 The exact root `AGENTS.md` filename scopes the primary backstop.
 
-For an in-scope primary, the guard counts active work from `state/*.meta`, excluding only a valid schema-2 canonical ordinary assignment whose schedule is `completed`.
-The exclusion requires an exact task-id match, a nonpersistent non-coordinator assignment, a current attempt identity, and matching canonical compatibility fields.
-Legacy, malformed, oversized, unreadable, persistent and coordinator records remain in flight conservatively.
+For an in-scope primary, the guard counts active work from `state/*.meta`, excluding only a valid schema-2 canonical assignment whose schedule is `completed`.
+The exclusion requires an exact task-id match, a recognized assignment role and output, a current accepted attempt identity, and matching canonical compatibility fields.
+Legacy, malformed, oversized and unreadable records remain in flight conservatively.
 The shell compatibility predicate uses `jq` for this projection and conservatively counts all metadata when `jq` is unavailable.
-Reopened or otherwise nonterminal ordinary work is counted again; pending wakes remain visible and the existing identity-matched watcher checks are unchanged.
-The default cross-harness mode exits silently with no work in flight.
+Completed persistent workers and coordinators remain available without requiring periodic supervision solely because their metadata is retained.
+Reopened or otherwise nonterminal work is counted again; unread and unfinished wakes and explicit checks continue to require supervision.
+Evidenced assignment completion does not imply parent validation of full delivery; pending result wakes retain the parent reconciliation path.
+The default cross-harness mode exits silently when no active work, pending wake or explicit check requires supervision.
 Otherwise it calls `mx_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/mx-wake-lib.sh`, the same identity-matched lock and fresh-beacon check used by `bin/mx-watch-arm.sh`.
 A stale beacon blocks even when a watcher pid is live.
 A fresh leftover beacon blocks when the lock is missing, dead, or identity-mismatched.
@@ -43,15 +45,22 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 ## Harness integrations
 
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/mx-turnend-guard.sh --claude`, and `bin/mx-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
-- Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Multplx-shaped hook-bearing root, and passes the original payload to the shared guard.
-- Cursor registers a lower-camel `stop` hook in `.cursor/hooks.json`; `bin/mx-cursor-hook.sh stop` translates a shared status-2 block into `followup_message` and the tracked hook caps native continuation at `loop_limit: 1`.
+- Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Multplx-shaped hook-bearing root, and starts the exact-thread queue bridge using the original hook payload.
+  This path requires `MX_CODEX_IDLE_CLI=1`, set automatically by managed Codex CLI launchers and explicitly by direct CLI opt-in.
+  The native SessionStart `--register` handshake must also publish a readiness receipt matching this thread, `CODEX_HOME` and live session-lock identity; the renderer and Stop adapter use the same read-only verifier.
+  Without activation, the existing bounded foreground guard remains; Codex Desktop event delivery is unverified.
+  Its short readiness check returns so model generation ends while the bridge owns watcher delivery.
+- Cursor registers a lower-camel `stop` hook in `.cursor/hooks.json`; `bin/mx-cursor-hook.sh stop` owns a tracked watcher park and returns a marked `followup_message` on a real event or bounded failure.
+  The hook has an eight-hour timeout and `loop_limit: 200`, with an inner automatic follow-up ceiling of 180 and three failure notices per session by default.
 - Pi listens for `agent_settled` in `.pi/extensions/mx-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 
-Claude and Codex can block a Stop directly with exit status 2 and stderr.
-Cursor cannot consume that shell convention directly, so its adapter emits one JSON follow-up only when `loop_count` is zero.
+Claude can block a Stop directly with exit status 2 and stderr.
+An activated Codex CLI Stop path starts its queue bridge and returns; unsupported queue capability or retained submission failure emits a visible warning without a repeating blocking continuation.
+Without activation, the legacy bounded foreground guard applies instead of promising queue delivery.
+Cursor cannot consume that shell convention directly, so its adapter keeps the stop hook pending while the model is idle and emits one JSON follow-up for an actionable watcher close.
+The latest stop owns the home baton; away mode, ownership loss, termination, and a newer claim retire an older park without a stale follow-up.
 Cursor stop hooks are interactive-only and do not fire under `agent --print`.
-Both payloads carry `stop_hook_active`.
-In the default Codex mode, a true value lets the second stop finish after one forced continuation.
+The shared legacy guard still accepts `stop_hook_active` to bound blocking continuations outside the modern Codex queue path.
 
 Claude runs the guard with `--claude`, which ignores `stop_hook_active` and cooperates with the Stop-owned auto-arm.
 Claude Code sets `stop_hook_active=true` on every stop after any stop-hook continuation, including `asyncRewake` rewakes, which re-opened the 2026-07-21 blind window under the default one-shot behavior.
@@ -72,14 +81,14 @@ That warning uses `bin/mx-supervision-instructions.sh --repair-line`, so it alwa
 
 - Child sub-agent worktrees are outside scope.
 - A valid persistent-sub-agent home is in scope; an idle persistent-sub-agent endpoint remains healthy because it has no supervision need.
-- Claude and Codex block directly, Cursor translates one bounded native follow-up, and Pi uses bounded passive follow-ups.
+- Claude blocks directly, activated Codex CLI owns an exact-thread queue bridge where supported, inactive Codex sessions retain their bounded foreground guard, Cursor owns its parked watcher cycle with bounded failure follow-ups, and Pi uses bounded passive follow-ups.
 - Missing `jq` or unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
 
 ## Regression coverage
 
 `tests/mx-turnend-guard.test.sh` covers the predicate, main and persistent-sub-agent primary scope, child-worktree exclusion, `MX_HOME` and `MX_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, and the existing registrations.
-`tests/mx-cursor-adapter.test.sh` covers Cursor translation and the one-follow-up bound.
+`tests/mx-cursor-adapter.test.sh` covers successive Cursor event follow-ups, park supersession, away mode, owner loss, signal cleanup and bounded failure feedback.
 `tests/mx-supervision-instructions.test.sh` covers recovery-line ownership.
 `MX_PI_LIVE_E2E=1 tests/mx-pi-primary-live-e2e.test.sh` is the opt-in isolated Pi path.
 [`verification/supervision.md`](verification/supervision.md#turn-end-guard) records the active cross-harness empirical evidence, including the 2026-07-24 Claude `asyncRewake` revalidation.

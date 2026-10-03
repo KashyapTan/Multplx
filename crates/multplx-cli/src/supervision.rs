@@ -1,8 +1,11 @@
 //! Native supervision entry-point transactions.
 
+pub(crate) mod codex_idle;
+
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -1182,34 +1185,15 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
             0
         }
         "stop" => {
-            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(payload) else {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
                 cursor_json(serde_json::json!({}));
                 return 0;
             };
-            let loop_count = value
-                .get("loop_count")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(0);
-            if payload.is_empty() || loop_count != 0 {
+            if !value.is_object() {
                 cursor_json(serde_json::json!({}));
                 return 0;
             }
-            let Some(object) = value.as_object_mut() else {
-                cursor_json(serde_json::json!({}));
-                return 0;
-            };
-            object.insert(
-                "stop_hook_active".to_owned(),
-                serde_json::Value::Bool(false),
-            );
-            let guard_payload = serde_json::to_string(&value).expect("JSON value renders");
-            match command_payload(&bin.join("mx-turnend-guard.sh"), &[], &guard_payload) {
-                Ok((2, output)) => {
-                    cursor_json(serde_json::json!({"followup_message": output.trim_end()}));
-                }
-                _ => cursor_json(serde_json::json!({})),
-            }
-            0
+            cursor_stop_park(&value, source_root)
         }
         _ => {
             eprintln!("usage: mx-cursor-hook.sh session-start|pre-tool|subagent-start|stop");
@@ -1218,12 +1202,235 @@ pub(crate) fn cursor_hook(args: &[std::ffi::OsString], payload: &str, source_roo
     }
 }
 
+/// Cursor awaits this stop hook while model generation is fully idle.
+fn cursor_stop_park(document: &serde_json::Value, source_root: &Path) -> i32 {
+    use multplx_domain::operational_input::{Kind, construct};
+    use std::sync::atomic::Ordering;
+    let quiet = || {
+        cursor_json(serde_json::json!({}));
+        0
+    };
+    let loop_count = match document.get("loop_count") {
+        None => 0,
+        Some(value) => match value.as_u64() {
+            Some(count) => count,
+            None => return quiet(),
+        },
+    };
+    if std::env::var("PI_CODING_AGENT").as_deref() == Ok("true")
+        && std::env::var_os("CURSOR_AGENT").is_none()
+        && std::env::var_os("CURSOR_INVOKED_AS").is_none()
+    {
+        return quiet();
+    }
+    let root = std::env::var_os("MX_ROOT_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| source_root.to_owned());
+    let home = std::env::var_os("MX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.clone());
+    let state = std::env::var_os("MX_STATE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("state"));
+    if !multplx_core::primary_scope::matches(&root, &state) {
+        return quiet();
+    }
+    let processes = SystemProcessProbe::default();
+    let Ok(owner_record) = fs::read_to_string(state.join(".lock")) else {
+        return quiet();
+    };
+    let Ok(owner) = owner_record.trim().parse::<u32>() else {
+        return quiet();
+    };
+    let mut ancestor = std::process::id();
+    let mut owned = false;
+    for _ in 0..12 {
+        if ancestor == owner {
+            owned = true;
+            break;
+        }
+        let Ok(row) = processes.ancestry_row(ancestor) else {
+            break;
+        };
+        if row.parent_pid <= 1 {
+            break;
+        }
+        ancestor = row.parent_pid;
+    }
+    let Ok(owner_identity) = processes.identity(owner) else {
+        return quiet();
+    };
+    if !owned {
+        return quiet();
+    }
+    let baton_path = state.join(".cursor-park-owner");
+    let lock_path = state.join(".cursor-park-owner.lock");
+    let baton = {
+        let Ok(_lock) = DirectoryLock::acquire_wait(&lock_path, &processes, Duration::from_secs(1))
+        else {
+            return quiet();
+        };
+        let sequence = fs::read_to_string(&baton_path)
+            .ok()
+            .and_then(|text| text.split_whitespace().next()?.parse::<u64>().ok())
+            .unwrap_or(0)
+            .saturating_add(1);
+        let baton = format!("{sequence} {}\n", std::process::id());
+        if multplx_core::filesystem::atomic_replace(&baton_path, baton.as_bytes(), 0o600).is_err() {
+            return quiet();
+        }
+        baton
+    };
+    let still_ours = || {
+        !state.join(".afk").exists()
+            && fs::read_to_string(&baton_path).is_ok_and(|record| record == baton)
+            && fs::read_to_string(state.join(".lock")).is_ok_and(|record| record == owner_record)
+            && processes
+                .identity(owner)
+                .is_ok_and(|identity| identity == owner_identity)
+    };
+    let needed = || autoarm_needed(&state);
+    if !still_ours() || !needed() {
+        return quiet();
+    }
+    let session = document
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let budget_path = state.join(".turnend-cursor-blocks");
+    let emit = |kind: Kind, body: &str, failure: bool| {
+        let Ok(_lock) = DirectoryLock::acquire_wait(&lock_path, &processes, Duration::from_secs(1))
+        else {
+            return quiet();
+        };
+        if !still_ours() {
+            return quiet();
+        }
+        if failure {
+            let prior = fs::read_to_string(&budget_path)
+                .ok()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+                .filter(|value| {
+                    value.get("session").and_then(serde_json::Value::as_str) == Some(session)
+                })
+                .and_then(|value| value.get("count").and_then(serde_json::Value::as_u64))
+                .unwrap_or(0);
+            if prior >= environment_u64("MX_CURSOR_TURNEND_BLOCK_BUDGET", 3).max(1) {
+                return quiet();
+            }
+            let record = serde_json::json!({"session": session, "count": prior + 1}).to_string();
+            if multplx_core::filesystem::atomic_replace(&budget_path, record.as_bytes(), 0o600)
+                .is_err()
+            {
+                return quiet();
+            }
+        } else {
+            let _ = fs::remove_file(&budget_path);
+        }
+        match construct(kind, body) {
+            Some(message) => cursor_json(serde_json::json!({"followup_message":message})),
+            None => cursor_json(serde_json::json!({})),
+        }
+        0
+    };
+    let ceiling = environment_u64("MX_CURSOR_TURNEND_LOOP_CEILING", 180).clamp(1, 180);
+    if loop_count >= ceiling {
+        if loop_count > ceiling {
+            return quiet();
+        }
+        return emit(
+            Kind::TurnEndGuard,
+            "Cursor automatic supervision follow-up ceiling reached. Queued wakes remain durable. Claim queued wakes, record each disposition and acknowledge after handling. Automatic supervision resumes after the next human message.",
+            false,
+        );
+    }
+    let Ok((shutdown, _)) = install_watcher_signals() else {
+        return quiet();
+    };
+    let capture_path = state.join(format!(".cursor-park-output.{}", std::process::id()));
+    let attempts = environment_u64("MX_CURSOR_PARK_ATTEMPTS", 2).clamp(1, 3);
+    let mut detail = String::new();
+    for _ in 0..attempts {
+        if shutdown.load(Ordering::SeqCst) || !still_ours() || !needed() {
+            return quiet();
+        }
+        let Ok(capture) = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&capture_path)
+        else {
+            break;
+        };
+        let Ok(stderr) = capture.try_clone() else {
+            let _ = fs::remove_file(&capture_path);
+            break;
+        };
+        let child = Command::new(source_root.join("bin/mx-watch-arm.sh"))
+            .env("MX_HOME", &home)
+            .env("MX_ROOT_OVERRIDE", &root)
+            .env("MX_STATE_OVERRIDE", &state)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(capture))
+            .stderr(Stdio::from(stderr))
+            .process_group(0)
+            .spawn();
+        let Ok(mut child) = child else {
+            let _ = fs::remove_file(&capture_path);
+            break;
+        };
+        let mut cancelled = false;
+        loop {
+            if shutdown.load(Ordering::SeqCst) || !still_ours() || !needed() {
+                terminate_group(&mut child);
+                cancelled = true;
+                break;
+            }
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Err(_) => {
+                    terminate_group(&mut child);
+                    break;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            }
+        }
+        detail = fs::read_to_string(&capture_path).unwrap_or_default();
+        let _ = fs::remove_file(&capture_path);
+        if cancelled {
+            return quiet();
+        }
+        if actionable_output(&detail).is_some() {
+            let reasons = detail
+                .lines()
+                .filter(|line| actionable_output(line).is_some())
+                .take(8)
+                .collect::<Vec<_>>()
+                .join("\n");
+            return emit(
+                Kind::Watcher,
+                &format!(
+                    "Multplx watcher event:\n{reasons}\nClaim queued wakes with bin/mx-wake-drain.sh, record each durable disposition and acknowledge only after handling. The Cursor stop hook owns the next watcher cycle; end the turn after handling, without a foreground checkpoint or manual arm."
+                ),
+                false,
+            );
+        }
+    }
+    if shutdown.load(Ordering::SeqCst) || !still_ours() || !needed() {
+        return quiet();
+    }
+    emit(
+        Kind::TurnEndGuard,
+        &format!(
+            "Cursor stop-hook watcher could not establish a live cycle after {attempts} bounded attempts. Inspect the watcher failure and repair its cause; do not enter a repeating model-authored checkpoint loop. Queued wakes remain durable.\n{}",
+            detail.lines().take(8).collect::<Vec<_>>().join("\n")
+        ),
+        true,
+    )
+}
+
 fn autoarm_needed(state: &Path) -> bool {
-    fs::read_dir(state).is_ok_and(|entries| {
-        entries
-            .flatten()
-            .any(|entry| entry.path().extension().and_then(|value| value.to_str()) == Some("meta"))
-    })
+    multplx_core::supervision::inspect(state, grace(), SystemTime::now()).needed
 }
 
 fn write_autoarm_epoch(state: &Path, outcome: &str) {
@@ -4241,7 +4448,7 @@ pub(crate) fn guard(root: &Path, home: &Path, source_root: &Path, detected_harne
             .unfinished_count(&SystemProcessProbe::default())
             .is_ok_and(|count| count > 0);
     let marker = state.join(".guard-watcher-stale-banner");
-    if status.in_flight == 0 {
+    if !status.needed && !queue_pending {
         if !read_only {
             let _ = fs::remove_file(marker);
         }
@@ -4390,6 +4597,12 @@ pub(crate) fn turnend_guard(
     source_root: &Path,
     detected_harness: &str,
 ) -> i32 {
+    if detected_harness == "codex"
+        && args.is_empty()
+        && std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1")
+    {
+        return codex_idle::entry(args, payload, root, home, source_root);
+    }
     let mut claude = false;
     for argument in args {
         if argument == "--claude" {

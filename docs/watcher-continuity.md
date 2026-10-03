@@ -15,6 +15,25 @@ A numeric session-lock owner that fails the shared `mx_harness_pid_alive` predic
 The stale-owner claim occurs only after the existing AFK and supervision-need gates pass.
 While supervision is still needed and away mode remains inactive, an actionable close or typed failure wakes the idle session through exit 2.
 
+Cursor's tracked interactive `stop` hook (`bin/mx-cursor-hook.sh stop`) owns a parked arm child after generation ends.
+Only the session-lock owner's ancestry may claim the home baton, and each newer stop supersedes the previous claim.
+The hook waits without model commands or tokens, emits one marked follow-up for a real watcher reason, and parks again when that handling turn ends.
+Away mode, lost owner identity, termination, or a newer stop retires the old tracked process group and capture file.
+Human input can run while a hook is parked; the older claim remains eligible for a real event until that human turn's next stop publishes the newer claim.
+The durable claim, disposition and acknowledgement contract remains unchanged.
+
+Codex's Stop hook starts a detached singleton bridge (`bin/mx-codex-idle.sh`) when `MX_CODEX_IDLE_CLI=1` activates it and the installed CLI supports `codex queue --thread --message`.
+Managed Multplx Codex CLI launchers set the flag automatically; direct terminal CLI launches require explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in.
+Without activation, the Stop hook retains the bounded foreground protocol; Codex Desktop event delivery remains unverified.
+The tracked native SessionStart `--register` handshake must also establish a matching readiness receipt before that queue path can run.
+The receipt is bound to the hook-supplied thread and provider home and must match the subsequently acquired session-lock process lifetime; a flag alone or another session's receipt is insufficient.
+Skipped native hook trust review or disabled hooks retain bounded foreground supervision without changing private trust state or forcing hooks enabled.
+The bridge binds the hook-supplied exact thread UUID, canonical `CODEX_HOME`, and live session-lock process identity, owns a watcher child, and queues a marked input for a real actionable event.
+The Stop hook returns without an idle model tool call; subsequent handling turns end normally while the bridge owns watcher continuity.
+Queue receipts suppress repeated transport delivery but never claim, dispose or acknowledge canonical wakes.
+An uncertain queue result retains a failure and requires explicit same-session recovery with `--retry`; recovery may duplicate an already accepted input, so wake handling stays idempotent.
+Away mode, ownership loss, or no remaining supervision need retires the bridge and its tracked watcher.
+
 ## Actionable wake ordering
 
 After an actionable Pi child close, the adapter starts and verifies one singleton successor before it delivers the original wake.
@@ -29,7 +48,8 @@ The durable wake queue preserves actionable events during the residual active-tu
 No PreToolUse hook denies system commands based on watcher status.
 The model no longer re-arms after ordinary wakes.
 Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains defense in depth for the manual recovery path.
-Codex retains its bounded foreground checkpoint protocol.
+Cursor uses the same next-turn-end re-arm ordering as Claude, with a separate bounded failure-feedback budget and automatic follow-up ceiling.
+Codex uses bounded foreground checkpoints when CLI bridge activation is absent, or as an explicit compatibility fallback when queue capability is unavailable and the Stop hook has emitted a visible warning.
 No adapter starts a replacement with shell `&`.
 
 The turn-end guard remains the final backstop rather than the normal continuity mechanism and cooperates with the auto-arm in its `--claude` mode.
@@ -75,6 +95,9 @@ Only the watcher process touches `state/.last-watcher-beat`; no helper process c
 
 The goal is continuity without a Pi model-memory re-arm step.
 No zero-latency guarantee is claimed because lock verification, watcher startup, and bounded retry delays remain deliberate safety work.
-Claude depends on the Stop `asyncRewake` rewake, and Codex retains bounded foreground checkpoints.
+Claude depends on the Stop `asyncRewake` rewake, and Codex depends on explicit CLI bridge activation and exact-thread queue support for turn-ended event delivery.
+Unsupported Codex queue versions retain the explicit bounded foreground checkpoint fallback after a visible warning.
+Cursor requires interactive `agent --trust`; print mode has no stop events.
+The hook timeout is eight hours, its failure notice budget defaults to three, and automatic follow-ups stop with an explicit notice at 180 consecutive hook-driven turns until the next human message.
 
 [`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current per-harness live evidence, the 2026-07-24 Stop-owned Claude auto-arm results, and exact opt-in commands.

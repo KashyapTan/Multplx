@@ -275,6 +275,25 @@ test_lifecycle_cache_and_read_only_contract() {
   test_port=$PORT_BASE
   url=$(start_viz "$home" "$test_port" 60 0.2 "$readers") || fail "dashboard did not start"
   [ "$url" = "http://127.0.0.1:$test_port/" ] || fail "dashboard URL mismatch: $url"
+  node --input-type=module - "$url" <<'JS' || fail "valid delayed request headers were rejected"
+import { createConnection } from "node:net";
+const url = new URL(process.argv[2]);
+await new Promise((resolve, reject) => {
+  const socket = createConnection({ host: url.hostname, port: Number(url.port) });
+  let response = "";
+  socket.setTimeout(2000, () => socket.destroy(new Error("delayed request timed out")));
+  socket.once("connect", () => {
+    setTimeout(() => socket.write("GET / HTTP/1.1\r\nHost:"), 100);
+    setTimeout(() => socket.write(" 127.0.0.1\r\nConnection: close\r\n\r\n"), 150);
+  });
+  socket.on("data", (chunk) => { response += chunk.toString(); });
+  socket.once("error", reject);
+  socket.once("end", () => {
+    if (!response.startsWith("HTTP/1.1 200 ")) reject(new Error(response.split("\r\n")[0]));
+    else resolve();
+  });
+});
+JS
   record="$home/state/.viz/server.run"
   [ -f "$record" ] || fail "dashboard did not publish its run record"
   pid=$(record_value "$record" pid)

@@ -7,12 +7,30 @@ set -u
 
 TMP_ROOT=$(mx_test_tmproot mx-supervision-instructions)
 RENDER="$ROOT/bin/mx-supervision-instructions.sh"
+unset MX_CODEX_IDLE_CLI
+export CODEX_THREAD_ID=123e4567-e89b-12d3-a456-426614174000
+export MX_STATE_OVERRIDE="$TMP_ROOT/ready-state"
+export CODEX_HOME="$TMP_ROOT/codex-provider"
+mkdir -p "$MX_STATE_OVERRIDE" "$CODEX_HOME"
+printf '%s\n' "$$" > "$MX_STATE_OVERRIDE/.lock"
+READY_MARKER=$("${MX_RUST_BIN:-$ROOT/target/release/mx}" primitive process-identity "$$")
+write_ready_receipt() {
+  python3 - "$MX_STATE_OVERRIDE" "$CODEX_HOME" "$$" "$READY_MARKER" <<'PY'
+import json, pathlib, sys
+state, home, pid, marker = sys.argv[1:]
+(pathlib.Path(state)/'.codex-idle-hook-ready.json').write_text(json.dumps({
+    'thread':'123e4567-e89b-12d3-a456-426614174000',
+    'codex_home':str(pathlib.Path(home).resolve()), 'executable':'/bin/true',
+    'owner':{'pid':int(pid),'marker':marker}}))
+PY
+}
+write_ready_receipt
 
 test_selected_harness_block_only() {
   local out
-  out=$("$RENDER" --harness codex)
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
   assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: codex" "codex heading missing"
-  assert_contains "$out" "Mode: Codex foreground checkpoint." "codex snippet missing"
+  assert_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge." "codex snippet missing"
   assert_contains "$out" "bin/mx-watch-checkpoint.sh" "codex checkpoint helper missing"
   assert_not_contains "$out" "Mode: Claude Stop-hook-owned supervision." "renderer printed the claude snippet too"
   assert_not_contains "$out" "Mode: Pi extension background wake." "renderer printed the pi snippet too"
@@ -32,10 +50,10 @@ test_conditional_stanzas() {
   home="$TMP_ROOT/conditional-home"
   config="$TMP_ROOT/conditional-config"
   mkdir -p "$home/state" "$home/config" "$config"
-  out=$(MX_HOME="$home" MX_CONFIG_OVERRIDE="$config" "$RENDER" --harness codex --read-only 1 --afk 1)
+  out=$(MX_CODEX_IDLE_CLI=1 MX_HOME="$home" MX_CONFIG_OVERRIDE="$config" "$RENDER" --harness codex --read-only 1 --afk 1)
   assert_contains "$out" "- Lock: read-only" "read-only stanza missing"
   assert_contains "$out" "- Away mode: active" "afk stanza missing"
-  assert_contains "$out" 'Mode: Codex foreground checkpoint.' "codex snippet missing"
+  assert_contains "$out" 'Mode: Codex Stop-owned exact-thread queue bridge.' "codex snippet missing"
   pass "renderer includes read-only and afk current-state stanzas"
 }
 
@@ -43,8 +61,10 @@ test_repair_lines() {
   local home out
   home="$TMP_ROOT/repair-home"
   mkdir -p "$home/state" "$home/config"
-  out=$(MX_HOME="$home" MX_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --repair-line)
+  out=$(MX_CODEX_IDLE_CLI=1 MX_HOME="$home" MX_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --repair-line)
   assert_contains "$out" "bin/mx-watch-checkpoint.sh --seconds 7" "codex repair line did not use checkpoint helper and env override"
+  assert_contains "$out" "bin/mx-codex-idle.sh --retry" "codex repair line lost its explicit bridge recovery"
+  assert_contains "$out" "exact CODEX_THREAD_ID" "codex repair line lost exact-thread recovery binding"
 
   out=$(MX_HOME="$home" "$RENDER" --harness claude --queue-pending 1 --repair-line)
   assert_contains "$out" "After claiming queued wakes and durably recording disposition plus acknowledgement" "queue-pending prefix missing"
@@ -79,16 +99,84 @@ test_cross_harness_ordinary_continuation_and_repair_matrix() {
   assert_contains "$out" "Claude Code background task" "claude recovery line lost its tracked background repair"
   assert_contains "$out" "bin/mx-watch-arm.sh" "claude recovery line lost the arm command"
 
-  out=$("$RENDER" --harness codex)
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
-  assert_contains "$ordinary" "next foreground" "codex ordinary-wake line lost its foreground checkpoint"
-  assert_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "codex ordinary-wake line lost the checkpoint command"
+  assert_contains "$ordinary" "Stop-owned Codex exact-thread queue bridge" "codex ordinary-wake line lost runtime continuity"
+  assert_contains "$ordinary" "end the handling turn" "codex ordinary-wake line lost turn-ended waiting"
+  assert_not_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "codex ordinary-wake line directs a normal model checkpoint"
   assert_not_contains "$ordinary" "bin/mx-watch-arm.sh" "codex ordinary-wake line incorrectly uses a background arm"
-  out=$("$RENDER" --harness codex --repair-line)
-  assert_contains "$out" "foreground checkpoint" "codex recovery line lost its checkpoint repair"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex --repair-line)
+  assert_contains "$out" "queue support is unavailable" "codex recovery line lost its explicit compatibility fallback condition"
   assert_contains "$out" "bin/mx-watch-checkpoint.sh" "codex recovery line lost the checkpoint command"
 
+  out=$("$RENDER" --harness cursor)
+  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+  assert_contains "$ordinary" "Cursor stop hook owns watcher continuity" "cursor ordinary-wake line lost hook ownership"
+  assert_contains "$ordinary" "End the handling turn" "cursor ordinary-wake line lost turn-ended waiting"
+  assert_not_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "cursor ordinary-wake line directs a model checkpoint"
+  out=$("$RENDER" --harness cursor --repair-line)
+  assert_contains "$out" "stop-hook watcher failure" "cursor recovery line lost hook-owned failure repair"
+  assert_contains "$out" "agent --trust" "cursor recovery line lost the interactive trust requirement"
+
   pass "renderer preserves every harness ordinary-continuation and missing-cycle repair path"
+}
+
+test_codex_inactive_fallback_is_truthful() {
+  local out ordinary activation
+  for activation in absent 0 true; do
+    if [ "$activation" = absent ]; then
+      out=$("$RENDER" --harness codex)
+    else
+      out=$(MX_CODEX_IDLE_CLI="$activation" "$RENDER" --harness codex)
+    fi
+    ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+    assert_contains "$out" "Mode: Codex bounded foreground fallback; queue bridge inactive." "inactive Codex rendered active bridge instructions"
+    assert_contains "$ordinary" "queue bridge is inactive or native hooks are not ready here" "inactive ordinary-wake line claims bridge ownership"
+    assert_contains "$ordinary" "bin/mx-watch-checkpoint.sh" "inactive ordinary-wake line omits bounded waiting"
+    assert_not_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge." "inactive renderer leaked active protocol"
+    assert_contains "$out" "Desktop event delivery is unverified" "inactive protocol overclaims Desktop support"
+  done
+  out=$(MX_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --repair-line)
+  assert_contains "$out" "bin/mx-watch-checkpoint.sh --seconds 7" "inactive repair lost bounded foreground fallback"
+  assert_not_contains "$out" "bin/mx-codex-idle.sh --retry" "inactive repair retries a bridge that is not activated"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Managed \`multplx codex\`" "active protocol lost managed automatic activation"
+  assert_contains "$out" "MX_CODEX_IDLE_CLI=1 codex" "active protocol lost direct CLI opt-in"
+  pass "Codex renderer separates explicit CLI activation from inactive and unverified Desktop fallback"
+}
+
+test_codex_readiness_is_session_bound() {
+  local out
+  rm "$MX_STATE_OVERRIDE/.codex-idle-hook-ready.json"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "flag alone incorrectly proves native hook readiness"
+  assert_contains "$out" "native hook trust review" "unready session lost native trust diagnostic"
+  write_ready_receipt
+  rm "$MX_STATE_OVERRIDE/.lock"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "candidate hook receipt became active before lock acquisition"
+  printf '%s\n' "$$" > "$MX_STATE_OVERRIDE/.lock"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge" "candidate receipt did not activate after its owner acquired the lock"
+  out=$(env -u CODEX_THREAD_ID MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "missing current thread identity inherited ready status"
+  out=$(MX_CODEX_IDLE_CLI=1 CODEX_THREAD_ID=123e4567-e89b-12d3-a456-426614174001 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "another thread inherited ready status"
+  out=$(MX_CODEX_IDLE_CLI=1 CODEX_THREAD_ID=123e4567-e89b-12d3-a456-426614174000 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex Stop-owned exact-thread queue bridge" "matching thread lost native readiness"
+  python3 - "$MX_STATE_OVERRIDE/.codex-idle-hook-ready.json" <<'PY'
+import json, pathlib, sys
+path=pathlib.Path(sys.argv[1]); value=json.loads(path.read_text())
+value['owner']['marker']='recycled-pid-identity'; path.write_text(json.dumps(value))
+PY
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "stale process identity inherited ready status"
+  write_ready_receipt
+  printf '%s\n' 99999999 > "$MX_STATE_OVERRIDE/.lock"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" "Mode: Codex bounded foreground fallback" "changed owner inherited ready status"
+  printf '%s\n' "$$" > "$MX_STATE_OVERRIDE/.lock"
+  pass "Codex hook readiness requires a matching native receipt, thread, live identity and newly acquired lock owner"
 }
 
 test_pi_snippet_uses_effective_extension_path() {
@@ -112,4 +200,6 @@ test_unknown_fallback
 test_conditional_stanzas
 test_repair_lines
 test_cross_harness_ordinary_continuation_and_repair_matrix
+test_codex_inactive_fallback_is_truthful
+test_codex_readiness_is_session_bound
 test_pi_snippet_uses_effective_extension_path

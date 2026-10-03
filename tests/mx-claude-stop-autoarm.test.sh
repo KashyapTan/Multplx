@@ -394,6 +394,32 @@ test_mx_lock_status_still_works_with_shared_lib() {
   pass "mx-lock: shared session-lock lib preserves the status path"
 }
 
+test_completed_standing_assignment_is_idle_until_wake_or_check() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/completed-standing")
+  printf '%s\n' 'schema_version=2' 'kind=daemon' \
+    'canonical_model={"schema_version":2,"task_id":"standing","role":"sub-orchestrator","artifact":"coordination","persistent":true,"private_home":true,"legacy_unknown":false,"accepted_brief_revision":1,"attempt":{"id":"attempt-1","generation":1,"brief_revision":1},"schedule":{"state":"completed"}}' \
+    > "$dir/state/standing.meta"
+  write_arm_fixture "$dir" actionable
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 0 "$status" "completed standing assignment must be idle"
+  [ ! -e "$dir/state/arm-ran" ] || fail "completed standing assignment auto-armed"
+  printf 'pending done wake\n' > "$dir/state/.wake-queue"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "pending completion wake must retain supervision"
+  rm "$dir/state/.wake-queue" "$dir/state/arm-ran"
+  : > "$dir/state/standing.check.sh"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "explicit check must retain supervision"
+  rm "$dir/state/standing.check.sh" "$dir/state/arm-ran"
+  sed 's/"state":"completed"/"state":"running"/' "$dir/state/standing.meta" > "$dir/state/reopened.tmp"
+  mv "$dir/state/reopened.tmp" "$dir/state/standing.meta"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "reopened standing work must retain supervision"
+  pass "auto-arm: completed standing assignment is idle, pending wakes/checks/reopened work remain supervised"
+}
+
+test_completed_standing_assignment_is_idle_until_wake_or_check
 test_settings_registers_autoarm_with_multi_hour_timeout
 test_inert_in_child_worktree
 test_inert_without_session_lock

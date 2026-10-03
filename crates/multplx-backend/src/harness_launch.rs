@@ -19,6 +19,14 @@ fn error(message: impl std::fmt::Display) {
     eprintln!("multplx: {message}");
 }
 
+fn idle_cli_scope(command: &mut Command, harness: &str) {
+    if harness == "codex" {
+        command.env("MX_CODEX_IDLE_CLI", "1");
+    } else {
+        command.env_remove("MX_CODEX_IDLE_CLI");
+    }
+}
+
 fn executable(path: &Path) -> bool {
     fs::metadata(path)
         .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
@@ -941,6 +949,7 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
         .current_dir(&root)
         .env("MX_ROOT_OVERRIDE", &root)
         .env("MX_HOME", &home);
+    idle_cli_scope(&mut command, harness);
     if harness == "cursor" {
         command.args([OsString::from("--sandbox"), OsString::from("enabled")]);
     }
