@@ -208,7 +208,9 @@ The first broad release run exposed startup-hook indexing and missing runtime-in
 Commit `9fcb3b3` corrected provenance naming by retaining exact source URLs in the existing upstream reference owner; the naming check and documentation audience check passed.
 The `mx-launcher-connection`, `mx-report` and `mx-viz` scripts passed their focused rerun in 21.723 seconds; the first two have no substantiated new defect or code repair.
 Separate Viz investigation reproduced valid delayed HTTP headers rejected with status 400 in three of three runs; AUD-013 records the parser repair and passing regression.
-Final broad validation results are pending and are not represented by the historical checks below.
+A subsequent coverage run found a stale exact inactive-Codex repair-string assertion; commit `ef75715` corrected that test expectation, and the full clean rerun passed.
+[Final event-driven validation](supervision.md#final-event-driven-integration-validation-2026-10-03) records the passing 134-script suite, 807 Rust tests and unchanged-exclusion 93.10 percent line coverage.
+The older validation sections below retain their original revision and evidence scope.
 
 ## AUD-013: valid delayed HTTP headers are rejected on nonblocking sockets
 

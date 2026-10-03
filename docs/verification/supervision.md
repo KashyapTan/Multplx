@@ -260,3 +260,31 @@ Canonical wake disposition and acknowledgement remain model responsibilities; qu
 The supported idle wake path instead uses the installed CLI's `queue --thread --message`; the tagged [queue service](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/queue/src/service.rs) distinguishes idle dispatch from busy queuing.
 Managed CLI activation still requires enabled and natively trusted owned hooks plus exact-thread readiness after canonical session-lock acquisition.
 Older CLI versions, disabled or untrusted hooks, direct CLI launches without explicit opt-in, and unverified Desktop sessions retain a visible bounded foreground fallback.
+
+
+## Final event-driven integration validation (2026-10-03)
+
+The local macOS integration branch builds on open PR #52.
+The final production source includes the HTTP framing repair at `2df70c7`; test correction `ef75715` and documentation correction `aaa37d5` complete the tested revision.
+The locked workspace release build passed in 1 minute 8 seconds after the HTTP repair.
+
+`target/release/mx test-run --all --jobs auto --json /private/tmp/mx-event-idle-final-all.json` passed all 134 scripts with zero failures and eight explicit gates in 441,817 ms.
+The inventory check accounts for all 134 scripts.
+The final clean coverage command was:
+
+```sh
+cargo llvm-cov --locked --workspace --all-targets --no-fail-fast \
+  --ignore-filename-regex '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)' \
+  --fail-under-lines 93
+```
+
+It exited zero with 807 Rust tests across 32 result groups, zero failures or ignored tests, and 68,951 of 74,061 lines covered (93.10 percent).
+The existing exclusion expression is unchanged; the new Codex idle module is covered.
+The retained local coverage log is `/private/tmp/mx-event-idle-clean-coverage.log`.
+An earlier coverage run exposed a stale exact repair-string assertion; `ef75715` corrected the expected inactive-readiness text before this full clean rerun.
+Final formatting, strict all-target/all-feature Clippy, documentation audience/local links (101 surfaces, 583 links), shell syntax, Node syntax, inventory and shadow checks passed.
+
+[The audit log](postmerge-audit-issues.md#initial-broad-validation-of-event-driven-repairs) retains initial failures and their dispositions.
+[Cursor evidence](cursor-cli.md#event-driven-stop-park-recheck-2026-10-03), the Claude/Pi recheck above and the Codex queue recheck above retain their provider-specific limits.
+These results do not claim a fresh Linux run, hosted CI, authenticated Claude/Pi run or Codex Desktop delivery.
+The user's existing runtime, operational homes and private configuration were unchanged.
