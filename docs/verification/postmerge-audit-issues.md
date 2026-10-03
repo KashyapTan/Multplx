@@ -284,6 +284,12 @@ The separate vocabulary repair updates the remaining current surfaces and compat
 Historical verification records, legacy decoder fixtures and legitimate background-process or human-operator concepts must retain their meaning; lexical matches alone do not prove an obsolete agent role remains enforced.
 No mandatory review rank or role-based delegation prohibition was found in the inspected brief, launch and task-model paths.
 The separate `fix/standing-agent-vocabulary` implementation and [retained-term census](orchestrator-contract.md#worker-identity-and-standing-agent-vocabulary-audit-2026-10-03) account for current producers, compatibility aliases, stored schema keys and historical records.
+
+Hosted Linux CI exposed `ETXTBSY` when the installed idle-wrapper fixture executed its newly written script.
+The fixture shares a process with the parallel Python test, which can fork and temporarily inherit a writable descriptor before close-on-exec; this is the identified race path, rather than a reproduced Linux trace.
+The two tests now share an executable-fixture mutex, separating writable-script publication from the other fixture's process creation while retaining direct shebang execution.
+This correction changes test scheduling only, with no retries, sleeps or production runtime changes.
+`cargo test -p multplx-cli --test codex_idle_runtime -- --test-threads=2` passed both tests locally in 7.81 seconds; the hosted Linux rerun remains separate evidence.
 New homes use `.mx-agent-home` and `data/agents.md`; legacy-only layouts remain readable and unchanged, while conflicting identities fail closed.
 The census records why background services, human authority and historical evidence are distinct from the retired agent hierarchy.
 Review found and repaired two compatibility hazards before publication: rollback of an interrupted legacy home-seed journal, and tmux prefix matching that could adopt an unrelated similarly named session.
