@@ -40,6 +40,13 @@ MX_FROM_PARENT_LABEL='[mx-from-parent]'
 MX_FROM_PARENT_SEPARATOR=$MX_OPERATIONAL_MARK
 MX_FROM_PARENT_MARK="${MX_FROM_PARENT_LABEL}${MX_FROM_PARENT_SEPARATOR}"
 
+# Source API compatibility; new construction always emits the parent carrier.
+MX_FROM_BROKER_LABEL=$MX_FROM_PARENT_LABEL
+MX_FROM_BROKER_SEPARATOR=$MX_FROM_PARENT_SEPARATOR
+MX_FROM_BROKER_MARK=$MX_FROM_PARENT_MARK
+mx_message_from_broker() { mx_message_from_parent "$@"; }
+mx_message_mark_from_broker() { mx_message_mark_from_parent "$@"; }
+
 mx_operational_kind_is_current() {  # <kind>
   case " $MX_OPERATIONAL_KINDS " in
     *" $1 "*) return 0 ;;
@@ -314,10 +321,3 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   mx_operational_main "$@"
   exit $?
 fi
-
-# Source API compatibility; new construction always emits the parent carrier.
-MX_FROM_BROKER_LABEL=$MX_FROM_PARENT_LABEL
-MX_FROM_BROKER_SEPARATOR=$MX_FROM_PARENT_SEPARATOR
-MX_FROM_BROKER_MARK=$MX_FROM_PARENT_MARK
-mx_message_from_broker() { mx_message_from_parent "$@"; }
-mx_message_mark_from_broker() { mx_message_mark_from_parent "$@"; }

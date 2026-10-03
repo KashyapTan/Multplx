@@ -126,8 +126,10 @@ test_missing_arguments_and_bad_keys() {
   home="$TMP_ROOT/usage-home"
   id=report-usage-e5
   mkdir -p "$home/state"
+  (unset MX_TASK_ID; MX_HOME="$home" "$REPORT" --state working --message note) >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "missing both --id and MX_TASK_ID did not produce a usage error"
   for args in \
-    "--state working --message note" \
     "--id $id --message note" \
     "--id $id --state working"; do
     # shellcheck disable=SC2086
@@ -141,6 +143,19 @@ test_missing_arguments_and_bad_keys() {
   [ "$rc" -ne 0 ] || fail "invalid key exited zero"
   assert_absent "$home/state/$id.status" "usage or key error wrote a status file"
   pass "mx-report: missing arguments and invalid keys are side-effect-free usage errors"
+}
+
+test_session_task_id_fallback() {
+  local home="$TMP_ROOT/task-id-fallback" id=report-fallback-e6 output
+  mkdir -p "$home/state"
+  output=$(run_bound "$home" "$id" --state working --message 'session-bound fallback') \
+    || fail "launch-bound MX_TASK_ID did not supply omitted --id"
+  printf '%s\n' "$output" | jq -e --arg task "$id" \
+    '.accepted == true and .task_id == $task and .state == "working" and .completion_proven == false' >/dev/null \
+    || fail "session-bound fallback did not return the correct acceptance receipt"
+  [ "$(cat "$home/state/$id.status")" = 'working: session-bound fallback' ] \
+    || fail "session-bound fallback wrote the wrong durable status"
+  pass "mx-report: omitted --id uses the calling session's MX_TASK_ID and returns a receipt"
 }
 
 test_task_binding_enforcement() {
@@ -371,6 +386,7 @@ test_valid_states_and_keyed_grammar
 test_invalid_inputs_never_write
 test_message_passthrough_and_newline_rejection
 test_missing_arguments_and_bad_keys
+test_session_task_id_fallback
 test_task_binding_enforcement
 test_cwd_metadata_fallback_and_missing_binding
 test_current_report_invalidates_dependency_completion

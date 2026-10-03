@@ -259,6 +259,26 @@ test_marked_send_preserves_trailing_newlines() {
   pass "mx-send: marked daemon payload preserves trailing newline bytes"
 }
 
+test_legacy_source_api_is_defined_before_adapter_return() {
+  MX_ALIAS_TEST_ROOT="$ROOT" bash -eu <<'SH' || fail 'legacy sourced marker API is unavailable or emits old bytes'
+. "$MX_ALIAS_TEST_ROOT/bin/mx-marker-lib.sh"
+separator=$(printf '\342\201\243')
+[ "$MX_FROM_BROKER_LABEL" = '[mx-from-parent]' ]
+[ "$MX_FROM_BROKER_SEPARATOR" = "$separator" ]
+[ "$MX_FROM_BROKER_MARK" = "[mx-from-parent]$separator" ]
+mx_message_mark_from_broker 'work' marked
+[ "$marked" = "${MX_FROM_BROKER_MARK}work" ]
+mx_message_from_broker "$marked"
+legacy="[mx-from-broker]${separator}work"
+mx_message_from_broker "$legacy"
+mx_message_mark_from_broker "$legacy" normalized
+[ "$normalized" = "$marked" ]
+! mx_message_from_broker '[mx-from-broker]work'
+! mx_message_from_broker '[mx-from-parent]work'
+SH
+  pass 'mx-marker: legacy sourced API is available and normalizes exact old carriers'
+}
+
 test_daemon_target_is_marked
 test_exact_daemon_task_id_is_marked
 test_actor_target_is_not_marked
@@ -267,3 +287,5 @@ test_key_path_is_not_marked
 test_marker_is_label_plus_invisible_separator
 test_marker_transformation_is_idempotent
 test_marked_send_preserves_trailing_newlines
+
+test_legacy_source_api_is_defined_before_adapter_return
