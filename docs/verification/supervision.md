@@ -246,7 +246,8 @@ It loads the tracked SessionStart registration command, reviews only the fixture
 The registration receipt identified the exact returned thread UUID, canonical `CODEX_HOME`, executable and live CLI server process.
 The final fixture `/tmp/mx-codex-hook-research.Tu7Gmf/evidence.json` retained five actual Stop events for that UUID, each with a distinct turn ID and `stop_hook_active=false`.
 An idle queued message started after 10,027 ms; an ordinary human prompt started after 36 ms; a message queued while busy started after the busy turn completed (event indices 56 and 60).
-Another thread received zero turns. This verifies the installed CLI transport and native hook boundary against a synthetic model, not authenticated provider output or Desktop support.
+Another thread received zero turns.
+This verifies the installed CLI transport and native hook boundary against a synthetic model, not authenticated provider output or Desktop support.
 
 Four focused Rust unit tests and two instrumented runtime integration tests passed.
 The runtime fixture uses the actual `mx` owner with isolated queue and watcher executables: two report wakes reach the same bridge without a second hook invocation, while repeated Stop cannot duplicate delivery.

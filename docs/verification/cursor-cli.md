@@ -74,9 +74,9 @@ Controlled arm output proves the real harness transport and adapter lifecycle; i
 The callback ceiling and bounded failure path intentionally require human input or repair after their explicit notices.
 The older August one-follow-up matrix above remains historical evidence for the replaced registration.
 
-`docs/supervision-protocols/cursor.md` uses bounded foreground checkpoints, matching the verified Codex control shape.
 Tracked `sessionStart`, `preToolUse`, `subagentStart`, and `stop` commands route through `bin/mx-cursor-hook.sh`.
-The primary stop adapter converts shared exit status 2 into one native follow-up only at `loop_count=0`.
+Before the 2026-10-03 repair, the Cursor protocol used bounded foreground checkpoints, and the primary stop adapter converted shared exit status 2 into one native follow-up only at `loop_count=0`.
+The event-driven stop-park evidence above covers the replacement protocol and adapter.
 
 Actor stop signaling uses a task-private plugin below `<recorded tasktmp>/cursor-turnend-plugin`, so project stop hooks do not collide with another actor's marker.
 Cursor sessions receive `MX_TASK_ID` and the absolute `mx-report` fallback from the normal generated brief.
