@@ -32,7 +32,9 @@ Spawn supplies `MX_TASK_ID` and `MX_REPORT_STATE_OVERRIDE`; the latter keeps a p
 Use `report_status` when exposed or the absolute `bin/mx-report` fallback in the brief.
 Never append raw status-file lines.
 [Supervision protocols](../../../docs/supervision-protocols/) and [turn-end guards](../../../docs/turnend-guard.md) own the harness-specific wait and repair paths.
-Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `codex queue` is available, and Pi uses its tracked watcher extension.
+Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` is active and `codex queue` is available, and Pi uses its tracked watcher extension.
+Managed Multplx Codex CLI launches set the activation flag automatically; direct terminal CLI launches require explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in.
+Inactive sessions retain bounded foreground checkpoints; Codex Desktop event delivery is unverified.
 Unsupported Codex queue versions emit a visible warning and retain the explicit foreground checkpoint fallback.
 Use one home-scoped monitoring owner; retain queue entries and reconcile current state after notifications.
 

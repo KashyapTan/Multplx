@@ -1,6 +1,11 @@
 Mode: Codex Stop-owned exact-thread queue bridge.
 The named `bin/` commands select the Rust supervision runtime.
 
+Activation: this protocol applies only when `MX_CODEX_IDLE_CLI=1` is present.
+Managed `multplx codex` and managed Codex worker launches set it automatically without a user setting.
+Direct terminal CLI launches must explicitly opt in with `MX_CODEX_IDLE_CLI=1 codex`; otherwise use the bounded foreground fallback in `codex-inactive.md`.
+Codex Desktop event delivery is unverified and is not activated by this CLI flag automatically.
+
 When this session owns supervision and away mode is not active:
 1. Claim queued wakes with `bin/mx-wake-drain.sh`, reconcile current task state, record each durable disposition and acknowledge only after handling.
 2. End the handling turn when no immediate work remains.

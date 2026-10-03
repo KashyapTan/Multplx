@@ -234,7 +234,10 @@ The verified adapter knowledge - busy signatures, interrupt and exit commands, s
 Launch mechanics and verified command templates are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) is its transport-only compatibility entrypoint.
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Primary-session watcher wake protocols are rendered at session start by [`bin/mx-supervision-instructions.sh`](../bin/mx-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
-Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interactive stop hook parks on the watcher, Codex's Stop hook starts an exact-thread queue bridge when its CLI exposes `codex queue`, and Pi uses its two tracked primary extensions.
+Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interactive stop hook parks on the watcher, Codex's Stop hook starts an exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` is active and its CLI exposes `codex queue`, and Pi uses its two tracked primary extensions.
+Managed `multplx codex` and managed Codex worker launches set the flag automatically without a user setting.
+A direct terminal CLI launch requires explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in; without it, use bounded foreground checkpoints.
+Codex Desktop event delivery is unverified and is not automatically activated by this CLI integration.
 An unsupported Codex queue CLI produces a visible compatibility warning and retains the explicit bounded foreground checkpoint fallback.
 `config/subagent-harness` is a local, gitignored file containing one adapter name for ordinary sub-agent launches; `config/actor-harness` remains its legacy alias.
 When it is absent or contains `default`, sub-agents mirror their parent's harness.
@@ -438,7 +441,7 @@ MX_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartb
 MX_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 MX_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls or custom checks)
 MX_CHECK_TIMEOUT=30     # seconds allowed per slow check script
-MX_CODEX_WATCH_CHECKPOINT=180   # seconds per explicit Codex foreground fallback when queue support is unavailable
+MX_CODEX_WATCH_CHECKPOINT=180   # seconds per explicit Codex foreground fallback when bridge activation or queue support is unavailable
 MX_ACTOR_STATE_BIN=bin/mx-actor-state.sh   # test override for the current-state reader used by working/paused watcher triage
 MX_LOCK_STALE_AFTER=2   # seconds before dead-pid lock records can be reclaimed; mid-acquire locks keep at least 2s grace
 MX_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale

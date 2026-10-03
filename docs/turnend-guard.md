@@ -46,13 +46,16 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/mx-turnend-guard.sh --claude`, and `bin/mx-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Multplx-shaped hook-bearing root, and starts the exact-thread queue bridge using the original hook payload.
+  This path requires `MX_CODEX_IDLE_CLI=1`, set automatically by managed Codex CLI launchers and explicitly by direct CLI opt-in.
+  Without activation, the existing bounded foreground guard remains; Codex Desktop event delivery is unverified.
   Its short readiness check returns so model generation ends while the bridge owns watcher delivery.
 - Cursor registers a lower-camel `stop` hook in `.cursor/hooks.json`; `bin/mx-cursor-hook.sh stop` owns a tracked watcher park and returns a marked `followup_message` on a real event or bounded failure.
   The hook has an eight-hour timeout and `loop_limit: 200`, with an inner automatic follow-up ceiling of 180 and three failure notices per session by default.
 - Pi listens for `agent_settled` in `.pi/extensions/mx-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 
 Claude can block a Stop directly with exit status 2 and stderr.
-Codex's Stop path starts its queue bridge and returns; unsupported queue capability or retained submission failure emits a visible warning without a repeating blocking continuation.
+An activated Codex CLI Stop path starts its queue bridge and returns; unsupported queue capability or retained submission failure emits a visible warning without a repeating blocking continuation.
+Without activation, the legacy bounded foreground guard applies instead of promising queue delivery.
 Cursor cannot consume that shell convention directly, so its adapter keeps the stop hook pending while the model is idle and emits one JSON follow-up for an actionable watcher close.
 The latest stop owns the home baton; away mode, ownership loss, termination, and a newer claim retire an older park without a stale follow-up.
 Cursor stop hooks are interactive-only and do not fire under `agent --print`.
@@ -77,7 +80,7 @@ That warning uses `bin/mx-supervision-instructions.sh --repair-line`, so it alwa
 
 - Child sub-agent worktrees are outside scope.
 - A valid persistent-sub-agent home is in scope; an idle persistent-sub-agent endpoint remains healthy because it has no supervision need.
-- Claude blocks directly, Codex owns an exact-thread queue bridge where supported, Cursor owns its parked watcher cycle with bounded failure follow-ups, and Pi uses bounded passive follow-ups.
+- Claude blocks directly, activated Codex CLI owns an exact-thread queue bridge where supported, inactive Codex sessions retain their bounded foreground guard, Cursor owns its parked watcher cycle with bounded failure follow-ups, and Pi uses bounded passive follow-ups.
 - Missing `jq` or unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
 

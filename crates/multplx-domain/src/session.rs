@@ -140,13 +140,20 @@ fn parse_supervision(args: &[String]) -> Result<SupervisionOptions, CommandResul
     Ok(options)
 }
 
+fn codex_idle_activated() -> bool {
+    std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1")
+}
+
 fn ordinary_wake_line(harness: &str) -> &'static str {
     match harness {
         "claude" => {
             "- Ordinary wake: the Stop-owned auto-arm (bin/mx-claude-stop-autoarm.sh) already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle yourself. See `mx wake --help`."
         }
-        "codex" => {
+        "codex" if codex_idle_activated() => {
             "- Ordinary wake: the Stop-owned Codex exact-thread queue bridge owns watcher continuity; claim the wake, record its durable disposition, acknowledge it, then end the handling turn. Foreground checkpoints are only the explicit fallback when queue support is unavailable. See `mx wake --help`."
+        }
+        "codex" => {
+            "- Ordinary wake: the Codex queue bridge is inactive here; claim the wake, record its durable disposition, acknowledge it, then take the next bounded foreground bin/mx-watch-checkpoint.sh checkpoint. Desktop event delivery is unverified. See `mx wake --help`."
         }
         "pi" => {
             "- Ordinary wake: the Pi extension already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle. See `mx wake --help`."
@@ -179,9 +186,15 @@ fn repair_line(options: &SupervisionOptions, harness: &str, root: &Path) -> Stri
         "codex" => {
             let seconds =
                 std::env::var("MX_CODEX_WATCH_CHECKPOINT").unwrap_or_else(|_| "180".to_owned());
-            format!(
-                "{prefix}inspect state/.codex-idle-failure and reconcile uncertain queue submission before explicitly running bin/mx-codex-idle.sh --retry from the same lock-owning Codex session with its exact CODEX_THREAD_ID. If queue support is unavailable, use the explicit foreground fallback: bin/mx-watch-checkpoint.sh --seconds {seconds}.\n"
-            )
+            if codex_idle_activated() {
+                format!(
+                    "{prefix}inspect state/.codex-idle-failure and reconcile uncertain queue submission before explicitly running bin/mx-codex-idle.sh --retry from the same lock-owning Codex session with its exact CODEX_THREAD_ID. If queue support is unavailable, use the explicit foreground fallback: bin/mx-watch-checkpoint.sh --seconds {seconds}.\n"
+                )
+            } else {
+                format!(
+                    "{prefix}the Codex queue bridge is inactive here; restore bounded foreground supervision with bin/mx-watch-checkpoint.sh --seconds {seconds}. Managed Multplx CLI launches activate the bridge automatically; direct Codex CLI requires explicit MX_CODEX_IDLE_CLI=1 opt-in. Desktop event delivery is unverified.\n"
+                )
+            }
         }
         "pi" => format!(
             "{prefix}repair a missing or failed watcher cycle with the Pi tool mx_watch_arm_pi, or restart Pi with -e {} -e {} if the extensions are not loaded.\n",
@@ -223,9 +236,13 @@ pub fn supervision_instructions(
         };
     }
     let fallback = source_root.join("docs/supervision-protocols/unknown.md");
-    let selected = source_root
-        .join("docs/supervision-protocols")
-        .join(format!("{harness}.md"));
+    let selected = source_root.join("docs/supervision-protocols").join(
+        if harness == "codex" && !codex_idle_activated() {
+            "codex-inactive.md".to_owned()
+        } else {
+            format!("{harness}.md")
+        },
+    );
     let snippet_path = if selected.is_file() {
         selected
     } else {

@@ -175,6 +175,9 @@ The installed Codex CLI now exposes `codex queue --thread --message`; a real iso
 The requested repair is a Stop-owned bridge that binds the exact thread, `CODEX_HOME` and live session-lock identity while keeping canonical wake disposition separate from queue transport receipts.
 Unsupported CLI versions require a visible compatibility warning and the explicit bounded foreground fallback; upstream Firstmate's Codex checkpoint protocol alone does not establish this modern local capability.
 Final runtime and live-hook verification belong to the active Codex worker's delivery evidence.
+The accepted activation boundary is managed Codex CLI launchers setting `MX_CODEX_IDLE_CLI=1` automatically, or a direct terminal CLI user explicitly opting in with that flag.
+Inactive sessions keep the bounded foreground protocol, and the renderer selects a separate inactive instruction block rather than claiming a bridge is running.
+Codex Desktop event delivery remains unverified; this CLI integration does not activate the development Desktop conversation.
 
 ## AUD-011/AUD-012: Codex bridge integration review
 
@@ -182,6 +185,8 @@ These findings concern the new implementation under review, rather than a defect
 Readonly review found suppression receipts written before the uncertainty file in `notify_with`.
 If the second write fails after receipt publication, a later explicit retry has no uncertainty keys to release and may permanently suppress a notification that was never enqueued.
 The worker was asked to publish recoverable uncertainty before suppression or bind both facts in one owned transaction, with a failure-boundary regression.
+The write reordering removes the original second-write gap, but review also identified a crash after suppression publication and before the failure marker: pre-existing uncertainty must itself stop silent suppression and require visible reconciliation.
+AUD-011 remains open pending the final uncertainty guard and regression evidence.
 
 Readonly review also found an unexpected owned-watcher failure recorded only in `.codex-idle-failure` before the bridge exits.
 With the main generation already ended, that private record alone cannot request a handling turn until another human or Stop event occurs.
