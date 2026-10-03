@@ -145,11 +145,14 @@ fn ordinary_wake_line(harness: &str) -> &'static str {
         "claude" => {
             "- Ordinary wake: the Stop-owned auto-arm (bin/mx-claude-stop-autoarm.sh) already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle yourself. See `mx wake --help`."
         }
-        "codex" | "cursor" => {
+        "codex" => {
             "- Ordinary wake: claim the wake, record its disposition, acknowledge it, then take the next foreground bin/mx-watch-checkpoint.sh checkpoint as directed below. See `mx wake --help`."
         }
         "pi" => {
             "- Ordinary wake: the Pi extension already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle. See `mx wake --help`."
+        }
+        "cursor" => {
+            "- Ordinary wake: the Cursor stop hook owns watcher continuity; claim the wake, record its durable disposition, then acknowledge it. End the handling turn; the hook parks automatically without a foreground checkpoint. See `mx wake --help`."
         }
         _ => {
             "- Ordinary wake: claim the wake, record its disposition, acknowledge it, then follow the continuation in the harness protocol below; do not use shell &. See `mx wake --help`."
@@ -173,7 +176,7 @@ fn repair_line(options: &SupervisionOptions, harness: &str, root: &Path) -> Stri
         "claude" => format!(
             "{prefix}repair missing watcher supervision with bin/mx-watch-arm.sh as its own Claude Code background task, never shell &.\n"
         ),
-        "codex" | "cursor" => {
+        "codex" => {
             let seconds =
                 std::env::var("MX_CODEX_WATCH_CHECKPOINT").unwrap_or_else(|_| "180".to_owned());
             format!(
@@ -185,6 +188,9 @@ fn repair_line(options: &SupervisionOptions, harness: &str, root: &Path) -> Stri
             root.join(".pi/extensions/mx-primary-turnend-guard.ts")
                 .display(),
             root.join(".pi/extensions/mx-primary-pi-watch.ts").display()
+        ),
+        "cursor" => format!(
+            "{prefix}inspect the Cursor stop-hook watcher failure and repair its cause; hook-owned supervision resumes at turn end. Use interactive agent --trust so project hooks load; do not enter a foreground checkpoint loop.\n"
         ),
         _ => format!(
             "{prefix}repair missing watcher supervision according to the session-start block for this harness; do not use shell &.\n"

@@ -105,7 +105,7 @@ test_cursor_hook_translation_and_bounds() {
   output=$(MX_STATE_OVERRIDE="$fixture/state" printf '{"agent_type":"generalPurpose","session_id":"parent-s"}' | "$fixture/bin/mx-cursor-hook.sh" subagent-start)
   [ "$(printf '%s' "$output" | jq -r '.permission')" = allow ] || fail "Cursor subagentStart was denied"
   output=$(printf '{"session_id":"s","loop_count":0}' | "$fixture/bin/mx-cursor-hook.sh" stop)
-  assert_contains "$output" 'restore one foreground checkpoint' "Cursor stop did not translate a guard block to follow-up"
+  [ "$output" = '{}' ] || fail "Cursor stop without a primary home failed open into a follow-up"
   output=$(printf '{"session_id":"s","loop_count":1}' | "$fixture/bin/mx-cursor-hook.sh" stop)
   [ "$output" = '{}' ] || fail "Cursor stop continuation was not bounded after loop one"
   if printf '{}' | "$fixture/bin/mx-cursor-hook.sh" pre-tool >/dev/null 2>&1; then
@@ -116,9 +116,77 @@ test_cursor_hook_translation_and_bounds() {
     (.hooks.sessionStart[0].failClosed == true) and
     (.hooks.preToolUse[0].failClosed == true) and
     (.hooks.subagentStart[0].failClosed == false) and
-    (.hooks.stop[0].loop_limit == 1)
+    (.hooks.stop[0].loop_limit == 200) and
+    (.hooks.stop[0].timeout == 28800)
   ' "$ROOT/.cursor/hooks.json" >/dev/null || fail "tracked Cursor hook contract is incomplete"
   pass "Cursor hooks preserve supervision, allow native delegation, and bound stop continuation"
+}
+
+test_cursor_stop_park_lifecycle() {
+  python3 - "$ROOT" "$TMP_ROOT/park" "$MX_RUST_BIN" <<'PY'
+import json, os, pathlib, signal, subprocess, sys, time
+root, fixture, binary = map(pathlib.Path, sys.argv[1:])
+(fixture / 'bin').mkdir(parents=True)
+(fixture / 'state').mkdir()
+(fixture / 'AGENTS.md').write_text('# fixture\n')
+(fixture / '.mx-daemon-home').write_text('cursor-park-fixture\n')
+state = fixture / 'state'
+(state / '.lock').write_text(str(os.getpid()) + '\n')
+(state / 'work.meta').write_text('id=work\n')
+arm = fixture / 'bin' / 'mx-watch-arm.sh'
+arm.write_text('#!/bin/sh\nsleep "${PARK_DELAY:-0}"\nprintf "signal: fixture report\\n"\n')
+arm.chmod(0o700)
+env = dict(os.environ, MX_ROOT_OVERRIDE=str(fixture), MX_HOME=str(fixture),
+           MX_STATE_OVERRIDE=str(state), MX_RUST_SOURCE_ROOT=str(fixture))
+cmd = [str(binary), 'supervision', 'mx-cursor-hook.sh', 'stop']
+def start(count=0, delay='0'):
+    child = subprocess.Popen(cmd, env=dict(env, PARK_DELAY=delay), stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    child.stdin.write(json.dumps({'session_id':'fixture', 'loop_count':count}))
+    child.stdin.close(); child.stdin = None
+    return child
+def result(child):
+    out, err = child.communicate(timeout=6)
+    assert child.returncode == 0, err
+    return json.loads(out)
+for count in (0, 1, 2):
+    assert 'fixture report' in result(start(count))['followup_message']
+# The model is idle, and the older park cannot emit after a newer stop claims.
+old = start(delay='20'); time.sleep(.3)
+new = start(1)
+assert 'followup_message' in result(new)
+assert result(old) == {}
+assert not list(state.glob('.cursor-park-output.*'))
+# Ownership and away-mode changes retire the tracked arm instead of waking.
+child = start(delay='20'); time.sleep(.3); (state / '.afk').touch()
+assert result(child) == {}; (state / '.afk').unlink()
+child = start(delay='20'); time.sleep(.3); (state / '.lock').write_text('99999999\n')
+assert result(child) == {}; (state / '.lock').write_text(str(os.getpid()) + '\n')
+child = start(delay='20'); time.sleep(.3); child.send_signal(signal.SIGTERM)
+assert result(child) == {}
+assert not list(state.glob('.cursor-park-output.*'))
+# Repair feedback has a separate bounded budget; a healthy event resets it.
+arm.write_text('#!/bin/sh\nprintf "watcher: FAILED fixture\\n"\nexit 1\n')
+for count in range(3):
+    assert 'bounded attempts' in result(start(count))['followup_message']
+assert result(start(3)) == {}
+assert 'ceiling reached' in result(start(180))['followup_message']
+assert result(start(181)) == {}
+# A non-owner cannot start a new park, and Pi-hosted Cursor hooks stand down.
+(state / '.lock').write_text('99999999\n')
+assert result(start()) == {}
+(state / '.lock').write_text(str(os.getpid()) + '\n')
+pi_env = dict(env, PI_CODING_AGENT='true')
+pi_env.pop('CURSOR_AGENT', None); pi_env.pop('CURSOR_INVOKED_AS', None)
+assert subprocess.run(cmd, input='{}', env=pi_env, capture_output=True, text=True).stdout.strip() == '{}'
+for payload in ('{"loop_count":"oops"}', '{"loop_count":-1}', '{"loop_count":0.5}'):
+    assert subprocess.run(cmd, input=payload, env=env, capture_output=True, text=True).stdout.strip() == '{}'
+# No accepted work means a quiescent turn boundary.
+(state / 'work.meta').unlink()
+assert result(start()) == {}
+assert subprocess.run(cmd, input='[]', env=env, capture_output=True, text=True).stdout.strip() == '{}'
+print('ok - Cursor park owns successive wake turns, supersession, AFK, session loss, signal cleanup and bounded failure feedback')
+PY
 }
 
 test_cursor_spawn_profile_and_terminal_signatures() {
@@ -134,4 +202,5 @@ test_cursor_spawn_profile_and_terminal_signatures() {
 
 test_launcher_prefers_agent_and_enforces_sandbox
 test_cursor_hook_translation_and_bounds
+test_cursor_stop_park_lifecycle
 test_cursor_spawn_profile_and_terminal_signatures

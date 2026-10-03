@@ -234,7 +234,7 @@ The verified adapter knowledge - busy signatures, interrupt and exit commands, s
 Launch mechanics and verified command templates are owned by the Rust lifecycle command; [`bin/mx-spawn.sh`](../bin/mx-spawn.sh) is its transport-only compatibility entrypoint.
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Primary-session watcher wake protocols are rendered at session start by [`bin/mx-supervision-instructions.sh`](../bin/mx-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
-Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Codex and Cursor use bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
+Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's interactive stop hook parks on the watcher, Codex uses bounded foreground checkpoints, and Pi uses its two tracked primary extensions.
 `config/subagent-harness` is a local, gitignored file containing one adapter name for ordinary sub-agent launches; `config/actor-harness` remains its legacy alias.
 When it is absent or contains `default`, sub-agents mirror their parent's harness.
 `config/persistent-subagent-harness` selects the harness for persistent launches, optionally followed by model and effort tokens; `config/daemon-harness` remains its legacy alias.

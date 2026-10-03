@@ -55,6 +55,25 @@ It does not claim durable child recovery from an event that did not fire.
 
 ## Supervision and reporting
 
+### Event-driven stop park recheck, 2026-10-03
+
+The installed interactive Cursor Agent `2026.10.01-e373342` passed the isolated stop-park probe using `--sandbox enabled --trust --model auto`.
+No global hook or existing Multplx home was changed.
+The fixture used the current Rust `mx-cursor-hook.sh stop` adapter and tracked stop registration, a fixture-only session-start owner, and controlled native watcher-arm output.
+The exact replay command is `MX_CURSOR_PARK_LIVE=1 python3 tests/cursor-park-live-probe.py`.
+The retained local evidence is `/var/folders/hc/g8p_srxs10z73zqvvxztzkq00000gn/T/mx-cursor-park-live-ra_bf3pl/result.json` and its `transcript.txt`.
+
+- Generation ended before the hook parked on the arm child.
+- Human input ran while the older park was pending, and the next stop published a new baton and retired the older capture.
+- Two successive controlled watcher events each produced a real marked operational input, a `CURSOR_WAKE_HANDLED` model reply, and a new single parked successor.
+- Away-mode entry retired the capture and tracked arm process group.
+- The visible transcript contained replies and operational inputs without model checkpoint, manual-arm, or other tool calls.
+
+The portable adapter regression separately passed latest-stop supersession, foreign or changed owner rejection, SIGTERM cleanup, three failure notices, an explicit ceiling notice and quiet idle scope.
+Controlled arm output proves the real harness transport and adapter lifecycle; it does not claim a live child reporter, canonical wake acknowledgement, forge poller, or eight-hour timeout trial.
+The callback ceiling and bounded failure path intentionally require human input or repair after their explicit notices.
+The older August one-follow-up matrix above remains historical evidence for the replaced registration.
+
 `docs/supervision-protocols/cursor.md` uses bounded foreground checkpoints, matching the verified Codex control shape.
 Tracked `sessionStart`, `preToolUse`, `subagentStart`, and `stop` commands route through `bin/mx-cursor-hook.sh`.
 The primary stop adapter converts shared exit status 2 into one native follow-up only at `loop_count=0`.
