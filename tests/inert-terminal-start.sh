@@ -21,4 +21,6 @@ launch="$(dirname "$script")/inert-launch.sh"
 sed '$d' "$script" > "$launch"
 printf 'exec -a %s python3 "%s"\n' "$harness" "$stub" >> "$launch"
 bash "$launch" >/dev/null 2>&1 </dev/null &
-printf '%s\n' "$!" >> "$(dirname "$0")/.inert-launch-pids"
+if [ -n "${MX_TEST_INERT_PID_LOG:-}" ]; then
+  printf '%s\n' "$!" >> "$MX_TEST_INERT_PID_LOG"
+fi

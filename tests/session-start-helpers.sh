@@ -268,7 +268,8 @@ make_fake_tmux_daemon_recovery() {
   local fakebin=$1
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
+MX_TEST_INERT_PID_LOG="$(dirname "$0")/.inert-launch-pids" \
+  bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 mode=${MX_FAKE_TMUX_MODE:?}
 log=${MX_FAKE_TMUX_LOG:?}
@@ -425,7 +426,10 @@ case "${1:-} ${2:-}" in
     ;;
   "pane send-text") printf '%s' "${4:-}" > "${state}.launch-input" ;;
   "pane send-keys")
-    [ "${4:-}" != enter ] || bash "$(dirname "$0")/inert-terminal-start.sh" "$(cat "${state}.launch-input")"
+    if [ "${4:-}" = enter ]; then
+      MX_TEST_INERT_PID_LOG="$(dirname "$0")/.inert-launch-pids" \
+        bash "$(dirname "$0")/inert-terminal-start.sh" "$(cat "${state}.launch-input")"
+    fi
     ;;
   "pane run"|"tab close") ;;
 
