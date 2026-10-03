@@ -326,3 +326,14 @@ Runtime inventory, startup nudge and cmux shell contracts passed 3/3 in 10.994 s
 Pi static contract passed; package/rendering/native E2E checks skipped because Pi and its package were unavailable.
 This is deterministic mock CLI evidence, not a new live backend or authenticated model test.
 Broad release/coverage validation remains separate.
+
+### Review correction: exact tmux session adoption
+
+The independent cleanup review found that `has-session -t primary` and `has-session -t broker` permit tmux prefix matching.
+A server containing only `primary-other` or `broker-other` could therefore be mistaken for an owned container and receive unrelated task routing.
+Both Rust and shell owners now probe `=primary` and `=broker`, preserving exact legacy adoption without adopting prefixes.
+The regression asserts both exact probes in Rust, tests existing canonical and legacy adoption, and exercises both owners against a real tmux server on a unique private socket.
+The real fixture keeps both prefix-only sessions intact, verifies creation of the exact primary session, verifies exact legacy adoption, and verifies canonical preference when both exact names exist.
+`container_adoption_requires_exact_existing_names` passed 1/1; the authoritative `mx-backend-tmux-smoke.test.sh` runner passed in 982 ms using the worktree debug binary.
+The fixture cleaned up only its own private socket and did not inspect or mutate the user's default tmux server.
+This adds live tmux evidence; Herdr/cmux remain deterministic CLI-fixture evidence with no new live backend claim.

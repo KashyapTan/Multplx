@@ -60,9 +60,9 @@ mx_backend_tmux_container_ensure() {
   if [ -n "${TMUX:-}" ]; then
     tmux display-message -p '#S'
   else
-    if tmux has-session -t primary 2>/dev/null; then
+    if tmux has-session -t =primary 2>/dev/null; then
       printf 'primary'
-    elif tmux has-session -t broker 2>/dev/null; then
+    elif tmux has-session -t =broker 2>/dev/null; then
       printf 'broker'  # Read compatibility: keep an existing container in place.
     else
       tmux new-session -d -s primary || return 1

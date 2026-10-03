@@ -245,11 +245,15 @@ impl<R: CommandRunner> RuntimeBackend for TmuxBackend<R> {
         if self.inside_tmux {
             return ContainerId::parse(self.text(["display-message", "-p", "#S"])?.trim());
         }
-        if self.run(["has-session", "-t", "primary"])?.status.success() {
+        if self
+            .run(["has-session", "-t", "=primary"])?
+            .status
+            .success()
+        {
             return ContainerId::parse("primary");
         }
         // Existing installations keep their exact historical container.
-        if self.run(["has-session", "-t", "broker"])?.status.success() {
+        if self.run(["has-session", "-t", "=broker"])?.status.success() {
             return ContainerId::parse("broker");
         }
         self.success(["new-session", "-d", "-s", "primary"])?;
@@ -662,7 +666,11 @@ mod tests {
         let calls = &backend.runner.calls;
         assert_eq!(
             calls[0].args,
-            ["has-session", "-t", "primary"].map(OsString::from)
+            ["has-session", "-t", "=primary"].map(OsString::from)
+        );
+        assert_eq!(
+            calls[1].args,
+            ["has-session", "-t", "=broker"].map(OsString::from)
         );
         assert_eq!(
             calls[2].args,
@@ -682,6 +690,27 @@ mod tests {
             calls[6].args,
             ["set-window-option", "-t", "@9", "allow-rename", "off"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn container_adoption_requires_exact_existing_names() {
+        for (outputs, expected) in [
+            (vec![output(0, b"", b"")], "primary"),
+            (vec![output(1, b"", b""), output(0, b"", b"")], "broker"),
+        ] {
+            let mut backend = TmuxBackend::new(
+                FakeRunner {
+                    outputs: outputs.into(),
+                    ..FakeRunner::default()
+                },
+                "tmux",
+                false,
+            );
+            assert_eq!(backend.container_ensure().unwrap().as_str(), expected);
+            assert!(backend.runner.calls.iter().all(|call| {
+                call.args[0] == "has-session" && call.args[2].to_string_lossy().starts_with('=')
+            }));
+        }
     }
 
     #[test]
