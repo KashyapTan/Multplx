@@ -2600,7 +2600,9 @@ fn queue_spawn(
                 index += 1;
             }
             value if value.starts_with("--") => {
-                return Err(format!("unsupported native standing-agent spawn option: {value}"));
+                return Err(format!(
+                    "unsupported native standing-agent spawn option: {value}"
+                ));
             }
             _ => positional.push(value.to_owned()),
         }
