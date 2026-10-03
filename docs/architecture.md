@@ -195,7 +195,7 @@ Herdr is experimental and can be selected explicitly or by runtime auto-detectio
 Herdr's durable default container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `primary`, standing-agent homes use `agent-<agent-id>`, and recovery/list-live scopes to the current `MX_HOME`'s workspace.
 Its optional default-off presentation projection may place one clean new task in a disposable workspace without changing endpoint authority or lifecycle ownership; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns that conditional design and its narrow home-local restored-shell cleanup at locked session start.
 cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or by runtime auto-detection from its primary `CMUX_WORKSPACE_ID` marker plus documented fallback signals: the built-in Git lifecycle supplies its worktrees, [`cmux-backend.md`](cmux-backend.md) owns current setup and limits, and [`verification/runtime-backends.md`](verification/runtime-backends.md#cmux) owns active source and live evidence.
-cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `MX_ROOT` path, and `--daemon` spawns are refused.
+cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `MX_ROOT` path, and `--persistent` spawns (including the historical `--daemon` alias) are refused.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
 ## Worktrees, not branches in your checkout
@@ -253,7 +253,7 @@ The dispatch file is intentionally judgment-based: the orchestrator reads the na
 The Rust owner validates the JSON shape and verified harness/effort combinations without parsing task intent or selecting profiles.
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `mx-spawn.sh` refuses sub-agent launches without an explicit harness, so `config/actor-harness` is only automatic when no dispatch profile file is active.
-Persistent-sub-agent launches are exempt because they resolve the legacy daemon harness alias and any optional model or effort tokens instead.
+Persistent-sub-agent launches are exempt because they resolve the standing-agent harness configuration and its explicit legacy aliases and any optional model or effort tokens instead.
 Unsupported effort values are still recorded in task meta when passed to `mx-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, and pi while preserving the requested profile for later audit.
 
@@ -289,12 +289,12 @@ Persistent sub-agents can run on a different verified harness than their child s
 A bare harness line remains harness-only, so existing `config/daemon-harness` files keep their previous behavior.
 When the harness token is unset or `default`, launch falls back to `config/actor-harness`, then to the primary's own harness, and the model and effort tokens are ignored.
 Those optional tokens are re-read on every persistent-sub-agent spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
-An explicit per-spawn verified harness does not inherit model or effort tokens from `config/daemon-harness`.
+An explicit per-spawn verified harness does not inherit model or effort tokens from the selected standing-agent harness configuration.
 `config/actor-harness` remains the sub-agent harness alias and is inherited into persistent-sub-agent homes.
 `config/actor-dispatch.json` is inherited too; persistent sub-agents use the same natural-language dispatch profiles when spawning their own child sub-agents.
 [Configuration](configuration.md#persistent-home-inheritance) owns the complete inherited-local-material allowlist and propagation contract.
 
-The `data/daemons.md` line contract is owned by the [route schema](configuration.md#persistent-sub-agent-routes-datadaemonsmd), and the persistent-sub-agent compatibility environment variables are documented in [configuration.md](configuration.md).
+The `data/agents.md` line contract (also used by existing `data/daemons.md` layouts) is owned by the [route schema](configuration.md#persistent-sub-agent-routes-datadaemonsmd), and the persistent-sub-agent compatibility environment variables are documented in [configuration.md](configuration.md).
 
 ## Project modes are explicit
 

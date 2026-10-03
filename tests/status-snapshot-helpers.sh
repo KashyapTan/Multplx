@@ -576,15 +576,19 @@ test_daemon_and_child_bounds_are_disclosed() {
     run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
     (.daemons | length) == 1
-      and ([.omitted[].surface] | any(test("daemons showing 1 of 2")))
-      and ([.omitted[].surface] | any(test("registered daemons omitted by snapshot bound: 1")))
+      and ([.omitted[].surface] | any(test("standing agents showing 1 of 2")))
+      and ([.omitted[].surface] | any(test("registered standing agents omitted by snapshot bound: 1")))
   ' >/dev/null || fail "catchup daemon bound was not disclosed: $json"
   expanded=$(MX_SNAPSHOT_DAEMON_CHILDREN=2 MX_STATUS_DAEMONS=1 \
     run "$home" "$fakebin" --json --all-daemons)
   printf '%s' "$expanded" | jq -e '
     (.daemons | length) == 3
-      and ([.omitted[].surface] | any(test("daemons showing|registered daemons omitted")) | not)
+      and ([.omitted[].surface] | any(test("standing agents showing|registered standing agents omitted")) | not)
   ' >/dev/null || fail "--all-daemons did not expand the canonical and catchup bounds: $expanded"
+  json=$(MX_SNAPSHOT_DAEMON_CHILDREN=2 MX_STATUS_DAEMONS=1 \
+    run "$home" "$fakebin" --json --all-agents)
+  [ "$(printf '%s' "$json" | jq -S '.daemons,.omitted')" = "$(printf '%s' "$expanded" | jq -S '.daemons,.omitted')" ] \
+    || fail "--all-agents differs from the retained --all-daemons alias: $json"
   pass "daemon and per-home child counts are bounded, disclosed, and explicitly expandable"
 }
 

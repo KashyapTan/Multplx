@@ -412,7 +412,9 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
         let resolved = match validate_daemon_home(context, &id, &raw) {
             Ok(home) => home,
             Err(error) => {
-                lines.push(format!("standing agent {id}: skipped: unsafe home: {error}"));
+                lines.push(format!(
+                    "standing agent {id}: skipped: unsafe home: {error}"
+                ));
                 continue;
             }
         };
@@ -439,7 +441,9 @@ pub fn update(context: &Context, state: &Path, registry: &Path) -> UpdateReport 
                 };
                 match result {
                     Ok(()) => {
-                        lines.push(format!("standing agent {id}: current runtime instructions linked"));
+                        lines.push(format!(
+                            "standing agent {id}: current runtime instructions linked"
+                        ));
                         if reread && !window.is_empty() {
                             nudges.push(format!("mx-{id}"));
                         }

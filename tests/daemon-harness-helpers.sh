@@ -1287,11 +1287,11 @@ test_config_push_reports_skips_dirty_and_invalid_home() {
   out=$(run_config_push "$w" 2>"$err"); status=$?
 
   expect_code 0 "$status" "warnings-only config push should exit zero"
-  assert_contains "$out" "daemon dirty ($dirty_real):" \
+  assert_contains "$out" "standing agent dirty ($dirty_real):" \
     "config push did not report dirty home"
   assert_contains "$out" "home: dirty working tree - local-material push continuing" \
     "config push did not surface dirty state"
-  assert_contains "$out" "daemon stale ($stale_real):" \
+  assert_contains "$out" "standing agent stale ($stale_real):" \
     "config push did not report stale home"
   assert_contains "$out" "actor-dispatch.json: skipped - destination does not allow inherited item" \
     "config push did not report non-allowing item skip"

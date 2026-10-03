@@ -631,7 +631,7 @@ test_home_seed_refuses_projectful_reused_charter_for_projectless_home() {
   fi
   grep -F 'existing charter brief' "$err" >/dev/null \
     || fail "project-less charter refusal did not name the stale charter conflict"
-  grep -F 'mx-brief.sh stale --daemon --no-projects' "$err" >/dev/null \
+  grep -F 'mx-brief.sh stale --persistent --role sub-orchestrator --no-projects' "$err" >/dev/null \
     || fail "project-less charter refusal did not explain how to re-scaffold"
   cmp -s "$stale_brief_before" "$stale_brief" \
     || fail "project-less charter refusal changed the reused charter"

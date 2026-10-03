@@ -548,7 +548,10 @@ fn resolve_via(line: &str) -> &'static str {
         .any(|needle| line.contains(needle))
     {
         "document"
-    } else if line.contains("via-helper") || line.contains("mx-daemon-report") {
+    } else if line.contains("via-helper")
+        || line.contains("mx-agent-report")
+        || line.contains("mx-daemon-report")
+    {
         "helper"
     } else {
         "status"
@@ -860,6 +863,13 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn report_command_provenance_accepts_current_and_historical_helpers() {
+        assert_eq!(resolve_via("done mx-agent-report"), "helper");
+        assert_eq!(resolve_via("done mx-daemon-report"), "helper");
+        assert_eq!(resolve_via("done plain"), "status");
+    }
+
+    #[test]
     fn create_embed_confirm_and_reuse_are_durable() {
         let temp = tempfile::tempdir().expect("tempdir");
         let state = temp.path().join("state");
@@ -1001,6 +1011,8 @@ mod tests {
         send_recovery(temp.path(), &failed_record, &failed).expect("failed recovery");
         assert_eq!(record_get(&failed_record, "phase"), "recovery_failed");
         assert_eq!(resolve_via("done via-helper"), "helper");
+        assert_eq!(resolve_via("done mx-agent-report"), "helper");
+        assert_eq!(resolve_via("done mx-daemon-report"), "helper");
         assert_eq!(resolve_via("done plain"), "status");
     }
 

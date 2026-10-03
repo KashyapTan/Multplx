@@ -359,3 +359,17 @@ The same review found that shell workspace lookup/creation ignored a failed home
 A malformed or conflicting marker could therefore fall through to a blank label instead of preserving the core identity refusal.
 Both lookup and creation now propagate derivation failure, and creation propagates lookup failure before any create operation.
 The adapter regression requires malformed and conflicting homes to fail with no provider list/create command.
+
+### Final producer census and integration corrections
+
+The final tracked producer scan found current handoff diagnostics, snapshot headings and omission hints, cmux refusal wording, sourced lock/delivery messages and recovery skill guidance still using retired actor names.
+These current emissions and their exact assertions now use standing-agent, parent, orchestrator or operator terminology; versioned field names, authority identities and historical fixtures remain intact.
+Canonical `mx-agent-report` was absent from the pending-reply helper provenance classifier even though the historical command was recognized.
+The classifier now recognizes both command identities, with exact regression assertions for both forms.
+`report_command_provenance_accepts_current_and_historical_helpers` passed 1/1 after the final source correction.
+The canonical `--all-agents` catchup option disabled the upstream snapshot bound but failed to disable the local catchup limit, which checked only its historical alias.
+The parser now normalizes the canonical flag to the existing internal representation, and the regression compares the canonical and historical options' complete agent rows and omission disclosures under a one-row limit.
+The first scoped release reconciliation run recorded 13 scripts, seven passing and six failing in 148.961 seconds at `/private/tmp/mx-vocabulary-owned-focused.log`.
+Those six failures were exact stale expectations for config-push labels, a freshly created primary endpoint, the explicit persistent coordinator re-scaffold command, a helper's caller-supplied subject, the shared instruction caption and a legacy registry's current update label.
+The assertions retain their original identity, containment, failure and exact-output requirements.
+Final centralized validation follows the frozen source commit; this intermediate run is not a passing release claim.

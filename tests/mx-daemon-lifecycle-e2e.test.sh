@@ -163,7 +163,7 @@ phase_borrowed_project_child() {
 
 phase_send() {
   : > "$LOG"
-  # The meta window (broker:mx-design) must win over a foreign same-named
+  # The meta window (primary:mx-design) must win over a foreign same-named
   # window returned by list-windows.
   PATH="$FAKEBIN:$PATH" MX_HOME="$HOME_DIR" MX_FAKE_TMUX_WINDOW="other-session:mx-design" \
     MX_FAKE_TMUX_LOG="$LOG" MX_FAKE_TMUX_CAPTURE="$PANE" \
@@ -172,7 +172,7 @@ phase_send() {
   # design is a kind=daemon target, so the request is prefixed with the
   # from-parent marker (bin/mx-marker-lib.sh): the send targets the meta window
   # AND carries the marker label, and the original payload still follows it.
-  assert_grep 'send-keys -t broker:mx-design -l [mx-from-parent]' "$LOG" "send did not use the window recorded in this home's meta, or did not mark the daemon request"
+  assert_grep 'send-keys -t primary:mx-design -l [mx-from-parent]' "$LOG" "send did not use the window recorded in this home's meta, or did not mark the daemon request"
   assert_grep 'route this work' "$LOG" "the original request text did not survive the marker"
   assert_no_grep 'send-keys -t other-session:mx-design' "$LOG" "send targeted a foreign same-named window"
   pass "send: a bare mx-<id> daemon routes to the meta window with the from-parent marker"
@@ -226,7 +226,7 @@ phase_recovery() {
   local meta="$HOME_DIR/state/design.meta"
   assert_grep "home=$SUB_ABS" "$meta" "respawn did not preserve the persistent home from the registry"
   assert_grep 'projects=alpha, beta, gamma' "$meta" "respawn did not preserve the project list from the registry"
-  assert_grep 'window=broker:mx-design' "$meta" "respawn did not reconstruct the direct-report window"
+  assert_grep 'window=primary:mx-design' "$meta" "respawn did not reconstruct the direct-report window"
   pass "recovery: respawns from the durable registry and persistent home"
 }
 

@@ -31,7 +31,11 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
             "--all-in-flight" | "--all-decisions" | "--all-agents" | "--all-daemons"
             | "--all-landed" | "--all-reports" | "--all-queued" | "--all-recorded-prs"
             | "--all-unhealthy" | "--all-pr-repos" => {
-                all.insert(args[index].clone());
+                all.insert(if args[index] == "--all-agents" {
+                    "--all-daemons".to_owned()
+                } else {
+                    args[index].clone()
+                });
             }
             "-h" | "--help" => return (0, usage(), String::new()),
             _ => return (2, String::new(), usage()),
@@ -348,7 +352,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
     }
     let daemon_limit = bound("MX_STATUS_DAEMONS", 20);
     if !all.contains("--all-daemons") && daemon_total > daemon_limit {
-        omitted.push(json!({"surface":format!("daemons showing {daemon_limit} of {daemon_total}"),"reveal":"--all-daemons"}));
+        omitted.push(json!({"surface":format!("standing agents showing {daemon_limit} of {daemon_total}"),"reveal":"--all-agents"}));
     }
     let unreadable = root
         .pointer("/daemon_landed/unreadable")
@@ -376,7 +380,7 @@ pub(crate) fn run(args: &[String], source_root: &Path, home: &Path) -> (i32, Str
         .and_then(Value::as_u64)
         .unwrap_or(0);
     if daemon_truncated > 0 {
-        omitted.push(json!({"surface":format!("registered daemons omitted by snapshot bound: {daemon_truncated}"),"reveal":"raise MX_SNAPSHOT_DAEMONS"}));
+        omitted.push(json!({"surface":format!("registered standing agents omitted by snapshot bound: {daemon_truncated}"),"reveal":"raise MX_SNAPSHOT_DAEMONS"}));
     }
     if root
         .pointer("/daemon_current/registry/input_truncated")

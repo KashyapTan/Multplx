@@ -1,4 +1,4 @@
-//! Genuine broker-primary scope predicate from `bin/mx-primary-scope-lib.sh`.
+//! Genuine primary orchestrator scope predicate from `bin/mx-primary-scope-lib.sh`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,7 +6,7 @@ use std::process::Command;
 
 use crate::identifiers::PathComponent;
 
-/// Return whether a root carries a valid, non-symlink daemon-home marker.
+/// Return whether a root carries a valid, non-symlink standing-agent home marker.
 #[must_use]
 pub fn is_daemon_home(root: impl AsRef<Path>) -> bool {
     let Ok(marker) = crate::agent_home::marker_path(root.as_ref()) else {
@@ -127,7 +127,7 @@ fn matches_with_context(
 }
 
 /// Return whether the root is a valid primary or linked daemon home and has
-/// the required broker-contract, command, and state surfaces.
+/// the required operating-contract, command, and state surfaces.
 #[must_use]
 pub fn matches(root: impl AsRef<Path>, state: impl AsRef<Path>) -> bool {
     let root = root.as_ref();

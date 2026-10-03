@@ -341,7 +341,7 @@ EOF
   out=$(PATH="$fakebin:$BASE_PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$root" \
     "$ROOT/bin/mx-session-start.sh")
 
-  assert_contains "$out" "data/maintainer-shared.md (shared, main-authoritative, read-only in daemon homes)" \
+  assert_contains "$out" "data/maintainer-shared.md (shared, parent-authoritative, read-only in standing-agent homes)" \
     "session-start digest should label the shared maintainer file unmistakably"
   assert_contains "$out" "shared from primary" "session-start digest should render the shared file"
   assert_contains "$out" "data/maintainer-shared.md, data/learnings.md" \

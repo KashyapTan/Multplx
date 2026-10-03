@@ -104,7 +104,7 @@ If more than one runtime marker is present, detection resolves innermost-first: 
 See [`docs/cmux-backend.md`](cmux-backend.md#runtime-detection) for why cmux can be selected when `CMUX_WORKSPACE_ID` is absent.
 Auto-detected herdr or cmux prints a stderr notice naming `config/backend` and `--backend tmux` as opt-outs; auto-detected tmux stays silent to preserve existing default behavior.
 Any value other than `tmux`, `herdr`, or `cmux` is rejected until another adapter is implemented and verified.
-`mx-spawn.sh` accepts `tmux`, `herdr`, and `cmux` for implementation and research tasks; `backend=cmux` still refuses the legacy `--daemon` alias until persistent-sub-agent launch semantics are designed.
+`mx-spawn.sh` accepts `tmux`, `herdr`, and `cmux` for implementation and research tasks; `backend=cmux` still refuses `--persistent` and its legacy `--daemon` alias until persistent-sub-agent launch semantics are designed.
 `codex-app` is not an accepted runtime backend yet; [`docs/codex-app-backend.md`](codex-app-backend.md) owns the Codex App boundary.
 The session-start persistent-sub-agent liveness sweep uses the recovery-grade `mx_backend_agent_state` classifier where verified.
 The comment above that function in `bin/mx-backend.sh` is the single owner of its detailed state contract and recovery authorization.
@@ -168,7 +168,7 @@ Portable shard evidence and coverage rules are in [mx-test-portable-shards.md](m
 
 ## Maintainer Preferences (data/maintainer.md / data/maintainer-shared.md)
 
-Domain-local preferences for one human's system live locally in each home's `data/maintainer.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/daemons.md`.
+Domain-local preferences for one human's system live locally in each home's `data/maintainer.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and the optional selected standing-agent registry (`data/agents.md`, or an existing `data/daemons.md` layout).
 Before changing it, inspect the current file and rewrite or prune the matching bullet in place; add a new bullet only for a genuinely new durable preference.
 Shared human preferences that apply across persistent-sub-agent domains live only in the primary home's optional `data/maintainer-shared.md`.
 The persistent-home inheritance section below owns propagation; the parent-authoritative shared preference header and read-only child copies prevent accidental reverse synchronization.
@@ -410,7 +410,7 @@ For a mid-session inherited local-material edit where tracked-file sync is not n
 It uses the same live persistent-sub-agent discovery and propagation helper as bootstrap, prints each live home's `actor-dispatch.json`, `actor-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/maintainer-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running home, it sends the literal-content reread pointer described in [inherited configuration](configuration.md#persistent-home-inheritance); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 The locked bootstrap inheritance pass uses the same per-home changed-set and reread path for already-running homes; see `daemon-provisioning` for the compatibility contract owner.
-That live discovery starts from `state/*.meta` records with `kind=daemon`; `data/daemons.md` only backfills `home=` for older or incomplete meta records.
+That live discovery starts from `state/*.meta` records with `kind=daemon`; the selected registry (`data/agents.md`, or an existing `data/daemons.md` layout) only backfills `home=` for older or incomplete meta records.
 Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
 
 ## Environment variables
@@ -530,7 +530,7 @@ The shared staleness proof lives in `multplx-core`; the Rust teardown and system
 ## Persistent-home inheritance
 
 The [inheritance module](../crates/multplx-domain/src/inheritance.rs) owns the allowlist, byte validation, per-home lock and generation publication.
-The current allowlist contains `config/subagent-dispatch.json`, `config/subagent-harness`, `config/persistent-subagent-harness`, the legacy `config/actor-dispatch.json` and `config/actor-harness` aliases, `config/backlog-backend`, `config/herdr-presentation-spaces` and `data/maintainer-shared.md`.
+The current allowlist contains `config/subagent-dispatch.json`, `config/subagent-harness`, `config/standing-agent-harness`, `config/persistent-subagent-harness`, the legacy `config/actor-dispatch.json` and `config/actor-harness` aliases, `config/backlog-backend`, `config/herdr-presentation-spaces` and `data/maintainer-shared.md`.
 `config/daemon-harness` and `data/learnings.md` remain home-local.
 An inherited literal `default` harness resolves against the child's own harness, not the parent's effective choice.
 Shared preference copies are read-only in children; divergent bytes are quarantined before replacement and are never copied back to the parent.

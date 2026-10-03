@@ -322,7 +322,7 @@ fn native_system_view_ignores_shell_bodies_and_preserves_rendering_contract() {
             "| landed | Landed task | demo | delivery | - | https://example.invalid/pr/1 |"
         )
     );
-    assert!(text.ends_with("## Daemons\nNo registered daemons.\n"));
+    assert!(text.ends_with("## Standing agents\nNo registered daemons.\n"));
 
     let json = run(mx()
         .env("PATH", format!("{}:/usr/bin:/bin", tools.display()))

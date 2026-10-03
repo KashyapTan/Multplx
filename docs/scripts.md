@@ -59,7 +59,7 @@ The shared deep-review gate refusal for system lifecycle entrypoints is summariz
 | `mx-subagent-pretool-check.sh` | Retain explicitly selected native capability and check supported remote merge commands (docs/subagent-guard.md) |
 | `mx-native-observe.sh` | Record attempt-bound provider child lifecycle evidence or an honest session-bound fallback |
 | `mx-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
-| `mx-home-seed.sh`        | Transactionally provision a persistent-sub-agent home and maintain `data/daemons.md`       |
+| `mx-home-seed.sh`        | Transactionally provision a persistent-sub-agent home and maintain `data/agents.md` (existing `data/daemons.md` layouts remain compatible)       |
 | `mx-spawn.sh`            | Spawn sub-agents, `id=repo` batches, and persistent sub-agents on the resolved harness and runtime backend |
 | `mx-backend.sh`          | Transport runtime-backend selection, target resolution, and operation dispatch to Rust |
 | `mx-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for cmux workspace titles |

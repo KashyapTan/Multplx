@@ -223,14 +223,14 @@ test_registry_backstop_dedup_and_self_exclusion() {
 
   out=$(run_update "$w")
 
-  assert_contains "$out" "daemon reg1: updated " "registry-only daemon fast-forwarded"
+  assert_contains "$out" "standing agent reg1: updated " "registry-only daemon fast-forwarded"
   assert_contains "$out" "standing agent sm1: updated " "meta+registry daemon fast-forwarded"
   count=$(printf '%s\n' "$out" | grep -c '^standing agent sm1:' || true)
   [ "$count" -eq 1 ] || fail "daemon sm1 processed $count times, expected 1 (dedup across meta+registry)"
-  assert_not_contains "$out" "daemon selfish" "Multplx repo re-processed as its own daemon"
+  assert_not_contains "$out" "standing agent selfish" "Multplx repo re-processed as its own daemon"
   # sm1 has live metadata, so it is nudged; reg1 has none, so it is not. Pin the
   # nudge line exactly and confirm reg1 is absent from it (not from the whole
-  # output, where 'daemon reg1: updated' legitimately appears).
+  # output, where 'standing agent reg1: updated' legitimately appears).
   local nudge_line
   nudge_line=$(printf '%s\n' "$out" | grep '^nudge-agents:')
   assert_contains "$nudge_line" "mx-sm1" "live-meta daemon is nudged"

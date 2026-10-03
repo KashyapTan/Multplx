@@ -125,7 +125,7 @@ seed_marked_home() {
 FF_OUT=""
 run_ff() {
   local dir=$1 base=$2 outfile="$TMP_ROOT/ff.out"
-  ff_target "$dir" "daemon sm" "$base" yes yes >"$outfile" 2>&1
+  ff_target "$dir" "standing agent sm" "$base" yes yes >"$outfile" 2>&1
   FF_OUT=$(cat "$outfile")
 }
 

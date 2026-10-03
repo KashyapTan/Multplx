@@ -41,7 +41,7 @@ It parses JSON with typed Rust code and performs event subscription and `workspa
 
 Each Multplx home gets one durable workspace with one task tab per endpoint.
 New primary workspaces use `primary`; the existing `broker` workspace is adopted as an exact legacy alias.
-A standing-agent home uses `agent-<id>`, derived from its historical `.mx-daemon-home` identity marker.
+A standing-agent home uses `agent-<id>`, derived from its `.mx-agent-home` identity marker or validated historical `.mx-daemon-home` alias.
 The label is independent of the assignment role, so workers and coordinators use the same convention.
 Existing `daemon-<id>` workspaces remain eligible for lookup and recovery and are never renamed automatically.
 The persistent sub-agent and every child it launches resolve the same home label; a persistent sub-agent launched by the primary receives a narrowly scoped home override during container creation.
