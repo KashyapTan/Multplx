@@ -1162,6 +1162,49 @@ fn system_model(paths: &Paths, generated: &str, backlog: Value, tasks: Value) ->
     json!({"schema":"mx-system-snapshot.v1","generated":generated,"mx_home":paths.home,"primary":primary_observation(paths, generated),"roots":{"mx_root":paths.root,"state":paths.state,"data":paths.data,"config":paths.config,"projects":paths.projects},"backlog":backlog,"tasks":tasks,"portfolio":portfolio,"native_delegations":native_observations(&paths.state),"main_inventory":inventory,"scout_reports":reports,"watcher":watcher,"wake_queue":wake,"dispatch_queue":dispatch(paths),"headroom":headroom,"headroom_reason":headroom_reason,"domains":domains,"vplan_reviews":vplans(paths),"later_feeds":later_feeds,"daemon_current":daemon_current,"daemon_landed":daemon_landed,"daemon_guidance":{"note":"For kind=daemon, catchup selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."}})
 }
 
+// Scope is the complete accepted brief, not a display title. Keep the original
+// scope in the projection and derive a label from its task/charter section.
+fn scope_title(scope: &str) -> Option<String> {
+    let lines = scope.lines().map(str::trim).collect::<Vec<_>>();
+    for heading in ["# Task", "# Charter", "# Routing scope"] {
+        if let Some(index) = lines.iter().position(|line| *line == heading) {
+            let title = lines[index + 1..]
+                .iter()
+                .take_while(|line| !line.starts_with("# "))
+                .find(|line| !line.is_empty() && **line != "{TASK}");
+            if let Some(title) = title {
+                return Some(title.trim_start_matches('#').trim().to_owned());
+            }
+        }
+    }
+    lines
+        .iter()
+        .find(|line| !line.is_empty())
+        .filter(|line| !line.starts_with("You are ") && !line.starts_with("# "))
+        .map(|line| (*line).to_owned())
+}
+
+fn portfolio_task_title(task: &Value) -> String {
+    if let Some(title) = task.pointer("/backlog/title").and_then(Value::as_str)
+        && !title.trim().is_empty()
+    {
+        return title.trim().to_owned();
+    }
+    let coordination = &task["coordination"];
+    let revision = coordination["accepted_brief_revision"].as_u64();
+    let briefs = coordination["briefs"].as_array();
+    let brief = briefs.and_then(|briefs| match revision {
+        Some(revision) => briefs
+            .iter()
+            .find(|brief| brief["revision"].as_u64() == Some(revision)),
+        None => briefs.last(),
+    });
+    brief
+        .and_then(|brief| brief["scope"].as_str())
+        .and_then(scope_title)
+        .unwrap_or_else(|| task["id"].as_str().unwrap_or("").to_owned())
+}
+
 /// Build the task-first read model from existing authoritative records.
 ///
 /// This is deliberately a projection: it does not infer sessions, successful
@@ -1279,16 +1322,7 @@ fn portfolio(
             reasons.push(format!("task {id} coordination metadata unavailable"));
         }
         let backlog = task.get("backlog").filter(|value| value.is_object());
-        let title = backlog
-            .and_then(|row| row["title"].as_str())
-            .or_else(|| {
-                coordination
-                    .and_then(|row| row["briefs"].as_array())
-                    .and_then(|briefs| briefs.last())
-                    .and_then(|brief| brief["scope"].as_str())
-            })
-            .filter(|value| !value.is_empty())
-            .unwrap_or(id);
+        let title = portfolio_task_title(task);
         let parent_id = coordination.and_then(|row| row["parent_id"].as_str());
         let root_id = coordination.and_then(|row| row["root_id"].as_str());
         let children = rows
@@ -1547,7 +1581,7 @@ fn portfolio(
                 projected.push(json!({
                     "key": multplx_domain::lifecycle::subagent_model::qualified_task_id(&request.recipient_home, &request.task_id),
                     "id": request.task_id,
-                    "title": request.scope,
+                    "title": scope_title(&request.scope).unwrap_or_else(|| request.task_id.clone()),
                     "parent_id": request.parent_task_id,
                     "root_id": Value::Null,
                     "children": [],
@@ -2897,6 +2931,61 @@ fn upstream(paths: &Paths) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn brief_titles_use_outcome_sections_without_destroying_scope() {
+        let scaffold = "You are an persistent implementer sub-agent.\nYour current worker assignment defines your role.\n\n# Task\nFix the dashboard attention cards\n\n## Acceptance\nKeep the complete evidence.\n\n# Setup\nUse the worktree.\n\n# Charter\nFix the dashboard attention cards\n\n# Definition of done\nReport evidence.";
+        assert_eq!(
+            super::scope_title(scaffold).as_deref(),
+            Some("Fix the dashboard attention cards")
+        );
+        assert_eq!(super::scope_title(&scaffold.replace('\n', " ")), None);
+        for (scope, expected) in [
+            (
+                "# Task\n\n# Charter\nCoordinate the UI",
+                Some("Coordinate the UI"),
+            ),
+            (
+                "# Task\n{TASK}\n# Routing scope\nCoordinate this project",
+                Some("Coordinate this project"),
+            ),
+            (
+                "# Task\n## Repair the UI\nMore detail",
+                Some("Repair the UI"),
+            ),
+            ("\nPlain task title\nMore context", Some("Plain task title")),
+            ("You are a worker.\n# Setup\nInstructions", None),
+            ("# Task\n{TASK}\n# Setup\nInstructions", None),
+            ("# Unnamed scaffold\nInstructions", None),
+            (" \n", None),
+        ] {
+            assert_eq!(super::scope_title(scope).as_deref(), expected);
+        }
+        let mut task = serde_json::json!({"id":"repair","coordination":{
+            "accepted_brief_revision":1,
+            "briefs":[{"revision":1,"scope":scaffold},{"revision":2,"scope":"Unaccepted revision"}]
+        }});
+        assert_eq!(
+            super::portfolio_task_title(&task),
+            "Fix the dashboard attention cards"
+        );
+        assert_eq!(task["coordination"]["briefs"][0]["scope"], scaffold);
+        task["backlog"] = serde_json::json!({"title":" Backlog outcome "});
+        assert_eq!(super::portfolio_task_title(&task), "Backlog outcome");
+        task["backlog"]["title"] = serde_json::json!(" ");
+        assert_eq!(
+            super::portfolio_task_title(&task),
+            "Fix the dashboard attention cards"
+        );
+        task["coordination"]["accepted_brief_revision"] = serde_json::json!(3);
+        assert_eq!(super::portfolio_task_title(&task), "repair");
+        task["coordination"]["accepted_brief_revision"] = serde_json::Value::Null;
+        assert_eq!(super::portfolio_task_title(&task), "Unaccepted revision");
+        task["coordination"]["briefs"] = serde_json::json!([]);
+        assert_eq!(super::portfolio_task_title(&task), "repair");
+        task["coordination"] = serde_json::Value::Null;
+        assert_eq!(super::portfolio_task_title(&task), "repair");
+    }
+
     #[test]
     fn primary_child_forces_internal_dispatch_for_installed_multplx_basename() {
         let temp = tempfile::tempdir().unwrap();

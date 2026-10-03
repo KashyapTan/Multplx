@@ -41,6 +41,49 @@ const percentile = (values, fraction) => [...values].sort((a, b) => a - b)[Math.
 const browser = await chromium.launch({ headless: true });
 const results = { schema: "mx-viz-browser-results.v1", scales: {}, errors: [], interaction_samples_ms: [] };
 
+// Exercise the actual client with historical full-brief titles and long decisions.
+// Route only synthetic state; the service and its canonical fixture remain unchanged.
+const attentionSnapshot = JSON.parse(execFileSync(process.execPath, [path.join(root, "tests/fixtures/viz/attention.mjs")], { encoding: "utf8" }));
+results.attention = {};
+for (const [layout, viewport] of Object.entries({ wide: { width: 1440, height: 900 }, narrow: { width: 390, height: 844 } })) {
+  const page = await browser.newPage({ viewport });
+  await page.route("**/api/state", (route) => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ snapshot: attentionSnapshot }),
+    headers: { "X-Multplx-Cache": "fresh", "X-Multplx-Observation-Age-Ms": "0" },
+  }));
+  await page.goto(base, { waitUntil: "domcontentloaded" });
+  await page.locator("#attention-count").filter({ hasText: "8 actionable" }).waitFor();
+  const bounds = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > innerWidth,
+    heights: [...document.querySelectorAll(".attention-card")].map((card) => card.getBoundingClientRect().height),
+    title: document.querySelector(".attention-title").textContent,
+    injected: Boolean(window.__attentionInjected),
+    image_count: document.querySelectorAll("#attention-list img").length,
+  }));
+  if (bounds.overflow || Math.max(...bounds.heights) > 220) throw new Error(`attention ${layout} has unbounded layout: ${JSON.stringify(bounds.heights)}`);
+  if (bounds.title !== attentionSnapshot.portfolio.tasks[0].title || bounds.injected || bounds.image_count) throw new Error(`attention ${layout} lost text or interpreted HTML`);
+  const disclosure = page.locator(".attention-details").first();
+  await disclosure.locator("summary").focus();
+  await disclosure.locator("summary").press("Enter");
+  if (await disclosure.getAttribute("open") === null) throw new Error("attention disclosure did not open from keyboard");
+  const full = disclosure.locator(".attention-detail-body");
+  await full.focus();
+  const detail = await full.evaluate((node) => ({ height: node.getBoundingClientRect().height, scroll: node.scrollHeight, text: node.textContent, focused: document.activeElement === node }));
+  if (!detail.focused || detail.height > 260 || detail.scroll <= detail.height || !detail.text.includes(attentionSnapshot.portfolio.tasks[0].title)) throw new Error("full attention text is not available in a bounded keyboard scroll region");
+  await full.evaluate((node) => { node.scrollTop = 144; });
+  await sleep(3200);
+  const retained = await full.evaluate((node) => ({ open: node.closest("details").open, focused: document.activeElement === node, scroll: node.scrollTop }));
+  if (!retained.open || !retained.focused || retained.scroll !== 144) throw new Error("attention polling lost open details, focus or scroll");
+  await page.screenshot({ path: path.join(output, `attention-${layout}.png`), fullPage: true });
+  const taskLink = page.locator(".attention-item").first();
+  await taskLink.focus();
+  await taskLink.press("Enter");
+  const expectedKey = attentionSnapshot.portfolio.tasks[0].key;
+  await page.waitForFunction((key) => [...document.querySelectorAll(".task-row")].some((row) => row.dataset.taskId === key && row.open), expectedKey);
+  results.attention[layout] = { bounded_cards: true, horizontal_overflow: false, full_text_preserved: true, keyboard_disclosure: true, polling_preserves_details_focus_scroll: true, exact_task_opened: true, safe_literal_text: true, maximum_closed_card_height: Math.max(...bounds.heights) };
+  await page.close();
+}
+
 if (expectedArtifactText) {
   const artifact = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   await artifact.goto(base, { waitUntil: "domcontentloaded" });

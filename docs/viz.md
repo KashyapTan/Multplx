@@ -97,6 +97,10 @@ Up and Down move between task summaries, Enter or Space expands the focused task
 Narrow layouts collapse detail and side panels to one column without hiding role or freshness labels.
 Loading, empty, unavailable, partial, stale and refresh-error states are shown explicitly.
 Decision and delivery items link to their task without exposing approve, defer, merge or write actions.
+Task labels prefer the backlog title, then the task or charter section of the accepted brief; the complete scope remains available through the brief evidence.
+Attention cards show the human action, bound title and question previews to readable lines, and retain the complete text in a keyboard-accessible disclosure with a bounded scroll region.
+Open attention disclosures, keyboard focus and scroll position survive snapshot updates by qualified task and decision identity.
+This also contains historical full-brief titles and long unbroken strings without treating their text as HTML.
 Displayed timestamps use the browser's local time zone, a 12-hour clock, and omit the year.
 
 The snapshot script's header remains the schema owner for its additive watcher, queue, headroom, vplan-review, and later-plan feed fields.
@@ -112,6 +116,9 @@ Phase 10 publishes the shared project and task projection for later workspace cl
 It uses a caller-supplied temporary Playwright module, running fixture-backed server URL, fixture file and output directory, so browser tooling and screenshots do not become packaged dependencies.
 It captures 0, 1, 5, 10 and 20-task views at 1440 by 900 and 390 by 844, checks overflow and layout, verifies focus and expansion across a meaningful update, exercises keyboard movement and records 20 post-data interaction samples.
 It also delays browser state requests to prove they do not overlap, injects `document.hidden` to verify the scheduled 15-second backoff, checks that observation age advances on a `304`, and makes a cached refresh fail to verify the stale error banner.
+Attention regression fixtures cover multiline and flattened historical scaffold titles, unbroken strings, long decisions, literal HTML, all delivery actions, keyboard disclosure and exact task navigation at both viewport sizes.
+The deterministic attention DOM test runs through `mx test-run tests/mx-viz.test.sh` alongside graph regressions.
+For a browser-only fixture with no operational home or service access, run `python3 tests/fixtures/viz/attention-server.py` and open its returned ephemeral localhost URL.
 When `MX_VIZ_EXPECT_ARTIFACT_TEXT` is set, the runner first opens the source fixture's accepted brief through its exact artifact-reference route and verifies a scriptless Markdown preview before running the scale fixtures.
 The recorded reference result is `plans/lean_redesign/phase10-ui-browser-results.json`.
 

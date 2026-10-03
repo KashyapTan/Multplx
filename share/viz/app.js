@@ -537,9 +537,25 @@ function deliveryStatus(task) {
   return String(reviewQueue.state || "").toLowerCase();
 }
 
+function attentionReason(item) {
+  if (item.decision) return item.decision.question || item.decision.summary || "Answer the pending decision.";
+  const actions = {
+    ready: "Review the delivery and decide whether to merge.",
+    "needs-checks": "Check the missing or failing validation before reviewing delivery.",
+    "blocked-by-dependencies": "Resolve the blocking dependencies before reviewing delivery.",
+    "review-findings": "Resolve the review findings before approving delivery.",
+    "review-not-run": "Review the delivery; a review has not been recorded.",
+  };
+  return actions[item.delivery];
+}
+
 function renderAttention() {
   const target = document.querySelector("#attention-list");
   const panel = document.querySelector("#attention-panel");
+  const focusKey = stableFocusKey();
+  const previous = new Map([...target.querySelectorAll(".attention-details")].map((details) => [
+    details.dataset.attentionKey, { open: details.open, scroll: details.querySelector(".attention-detail-body")?.scrollTop || 0 },
+  ]));
   const items = [];
   for (const task of normalizedTasks(portfolio)) {
     for (const decision of list(task.decisions).filter((row) => !row.answer && row.state !== "resolved")) items.push({ task, decision });
@@ -548,17 +564,43 @@ function renderAttention() {
   }
   clear(target);
   for (const item of items) {
+    const key = JSON.stringify([taskKey(item.task), item.decision ? "decision" : "delivery",
+      item.decision?.id || item.decision?.question || item.decision?.summary || "",
+      item.decision?.brief_revision ?? item.task.brief?.revision ?? null]);
+    const card = el("article", "attention-card");
+    const title = item.task.title || item.task.id;
+    const reason = attentionReason(item);
     const link = el("a", "attention-item");
     link.href = hashForTask(taskKey(item.task), projectRecord(item.task).id);
+    link.dataset.focusKey = `attention-link:${key}`;
+    link.setAttribute("aria-label", `Open task ${item.task.id}: ${item.decision ? "decision required" : titleCase(item.delivery)}`);
     link.append(chip(item.decision ? "decision" : "delivery", item.decision ? "red" : "green"));
-    link.append(el("strong", "", item.task.title || item.task.id));
-    link.append(el("span", "", item.decision?.question || item.decision?.summary || titleCase(item.delivery)));
-    target.append(link);
+    link.append(el("strong", "attention-title", title));
+    link.append(el("span", "attention-reason", reason));
+    const details = el("details", "attention-details");
+    details.dataset.attentionKey = key;
+    details.open = previous.get(key)?.open || false;
+    const summary = el("summary", "", "Full attention details");
+    summary.dataset.focusKey = `attention-summary:${key}`;
+    summary.setAttribute("aria-label", `Full attention details for ${item.task.id}`);
+    details.append(summary);
+    const full = el("div", "attention-detail-body");
+    full.dataset.focusKey = `attention-body:${key}`;
+    full.tabIndex = 0;
+    full.setAttribute("role", "region");
+    full.setAttribute("aria-label", `Full attention details for ${item.task.id}`);
+    full.append(el("strong", "", title), el("p", "", reason));
+    if (item.decision?.reason) full.append(el("p", "", item.decision.reason));
+    details.append(full);
+    card.append(link, details);
+    target.append(card);
+    full.scrollTop = previous.get(key)?.scroll || 0;
   }
   panel.hidden = items.length === 0;
   attentionItemCount = items.length;
   panel.hidden = attentionItemCount === 0 || agentsViewActive;
   document.querySelector("#attention-count").textContent = `${items.length} actionable`;
+  restoreFocus(focusKey);
 }
 
 function renderDomains() {
