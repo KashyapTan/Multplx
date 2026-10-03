@@ -121,6 +121,12 @@ for argument in "$@"; do
   [ "$previous" = "-p" ] && pid=$argument
   previous=$argument
 done
+# Startup verification reads the actual inert provider; lifecycle probes retain
+# their exact synthetic owner/foreign-owner semantics.
+if [ -f "$(dirname "$0")/.inert-launch-pids" ] && \
+    grep -qx "$pid" "$(dirname "$0")/.inert-launch-pids"; then
+  exec /bin/ps "$@"
+fi
 case "$*" in
   *"ppid="*"comm="*"args="*)
     if is_harness_pid "$pid"; then
@@ -262,6 +268,7 @@ make_fake_tmux_daemon_recovery() {
   local fakebin=$1
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 mode=${MX_FAKE_TMUX_MODE:?}
 log=${MX_FAKE_TMUX_LOG:?}
@@ -340,6 +347,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
 }
 
@@ -414,8 +423,12 @@ case "${1:-} ${2:-}" in
   "pane close")
     [ "${3:-}" = p-old ] && : > "$killed"
     ;;
-  "pane run"|"pane send-text"|"pane send-keys"|"tab close")
+  "pane send-text") printf '%s' "${4:-}" > "${state}.launch-input" ;;
+  "pane send-keys")
+    [ "${4:-}" != enter ] || bash "$(dirname "$0")/inert-terminal-start.sh" "$(cat "${state}.launch-input")"
     ;;
+  "pane run"|"tab close") ;;
+
   *)
     printf 'unexpected fake Herdr command: %s\n' "$*" >&2
     exit 1
@@ -423,6 +436,7 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "$fakebin/inert-terminal-start.sh"
   chmod +x "$fakebin/herdr"
 }
 

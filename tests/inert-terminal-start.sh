@@ -11,9 +11,14 @@ case "$(tail -n 1 "$script")" in
   *--plugin-dir*) harness=agent ;;
   *) harness=pi ;;
 esac
-stub="$(dirname "$script")/$harness"
-printf 'import time\ntime.sleep(2)\n' > "$stub"
+# Keep the synthetic interpreter script name independently readable by ps, even
+# when the owned launch script lives in a spaced task root. It removes its own
+# private directory immediately after Python opens it.
+inert_dir=$(mktemp -d /tmp/mx-inert-provider.XXXXXX)
+stub="$inert_dir/$harness"
+printf 'import os,time\nos.unlink(__file__)\nos.rmdir(os.path.dirname(__file__))\ntime.sleep(2)\n' > "$stub"
 launch="$(dirname "$script")/inert-launch.sh"
 sed '$d' "$script" > "$launch"
-printf 'exec python3 "%s"\n' "$stub" >> "$launch"
-/bin/sh "$launch" >/dev/null 2>&1 </dev/null &
+printf 'exec -a %s python3 "%s"\n' "$harness" "$stub" >> "$launch"
+bash "$launch" >/dev/null 2>&1 </dev/null &
+printf '%s\n' "$!" >> "$(dirname "$0")/.inert-launch-pids"

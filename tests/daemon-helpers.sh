@@ -18,6 +18,7 @@ make_fake_tmux() {
   printf 'idle prompt\n' > "$capture"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 case "${1:-}" in
   new-window)
@@ -65,6 +66,8 @@ SH
 printf 'unexpected retired provider invocation: treehouse %s\n' "$*" >> "${MX_FAKE_TMUX_LOG:-/dev/null}"
 exit 99
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   chmod +x "$fakebin/treehouse"
   : > "$dir/tmux.log"

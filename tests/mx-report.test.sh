@@ -220,6 +220,7 @@ test_current_report_invalidates_dependency_completion() (
   mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects" "$project" "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/bin/sh
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 case "${1:-}" in
   has-session|new-session) exit 0 ;;
   new-window) printf '%s\n' '@report-test' ;;
@@ -228,6 +229,8 @@ case "${1:-}" in
   *) exit 0 ;;
 esac
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   export PATH="$fakebin:$PATH" MX_HOME="$home" MX_ROOT_OVERRIDE="$ROOT"
   export MX_RUST_SOURCE_ROOT="$ROOT" MX_HEADROOM_SKIP_QUEUE=0

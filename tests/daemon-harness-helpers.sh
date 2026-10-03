@@ -254,6 +254,7 @@ make_noop_tmux() {
   mkdir -p "$fakebin"
 cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 case "${1:-}" in
   new-window) printf '@1\n' ;;
   display-message)
@@ -264,6 +265,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   printf '%s\n' "$fakebin"
 }
@@ -438,6 +441,7 @@ make_launch_capturing_tmux() {
   mkdir -p "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${MX_FAKE_PANE_PATH:-}"; exit 0 ;;
@@ -475,6 +479,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   printf '%s\n' "$fakebin"
 }
@@ -898,6 +904,7 @@ make_fake_toolchain() {
   # MX_FAKE_TMUX_LOG / MX_FAKE_TMUX_FAIL_LITERAL for reread-nudge assertions.
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 if [ -n "${MX_FAKE_TMUX_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$MX_FAKE_TMUX_LOG"
 fi
@@ -917,6 +924,8 @@ case "$*" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash

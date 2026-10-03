@@ -154,6 +154,7 @@ make_spawn_fakebin() {
   fakebin=$(mx_fakebin "$dir")
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${MX_FAKE_PANE_PATH:-}"; exit 0 ;;
@@ -166,6 +167,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   printf '#!/bin/sh\nexit 93\n' > "$fakebin/treehouse"
   chmod +x "$fakebin/treehouse"
@@ -227,6 +230,7 @@ make_spawn_record_fakebin() {
   fakebin=$(mx_fakebin "$dir")
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 [ -n "${MX_TMUX_REC:-}" ] && printf 'tmux %s\n' "$*" >> "$MX_TMUX_REC"
 case "$*" in
@@ -240,6 +244,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   printf '#!/bin/sh\nexit 93\n' > "$fakebin/treehouse"
   chmod +x "$fakebin/treehouse"
