@@ -28,8 +28,11 @@ pub struct ParentRoute {
 pub fn read_coordinator(state: &Path, id: &str) -> Result<TaskRecord, String> {
     TaskId::parse(id).map_err(|e| e.to_string())?;
     let path = state.join(format!("{id}.meta"));
-    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
-        .map_err(|e| format!("cannot read coordinator identity {}: {e}", path.display()))?;
+    let bytes = multplx_core::filesystem::read_bounded_regular(
+        &path,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|e| format!("cannot read coordinator identity {}: {e}", path.display()))?;
     let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
     let record = super::subagent_model::read_meta(id, &text)?;
     if record.legacy_unknown
@@ -109,8 +112,11 @@ fn update_scope_ids(
     )
     .map_err(|e| e.to_string())?;
     let path = state.join(format!("{id}.meta"));
-    let before = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
-        .map_err(|e| e.to_string())?;
+    let before = multplx_core::filesystem::read_bounded_regular(
+        &path,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|e| e.to_string())?;
     let text = String::from_utf8(before.clone()).map_err(|e| e.to_string())?;
     let mut record = super::subagent_model::read_meta(id, &text)?;
     let domain = record

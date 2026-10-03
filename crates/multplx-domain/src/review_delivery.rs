@@ -156,6 +156,26 @@ pub struct SecureFile {
 }
 
 pub fn read_private(path: &Path, mode: u32, expected_device: u64) -> Result<SecureFile, String> {
+    read_private_bounded(path, mode, expected_device, MAX_RECORD_BYTES)
+}
+
+/// Task authorities grow with canonical evidence; small inert receipts keep
+/// their own tighter bound. All private-file validation is shared.
+pub fn read_private_task_metadata(path: &Path, expected_device: u64) -> Result<SecureFile, String> {
+    read_private_bounded(
+        path,
+        0o600,
+        expected_device,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+}
+
+fn read_private_bounded(
+    path: &Path,
+    mode: u32,
+    expected_device: u64,
+    limit: usize,
+) -> Result<SecureFile, String> {
     let before = fs::symlink_metadata(path).map_err(|_| "private file is unavailable")?;
     if !before.is_file()
         || before.file_type().is_symlink()
@@ -178,16 +198,16 @@ pub fn read_private(path: &Path, mode: u32, expected_device: u64) -> Result<Secu
     if opened.dev() != before.dev() || opened.ino() != before.ino() || opened.nlink() != 1 {
         return Err("private file changed during validation".to_owned());
     }
-    if opened.len() > MAX_RECORD_BYTES as u64 {
-        return Err("private file is too large".to_owned());
+    if opened.len() > limit as u64 {
+        return Err(format!("private file exceeds {limit}-byte limit"));
     }
     let mut bytes = Vec::with_capacity(opened.len() as usize);
     Read::by_ref(&mut file)
-        .take(MAX_RECORD_BYTES as u64 + 1)
+        .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| "private file cannot be read")?;
-    if bytes.len() > MAX_RECORD_BYTES {
-        return Err("private file is too large".to_owned());
+    if bytes.len() > limit {
+        return Err(format!("private file exceeds {limit}-byte limit"));
     }
     Ok(SecureFile {
         digest: Sha256Digest::parse(format!("{:x}", Sha256::digest(&bytes)))
@@ -642,6 +662,7 @@ impl DeliveryRecord {
 }
 
 pub fn metadata_pr(bytes: &[u8]) -> Result<PrIdentity, String> {
+    crate::lifecycle::subagent_model::validate_metadata_size(bytes)?;
     let text = std::str::from_utf8(bytes).map_err(|_| "metadata is not UTF-8")?;
     let mut found = None;
     let mut after = false;
@@ -674,6 +695,23 @@ pub fn metadata_pr(bytes: &[u8]) -> Result<PrIdentity, String> {
 }
 
 pub fn publish_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    publish_private_bounded(path, bytes, MAX_RECORD_BYTES)
+}
+
+pub fn publish_private_task_metadata(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    crate::lifecycle::subagent_model::validate_metadata_size(bytes)?;
+    publish_private_bounded(
+        path,
+        bytes,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+}
+
+fn publish_private_bounded(path: &Path, bytes: &[u8], limit: usize) -> Result<(), String> {
+    // Refuse before replacing an existing authority, not after publication.
+    if bytes.len() > limit {
+        return Err(format!("private file exceeds {limit}-byte limit"));
+    }
     let parent = path
         .parent()
         .ok_or_else(|| "private destination has no parent".to_owned())?;
@@ -691,7 +729,7 @@ pub fn publish_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
         return Err("private destination is unsafe".to_owned());
     }
     atomic_replace(path, bytes, 0o600).map_err(|error| error.to_string())?;
-    let published = read_private(path, 0o600, parent_meta.dev())?;
+    let published = read_private_bounded(path, 0o600, parent_meta.dev(), limit)?;
     if published.bytes != bytes {
         return Err("private publication changed during verification".to_owned());
     }
@@ -972,6 +1010,57 @@ mod tests {
         let bad_override = String::from_utf8_lossy(waived)
             .replace("override_request=request-a", "override_request=../bad");
         assert!(DeliveryRecord::parse(bad_override.as_bytes(), &task, state).is_err());
+    }
+
+    #[test]
+    fn task_metadata_has_a_separate_bounded_private_file_contract() {
+        use crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("task.meta");
+        let device = fs::metadata(temp.path()).unwrap().dev();
+        use crate::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+        let mut task = TaskRecord::new(
+            "task".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "root-home:/main".into(),
+            "root-home:/main".into(),
+            "/main".into(),
+        );
+        task.briefs[0].scope = "accepted task scope; ".repeat(4_000);
+        let bytes = write_meta("kind=delivery\n", &task).unwrap().into_bytes();
+        assert!(bytes.len() > MAX_RECORD_BYTES);
+        publish_private_task_metadata(&path, &bytes).unwrap();
+        assert_eq!(
+            read_private_task_metadata(&path, device).unwrap().bytes,
+            bytes
+        );
+        assert!(read_private(&path, 0o600, device).is_err());
+        let too_large = vec![b'x'; MAX_TASK_METADATA_BYTES + 1];
+        assert!(
+            publish_private_task_metadata(&path, &too_large)
+                .unwrap_err()
+                .contains(&MAX_TASK_METADATA_BYTES.to_string())
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert!(publish_private(&path, &bytes).is_err());
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        fs::write(&path, &too_large).unwrap();
+        assert!(
+            read_private_task_metadata(&path, device)
+                .unwrap_err()
+                .contains(&MAX_TASK_METADATA_BYTES.to_string())
+        );
+        fs::write(&path, &bytes).unwrap();
+        let link = temp.path().join("link.meta");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(read_private_task_metadata(&link, device).is_err());
+        assert!(publish_private_task_metadata(&link, &bytes).is_err());
+        fs::hard_link(&path, temp.path().join("hardlink")).unwrap();
+        assert!(read_private_task_metadata(&path, device).is_err());
     }
 
     #[test]

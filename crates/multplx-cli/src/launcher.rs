@@ -1335,13 +1335,16 @@ fn retained_worker_is_quiescent(path: &Path, inspected_home: &Path) -> Result<bo
             path.display()
         ));
     }
-    let bytes =
-        multplx_core::filesystem::read_bounded_regular(path, 4 * 1024 * 1024).map_err(|e| {
-            format!(
-                "cannot safely read recorded task user {}: {e}",
-                path.display()
-            )
-        })?;
+    let bytes = multplx_core::filesystem::read_bounded_regular(
+        path,
+        multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|e| {
+        format!(
+            "cannot safely read recorded task user {}: {e}",
+            path.display()
+        )
+    })?;
     let raw = std::str::from_utf8(&bytes)
         .map_err(|e| format!("recorded task user at {} is malformed: {e}", path.display()))?;
     let record = read_meta(id, raw)

@@ -219,7 +219,7 @@ pub fn quiesce_projection_before_allocation<R: CommandRunner>(
     let journal = journal_path(request.state, request.task_id);
     let metadata = read_bounded_regular(
         request.state.join(format!("{}.meta", request.task_id)),
-        1024 * 1024,
+        multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
     )
     .map_err(|error| BackendError::Metadata(error.to_string()))?;
     let metadata =

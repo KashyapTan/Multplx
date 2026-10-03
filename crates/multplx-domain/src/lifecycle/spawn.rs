@@ -1310,10 +1310,13 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
                 let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
                     continue;
                 };
-                let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
-                    .map_err(|error| {
-                        format!("cannot verify registered coordinator catalog: {error}")
-                    })?;
+                let bytes = multplx_core::filesystem::read_bounded_regular(
+                    &path,
+                    super::subagent_model::MAX_TASK_METADATA_BYTES,
+                )
+                .map_err(|error| {
+                    format!("cannot verify registered coordinator catalog: {error}")
+                })?;
                 let text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
                 let coordinator = super::subagent_model::read_meta(id, &text).map_err(|error| {
                     format!("cannot verify registered coordinator catalog: {error}")
@@ -1354,7 +1357,7 @@ pub fn prepare_binding(context: &Context, request: &mut Request) -> Result<(), S
                     Ok(_) => {
                         let bytes = multplx_core::filesystem::read_bounded_regular(
                             &candidate,
-                            4 * 1024 * 1024,
+                            super::subagent_model::MAX_TASK_METADATA_BYTES,
                         )
                         .map_err(|error| {
                             format!("cannot verify dependency task record: {error}")

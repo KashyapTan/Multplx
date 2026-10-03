@@ -1,5 +1,9 @@
 //! Private, same-directory atomic publication and bounded no-follow reads.
 
+/// Serialized task `.meta` authority, including canonical history and legacy
+/// projections. Task readers and writers share this bound across crates.
+pub const MAX_TASK_METADATA_BYTES: usize = 4 * 1024 * 1024;
+
 use std::fs::{self, File, OpenOptions, Permissions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
