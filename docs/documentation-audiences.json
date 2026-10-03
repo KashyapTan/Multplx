@@ -539,6 +539,10 @@
     {
       "path": "docs/verification/orchestrator-contract.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/transcript-audit-followups.md",
+      "audience": "maintainer-verification"
     }
   ]
 }
