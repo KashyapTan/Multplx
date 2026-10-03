@@ -16,7 +16,8 @@ use multplx_domain::maintainer_override::{Binding, OverrideStore};
 use multplx_domain::review_delivery::{
     DeliveryRecord, FileIdentity, OperationalTaskId, PollRegistration, PrIdentity,
     PublicationAuthority, PublicationOperation, PublicationStage, Validation, agent_ambience,
-    head_valid, publish_private, read_private, ref_valid, title_valid,
+    head_valid, publish_private, publish_private_task_metadata, read_private,
+    read_private_task_metadata, ref_valid, title_valid,
 };
 use sha2::{Digest, Sha256};
 
@@ -679,12 +680,15 @@ fn pr_check(args: &[OsString]) -> i32 {
         || meta_metadata.file_type().is_symlink()
         || meta_metadata.nlink() != 1
         || meta_metadata.dev() != state_meta.dev()
-        || meta_metadata.len() > 4 * 1024 * 1024
+        || meta_metadata.len() > multplx_core::filesystem::MAX_TASK_METADATA_BYTES as u64
     {
         eprintln!("error: task metadata is unavailable");
         return 1;
     }
-    let Ok(meta_bytes) = fs::read(&meta) else {
+    let Ok(meta_bytes) = multplx_core::filesystem::read_bounded_regular(
+        &meta,
+        multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+    ) else {
         eprintln!("error: task metadata is unavailable");
         return 1;
     };
@@ -868,7 +872,7 @@ fn pr_check(args: &[OsString]) -> i32 {
         updated.push(format!("pr_head={head}"));
     }
     let bytes = format!("{}\n", updated.join("\n"));
-    if publish_private(&meta, bytes.as_bytes()).is_err() {
+    if publish_private_task_metadata(&meta, bytes.as_bytes()).is_err() {
         eprintln!("error: PR metadata recording failed");
         return 1;
     }
@@ -1896,9 +1900,15 @@ fn delivery_status(command: Command) -> Result<bool, String> {
     delivery_output(command).map(|output| output.success)
 }
 
-fn private_metadata_text(state: &Path, path: &Path) -> Option<String> {
+fn private_record_text(state: &Path, path: &Path) -> Option<String> {
     let state_meta = fs::symlink_metadata(state).ok()?;
     let file = read_private(path, 0o600, state_meta.dev()).ok()?;
+    String::from_utf8(file.bytes).ok()
+}
+
+fn private_metadata_text(state: &Path, path: &Path) -> Option<String> {
+    let state_meta = fs::symlink_metadata(state).ok()?;
+    let file = read_private_task_metadata(path, state_meta.dev()).ok()?;
     String::from_utf8(file.bytes).ok()
 }
 
@@ -1993,7 +2003,7 @@ fn delivery_gate(
         return Err("gate unavailable".to_owned());
     }
     let run_path = record.gate_run.join("run.json");
-    let text = private_metadata_text(state, &run_path).ok_or("gate unavailable")?;
+    let text = private_record_text(state, &run_path).ok_or("gate unavailable")?;
     let value: serde_json::Value = serde_json::from_str(&text).map_err(|_| "gate invalid")?;
     let summary = value
         .get("summary")
@@ -3500,7 +3510,7 @@ fn promote(args: &[OsString]) -> i32 {
         return 1;
     }
     let meta = state.join(format!("{raw}.meta"));
-    let Ok(file) = read_private(&meta, 0o600, state_meta.dev()) else {
+    let Ok(file) = read_private_task_metadata(&meta, state_meta.dev()) else {
         eprintln!("error: no meta for task {raw} at {}", meta.display());
         return 1;
     };

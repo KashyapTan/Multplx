@@ -11,6 +11,18 @@ use std::path::Path;
 
 pub const SCHEMA_VERSION: u32 = 2;
 
+/// Shared serialized task authority bound, including compatibility projections.
+pub use multplx_core::filesystem::MAX_TASK_METADATA_BYTES;
+
+pub fn validate_metadata_size(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > MAX_TASK_METADATA_BYTES {
+        return Err(format!(
+            "task metadata exceeds {MAX_TASK_METADATA_BYTES}-byte limit"
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum AssignmentRole {
@@ -598,6 +610,7 @@ fn fields(text: &str) -> Result<BTreeMap<&str, &str>, String> {
     Ok(fields)
 }
 pub fn read_meta(task_id: &str, text: &str) -> Result<TaskRecord, String> {
+    validate_metadata_size(text.as_bytes())?;
     let fields = fields(text)?;
     if let Some(value) = fields.get("canonical_model") {
         let record: TaskRecord =
@@ -697,6 +710,7 @@ pub fn read_meta(task_id: &str, text: &str) -> Result<TaskRecord, String> {
     Ok(record)
 }
 pub fn write_meta(text: &str, record: &TaskRecord) -> Result<String, String> {
+    validate_metadata_size(text.as_bytes())?;
     let old_fields = fields(text)?;
     if old_fields
         .get("schema_version")
@@ -716,6 +730,7 @@ pub fn write_meta(text: &str, record: &TaskRecord) -> Result<String, String> {
         "schema_version=2\ncanonical_model={}\n",
         serde_json::to_string(record).map_err(|e| e.to_string())?
     ));
+    validate_metadata_size(result.as_bytes())?;
     Ok(result)
 }
 
@@ -1036,7 +1051,7 @@ fn load_ancestors(records: &mut Vec<TaskRecord>, local_state: &Path) -> Result<(
         }
         TaskId::parse(parent).map_err(|error| error.to_string())?;
         let path = parent_state.join(format!("{parent}.meta"));
-        let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
+        let bytes = multplx_core::filesystem::read_bounded_regular(&path, MAX_TASK_METADATA_BYTES)
             .map_err(|error| format!("cannot resolve parent {}: {error}", path.display()))?;
         let text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
         let ancestor = read_meta(parent, &text)?;
@@ -1065,8 +1080,9 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .ok_or("invalid task filename")?;
-                let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
-                    .map_err(|e| e.to_string())?;
+                let bytes =
+                    multplx_core::filesystem::read_bounded_regular(&path, MAX_TASK_METADATA_BYTES)
+                        .map_err(|e| e.to_string())?;
                 let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
                 records.push(read_meta(id, &text)?);
             }
@@ -1140,7 +1156,7 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
     )
     .map_err(|e| e.to_string())?;
     let path = state.join(format!("{id}.meta"));
-    let before = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
+    let before = multplx_core::filesystem::read_bounded_regular(&path, MAX_TASK_METADATA_BYTES)
         .map_err(|e| e.to_string())?;
     let text = String::from_utf8(before.clone()).map_err(|e| e.to_string())?;
     let mut record = read_meta(id, &text)?;
@@ -1389,6 +1405,26 @@ mod tests {
             assert!(read_meta("task", text).is_err());
         }
     }
+    #[test]
+    fn metadata_reader_and_writer_share_the_serialized_authority_limit() {
+        let record = task("task");
+        let mut grown = record.clone();
+        grown.briefs[0].scope = "scope".repeat(20_000);
+        let text = write_meta("kind=delivery\n", &grown).unwrap();
+        assert!(text.len() > 64 * 1024);
+        assert_eq!(read_meta("task", &text).unwrap(), grown);
+        // Input fits; canonical growth must still be refused before a write.
+        grown.briefs[0].scope = "x".repeat(MAX_TASK_METADATA_BYTES);
+        assert!(
+            write_meta("kind=delivery\n", &grown)
+                .unwrap_err()
+                .contains(&MAX_TASK_METADATA_BYTES.to_string())
+        );
+        let too_large = format!("padding={}\n", "x".repeat(MAX_TASK_METADATA_BYTES));
+        assert!(read_meta("task", &too_large).is_err());
+        assert!(write_meta(&too_large, &record).is_err());
+    }
+
     #[test]
     fn canonical_metadata_refuses_conflicting_identity_and_unknown_fields() {
         let record = task("task");

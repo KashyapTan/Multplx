@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# mx-marker-lib.sh - compatibility entry point for from-broker routing.
+# mx-marker-lib.sh - compatibility entry point for from-parent routing.
 #
 # bin/mx-operational-input.sh owns current operational-input construction,
-# parsing, marker bytes, and the established from-broker compatibility
+# parsing, marker bytes, and the established from-parent compatibility
 # carrier. Existing callers source this path so they do not need a flag-day
 # migration. No side effects on source. set -u / set -e safe.
 

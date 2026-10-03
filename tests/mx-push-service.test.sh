@@ -372,6 +372,82 @@ test_direct_pr_owned_handoff() {
 }
 test_direct_pr_owned_handoff
 
+test_growing_canonical_metadata_publication() {
+  local case_dir head index model size before
+  case_dir=$(make_case growing-canonical)
+  canonicalize_task "$case_dir"
+  head=$($REAL_GIT -C "$case_dir/wt" rev-parse HEAD)
+  # Grow through the actual canonical evidence owner, not inert file padding.
+  for index in $(seq 1 24); do
+    jq -n --arg head "$head" --arg id "growth-$index" --argjson first "$index" '{
+      evidence_id:$id,attempt_id:"attempt-task-x1",attempt_generation:1,brief_revision:1,
+      commit:$head,checks:[{name:"fixture validation",outcome:"passed",
+      summary:("observed fixture result; " * 150),artifact:null}],review:null,
+      limitations:[],pr_url:null,outcome:"evidence-updated",
+      observed_at:"2026-10-03T00:00:00Z",mark_current:true,
+      expected_current_commit:(if $first == 1 then null else $head end)
+    }' > "$case_dir/evidence.json"
+    MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
+      "$MX_RUST_BIN" task-model evidence task-x1 --request-file "$case_dir/evidence.json" \
+      >/dev/null || fail 'canonical evidence growth failed'
+  done
+  size=$(wc -c < "$case_dir/state/task-x1.meta")
+  [ "$size" -gt 65536 ] || fail 'canonical growth did not cross receipt bound'
+  run_delivery "$case_dir" prepare task-x1 --sha "$head" --summary 'Growing task' \
+    --checks 'passed: focused check' --limitations 'none reported' \
+    >"$case_dir/out" 2>"$case_dir/err" || fail "large metadata prepare failed: $(cat "$case_dir/err")"
+  run_delivery "$case_dir" task-x1 >"$case_dir/out" 2>"$case_dir/err" \
+    || fail "large metadata publication failed: $(cat "$case_dir/err")"
+  # Explicit registration and refresh must keep the same PR/history/current SHA.
+  local DELIVER="$ROOT/bin/mx-pr-check.sh"
+  run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 \
+    >"$case_dir/register-out" 2>"$case_dir/register-err" \
+    || fail "large metadata registration refresh failed: $(cat "$case_dir/register-err")"
+  model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
+    "$MX_RUST_BIN" task-model inspect task-x1) || fail 'large canonical inspect failed'
+  printf '%s' "$model" | jq -e --arg head "$head" \
+    '.delivery.current_commit == $head and ([.delivery.history[] | select(.evidence_id | startswith("growth-"))] | length) == 24' \
+    >/dev/null || fail 'publication lost canonical history/current revision'
+  assert_grep 'pr=https://github.com/example/repo/pull/42' "$case_dir/state/task-x1.meta" \
+    'large metadata PR identity lost'
+  [ -f "$case_dir/state/task-x1.pr-poll-registration" ] || fail 'large task poll registration missing'
+  # Wrong canonical identity remains invalid even though the size is accepted.
+  cp "$case_dir/state/task-x1.meta" "$case_dir/valid.meta"
+  sed 's/"task_id":"task-x1"/"task_id":"other"/' "$case_dir/valid.meta" > "$case_dir/state/task-x1.meta"
+  before=$(shasum -a 256 "$case_dir/state/task-x1.meta")
+  if run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 >/dev/null 2>&1; then
+    fail 'large conflicting canonical identity accepted'
+  fi
+  [ "$(shasum -a 256 "$case_dir/state/task-x1.meta")" = "$before" ] || fail 'invalid metadata was changed'
+  # The canonical parser and delivery readers refuse beyond their shared 4 MiB
+  # limit before replacing metadata or publishing a poll.
+  cp "$case_dir/valid.meta" "$case_dir/state/task-x1.meta"
+  python3 - "$case_dir/state/task-x1.meta" <<'GROW'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+for index, line in enumerate(lines):
+    if line.startswith("canonical_model="):
+        model = json.loads(line.split("=", 1)[1])
+        model["briefs"][0]["scope"] = "x" * (4 * 1024 * 1024)
+        lines[index] = "canonical_model=" + json.dumps(model, separators=(",", ":"))
+path.write_text("\n".join(lines) + "\n")
+GROW
+  before=$(shasum -a 256 "$case_dir/state/task-x1.meta")
+  if MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" \
+    "$MX_RUST_BIN" task-model inspect task-x1 >"$case_dir/oversized-out" 2>"$case_dir/oversized-err"; then
+    fail 'oversized canonical metadata accepted by task owner'
+  fi
+  assert_grep '4194304' "$case_dir/oversized-err" 'canonical limit diagnostic missing'
+  if run_delivery "$case_dir" task-x1 https://github.com/example/repo/pull/42 >/dev/null 2>&1; then
+    fail 'oversized metadata accepted for PR registration'
+  fi
+  [ "$(shasum -a 256 "$case_dir/state/task-x1.meta")" = "$before" ] || fail 'oversized metadata was changed'
+  pass 'growing canonical metadata prepares, publishes, registers and refreshes beyond 64 KiB'
+}
+test_growing_canonical_metadata_publication
+
 test_direct_registration_cannot_rewind_current_revision() {
   local case_dir old_head new_head model
   case_dir=$(make_case direct-registration-stale)

@@ -2872,7 +2872,10 @@ fn record_human_merge_evidence_with_head(
 
     let task_id = snapshot.registration.task.as_str();
     let meta = state.join(format!("{task_id}.meta"));
-    let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(&meta, 4 * 1024 * 1024) else {
+    let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+        &meta,
+        multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+    ) else {
         return Ok(false);
     };
     let text = String::from_utf8(bytes).map_err(|_| "task metadata is not UTF-8")?;

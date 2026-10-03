@@ -170,12 +170,12 @@ phase_send() {
     "$ROOT/bin/mx-send.sh" mx-design 'route this work' >/dev/null 2>&1 \
     || fail "mx-send failed for a bare broker window with home metadata"
   # design is a kind=daemon target, so the request is prefixed with the
-  # from-broker marker (bin/mx-marker-lib.sh): the send targets the meta window
+  # from-parent marker (bin/mx-marker-lib.sh): the send targets the meta window
   # AND carries the marker label, and the original payload still follows it.
-  assert_grep 'send-keys -t broker:mx-design -l [mx-from-broker]' "$LOG" "send did not use the window recorded in this home's meta, or did not mark the daemon request"
+  assert_grep 'send-keys -t broker:mx-design -l [mx-from-parent]' "$LOG" "send did not use the window recorded in this home's meta, or did not mark the daemon request"
   assert_grep 'route this work' "$LOG" "the original request text did not survive the marker"
   assert_no_grep 'send-keys -t other-session:mx-design' "$LOG" "send targeted a foreign same-named window"
-  pass "send: a bare mx-<id> daemon routes to the meta window with the from-broker marker"
+  pass "send: a bare mx-<id> daemon routes to the meta window with the from-parent marker"
 }
 
 phase_handoff() {

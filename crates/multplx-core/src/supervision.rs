@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-const META_LIMIT: usize = 4 * 1024 * 1024;
+use crate::filesystem::MAX_TASK_METADATA_BYTES;
 
 /// Exclude only a well-formed, current canonical assignment that is
 /// explicitly complete. Every legacy, malformed, oversized, or
@@ -13,7 +13,7 @@ fn completed_assignment_record(path: &Path) -> bool {
     let Some(task_id) = path.file_stem().and_then(|value| value.to_str()) else {
         return false;
     };
-    let Ok(bytes) = crate::filesystem::read_bounded_regular(path, META_LIMIT) else {
+    let Ok(bytes) = crate::filesystem::read_bounded_regular(path, MAX_TASK_METADATA_BYTES) else {
         return false;
     };
     let Ok(text) = std::str::from_utf8(&bytes) else {

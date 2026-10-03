@@ -11,7 +11,7 @@ export const MULTPLX_CURRENT_OPERATIONAL_KINDS = [
   "watcher",
   "turn-end-guard",
   "away-supervisor",
-  "from-broker",
+  "from-parent",
   "launch-brief",
 ] as const;
 

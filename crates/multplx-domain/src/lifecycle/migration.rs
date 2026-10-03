@@ -921,7 +921,8 @@ pub fn relocate_worktree(
         return Ok(mapping);
     }
     let metadata_bytes =
-        read_bounded_regular(&metadata, 4 * 1024 * 1024).map_err(|error| error.to_string())?;
+        read_bounded_regular(&metadata, super::subagent_model::MAX_TASK_METADATA_BYTES)
+            .map_err(|error| error.to_string())?;
     let old_path = old_path.to_path_buf();
     if !old_path.is_absolute()
         || old_path

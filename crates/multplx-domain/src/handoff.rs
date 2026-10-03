@@ -502,8 +502,11 @@ where
             .ok_or_else(|| fail("error: committed ownership transfer record is unavailable"));
     }
 
-    let mut meta_bytes = read_bounded_regular(&source_meta, TRANSFER_RECORD_LIMIT)
-        .map_err(|_| fail("error: canonical task authority is unavailable; transfer retained"))?;
+    let mut meta_bytes = read_bounded_regular(
+        &source_meta,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|_| fail("error: canonical task authority is unavailable; transfer retained"))?;
     let mut task = read_meta(
         &request.task_id,
         std::str::from_utf8(&meta_bytes)
@@ -544,9 +547,11 @@ where
     }
 
     if journal.stage == TransferStage::SourceFenced {
-        meta_bytes = read_bounded_regular(&source_meta, TRANSFER_RECORD_LIMIT).map_err(|_| {
-            fail("error: canonical task authority is unavailable; transfer retained")
-        })?;
+        meta_bytes = read_bounded_regular(
+            &source_meta,
+            crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+        )
+        .map_err(|_| fail("error: canonical task authority is unavailable; transfer retained"))?;
         task = read_meta(
             &request.task_id,
             std::str::from_utf8(&meta_bytes)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mx-pending-reply-lib.sh - parent-owned daemon missed-report guards.
 #
-# When the main broker delivers a marked from-broker request to a
+# When the main broker delivers a marked from-parent request to a
 # daemon, this library records a durable parent-owned pending-reply
 # expectation BEFORE delivery, embeds a privacy-safe correlation id in the
 # outbound message, and later resolves that expectation only from a correlated
@@ -142,7 +142,7 @@ mx_pending_reply_summarize() {  # <text>
   local text=$1 cleaned
   cleaned=$(printf '%s' "$text" | tr '\t\r\n' '   ' | tr -cd '\11\12\15\40-\176' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   # Drop an already-present marker/corr prefix so the durable summary stays short.
-  cleaned=${cleaned#"$MX_FROM_BROKER_MARK"}
+  cleaned=${cleaned#"$MX_FROM_PARENT_MARK"}
   cleaned=$(printf '%s' "$cleaned" | sed -E "s/^corr=[A-Fa-f0-9]{16}[[:space:]]*//")
   if [ "${#cleaned}" -gt 120 ]; then
     cleaned="${cleaned:0:117}..."
@@ -187,7 +187,7 @@ mx_pending_reply_set() {  # <record-path> <key> <value>
   mv -f "$tmp" "$rec"
 }
 
-# Embed or replace a correlation token after the from-broker marker.
+# Embed or replace a correlation token after the from-parent marker.
 # Idempotent for the same corr; replaces a different leading corr token.
 # Result is assigned to <result-var>.
 # Trailing newlines in the request body are preserved: never strip via bare
@@ -196,8 +196,8 @@ mx_pending_reply_embed_corr() {  # <message> <corr_id> <result-var>
   local message=$1 corr=$2 result_var=$3 body token marked existing
   [ -n "$result_var" ] || return 2
   token=$(mx_pending_reply_corr_token "$corr")
-  mx_message_mark_from_broker "$message" marked
-  body=${marked#"$MX_FROM_BROKER_MARK"}
+  mx_message_mark_from_parent "$message" marked
+  body=${marked#"$MX_FROM_PARENT_MARK"}
   # Strip a leading corr=<16hex> plus following blanks (space/tab only).
   existing=${body:0:21}
   case "$existing" in
@@ -207,7 +207,7 @@ mx_pending_reply_embed_corr() {  # <message> <corr_id> <result-var>
       while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
       ;;
   esac
-  printf -v "$result_var" '%s' "${MX_FROM_BROKER_MARK}${token} ${body}"
+  printf -v "$result_var" '%s' "${MX_FROM_PARENT_MARK}${token} ${body}"
 }
 
 # Create a durable pending-reply expectation. Prints corr_id on success.
@@ -632,7 +632,7 @@ mx_pending_reply_recovery_message() {  # <record-path>
   corr=$(mx_pending_reply_get "$rec" corr_id)
   summary=$(mx_pending_reply_get "$rec" request_summary)
   token=$(mx_pending_reply_corr_token "$corr")
-  msg="REPOST REQUIRED: previous marked request had no correlated parent report. Reply on the parent status channel including ${token}. Original request: ${summary}"
+  msg="REPOST REQUIRED: previous marked request had no correlated parent report. Reply using mx-report --correlation-id ${corr}, or report_status with structured correlation_id=${corr}. Message prose does not bind a reply. Original request: ${summary}"
   mx_pending_reply_embed_corr "$msg" "$corr" msg
   printf '%s' "$msg"
 }

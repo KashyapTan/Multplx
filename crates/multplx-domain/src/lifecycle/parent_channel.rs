@@ -454,8 +454,11 @@ fn archive_delivered(path: &Path, record: &ParentOutcome) -> Result<(), String> 
 
 fn task_record(state: &Path, id: &str) -> Result<TaskRecord, String> {
     TaskId::parse(id.to_owned()).map_err(|error| error.to_string())?;
-    let bytes = read_bounded_regular(state.join(format!("{id}.meta")), 4 * 1024 * 1024)
-        .map_err(|error| error.to_string())?;
+    let bytes = read_bounded_regular(
+        state.join(format!("{id}.meta")),
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|error| error.to_string())?;
     let text = String::from_utf8(bytes).map_err(|_| "task metadata is not UTF-8")?;
     let record = read_meta(id, &text)?;
     if record.legacy_unknown {
@@ -1252,8 +1255,11 @@ pub fn record_human_answer(
         return Ok(existing);
     }
     let meta_path = state.join(format!("{task_id}.meta"));
-    let before =
-        read_bounded_regular(&meta_path, 4 * 1024 * 1024).map_err(|error| error.to_string())?;
+    let before = read_bounded_regular(
+        &meta_path,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|error| error.to_string())?;
     let text = String::from_utf8(before.clone()).map_err(|_| "task metadata is not UTF-8")?;
     let mut task = read_meta(task_id, &text)?;
     if task.legacy_unknown || !same_path(&record_state(&task)?, &state) {

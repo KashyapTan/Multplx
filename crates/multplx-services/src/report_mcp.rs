@@ -17,14 +17,17 @@ fn error(id: Value, code: i32, message: impl Into<String>) -> Value {
 fn tool_schema() -> Value {
     json!({
         "name":"report_status",
-        "description":"Append one validated status event for this task. Use this instead of writing a status file directly.",
+        "description":"Append one validated status event for this task and return its acceptance receipt. Reply to marked parent requests with structured correlation_id; message prose corr= is not a binding. Completion requires current typed evidence or an existing report artifact.",
         "inputSchema":{
             "type":"object",
             "properties":{
                 "state":{"type":"string","enum":REPORT_STATES},
                 "message":{"type":"string","maxLength":300},
                 "key":{"type":"string","pattern":"^[A-Za-z0-9._-]+$","description":"Required for needs-decision; becomes the stable human question id."},
-                "workflow_revision":{"type":"string","minLength":1,"maxLength":256,"description":"Optional workflow revision for a needs-decision question."}
+                "workflow_revision":{"type":"string","minLength":1,"maxLength":256,"description":"Optional workflow revision for a needs-decision question."},
+                "correlation_id":{"type":"string","minLength":1,"maxLength":256,"description":"Exact request correlation token; required for terminal replies to pending parent requests."},
+                "message_id":{"type":"string","minLength":1,"maxLength":256,"description":"Stable retry identity; reuse with identical report payload."},
+                "artifact":{"type":"string","minLength":1,"description":"Existing regular result file for report or coordination completion."}
             },
             "required":["state","message"],
             "additionalProperties":false
@@ -37,6 +40,9 @@ struct ReportArguments<'a> {
     message: &'a str,
     key: Option<&'a str>,
     workflow_revision: Option<&'a str>,
+    correlation_id: Option<&'a str>,
+    message_id: Option<&'a str>,
+    artifact: Option<&'a str>,
 }
 
 fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
@@ -44,7 +50,13 @@ fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "state" | "message" | "key" | "workflow_revision"
+            "state"
+                | "message"
+                | "key"
+                | "workflow_revision"
+                | "correlation_id"
+                | "message_id"
+                | "artifact"
         )
     }) {
         return Err("arguments contain an unsupported property");
@@ -95,11 +107,35 @@ fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
     if state != "needs-decision" && workflow_revision.is_some() {
         return Err("workflow_revision is valid only for needs-decision");
     }
+    let optional_text = |name: &str| {
+        object
+            .get(name)
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|value| !value.is_empty() && !value.contains(['\r', '\n']))
+                    .ok_or("report identities and artifact must be non-empty single-line strings")
+            })
+            .transpose()
+    };
+    let correlation_id = optional_text("correlation_id")?;
+    let message_id = optional_text("message_id")?;
+    let artifact = optional_text("artifact")?;
+    if [correlation_id, message_id]
+        .into_iter()
+        .flatten()
+        .any(|id| multplx_core::identifiers::TaskId::parse(id).is_err())
+    {
+        return Err("invalid report identity");
+    }
     Ok(ReportArguments {
         state,
         message,
         key,
         workflow_revision,
+        correlation_id,
+        message_id,
+        artifact,
     })
 }
 
@@ -136,6 +172,9 @@ fn handle(message: &Value, root: &Path) -> Option<Value> {
                 message: text,
                 key,
                 workflow_revision,
+                correlation_id,
+                message_id,
+                artifact,
             } = arguments;
             let task = match std::env::var("MX_TASK_ID") {
                 Ok(task) if !task.is_empty() => task,
@@ -160,11 +199,21 @@ fn handle(message: &Value, root: &Path) -> Option<Value> {
             if let Some(revision) = workflow_revision {
                 args.extend(["--workflow-revision".to_owned(), revision.to_owned()]);
             }
+            for (flag, value) in [
+                ("--correlation-id", correlation_id),
+                ("--message-id", message_id),
+                ("--artifact", artifact),
+            ] {
+                if let Some(value) = value {
+                    args.extend([flag.to_owned(), value.to_owned()]);
+                }
+            }
             let result = report(&args, root);
             if result.status == 0 {
                 Some(response(
                     id,
-                    json!({"content":[{"type":"text","text":format!("{state} status reported for task {task}")}]}),
+                    json!({"content":[{"type":"text","text":format!("{}{}", result.stdout, result.stderr)}],
+                        "structuredContent":serde_json::from_str::<Value>(result.stdout.trim()).unwrap_or_else(|_| json!({"accepted":true,"task_id":task,"state":state}))}),
                 ))
             } else {
                 Some(response(

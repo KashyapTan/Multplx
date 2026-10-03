@@ -1932,7 +1932,7 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
         let task = meta.file_stem().unwrap_or_default().to_string_lossy();
         let existing = std::env::var("MX_PENDING_REPLY_EXISTING_CORR")
             .ok()
-            .or_else(|| multplx_domain::lifecycle::pending_reply::extract_correlation(&message));
+            .or_else(|| multplx_domain::lifecycle::pending_reply::routing_correlation(&message));
         let corr = if existing.as_ref().is_some_and(|value| {
             multplx_domain::lifecycle::pending_reply::reusable(&state, value, &task)
         }) {
@@ -7232,7 +7232,7 @@ fn run_project_mode(name: &str) -> i32 {
     0
 }
 
-const OPERATIONAL_USAGE: &str = "Usage:\n  bin/mx-operational-input.sh encode <kind>  # body on stdin\n  bin/mx-operational-input.sh kind           # current input on stdin\n  bin/mx-operational-input.sh classify       # current or legacy input on stdin\n  bin/mx-operational-input.sh body           # current input on stdin\n\nCurrent construction kinds:\n  session-start watcher turn-end-guard away-supervisor from-broker launch-brief\n\nThe from-broker kind uses its established live-charter-compatible carrier.\n";
+const OPERATIONAL_USAGE: &str = "Usage:\n  bin/mx-operational-input.sh encode <kind>  # body on stdin\n  bin/mx-operational-input.sh kind           # current input on stdin\n  bin/mx-operational-input.sh classify       # current or legacy input on stdin\n  bin/mx-operational-input.sh body           # current input on stdin\n\nCurrent construction kinds:\n  session-start watcher turn-end-guard away-supervisor from-parent launch-brief\n\nThe from-parent kind emits [mx-from-parent] plus U+2063. The exact old marked carrier and from-broker kind are read compatibility only.\n";
 
 const REQUEST_USAGE: &str = "Usage:\n  mx request connection\n  mx request submit --batch <id> --request <id> --task <id> --client <id> --project <id> --checkout <id> --start <revision> --brief <n> --scope <text> [--depends <task-id>]... [--artifact <path>] [--parent-task <id> --parent-home <path>] [--attempt <id> --generation <n>]\n  mx request get <request-id>\n  mx request acknowledge <request-id>\n  mx request response <request-id> --id <response-id> --summary <text> [--artifact <path>]\n  mx request complete <request-id> --id <completion-id> --summary <text> [--artifact <path>]\n\nSubmit returns the durable per-item receipt. Reusing the same request ID and bindings converges; changed bindings fail. One batch may contain independent project-bound items. Delivery, acknowledgement, response and completion are separate facts.\n";
 
@@ -8165,12 +8165,12 @@ fn run_primitive(command: PrimitiveCommand) -> Result<i32, String> {
         PrimitiveCommand::MarkerMark => {
             let input =
                 String::from_utf8(read_stdin()?).map_err(|_| "message is not UTF-8".to_owned())?;
-            print!("{}", multplx_core::marker::mark_from_broker(&input));
+            print!("{}", multplx_core::marker::mark_from_parent(&input));
         }
         PrimitiveCommand::MarkerIs => {
             let input =
                 String::from_utf8(read_stdin()?).map_err(|_| "message is not UTF-8".to_owned())?;
-            if !multplx_core::marker::is_from_broker(&input) {
+            if !multplx_core::marker::is_from_parent(&input) {
                 return Ok(1);
             }
         }

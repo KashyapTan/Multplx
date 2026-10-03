@@ -664,7 +664,7 @@ fn primitive_success_paths_cover_files_scope_locks_environment_and_wake_dedupe()
 
     let marked = run_stdin(
         &["primitive", "marker-is"],
-        "[mx-from-broker]\u{2063}message".as_bytes(),
+        "[mx-from-parent]\u{2063}message".as_bytes(),
     );
     assert!(marked.status.success());
     assert!(run(&["primitive", "gate-refuse"]).status.success());

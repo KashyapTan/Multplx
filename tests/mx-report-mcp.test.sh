@@ -39,7 +39,10 @@ test_schema_matches_wrapper() {
           state:{type:"string",enum:["working","paused","blocked","needs-decision","done","failed","resolved"]},
           message:{type:"string",maxLength:300},
           key:{type:"string",pattern:"^[A-Za-z0-9._-]+$",description:(.result.tools[0].inputSchema.properties.key.description)},
-          workflow_revision:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.workflow_revision.description)}
+          workflow_revision:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.workflow_revision.description)},
+          correlation_id:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.correlation_id.description)},
+          message_id:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.message_id.description)},
+          artifact:{type:"string",minLength:1,description:(.result.tools[0].inputSchema.properties.artifact.description)}
         },
         required:["state","message"],
         additionalProperties:false

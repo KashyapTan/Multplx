@@ -133,7 +133,7 @@ Every other audited class is policy-hidden when Pi exposes a supported presentat
 The home-local persistence schema is owned by [`docs/configuration.md`](configuration.md#pi-calm-preference-configcalm).
 
 Current session-start, watcher, turn-end guard, away supervisor, and launch-brief inputs retain their versioned U+2063 static envelopes.
-The established leading `[mx-from-broker]` plus U+2063 routing carrier remains current so running daemon charters remain compatible.
+New routing emits `[mx-from-parent]` plus U+2063; the exact historical `[mx-from-broker]` carrier remains decode-compatible for standing sessions.
 An exact current static envelope remains sufficient provenance without nonce, source-authentication, replay-prevention, secondary-token, blocking, redaction, or private-retrieval machinery.
 Calm classifies only at Pi's transcript-presentation owner through the canonical parser and never replaces, reorders, or weakens those messages.
 

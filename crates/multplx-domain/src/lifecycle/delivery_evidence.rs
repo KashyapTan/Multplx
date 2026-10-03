@@ -424,8 +424,11 @@ fn record_with_fault(
     .map_err(|error| error.to_string())?;
     super::subagent_model::require_writer_version(state)?;
     let path = state.join(format!("{task_id}.meta"));
-    let before = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
-        .map_err(|error| error.to_string())?;
+    let before = multplx_core::filesystem::read_bounded_regular(
+        &path,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|error| error.to_string())?;
     let text = String::from_utf8(before.clone()).map_err(|error| error.to_string())?;
     let mut task = super::subagent_model::read_meta(task_id, &text)?;
     let key = evidence_key(task_id, &request.evidence_id);
@@ -451,8 +454,11 @@ fn record_with_fault(
     if intent.exists() {
         multplx_core::filesystem::recover_transition(state, &operation)
             .map_err(|error| error.to_string())?;
-        let bytes = multplx_core::filesystem::read_bounded_regular(&path, 4 * 1024 * 1024)
-            .map_err(|error| error.to_string())?;
+        let bytes = multplx_core::filesystem::read_bounded_regular(
+            &path,
+            crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+        )
+        .map_err(|error| error.to_string())?;
         let recovered_text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
         let recovered = super::subagent_model::read_meta(task_id, &recovered_text)?;
         let evidence = recovered
@@ -672,8 +678,11 @@ pub fn extend_review_records_from_outcomes(
             if artifact != expected {
                 return Err("delivery outcome artifact conflicts with frozen sender route".into());
             }
-            let bytes = multplx_core::filesystem::read_bounded_regular(&expected, 4 * 1024 * 1024)
-                .map_err(|error| error.to_string())?;
+            let bytes = multplx_core::filesystem::read_bounded_regular(
+                &expected,
+                crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+            )
+            .map_err(|error| error.to_string())?;
             let text = String::from_utf8(bytes).map_err(|error| error.to_string())?;
             let record = super::subagent_model::read_meta(&outcome.route.sender_id, &text)?;
             if record.owner_home.as_deref() != Some(outcome.route.sender_home.as_str()) {

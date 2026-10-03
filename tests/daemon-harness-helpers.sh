@@ -1240,7 +1240,7 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   [ "$(git -C "$w/sm" rev-parse HEAD)" = "$old_head" ] \
     || fail "config push fast-forwarded tracked files"
   [ ! -s "$err" ] || fail "clean config push wrote unexpected stderr: $(cat "$err")"
-  assert_contains "$(cat "$log")" "[mx-from-broker]" \
+  assert_contains "$(cat "$log")" "[mx-from-parent]" \
     "config reread must use the marked routed daemon path"
 
   : > "$log"
@@ -1461,9 +1461,9 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
   assert_not_contains "$(cat "$instr_b")" $'pi\n' \
     "beta instruction must not leak alpha-only stale harness bytes as a standalone scalar block incorrectly"
 
-  # Routed send used the from-broker marker and carried only the pointer.
+  # Routed send used the from-parent marker and carried only the pointer.
   pointer="CONFIG_REREAD: $(reread_instruction_path "$w/alpha")"
-  assert_contains "$(cat "$log")" "[mx-from-broker]" "reread send must be marked"
+  assert_contains "$(cat "$log")" "[mx-from-parent]" "reread send must be marked"
   assert_contains "$(cat "$log")" "$pointer" "reread send must point to the durable instruction file"
   assert_not_contains "$(cat "$log")" '"harness": "codex"' "sent message must not inline multiline JSON"
   assert_not_contains "$(cat "$log")" $'\n  "default"' "sent message must not contain embedded newlines"
@@ -2050,7 +2050,7 @@ test_config_reread_bootstrap_path_and_spawn_flexibility() {
   [ "$(cat "$w/sm/config/actor-harness")" = codex ] || fail "bootstrap did not push harness"
   instr=$(reread_instruction_path "$w/sm") || fail "bootstrap reread instruction missing"
   assert_present "$instr" "bootstrap must write a config reread instruction when config changed"
-  assert_contains "$(cat "$log")" "[mx-from-broker]" \
+  assert_contains "$(cat "$log")" "[mx-from-parent]" \
     "bootstrap config reread must use routed daemon send"
   assert_contains "$(cat "$instr")" \
     $'-----BEGIN config/actor-harness-----\ncodex\n-----END config/actor-harness-----' \
