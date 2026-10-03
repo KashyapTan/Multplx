@@ -302,7 +302,7 @@ The first broad vocabulary run exposed 19 failures, mainly old-label assertions 
 The subsequent full Rust run exposed six exact diagnostic/default assertions; test-only commit `d2c759d` corrected them, and all four affected targets passed together (454 tests).
 The foreign-session refusal regression still requires the exact owning PID and a retained inbox, while allowing the two valid refusal paths exposed by Desktop process detection.
 No failure check, fault injection, coverage exclusion or safety gate was removed.
-Final combined release, coverage and hosted-CI results are recorded in the vocabulary delivery PR; the focused evidence above retains its own scope.
+Final combined release, coverage and hosted-CI results are recorded in [vocabulary delivery PR #55](https://github.com/KashyapTan/Multplx/pull/55); the focused evidence above retains its own scope.
 
 ## Worker reporting repair validation, 2026-10-03
 
