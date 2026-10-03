@@ -17,6 +17,7 @@ bin/mx-check-lib.sh	sourced-shell-abi	Watcher and PR-security tests source the c
 bin/mx-check-register.sh	minimal-adapter	Stable custom-check registration command name.
 bin/mx-classify-lib.sh	sourced-shell-abi	Daemon, watcher, transition, and focused tests source the shared classifier ABI.
 bin/mx-claude-stop-autoarm.sh	minimal-adapter	Stable Claude Stop hook command name.
+bin/mx-codex-idle.sh	minimal-adapter	Stable Codex native readiness and exact-thread idle bridge entry.
 bin/mx-config-push.sh	minimal-adapter	Stable configuration push command name.
 bin/mx-cursor-hook.sh	minimal-adapter	Stable Cursor hook command name.
 bin/mx-daemon-report.sh	minimal-adapter	Stable daemon report command name.

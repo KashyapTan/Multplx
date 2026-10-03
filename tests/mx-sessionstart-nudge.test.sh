@@ -103,12 +103,21 @@ test_tracked_harness_registration() {
   jq -e 'any(.hooks.SessionStart[]?.hooks[]?.command?; contains("mx-sessionstart-nudge.sh"))' \
     "$ROOT/.claude/settings.json" >/dev/null || fail "Claude SessionStart hook does not invoke the wrapper"
 
-  command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$ROOT/.codex/hooks.json")
+  jq -e '[.hooks.SessionStart[]?.hooks[]?.command? | select(type == "string" and contains("mx-sessionstart-nudge.sh"))] | length == 1' \
+    "$ROOT/.codex/hooks.json" >/dev/null || fail "Codex startup nudge must be registered exactly once"
+  command=$(jq -r '.hooks.SessionStart[]?.hooks[]?.command? | select(type == "string" and contains("mx-sessionstart-nudge.sh"))' "$ROOT/.codex/hooks.json")
   # shellcheck disable=SC2016
   assert_contains "$command" 'payload=$(cat' "Codex SessionStart hook does not read its payload"
   # shellcheck disable=SC2016
   assert_contains "$command" 'root=$(pwd -P)' "Codex SessionStart hook is not pwd-anchored"
   assert_contains "$command" 'mx-sessionstart-nudge.sh' "Codex SessionStart hook does not invoke the wrapper"
+
+  jq -e '[.hooks.SessionStart[]?.hooks[]?.command? | select(type == "string" and contains("mx-codex-idle.sh"))] | length == 1' \
+    "$ROOT/.codex/hooks.json" >/dev/null || fail "Codex readiness capture must be registered exactly once"
+  command=$(jq -r '.hooks.SessionStart[]?.hooks[]?.command? | select(type == "string" and contains("mx-codex-idle.sh"))' "$ROOT/.codex/hooks.json")
+  assert_contains "$command" 'mx-codex-idle.sh" --register' "Codex readiness capture does not invoke the SessionStart handler"
+  # shellcheck disable=SC2016
+  assert_contains "$command" 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}' "Codex readiness capture is not anchored to its runtime source root"
 
   codex_config="$ROOT/.codex/config.toml"
   [ -f "$codex_config" ] || fail "tracked Codex project config is missing"
