@@ -3,7 +3,7 @@
 # Usage: . bin/mx-supervision-lib.sh
 #
 # Reports whether a Multplx home needs supervision because it has in-flight
-# work (a state/<id>.meta exists, except a valid completed ordinary task), and
+# work (a state/<id>.meta exists, except a valid completed assignment), and
 # whether its watcher has a fresh liveness
 # beacon (state/.last-watcher-beat, touched every poll cycle, within the grace
 # window).
@@ -23,15 +23,15 @@ mx_sup_stat_mtime() {
 
 # mx_supervision_status <state-dir> [grace-seconds]
 # Populates, for the state dir at $1:
-#   MX_SUP_IN_FLIGHT      count of active, legacy, persistent, or unknown task records
-#   MX_SUP_NEEDED         true/false - in-flight work
+#   MX_SUP_IN_FLIGHT      count of active, legacy, or unknown task records
+#   MX_SUP_NEEDED         true/false - active work, pending wakes, or explicit checks
 #   MX_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   MX_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
 #   MX_SUP_QUEUE_PENDING  true/false - state/.wake-queue has unread records
 # grace-seconds defaults to $MX_GUARD_GRACE, then 300, matching mx-guard.sh.
 # Always returns 0; callers read the vars, or use mx_supervision_unhealthy below.
 mx_supervision_status() {
-  local state=$1 grace=${2:-${MX_GUARD_GRACE:-300}} meta beat m age
+  local state=$1 grace=${2:-${MX_GUARD_GRACE:-300}} meta beat m age rust_bin inbox_status
   MX_SUP_IN_FLIGHT=0
   MX_SUP_NEEDED=false
   MX_SUP_WATCHER_FRESH=false
@@ -40,7 +40,7 @@ mx_supervision_status() {
 
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
-    mx_sup_completed_ordinary "$meta" && continue
+    mx_sup_completed_assignment "$meta" && continue
     MX_SUP_IN_FLIGHT=$((MX_SUP_IN_FLIGHT + 1))
   done
   if [ "$MX_SUP_IN_FLIGHT" -gt 0 ]; then
@@ -62,13 +62,32 @@ mx_supervision_status() {
 
   # shellcheck disable=SC2034 # Read by callers (mx-guard.sh) after sourcing.
   [ -s "$state/.wake-queue" ] && MX_SUP_QUEUE_PENDING=true
+  # Reuse the read-only Rust projection for claimed and waiting inbox work.
+  # Without that owner, retained inbox data cannot be proven settled.
+  rust_bin=${MX_RUST_BIN:-${BASH_SOURCE[0]%/*}/../target/release/mx}
+  if [ -x "$rust_bin" ]; then
+    inbox_status=$(MX_MULTICALL_EXPLICIT=1 "$rust_bin" primitive supervision-status "$state" "$grace" "$(date +%s)" 2>/dev/null) || inbox_status=
+    case "$inbox_status" in
+      *$'\t'true) MX_SUP_QUEUE_PENDING=true ;;
+      *$'\t'false) : ;;
+      *) MX_SUP_QUEUE_PENDING=true ;;
+    esac
+  elif [ -e "$state/wake-inbox" ]; then
+    MX_SUP_QUEUE_PENDING=true
+  fi
+  [ "$MX_SUP_QUEUE_PENDING" = true ] && MX_SUP_NEEDED=true
+  for meta in "$state"/*.check.sh; do
+    [ -e "$meta" ] || continue
+    MX_SUP_NEEDED=true
+    break
+  done
   return 0
 }
 
-# Exclude only a bounded, non-symlink canonical ordinary assignment whose
+# Exclude only a bounded, non-symlink canonical assignment whose
 # completion state is explicit. Without jq or complete identity, keep the
 # metadata in-flight conservatively.
-mx_sup_completed_ordinary() {
+mx_sup_completed_assignment() {
   local meta=$1 id size schema_count model_count kind_count kind canonical
   command -v jq >/dev/null 2>&1 || return 1
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
@@ -88,12 +107,12 @@ mx_sup_completed_ordinary() {
   printf '%s\n' "$canonical" | jq -e --arg id "$id" --arg kind "$kind" '
     type == "object" and
     .schema_version == 2 and .task_id == $id and
-    (.role == "researcher" or .role == "implementer" or .role == "reviewer") and
-    (.artifact == "report" or .artifact == "implementation") and
+    (.role == "researcher" or .role == "implementer" or .role == "reviewer" or .role == "sub-orchestrator") and
+    (.artifact == "report" or .artifact == "implementation" or .artifact == "coordination") and
     (((.persistent == true or .private_home == true) and $kind == "daemon") or
      ((.persistent == false and .private_home == false) and
-      ((.artifact == "report" and $kind == "scout") or (.artifact == "implementation" and $kind == "delivery")))) and
-    .persistent == false and .private_home == false and .legacy_unknown == false and
+      ((.artifact == "report" and $kind == "scout") or ((.artifact == "implementation" or .artifact == "coordination") and $kind == "delivery")))) and
+    (.persistent | type == "boolean") and (.private_home | type == "boolean") and .legacy_unknown == false and
     (.attempt.id | type == "string" and length > 0) and
     (.attempt.generation | type == "number" and . > 0) and
     (.attempt.brief_revision | type == "number" and . > 0) and
@@ -103,7 +122,7 @@ mx_sup_completed_ordinary() {
 }
 
 # mx_supervision_needed <state-dir> [grace-seconds]
-# Exit 0 (true) exactly when in-flight work needs a watcher. Exit 1 (false)
+# Exit 0 (true) when active work, pending wakes, or explicit checks need a watcher. Exit 1 (false)
 # for an idle home.
 mx_supervision_needed() {
   mx_supervision_status "$@"
@@ -111,9 +130,9 @@ mx_supervision_needed() {
 }
 
 # mx_supervision_unhealthy <state-dir> [grace-seconds]
-# Exit 0 (true) exactly in the dangerous state: in-flight work exists and no
-# watcher has a fresh beacon. Exit 1 (false) otherwise, including zero in-flight.
+# Exit 0 (true) exactly in the dangerous state: supervision is needed and no
+# watcher has a fresh beacon. Exit 1 (false) otherwise.
 mx_supervision_unhealthy() {
   mx_supervision_status "$@"
-  [ "$MX_SUP_IN_FLIGHT" -gt 0 ] && [ "$MX_SUP_WATCHER_FRESH" = false ]
+  [ "$MX_SUP_NEEDED" = true ] && [ "$MX_SUP_WATCHER_FRESH" = false ]
 }

@@ -212,3 +212,28 @@ A 200-process comparison of the same `blocked` transition-policy decision took 0
 The comparison is a process-bound shadow check rather than a claim about future in-process service performance, and it shows no material regression at the current compatibility boundary.
 All 18 Portion 02 legacy source files remain present.
 A bounded caller inventory found 78 current shell, test, skill, and documentation files referencing the transferred helper families, so no deletion or caller cutover is eligible in this portion.
+
+## Claude and Pi event-driven recheck (2026-10-03)
+
+The available environment has Node 24.14.1 and tmux 3.7c, but neither a Claude executable nor a Pi executable or installed Pi coding-agent package.
+No fresh authenticated Claude or Pi model run is claimed, and historical versions above remain dated evidence.
+The existing credentialed tests were inspected for isolation without launching, installing a provider, copying authentication material or changing a private operational home.
+The full Pi live test also performs unrelated Recap and presentation model calls, so it was not used as a minimal continuity probe.
+
+The baseline focused release checks passed both `tests/mx-claude-stop-autoarm.test.sh` and `tests/mx-pi-watch-extension.test.sh`, with no failures or gates.
+Claude fixtures establish hook-owned arm and rewake translation, idle silence, single-flight ownership, AFK and live-other-owner boundaries.
+Pi fixtures establish an extension-owned successor before `followUp` wake delivery, bounded failure restoration and child retirement.
+The retained two-event Pi regression additionally checks a silent idle interval, two distinct event cycles, exactly one initial arm-tool invocation and extension-owned successor creation before each typed wake.
+Its Pi API and provider are synthetic; the real tracked TypeScript extension and real isolated child processes run under Node.
+The responsiveness assertion concerns the mocked host event loop and does not establish interactive provider responsiveness.
+
+The common supervision predicate now excludes well-formed current completed persistent and coordinator assignments as well as ordinary assignments.
+Unread or unfinished wakes, explicit checks, reopened current work and unknown or malformed metadata continue to require supervision.
+The observer does not acquire a wake lock or alter claim/inbox state.
+The four focused Rust predicate tests pass, including an occupied live wake lock, byte-preserved claimed inbox work, reopened assignments and mismatched task/revision identity.
+After the locked release build, the final Claude auto-arm, turn-end guard and Pi watcher selection passed all three scripts with no failures or gates in 101.325 seconds.
+[AUD-008](postmerge-audit-issues.md#aud-008-completed-standing-assignments-retain-perpetual-supervision-need) records the corrected completed-standing-assignment projection and exact checks.
+Completed assignment evidence does not claim that a parent has validated full delivery; unread completion wakes retain the reconciliation path.
+No standing agent is deleted, retired or automatically reused by this projection.
+
+Fresh installed-version, credentialed two-cycle, user-input responsiveness and absence-of-model-loop evidence remains required for current Claude and Pi runtimes when they are available.

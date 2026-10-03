@@ -18,6 +18,7 @@ Documentation corrections below are included with the repair branch.
 | AUD-005 | Low / onboarding | Corrected locally | Published source installers are still described as unavailable in the getting-started guide. |
 | AUD-006 | Verification limits | Explicit follow-up | Broader authenticated providers and live 10/20-task scaling are not established. |
 | AUD-007 | Low / optional test hardening | Not a demonstrated defect | Migration interruption fixtures could compare more retained bytes at each fault boundary. |
+| AUD-008 | Medium / supervision correctness | Fixed and locally verified | Completed standing assignments retain perpetual supervision need. |
 
 ## AUD-001: failed prerequisite still releases dependent work
 
@@ -107,6 +108,13 @@ These are disclosed limits rather than newly demonstrated implementation failure
 **Follow-up:** keep these limitations visible and scope any new paid trials explicitly.
 Do not describe synthetic graph scale, mocked transports or gated tests as live-provider success.
 
+### Claude and Pi follow-up on 2026-10-03
+
+The event-driven supervision recheck found neither Claude nor Pi installed in the available runtime.
+Focused deterministic hook/extension checks passed, and the Pi fixture now retains two event cycles with one initial tool arm and extension-owned successors.
+This does not close authenticated provider, current installed-version or live user-input responsiveness verification.
+The [current supervision evidence](supervision.md#claude-and-pi-event-driven-recheck-2026-10-03) distinguishes these checks from the dated historical live results.
+
 ## AUD-007: optional migration fault-test strengthening
 
 Current migration tests inject before-intent, after-intent, after-write, progress and commit failures, then recover and roll back.
@@ -116,6 +124,32 @@ No migration defect was found.
 
 **Optional follow-up:** compare the canonical post-recovery state and retained reply/workflow bytes at each boundary, plus the exact pre-apply manifest after rollback.
 This is a test-strengthening opportunity, not a reason to claim the existing recovery mechanism is missing.
+
+## AUD-008: completed standing assignments retain perpetual supervision need
+
+The 2026-10-03 event-driven recheck found that the shared supervision predicate excluded only completed ordinary assignments.
+Completed persistent workers and coordinators remained in flight solely because their retained metadata existed.
+Claude Stop auto-arm separately counted every metadata file, including completed ordinary assignments.
+These projections could retain watcher and heartbeat model wakes after evidenced assignment completion, contrary to the standing-agent idle contract.
+
+**Resolved locally:** all recognized well-formed current completed assignments share the same idle projection.
+Canonical task identity, accepted attempt/brief revision, compatibility fields and explicit completion remain required.
+Legacy, malformed, mismatched and reopened records still require supervision.
+Unread source wakes, claimed or waiting inbox work and explicit checks independently retain supervision, preserving parent validation and external monitoring.
+The Rust observer uses lock-free `observe_unfinished_count`; a read failure conservatively retains need.
+The shell compatibility layer uses that existing Rust projection for inbox work and remains conservative when the runtime is unavailable.
+Claude auto-arm uses the common predicate instead of raw metadata existence.
+No persistent agent or retained result is removed or retired.
+
+Exact focused verification passed after a locked release build:
+
+- `cargo test --locked -p multplx-core supervision::tests`: four tests passed, including an occupied live wake lock, retained claimed inbox bytes, pending wake/check need and reopened/mismatched assignment identity.
+- `target/release/mx test-run tests/mx-claude-stop-autoarm.test.sh tests/mx-turnend-guard.test.sh tests/mx-pi-watch-extension.test.sh`: three scripts passed, zero failures or gates, 101.325 seconds.
+- Shell syntax, documentation audience/local links and whitespace checks passed.
+
+The Claude regression proves a completed standing assignment stays idle until a wake, check or reopened assignment requires supervision.
+The Pi regression proves two typed event cycles with one initial arm call and extension-owned successors before delivery.
+Harness/model APIs are synthetic; fresh authenticated Claude and Pi runs remain the separate AUD-006 limitation.
 
 ## Validation performed
 
