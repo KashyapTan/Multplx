@@ -347,3 +347,10 @@ The same scan found current launch/config-push warnings and snapshot omission re
 The redundant `must_use` annotation on the Herdr workspace-label Result was removed to satisfy clippy.
 Fresh tmux fixture launches now record primary endpoints, so recovery assertions follow those recorded endpoints while unverified legacy fixtures retain their old explicit targets.
 Focused reconciliation results and the final centralized release/coverage result are recorded after validation.
+
+### Review correction: shell Herdr legacy primary adoption
+
+Preserving the existing legacy-workspace fixture exposed a shell-only compatibility gap: workspace lookup translated agent IDs to historical labels but omitted the primary-to-broker alias already implemented by Rust.
+The sourced shell owner now admits only that exact historical primary label as well.
+The existing fixture keeps a broker workspace in the mocked inventory and requires its original workspace ID with no create operation, so changing the expected label cannot conceal failed adoption.
+This is a deterministic adapter fixture; no live Herdr session was inspected or modified.

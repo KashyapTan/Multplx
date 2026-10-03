@@ -817,7 +817,10 @@ mx_backend_herdr_workspace_find() {  # <session>
   local session=$1 label legacy list
   label=$(mx_backend_herdr_workspace_label)
   legacy=$label
-  case "$label" in agent-*) legacy="daemon-${label#agent-}" ;; esac
+  case "$label" in
+    primary) legacy=broker ;;
+    agent-*) legacy="daemon-${label#agent-}" ;;
+  esac
   list=$(mx_backend_herdr_cli "$session" workspace list 2>/dev/null) || return 0
   # NOTE: the jq variable is $want, NOT $label - `label` is a jq reserved
   # keyword (label/break), so declaring a jq variable named "label" is a
