@@ -172,9 +172,10 @@ Controlled native watcher-arm output establishes adapter transport and continuit
 
 The pre-repair primary protocol required another model-authored foreground checkpoint after each wake or quiet timeout.
 The installed Codex CLI now exposes `codex queue --thread --message`; a real isolated exact-thread transport probe showed an idle thread starts a new turn and busy-thread input waits until its current turn completes.
-The requested repair is a Stop-owned bridge that binds the exact thread, `CODEX_HOME` and live session-lock identity while keeping canonical wake disposition separate from queue transport receipts.
+**Resolved locally:** runtime commit `c88b045` provides a Stop-owned bridge binding the exact thread, `CODEX_HOME` and live session-lock identity while keeping canonical wake disposition separate from queue transport receipts.
 Unsupported CLI versions require a visible compatibility warning and the explicit bounded foreground fallback; the upstream Codex checkpoint protocol alone does not establish this modern local capability.
-Final runtime and live-hook verification belong to the active Codex worker's delivery evidence.
+[Current Codex verification](supervision.md#codex-cli-event-driven-queue-recheck-2026-10-03) records four focused Rust unit checks, two instrumented runtime integrations and installed CLI native-hook/queue evidence against a synthetic Responses endpoint.
+This evidence does not establish authenticated provider output or Desktop delivery.
 The accepted activation boundary is managed Codex CLI launchers setting `MX_CODEX_IDLE_CLI=1` automatically, or a direct terminal CLI user explicitly opting in with that flag.
 Inactive sessions keep the bounded foreground protocol, and the renderer selects a separate inactive instruction block rather than claiming a bridge is running.
 Native hook trust review can leave project hooks unloaded even with that launch flag, so readiness also requires a native SessionStart receipt matching the exact provider thread and live lock owner.
@@ -199,6 +200,14 @@ The same integration regression passed watcher exit 7, preserved the private fai
 Both instrumented runtime integration tests passed in 8.07 seconds; the queue and watcher endpoints are isolated fixtures, not authenticated model providers.
 The separate installed Codex CLI native-hook and queue probe uses a synthetic Responses endpoint; [verification evidence](supervision.md#codex-cli-event-driven-queue-recheck-2026-10-03) records that boundary.
 A suspected raw-queue restart storm was checked against the real watcher scan and marker path and was not substantiated; it is not recorded as a defect.
+
+## Initial broad validation of event-driven repairs
+
+The first broad release run exposed startup-hook indexing and missing runtime-inventory entries; commit `3698ee1` selects the startup command by identity and inventories the new idle adapter.
+Commit `9fcb3b3` corrected provenance naming by retaining exact source URLs in the existing upstream reference owner; the naming check and documentation audience check passed.
+The `mx-launcher-connection`, `mx-report` and `mx-viz` scripts passed their focused rerun in 21.723 seconds; the first two have no substantiated new defect or code repair.
+Separate Viz investigation reproduced valid delayed HTTP headers rejected with status 400 in three of three runs; its parser repair and regression remain in progress.
+Final broad validation results are pending and are not represented by the historical checks below.
 
 ## Validation performed
 
