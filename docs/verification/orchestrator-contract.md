@@ -285,7 +285,9 @@ The canonical delivery is [PR #51](https://github.com/KashyapTan/Multplx/pull/51
 
 ## Worker identity and standing-agent vocabulary audit (2026-10-03)
 
-The worker-reporting correction makes generated briefs self-contained about task identity, parent route, report correlation, completion evidence, questions and parent corrections until the full accepted job is validated. Temporary and standing homes already loaded a worker-first assignment before the shared contract; the screenshots do not establish that a worker actually adopted the main orchestrator role. The clarified contract prevents that ambiguity without inventing an approval rank or mandatory review ceremony.
+The worker-reporting correction makes generated briefs self-contained about task identity, parent route, report correlation, completion evidence, questions and parent corrections until the full accepted job is validated.
+Temporary and standing homes already loaded a worker-first assignment before the shared contract; the screenshots do not establish that a worker actually adopted the main orchestrator role.
+The clarified contract prevents that ambiguity without inventing an approval rank or mandatory review ceremony.
 
 The separate vocabulary work inventories tracked files with:
 
@@ -294,7 +296,8 @@ git grep -n -i -E 'broker|daemon|maintainer' -- AGENTS.md .agents bin crates doc
 git ls-files '*broker*' '*daemon*' '*maintainer*'
 ```
 
-The raw census includes internal identifiers, historical evidence, symlinked instruction copies and fixtures; a lexical hit does not establish an obsolete agent role. Reviewed current producers and retained classes are:
+The raw census includes internal identifiers, historical evidence, symlinked instruction copies and fixtures; a lexical hit does not establish an obsolete agent role.
+Reviewed current producers and retained classes are:
 
 | Surface | Current output and retained boundary |
 | --- | --- |
@@ -308,8 +311,18 @@ The raw census includes internal identifiers, historical evidence, symlinked ins
 | Snapshot/public summary | Standing-agent summary and all-agents flags are current, old flags remain aliases. Version 1 daemon-prefixed JSON projections and bounds remain wire compatibility, not a schema rewrite. |
 | Service/history/generic terms | The away-mode background service is a real daemon, credential broker is a generic intermediary, human preferences identify the human operator, and past plans/verification logs retain provenance. These are not agent ranks. Existing test/script filenames explicitly exercising compatibility remain unchanged. |
 
-An obsolete source comment claiming standing agents never delegate standing children was removed. It described no current enforced rank rule; the current inherited default supports nested delegation. No remaining generic role-approval requirement was found in the reviewed active contract. Safety locks, exact human grants, boundary-specific safety rules and the human-only merge rule stay intact.
+An obsolete source comment claiming standing agents never delegate standing children was removed.
+It described no current enforced rank rule; the current inherited default supports nested delegation.
+No remaining generic role-approval requirement was found in the reviewed active contract.
+Safety locks, exact human grants, boundary-specific safety rules and the human-only merge rule stay intact.
 
-Identity parsing now trims only surrounding whitespace: malformed `wor ker` cannot alias `worker`, and different case/punctuation remain different IDs. Seed rollback admits either exact canonical or historical journal target after validating current layout conflicts, including a retained prepared journal whose original legacy files were not created before a crash. Conflicting identity recovery retains the journal and both original files. No private home is migrated or activated by these changes; [layout compatibility](../configuration.md#standing-agent-layout-compatibility) gives the exact duplicate-layout boundary.
+Identity parsing now trims only surrounding whitespace: malformed `wor ker` cannot alias `worker`, and different case/punctuation remain different IDs.
+Seed rollback admits either exact canonical or historical journal target after validating current layout conflicts, including a retained prepared journal whose original legacy files were not created before a crash.
+Conflicting identity recovery retains the journal and both original files.
+No private home is migrated or activated by these changes; [layout compatibility](../configuration.md#standing-agent-layout-compatibility) gives the exact duplicate-layout boundary.
 
-Focused evidence: core resolver 3/3; exact legacy seed recovery 1/1; harness alias conflict 1/1; cmux exact historical adoption 1/1; tmux creation arrays 1/1; brief contracts 5/5; canonical/historical shared header 1/1; fast-forward report 1/1; canonical operator grant/receipt owner 1/1. Runtime inventory, startup nudge and cmux shell contracts passed 3/3 in 10.994 seconds using the worktree debug binary through the normal thin entry. Pi static contract passed; package/rendering/native E2E checks skipped because Pi and its package were unavailable. This is deterministic mock CLI evidence, not a new live backend or authenticated model test. Broad release/coverage validation remains separate.
+Focused evidence: core resolver 3/3; exact legacy seed recovery 1/1; harness alias conflict 1/1; cmux exact historical adoption 1/1; tmux creation arrays 1/1; brief contracts 5/5; canonical/historical shared header 1/1; fast-forward report 1/1; canonical operator grant/receipt owner 1/1.
+Runtime inventory, startup nudge and cmux shell contracts passed 3/3 in 10.994 seconds using the worktree debug binary through the normal thin entry.
+Pi static contract passed; package/rendering/native E2E checks skipped because Pi and its package were unavailable.
+This is deterministic mock CLI evidence, not a new live backend or authenticated model test.
+Broad release/coverage validation remains separate.
