@@ -30,23 +30,23 @@ const extract = (name) => {
   assert.ok(start >= 0, `${name} exists`);
   return source.slice(start, source.indexOf("\nfunction ", start + 1));
 };
-const context = vm.createContext({ document, URLSearchParams });
+const context = vm.createContext({ document, URLSearchParams, URL });
 vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("const connectionNote =")) +
   "\nlet portfolio; let attentionItemCount=0; let agentsViewActive=false;\n" +
-  ["titleCase", "projectRecord", "normalizedTasks", "statusTone", "chip", "taskKey", "hashForTask", "stableFocusKey", "restoreFocus", "deliveryStatus", "attentionReason", "renderAttention"].map(extract).join("\n"), context);
+  ["titleCase", "projectRecord", "normalizedTasks", "statusTone", "chip", "taskKey", "hashForTask", "stableFocusKey", "restoreFocus", "deliveryStatus", "displayTaskTitle", "readyPrUrl", "renderAttention", "detailSection", "taskDetails"].map(extract).join("\n"), context);
 const snapshot = JSON.parse(execFileSync(process.execPath, [path.join(__dirname, "attention.mjs")], { encoding: "utf8" }));
 context.input = snapshot.portfolio;
 vm.runInContext("portfolio=input; renderAttention();", context);
 const cards = nodes.get("#attention-list").children;
-assert.equal(cards.length, snapshot.portfolio.tasks.length + 2, "only unresolved unanswered decisions plus deliveries render");
+assert.equal(cards.length, 3, "only explicit unanswered questions and recorded ready PRs render; agent work stays in task details");
 assert.equal(nodes.get("#attention-count").textContent, `${cards.length} actionable`);
 assert.equal(nodes.get("#attention-panel").hidden, false);
 for (const card of cards) {
   assert.equal(card.tagName, "article");
   const [link, details] = card.children;
   assert.equal(link.tagName, "a");
-  assert.ok(link.href.startsWith("#task="));
-  assert.ok(link.attributes["aria-label"].startsWith("Open task "));
+  assert.ok(link.href.startsWith("#task=") || link.href === "https://example.invalid/pull/42");
+  assert.match(link.attributes["aria-label"], /^(Answer needed|PR ready for review): /);
   assert.equal(link.children[1].className, "attention-title");
   assert.equal(link.children[2].className, "attention-reason");
   assert.equal(details.tagName, "details", "native disclosure supports keyboard access");
@@ -56,20 +56,50 @@ for (const card of cards) {
   assert.equal(details.children[1].children[0].textContent, link.children[1].textContent, "full title preserved");
   assert.equal(details.children[1].children[1].textContent, link.children[2].textContent, "full action/question preserved");
 }
-assert.equal(cards[0].children[0].children[1].textContent, snapshot.portfolio.tasks[0].title, "legacy scaffold title is retained as literal text");
-assert.ok(cards.some((card) => card.children[0].children[1].textContent === snapshot.portfolio.tasks[3].title), "one-line scaffold remains accessible in full");
-assert.match(cards[0].children[0].children[2].textContent, /Review the delivery.*merge/);
-assert.match(cards[1].children[0].children[2].textContent, /missing or failing validation/);
-assert.ok(cards.some((card) => card.textContent.includes("blocking dependencies")));
-assert.ok(cards.some((card) => card.textContent.includes("review findings")));
-assert.ok(cards.some((card) => card.textContent.includes("has not been recorded")));
+assert.equal(cards[0].children[0].children[0].textContent, "PR ready for review");
+assert.equal(cards[0].children[0].children[1].textContent, "Repair attention cards", "derive meaningful label from legacy scaffold");
+assert.equal(cards[0].children[0].href, "https://example.invalid/pull/42", "ready PR links to the recorded PR");
+assert.equal(cards[0].children[0].target, "_blank");
+assert.equal(cards[0].children[0].rel, "noreferrer");
+assert.equal(cards[0].children[0].children[2].textContent, "Review and merge if satisfied.");
+assert.ok(cards[0].children[1].textContent.includes(snapshot.portfolio.tasks[0].title), "complete original scaffold remains accessible");
+assert.equal(cards[1].children[0].children[0].textContent, "Answer needed");
+assert.equal(cards[1].children[0].children[1].textContent, "Should the rollout include archived projects?");
+assert.equal(cards[1].children[0].children[2].textContent, "Reply in main orchestrator chat.");
+context.task = snapshot.portfolio.tasks[3];
+assert.equal(vm.runInContext("displayTaskTitle(task)", context), "Repair attention cards", "flattened scaffold produces meaningful label");
+context.task = snapshot.portfolio.tasks[1];
+assert.equal(vm.runInContext("displayTaskTitle(task)", context), "Implement task 2", "unbroken title falls back to recorded brief outcome");
+context.task = { id: "fallback", title: "You are a worker. " + "x".repeat(200) };
+assert.equal(vm.runInContext("displayTaskTitle(task)", context), "fallback", "instruction blob falls back to task identity");
+context.renderExecution = () => new Node("section");
+context.renderWorkflow = () => new Node("section");
+context.renderDecisions = () => null;
+context.renderEvidence = () => new Node("section");
+const taskDetail = vm.runInContext("taskDetails(task)", context);
+assert.ok(taskDetail.textContent.includes(context.task.title), "full original remains available in expandable task details even without attention");
 const unsafe = cards.find((card) => card.textContent.includes("<img"));
 assert.ok(unsafe);
-assert.equal(unsafe.children[0].children[2].children.length, 0, "untrusted HTML remains text");
+assert.equal(unsafe.children[0].children[1].children.length, 0, "untrusted HTML remains text");
 assert.ok(unsafe.children[1].textContent.includes("This is untrusted literal text."));
-const params = new URLSearchParams(cards[0].children[0].href.slice(1));
-assert.equal(params.get("task"), snapshot.portfolio.tasks[0].key);
-assert.equal(params.get("project"), snapshot.portfolio.tasks[0].project.id);
+const params = new URLSearchParams(cards[1].children[0].href.slice(1));
+assert.equal(params.get("task"), snapshot.portfolio.tasks[2].key);
+assert.equal(params.get("project"), snapshot.portfolio.tasks[2].project.id);
+// A recorded readiness flag and actual absolute safe PR URL are both required.
+context.task = { evidence: { review_queue: { state: "ready", pr_ready: true, pr_url: "https://example.invalid/pull/42" } } };
+assert.equal(vm.runInContext("readyPrUrl(task)", context), "https://example.invalid/pull/42");
+for (const url of ["", null, "javascript:alert(1)", "data:text/html,unsafe", "/pull/42", "invalid URL"]) {
+  context.task.evidence.review_queue.pr_url = url;
+  assert.equal(vm.runInContext("readyPrUrl(task)", context), null, `reject non-PR URL ${url}`);
+}
+for (const state of ["ready", ...snapshot.portfolio.tasks.slice(1).map((task) => task.evidence.review_queue.state)]) {
+  context.task.evidence.review_queue = { state, pr_ready: false, pr_url: "https://example.invalid/pull/42" };
+  assert.equal(vm.runInContext("readyPrUrl(task)", context), null, `do not infer readiness from ${state}`);
+}
+context.task.evidence.review_queue = { state: "review-findings", pr_ready: true, pr_url: "https://example.invalid/pull/42" };
+assert.equal(vm.runInContext("readyPrUrl(task)", context), null, "inconsistent non-ready state stays task detail");
+context.task.evidence.review_queue = { state: "ready", pr_url: "https://example.invalid/pull/42" };
+assert.equal(vm.runInContext("readyPrUrl(task)", context), null, "PR presence and state alone do not invent readiness");
 const originalDetails = cards[0].children[1];
 originalDetails.open = true;
 originalDetails.children[1].scrollTop = 144;

@@ -52,7 +52,7 @@ for (const [layout, viewport] of Object.entries({ wide: { width: 1440, height: 9
     headers: { "X-Multplx-Cache": "fresh", "X-Multplx-Observation-Age-Ms": "0" },
   }));
   await page.goto(base, { waitUntil: "domcontentloaded" });
-  await page.locator("#attention-count").filter({ hasText: "8 actionable" }).waitFor();
+  await page.locator("#attention-count").filter({ hasText: "3 actionable" }).waitFor();
   const bounds = await page.evaluate(() => ({
     overflow: document.documentElement.scrollWidth > innerWidth,
     heights: [...document.querySelectorAll(".attention-card")].map((card) => card.getBoundingClientRect().height),
@@ -61,7 +61,7 @@ for (const [layout, viewport] of Object.entries({ wide: { width: 1440, height: 9
     image_count: document.querySelectorAll("#attention-list img").length,
   }));
   if (bounds.overflow || Math.max(...bounds.heights) > 220) throw new Error(`attention ${layout} has unbounded layout: ${JSON.stringify(bounds.heights)}`);
-  if (bounds.title !== attentionSnapshot.portfolio.tasks[0].title || bounds.injected || bounds.image_count) throw new Error(`attention ${layout} lost text or interpreted HTML`);
+  if (bounds.title !== "Repair attention cards" || bounds.injected || bounds.image_count) throw new Error(`attention ${layout} lost text or interpreted HTML`);
   const disclosure = page.locator(".attention-details").first();
   await disclosure.locator("summary").focus();
   await disclosure.locator("summary").press("Enter");
@@ -75,12 +75,16 @@ for (const [layout, viewport] of Object.entries({ wide: { width: 1440, height: 9
   const retained = await full.evaluate((node) => ({ open: node.closest("details").open, focused: document.activeElement === node, scroll: node.scrollTop }));
   if (!retained.open || !retained.focused || retained.scroll !== 144) throw new Error("attention polling lost open details, focus or scroll");
   await page.screenshot({ path: path.join(output, `attention-${layout}.png`), fullPage: true });
-  const taskLink = page.locator(".attention-item").first();
+  const prLink = page.locator(".attention-item").first();
+  if (await prLink.getAttribute("href") !== "https://example.invalid/pull/42") throw new Error("ready PR does not link to its actual recorded URL");
+  const questionLink = page.locator(".attention-item").nth(1);
+  if (!(await questionLink.textContent()).includes("Should the rollout include archived projects?") || !(await questionLink.textContent()).includes("Reply in main orchestrator chat.")) throw new Error("human question does not explain the required answer and destination");
+  const taskLink = page.locator(".attention-task-link").first();
   await taskLink.focus();
   await taskLink.press("Enter");
   const expectedKey = attentionSnapshot.portfolio.tasks[0].key;
   await page.waitForFunction((key) => [...document.querySelectorAll(".task-row")].some((row) => row.dataset.taskId === key && row.open), expectedKey);
-  results.attention[layout] = { bounded_cards: true, horizontal_overflow: false, full_text_preserved: true, keyboard_disclosure: true, polling_preserves_details_focus_scroll: true, exact_task_opened: true, safe_literal_text: true, maximum_closed_card_height: Math.max(...bounds.heights) };
+  results.attention[layout] = { bounded_cards: true, horizontal_overflow: false, full_text_preserved: true, keyboard_disclosure: true, polling_preserves_details_focus_scroll: true, exact_task_opened: true, safe_literal_text: true, only_explicit_human_actions: true, recorded_pr_url: true, meaningful_legacy_title: true, maximum_closed_card_height: Math.max(...bounds.heights) };
   await page.close();
 }
 

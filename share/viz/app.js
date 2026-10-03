@@ -405,6 +405,18 @@ function renderEvidence(task) {
 function taskDetails(task) {
   const body = el("div", "task-details");
   body.append(renderExecution(task), renderWorkflow(task));
+  if (task.title && displayTaskTitle(task) !== task.title) {
+    const original = detailSection("Original task text");
+    const details = el("details", "attention-details");
+    details.append(el("summary", "", "Read the complete task text"));
+    const text = el("div", "attention-detail-body", task.title);
+    text.tabIndex = 0;
+    text.setAttribute("role", "region");
+    text.setAttribute("aria-label", `Original task text for ${task.id}`);
+    details.append(text);
+    original.append(details);
+    body.append(original);
+  }
   const decisions = renderDecisions(task);
   if (decisions) body.append(decisions);
   body.append(renderEvidence(task));
@@ -449,7 +461,7 @@ function taskRow(task) {
   const project = projectRecord(task);
   const left = el("div", "task-main");
   const title = el("div", "task-title-line");
-  title.append(chip(priorityName(task), priorityRank(priorityName(task), task) <= -1 ? "red" : "neutral"), el("strong", "task-title", task.title || id));
+  title.append(chip(priorityName(task), priorityRank(priorityName(task), task) <= -1 ? "red" : "neutral"), el("strong", "task-title", displayTaskTitle(task)));
   const identity = el("div", "task-identity", `${task.id || id} · ${project.display}${project.path && project.path !== project.display ? ` · ${project.path}` : ""}`);
   left.append(title, identity);
   const stage = task.workflow?.current_stage || task.workflow?.stage;
@@ -537,16 +549,27 @@ function deliveryStatus(task) {
   return String(reviewQueue.state || "").toLowerCase();
 }
 
-function attentionReason(item) {
-  if (item.decision) return item.decision.question || item.decision.summary || "Answer the pending decision.";
-  const actions = {
-    ready: "Review the delivery and decide whether to merge.",
-    "needs-checks": "Check the missing or failing validation before reviewing delivery.",
-    "blocked-by-dependencies": "Resolve the blocking dependencies before reviewing delivery.",
-    "review-findings": "Resolve the review findings before approving delivery.",
-    "review-not-run": "Review the delivery; a review has not been recorded.",
-  };
-  return actions[item.delivery];
+function displayTaskTitle(task) {
+  const usable = (value) => value && value.length <= 180 && !/[\r\n]|\S{90}|^You are\b|current worker assignment|#\s*(Task|Charter|Definition of done)\b/i.test(value);
+  const title = String(task.title || "").trim();
+  if (usable(title)) return title;
+  for (const source of [title, String(task.brief?.scope || "")]) {
+    if (usable(source.trim())) return source.trim();
+    for (const match of source.matchAll(/(?:^|\s)#{1,2}\s+(?:Task|Charter)\s+([\s\S]*?)(?=\s+#{1,2}\s+|$)/g)) {
+      const label = match[1].trim().split(/\r?\n/)[0].trim();
+      if (usable(label) && label !== "{TASK}") return label;
+    }
+  }
+  return task.id || "Unknown task";
+}
+
+function readyPrUrl(task) {
+  const review = object(object(task.evidence).review_queue);
+  if (review.state !== "ready" || review.pr_ready !== true || typeof review.pr_url !== "string") return null;
+  try {
+    const url = new URL(review.pr_url);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
 }
 
 function renderAttention() {
@@ -558,9 +581,9 @@ function renderAttention() {
   ]));
   const items = [];
   for (const task of normalizedTasks(portfolio)) {
-    for (const decision of list(task.decisions).filter((row) => !row.answer && row.state !== "resolved")) items.push({ task, decision });
-    const delivery = deliveryStatus(task);
-    if (["ready", "needs-checks", "blocked-by-dependencies", "review-findings", "review-not-run"].includes(delivery)) items.push({ task, delivery });
+    for (const decision of list(task.decisions).filter((row) => !row.answer && row.state !== "resolved" && String(row.question || row.summary || "").trim())) items.push({ task, decision });
+    const prUrl = readyPrUrl(task);
+    if (prUrl) items.push({ task, prUrl });
   }
   clear(target);
   for (const item of items) {
@@ -568,13 +591,14 @@ function renderAttention() {
       item.decision?.id || item.decision?.question || item.decision?.summary || "",
       item.decision?.brief_revision ?? item.task.brief?.revision ?? null]);
     const card = el("article", "attention-card");
-    const title = item.task.title || item.task.id;
-    const reason = attentionReason(item);
+    const title = item.decision ? item.decision.question || item.decision.summary : displayTaskTitle(item.task);
+    const reason = item.decision ? "Reply in main orchestrator chat." : "Review and merge if satisfied.";
     const link = el("a", "attention-item");
-    link.href = hashForTask(taskKey(item.task), projectRecord(item.task).id);
+    link.href = item.prUrl || hashForTask(taskKey(item.task), projectRecord(item.task).id);
+    if (item.prUrl) { link.target = "_blank"; link.rel = "noreferrer"; }
     link.dataset.focusKey = `attention-link:${key}`;
-    link.setAttribute("aria-label", `Open task ${item.task.id}: ${item.decision ? "decision required" : titleCase(item.delivery)}`);
-    link.append(chip(item.decision ? "decision" : "delivery", item.decision ? "red" : "green"));
+    link.setAttribute("aria-label", `${item.decision ? "Answer needed" : "PR ready for review"}: ${displayTaskTitle(item.task)}`);
+    link.append(chip(item.decision ? "Answer needed" : "PR ready for review", item.decision ? "red" : "green"));
     link.append(el("strong", "attention-title", title));
     link.append(el("span", "attention-reason", reason));
     const details = el("details", "attention-details");
@@ -590,6 +614,11 @@ function renderAttention() {
     full.setAttribute("role", "region");
     full.setAttribute("aria-label", `Full attention details for ${item.task.id}`);
     full.append(el("strong", "", title), el("p", "", reason));
+    if (item.task.title && item.task.title !== title) full.append(el("p", "", item.task.title));
+    const taskLink = el("a", "attention-task-link", `Open task ${item.task.id}`);
+    taskLink.href = hashForTask(taskKey(item.task), projectRecord(item.task).id);
+    taskLink.dataset.focusKey = `attention-task:${key}`;
+    full.append(taskLink);
     if (item.decision?.reason) full.append(el("p", "", item.decision.reason));
     details.append(full);
     card.append(link, details);
