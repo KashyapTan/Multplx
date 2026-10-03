@@ -280,7 +280,7 @@ Five deterministic brief role/output tests passed; these are template checks, no
 
 A tracked-source census found active broker/daemon actor wording in parent markers, watcher diagnostics, generated preferences, standing-home helpers and maintained documentation.
 The reporting repair emits the role-neutral `[mx-from-parent]` marker and retains a narrow decoder for existing marked input.
-A separate vocabulary repair is in progress for the remaining current surfaces and compatibility-sensitive home/configuration names.
+The separate vocabulary repair updates the remaining current surfaces and compatibility-sensitive home/configuration names; its final validation status is recorded in PR #55 below.
 Historical verification records, legacy decoder fixtures and legitimate background-process or human-operator concepts must retain their meaning; lexical matches alone do not prove an obsolete agent role remains enforced.
 No mandatory review rank or role-based delegation prohibition was found in the inspected brief, launch and task-model paths.
 The separate `fix/standing-agent-vocabulary` implementation and [retained-term census](orchestrator-contract.md#worker-identity-and-standing-agent-vocabulary-audit-2026-10-03) account for current producers, compatibility aliases, stored schema keys and historical records.

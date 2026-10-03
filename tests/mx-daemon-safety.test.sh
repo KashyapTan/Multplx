@@ -872,7 +872,7 @@ test_home_seed_refuses_registry_delimiter_home() {
   if MX_HOME="$home" MX_DAEMON_CHARTER='delimiter charter' mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home path with registry delimiters"
   fi
-  grep -F 'daemon home path contains registry delimiters' "$err" >/dev/null \
+  grep -F 'standing-agent home path contains registry delimiters' "$err" >/dev/null \
     || fail "seed did not explain delimiter home refusal"
   [ ! -e "$subhome/.mx-agent-home" ] || fail "delimiter home seed wrote a marker"
   if [ -f "$home/data/agents.md" ] && grep -F -- '- design ' "$home/data/agents.md" >/dev/null; then
@@ -1006,7 +1006,7 @@ test_home_seed_refuses_reassigning_existing_id_to_different_home() {
     mx_home_seed design "$second" alpha >/dev/null 2>"$err"; then
     fail "seed reassigned an existing daemon id to a different home"
   fi
-  grep -F "daemon id design is already registered to home $first_abs" "$err" >/dev/null \
+  grep -F "agent id design is already registered to home $first_abs" "$err" >/dev/null \
     || fail "seed did not explain same-id different-home rejection"
   [ ! -e "$second" ] || fail "failed id reassignment created the new subhome"
   [ "$(cat "$first/.mx-agent-home")" = design ] || fail "failed id reassignment changed the original marker"
@@ -1040,14 +1040,14 @@ EOF
   if MX_HOME="$home" MX_DAEMON_CHARTER=scope mx_home_seed design "$nested" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home inside a registered daemon home"
   fi
-  grep -F 'overlaps registered daemon home' "$err" >/dev/null \
+  grep -F 'overlaps registered standing-agent home' "$err" >/dev/null \
     || fail "seed did not explain registered ancestor overlap"
   [ ! -e "$nested" ] || fail "seed created a nested home inside a registered home"
 
   if MX_HOME="$home" MX_DAEMON_CHARTER=scope mx_home_seed design "$parent" alpha >/dev/null 2>"$err"; then
     fail "seed accepted a home containing a registered daemon home"
   fi
-  grep -F 'overlaps registered daemon home' "$err" >/dev/null \
+  grep -F 'overlaps registered standing-agent home' "$err" >/dev/null \
     || fail "seed did not explain registered descendant overlap"
   [ ! -f "$parent/.mx-agent-home" ] || fail "seed marked a home containing a registered home"
   pass "home seeding refuses registered home overlaps"
@@ -1197,8 +1197,14 @@ test_home_seed_refuses_symlinked_leaf_files() {
     if MX_HOME="$home" mx_home_seed design "$subhome" alpha >/dev/null 2>"$err"; then
       fail "seed accepted symlinked leaf file $leaf"
     fi
-    grep -F 'daemon leaf file must not be a symlink:' "$err" >/dev/null \
-      || fail "seed did not explain symlinked leaf refusal for $leaf"
+    if [ "$leaf" = ".mx-agent-home" ]; then
+      grep -F 'open no-follow file' "$err" >/dev/null \
+        && grep -F "$subhome/.mx-agent-home" "$err" >/dev/null \
+        || fail "seed did not identify the no-follow marker refusal for $leaf"
+    else
+      grep -F 'agent leaf file must not be a symlink:' "$err" >/dev/null \
+        || fail "seed did not explain symlinked leaf refusal for $leaf"
+    fi
     target=$(cat "$sink")
     [ "$target" = "$expected" ] || fail "seed overwrote outside symlink target for $leaf"
     [ ! -f "$subhome/.mx-agent-home" ] || [ "$leaf" = ".mx-agent-home" ] || fail "seed marked subhome after symlinked leaf refusal"
@@ -1305,7 +1311,7 @@ SH
     "$ROOT/bin/mx-spawn.sh" domain "$subhome" codex --daemon >/dev/null 2>"$err"; then
     fail "daemon spawn accepted an unseeded home"
   fi
-  grep -F 'not a seeded daemon home' "$err" >/dev/null || fail "spawn did not explain missing seed marker"
+  grep -F 'not a seeded standing-agent home' "$err" >/dev/null || fail "spawn did not explain missing seed marker"
   # Canonical ordering proof: validation runs before any tmux side-effect. Every rejection
   # reason below shares this one linear pre-launch path, so they each assert only their own
   # refusal message rather than re-proving "no window created before validation" each time.
@@ -1791,7 +1797,7 @@ test_daemon_force_teardown_allows_operational_dir_symlinks_inside_home() {
       fail "force teardown did not remove subhome with inside $opdir symlink: $(cat "$err")"
     fi
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
-    grep -F 'kill-window -t broker:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
+    grep -F 'kill-window -t primary:mx-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
   done
   pass "force teardown allows operational directory symlinks inside the subhome"
 }
@@ -1826,7 +1832,7 @@ EOF
   [ -d "$subhome" ] || fail "force teardown removed subhome after symlinked state refusal"
   [ -d "$external_state" ] || fail "force teardown removed external symlink target"
   grep -F 'state directory' "$err" >/dev/null || fail "teardown did not explain symlinked state refusal"
-  grep -F 'resolves outside the daemon home' "$err" >/dev/null || fail "teardown did not identify unsafe state symlink"
+  grep -F 'resolves outside the standing-agent home' "$err" >/dev/null || fail "teardown did not identify unsafe state symlink"
   grep -F 'kill-window' "$log" >/dev/null && fail "teardown killed a window before symlinked state refusal"
   pass "force teardown refuses operational directory symlinks outside the subhome"
 }
@@ -1887,7 +1893,7 @@ SH
     grep -F -- "- $tid " "$home/data/agents.md" >/dev/null || fail "teardown ($row) removed the registry route after refusal"
     grep -F 'kill-window' "$log" >/dev/null && fail "teardown ($row) killed a window before validation"
   done <<'ROWS'
-unmarked|not a seeded daemon home
+unmarked|not a seeded standing-agent home
 ancestor|ancestor of the active Multplx home
 active-descendant|inside the active Multplx home
 repo-descendant|inside the Multplx repo
@@ -2021,7 +2027,7 @@ EOF
   [ -e "$home/state/domain.meta" ] || fail "force teardown cleared parent meta before validation"
   [ -e "$subhome/state/child.meta" ] || fail "force teardown cleared child meta before validation"
   grep -F 'kill-window' "$log" >/dev/null && fail "force teardown killed windows before subhome validation"
-  grep -F 'not a seeded daemon home' "$err" >/dev/null || fail "force teardown did not explain missing seed marker"
+  grep -F 'not a seeded standing-agent home' "$err" >/dev/null || fail "force teardown did not explain missing seed marker"
   pass "force teardown validates subhome before child cleanup"
 }
 
@@ -2285,13 +2291,13 @@ test_backlog_handoff_refuses_done_items_and_non_daemon_homes() {
   cmp -s "$before_sub" "$subhome/data/backlog.md" \
     || fail "Done-item refusal mutated the daemon backlog"
 
-  # A registered home that is not a seeded daemon home (e.g. a project clone)
+  # A registered home that is not a seeded standing-agent home (e.g. a project clone)
   # is refused, and nothing is written into it.
   mx_git_init_commit "$projhome"
   projhome_abs=$(cd "$projhome" && pwd -P)
   printf -- '- proj-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$projhome_abs" >> "$home/data/agents.md"
   if MX_HOME="$home" "$ROOT/bin/mx-backlog-handoff.sh" proj-sm delivered-task >/dev/null 2>&1; then
-    fail "handoff wrote into a destination that is not a seeded daemon home"
+    fail "handoff wrote into a destination that is not a seeded standing-agent home"
   fi
   [ ! -e "$projhome/data/backlog.md" ] || fail "handoff created a backlog inside a non-daemon home"
 
