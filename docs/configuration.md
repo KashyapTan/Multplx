@@ -554,3 +554,19 @@ Existing Herdr and cmux containers are adopted only through the exact historical
 `bin/mx-operator-override.sh` is the current human policy-exception command, with `--operator-words` for an exact grant or denial. The historical command and `--maintainer-words` remain aliases for the same single-use, state-bound store; passing both word options is rejected. Stored `maintainer-overrides` paths, human preference filenames and typed human-hold values remain compatibility data. This naming change grants no agent merge authority and creates no new approval rank.
 
 Read-only summary commands advertise `mx-system-snapshot.sh --standing-agent-home-summary` and `mx-status-snapshot.sh --all-agents`; the historical flags remain input aliases. Their version 1 JSON schemas and existing `MX_SNAPSHOT_DAEMON*` projection-bound variables remain wire compatibility surfaces.
+
+### Exact managed Codex session inspection
+
+`multplx task-session inspect TASK` selects the configured operational home from any directory and reads the current task attempt's native SessionStart receipt.
+For an explicitly selected owner use `MX_STATE_OVERRIDE=/absolute/owner/state mx task-session inspect TASK`; low-level `mx task-session` otherwise uses `MX_HOME`, then the current home, like other owner-scoped low-level commands.
+
+Managed Codex launches register the exact provider UUID only when the native Codex process, checkout, task, owner state, attempt, generation and accepted brief match the exact launched PID receipt.
+An optional hook-supplied `transcript_path` is exposed only after an owned regular file is opened without following its final symlink and its first session metadata record matches both UUID and exact task checkout.
+No newest-cwd lookup or provider store scan runs.
+A missing hook path means transcript unavailable; old launches, disabled hooks, other harnesses and unverified Desktop delivery may have no receipt.
+The identity does not prove model acceptance, completion or resumability.
+
+`multplx task-session history TASK` reads this owner's retained per-attempt receipt files, including after task metadata is retired.
+It distinguishes current attempt binding from historical or retired identity and never asserts a live session.
+Inspection rechecks a current transcript reference and reports `transcript_available: false` if the file has vanished or its header differs.
+These provider references are not a self-contained transcript backup.

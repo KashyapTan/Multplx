@@ -298,3 +298,17 @@ tests/mx-afk-pi-herdr-return-e2e.test.sh
 
 Real Herdr tests use the named lab helper and default-session tripwire.
 [`verification/runtime-backends.md`](verification/runtime-backends.md#herdr) records the active version, CLI, projection, event, and lifecycle evidence without task-specific chronology.
+
+## Launch submission and startup proof
+
+Terminal backends submit a short private `launch.sh` path instead of the full provider command and inherited PATH.
+The script writes an exact task, attempt, brief, endpoint and nonce receipt, then uses `exec env` to retain its PID for the harness.
+Multplx waits up to three seconds for that receipt and a matching live harness executable or verified interpreter launcher before recording Running.
+This proves process startup; assignment acceptance and model execution still need provider/task evidence.
+An idle shell, stale receipt or failed executable cannot establish Running.
+Uncertain submission retains its endpoint, allocation, single-checkout reservation and intent for explicit inspection rather than killing it or launching a duplicate.
+
+On Herdr 0.7.4, an isolated inert lab reproduced successful transport submission of an 18,024-byte synthetic launch line that left unfinished shell input and no startup signal.
+Clearing that input and submitting the short owned script created the inert startup signal.
+This establishes the tested transport gap, not a universal PTY size limit or provider acceptance guarantee.
+See [runtime verification](verification/runtime-backends.md#herdr) for the active evidence and limits.

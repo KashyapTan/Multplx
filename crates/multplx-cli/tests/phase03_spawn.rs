@@ -51,6 +51,11 @@ impl Fixture {
         )
         .unwrap();
         fs::write(home.join("config/actor-harness"), "codex\n").unwrap();
+        fs::write(
+            fake.join("inert-terminal-start.sh"),
+            include_str!("../../../tests/inert-terminal-start.sh"),
+        )
+        .unwrap();
         for tool in ["tmux", "herdr", "treehouse", "curl"] {
             let path = fake.join(tool);
             fs::write(
@@ -179,7 +184,18 @@ case "$1" in
       shift
     done ;;
   list-panes) echo '{"panes":[{"selected_surface_id":"22222222-2222-4222-8222-222222222222","surface_ids":["22222222-2222-4222-8222-222222222222"]}]}' ;;
-  send|send-key) printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent" ;;
+  send)
+    printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent"
+    for argument do literal=$argument; done
+    printf '%s' "$literal" > "$MX_CMUX_FIXTURE/launch-input"
+    script=${literal#\'}
+    script=${script%\'}
+    cat "$script" > "$MX_CMUX_FIXTURE/launch-script"
+    [ "${MX_CMUX_FAIL_SUBMIT:-0}" = 0 ] || exit 99 ;;
+  send-key)
+    printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent"
+    [ "${MX_CMUX_FAIL_SUBMIT:-0}" = 0 ] || exit 99
+    bash "$MX_CMUX_FIXTURE/inert-terminal-start.sh" "$(cat "$MX_CMUX_FIXTURE/launch-input")" ;;
   close-workspace) rm -f "$MX_CMUX_FIXTURE/title" ;;
   *) echo "unexpected cmux request: $*" >&2; exit 99 ;;
 esac
@@ -807,9 +823,18 @@ case "$1" in
       shift
     done ;;
   list-panes) echo '{"panes":[{"selected_surface_id":"22222222-2222-4222-8222-222222222222","surface_ids":["22222222-2222-4222-8222-222222222222"]}]}' ;;
-  send|send-key)
+  send)
     printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent"
+    for argument do literal=$argument; done
+    printf '%s' "$literal" > "$MX_CMUX_FIXTURE/launch-input"
+    script=${literal#\'}
+    script=${script%\'}
+    cat "$script" > "$MX_CMUX_FIXTURE/launch-script"
     [ "${MX_CMUX_FAIL_SUBMIT:-0}" = 0 ] || exit 99 ;;
+  send-key)
+    printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent"
+    [ "${MX_CMUX_FAIL_SUBMIT:-0}" = 0 ] || exit 99
+    bash "$MX_CMUX_FIXTURE/inert-terminal-start.sh" "$(cat "$MX_CMUX_FIXTURE/launch-input")" ;;
   close-workspace) rm "$MX_CMUX_FIXTURE/title" ;;
   *) echo "unexpected cmux request: $*" >&2; exit 99 ;;
 esac
@@ -876,7 +901,10 @@ esac
                     .contains("launch failed; reconcile retained endpoint/worktree")
             );
             assert!(f.home.join("state/.spawn-task.intent").exists());
-            assert!(!f.fake.join("title").exists());
+            assert!(
+                f.fake.join("title").exists(),
+                "uncertain submitted endpoint must remain available for reconciliation"
+            );
             assert!(PathBuf::from(&cwd).is_dir());
             assert!(raw.contains(&format!("worktree={cwd}\n")));
         } else {
@@ -886,7 +914,7 @@ esac
             assert!(raw.contains(&format!("worktree={cwd}\n")));
             assert_eq!(record.attempt.unwrap().generation, 1);
             assert!(
-                fs::read_to_string(f.fake.join("sent"))
+                fs::read_to_string(f.fake.join("launch-script"))
                     .unwrap()
                     .contains("MX_ATTEMPT_ID=")
             );
@@ -921,7 +949,18 @@ case "$1" in
       shift
     done ;;
   list-panes) echo '{"panes":[{"selected_surface_id":"22222222-2222-4222-8222-222222222222","surface_ids":["22222222-2222-4222-8222-222222222222"]}]}' ;;
-  send|send-key) : ;;
+  send)
+    printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent"
+    for argument do literal=$argument; done
+    printf '%s' "$literal" > "$MX_CMUX_FIXTURE/launch-input"
+    script=${literal#\'}
+    script=${script%\'}
+    cat "$script" > "$MX_CMUX_FIXTURE/launch-script"
+    [ "${MX_CMUX_FAIL_SUBMIT:-0}" = 0 ] || exit 99 ;;
+  send-key)
+    printf '%s\n' "$*" >> "$MX_CMUX_FIXTURE/sent"
+    [ "${MX_CMUX_FAIL_SUBMIT:-0}" = 0 ] || exit 99
+    bash "$MX_CMUX_FIXTURE/inert-terminal-start.sh" "$(cat "$MX_CMUX_FIXTURE/launch-input")" ;;
   close-workspace) printf '2' > "$MX_CMUX_FIXTURE/observe-fail" ;;
   *) exit 99 ;;
 esac

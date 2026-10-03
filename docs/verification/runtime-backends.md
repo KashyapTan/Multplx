@@ -153,6 +153,15 @@ Expected matrix: pending plus busy is accepted as queued; pending plus idle rema
 The compatibility floor is protocol 14.
 The latest active verification uses Herdr 0.7.5 protocol 16 on macOS aarch64, with earlier 0.7.4, protocol-14, and 0.7.3 evidence retained where they define current behavior or fallbacks.
 
+On 2026-10-03, Herdr 0.7.4 on macOS arm64 was tested through guarded named labs with an inert Python harness and a synthetic long PATH.
+An 18,024-byte direct launch submission returned transport success but left unfinished shell input and no inert startup receipt; a short owned script invocation executed.
+The changed integrated spawn submitted an 85-byte script path, matched an exact task/attempt/brief/endpoint/nonce receipt to its live harness PID, and only then recorded Running.
+A missing executable retained waiting state and its endpoint; the same request was refused as uncertain on retry, while an already successful request converged through the existing admission receipt.
+The lab exercised a synthetic native Codex SessionStart hook on the exact launched PID and rejected a nested provider process inheriting the task environment.
+These are inert transport, process-start and hook-schema fixtures, not paid-provider authentication, model acceptance, live native hook trust or resumability verification.
+Every provisioned lab was removed through the guarded lifecycle helper and its default-session tripwire passed.
+The maintained [audit follow-up verification](transcript-audit-followups.md) records the related scope and checks.
+
 The Portion 05 Rust-selected required family was reverified on 2026-08-11 with Herdr 0.7.4 protocol 16 on macOS aarch64.
 The command below records the current direct native family invocation.
 The run used the release `mx` binary, a short isolated `XDG_CONFIG_HOME`, a PID-owned temporary default server, and the guarded lab and CI cleanup tools.

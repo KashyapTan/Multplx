@@ -1107,6 +1107,10 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
     let invoke = |attempt_id: &str| {
         Command::new(env!("CARGO_BIN_EXE_mx"))
             .args(["headroom", "--queue"])
+            .env(
+                "MX_TEST_REPO_ROOT",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+            )
             .env("MX_HOME", &child_home)
             .env("MX_TASK_ID", "parent")
             .env("MX_REPORT_STATE_OVERRIDE", &root_state)
@@ -1158,6 +1162,10 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
     );
     let drain = Command::new(env!("CARGO_BIN_EXE_mx"))
         .args(["headroom", "--queue-drain"])
+        .env(
+            "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env("MX_HOME", &child_home)
         .env("MX_TASK_ID", "parent")
         .env("MX_REPORT_STATE_OVERRIDE", &root_state)
@@ -1191,7 +1199,14 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
         r#"#!/bin/sh
 set -eu
 case "${1:-}" in
-  has-session|list-windows|set-window-option|send-keys) exit 0 ;;
+  has-session|list-windows|set-window-option) exit 0 ;;
+  send-keys)
+    previous=
+    for argument in "$@"; do
+      if [ "$previous" = "-l" ]; then bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"; fi
+      previous=$argument
+    done
+    exit 0 ;;
   new-session) exit 0 ;;
   new-window) printf '@nested\n' ;;
   *) exit 0 ;;
@@ -1208,6 +1223,10 @@ esac
             "--backend",
             "tmux",
         ])
+        .env(
+            "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env("MX_HOME", &child_home)
         .env("MX_STATE_OVERRIDE", &child_state)
         .env("MX_DATA_OVERRIDE", child_home.join("data"))
