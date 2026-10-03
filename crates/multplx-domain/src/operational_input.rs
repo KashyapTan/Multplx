@@ -59,8 +59,9 @@ fn recover_transition_wait(state: &Path, operation: &str) -> Result<(), String> 
 pub const PREFIX: &str = "\u{2063}MULTPLX_OP: ";
 /// Current wire version.
 pub const VERSION: &str = "v1";
-/// Live-charter-compatible from-broker carrier.
-pub const FROM_BROKER_MARK: &str = "[mx-from-broker]\u{2063}";
+/// Live-charter-compatible from-parent carrier.
+pub const FROM_PARENT_MARK: &str = "[mx-from-parent]\u{2063}";
+const LEGACY_FROM_BROKER_MARK: &str = "[mx-from-broker]\u{2063}";
 /// Durable routed terminal-request schema.
 pub const REQUEST_SCHEMA: &str = "mx-routed-request.v1";
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
@@ -205,7 +206,7 @@ pub enum Kind {
     TurnEndGuard,
     AwaySupervisor,
     LaunchBrief,
-    FromBroker,
+    FromParent,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -243,7 +244,7 @@ impl Kind {
             "turn-end-guard" => Some(Self::TurnEndGuard),
             "away-supervisor" => Some(Self::AwaySupervisor),
             "launch-brief" => Some(Self::LaunchBrief),
-            "from-broker" => Some(Self::FromBroker),
+            "from-parent" | "from-broker" => Some(Self::FromParent),
             _ => None,
         }
     }
@@ -257,12 +258,12 @@ impl Kind {
             Self::TurnEndGuard => "turn-end-guard",
             Self::AwaySupervisor => "away-supervisor",
             Self::LaunchBrief => "launch-brief",
-            Self::FromBroker => "from-broker",
+            Self::FromParent => "from-parent",
         }
     }
 
     const fn is_generic(self) -> bool {
-        !matches!(self, Self::FromBroker)
+        !matches!(self, Self::FromParent)
     }
 }
 
@@ -277,27 +278,30 @@ pub fn construct(kind: Kind, body: &str) -> Option<String> {
     if body.is_empty() {
         return None;
     }
-    if kind == Kind::FromBroker {
-        return Some(mark_from_broker(body));
+    if kind == Kind::FromParent {
+        return Some(mark_from_parent(body));
     }
     Some(format!("{PREFIX}{VERSION} {}: {body}", kind.as_str()))
 }
 
-/// Add the established from-broker carrier idempotently.
+/// Add the established from-parent carrier idempotently.
 #[must_use]
-pub fn mark_from_broker(body: &str) -> String {
-    if body.starts_with(FROM_BROKER_MARK) && body.len() > FROM_BROKER_MARK.len() {
-        body.to_owned()
-    } else {
-        format!("{FROM_BROKER_MARK}{body}")
-    }
+pub fn mark_from_parent(text: &str) -> String {
+    let text = parent_body(text).unwrap_or(text);
+    format!("{FROM_PARENT_MARK}{text}")
 }
 
-/// Parse only current typed inputs.
+fn parent_body(message: &str) -> Option<&str> {
+    [FROM_PARENT_MARK, LEGACY_FROM_BROKER_MARK]
+        .into_iter()
+        .find_map(|marker| message.strip_prefix(marker).filter(|body| !body.is_empty()))
+}
+
+/// Parse current inputs and the exact legacy parent carrier.
 #[must_use]
 pub fn current_kind(message: &str) -> Option<Kind> {
-    if message.starts_with(FROM_BROKER_MARK) && message.len() > FROM_BROKER_MARK.len() {
-        return Some(Kind::FromBroker);
+    if parent_body(message).is_some() {
+        return Some(Kind::FromParent);
     }
     let remainder = message.strip_prefix(&format!("{PREFIX}{VERSION} "))?;
     let (raw_kind, body) = remainder.split_once(": ")?;
@@ -308,11 +312,11 @@ pub fn current_kind(message: &str) -> Option<Kind> {
     Some(kind)
 }
 
-/// Recover the exact body of a current input.
+/// Recover the exact body of a current or compatibility input.
 #[must_use]
 pub fn body(message: &str) -> Option<&str> {
-    if message.starts_with(FROM_BROKER_MARK) && message.len() > FROM_BROKER_MARK.len() {
-        return message.strip_prefix(FROM_BROKER_MARK);
+    if let Some(body) = parent_body(message) {
+        return Some(body);
     }
     let kind = current_kind(message)?;
     message.strip_prefix(&format!("{PREFIX}{VERSION} {}: ", kind.as_str()))
@@ -1412,7 +1416,7 @@ mod tests {
             Kind::TurnEndGuard,
             Kind::AwaySupervisor,
             Kind::LaunchBrief,
-            Kind::FromBroker,
+            Kind::FromParent,
         ] {
             let payload = "line one\nline two\n";
             let encoded = construct(kind, payload).expect("encoded");
@@ -1427,7 +1431,7 @@ mod tests {
         for value in [
             "MULTPLX_OP: v1 watcher: body",
             "\u{2063} arbitrary maintainer text",
-            "[mx-from-broker] inspect this label",
+            "[mx-from-parent] inspect this label",
         ] {
             assert_eq!(classify(value), None, "{value:?}");
         }
@@ -1469,7 +1473,7 @@ mod tests {
             ("watcher", Kind::Watcher),
             ("turn-end-guard", Kind::TurnEndGuard),
             ("away-supervisor", Kind::AwaySupervisor),
-            ("from-broker", Kind::FromBroker),
+            ("from-parent", Kind::FromParent),
             ("launch-brief", Kind::LaunchBrief),
         ] {
             assert_eq!(Kind::parse(text), Some(kind));
@@ -1484,7 +1488,17 @@ mod tests {
         assert_eq!(codec.kind("plain"), None);
         assert_eq!(codec.body("plain"), None);
         assert_eq!(codec.classify("plain"), None);
-        assert_eq!(mark_from_broker("body"), format!("{FROM_BROKER_MARK}body"));
+        assert_eq!(mark_from_parent("body"), format!("{FROM_PARENT_MARK}body"));
+        let legacy = "[mx-from-broker]\u{2063}payload";
+        assert_eq!(codec.kind(legacy), Some(Kind::FromParent));
+        assert_eq!(codec.body(legacy), Some("payload"));
+        assert_eq!(
+            mark_from_parent(legacy),
+            format!("{FROM_PARENT_MARK}payload")
+        );
+        assert_eq!(Kind::parse("from-broker"), Some(Kind::FromParent));
+        assert_eq!(codec.kind("[mx-from-parent]payload"), None);
+        assert_eq!(codec.kind("[mx-from-broker]payload"), None);
     }
 
     #[test]

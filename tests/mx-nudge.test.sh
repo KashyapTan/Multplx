@@ -102,8 +102,9 @@ test_no_listener_and_dead_lock_are_silent() {
     >"$out" 2>"$err"
   rc=$?
   [ "$rc" -eq 0 ] || fail "no-listener report exited $rc"
-  [ ! -s "$out" ] && [ ! -s "$err" ] \
-    || fail "no-listener nudge was not a silent no-op"
+  jq -e --arg task "$id" '.accepted == true and .replayed == false and .task_id == $task and .state == "working" and .completion_proven == false' "$out" >/dev/null \
+    || fail "no-listener report did not return its acceptance receipt"
+  [ ! -s "$err" ] || fail "no-listener nudge emitted an unexpected diagnostic"
 
   sleep 0.01 &
   dead_pid=$!
@@ -118,8 +119,9 @@ test_no_listener_and_dead_lock_are_silent() {
     >"$out" 2>"$err"
   rc=$?
   [ "$rc" -eq 0 ] || fail "dead-lock report exited $rc"
-  [ ! -s "$out" ] && [ ! -s "$err" ] \
-    || fail "dead-lock nudge was not a silent no-op"
+  jq -e --arg task "$id" '.accepted == true and .replayed == false and .task_id == $task and .state == "paused" and .completion_proven == false' "$out" >/dev/null \
+    || fail "dead-lock report did not return its acceptance receipt"
+  [ ! -s "$err" ] || fail "dead-lock nudge emitted an unexpected diagnostic"
 
   [ "$(cat "$home/state/$id.status")" = $'working: durable without listener\npaused: durable with dead lock' ] \
     || fail "no-listener or dead-lock case changed the durable event grammar"

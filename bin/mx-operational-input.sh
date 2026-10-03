@@ -11,9 +11,8 @@
 #
 # The landed U+2063 + "MULTPLX_OP: " prefix is permanent compatibility.
 # The version and kind header make current inputs structurally typed without
-# deriving provenance from body prose. The established from-broker routing
-# marker remains a current compatibility carrier because already-running
-# daemons have its leading label in their charter context.
+# deriving provenance from body prose. New routing emits the from-parent marker;
+# exact historical marked input remains decode-compatible for standing workers.
 #
 # CLI:
 #   mx-operational-input.sh encode <kind>  # body on stdin, encoded input stdout
@@ -35,11 +34,18 @@ MX_OPERATIONAL_KINDS='session-start watcher turn-end-guard away-supervisor launc
 # shellcheck disable=SC2034 # Public source-library variable used by callers.
 MX_INJECT_MARK=$MX_OPERATIONAL_MARK
 
-# The from-broker carrier stays byte-compatible with live daemon charter
-# context while this owner supplies its construction and structural kind.
-MX_FROM_BROKER_LABEL='[mx-from-broker]'
-MX_FROM_BROKER_SEPARATOR=$MX_OPERATIONAL_MARK
-MX_FROM_BROKER_MARK="${MX_FROM_BROKER_LABEL}${MX_FROM_BROKER_SEPARATOR}"
+# The from-parent carrier supplies construction and structural kind; exact old
+# marked carriers remain decode-compatible for standing sessions.
+MX_FROM_PARENT_LABEL='[mx-from-parent]'
+MX_FROM_PARENT_SEPARATOR=$MX_OPERATIONAL_MARK
+MX_FROM_PARENT_MARK="${MX_FROM_PARENT_LABEL}${MX_FROM_PARENT_SEPARATOR}"
+
+# Source API compatibility; new construction always emits the parent carrier.
+MX_FROM_BROKER_LABEL=$MX_FROM_PARENT_LABEL
+MX_FROM_BROKER_SEPARATOR=$MX_FROM_PARENT_SEPARATOR
+MX_FROM_BROKER_MARK=$MX_FROM_PARENT_MARK
+mx_message_from_broker() { mx_message_from_parent "$@"; }
+mx_message_mark_from_broker() { mx_message_mark_from_parent "$@"; }
 
 mx_operational_kind_is_current() {  # <kind>
   case " $MX_OPERATIONAL_KINDS " in
@@ -59,8 +65,8 @@ mx_operational_input_encode() {  # <generic-kind> <body> <result-var>
 mx_operational_input_construct() {  # <kind> <body> <result-var>
   local kind=${1-} body=${2-} result_var=${3-}
   [ -n "$result_var" ] && [ -n "$body" ] || return 2
-  if [ "$kind" = from-broker ]; then
-    mx_message_mark_from_broker "$body" "$result_var"
+  if [ "$kind" = from-parent ]; then
+    mx_message_mark_from_parent "$body" "$result_var"
     return
   fi
   mx_operational_input_encode "$kind" "$body" "$result_var"
@@ -89,8 +95,8 @@ mx_operational_input_kind() {  # <message> <result-var>
     return 0
   fi
   case "$message" in
-    "$MX_FROM_BROKER_MARK"?*)
-      printf -v "$result_var" '%s' from-broker
+    "$MX_FROM_PARENT_MARK"?*)
+      printf -v "$result_var" '%s' from-parent
       return 0
       ;;
   esac
@@ -106,8 +112,8 @@ mx_operational_input_body() {  # <current-message> <result-var>
     return 0
   fi
   case "$message" in
-    "$MX_FROM_BROKER_MARK"?*)
-      parsed_body=${message#"$MX_FROM_BROKER_MARK"}
+    "$MX_FROM_PARENT_MARK"?*)
+      parsed_body=${message#"$MX_FROM_PARENT_MARK"}
       printf -v "$result_var" '%s' "$parsed_body"
       return 0
       ;;
@@ -137,7 +143,7 @@ MX_OPERATIONAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     "$rust_bin" operational-input "$@"
   }
   mx_operational_kind_is_current() {
-    case " $MX_OPERATIONAL_KINDS from-broker " in *" $1 "*) return 0 ;; esac
+    case " $MX_OPERATIONAL_KINDS from-parent " in *" $1 "*) return 0 ;; esac
     return 1
   }
   mx_operational_input_construct() {
@@ -177,11 +183,11 @@ MX_OPERATIONAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     _mx_operational_result=$(printf '%s' "$1" | mx_operational_rust classify) || return $?
     printf -v "$2" '%s' "$_mx_operational_result"
   }
-  mx_message_from_broker() {
+  mx_message_from_parent() {
     local kind
-    mx_operational_input_kind "${1-}" kind && [ "$kind" = from-broker ]
+    mx_operational_input_kind "${1-}" kind && [ "$kind" = from-parent ]
   }
-  mx_message_mark_from_broker() { mx_operational_input_construct from-broker "$1" "$2"; }
+  mx_message_mark_from_parent() { mx_operational_input_construct from-parent "$1" "$2"; }
   mx_operational_main() { mx_operational_rust "$@"; }
   if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     mx_operational_main "$@"
@@ -235,18 +241,18 @@ mx_operational_input_classify() {  # <message> <result-var>
   return 1
 }
 
-mx_message_from_broker() {  # <message>
+mx_message_from_parent() {  # <message>
   local kind
-  mx_operational_input_kind "${1-}" kind && [ "$kind" = from-broker ]
+  mx_operational_input_kind "${1-}" kind && [ "$kind" = from-parent ]
 }
 
-mx_message_mark_from_broker() {  # <message> <result-var>
+mx_message_mark_from_parent() {  # <message> <result-var>
   local message=${1-} result_var=${2-} transformed
   [ -n "$result_var" ] || return 2
-  if mx_message_from_broker "$message"; then
+  if mx_message_from_parent "$message"; then
     transformed=$message
   else
-    transformed="${MX_FROM_BROKER_MARK}${message}"
+    transformed="${MX_FROM_PARENT_MARK}${message}"
   fi
   printf -v "$result_var" '%s' "$transformed"
 }
@@ -268,9 +274,9 @@ Usage:
   bin/mx-operational-input.sh body           # current input on stdin
 
 Current construction kinds:
-  session-start watcher turn-end-guard away-supervisor from-broker launch-brief
+  session-start watcher turn-end-guard away-supervisor from-parent launch-brief
 
-The from-broker kind uses its established live-charter-compatible carrier.
+The from-parent kind emits [mx-from-parent] plus U+2063; the exact old marked carrier and from-broker kind are accepted only for compatibility.
 EOF
 }
 

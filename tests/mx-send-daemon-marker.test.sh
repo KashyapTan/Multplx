@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# mx-send from-broker marker for daemon targets.
+# mx-send from-parent marker for daemon targets.
 #
 # A daemon is itself a broker, so a request relayed to it lands in its own
 # chat - which the main broker never reads (the only channel back is the terse
-# status file). mx-send therefore prepends a from-broker marker
+# status file). mx-send therefore prepends a from-parent marker
 # (bin/mx-marker-lib.sh) when, and only when, the resolved target is a task
 # selector whose meta records kind=daemon, so the daemon can recognize
 # the request and route its reply via the status path. These tests pin that
@@ -106,7 +106,7 @@ test_daemon_target_is_marked() {
   expect_code 0 "$rc" "send to a daemon target should succeed"
   got=$(cat "$log")
   case "$got" in
-    "$MX_FROM_BROKER_MARK"corr=[a-f0-9][a-f0-9]*) : ;;
+    "$MX_FROM_PARENT_MARK"corr=[a-f0-9][a-f0-9]*) : ;;
     *) fail "daemon send: literal text should be marker+corr+text"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)" ;;
   esac
   case "$got" in
@@ -118,7 +118,7 @@ test_daemon_target_is_marked() {
   corr=$(mx_pending_reply_extract_corr "$got")
   [ -f "$(mx_pending_reply_path "$home/state" "$corr")" ] \
     || fail "marked daemon send should create a parent pending-reply record"
-  pass "mx-send: a kind=daemon target gets the from-broker marker and corr prepended"
+  pass "mx-send: a kind=daemon target gets the from-parent marker and corr prepended"
 }
 
 test_exact_daemon_task_id_is_marked() {
@@ -131,19 +131,19 @@ test_exact_daemon_task_id_is_marked() {
   expect_code 0 "$rc" "send to an exact daemon task id should succeed"
   got=$(cat "$log")
   case "$got" in
-    "$MX_FROM_BROKER_MARK"corr=[a-f0-9]*) : ;;
+    "$MX_FROM_PARENT_MARK"corr=[a-f0-9]*) : ;;
     *) fail "exact daemon send: literal text should be marker+corr+text"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)" ;;
   esac
   # shellcheck source=/dev/null
   . "$ROOT/bin/mx-pending-reply-lib.sh"
   corr=$(mx_pending_reply_extract_corr "$got")
   # Resend with the same corr already present: embed is idempotent for that corr.
-  already_marked="${MX_FROM_BROKER_MARK}corr=${corr} already routed"
+  already_marked="${MX_FROM_PARENT_MARK}corr=${corr} already routed"
   run_send "$fb" "$home" "$log" "domain" "$already_marked"; rc=$?
   expect_code 0 "$rc" "send of already-marked exact-id content should succeed"
   got=$(cat "$log")
   case "$got" in
-    "${MX_FROM_BROKER_MARK}corr=${corr} already routed") : ;;
+    "${MX_FROM_PARENT_MARK}corr=${corr} "*"Request: already routed") : ;;
     *) fail "exact daemon send altered already-correlated content"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -tx1)" ;;
   esac
   pass "mx-send: an exact kind=daemon task id is marked with corr exactly once"
@@ -209,31 +209,31 @@ test_key_path_is_not_marked() {
 test_marker_is_label_plus_invisible_separator() {
   local separator hex
   separator=$(printf '\342\201\243')
-  [ "$MX_FROM_BROKER_MARK" = "[mx-from-broker]$separator" ] \
-    || fail "marker is not the expected label + U+2063 sequence"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$MX_FROM_BROKER_MARK" | od -An -tx1)"
-  hex=$(printf '%s' "$MX_FROM_BROKER_MARK" | od -An -tx1 | tr -d ' \n')
+  [ "$MX_FROM_PARENT_MARK" = "[mx-from-parent]$separator" ] \
+    || fail "marker is not the expected label + U+2063 sequence"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$MX_FROM_PARENT_MARK" | od -An -tx1)"
+  hex=$(printf '%s' "$MX_FROM_PARENT_MARK" | od -An -tx1 | tr -d ' \n')
   case "$hex" in
     *e281a3) : ;;
     *) fail "marker does not end in UTF-8 U+2063 bytes e2 81 a3; bytes were: $hex" ;;
   esac
-  mx_message_from_broker "${MX_FROM_BROKER_MARK}do the work" \
+  mx_message_from_parent "${MX_FROM_PARENT_MARK}do the work" \
     || fail "detector should recognize a marked message"
-  mx_message_from_broker "do the work" \
+  mx_message_from_parent "do the work" \
     && fail "direct maintainer input must remain unmarked"
-  mx_message_from_broker "[mx-from-broker]do the work" \
+  mx_message_from_parent "[mx-from-parent]do the work" \
     && fail "detector must reject the label without U+2063"
-  pass "mx-send: the marker is '[mx-from-broker]' + terminal-safe U+2063, while direct maintainer text stays unmarked"
+  pass "mx-send: the marker is '[mx-from-parent]' + terminal-safe U+2063, while direct maintainer text stays unmarked"
 }
 
 test_marker_transformation_is_idempotent() {
   local once twice
-  mx_message_mark_from_broker "do the work" once
-  mx_message_mark_from_broker "$once" twice
+  mx_message_mark_from_parent "do the work" once
+  mx_message_mark_from_parent "$once" twice
   [ "$once" = "$twice" ] \
     || fail "already-marked content was double-prefixed"$'\n'"--- once ---"$'\n'"$(printf '%s' "$once" | od -An -tx1)"$'\n'"--- twice ---"$'\n'"$(printf '%s' "$twice" | od -An -tx1)"
-  [ "$once" = "${MX_FROM_BROKER_MARK}do the work" ] \
+  [ "$once" = "${MX_FROM_PARENT_MARK}do the work" ] \
     || fail "marker transformation did not prefix bare content exactly once"
-  pass "mx-marker: from-broker transformation is idempotent"
+  pass "mx-marker: from-parent transformation is idempotent"
 }
 
 test_marked_send_preserves_trailing_newlines() {
@@ -259,6 +259,26 @@ test_marked_send_preserves_trailing_newlines() {
   pass "mx-send: marked daemon payload preserves trailing newline bytes"
 }
 
+test_legacy_source_api_is_defined_before_adapter_return() {
+  MX_ALIAS_TEST_ROOT="$ROOT" bash -eu <<'SH' || fail 'legacy sourced marker API is unavailable or emits old bytes'
+. "$MX_ALIAS_TEST_ROOT/bin/mx-marker-lib.sh"
+separator=$(printf '\342\201\243')
+[ "$MX_FROM_BROKER_LABEL" = '[mx-from-parent]' ]
+[ "$MX_FROM_BROKER_SEPARATOR" = "$separator" ]
+[ "$MX_FROM_BROKER_MARK" = "[mx-from-parent]$separator" ]
+mx_message_mark_from_broker 'work' marked
+[ "$marked" = "${MX_FROM_BROKER_MARK}work" ]
+mx_message_from_broker "$marked"
+legacy="[mx-from-broker]${separator}work"
+mx_message_from_broker "$legacy"
+mx_message_mark_from_broker "$legacy" normalized
+[ "$normalized" = "$marked" ]
+! mx_message_from_broker '[mx-from-broker]work'
+! mx_message_from_broker '[mx-from-parent]work'
+SH
+  pass 'mx-marker: legacy sourced API is available and normalizes exact old carriers'
+}
+
 test_daemon_target_is_marked
 test_exact_daemon_task_id_is_marked
 test_actor_target_is_not_marked
@@ -267,3 +287,5 @@ test_key_path_is_not_marked
 test_marker_is_label_plus_invisible_separator
 test_marker_transformation_is_idempotent
 test_marked_send_preserves_trailing_newlines
+
+test_legacy_source_api_is_defined_before_adapter_return

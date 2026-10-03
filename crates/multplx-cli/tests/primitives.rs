@@ -65,7 +65,7 @@ fn pure_classifier_transition_marker_and_gate_commands_match_legacy() {
     let message = "do the work";
     let legacy = legacy_bash()
         .arg("-c")
-        .arg(". \"$ROOT/bin/mx-marker-lib.sh\"; mx_message_mark_from_broker \"$MESSAGE\" output; printf '%s' \"$output\"")
+        .arg(". \"$ROOT/bin/mx-marker-lib.sh\"; mx_message_mark_from_parent \"$MESSAGE\" output; printf '%s' \"$output\"")
         .env("ROOT", repo_root())
         .env("MESSAGE", message)
         .output()

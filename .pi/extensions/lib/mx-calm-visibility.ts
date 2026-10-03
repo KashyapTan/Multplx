@@ -49,7 +49,8 @@ export const MULTPLX_SYNTHETIC_KINDS = [
   "watcher",
   "turn-end-guard",
   "away-supervisor",
-  "from-broker",
+  "from-parent",
+  "from-broker", // Decode historical presentation entries only.
   "launch-brief",
   "legacy-operational",
 ] as const;

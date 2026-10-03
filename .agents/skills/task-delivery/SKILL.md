@@ -31,7 +31,9 @@ mx task-model evidence TASK_ID --request-file ABSOLUTE_EVIDENCE_JSON_PATH
 Repeat the same evidence ID and identical payload after an uncertain result.
 Use the inspected existing delivery commit as the concurrency token, or `null` only when no current delivery commit exists.
 Then use `report_status` when exposed, or the brief's absolute `bin/mx-report` fallback, bound to the assigned task and current attempt/generation/brief.
-Report and coordination assignments attach their existing regular-file result with `--artifact` when reporting `done`.
+Report and coordination assignments attach their existing regular-file result with the tool's `artifact` field or CLI `--artifact` when reporting `done`.
+Reply to each marked parent request with the exact structured `correlation_id` field or `--correlation-id TOKEN`; prose `corr=TOKEN` does not bind the report.
+Inspect the acceptance receipt for correlation, outstanding requests and current completion; an accepted retry does not reapply a historical done event.
 A plain status message does not release dependencies.
 A done report submitted before evidence needs a new message ID after evidence is recorded; replaying its old event does not reinterpret history.
 Current failure, block, pause or renewed work withdraws completion; stale attempts and superseded briefs cannot establish readiness.

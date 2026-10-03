@@ -664,10 +664,13 @@ fn meta(path: &Path) -> BTreeMap<String, String> {
 fn task(paths: &Paths, path: &Path, generated: &str, backlog: &Value) -> Option<Value> {
     let id = path.file_stem()?.to_str()?.to_owned();
     let fields = meta(path);
-    let normalized = multplx_core::filesystem::read_bounded_regular(path, 4 * 1024 * 1024)
-        .map_err(|e| e.to_string())
-        .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
-        .and_then(|text| multplx_domain::lifecycle::subagent_model::read_meta(&id, &text));
+    let normalized = multplx_core::filesystem::read_bounded_regular(
+        path,
+        multplx_core::filesystem::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|e| e.to_string())
+    .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
+    .and_then(|text| multplx_domain::lifecycle::subagent_model::read_meta(&id, &text));
     let coordination_error = normalized.as_ref().err().cloned();
     let coordination = normalized.ok();
     let allocation_observation = coordination.as_ref().and_then(|task| {

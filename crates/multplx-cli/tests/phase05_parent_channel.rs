@@ -857,3 +857,276 @@ fn idle_watcher_checkpoints_relay_a_nested_outcome_without_model_turns() {
         event
     );
 }
+
+#[test]
+fn multiple_parent_requests_require_explicit_binding_and_settle_independently() {
+    use multplx_domain::lifecycle::pending_reply::{self, ReplyBinding};
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let mut record = canonical_task(&home, "worker");
+    record.artifact = ArtifactKind::Report;
+    write_task(&home, &record);
+    let state = home.join("state");
+    let attempt = record.attempt.as_ref().unwrap();
+    let create = |message_id: &str| {
+        let correlation = pending_reply::create_bound(
+            &home,
+            &state,
+            "worker",
+            "request",
+            &ReplyBinding {
+                message_id: Some(message_id),
+                parent_task_id: record.parent_id.as_deref(),
+                recipient_task_id: Some("worker"),
+                recipient_home: Some(&home),
+                attempt_id: Some(&attempt.id),
+                attempt_generation: Some(attempt.generation),
+                brief_revision: Some(attempt.brief_revision),
+            },
+        )
+        .unwrap();
+        pending_reply::confirm_delivery(&state, &correlation).unwrap();
+        correlation
+    };
+    let first = create("first-request");
+    let second = create("second-request");
+    let third = create("third-request");
+    let report = |args: &[&str]| {
+        run(mx(&home)
+            .env("MX_TASK_ID", "worker")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .args(["supervision", "mx-report"])
+            .args(args))
+    };
+    let missing = report(&[
+        "--state",
+        "blocked",
+        "--message",
+        &format!("corr={first}; needs input"),
+    ]);
+    assert_eq!(missing.status.code(), Some(2));
+    let error = String::from_utf8_lossy(&missing.stderr);
+    assert!(error.contains(&format!("--correlation-id {first}")));
+    assert!(error.contains(&format!("--correlation-id {second}")));
+    assert!(!state.join("worker.status").exists());
+    let args = [
+        "--state",
+        "needs-decision",
+        "--key",
+        "choice",
+        "--message",
+        "choose an option",
+        "--correlation-id",
+        &first,
+        "--message-id",
+        "first-answer",
+    ];
+    let answered = report(&args);
+    assert!(
+        answered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&answered.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&answered.stdout).unwrap();
+    assert_eq!(receipt["correlation_id"], first);
+    assert_eq!(receipt["completion_proven"], false);
+    let mut remaining = vec![second.clone(), third.clone()];
+    remaining.sort();
+    assert_eq!(
+        pending_reply::outstanding(&state, "worker").unwrap(),
+        remaining
+    );
+    let retry = report(&args);
+    assert!(
+        retry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retry.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&retry.stdout).unwrap()["replayed"],
+        true
+    );
+    let artifact = home.join("result.md");
+    fs::write(&artifact, "verified report").unwrap();
+    let done = report(&[
+        "--state",
+        "done",
+        "--message",
+        "result ready",
+        "--correlation-id",
+        &second,
+        "--artifact",
+        artifact.to_str().unwrap(),
+        "--message-id",
+        "second-answer",
+    ]);
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    let receipt: serde_json::Value = serde_json::from_slice(&done.stdout).unwrap();
+    assert_eq!(receipt["completion_proven"], true);
+    assert_eq!(
+        pending_reply::outstanding(&state, "worker").unwrap(),
+        vec![third.clone()]
+    );
+    assert_eq!(receipt["outstanding_requests"], serde_json::json!([third]));
+    let mut next = record.clone();
+    next.revise_assignment(
+        attempt.brief_revision,
+        record.role,
+        "new scope".into(),
+        vec!["new criterion".into()],
+        vec![],
+        "new request".into(),
+    )
+    .unwrap();
+    write_task(&home, &next);
+    let stale = report(&[
+        "--state",
+        "needs-decision",
+        "--key",
+        "stale-choice",
+        "--message",
+        "old question",
+        "--correlation-id",
+        &second,
+        "--message-id",
+        "stale-answer",
+    ]);
+    assert_eq!(stale.status.code(), Some(3));
+    let current = multplx_domain::lifecycle::subagent_model::read_meta(
+        "worker",
+        &fs::read_to_string(state.join("worker.meta")).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        !current
+            .schedule
+            .decisions
+            .iter()
+            .any(|question| question.id == "stale-choice")
+    );
+}
+
+#[test]
+fn mcp_reports_use_nested_parent_owner_with_structured_question_retry_and_artifact() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let temp = tempfile::tempdir().unwrap();
+    let coordinator = temp.path().join("coordinator");
+    let worker = temp.path().join("worker");
+    fs::create_dir_all(worker.join("state")).unwrap();
+    let root_id = format!("root-home:{}", coordinator.display());
+    let coordinator_record = TaskRecord::new(
+        "coordinator".into(),
+        AssignmentRole::SubOrchestrator,
+        ArtifactKind::Coordination,
+        true,
+        root_id.clone(),
+        root_id,
+        coordinator.to_string_lossy().into_owned(),
+    );
+    write_task(&coordinator, &coordinator_record);
+    let mut record = canonical_task(&coordinator, "worker");
+    record.artifact = ArtifactKind::Report;
+    record.owner_home = Some(worker.to_string_lossy().into_owned());
+    record.parent_id = Some("coordinator".into());
+    write_task(&coordinator, &record);
+    let attempt = record.attempt.as_ref().unwrap();
+    let call = |arguments: serde_json::Value| {
+        let mut child = mx(&worker)
+            .env("MX_REPORT_STATE_OVERRIDE", coordinator.join("state"))
+            .env("MX_TASK_ID", "worker")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .arg("report-mcp")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(), "{}", serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"report_status","arguments":arguments}})).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let question = serde_json::json!({"state":"needs-decision","key":"format-choice","message":"Which output format?","correlation_id":"0123456789abcdef","message_id":"mcp-question"});
+    let response = call(question.clone());
+    assert_ne!(response["result"]["isError"], true, "{response}");
+    assert_eq!(
+        response["result"]["structuredContent"]["correlation_id"],
+        "0123456789abcdef"
+    );
+    assert_eq!(
+        call(question)["result"]["structuredContent"]["replayed"],
+        true
+    );
+    let answer = run(mx(&coordinator).args([
+        "parent-channel",
+        "answer",
+        "--task",
+        "worker",
+        "--question",
+        "format-choice",
+        "--brief-revision",
+        "1",
+        "--answer-id",
+        "format-answer",
+        "--answer",
+        "Markdown",
+    ]));
+    assert!(
+        answer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&answer.stderr)
+    );
+    let resolved = call(
+        serde_json::json!({"state":"resolved","key":"format-choice","message":"Using Markdown","correlation_id":"0123456789abcdef","message_id":"mcp-resolved"}),
+    );
+    assert_eq!(resolved["result"]["structuredContent"]["accepted"], true);
+    let artifact = worker.join("result.md");
+    fs::write(&artifact, "report result").unwrap();
+    let done_args = serde_json::json!({"state":"done","message":"Report ready","artifact":artifact,"correlation_id":"0123456789abcdef","message_id":"mcp-done"});
+    assert_eq!(
+        call(done_args.clone())["result"]["structuredContent"]["completion_proven"],
+        true
+    );
+    assert_eq!(
+        call(
+            serde_json::json!({"state":"failed","message":"result needs correction","message_id":"mcp-renewed"})
+        )["result"]["structuredContent"]["accepted"],
+        true
+    );
+    let retry = call(done_args);
+    assert_eq!(retry["result"]["structuredContent"]["replayed"], true);
+    assert_eq!(
+        retry["result"]["structuredContent"]["completion_proven"],
+        false
+    );
+    assert_eq!(
+        retry["result"]["structuredContent"]["accepted_completion_proven"],
+        true
+    );
+    let current = multplx_domain::lifecycle::subagent_model::read_meta(
+        "worker",
+        &fs::read_to_string(coordinator.join("state/worker.meta")).unwrap(),
+    )
+    .unwrap();
+    assert_ne!(
+        current.schedule.state,
+        multplx_domain::lifecycle::subagent_model::WorkState::Completed
+    );
+    assert!(!worker.join("state/worker.status").exists());
+    let unknown =
+        call(serde_json::json!({"state":"done","message":"cannot redirect","task_id":"another"}));
+    assert_eq!(unknown["error"]["code"], -32602);
+}
