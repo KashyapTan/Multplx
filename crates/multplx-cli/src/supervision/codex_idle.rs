@@ -326,7 +326,7 @@ pub(crate) fn entry(
 ) -> i32 {
     if args.iter().any(|value| value == "--help" || value == "-h") {
         println!(
-            "Usage: mx-codex-idle.sh [--register|--retry|--end|--run]\nStop hook owns detached exact-thread Codex queue supervision. Manual --retry and --end require CODEX_THREAD_ID matching this live owned session. --retry explicitly permits possible duplicate input after uncertain queue acceptance; durable wakes remain unacknowledged. --end stops only this thread's owned bridge. --register is the native SessionStart readiness handler; --run is internal only. Unsupported queue support requires an explicit foreground checkpoint fallback."
+            "Usage: mx-codex-idle.sh [--register|--retry|--end|--run]\nStop hook owns detached exact-thread Codex queue supervision. Manual --retry and --end require CODEX_THREAD_ID matching this live owned session. --retry explicitly permits possible duplicate input after uncertain queue acceptance; durable wakes remain unacknowledged. --end stops only this thread's owned bridge. --register captures native SessionStart readiness; --register and --run are internal lifecycle handlers, not model supervision commands. Unsupported queue support requires an explicit foreground checkpoint fallback."
         );
         return 0;
     }
