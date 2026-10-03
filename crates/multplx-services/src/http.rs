@@ -84,6 +84,12 @@ fn header_end(bytes: &[u8]) -> Option<usize> {
 }
 
 pub fn read_request(stream: &mut TcpStream, max_body: usize) -> Result<Request, Response> {
+    // Darwin accepts retain the listener's nonblocking flag. Header/body reads
+    // must wait for data under the existing deadline instead of treating an
+    // ordinary WouldBlock before the client sends headers as malformed input.
+    stream
+        .set_nonblocking(false)
+        .map_err(|_| Response::new(500, b"could not configure request socket\n".to_vec()))?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut bytes = Vec::with_capacity(4096);
@@ -279,6 +285,39 @@ mod tests {
         let result = read_request(&mut stream, max_body);
         writer.join().expect("writer");
         result
+    }
+
+    #[test]
+    fn nonblocking_accepted_socket_waits_for_delayed_fragmented_headers() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener");
+        let address = listener.local_addr().expect("address");
+        let (ready, begin) = std::sync::mpsc::channel();
+        let writer = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).expect("connect");
+            begin.recv().expect("accepted socket ready");
+            thread::sleep(std::time::Duration::from_millis(50));
+            stream
+                .write_all(b"GET /delayed HTTP/1.1\r\nHost:")
+                .expect("first fragment");
+            thread::sleep(std::time::Duration::from_millis(50));
+            stream
+                .write_all(b" local\r\n\r\n")
+                .expect("second fragment");
+        });
+        let (mut stream, _) = listener.accept().expect("accept");
+        // Explicitly model Darwin's inherited flag so Linux exercises this too.
+        stream
+            .set_nonblocking(true)
+            .expect("nonblocking accepted socket");
+        ready.send(()).expect("start writer");
+        let request = read_request(&mut stream, 0).expect("valid delayed request");
+        writer.join().expect("writer");
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.target, "/delayed");
+        assert_eq!(
+            request.headers.get("host").map(String::as_str),
+            Some("local")
+        );
     }
 
     #[test]

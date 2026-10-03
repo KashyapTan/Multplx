@@ -23,6 +23,7 @@ Documentation corrections below are included with the repair branch.
 | AUD-010 | Medium / Codex supervision | Repair in progress | Codex supervision requires foreground checkpoints despite exact-thread queue support in the installed CLI. |
 | AUD-011 | Medium / integration durability | Repair in progress | A queue receipt published before uncertainty evidence can suppress an unsent wake after a failed second write. |
 | AUD-012 | Medium / integration failure visibility | Review in progress | An idle bridge watcher failure can leave only private failure evidence while the main model stays idle. |
+| AUD-013 | Medium / local HTTP correctness | Fixed and locally verified | Valid delayed headers on inherited nonblocking sockets are rejected with HTTP 400. |
 
 ## AUD-001: failed prerequisite still releases dependent work
 
@@ -206,8 +207,27 @@ A suspected raw-queue restart storm was checked against the real watcher scan an
 The first broad release run exposed startup-hook indexing and missing runtime-inventory entries; commit `3698ee1` selects the startup command by identity and inventories the new idle adapter.
 Commit `9fcb3b3` corrected provenance naming by retaining exact source URLs in the existing upstream reference owner; the naming check and documentation audience check passed.
 The `mx-launcher-connection`, `mx-report` and `mx-viz` scripts passed their focused rerun in 21.723 seconds; the first two have no substantiated new defect or code repair.
-Separate Viz investigation reproduced valid delayed HTTP headers rejected with status 400 in three of three runs; its parser repair and regression remain in progress.
+Separate Viz investigation reproduced valid delayed HTTP headers rejected with status 400 in three of three runs; AUD-013 records the parser repair and passing regression.
 Final broad validation results are pending and are not represented by the historical checks below.
+
+## AUD-013: valid delayed HTTP headers are rejected on nonblocking sockets
+
+The broad behavior run's Viz stale-caller failure included an HTTP 400 response, rather than proving a snapshot-reader stall.
+A separate isolated dashboard probe connected to the server, waited 100 ms and sent a valid GET request; all three attempts received HTTP 400.
+The nonblocking listener's accepted socket retained its mode on this macOS host.
+The shared HTTP parser treated an early `WouldBlock` before headers arrived as malformed input.
+
+**Resolved locally:** the bounded HTTP parser restores blocking mode before reading request framing.
+The existing five-second read/write timeouts and all framing limits remain unchanged.
+A portable Rust regression explicitly marks the accepted socket nonblocking, then sends delayed fragmented headers.
+The Viz behavior fixture also requires HTTP 200 from a real delayed, fragmented client connection.
+The same isolated dashboard probe returned HTTP 200 on all three attempts after the fix.
+
+`cargo test --locked -p multplx-services http::tests` passed all four tests after the repair.
+The locked release build passed before the final focused behavior rerun.
+`target/release/mx test-run tests/mx-launcher-connection.test.sh tests/mx-report.test.sh tests/mx-viz.test.sh` passed all three scripts with zero failures or gates in 22.348 seconds.
+This is an HTTP framing repair, not a relaxation of launcher lock, backend-command or stale-cache timing assertions.
+The launcher and report failures did not reproduce in their focused rerun and have no substantiated code repair.
 
 ## Validation performed
 
