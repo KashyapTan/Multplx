@@ -434,11 +434,10 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
         &paths.data.join("projects.md"),
         "data/projects.md",
     );
-    print_file(
-        &mut output,
-        &paths.data.join("daemons.md"),
-        "data/daemons.md",
-    );
+    match multplx_core::agent_home::registry_path(&paths.data) {
+        Ok(path) => print_file(&mut output, &path, "Standing agent routes"),
+        Err(error) => output.push_str(&format!("Standing agent routes unavailable: {error}\n")),
+    }
     print_file(
         &mut output,
         &paths.data.join("maintainer.md"),

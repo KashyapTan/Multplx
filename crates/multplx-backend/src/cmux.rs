@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
-use multplx_core::backend_hometag::home_tag;
+use multplx_core::backend_hometag::{home_tag, legacy_home_tag};
 use multplx_core::composer::{ComposerState, classify_content};
 use serde_json::Value;
 
@@ -275,6 +275,14 @@ impl<R: CommandRunner> CmuxBackend<R> {
 
     pub fn workspace_id_for_label(&mut self, label: &str) -> Result<Option<String>, BackendError> {
         let value = self.json(["workspace", "list", "--json", "--id-format", "uuids"])?;
+        let current_prefix = format!("mx-{}-", self.home_label()?);
+        let historical = label
+            .strip_prefix(&current_prefix)
+            .map(|rest| {
+                legacy_home_tag(&self.root, &self.home).map(|tag| format!("mx-{tag}-{rest}"))
+            })
+            .transpose()
+            .map_err(|error| BackendError::Metadata(error.to_string()))?;
         Ok(value
             .get("workspaces")
             .and_then(Value::as_array)
@@ -283,6 +291,17 @@ impl<R: CommandRunner> CmuxBackend<R> {
             })?
             .iter()
             .find(|workspace| workspace.get("title").and_then(Value::as_str) == Some(label))
+            .or_else(|| {
+                value
+                    .get("workspaces")
+                    .and_then(Value::as_array)?
+                    .iter()
+                    .find(|workspace| {
+                        historical.as_deref().is_some_and(|old| {
+                            workspace.get("title").and_then(Value::as_str) == Some(old)
+                        })
+                    })
+            })
             .and_then(|workspace| workspace.get("id").and_then(Value::as_str))
             .map(str::to_owned))
     }
@@ -372,8 +391,14 @@ impl<R: CommandRunner> CmuxBackend<R> {
                 .ok_or_else(|| BackendError::Missing("cmux target is absent".to_owned()));
         };
         let expected = self.scoped_title(label)?;
+        let old_home = legacy_home_tag(&self.root, &self.home)
+            .map_err(|error| BackendError::Metadata(error.to_string()))?;
+        let old_expected = format!(
+            "mx-{old_home}-{}",
+            label.strip_prefix("mx-").unwrap_or(label)
+        );
         match self.workspace_title(&workspace)? {
-            Some(title) if title == expected => {
+            Some(title) if title == expected || title == old_expected => {
                 if self.surface_exists(&workspace, &surface)? {
                     return Ok((workspace, surface));
                 }
@@ -788,6 +813,11 @@ impl<R: CommandRunner> RuntimeBackend for CmuxBackend<R> {
 
     fn list_live(&mut self, _: Option<&ContainerId>) -> Result<Vec<LiveTarget>, BackendError> {
         let prefix = format!("mx-{}-", self.home_label()?);
+        let old_prefix = format!(
+            "mx-{}-",
+            legacy_home_tag(&self.root, &self.home)
+                .map_err(|error| BackendError::Metadata(error.to_string()))?
+        );
         let value = match self.json(["workspace", "list", "--json", "--id-format", "uuids"]) {
             Ok(value) => value,
             Err(_) => return Ok(Vec::new()),
@@ -807,6 +837,7 @@ impl<R: CommandRunner> RuntimeBackend for CmuxBackend<R> {
             };
             let Some(plain) = title
                 .strip_prefix(&prefix)
+                .or_else(|| title.strip_prefix(&old_prefix))
                 .filter(|value| !value.is_empty())
             else {
                 continue;

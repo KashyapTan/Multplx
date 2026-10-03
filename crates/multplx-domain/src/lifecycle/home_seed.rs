@@ -21,7 +21,11 @@ use time::OffsetDateTime;
 
 pub const USAGE: &str = "Seed a persistent sub-agent home; ownership survives idle sessions.\nusage: mx home-seed <id> <home|-> {<project>...|--no-projects} [--git-allocation PROJECT ALLOCATION]\n       mx home-seed validate\nA new home is a private directory using installed runtime assets.\nFor a deliberate Git-backed home, first acquire a persistent worktree for this id, then pass its exact path and allocation.\n";
 
-const MARKER: &str = ".mx-daemon-home";
+fn agent_registry(data: impl AsRef<Path>) -> Result<PathBuf, String> {
+    multplx_core::agent_home::registry_write_path(data).map_err(|error| error.to_string())
+}
+
+const MARKER: &str = multplx_core::agent_home::MARKER;
 const TRANSACTION_PREFIX: &str = ".home-seed.transaction.";
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -629,7 +633,12 @@ fn validate_operational_dirs(context: &Context, home: &Path) -> Result<(), Strin
 }
 
 fn validate_leaf_files(home: &Path) -> Result<(), String> {
-    for relative in ["data/projects.md", "data/charter.md", MARKER] {
+    for relative in [
+        "data/projects.md",
+        "data/charter.md",
+        MARKER,
+        multplx_core::agent_home::LEGACY_MARKER,
+    ] {
         let path = home.join(relative);
         if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
             return Err(format!(
@@ -645,7 +654,7 @@ fn validate_leaf_files(home: &Path) -> Result<(), String> {
 }
 
 fn validate_assignment(registry: &Path, id: &str, home: &Path) -> Result<(), String> {
-    let marker = home.join(MARKER);
+    let marker = multplx_core::agent_home::marker_path(home).map_err(|error| error.to_string())?;
     if marker.is_file() {
         let owner = fs::read_to_string(&marker)
             .unwrap_or_default()
@@ -1073,12 +1082,12 @@ fn recover(context: &Context) -> Result<(), String> {
         }
         let home = validate_home_boundary(context, Path::new(&journal.home))?;
         let allowed = [
-            context.data.join("daemons.md"),
+            agent_registry(&context.data)?,
             context.data.join(&journal.id).join("brief.md"),
             home.join("data/projects.md"),
             home.join("data/projects.json"),
             home.join("data/charter.md"),
-            home.join(MARKER),
+            multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?,
         ]
         .into_iter()
         .map(|path| resolved(&path))
@@ -1258,7 +1267,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     if requested != Path::new("-") {
         path_text(&requested, "daemon home")?;
     }
-    validate_registry(&context.data.join("daemons.md"))
+    validate_registry(&agent_registry(&context.data)?)
         .map_err(|value| value.trim_start_matches("error: ").trim_end().to_owned())?;
     let existing_brief = context.data.join(id).join("brief.md");
     if existing_brief.is_file() {
@@ -1347,7 +1356,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
     )
     .map_err(|error_value| format!("cannot acquire home seed lock: {error_value}"))?;
     recover(context)?;
-    validate_registry(&context.data.join("daemons.md"))
+    validate_registry(&agent_registry(&context.data)?)
         .map_err(|value| value.trim_start_matches("error: ").trim_end().to_owned())?;
 
     let transaction = journal_path(context, id);
@@ -1384,7 +1393,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         journal.home = path_text(&home, "daemon home")?;
         journal.created_home = !home.exists();
         publish_journal(&transaction, &journal)?;
-        validate_assignment(&context.data.join("daemons.md"), id, &home)?;
+        validate_assignment(&agent_registry(&context.data)?, id, &home)?;
         if let Some(prior) = read_home_allocation(&context.data, id)? {
             if prior.binding.owner_home != resolved(&context.home) {
                 return Err("home allocation belongs to another owner; retained".into());
@@ -1507,7 +1516,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         journal.home = path_text(&home, "daemon home")?;
         journal.home_binding = read_home_allocation(&context.data, id)?.map(|a| a.binding);
         publish_journal(&transaction, &journal)?;
-        validate_assignment(&context.data.join("daemons.md"), id, &home)?;
+        validate_assignment(&agent_registry(&context.data)?, id, &home)?;
         validate_operational_dirs(context, &home)?;
         validate_leaf_files(&home)?;
         if no_projects {
@@ -1537,12 +1546,15 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         }
         let parent_brief = context.data.join(id).join("brief.md");
         for (key, path) in [
-            ("parent-registry", context.data.join("daemons.md")),
+            ("parent-registry", agent_registry(&context.data)?),
             ("parent-brief", parent_brief.clone()),
             ("sub-registry", home.join("data/projects.md")),
             ("project-catalog", home.join("data/projects.json")),
             ("charter", home.join("data/charter.md")),
-            ("marker", home.join(MARKER)),
+            (
+                "marker",
+                multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?,
+            ),
         ] {
             backup_file(&transaction, &path, key, &mut journal)?;
         }
@@ -1626,10 +1638,14 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         let charter = fs::read(&parent_brief).map_err(|error_value| error_value.to_string())?;
         atomic_replace(home.join("data/charter.md"), &charter, 0o600)
             .map_err(|error_value| error_value.to_string())?;
-        atomic_replace(home.join(MARKER), format!("{id}\n").as_bytes(), 0o600)
-            .map_err(|error_value| error_value.to_string())?;
+        atomic_replace(
+            multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?,
+            format!("{id}\n").as_bytes(),
+            0o600,
+        )
+        .map_err(|error_value| error_value.to_string())?;
 
-        let registry = context.data.join("daemons.md");
+        let registry = agent_registry(&context.data)?;
         let mut lines = fs::read_to_string(&registry)
             .unwrap_or_default()
             .lines()
@@ -1679,7 +1695,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
 
 pub fn run(args: &[OsString], context: &Context) -> Output {
     if args.len() == 1 && args[0] == "validate" {
-        return match validate_registry(&context.data.join("daemons.md")) {
+        return match agent_registry(&context.data).and_then(|path| validate_registry(&path)) {
             Ok(()) => Output::default(),
             Err(stderr) => Output {
                 status: 1,

@@ -116,15 +116,11 @@ MX_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=".herdr-presentation"
 # The historical .mx-daemon-home marker remains the durable identity source.
 # Lookup also accepts daemon-<id> so existing workspaces stay in place.
 mx_backend_herdr_workspace_label() {
-  local marker="$MX_HOME/$MX_BACKEND_HERDR_DAEMON_MARKER" id
-  if [ -f "$marker" ]; then
-    id=$(tr -d '[:space:]' < "$marker" 2>/dev/null)
-    if [ -n "$id" ]; then
-      printf 'agent-%s' "$id"
-      return 0
-    fi
-  fi
-  printf 'broker'
+  local id root binary
+  root=${MX_RUST_SOURCE_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)}
+  binary=${MX_RUST_BIN:-$root/target/release/mx}
+  id=$("$binary" primitive agent-home-id "$MX_HOME") || return 1
+  if [ -n "$id" ]; then printf 'agent-%s' "$id"; else printf 'primary'; fi
 }
 
 # mx_backend_herdr_cli: run `herdr <args...>` scoped to <session>, setting
@@ -397,6 +393,7 @@ mx_backend_herdr_projection_journal_replace_endpoint() {  # <journal> <task-id> 
 mx_backend_herdr_projection_concise_task_label() {  # <task-id>
   local task=$1
   case "$task" in
+    primary/*) task=${task#primary/} ;;
     broker/*) task=${task#broker/} ;;
     agent-*/*|daemon-*/*) task=${task#*/} ;;
   esac
@@ -652,13 +649,13 @@ mx_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
       (.label | type) == "string" and .label == $parent;
     def is_top_level_parent:
       (.label | type) == "string"
-      and ((.label == "broker") or (.label | test("^(agent|daemon)-[^/]+$")));
+      and ((.label == "primary" or .label == "broker") or (.label | test("^(agent|daemon)-[^/]+$")));
     def is_new_child:
       (.label | type) == "string"
       and (.label | test("^└ .+ · p:[A-Za-z0-9_-]{22}$"));
     def is_legacy_child:
       (.label | type) == "string"
-      and (.label | test("^(broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"));
+      and (.label | test("^(primary|broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"));
     def is_legacy_child_for($owner):
       is_legacy_child and (.label | startswith($owner + "/"));
     def is_child_for($owner):
@@ -1354,7 +1351,7 @@ mx_backend_herdr_projection_live_binding_matches() {  # <session> <token> <works
         and (.label | test("^└ .+ · p:[A-Za-z0-9_-]{22}$"));
       def is_legacy_child_for($owner):
         (.label | type) == "string"
-        and (.label | test("^(broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"))
+        and (.label | test("^(primary|broker|(agent|daemon)-[^/]+)/.+ · p:[A-Za-z0-9_-]{22}$"))
         and (.label | startswith($owner + "/"));
       (.result.workspaces // null) as $spaces
       | select(($spaces | type) == "array")

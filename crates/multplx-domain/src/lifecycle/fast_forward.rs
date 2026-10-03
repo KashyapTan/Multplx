@@ -176,9 +176,9 @@ pub fn fast_forward(
         return skipped(label, format!("on {current}, expected {default}"));
     }
     let dirty = text(dir, &["status", "--porcelain"]).unwrap_or_default();
-    let dirty = dirty
-        .lines()
-        .any(|line| !(ignore_seed_marker && line == "?? .mx-daemon-home"));
+    let dirty = dirty.lines().any(|line| {
+        !(ignore_seed_marker && matches!(line, "?? .mx-daemon-home" | "?? .mx-agent-home"))
+    });
     if dirty {
         return skipped(label, "dirty working tree");
     }
@@ -298,7 +298,14 @@ pub fn validate_daemon_home(context: &Context, id: &str, home: &Path) -> Result<
             ));
         }
     }
-    let marker = home.join(&context.marker);
+    let marker = if matches!(
+        context.marker.as_str(),
+        multplx_core::agent_home::MARKER | multplx_core::agent_home::LEGACY_MARKER
+    ) {
+        multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?
+    } else {
+        home.join(&context.marker)
+    };
     let marker_meta =
         fs::symlink_metadata(&marker).map_err(|_| "not a seeded daemon home".to_owned())?;
     if marker_meta.file_type().is_symlink() {

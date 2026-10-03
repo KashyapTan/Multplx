@@ -863,9 +863,16 @@ fn daemon_sync(paths: &Paths, output: &mut String) {
     let context = multplx_domain::lifecycle::fast_forward::Context {
         root: paths.root.clone(),
         home: paths.home.clone(),
-        marker: ".mx-daemon-home".to_owned(),
+        marker: multplx_core::agent_home::MARKER.to_owned(),
     };
     retry_nudges(paths, &context, output);
+    let registry = match multplx_core::agent_home::registry_path(&paths.data) {
+        Ok(path) => path,
+        Err(error) => {
+            output.push_str(&format!("AGENT_SYNC: registry unavailable: {error}\n"));
+            return;
+        }
+    };
     let inheritance = multplx_domain::inheritance::InheritancePlanner::new(
         &paths.home,
         &paths.config,
@@ -888,7 +895,7 @@ fn daemon_sync(paths: &Paths, output: &mut String) {
         let id = meta.file_stem().unwrap_or_default().to_string_lossy();
         let mut home = meta_value(&raw, "home");
         if home.is_empty() {
-            home = registry_home(&paths.data.join("daemons.md"), &id);
+            home = registry_home(&registry, &id);
         }
         if home.is_empty() {
             continue;

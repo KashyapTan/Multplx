@@ -229,18 +229,10 @@ impl<R: CommandRunner> HerdrBackend<R> {
 
     /// Derive the persistent workspace label for this Multplx home.
     #[must_use]
-    pub fn workspace_label(&self) -> String {
-        let marker = self.home.join(".mx-daemon-home");
-        fs::read_to_string(marker)
-            .ok()
-            .map(|value| {
-                value
-                    .chars()
-                    .filter(|character| !character.is_whitespace())
-                    .collect()
-            })
-            .filter(|value: &String| !value.is_empty())
-            .map_or_else(|| "broker".to_owned(), |id| format!("agent-{id}"))
+    pub fn workspace_label(&self) -> Result<String, BackendError> {
+        multplx_core::agent_home::identity(&self.home)
+            .map(|id| id.map_or_else(|| "primary".to_owned(), |id| format!("agent-{id}")))
+            .map_err(|error| BackendError::Metadata(error.to_string()))
     }
 
     /// Start and poll the exact named server without touching an ambient session.
@@ -288,8 +280,11 @@ impl<R: CommandRunner> HerdrBackend<R> {
     /// Existing workspaces are never renamed as part of lookup or recovery.
     #[must_use]
     pub(crate) fn matches_workspace_label(&self, label: &str) -> bool {
-        let current = self.workspace_label();
+        let Ok(current) = self.workspace_label() else {
+            return false;
+        };
         label == current
+            || current == "primary" && label == "broker"
             || current
                 .strip_prefix("agent-")
                 .is_some_and(|id| label == format!("daemon-{id}"))
@@ -320,7 +315,7 @@ impl<R: CommandRunner> HerdrBackend<R> {
         if let Some(workspace) = self.workspace_find(session) {
             return Ok(workspace);
         }
-        let label = self.workspace_label();
+        let label = self.workspace_label()?;
         let value = self.json_scoped(
             session,
             [
@@ -1392,9 +1387,10 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::write(temp.path().join(".mx-daemon-home"), "wheelhouse\n").expect("marker");
         let backend = HerdrBackend::new(NeverRunner, "herdr", "named", temp.path().to_owned());
-        assert_eq!(backend.workspace_label(), "agent-wheelhouse");
+        assert_eq!(backend.workspace_label().unwrap(), "agent-wheelhouse");
         let primary = HerdrBackend::new(NeverRunner, "herdr", "named", PathBuf::from("/missing"));
-        assert_eq!(primary.workspace_label(), "broker");
+        assert_eq!(primary.workspace_label().unwrap(), "primary");
+        assert!(primary.matches_workspace_label("broker"));
     }
 
     #[test]

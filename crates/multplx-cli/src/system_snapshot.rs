@@ -2035,8 +2035,17 @@ fn env_duration(name: &str, default: u64) -> Duration {
 }
 
 fn registry(paths: &Paths, generated: &str) -> Value {
-    let path = paths.data.join("daemons.md");
+    let (path, layout_error) = match multplx_core::agent_home::registry_path(&paths.data) {
+        Ok(path) => (path, None),
+        Err(error) => (
+            paths.data.join(multplx_core::agent_home::REGISTRY),
+            Some(error.to_string()),
+        ),
+    };
     let empty = |present, available, complete, reason: Option<&str>| json!({"present":present,"available":available,"complete":complete,"reason":reason,"provenance":"registered-table","path":path,"freshness":{"status":if available{"fresh"}else{"unavailable"},"observed_at":generated},"records":[],"input_truncated":false,"records_truncated":false,"reasons":reason.into_iter().collect::<Vec<_>>(),"lines_in_window":0,"records_in_window":0});
+    if let Some(error) = layout_error {
+        return empty(true, false, false, Some(&error));
+    }
     if !path.is_file() {
         return empty(false, true, true, None);
     }
@@ -2195,7 +2204,8 @@ fn validate_home(paths: &Paths, id: &str, home: &Path) -> Result<PathBuf, String
             }
         }
     }
-    let marker = resolved.join(".mx-daemon-home");
+    let marker =
+        multplx_core::agent_home::marker_path(&resolved).map_err(|error| error.to_string())?;
     if fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err("daemon marker must not be a symlink".into());
     }

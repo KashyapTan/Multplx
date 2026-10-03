@@ -23,7 +23,12 @@ use super::worktree::{command_output, command_output_with};
 
 pub const USAGE: &str = "usage: mx teardown <task-id> [--stop-coordinator|--checkpoint|--stop-subtree|--retire-home] [--authority-state <absolute-path>]\n       mx teardown <task-id> --override <request-id> [--authority-state <absolute-path>]\n\n--authority-state routes a transferred task through its retained canonical record after validating the current owning coordinator.\n--stop-coordinator and --checkpoint stop only the verified coordinator endpoint and retain its children and home.\n--stop-subtree stops verified endpoints in the owned descendant tree and retains every task, worktree, outcome and home.\n--retire-home removes an idle home only after child ownership and parent-channel outcomes are settled.\nThe legacy one-argument form is retained as an alias for --retire-home.\n";
 const JOURNAL_PREFIX: &str = ".teardown.transaction.";
-const MARKER: &str = ".mx-daemon-home";
+fn agent_registry(data: impl AsRef<Path>) -> Result<PathBuf, String> {
+    multplx_core::agent_home::registry_write_path(data).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+const MARKER: &str = multplx_core::agent_home::MARKER;
 const CONTROL_PREFIX: &str = ".coordinator-control.";
 
 #[derive(Clone, Debug)]
@@ -1170,7 +1175,7 @@ where
 fn validate_home(context: &Context, id: &str, requested: &Path) -> Result<PathBuf, String> {
     let home = validate_removal_target(context, requested, "daemon home")?;
     require_owned_directory(&home, "daemon home")?;
-    let marker = home.join(MARKER);
+    let marker = multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
     if !marker.exists() {
         return Err(format!(
             "REFUSED: unsafe daemon home removal target {} is not a seeded daemon home",
@@ -1212,8 +1217,8 @@ fn validate_home(context: &Context, id: &str, requested: &Path) -> Result<PathBu
             ));
         }
     }
-    validate_registry_descendants(&context.data.join("daemons.md"), &home)?;
-    validate_registry_descendants(&home.join("data/daemons.md"), &home)?;
+    validate_registry_descendants(&agent_registry(&context.data)?, &home)?;
+    validate_registry_descendants(&agent_registry(home.join("data"))?, &home)?;
     Ok(home)
 }
 
@@ -1270,7 +1275,10 @@ fn remove_home(context: &Context, home: &Path) -> Result<(), String> {
     }
     crate::project_registry::protect_borrowed_checkouts(&context.home, home)?;
     crate::project_registry::protect_borrowed_checkouts(home, home)?;
-    let id = fs::read_to_string(home.join(MARKER)).map_err(|e| e.to_string())?;
+    let id = fs::read_to_string(
+        multplx_core::agent_home::marker_path(home).map_err(|error| error.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     if let Some(allocation) = super::home_seed::read_home_allocation(&context.data, id.trim())? {
         let meta = fs::read_to_string(context.state.join(format!("{}.meta", id.trim())))
             .map_err(|e| e.to_string())?;
@@ -1303,7 +1311,7 @@ fn remove_registry_entry(context: &Context, id: &str) -> Result<(), String> {
         Duration::from_secs(5),
     )
     .map_err(|e| format!("cannot acquire home registry publication lock: {e}"))?;
-    let registry = context.data.join("daemons.md");
+    let registry = agent_registry(&context.data)?;
     let bytes = match read_regular(&registry, "daemon registry") {
         Ok(bytes) => bytes,
         Err(_) if !registry.exists() => return Ok(()),

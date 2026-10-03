@@ -804,7 +804,8 @@ pub fn run(
             "usage: mx backlog-handoff <persistent-subagent-id> <item-key>... (queued work between home owners)",
         ));
     }
-    let registry = data.join("daemons.md");
+    let registry =
+        multplx_core::agent_home::registry_path(data).map_err(|error| fail(error.to_string()))?;
     let raw_home = registry_home(&registry, id)?;
     let destination_home = validate_daemon_home(id, &raw_home, home, root).map_err(|reason| {
         fail(format!(

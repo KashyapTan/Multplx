@@ -16,9 +16,10 @@ use multplx_core::process::SystemProcessProbe;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
-pub const DEFAULT_ALLOWLIST: [&str; 7] = [
+pub const DEFAULT_ALLOWLIST: [&str; 8] = [
     "subagent-dispatch.json",
     "subagent-harness",
+    "standing-agent-harness",
     "persistent-subagent-harness",
     "actor-dispatch.json",
     "actor-harness",
@@ -1227,7 +1228,7 @@ pub fn validate_daemon_home(
             ));
         }
     }
-    let marker = home.join(".mx-daemon-home");
+    let marker = multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
     if fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err("daemon marker must not be a symlink".to_owned());
     }

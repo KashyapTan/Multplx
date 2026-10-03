@@ -437,6 +437,16 @@ enum BackendCommand {
 
 #[derive(Debug, Subcommand)]
 enum PrimitiveCommand {
+    BackendLegacyHomeTag {
+        root: PathBuf,
+        home: PathBuf,
+    },
+    AgentHomeId {
+        home: PathBuf,
+    },
+    AgentRegistryPath {
+        data: PathBuf,
+    },
     BackendHomeTag {
         root: PathBuf,
         home: PathBuf,
@@ -644,13 +654,17 @@ impl Cli {
                 let context = multplx_domain::lifecycle::fast_forward::Context {
                     root,
                     home,
-                    marker: ".mx-daemon-home".to_owned(),
+                    marker: multplx_core::agent_home::MARKER.to_owned(),
                 };
-                let report = multplx_domain::lifecycle::fast_forward::update(
-                    &context,
-                    &state,
-                    &data.join("daemons.md"),
-                );
+                let registry = match multplx_core::agent_home::registry_path(&data) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        eprintln!("{error}");
+                        return 1;
+                    }
+                };
+                let report =
+                    multplx_domain::lifecycle::fast_forward::update(&context, &state, &registry);
                 let broker_status = report.broker_status;
                 for line in report.lines {
                     println!("{line}");
@@ -5553,7 +5567,7 @@ fn run_fast_forward(args: &[OsString]) -> i32 {
                 root: PathBuf::from(&values[1]),
                 home: PathBuf::from(&values[2]),
                 marker: std::env::var("SUB_HOME_MARKER")
-                    .unwrap_or_else(|_| ".mx-daemon-home".to_owned()),
+                    .unwrap_or_else(|_| multplx_core::agent_home::MARKER.to_owned()),
             };
             match fast_forward::validate_daemon_home(&context, &values[3], Path::new(&values[4])) {
                 Ok(path) => {
@@ -6344,7 +6358,12 @@ fn run_herdr(args: &[OsString]) -> i32 {
             }
             "workspace-label" => {
                 require_len(args, 1)?;
-                print!("{}", backend.workspace_label());
+                print!(
+                    "{}",
+                    backend
+                        .workspace_label()
+                        .map_err(|error| error.to_string())?
+                );
                 Ok(0)
             }
             "tool-check" => {
@@ -7809,7 +7828,14 @@ fn run_config_push(args: &[OsString]) -> i32 {
     let config = std::env::var_os("MX_CONFIG_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("config"));
-    let records = live_daemons(&state, &data.join("daemons.md"));
+    let registry = match multplx_core::agent_home::registry_path(&data) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+    let records = live_daemons(&state, &registry);
     if records.is_empty() {
         println!("config-push: no live persistent sub-agent homes found");
         return 0;
@@ -7856,7 +7882,7 @@ fn run_config_push(args: &[OsString]) -> i32 {
             .is_ok_and(|output| {
                 String::from_utf8_lossy(&output.stdout)
                     .lines()
-                    .any(|line| line != "?? .mx-daemon-home")
+                    .any(|line| !matches!(line, "?? .mx-agent-home" | "?? .mx-daemon-home"))
             })
         {
             println!("  home: dirty working tree - local-material push continuing");
@@ -7969,6 +7995,28 @@ fn run_primitive(command: PrimitiveCommand) -> Result<i32, String> {
     use multplx_core::classification::{Heuristic, NativeState, RunStep};
 
     match command {
+        PrimitiveCommand::BackendLegacyHomeTag { root, home } => {
+            print!(
+                "{}",
+                multplx_core::backend_hometag::legacy_home_tag(root, home)
+                    .map_err(|error| error.to_string())?
+            );
+        }
+        PrimitiveCommand::AgentHomeId { home } => {
+            if let Some(id) =
+                multplx_core::agent_home::identity(home).map_err(|error| error.to_string())?
+            {
+                print!("{id}");
+            }
+        }
+        PrimitiveCommand::AgentRegistryPath { data } => {
+            print!(
+                "{}",
+                multplx_core::agent_home::registry_path(data)
+                    .map_err(|error| error.to_string())?
+                    .display()
+            );
+        }
         PrimitiveCommand::BackendHomeTag { root, home } => {
             print!(
                 "{}",

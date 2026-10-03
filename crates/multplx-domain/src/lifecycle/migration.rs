@@ -456,7 +456,7 @@ fn build_plan(
             "legacy persistent-home routes remain authoritative compatibility evidence; only explicitly named coordinating responsibilities are mapped".into(),
         );
     }
-    if home.join(".mx-daemon-home").is_file() {
+    if multplx_core::agent_home::marker_path(&home).is_ok_and(|path| path.is_file()) {
         plan.report.retained.push(
             "legacy persistent-home marker remains readable during the compatibility window".into(),
         );

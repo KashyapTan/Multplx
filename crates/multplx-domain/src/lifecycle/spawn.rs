@@ -895,7 +895,7 @@ pub fn parse(
             }
         }
     }
-    let marker = home.join(".mx-daemon-home");
+    let marker = multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?;
     if !marker.is_file() {
         return Err(format!(
             "Multplx home {} is not a seeded daemon home",

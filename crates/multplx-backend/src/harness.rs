@@ -123,6 +123,8 @@ impl HarnessConfig {
     pub fn validate_aliases(&self) -> Result<(), String> {
         for (canonical, legacy) in [
             ("subagent-harness", "actor-harness"),
+            ("standing-agent-harness", "persistent-subagent-harness"),
+            ("standing-agent-harness", "daemon-harness"),
             ("persistent-subagent-harness", "daemon-harness"),
             ("subagent-dispatch.json", "actor-dispatch.json"),
         ] {
@@ -162,7 +164,13 @@ impl HarnessConfig {
     }
 
     fn daemon_fields(&self) -> Vec<String> {
-        self.config_text("persistent-subagent-harness", "daemon-harness")
+        self.config_text("standing-agent-harness", "persistent-subagent-harness")
+            .or_else(|| {
+                (!self.directory.join("standing-agent-harness").exists()
+                    && !self.directory.join("persistent-subagent-harness").exists())
+                .then(|| fs::read_to_string(self.directory.join("daemon-harness")).ok())
+                .flatten()
+            })
             .and_then(|text| {
                 text.lines()
                     .map(str::trim)

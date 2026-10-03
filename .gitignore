@@ -1,6 +1,8 @@
 projects/
 state/
 data/
+.mx-agent-home
+# Legacy seeded home identity remains ignored until explicit migration.
 .mx-daemon-home
 .DS_Store
 __pycache__/
@@ -12,6 +14,8 @@ __pycache__/
 .env
 config/actor-harness
 config/actor-dispatch.json
+config/standing-agent-harness
+config/persistent-subagent-harness
 config/daemon-harness
 config/backlog-backend
 config/backend

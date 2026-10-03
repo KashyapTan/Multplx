@@ -24,7 +24,7 @@
 # default branch, so the fast-forward advances HEAD only and never moves the
 # shared default branch or any other worktree's checkout.
 
-SUB_HOME_MARKER="${SUB_HOME_MARKER:-.mx-daemon-home}"
+SUB_HOME_MARKER="${SUB_HOME_MARKER:-.mx-agent-home}"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -225,7 +225,7 @@ changed_instr() {
 dirty_status() {
   local dir=$1 ignore_seed_marker=${2:-no}
   if [ "$ignore_seed_marker" = yes ]; then
-    git -C "$dir" status --porcelain 2>/dev/null | awk -v marker="?? $SUB_HOME_MARKER" '$0 != marker { print; exit }'
+    git -C "$dir" status --porcelain 2>/dev/null | awk -v marker="?? $SUB_HOME_MARKER" '$0 != marker && $0 != "?? .mx-daemon-home" && $0 != "?? .mx-agent-home" { print; exit }'
   else
     git -C "$dir" status --porcelain 2>/dev/null | head -1
   fi
@@ -423,8 +423,9 @@ process_daemon() {
 # FF_NUDGE_WINDOWS / FF_SEEN_HOMES, which the caller resets before and reads after.
 # The registry argument is only for home= fallback on older or incomplete meta records.
 sweep_live_daemon_metas() {
-  local state=$1 base_mode=$2 nudge_requires_instr=${3:-no} registry=${4:-$MX_HOME/data/daemons.md} id home window meta
+  local state=$1 base_mode=$2 nudge_requires_instr=${3:-no} registry=${4:-} id home window meta
   [ -d "$state" ] || return 0
+  if [ -z "$registry" ]; then registry=$("$_MX_FF_RUST_BIN" primitive agent-registry-path "$MX_HOME/data") || return 1; fi
   while IFS='|' read -r id home window meta; do
     process_daemon "$id" "$home" "$window" "$base_mode" "$nudge_requires_instr"
   done < <(live_daemon_meta_records "$state" "$registry")
