@@ -815,7 +815,7 @@ mx_backend_herdr_server_ensure() {  # <session>
 # identical in spirit to the pre-existing tab duplicate-label check below.
 mx_backend_herdr_workspace_find() {  # <session>
   local session=$1 label legacy list
-  label=$(mx_backend_herdr_workspace_label)
+  label=$(mx_backend_herdr_workspace_label) || return 1
   legacy=$label
   case "$label" in
     primary) legacy=broker ;;
@@ -934,13 +934,13 @@ mx_backend_herdr_workspace_ensure() {  # <session> <cwd>
   local session=$1 cwd=$2 wsid out label
   MX_BACKEND_HERDR_WS_ID=""
   MX_BACKEND_HERDR_WS_SEEDED_TAB_ID=""
-  wsid=$(mx_backend_herdr_workspace_find "$session")
+  wsid=$(mx_backend_herdr_workspace_find "$session") || return 1
   if [ -n "$wsid" ]; then
     MX_BACKEND_HERDR_WS_ID=$wsid
     printf '%s' "$wsid"
     return 0
   fi
-  label=$(mx_backend_herdr_workspace_label)
+  label=$(mx_backend_herdr_workspace_label) || return 1
   out=$(mx_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   wsid=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
   [ -n "$wsid" ] || return 1
@@ -969,9 +969,9 @@ mx_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
   mx_backend_herdr_version_check || return 1
   session=$(mx_backend_herdr_session)
   mx_backend_herdr_server_ensure "$session" || return 1
-  mx_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || { label=$(mx_backend_herdr_workspace_label); echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2; return 1; }
+  mx_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || { label=$(mx_backend_herdr_workspace_label) || return 1; echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2; return 1; }
   if [ -z "$MX_BACKEND_HERDR_WS_ID" ]; then
-    label=$(mx_backend_herdr_workspace_label)
+    label=$(mx_backend_herdr_workspace_label) || return 1
     echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2
     return 1
   fi

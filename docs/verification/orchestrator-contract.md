@@ -354,3 +354,8 @@ Preserving the existing legacy-workspace fixture exposed a shell-only compatibil
 The sourced shell owner now admits only that exact historical primary label as well.
 The existing fixture keeps a broker workspace in the mocked inventory and requires its original workspace ID with no create operation, so changing the expected label cannot conceal failed adoption.
 This is a deterministic adapter fixture; no live Herdr session was inspected or modified.
+
+The same review found that shell workspace lookup/creation ignored a failed home-label derivation.
+A malformed or conflicting marker could therefore fall through to a blank label instead of preserving the core identity refusal.
+Both lookup and creation now propagate derivation failure, and creation propagates lookup failure before any create operation.
+The adapter regression requires malformed and conflicting homes to fail with no provider list/create command.
