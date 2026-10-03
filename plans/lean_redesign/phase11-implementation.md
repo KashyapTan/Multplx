@@ -242,3 +242,36 @@ Final combined checks passed:
 Raw logs and timing JSON remain untracked under `/private/tmp/mx-installed-fixes-*`.
 This is local macOS verification with temporary installed packages, synthetic task harnesses and guarded real Herdr sessions; remote Linux CI and model-provider trials are separate evidence.
 The user's installed runtime, operational home and existing workspaces were not updated or migrated.
+
+### Viz human-attention follow-up (2026-10-03)
+
+Human Attention exposed the complete scaffolded worker brief as a task title and promoted agent-owned delivery follow-up into apparent human actions.
+The snapshot now derives a label from the accepted brief revision's task or charter section while retaining the original scope.
+The client also handles historical multiline and flattened scaffold titles, uses a concise task label, bounds previews and keeps full original text accessible in a keyboard-scrollable disclosure.
+Unanswered nonempty human questions say to reply in the main orchestrator chat.
+A PR review card requires recorded `state=ready`, explicit `pr_ready=true` and a safe absolute HTTP(S) PR URL; incomplete agent checks, dependencies, reviews and report-only delivery remain in task details unless there is an explicit question.
+Browser verification caught disclosure collapse on polling; stable task and decision identities now preserve open state, keyboard focus and scroll position.
+
+The actual-renderer DOM regressions run in the existing Viz behavior suite.
+An isolated synthetic browser fixture verified desktop and 390-pixel layouts, three meaningful action cards, no horizontal overflow, literal HTML-like text, the exact PR URL, exact task navigation and complete retained text.
+Closed cards measured at most 112 pixels in the desktop check and 131 pixels in the narrow check; expanded details retained over 8,000 characters in a 256-pixel keyboard-scrollable region and survived refreshes.
+The optional repository browser runner includes corresponding checks, but the parent used the supported in-app browser for its live browser observations rather than executing that runner.
+No private operational home or running dashboard was modified; the temporary browser tab and fixture services were closed after verification.
+
+Final local validation at source revision `16ecbfd` passed:
+
+- `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-pr52-attention-final-all.json`: 134 scripts, zero failures, eight existing gated skips, 422299 ms.
+- `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: passed on the updated Rust implementation.
+- `cargo fmt --all -- --check`, `target/release/mx doc-audience-check`, changed JavaScript/Python/Bash syntax checks and `git diff --check`: passed.
+- The instrumented Rust run passed 797 tests and measured 93.14 percent line coverage.
+
+The unchanged coverage command is:
+
+```sh
+cargo llvm-cov --locked --workspace --all-targets --ignore-filename-regex '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)' --fail-under-lines 93
+```
+
+[CI run 37101351885](https://github.com/KashyapTan/Multplx/actions/runs/37101351885) passed all jobs and independently measured 93.14 percent line coverage at `b874182`.
+The later `16ecbfd` correction changes only frontend code, fixtures and documentation; Rust source is unchanged from that CI revision.
+An earlier local full run overlapped frontend edits and failed when the old DOM test referenced the renamed renderer helper; it is retained as nonpassing evidence in `/private/tmp/mx-pr52-attention-all.log`, not counted as final validation.
+The final frozen-source run above passed, and raw coverage/behavior logs remain untracked under `/private/tmp/mx-pr52-attention-*`.
