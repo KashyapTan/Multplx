@@ -231,6 +231,95 @@ The locked release build passed before the final focused behavior rerun.
 This is an HTTP framing repair, not a relaxation of launcher lock, backend-command or stale-cache timing assertions.
 The launcher and report failures did not reproduce in their focused rerun and have no substantiated code repair.
 
+## AUD-014: delivery rejects valid accumulated task history
+
+The worker screenshots show delivery preparation reporting `private task metadata unavailable` and PR registration reporting `PR metadata recording failed` after successful implementation and remote publication.
+The canonical task owner accepts metadata up to 4 MiB, but delivery read that authority through a 64 KiB receipt reader.
+Registration could replace metadata and only then fail verification against the smaller cap, leaving a misleading failed result after mutation.
+A related presentation consumer used a different 1 MiB bound.
+
+**Resolved in implementation commit `a99a51e`:** canonical metadata consumers share the existing 4 MiB contract, while small receipts retain their 64 KiB bound.
+Writers reject oversized serialized output before replacing an existing authority.
+Identity, revision, no-follow, link, permission and receipt checks remain in force; legacy registration ingress retains its supported permission normalization.
+An isolated regression grows valid history through 24 real evidence submissions and exercises preparation, publication, registration and refresh without losing history.
+Conflicting identity and oversized metadata refuse without rewriting the authority.
+Focused validation passed: 15 canonical-model unit tests, nine delivery security unit tests, 16 publication behavior checks, five parser/security checks and eight publication/migration security checks.
+These use isolated state, local Git and mocked forge responses; they do not modify the user's running workers or claim a live remote publication trial.
+
+## AUD-015: reply instructions disagree with the validated reporting interface
+
+Marked requests and repost prompts told workers to include `corr=TOKEN` in message prose, while the canonical reporter requires structured `--correlation-id`.
+A successful status write therefore did not necessarily answer the parent request, and the pending-reply owner could ask for another repost.
+The preferred MCP `report_status` schema also omitted correlation, retry identity and result-artifact fields, preventing workers from expressing those supported CLI operations through that tool.
+Multiple outstanding parent requests remain separate obligations; acknowledging one must not silently discard another question or request.
+**Resolved in commit `0502492`:** the repair supplies exact structured syntax, consistent acceptance receipts and the missing validated MCP fields.
+Focused regression coverage passed for nested parent routes, question/answer/resolution, artifacts, three independent pending requests and historical replay after failure.
+Quoted correlation text no longer retargets a new send; retry routing requires an exact marked prefix or the explicit retry option.
+A successful status receipt is not itself proof of current task completion.
+Read-only review caught legacy shell aliases defined after an unconditional sourced return; commit `d7c9491` moves their definitions before that return and adds a fresh-shell source compatibility regression.
+New output uses the parent marker; existing exact old marked bytes decode without treating plain human label text as operational input.
+
+## AUD-016: equivalent home paths can evade current pending-request matching
+
+Pending-request matching compared recorded home strings even though macOS can expose the same home through `/var` and `/private/var`.
+The repair compares canonical home paths while retaining exact task, parent, attempt, generation and brief identity.
+It does not infer ownership from a path resemblance or from message prose.
+**Resolved in commit `0502492`:** the isolated alias-path regression passed with exact parent and attempt checks retained.
+
+## AUD-017: shared instructions should resolve assignment before root identity
+
+The screenshots do not establish that either worker mistook itself for the main orchestrator.
+Existing launch briefs already distinguish workers and bounded coordinators, and all four supported harnesses consume the same accepted brief.
+Nevertheless, the shared operating contract introduced main-orchestrator responsibilities before explaining assignment precedence.
+Commit `8ddd9f2` makes assignment resolution the opening rule; the associated brief changes preserve worker method freedom, bounded delegation and concrete parent reporting.
+Reading another home or project contract does not change an accepted role.
+Standing availability does not create recurring work after the full job is validated and delivered.
+Five deterministic brief role/output tests passed; these are template checks, not new authenticated provider trials.
+
+## AUD-018: obsolete role vocabulary remains on active surfaces
+
+A tracked-source census found active broker/daemon actor wording in parent markers, watcher diagnostics, generated preferences, standing-home helpers and maintained documentation.
+The reporting repair emits the role-neutral `[mx-from-parent]` marker and retains a narrow decoder for existing marked input.
+A separate vocabulary repair is in progress for the remaining current surfaces and compatibility-sensitive home/configuration names.
+Historical verification records, legacy decoder fixtures and legitimate background-process or human-operator concepts must retain their meaning; lexical matches alone do not prove an obsolete agent role remains enforced.
+No mandatory review rank or role-based delegation prohibition was found in the inspected brief, launch and task-model paths.
+This issue remains open until the remaining active-surface inventory and migration-boundary checks are recorded.
+
+## Worker reporting repair validation, 2026-10-03
+
+The implementation is on `fix/worker-reporting-contracts`, based on event-driven supervision commit `86e8377`.
+Commits `a99a51e`, `0502492` and `d7c9491` repair metadata bounds, parent reporting and legacy shell source compatibility; `8ddd9f2` strengthens assignment-first identity.
+Commits `b0230fd` and `27b2546` update old test expectations for explicit report receipts, launch-bound task-ID defaults and read-only state listing.
+The initial complete behavior run found two obsolete assertions, and the initial instrumented Rust run found the third; all three were corrected without changing production behavior or weakening refusal checks.
+
+| Exact check | Result |
+| --- | --- |
+| `cargo build --release --workspace --locked` | Passed before the behavior checks. |
+| `cargo fmt --all -- --check` | Passed. |
+| `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` | Passed. |
+| `target/release/mx test-run --all --jobs auto --json /private/tmp/mx-worker-reporting-final-all.json` | 134 scripts, zero failures, eight explicit gates; 424.442 seconds. |
+| `target/release/mx test-run --check-coverage` | All 134 scripts accounted for; partitions unchanged. |
+| `target/release/mx doc-audience-check` | 101 surfaces, 586 local links passed. |
+| `for script in bin/*.sh bin/backends/*.sh; do bash -n "$script" || exit; done` | Passed; the subsequent alias-only change also passed its focused syntax check. |
+| `git diff --check` | Passed. |
+
+The final clean instrumented workspace run passed 812 Rust tests, zero failures and zero ignored tests across 32 result groups.
+Line coverage passed at 93.13 percent (74,410 lines, 5,112 uncovered), with the unchanged 93 percent threshold and exactly the existing CI exclusions.
+The exact successful coverage command was:
+
+```sh
+cargo llvm-cov --locked --workspace --all-targets --no-fail-fast \
+  --ignore-filename-regex '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)' \
+  --fail-under-lines 93
+```
+
+The final source revision is `27b2546`; the subsequent edit records evidence only.
+The final full coverage log is `/private/tmp/mx-worker-reporting-final-coverage.log`.
+Raw timing and coverage artifacts remain outside Git; no generated multi-thousand-line JSON is added.
+The new evidence uses isolated local state, real local Git/process operations and mocked provider/forge transport where applicable.
+Pi static checks passed, while unavailable Pi package/live-provider checks remain explicit gates.
+No new authenticated model, private-home migration, installed-runtime update or live remote publication trial is claimed.
+
 ## Validation performed
 
 - Locked release build, formatting and strict all-target/all-feature Clippy: passed.
