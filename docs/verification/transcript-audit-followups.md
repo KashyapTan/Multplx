@@ -58,7 +58,14 @@ cargo llvm-cov --locked --workspace --all-targets --no-fail-fast \
 The diagnostic log is `/private/tmp/mx-transcript-coverage-final.log`.
 The final fixture-only PID-log adjustment was separately verified with the process-liveness and direct-caller dispatch-profile suites before this clean coverage run.
 [PR #56](https://github.com/KashyapTan/Multplx/pull/56) records the current hosted check results and any platform-specific fixture follow-up.
-The first hosted Linux run identified the presentation fixture's Bash sleeper as a shell, correctly refusing to treat it as a provider; the follow-up uses an inert Python process with the same lifetime and retains all presentation assertions.
+The first two hosted Linux runs refused the presentation fixture's flag-off anchor as unverified startup.
+Source inspection confirmed that the fixture added its inert provider only to the Herdr server PATH, while production explicitly exported the caller PATH without that directory into the worker launch.
+Changing the sleeper from Bash to Python alone did not fix that executable selection error.
+The fixture now binds MX_REAL_CODEX to the owned inert Python executable and includes its directory in the caller PATH, retaining the same lifetime and all presentation assertions.
+`target/release/mx test-run tests/mx-backend-herdr-presentation-e2e.test.sh` passed after this binding change on macOS with Herdr 0.7.4: 211,641 ms, no gate skip and the default-session tripwire intact.
+A process-table observation confirmed the anchor ran Python with the exact scratch harness-bin/codex path, and source inspection confirmed MX_REAL_CODEX is forwarded into the generated launch environment.
+The focused output is `/private/tmp/mx-herdr-presentation-owned-executable-focused.log`; the sanitized fixture process observation is `/private/tmp/mx-herdr-presentation-owned-processes.log`.
+Hosted Linux verification remains pending for this fixture change.
 An earlier instrumented attempt was invalidated by a concurrently edited shell fixture and incomplete startup fixtures; its diagnostic 92.80% measurement is not acceptance evidence.
 The 93% line coverage gate and its existing exclusions remain unchanged.
 
@@ -71,7 +78,9 @@ This narrow HTTP follow-up is verified separately and included in the final host
 
 ## Evidence limits
 
-Real Herdr evidence uses an isolated guarded lab and an inert harness process, without provider credentials or model calls.
+Real Herdr tests use isolated guarded labs.
+The long-command transport experiment explicitly binds an inert harness without provider credentials or model calls.
+Earlier presentation test passes did not establish which executable ran; owned inert executable provenance is verified only after the explicit binding follow-up described above.
 The original long-command failure was reproduced with a synthetic PATH of approximately 18 KB; the short script launches the inert worker and a repeated stable request does not launch a second worker.
 This establishes terminal transport and process startup, not model acceptance, successful authentication or task completion.
 Publication and provider-hook checks use isolated deterministic fixtures; no live PR was retargeted by those checks.

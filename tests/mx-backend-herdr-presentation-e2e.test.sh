@@ -50,6 +50,9 @@ time.sleep(120)
 SH
 chmod +x "$HARNESS_BIN/codex"
 HERDR_SERVER_PATH="$HARNESS_BIN:$HERDR_ORIGINAL_PATH"
+# Bind both executable selection and the explicitly exported worker PATH.
+# Server inheritance alone is insufficient when spawn supplies the caller PATH.
+export MX_REAL_CODEX="$HARNESS_BIN/codex"
 
 # Log every production-adapter call, remove its already-validated trailing
 # session flag, and send the operation through the lab helper so that helper
@@ -265,7 +268,8 @@ exit "$status"
 SH
 chmod +x "$FAKEBIN/herdr" "$FAKEBIN/treehouse"
 chmod +x "$FAKEBIN/herdr-workspace-mover"
-export PATH="$FAKEBIN:$PATH"
+export PATH="$FAKEBIN:$HARNESS_BIN:$HERDR_ORIGINAL_PATH"
+[ "$(command -v codex)" = "$MX_REAL_CODEX" ] || fail "presentation fixture did not select its owned inert harness"
 export MX_BACKEND_HERDR_WORKSPACE_MOVER="$FAKEBIN/herdr-workspace-mover"
 
 HERDR_LAB_SESSION=$(PATH="$HERDR_ORIGINAL_PATH" \
