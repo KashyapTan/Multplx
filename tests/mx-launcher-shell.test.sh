@@ -182,8 +182,10 @@ test_static_prompt_has_no_dynamic_hook() {
 
 test_install_script_forwards_stale_launch_recovery() {
   local fakebin="$TMP_ROOT/install-bin" case_dir="$TMP_ROOT/install-case"
-  local home="$TMP_ROOT/install-home" output
-  mkdir -p "$fakebin"
+  local home="$TMP_ROOT/install-home" fixture_target="$TMP_ROOT/install-target" output
+  mkdir -p "$fakebin" "$fixture_target/release"
+  cp "$RUST_BINARY" "$fixture_target/release/mx"
+  chmod +x "$fixture_target/release/mx"
   cat >"$fakebin/cargo" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -192,13 +194,13 @@ SH
   output=$("$ROOT/install.sh" --help)
   assert_contains "$output" '--recover-stale-launch' \
     'source installer help omitted stale launch recovery'
-  PATH="$fakebin:$PATH" CARGO_TARGET_DIR="$ROOT/target" "$ROOT/install.sh" \
+  PATH="$fakebin:$PATH" CARGO_TARGET_DIR="$fixture_target" "$ROOT/install.sh" \
     --home "$home" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
     --data-dir "$case_dir/data" >/dev/null \
     || fail 'source installer fixture setup failed'
   printf '{"schema":"mx-workspace-launch.v1","owner":{"pid":%s,"started":"retired-lifetime"}}\n' \
     "$$" >"$home/state/workspace-launch.json"
-  PATH="$fakebin:$PATH" CARGO_TARGET_DIR="$ROOT/target" "$ROOT/install.sh" \
+  PATH="$fakebin:$PATH" CARGO_TARGET_DIR="$fixture_target" "$ROOT/install.sh" \
     --upgrade --recover-stale-launch --home "$home" --bin-dir "$case_dir/bin" \
     --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null \
     || fail 'source installer did not forward explicit stale launch recovery'
