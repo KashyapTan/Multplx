@@ -5,6 +5,41 @@ set -euo pipefail
 mx_test_tmproot_into TMP_ROOT mx-release-package
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 
+run_tty_confirmation() {
+  python3 - "$@" <<'PY'
+import os, pty, select, subprocess, sys, time
+answer = sys.argv[1]
+command = sys.argv[2:]
+master, slave = pty.openpty()
+process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+os.close(slave)
+output = bytearray()
+sent = False
+deadline = time.monotonic() + 20
+while process.poll() is None and time.monotonic() < deadline:
+    ready, _, _ = select.select([master], [], [], 0.1)
+    if not ready:
+        continue
+    try:
+        chunk = os.read(master, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    output.extend(chunk)
+    if not sent and b'[y/N]' in output:
+        os.write(master, b'\x04' if answer == 'EOF' else (answer + '\n').encode())
+        sent = True
+process.wait(timeout=5)
+os.close(master)
+sys.stdout.buffer.write(output)
+if not sent:
+    sys.stderr.write('installer did not show the recovery confirmation prompt\n')
+    sys.exit(125)
+sys.exit(process.returncode)
+PY
+}
+
 package="$TMP_ROOT/multplx-package"
 release_binary=${MX_RUST_BIN:-$ROOT/target/release/mx}
 "$ROOT/bin/mx-release-package.sh" "$package" "$release_binary" >/dev/null
@@ -443,9 +478,72 @@ if "$package/bin/mx" launcher-install --upgrade --package "$package" \
     2>"$TMP_ROOT/reserved-upgrade.err"; then
   fail 'package upgrade changed assets while a launch reservation existed'
 fi
-assert_grep 'unresolved workspace launch' "$TMP_ROOT/reserved-upgrade.err" \
-  'package upgrade did not explain the unresolved launch boundary'
+assert_grep 'workspace launch cannot be verified' "$TMP_ROOT/reserved-upgrade.err" \
+  'package upgrade did not explain the uncertain launch boundary'
+[ "$(cat "$install/data/home/state/workspace-launch.json")" = '{}' ] \
+  || fail 'malformed launch reservation changed during refused upgrade'
+
+# The current shell PID with an old start marker models a verified PID reuse.
+# A non-interactive upgrade must refuse without removing the reservation.
+printf '{"schema":"mx-workspace-launch.v1","owner":{"pid":%s,"started":"retired-lifetime"}}\n' \
+  "$$" >"$install/data/home/state/workspace-launch.json"
+cp "$install/data/home/state/workspace-launch.json" "$TMP_ROOT/stale-launch.before"
+if "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" \
+    </dev/null >"$TMP_ROOT/stale-upgrade.out" 2>"$TMP_ROOT/stale-upgrade.err"; then
+  fail 'non-interactive package upgrade accepted stale launch without confirmation'
+fi
+assert_grep 'recover-stale-launch' "$TMP_ROOT/stale-upgrade.err" \
+  'non-interactive stale launch refusal omitted its recovery command'
+cmp -s "$TMP_ROOT/stale-launch.before" "$install/data/home/state/workspace-launch.json" \
+  || fail 'non-interactive refusal changed the stale launch reservation'
+if output=$(run_tty_confirmation n "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then
+  fail 'negative interactive confirmation accepted stale launch recovery'
+fi
+assert_contains "$output" '[y/N]' 'interactive stale launch recovery omitted its default-No prompt'
+assert_contains "$output" 'upgrade cancelled' 'negative confirmation did not explain cancellation'
+cmp -s "$TMP_ROOT/stale-launch.before" "$install/data/home/state/workspace-launch.json" \
+  || fail 'negative confirmation changed the stale launch reservation'
+if output=$(run_tty_confirmation EOF "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then
+  fail 'interactive EOF accepted stale launch recovery'
+fi
+assert_contains "$output" 'upgrade cancelled' 'EOF did not take the default-No recovery path'
+cmp -s "$TMP_ROOT/stale-launch.before" "$install/data/home/state/workspace-launch.json" \
+  || fail 'EOF changed the stale launch reservation'
+
+printf 'kind=actor\nbackend=tmux\n' >"$install/data/home/state/recovery-blocker.meta"
+if output=$(run_tty_confirmation y "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then
+  fail 'package upgrade ignored a recorded task user after stale launch approval'
+fi
+assert_contains "$output" 'recorded task user' \
+  'stale launch recovery failed to preserve the recorded task-user gate'
+cmp -s "$TMP_ROOT/stale-launch.before" "$install/data/home/state/workspace-launch.json" \
+  || fail 'blocked upgrade removed the approved stale launch reservation'
+rm "$install/data/home/state/recovery-blocker.meta"
+output=$(run_tty_confirmation y "$package/bin/mx" launcher-install --upgrade --package "$package" \
+  --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1) \
+  || fail 'explicit stale launch recovery did not complete'
+assert_contains "$output" 'workspace launch' 'positive confirmation prompt was not shown'
+[ ! -e "$install/data/home/state/workspace-launch.json" ] \
+  || fail 'explicit stale launch recovery retained the reservation'
+
+# Uninstall retains its strict refusal even for a verified stale reservation.
+printf '{"schema":"mx-workspace-launch.v1","owner":{"pid":%s,"started":"retired-lifetime"}}\n' \
+  "$$" >"$install/data/home/state/workspace-launch.json"
+if "$package/bin/mx" launcher-install --uninstall \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" \
+    >"$TMP_ROOT/stale-uninstall.out" 2>"$TMP_ROOT/stale-uninstall.err"; then
+  fail 'uninstall accepted stale launch recovery without its upgrade confirmation path'
+fi
+assert_grep 'verified stale workspace launch' "$TMP_ROOT/stale-uninstall.err" \
+  'uninstall stale launch refusal omitted its unchanged recovery boundary'
+[ -e "$install/data/home/state/workspace-launch.json" ] \
+  || fail 'uninstall removed a stale workspace launch reservation'
 rm "$install/data/home/state/workspace-launch.json"
+pass 'package upgrades confirm exact stale launch recovery and preserve other runtime gates'
 
 printf 'kind=actor\nbackend=tmux\n' >"$install/data/home/state/recorded-user.meta"
 if "$package/bin/mx" launcher-install --upgrade --package "$package" \

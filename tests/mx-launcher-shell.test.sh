@@ -180,8 +180,38 @@ test_static_prompt_has_no_dynamic_hook() {
   pass "prompt presentation is static with no poller, state read, or subprocess hook"
 }
 
+test_install_script_forwards_stale_launch_recovery() {
+  local fakebin="$TMP_ROOT/install-bin" case_dir="$TMP_ROOT/install-case"
+  local home="$TMP_ROOT/install-home" fixture_target="$TMP_ROOT/install-target" output
+  mkdir -p "$fakebin" "$fixture_target/release"
+  cp "$RUST_BINARY" "$fixture_target/release/mx"
+  chmod +x "$fixture_target/release/mx"
+  cat >"$fakebin/cargo" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fakebin/cargo"
+  output=$("$ROOT/install.sh" --help)
+  assert_contains "$output" '--recover-stale-launch' \
+    'source installer help omitted stale launch recovery'
+  PATH="$fakebin:$PATH" CARGO_TARGET_DIR="$fixture_target" "$ROOT/install.sh" \
+    --home "$home" --bin-dir "$case_dir/bin" --config-dir "$case_dir/config" \
+    --data-dir "$case_dir/data" >/dev/null \
+    || fail 'source installer fixture setup failed'
+  printf '{"schema":"mx-workspace-launch.v1","owner":{"pid":%s,"started":"retired-lifetime"}}\n' \
+    "$$" >"$home/state/workspace-launch.json"
+  PATH="$fakebin:$PATH" CARGO_TARGET_DIR="$fixture_target" "$ROOT/install.sh" \
+    --upgrade --recover-stale-launch --home "$home" --bin-dir "$case_dir/bin" \
+    --config-dir "$case_dir/config" --data-dir "$case_dir/data" >/dev/null \
+    || fail 'source installer did not forward explicit stale launch recovery'
+  [ ! -e "$home/state/workspace-launch.json" ] \
+    || fail 'source installer did not clear its confirmed stale reservation'
+  pass 'source installer help and recovery option reach the Rust installer'
+}
+
 test_bash_adapter_preserves_user_configuration
 test_zsh_adapter_preserves_user_configuration_and_cleans_temp
 test_harness_stream_and_child_cwd_are_transparent
 test_launcher_activation_round_trip
 test_static_prompt_has_no_dynamic_hook
+test_install_script_forwards_stale_launch_recovery

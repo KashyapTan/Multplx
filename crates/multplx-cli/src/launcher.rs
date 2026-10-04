@@ -3,7 +3,7 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
-use std::io::Read;
+use std::io::{IsTerminal, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ const VIZ_PUBLIC_HELP: &str = "Open the read-only dashboard for the configured o
 
 const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx task-session inspect TASK\n  multplx update\n  multplx viz [--no-open|serve|status|stop]\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. Use Tab to change views, arrows/j/k or the mouse wheel to move, / to filter, t to enter a task, c to chat, v for Viz, and q to quit. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
+const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -1137,6 +1137,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
 struct InstallOptions {
     managed: bool,
     upgrade: bool,
+    recover_stale_launch: bool,
     uninstall: bool,
     root: Option<PathBuf>,
     home: Option<PathBuf>,
@@ -1164,6 +1165,7 @@ fn parse_installer(args: &[OsString]) -> Result<Option<InstallOptions>, String> 
             "-h" | "--help" => return Ok(None),
             "--managed" => options.managed = true,
             "--upgrade" => options.upgrade = true,
+            "--recover-stale-launch" => options.recover_stale_launch = true,
             "--uninstall" => options.uninstall = true,
             "--root" => options.root = Some(take(&mut index, "--root")?.into()),
             "--home" => options.home = Some(take(&mut index, "--home")?.into()),
@@ -1263,6 +1265,7 @@ fn require_recordable_path(path: &Path, label: &str) -> Result<(), String> {
 fn require_packaged_runtime_quiescent_mode(
     home: &Path,
     allow_stopped_workers: bool,
+    approved_stale_launch: Option<&multplx_backend::harness_launch::VerifiedStaleLaunchReservation>,
 ) -> Result<(), String> {
     let state = home.join("state");
     match session_lock_status(
@@ -1283,11 +1286,28 @@ fn require_packaged_runtime_quiescent_mode(
         }
         SessionLockStatus::Free | SessionLockStatus::Stale(_) => {}
     }
-    if fs::symlink_metadata(state.join("workspace-launch.json")).is_ok() {
-        return Err(
-            "packaged runtime has an unresolved workspace launch; reconcile it before upgrade or uninstall"
-                .to_owned(),
-        );
+    use multplx_backend::harness_launch::{
+        LaunchReservationInspection, inspect_launch_reservation,
+    };
+    match inspect_launch_reservation(home) {
+        Ok(LaunchReservationInspection::Missing) => {}
+        Ok(LaunchReservationInspection::Live { pid }) => {
+            return Err(format!(
+                "packaged runtime has a live workspace launch (pid {pid}); stop it before upgrade or uninstall"
+            ));
+        }
+        Ok(LaunchReservationInspection::Stale(owner)) if Some(&owner) == approved_stale_launch => {}
+        Ok(LaunchReservationInspection::Stale(owner)) => {
+            return Err(format!(
+                "packaged runtime has a verified stale workspace launch (pid {}); reconcile it before changing the runtime",
+                owner.pid
+            ));
+        }
+        Err(message) => {
+            return Err(format!(
+                "packaged runtime workspace launch cannot be verified: {message}"
+            ));
+        }
     }
     let entries = match fs::read_dir(&state) {
         Ok(entries) => entries,
@@ -1317,6 +1337,53 @@ fn require_packaged_runtime_quiescent_mode(
         }
     }
     Ok(())
+}
+
+fn authorize_stale_launch_recovery(
+    home: &Path,
+    explicit: bool,
+) -> Result<Option<multplx_backend::harness_launch::VerifiedStaleLaunchReservation>, String> {
+    use multplx_backend::harness_launch::{
+        LaunchReservationInspection, inspect_launch_reservation,
+    };
+    match inspect_launch_reservation(home).map_err(|message| {
+        format!("packaged runtime workspace launch cannot be verified: {message}")
+    })? {
+        LaunchReservationInspection::Missing => Ok(None),
+        LaunchReservationInspection::Live { pid } => Err(format!(
+            "packaged runtime has a live workspace launch (pid {pid}); stop it before upgrade"
+        )),
+        LaunchReservationInspection::Stale(owner) if explicit => Ok(Some(owner)),
+        LaunchReservationInspection::Stale(owner) => {
+            if !std::io::stdin().is_terminal() {
+                return Err(format!(
+                    "verified stale workspace launch for home {} (previous owner pid {}) requires confirmation; rerun the same upgrade command with --recover-stale-launch, keeping any custom path options",
+                    home.display(),
+                    owner.pid
+                ));
+            }
+            eprint!(
+                "Verified stale workspace launch for home {} (previous owner pid {}). Remove this reservation and continue upgrade? [y/N] ",
+                home.display(),
+                owner.pid
+            );
+            std::io::stderr()
+                .flush()
+                .map_err(|error| format!("cannot display recovery prompt: {error}"))?;
+            let mut answer = String::new();
+            std::io::stdin()
+                .read_line(&mut answer)
+                .map_err(|error| format!("cannot read recovery confirmation: {error}"))?;
+            if matches!(answer.trim(), "y" | "Y") {
+                Ok(Some(owner))
+            } else {
+                Err(
+                    "upgrade cancelled; stale workspace launch reservation was preserved"
+                        .to_owned(),
+                )
+            }
+        }
+    }
 }
 
 fn retained_worker_is_quiescent(path: &Path, inspected_home: &Path) -> Result<bool, String> {
@@ -1765,6 +1832,7 @@ fn apply_generation(
     files: &[GenerationFile],
     packaged_home: Option<&Path>,
     allow_stopped_workers: bool,
+    approved_stale_launch: Option<&multplx_backend::harness_launch::VerifiedStaleLaunchReservation>,
 ) -> Result<(), String> {
     let transaction = transaction_path(config_dir);
     fs::create_dir(&transaction)
@@ -1789,8 +1857,19 @@ fn apply_generation(
         .map_err(|error_value| format!("cannot exclude a packaged runtime launch: {error_value}"));
         match lock {
             Ok(lock) => {
-                if let Err(message) =
-                    require_packaged_runtime_quiescent_mode(home, allow_stopped_workers)
+                if let Err(message) = require_packaged_runtime_quiescent_mode(
+                    home,
+                    allow_stopped_workers,
+                    approved_stale_launch,
+                ) {
+                    remove_transaction(&transaction)?;
+                    return Err(message);
+                }
+                if let Some(approved) = approved_stale_launch
+                    && let Err(message) =
+                        multplx_backend::harness_launch::remove_verified_stale_launch_reservation(
+                            home, approved,
+                        )
                 {
                     remove_transaction(&transaction)?;
                     return Err(message);
@@ -1995,6 +2074,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
     if options.uninstall
         && (options.managed
             || options.upgrade
+            || options.recover_stale_launch
             || options.root.is_some()
             || options.home.is_some()
             || options.source.is_some()
@@ -2003,6 +2083,10 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             || options.checksum.is_some())
     {
         error("--uninstall cannot be combined with install or upgrade options");
+        return 2;
+    }
+    if options.recover_stale_launch && !options.upgrade {
+        error("--recover-stale-launch requires --upgrade");
         return 2;
     }
     if options.package.is_some()
@@ -2056,6 +2140,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         Some(artifact)
     };
     let result = (|| -> Result<(), (i32, String)> {
+        let mut approved_stale_launch = None;
         let target = bin_dir.join("multplx");
         let mx_target = bin_dir.join("mx");
         let config_pointer = bin_dir.join(".multplx-config");
@@ -2166,7 +2251,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     read_path_file(&config_dir.join("root")).map_err(|message| (2, message))?;
                 let recorded_home =
                     read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
-                require_packaged_runtime_quiescent_mode(&recorded_home, options.upgrade)
+                require_packaged_runtime_quiescent_mode(&recorded_home, options.upgrade, None)
                     .map_err(|message| (2, message))?;
                 packaged_home = Some(recorded_home.clone());
                 let expected_root = data_dir.join("runtime");
@@ -2266,8 +2351,14 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 any_target_exists |= target_exists;
             }
             if _uninstall_lock.is_some() {
-                apply_generation(&config_dir, &generation, packaged_home.as_deref(), false)
-                    .map_err(|message| (1, message))?;
+                apply_generation(
+                    &config_dir,
+                    &generation,
+                    packaged_home.as_deref(),
+                    false,
+                    None,
+                )
+                .map_err(|message| (1, message))?;
             } else if any_target_exists || records.iter().any(|path| path.exists()) {
                 return Err((
                     2,
@@ -2506,16 +2597,26 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
         require_recordable_path(&home, "operational home").map_err(|message| (2, message))?;
         require_owned_dir(&root, "code root").map_err(|message| (2, message))?;
         require_owned_dir(&home, "operational home").map_err(|message| (2, message))?;
-        let packaged_home =
-            if verified_package.is_some() && config_dir.join("package-assets").is_file() {
-                let recorded_home =
-                    read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
-                require_packaged_runtime_quiescent_mode(&recorded_home, options.upgrade)
-                    .map_err(|message| (2, message))?;
-                Some(recorded_home)
-            } else {
-                None
-            };
+        let packaged_home = if verified_package.is_some()
+            && config_dir.join("package-assets").is_file()
+        {
+            let recorded_home =
+                read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
+            if options.upgrade {
+                approved_stale_launch =
+                    authorize_stale_launch_recovery(&recorded_home, options.recover_stale_launch)
+                        .map_err(|message| (2, message))?;
+            }
+            require_packaged_runtime_quiescent_mode(
+                &recorded_home,
+                options.upgrade,
+                approved_stale_launch.as_ref(),
+            )
+            .map_err(|message| (2, message))?;
+            Some(recorded_home)
+        } else {
+            None
+        };
         for part in ["config", "data", "projects", "state"] {
             ensure_dir(&home.join(part), 0o700, true).map_err(|message| (2, message))?;
         }
@@ -2730,6 +2831,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             &generation,
             packaged_home.as_deref(),
             options.upgrade,
+            approved_stale_launch.as_ref(),
         )
         .map_err(|message| (1, message))?;
         println!("multplx: installed {}", target.display());

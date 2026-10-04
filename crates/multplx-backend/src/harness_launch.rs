@@ -1,8 +1,8 @@
 //! Primary harness launch validation, serialized startup, and live connection.
 
 use std::ffi::{OsStr, OsString};
-use std::fs;
-use std::io::Write;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,6 +13,7 @@ use multplx_core::filesystem::{atomic_replace, read_bounded_regular};
 use multplx_core::locks::DirectoryLock;
 use multplx_core::process::{ProcessIdentity, ProcessProbe, SystemProcessProbe};
 use multplx_core::session_lock::{SessionLockStatus, harness_regex, status};
+use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 
 fn error(message: impl std::fmt::Display) {
@@ -267,6 +268,159 @@ struct LaunchReservation {
 struct LifetimeIdentity {
     pid: u32,
     started: String,
+}
+
+/// A reservation snapshot that was verified to belong to an exited or reused PID.
+/// The private record bytes bind approval to the exact observed reservation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedStaleLaunchReservation {
+    pub pid: u32,
+    pub started: String,
+    record: Vec<u8>,
+}
+
+/// Outcome of inspecting the exact workspace launch reservation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LaunchReservationInspection {
+    Missing,
+    Live { pid: u32 },
+    Stale(VerifiedStaleLaunchReservation),
+}
+
+/// Inspect a launch reservation without following links or accepting uncertain records.
+pub fn inspect_launch_reservation(home: &Path) -> Result<LaunchReservationInspection, String> {
+    let processes = SystemProcessProbe::default();
+    inspect_launch_reservation_with(home, strict_process_liveness, |pid| {
+        processes.identity(pid).map_err(|error| error.to_string())
+    })
+}
+
+fn strict_process_liveness(pid: u32) -> Result<bool, String> {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return Err("workspace launch reservation PID is outside the supported range".to_owned());
+    }
+    let raw = rustix::process::Pid::from_raw(pid as i32)
+        .ok_or_else(|| "workspace launch reservation PID is invalid".to_owned())?;
+    match rustix::process::test_kill_process(raw) {
+        Ok(()) => Ok(true),
+        Err(rustix::io::Errno::SRCH) => Ok(false),
+        Err(rustix::io::Errno::PERM) => Ok(true),
+        Err(error) => Err(format!(
+            "cannot verify workspace launch owner process: {error}"
+        )),
+    }
+}
+
+fn inspect_launch_reservation_with<L, I>(
+    home: &Path,
+    mut is_alive: L,
+    mut identity: I,
+) -> Result<LaunchReservationInspection, String>
+where
+    L: FnMut(u32) -> Result<bool, String>,
+    I: FnMut(u32) -> Result<ProcessIdentity, String>,
+{
+    let path = reservation_path(home);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(LaunchReservationInspection::Missing);
+        }
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect workspace launch reservation: {error}"
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("workspace launch reservation is linked or not a regular file".to_owned());
+    }
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err("workspace launch reservation is not owned by the current user".to_owned());
+    }
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(OFlags::NOFOLLOW.bits() as i32);
+    let file = options
+        .open(&path)
+        .map_err(|error| format!("cannot safely open workspace launch reservation: {error}"))?;
+    let opened = file
+        .metadata()
+        .map_err(|error| format!("cannot inspect workspace launch reservation: {error}"))?;
+    if !opened.is_file()
+        || opened.uid() != rustix::process::geteuid().as_raw()
+        || opened.dev() != metadata.dev()
+        || opened.ino() != metadata.ino()
+        || opened.nlink() != 1
+        || opened.len() > 16 * 1024
+    {
+        return Err("workspace launch reservation changed or is unsafe".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(opened.len() as usize);
+    file.take(16 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read workspace launch reservation: {error}"))?;
+    if bytes.len() > 16 * 1024 {
+        return Err("workspace launch reservation is oversized".to_owned());
+    }
+    let record: LaunchReservation = serde_json::from_slice(&bytes)
+        .map_err(|_| "workspace launch reservation is malformed or unsupported".to_owned())?;
+    if record.schema != "mx-workspace-launch.v1"
+        || record.owner.pid == 0
+        || record.owner.pid > i32::MAX as u32
+        || record.owner.started.trim().is_empty()
+    {
+        return Err("workspace launch reservation has an invalid owner identity".to_owned());
+    }
+    if !is_alive(record.owner.pid)? {
+        return Ok(LaunchReservationInspection::Stale(
+            VerifiedStaleLaunchReservation {
+                pid: record.owner.pid,
+                started: record.owner.started,
+                record: bytes,
+            },
+        ));
+    }
+    match identity(record.owner.pid) {
+        Ok(identity) if lifetime(identity.clone()) == record.owner => {
+            Ok(LaunchReservationInspection::Live {
+                pid: record.owner.pid,
+            })
+        }
+        Ok(_) => Ok(LaunchReservationInspection::Stale(
+            VerifiedStaleLaunchReservation {
+                pid: record.owner.pid,
+                started: record.owner.started,
+                record: bytes,
+            },
+        )),
+        Err(_) => Err(format!(
+            "workspace launch reservation owner pid {} cannot be verified; reconcile it before upgrade",
+            record.owner.pid
+        )),
+    }
+}
+
+/// Remove only the same verified stale reservation after callers acquire the launch lock.
+pub fn remove_verified_stale_launch_reservation(
+    home: &Path,
+    approved: &VerifiedStaleLaunchReservation,
+) -> Result<(), String> {
+    match inspect_launch_reservation(home)? {
+        LaunchReservationInspection::Stale(current) if current == *approved => {
+            fs::remove_file(reservation_path(home))
+                .map_err(|error| format!("cannot remove verified stale workspace launch reservation: {error}"))
+        }
+        LaunchReservationInspection::Missing => Ok(()),
+        LaunchReservationInspection::Live { pid } => Err(format!(
+            "workspace launch reservation became live (pid {pid}); upgrade was stopped"
+        )),
+        LaunchReservationInspection::Stale(_) => Err(
+            "workspace launch reservation changed after confirmation; rerun upgrade to review the current owner"
+                .to_owned(),
+        ),
+    }
 }
 
 fn lifetime(identity: ProcessIdentity) -> LifetimeIdentity {
@@ -526,7 +680,7 @@ fn reservation_state(home: &Path, processes: &impl ProcessProbe) -> ReservationS
     if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 16 * 1024 {
         return ReservationState::Unknown;
     }
-    let Ok(bytes) = fs::read(path) else {
+    let Ok(bytes) = read_bounded_regular(&path, 16 * 1024) else {
         return ReservationState::Unknown;
     };
     let Ok(record) = serde_json::from_slice::<LaunchReservation>(&bytes) else {
@@ -539,13 +693,8 @@ fn reservation_state(home: &Path, processes: &impl ProcessProbe) -> ReservationS
         return ReservationState::MissingOrDead;
     }
     match processes.identity(record.owner.pid) {
-        Ok(current) => {
-            if lifetime(current) == record.owner {
-                ReservationState::Live
-            } else {
-                ReservationState::MissingOrDead
-            }
-        }
+        Ok(current) if lifetime(current.clone()) == record.owner => ReservationState::Live,
+        Ok(_) => ReservationState::MissingOrDead,
         Err(_) => ReservationState::Unknown,
     }
 }
@@ -1103,11 +1252,12 @@ mod tests {
     use multplx_core::process::{AncestryRow, ProcessIdentity, ProcessProbe, SystemProcessProbe};
 
     use super::{
-        ConnectionRecord, ConversationState, LaunchReservation, LaunchedIdentityError,
-        ReservationState, ancestor_contains, attach_live, canonical_directory, connection_path,
-        conversation_state, cursor_args_safe, identify_launched_process, lifetime,
-        remember_harness, remembered_harness, reservation_path, reservation_state, same_file,
-        update_connection_owner, validate_home, validate_root,
+        ConnectionRecord, ConversationState, LaunchReservation, LaunchReservationInspection,
+        LaunchedIdentityError, ReservationState, ancestor_contains, attach_live,
+        canonical_directory, connection_path, conversation_state, cursor_args_safe,
+        identify_launched_process, inspect_launch_reservation_with, lifetime, remember_harness,
+        remembered_harness, remove_verified_stale_launch_reservation, reservation_path,
+        reservation_state, same_file, update_connection_owner, validate_home, validate_root,
     };
 
     struct FixtureProbe {
@@ -1436,6 +1586,157 @@ mod tests {
             reservation_state(temp.path(), &unreadable_identity),
             ReservationState::Unknown
         ));
+    }
+
+    #[test]
+    fn stale_launch_recovery_requires_verified_dead_owner_and_unchanged_record() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("state")).unwrap();
+        let path = reservation_path(temp.path());
+        let prior = super::LifetimeIdentity {
+            pid: std::process::id(),
+            started: "old-start".to_owned(),
+        };
+        let write = |owner: &super::LifetimeIdentity| {
+            fs::write(
+                &path,
+                serde_json::to_vec(&LaunchReservation {
+                    schema: "mx-workspace-launch.v1".to_owned(),
+                    owner: owner.clone(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        };
+        write(&prior);
+
+        let dead = inspect_launch_reservation_with(temp.path(), |_| Ok(false), |_| unreachable!())
+            .unwrap();
+        let LaunchReservationInspection::Stale(approved_dead) = dead else {
+            panic!("dead owner was not verified stale");
+        };
+        let reused = inspect_launch_reservation_with(
+            temp.path(),
+            |_| Ok(true),
+            |pid| {
+                Ok(ProcessIdentity {
+                    pid,
+                    marker: "new-start cmdline-hex=74657374".to_owned(),
+                })
+            },
+        )
+        .unwrap();
+        assert!(matches!(reused, LaunchReservationInspection::Stale(_)));
+
+        let live = inspect_launch_reservation_with(
+            temp.path(),
+            |_| Ok(true),
+            |pid| {
+                Ok(ProcessIdentity {
+                    pid,
+                    marker: "old-start cmdline-hex=74657374".to_owned(),
+                })
+            },
+        )
+        .unwrap();
+        assert_eq!(live, LaunchReservationInspection::Live { pid: prior.pid });
+        assert!(
+            inspect_launch_reservation_with(
+                temp.path(),
+                |_| Err("probe failed".to_owned()),
+                |_| unreachable!(),
+            )
+            .is_err()
+        );
+
+        let changed = super::LifetimeIdentity {
+            pid: prior.pid,
+            started: "different-owner".to_owned(),
+        };
+        write(&changed);
+        assert!(remove_verified_stale_launch_reservation(temp.path(), &approved_dead).is_err());
+        assert!(path.exists(), "changed reservation was removed");
+        write(&prior);
+        remove_verified_stale_launch_reservation(temp.path(), &approved_dead).unwrap();
+        assert!(!path.exists(), "approved stale reservation was retained");
+
+        let invalid = super::LifetimeIdentity {
+            pid: i32::MAX as u32 + 1,
+            started: "some-lifetime".to_owned(),
+        };
+        write(&invalid);
+        assert!(
+            inspect_launch_reservation_with(temp.path(), |_| Ok(false), |_| unreachable!())
+                .is_err()
+        );
+
+        let live_owner = lifetime(
+            SystemProcessProbe::default()
+                .identity(std::process::id())
+                .unwrap(),
+        );
+        let live_bytes = serde_json::to_vec(&LaunchReservation {
+            schema: "mx-workspace-launch.v1".to_owned(),
+            owner: live_owner.clone(),
+        })
+        .unwrap();
+        fs::write(&path, &live_bytes).unwrap();
+        let live_approval = super::VerifiedStaleLaunchReservation {
+            pid: live_owner.pid,
+            started: live_owner.started,
+            record: live_bytes.clone(),
+        };
+        assert!(remove_verified_stale_launch_reservation(temp.path(), &live_approval).is_err());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            live_bytes,
+            "live reservation changed"
+        );
+
+        let invalid_records = [
+            b"{}".to_vec(),
+            serde_json::to_vec(&LaunchReservation {
+                schema: "mx-workspace-launch.v1".to_owned(),
+                owner: super::LifetimeIdentity {
+                    pid: 0,
+                    started: "some-lifetime".to_owned(),
+                },
+            })
+            .unwrap(),
+            serde_json::to_vec(&LaunchReservation {
+                schema: "mx-workspace-launch.v1".to_owned(),
+                owner: super::LifetimeIdentity {
+                    pid: 456,
+                    started: "  ".to_owned(),
+                },
+            })
+            .unwrap(),
+            vec![b'x'; 16 * 1024 + 1],
+        ];
+        for bytes in invalid_records {
+            fs::write(&path, &bytes).unwrap();
+            assert!(
+                inspect_launch_reservation_with(temp.path(), |_| Ok(false), |_| unreachable!())
+                    .is_err()
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                bytes,
+                "unsafe reservation changed"
+            );
+        }
+
+        let linked_target = temp.path().join("state/reservation-target");
+        let linked_bytes = b"linked reservation target";
+        fs::write(&linked_target, linked_bytes).unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&linked_target, &path).unwrap();
+        assert!(
+            inspect_launch_reservation_with(temp.path(), |_| Ok(false), |_| unreachable!())
+                .is_err()
+        );
+        assert_eq!(fs::read(&linked_target).unwrap(), linked_bytes);
+        assert!(path.is_symlink(), "linked reservation was replaced");
     }
 
     struct PrimaryProbe {

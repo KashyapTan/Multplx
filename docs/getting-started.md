@@ -174,6 +174,9 @@ curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-fro
 
 Use the same custom path options if you selected non-default installation directories.
 Upgrade preserves operational data and repositories; live or uncertain runtime users can prevent it.
+If it finds a verified stale workspace launch reservation for a previous process lifetime, it asks before removing that reservation.
+A live or uncertain launch owner remains refused, and recovery never stops a process.
+For a noninteractive upgrade, pass `--recover-stale-launch` with `--upgrade` to confirm this exact recovery.
 For package-mode installs created by this installer, use this upgrade command rather than `multplx update`, which owns legacy source-mode updates.
 For an old installation that points directly at a source checkout, uninstall its registered application first and make a fresh full installation.
 Before reusing a legacy operational home, follow [home migration](state-migration.md); a new default home does not import old task state automatically.
