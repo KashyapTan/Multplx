@@ -10,15 +10,17 @@ usage() {
 Build and install Multplx from this checkout.
 
 Usage:
-  ./install.sh [--upgrade] [--home PATH] [--bin-dir PATH]
+  ./install.sh [--upgrade] [--recover-stale-launch] [--home PATH] [--bin-dir PATH]
                [--config-dir PATH] [--data-dir PATH]
 
 This builds the locked Rust workspace, packages the matching runtime assets,
 and installs the package through Multplx's transactional global installer.
 The default operational home is separate from the installed runtime.
-Pass --upgrade to replace an existing installation. The supported forwarded
-options are --home, --bin-dir, --config-dir and --data-dir. This script does
-not install Rust or system tools.
+Pass --upgrade to replace an existing installation. If upgrade finds a
+verified stale workspace launch reservation for a previous process lifetime, it asks before clearing it.
+Use --recover-stale-launch to confirm the same recovery without an interactive
+prompt. The supported forwarded options are --home, --bin-dir, --config-dir
+and --data-dir. This script does not install Rust or system tools.
 
 After installation, ensure the binary directory is on PATH, then run:
   multplx
@@ -38,6 +40,9 @@ index=0
 while [ "$index" -lt "${#install_args[@]}" ]; do
   case "${install_args[$index]}" in
     --upgrade)
+      index=$((index + 1))
+      ;;
+    --recover-stale-launch)
       index=$((index + 1))
       ;;
     --home|--bin-dir|--config-dir|--data-dir)
