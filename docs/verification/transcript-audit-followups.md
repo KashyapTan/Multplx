@@ -46,7 +46,7 @@ Focused publication, launch, helper-path, evidence-validation, native lifecycle 
 Initial full-run failures exposed stale test doubles and inventory expectations; fixtures now execute inert startup and retain their existing safety assertions.
 Independent source review findings were resolved before the integrated run.
 
-Clean full instrumentation passed with **93.10% line coverage** (70,841 of 76,091 lines), with every instrumented test target passing.
+Clean full local instrumentation at `896a381` passed **833 Rust tests** and **93.10% line coverage** (70,841 of 76,091 lines), with zero failed or ignored tests.
 The exact command was:
 
 ```sh
@@ -61,6 +61,13 @@ The final fixture-only PID-log adjustment was separately verified with the proce
 The first hosted Linux run identified the presentation fixture's Bash sleeper as a shell, correctly refusing to treat it as a provider; the follow-up uses an inert Python process with the same lifetime and retains all presentation assertions.
 An earlier instrumented attempt was invalidated by a concurrently edited shell fixture and incomplete startup fixtures; its diagnostic 92.80% measurement is not acceptance evidence.
 The 93% line coverage gate and its existing exclusions remain unchanged.
+
+The first hosted coverage run also returned HTTP 400 for a valid delayed-header fixture before its five-second read timeout.
+The log does not retain the underlying I/O error, so its exact trigger is unproven.
+Investigation found that the HTTP reader treated `Interrupted` like a permanent error in both header and body reads.
+A deterministic injected-reader regression fails with the previous direct-read implementation and passes when only `Interrupted` is retried.
+Timeouts, reset errors, incomplete input and existing framing limits remain refusals.
+This narrow HTTP follow-up is verified separately and included in the final hosted checks; it does not change the local coverage measurement above.
 
 ## Evidence limits
 
