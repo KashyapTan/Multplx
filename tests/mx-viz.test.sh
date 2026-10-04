@@ -72,9 +72,8 @@ make_readers() {
   mkdir -p "$dir"
 cat >"$dir/snapshot.sh" <<'SH'
 #!/usr/bin/env bash
-count=0
-[ ! -f "$MX_VIZ_COUNT_FILE" ] || count=$(cat "$MX_VIZ_COUNT_FILE")
-printf '%s\n' "$((count + 1))" >"$MX_VIZ_COUNT_FILE"
+mkdir -p "$MX_VIZ_COUNT_FILE.readers"
+: >"$MX_VIZ_COUNT_FILE.readers/$$"
 [ ! -f "$MX_VIZ_DELAY_FILE" ] || sleep "$(cat "$MX_VIZ_DELAY_FILE")"
 [ ! -f "$MX_VIZ_FAIL_FILE" ] || { printf '%s\n' 'fixture refresh failed' >&2; exit 9; }
 cat "$MX_VIZ_FIXTURE"
@@ -243,6 +242,12 @@ snapshot_expired() {
     '.snapshot_age_ms >= $refresh_ms' >/dev/null
 }
 
+snapshot_reader_count() {
+  local directory="$1.readers"
+  [ -d "$directory" ] || { printf '0\n'; return; }
+  find "$directory" -type f -name '[0-9]*' -print | wc -l | tr -d ' '
+}
+
 capture_failed_stale_response() {
   local state_url=$1 etag=$2 headers=$3 body=$4 status
   status=$(curl -sS -D "$headers" -o "$body" -H "If-None-Match: $etag" \
@@ -344,9 +349,9 @@ JS
     and .snapshot.later_feeds.deliveries.available == false
     and ([.artifacts[]? | select(.root == "plans")] | length) == 0' "$body" >/dev/null \
     || fail "state envelope confused absent feeds or retained obsolete port-plan artifacts"
-  [ "$(cat "$home/snapshot.count")" = 1 ] || fail "first state request did not run one snapshot"
+  [ "$(snapshot_reader_count "$home/snapshot.count")" = 1 ] || fail "first state request did not run one snapshot"
   curl -fsS "${url}api/state" >/dev/null || fail "cached state request failed"
-  [ "$(cat "$home/snapshot.count")" = 1 ] || fail "fresh cache reran the snapshot"
+  [ "$(snapshot_reader_count "$home/snapshot.count")" = 1 ] || fail "fresh cache reran the snapshot"
   etag=$(awk 'tolower($1) == "etag:" {gsub("\r", "", $2); print $2}' "$headers")
   status=$(curl -sS -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" "${url}api/state")
   [ "$status" = 304 ] || fail "matching ETag returned HTTP $status"
@@ -365,7 +370,7 @@ NODE
   write_snapshot_fixture "$home/snapshot.json" beta "$home/data"
   mx_test_wait_until 3000 "snapshot cache expiry" etag_changed "${url}api/state" "$etag" "$home/new-headers" \
     || fail "state hash did not change after canonical snapshot bytes changed"
-  [ "$(cat "$home/snapshot.count")" -ge 2 ] || fail "expired cache did not refresh the snapshot"
+  [ "$(snapshot_reader_count "$home/snapshot.count")" -ge 2 ] || fail "expired cache did not refresh the snapshot"
 
   curl -fsS "${url}api/doctor" | jq -e '.exit_code == 2 and .findings[0].severity == "FAIL"' >/dev/null \
     || fail "explicit doctor endpoint discarded a diagnostic nonzero report"
@@ -405,11 +410,13 @@ test_single_flight_stale_service_and_bounded_refresh() {
     || fail "initial snapshot refresh failed: $(cat "$home/initial.json" 2>/dev/null)"
   etag=$(awk 'tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}' "$home/initial.headers")
   [ -n "$etag" ] || fail "initial snapshot response omitted ETag"
-  [ "$(cat "$home/snapshot.count")" = 1 ] || fail "initial cache launched more than one reader"
+  [ "$(snapshot_reader_count "$home/snapshot.count")" = 1 ] || fail "initial cache launched more than one reader"
 
+  # Arm the slow reader before cache expiry so a refresh cannot slip between
+  # detecting expiry and installing the delay.
+  printf '%s\n' 1 >"$home/snapshot.delay"
   mx_test_wait_until 1500 "snapshot cache expiry" snapshot_expired "${url}api/meta" 200 \
     || fail "snapshot cache did not expire"
-  printf '%s\n' 1 >"$home/snapshot.delay"
   for i in $(seq 1 12); do
     header="$home/stale-$i.headers"
     output="$home/stale-$i.json"
@@ -430,8 +437,8 @@ test_single_flight_stale_service_and_bounded_refresh() {
     jq -e '.snapshot.marker == "alpha"' "$home/stale-$i.json" >/dev/null \
       || fail "stale caller $i lost the last good snapshot"
   done
-  [ "$(cat "$home/snapshot.count")" = 2 ] \
-    || fail "multiple viewers launched independent snapshot readers"
+  [ "$(snapshot_reader_count "$home/snapshot.count")" = 2 ] \
+    || fail "expected exactly two snapshot readers, observed $(snapshot_reader_count "$home/snapshot.count")"
   meta=$(curl -fsS "${url}api/meta") || fail "metrics endpoint failed after stalled refresh"
   printf '%s\n' "$meta" | jq -e '
     .metrics.refresh_attempts == 2 and
@@ -465,7 +472,8 @@ test_single_flight_stale_service_and_bounded_refresh() {
     || fail "stale cache was unavailable during retry"
   mx_test_wait_until 2000 "refresh recovery" refresh_succeeded_twice "${url}api/meta" \
     || fail "snapshot refresh did not recover after the stalled provider cleared"
-  [ "$(cat "$home/snapshot.count")" = 3 ] || fail "refresh recovery launched duplicate readers"
+  [ "$(snapshot_reader_count "$home/snapshot.count")" = 3 ] \
+    || fail "refresh recovery launched duplicate readers (observed $(snapshot_reader_count "$home/snapshot.count"))"
   MX_HOME="$home" "$CLI" stop >/dev/null || fail "single-flight dashboard did not stop"
   pass "viz shares one bounded refresh across viewers and serves stale last-good state during provider failure"
 }
@@ -659,7 +667,7 @@ test_port_walk_exhaustion_idle_and_stale_record_safety() {
   [ "$port" = "$((first_port + 1))" ] || fail "run record lost fallback port"
   mx_test_wait_until 3000 "dashboard idle exit" pid_dead "$pid" || fail "idle dashboard did not exit"
   mx_test_wait_until 1000 "idle record cleanup" path_absent "$home/state/.viz/server.run" || fail "idle exit left a run record"
-  [ ! -e "$home/snapshot.count" ] || fail "an unpolled dashboard executed the snapshot"
+  [ ! -e "$home/snapshot.count.readers" ] || fail "an unpolled dashboard executed the snapshot"
 
   ready="$home/all.ready"
   exhausted_port=$((PORT_BASE + 80))

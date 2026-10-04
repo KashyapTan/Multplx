@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -1747,9 +1747,10 @@ fn move_workspace(socket: &Path, workspace: &str, index: u64) -> Result<Value, B
 }
 
 fn ensure_private_namespace(path: &Path) -> Result<(), BackendError> {
-    match fs::create_dir(path) {
-        Ok(()) => fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|error| BackendError::Metadata(error.to_string()))?,
+    let mut builder = fs::DirBuilder::new();
+    builder.mode(0o700);
+    match builder.create(path) {
+        Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(BackendError::Metadata(error.to_string())),
     }
@@ -2372,6 +2373,35 @@ mod tests {
         std::fs::set_permissions(&insecure, std::fs::Permissions::from_mode(0o755))
             .expect("insecure mode");
         assert!(ensure_private_namespace(&insecure).is_err());
+    }
+
+    #[test]
+    fn concurrent_presentation_lock_namespace_creation_is_private_from_first_observation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let namespace = temp.path().join("presentation-locks");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+
+        std::thread::scope(|scope| {
+            let mut workers = Vec::new();
+            for _ in 0..16 {
+                let barrier = barrier.clone();
+                let namespace = namespace.clone();
+                workers.push(scope.spawn(move || {
+                    barrier.wait();
+                    ensure_private_namespace(&namespace)
+                }));
+            }
+            for worker in workers {
+                worker
+                    .join()
+                    .expect("namespace worker")
+                    .expect("concurrent private namespace creation");
+            }
+        });
+
+        let metadata = std::fs::symlink_metadata(namespace).expect("namespace metadata");
+        assert!(metadata.is_dir());
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
     }
 
     #[test]
