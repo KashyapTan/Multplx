@@ -44,8 +44,9 @@ export ACTIVE_SEEDED_CONTROL POST_CREATE_ABORT_CONTROL PROJECTION_CLEANUP_LOCK_C
 # the real lab helper still reaches the real Herdr binary while provisioning
 # the server that will inherit this PATH.
 cat > "$HARNESS_BIN/codex" <<'SH'
-#!/usr/bin/env bash
-sleep 120
+#!/usr/bin/env python3
+import time
+time.sleep(120)
 SH
 chmod +x "$HARNESS_BIN/codex"
 HERDR_SERVER_PATH="$HARNESS_BIN:$HERDR_ORIGINAL_PATH"
