@@ -46,7 +46,19 @@ Focused publication, launch, helper-path, evidence-validation, native lifecycle 
 Initial full-run failures exposed stale test doubles and inventory expectations; fixtures now execute inert startup and retain their existing safety assertions.
 Independent source review findings were resolved before the integrated run.
 
-The clean final coverage result is pending.
+Clean full instrumentation passed with **93.10% line coverage** (70,841 of 76,091 lines), with every instrumented test target passing.
+The exact command was:
+
+```sh
+cargo llvm-cov --locked --workspace --all-targets --no-fail-fast \
+  --ignore-filename-regex '(multplx-cli/src/(authority|deep_review|launcher|review|supervision|workflow_runtime|workspace_tui)\.rs|multplx-cli/src/tooling/(documentation|runner)\.rs|multplx-domain/src/lifecycle/(home_seed|upstream_diff)\.rs|herdr_(cleanup|presentation|tools)\.rs)' \
+  --fail-under-lines 93
+```
+
+The diagnostic log is `/private/tmp/mx-transcript-coverage-final.log`.
+The final fixture-only PID-log adjustment was separately verified with the process-liveness and direct-caller dispatch-profile suites before this clean coverage run.
+[PR #56](https://github.com/KashyapTan/Multplx/pull/56) records the current hosted check results and any platform-specific fixture follow-up.
+The first hosted Linux run identified the presentation fixture's Bash sleeper as a shell, correctly refusing to treat it as a provider; the follow-up uses an inert Python process with the same lifetime and retains all presentation assertions.
 An earlier instrumented attempt was invalidated by a concurrently edited shell fixture and incomplete startup fixtures; its diagnostic 92.80% measurement is not acceptance evidence.
 The 93% line coverage gate and its existing exclusions remain unchanged.
 
