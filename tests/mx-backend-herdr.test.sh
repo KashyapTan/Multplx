@@ -12,6 +12,7 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+export MX_TEST_REPO_ROOT="$ROOT"
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 
@@ -150,6 +151,14 @@ case "$cmd $sub" in
   "session list")
     jq -n --arg session "${HERDR_SESSION:-default}" --arg socket "$STATE.sock" \
       '{sessions:[{name:$session,running:true,socket_path:$socket}]}'
+    ;;
+  "pane send-text")
+    printf '%s' "$4" > "$STATE.launch-$3"
+    ;;
+  "pane send-keys")
+    if [ "${4:-}" = enter ] && [ -f "$STATE.launch-$3" ]; then
+      bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$(cat "$STATE.launch-$3")"
+    fi
     ;;
   "pane close")
     pane=${3:-}

@@ -21,6 +21,7 @@ printf '%s\n' codex > "$HOME_DIR/config/daemon-harness"
 
 cat > "$FAKEBIN/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 case "${1:-}" in
   -V) printf '%s\n' 'tmux 3.4'; exit 0 ;;
@@ -43,6 +44,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+cp "$ROOT/tests/inert-terminal-start.sh" "${FAKEBIN}/inert-terminal-start.sh"
+cp "$ROOT/tests/inert-terminal-tmux.sh" "${FAKEBIN}/inert-terminal-tmux.sh"
 chmod +x "$FAKEBIN/tmux"
 : > "$TMUX_LOG"
 

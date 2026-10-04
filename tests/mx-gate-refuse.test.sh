@@ -60,6 +60,7 @@ test_spawn_allows_common_delegation() {
   printf 'Review the accepted evidence.\n' > "$mate/data/charter.md"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 case "$1" in
   list-windows) exit 0 ;;
   new-window) printf '@1\n' ;;
@@ -67,6 +68,8 @@ case "$1" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   env -u MX_GATE_REFUSE_BYPASS DEEP_REVIEW_GATE=1 MX_SPAWN_NO_GUARD=1 \
     MX_ROOT_OVERRIDE="$ROOT" MX_HOME="$home" MX_BACKEND=tmux PATH="$fakebin:$PATH" \

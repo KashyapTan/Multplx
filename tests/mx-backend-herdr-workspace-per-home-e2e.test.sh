@@ -78,8 +78,10 @@ mx_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab se
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/codex" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' primary-actors-ok daemon-launch-ok sm-actors-ok
+#!/usr/bin/env python3
+import signal
+print('primary-actors-ok\ndaemon-launch-ok\nsm-actors-ok', flush=True)
+signal.pause()
 SH
 chmod +x "$FAKEBIN/codex"
 export PATH="$FAKEBIN:$PATH"

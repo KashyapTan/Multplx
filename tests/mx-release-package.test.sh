@@ -500,7 +500,12 @@ case "$1" in
       shift
     done ;;
   list-panes) echo '{"panes":[{"selected_surface_id":"22222222-2222-4222-8222-222222222222","surface_ids":["22222222-2222-4222-8222-222222222222"]}]}' ;;
-  send|send-key) : ;;
+  send)
+    for argument do literal=$argument; done
+    printf '%s' "$literal" > "$MX_CMUX_FIXTURE/launch-input" ;;
+  send-key)
+    bash "$MX_CMUX_FIXTURE/inert-terminal-start.sh" "$(cat "$MX_CMUX_FIXTURE/launch-input")" ;;
+
   close-workspace) rm -f "$MX_CMUX_FIXTURE/title" ;;
   *) exit 99 ;;
 esac
@@ -509,6 +514,7 @@ chmod +x "$cmux"
 mkdir -p "$TMP_ROOT/upgrade-cmux-bin"
 ln -s "$cmux" "$TMP_ROOT/upgrade-cmux-bin/cmux"
 mkdir -p "$TMP_ROOT/upgrade-cmux-state"
+cp "$ROOT/tests/inert-terminal-start.sh" "$TMP_ROOT/upgrade-cmux-state/inert-terminal-start.sh"
 export MX_CMUX_BIN="$cmux" MX_CMUX_FIXTURE="$TMP_ROOT/upgrade-cmux-state"
 export PATH="$TMP_ROOT/upgrade-cmux-bin:$PATH"
 export MX_REAL_CODEX=/bin/true

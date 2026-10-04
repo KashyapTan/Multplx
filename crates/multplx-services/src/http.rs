@@ -92,14 +92,17 @@ pub fn read_request(stream: &mut TcpStream, max_body: usize) -> Result<Request, 
         .map_err(|_| Response::new(500, b"could not configure request socket\n".to_vec()))?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    read_request_from(stream, max_body)
+}
+
+fn read_request_from(reader: &mut impl Read, max_body: usize) -> Result<Request, Response> {
     let mut bytes = Vec::with_capacity(4096);
     let mut chunk = [0_u8; 4096];
     let end = loop {
         if bytes.len() > MAX_HEADER_BYTES {
             return Err(Response::new(431, b"request headers too large\n".to_vec()));
         }
-        let read = stream
-            .read(&mut chunk)
+        let read = read_uninterrupted(reader, &mut chunk)
             .map_err(|_| Response::new(400, b"bad request\n".to_vec()))?;
         if read == 0 {
             return Err(Response::new(400, b"bad request\n".to_vec()));
@@ -177,8 +180,7 @@ pub fn read_request(stream: &mut TcpStream, max_body: usize) -> Result<Request, 
     while bytes.len().saturating_sub(body_start) < content_length {
         let remaining = content_length - bytes.len().saturating_sub(body_start);
         let chunk_len = chunk.len();
-        let read = stream
-            .read(&mut chunk[..remaining.min(chunk_len)])
+        let read = read_uninterrupted(reader, &mut chunk[..remaining.min(chunk_len)])
             .map_err(|_| Response::new(400, b"bad request\n".to_vec()))?;
         if read == 0 {
             return Err(Response::new(400, b"incomplete request body\n".to_vec()));
@@ -191,6 +193,17 @@ pub fn read_request(stream: &mut TcpStream, max_body: usize) -> Result<Request, 
         headers,
         body: bytes[body_start..body_start + content_length].to_vec(),
     })
+}
+
+// Signals may interrupt a blocking socket read before any bytes arrive. Only
+// Interrupted is retryable: timeouts, disconnects and other errors still fail.
+fn read_uninterrupted(reader: &mut impl Read, bytes: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match reader.read(bytes) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
 }
 
 pub fn content_type(path: &Path) -> &'static str {
@@ -318,6 +331,90 @@ mod tests {
             request.headers.get("host").map(String::as_str),
             Some("local")
         );
+    }
+
+    #[test]
+    fn interrupted_reads_preserve_fragmented_headers_and_body() {
+        use std::collections::VecDeque;
+        use std::io::{self, Cursor, ErrorKind};
+
+        enum Fragment {
+            Bytes(Cursor<&'static [u8]>),
+            Error(ErrorKind),
+        }
+        struct FragmentedReader(VecDeque<Fragment>);
+        impl Read for FragmentedReader {
+            fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+                match self.0.front_mut() {
+                    Some(Fragment::Bytes(fragment)) => {
+                        let read = fragment.read(bytes)?;
+                        if fragment.position() == fragment.get_ref().len() as u64 {
+                            self.0.pop_front();
+                        }
+                        Ok(read)
+                    }
+                    Some(Fragment::Error(_)) => {
+                        let Some(Fragment::Error(kind)) = self.0.pop_front() else {
+                            unreachable!();
+                        };
+                        Err(io::Error::from(kind))
+                    }
+                    None => Ok(0),
+                }
+            }
+        }
+        let fragments = || {
+            VecDeque::from([
+                Fragment::Error(ErrorKind::Interrupted),
+                Fragment::Bytes(Cursor::new(b"POST /confirm HTTP/1.1\r\nHost:")),
+                Fragment::Error(ErrorKind::Interrupted),
+                Fragment::Error(ErrorKind::Interrupted),
+                Fragment::Bytes(Cursor::new(b" local\r\nContent-Length: 4\r\n\r\n")),
+                Fragment::Error(ErrorKind::Interrupted),
+                Fragment::Bytes(Cursor::new(b"te")),
+                Fragment::Error(ErrorKind::Interrupted),
+                Fragment::Bytes(Cursor::new(b"st")),
+            ])
+        };
+        let request = super::read_request_from(&mut FragmentedReader(fragments()), 4)
+            .expect("interrupted fragmented request");
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.target, "/confirm");
+        assert_eq!(
+            request.headers.get("host").map(String::as_str),
+            Some("local")
+        );
+        assert_eq!(request.body, b"test");
+
+        // Permanent errors stay terminal in either phase, even after EINTR.
+        for kind in [
+            ErrorKind::WouldBlock,
+            ErrorKind::TimedOut,
+            ErrorKind::ConnectionReset,
+        ] {
+            for index in [2, 6] {
+                let mut reads = fragments();
+                reads[index] = Fragment::Error(kind);
+                let mut reader = FragmentedReader(reads);
+                assert_eq!(
+                    super::read_request_from(&mut reader, 4)
+                        .expect_err("terminal error")
+                        .status,
+                    400
+                );
+                assert_eq!(reader.0.len(), 8 - index, "error must not be retried");
+            }
+        }
+        for remaining in [0, 4] {
+            let mut reads = fragments();
+            reads.truncate(remaining);
+            assert_eq!(
+                super::read_request_from(&mut FragmentedReader(reads), 4)
+                    .expect_err("incomplete request")
+                    .status,
+                400
+            );
+        }
     }
 
     #[test]

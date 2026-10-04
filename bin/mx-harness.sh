@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Compatibility transport for the Rust harness resolver.
+# Usage: mx-harness.sh [subagent|actor|standing-agent|persistent-subagent|daemon]
+# Model/effort selectors and --help are documented by the Rust owner.
 set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)

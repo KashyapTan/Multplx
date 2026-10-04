@@ -114,6 +114,10 @@ fn transfer_cli_retries_exactly_and_retains_one_authority_with_new_brief() {
     for expected_resumed in [false, true] {
         let output = Command::new(env!("CARGO_BIN_EXE_mx"))
             .args(arguments)
+            .env(
+                "MX_TEST_REPO_ROOT",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+            )
             .env("MX_HOME", &old)
             .env("MX_ROOT_OVERRIDE", &root)
             .env("MX_STATE_OVERRIDE", old.join("state"))
@@ -152,6 +156,10 @@ fn transfer_cli_retries_exactly_and_retains_one_authority_with_new_brief() {
             "--authority-state",
             old.join("state").to_str().unwrap(),
         ])
+        .env(
+            "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env("MX_HOME", &successor)
         .env("MX_ROOT_OVERRIDE", &root)
         .output()
@@ -192,7 +200,13 @@ case "${1:-}" in
   list-windows) [ -f "$MX_TMUX_STATE/dead" ] || printf 'work\n' ;;
   kill-window) : > "$MX_TMUX_STATE/dead" ;;
   capture-pane) printf '│ │\n' ;;
-  send-keys) printf '%s\n' "$*" >> "$MX_TMUX_STATE/sent" ;;
+  send-keys)
+    previous=
+    for argument in "$@"; do
+      if [ "$previous" = "-l" ]; then bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"; fi
+      previous=$argument
+    done
+    printf '%s\n' "$*" >> "$MX_TMUX_STATE/sent" ;;
 esac
 "#,
     )
@@ -219,6 +233,10 @@ esac
             "--authority-state",
             old.join("state").to_str().unwrap(),
         ])
+        .env(
+            "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env("MX_HOME", &successor)
         .env("MX_ROOT_OVERRIDE", &root)
         .env("MX_TMUX_STATE", &fake)
@@ -270,6 +288,10 @@ esac
         }
         command
             .args(&routed)
+            .env(
+                "MX_TEST_REPO_ROOT",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+            )
             .env("MX_HOME", caller)
             .env("MX_ROOT_OVERRIDE", &root)
             .env_remove("MX_TASK_ID")
@@ -346,6 +368,10 @@ esac
             "--authority-state",
             old.join("state").to_str().unwrap(),
         ])
+        .env(
+            "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env("MX_HOME", &successor)
         .env("MX_ROOT_OVERRIDE", &root)
         .env("MX_TMUX_STATE", &fake)

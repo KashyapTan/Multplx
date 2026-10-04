@@ -223,45 +223,30 @@ mx_pr_regular_destination_on_device_or_absent() {
 }
 
 mx_pr_metadata_identity_parse() {
-  local file=$1 line value pr_count=0 seen_pr=0 post_pr_invalid=0
+  local file=$1 runtime identity index=0 line script_dir
   MX_PR_META_PROVIDER=
   MX_PR_META_URL=
   MX_PR_META_HOST=
   MX_PR_META_PATH=
   MX_PR_META_NUMBER=
-  [ -f "$file" ] && [ ! -L "$file" ] || return 1
-  [ "$(mx_pr_file_link_count "$file")" = 1 ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      pr=*)
-        pr_count=$((pr_count + 1))
-        [ "$pr_count" -eq 1 ] || continue
-        value=${line#pr=}
-        if mx_pr_url_parse "$value"; then
-          MX_PR_META_PROVIDER=$MX_PR_PROVIDER
-          MX_PR_META_URL=$MX_PR_URL
-          MX_PR_META_HOST=$MX_PR_HOST
-          MX_PR_META_PATH=$MX_PR_PATH
-          MX_PR_META_NUMBER=$MX_PR_NUMBER
-        fi
-        seen_pr=1
-        ;;
-      pr_head=*)
-        if [ "$seen_pr" -eq 1 ]; then
-          value=${line#pr_head=}
-          mx_pr_head_valid "$value" || post_pr_invalid=1
-        fi
-        ;;
-      x_request=*|x_request_ts=*|x_followups=*|x_platform=*|x_reply_max_chars=*)
-        ;;
-      *)
-        [ "$seen_pr" -eq 0 ] || post_pr_invalid=1
-        ;;
+  script_dir=${BASH_SOURCE[0]%/*}
+  # shellcheck source=bin/mx-rust-runtime.sh
+  . "$script_dir/mx-rust-runtime.sh"
+  runtime=$(mx_rust_runtime_bin) || return 1
+  identity=$(MX_MULTICALL_EXPLICIT=1 "$runtime" review metadata-pr "$file") || return 1
+  # Rust returns exactly the five validated, inert sidecar fields.
+  while IFS= read -r line; do
+    index=$((index + 1))
+    case "$index" in
+      1) MX_PR_META_PROVIDER=$line ;;
+      2) MX_PR_META_URL=$line ;;
+      3) MX_PR_META_HOST=$line ;;
+      4) MX_PR_META_PATH=$line ;;
+      5) MX_PR_META_NUMBER=$line ;;
+      *) return 1 ;;
     esac
-  done < "$file"
-  [ "$pr_count" -eq 1 ] || return 1
-  [ "$post_pr_invalid" -eq 0 ] || return 1
-  [ -n "$MX_PR_META_URL" ]
+  done <<< "$identity"
+  [ "$index" -eq 5 ] && [ -n "$MX_PR_META_URL" ]
 }
 
 # Sidecar layout: provider, url, host, path, number, one per line. A sidecar

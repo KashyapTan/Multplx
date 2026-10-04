@@ -377,10 +377,38 @@ test_exit_codes_and_json_contract() {
   pass "human and JSON modes share deterministic 0/1/2 severity exits"
 }
 
+test_migration_suggestion_preserves_diagnosed_home_from_unrelated_cwd() {
+  read_case "$(make_case "migration home's space")"
+  local status suggestion before="$CASE_DIR/before" after="$CASE_DIR/after"
+  mkdir -p "$CASE_DIR/unrelated"
+  printf 'codex\n' >"$HOME_DIR/config/actor-harness"
+  tree_snapshot "$HOME_DIR" >"$before"
+  run_doctor_capture "$CASE_DIR/doctor.json" status --json --check home-migration
+  expect_code 1 "$status" "unversioned migration home"
+  suggestion=$(jq -r '.findings[0].suggestion | capture("run `(?<command>[^`]+)`").command' "$CASE_DIR/doctor.json")
+  assert_contains "$suggestion" 'mx migrate inspect --home' "suggestion lacks explicit home"
+  (
+    cd "$CASE_DIR/unrelated" || exit 1
+    unset MX_HOME MX_ROOT_OVERRIDE MX_STATE_OVERRIDE MX_DATA_OVERRIDE MX_CONFIG_OVERRIDE MX_PROJECTS_OVERRIDE
+    PATH="$(dirname "$MX_RUST_BIN"):$PATH" sh -c "$suggestion"
+  ) >"$CASE_DIR/migration.json" 2>"$CASE_DIR/migration.err" || fail "suggested read-only inspection failed"
+  jq -e --arg home "$(cd "$HOME_DIR" && pwd -P)" '.home == $home' "$CASE_DIR/migration.json" >/dev/null \
+    || fail "suggestion inspected another home"
+  tree_snapshot "$HOME_DIR" >"$after"
+  cmp "$before" "$after" || fail "read-only inspection mutated the diagnosed home"
+  printf 'invalid marker\n' >"$HOME_DIR/state/.home-schema-version"
+  run_doctor_capture "$CASE_DIR/corrupt.json" status --json --check home-migration
+  expect_code 2 "$status" "corrupt migration marker"
+  jq -e --arg command "$suggestion" '.findings[0].suggestion | contains($command)' "$CASE_DIR/corrupt.json" >/dev/null \
+    || fail "corrupt-marker suggestion lost the home"
+  pass "migration suggestions inspect the exact quoted home from an unrelated cwd without mutation"
+}
+
 test_clean_fixture_and_exit_zero
 test_each_check_classifies_its_fixture
 test_default_mode_makes_zero_fixture_mutations
 test_fix_whitelist_idempotence_and_fail_safe_uncertainty
 test_exit_codes_and_json_contract
+test_migration_suggestion_preserves_diagnosed_home_from_unrelated_cwd
 
 echo "ALL TESTS PASSED"

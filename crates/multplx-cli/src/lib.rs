@@ -15,6 +15,7 @@ mod status_snapshot;
 mod supervision;
 mod system_snapshot;
 mod task;
+mod task_session;
 mod task_transfer;
 mod tooling;
 mod workflow_runtime;
@@ -27,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
-use multplx_core::process::SystemProcessProbe;
+use multplx_core::process::{ProcessProbe, SystemProcessProbe};
 
 const WRAPPER_RUNTIME_ABI: &str = "multplx-rust-runtime-1";
 
@@ -56,6 +57,12 @@ enum Command {
     /// Inspect and revise canonical task/attempt/brief bindings.
     #[command(disable_help_flag = true)]
     TaskModel {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Inspect the exact native SessionStart receipt for a managed task.
+    #[command(disable_help_flag = true)]
+    TaskSession {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -726,6 +733,13 @@ impl Cli {
                 }
             },
             Command::DaemonReport { args } => run_daemon_report(&args),
+            Command::TaskSession { args } => {
+                let (_, home, _) = active_paths();
+                let state = std::env::var_os("MX_STATE_OVERRIDE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join("state"));
+                task_session::run(&args, &state)
+            }
             Command::TaskModel { args } => {
                 let (args, route) = match routed_task_arguments(&args, 1) {
                     Ok(value) => value,
@@ -908,6 +922,7 @@ fn run_session(entry: &str, args: &[OsString]) -> i32 {
             .collect::<Vec<_>>();
         let (root, home, data) = active_paths();
         let paths = doctor::Paths {
+            home: home.clone(),
             root,
             state: std::env::var_os("MX_STATE_OVERRIDE")
                 .map(PathBuf::from)
@@ -1159,6 +1174,11 @@ fn run_supervision(entry: &str, args: &[OsString]) -> i32 {
         let mut payload = String::new();
         let _ = io::stdin().read_to_string(&mut payload);
         let root = active_paths().0;
+        if let Err(error) = task_session::observe(&values, &payload) {
+            // Optional provider identity discovery cannot suppress the existing
+            // native child lifecycle observer or change its acceptance status.
+            eprintln!("warning: task SessionStart identity unavailable: {error}");
+        }
         let result = multplx_domain::supervision::native_observe(&values, &payload, &root);
         print!("{}", result.stdout);
         eprint!("{}", result.stderr);
@@ -2831,12 +2851,149 @@ fn worker_harness_word(harness: &str) -> Result<String, String> {
     Ok(fallback.to_owned())
 }
 
-fn write_tmux_launch_script(task_tmp: &Path, launch: &str) -> Result<String, String> {
+fn write_terminal_launch_script(task_tmp: &Path, launch: &str) -> Result<String, String> {
     let path = task_tmp.join("launch.sh");
     let script = format!("#!/bin/sh\n{launch}\n");
     multplx_core::filesystem::atomic_replace(&path, script.as_bytes(), 0o700)
-        .map_err(|error| format!("cannot persist tmux launch command: {error}"))?;
+        .map_err(|error| format!("cannot persist terminal launch command: {error}"))?;
     launch_path_word(&path)
+}
+
+// A shell receipt proves input execution only. The same PID must have exec'd
+// the requested harness before we report Running; this is not model acceptance.
+fn write_verified_launch_script(
+    task_tmp: &Path,
+    launch: &str,
+    identity: &str,
+) -> Result<String, String> {
+    let receipt = task_tmp.join("launch-started");
+    let pending = task_tmp.join("launch-started.pending");
+    let script = format!(
+        "umask 077\nprintf '%s\\n%s\\n' {} \"$$\" > {} && mv {} {} || exit 1\nexec env {launch}",
+        launch_shell_word(identity),
+        launch_path_word(&pending)?,
+        launch_path_word(&pending)?,
+        launch_path_word(&receipt)?
+    );
+    write_terminal_launch_script(task_tmp, &script)
+}
+
+fn launch_process_started(task_tmp: &Path, identity: &str, harness: &str) -> bool {
+    let Ok(bytes) =
+        multplx_core::filesystem::read_bounded_regular(task_tmp.join("launch-started"), 16 * 1024)
+    else {
+        return false;
+    };
+    let Ok(text) = std::str::from_utf8(&bytes) else {
+        return false;
+    };
+    let mut lines = text.lines();
+    if lines.next() != Some(identity) {
+        return false;
+    }
+    let Some(pid) = lines
+        .next()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|pid| *pid > 1)
+    else {
+        return false;
+    };
+    if lines.next().is_some() {
+        return false;
+    }
+    let Ok(row) = SystemProcessProbe::default().ancestry_row(pid) else {
+        return false;
+    };
+    let expected = harness_executable(harness);
+    harness_process_row_matches(&row, harness, expected.as_deref())
+}
+
+fn harness_executable(harness: &str) -> Option<PathBuf> {
+    let (variable, program) = match harness {
+        "codex" => ("MX_REAL_CODEX", "codex"),
+        "claude" => ("MX_REAL_CLAUDE", "claude"),
+        "cursor" => ("MX_REAL_CURSOR_AGENT", "agent"),
+        "pi" => ("MX_REAL_PI", "pi"),
+        _ => return None,
+    };
+    std::env::var_os(variable).map(PathBuf::from).or_else(|| {
+        std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|directory| directory.join(program))
+                .find(|path| path.is_file())
+        })
+    })
+}
+
+fn harness_process_row_matches(
+    row: &multplx_core::process::AncestryRow,
+    harness: &str,
+    expected: Option<&Path>,
+) -> bool {
+    let matches = |word: &str| {
+        let name = Path::new(word)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        match harness {
+            "codex" => matches!(name, "codex" | "codex-cli"),
+            "claude" => name == "claude",
+            "cursor" => matches!(name, "agent" | "cursor-agent"),
+            "pi" => name == "pi",
+            _ => false,
+        }
+    };
+    matches(&row.command) || {
+        let name = Path::new(&row.command)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let interpreter =
+            matches!(name, "node" | "nodejs") || name.to_ascii_lowercase().starts_with("python");
+        let expected = expected.and_then(|path| {
+            fs::canonicalize(path)
+                .ok()
+                .map(|canonical| (path, canonical))
+        });
+        let mut arguments = row.arguments.split_whitespace();
+        let argv0 = arguments.next();
+        let script = arguments.find(|word| !word.starts_with('-'));
+        let exact_prefix = |path: &Path| {
+            let Some(path) = path.to_str() else {
+                return false;
+            };
+            let starts = |text: &str| {
+                text.strip_prefix(path)
+                    .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
+            };
+            starts(&row.arguments)
+                || row
+                    .arguments
+                    .split_once(' ')
+                    .is_some_and(|(_, tail)| starts(tail.trim_start()))
+        };
+        interpreter
+            && (expected.as_ref().is_some_and(|(original, canonical)| {
+                exact_prefix(original)
+                    || exact_prefix(canonical)
+                    || fs::read_link(original).is_ok_and(|target| {
+                        let resolved = if target.is_absolute() {
+                            target
+                        } else {
+                            original
+                                .parent()
+                                .unwrap_or_else(|| Path::new("."))
+                                .join(target)
+                        };
+                        exact_prefix(&resolved)
+                    })
+            }) || [argv0, script].into_iter().flatten().any(|word| {
+                matches(word)
+                    || expected.as_ref().is_some_and(|(_, path)| {
+                        fs::canonicalize(word).is_ok_and(|actual| actual == *path)
+                    })
+            }))
+    }
 }
 
 fn launch_environment(name: &str, value: &str) -> String {
@@ -3924,6 +4081,23 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: interrupted launch intent conflicts with the retry binding");
         return 1;
     }
+    if reusing_intent
+        && multplx_domain::lifecycle::spawn::read_action(&context, &admission_record.request_id)
+            .ok()
+            .flatten()
+            .is_some_and(|action| {
+                matches!(
+                    action.stage,
+                    multplx_domain::lifecycle::spawn::LaunchStage::Submitted
+                        | multplx_domain::lifecycle::spawn::LaunchStage::Running
+                )
+            })
+    {
+        eprintln!(
+            "error: launch was already submitted; reconcile its retained endpoint before retrying"
+        );
+        return 1;
+    }
     if reusing_intent && !resuming_request {
         eprintln!(
             "error: interrupted launch intent for {}; reconcile the recorded endpoint/allocation before retrying",
@@ -4313,6 +4487,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         return 1;
     }
     let mut created_target = None;
+    let mut launch_submission_attempted = false;
     let mut herdr_endpoint = None;
     let mut projected_endpoint = None;
     let mut presentation_lock = None;
@@ -4759,32 +4934,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
             other => return Err(format!("unknown harness '{other}'")),
         };
-        let tmux_launch = if target.backend() == BackendName::Tmux {
-            write_tmux_launch_script(&task_tmp, &launch)?
-        } else {
-            String::new()
-        };
-        match target.backend() {
-            BackendName::Tmux => {
-                let mut backend = multplx_backend::tmux::TmuxBackend::system();
-                backend
-                    .send_literal(&target, &tmux_launch)
-                    .and_then(|()| backend.send_key(&target, "Enter"))
-            }
-            BackendName::Herdr => {
-                let mut backend = herdr_backend();
-                backend
-                    .send_literal(&target, &launch)
-                    .and_then(|()| backend.send_key(&target, "Enter"))
-            }
-            BackendName::Cmux => {
-                let mut backend = multplx_backend::cmux::CmuxBackend::system();
-                backend
-                    .send_literal(&target, &launch)
-                    .and_then(|()| backend.send_key(&target, "Enter"))
-            }
-        }
-        .map_err(|error_value| error_value.to_string())?;
+        let launch_identity = serde_json::to_string(&serde_json::json!({
+            "task": request.id, "attempt": attempt, "endpoint": named_endpoint,
+            "brief_revision": request.binding.as_ref().and_then(|binding| binding.accepted_brief_revision),
+            "nonce": multplx_domain::maintainer_override::sha256_text(&format!("{}:{}:{:?}", std::process::id(), named_endpoint, std::time::SystemTime::now()))
+        })).map_err(|error| error.to_string())?;
+        let short_launch = write_verified_launch_script(&task_tmp, &launch, &launch_identity)?;
         multplx_domain::lifecycle::spawn::advance_action(
             &context,
             &admission_record.request_id,
@@ -4794,6 +4949,28 @@ fn run_spawn(args: &[OsString]) -> i32 {
             Some(&named_endpoint),
             None,
         )?;
+        launch_submission_attempted = true;
+        match target.backend() {
+            BackendName::Tmux => {
+                let mut backend = multplx_backend::tmux::TmuxBackend::system();
+                backend
+                    .send_literal(&target, &short_launch)
+                    .and_then(|()| backend.send_key(&target, "Enter"))
+            }
+            BackendName::Herdr => {
+                let mut backend = herdr_backend();
+                backend
+                    .send_literal(&target, &short_launch)
+                    .and_then(|()| backend.send_key(&target, "Enter"))
+            }
+            BackendName::Cmux => {
+                let mut backend = multplx_backend::cmux::CmuxBackend::system();
+                backend
+                    .send_literal(&target, &short_launch)
+                    .and_then(|()| backend.send_key(&target, "Enter"))
+            }
+        }
+        .map_err(|error_value| error_value.to_string())?;
         for _ in 0..2 {
             std::thread::sleep(Duration::from_millis(150));
             match target.backend() {
@@ -4811,6 +4988,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     target.endpoint()
                 )
             })?;
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !launch_process_started(&task_tmp, &launch_identity, &request.harness) {
+            if std::time::Instant::now() >= deadline {
+                return Err("harness process startup is unverified after submission; retain endpoint and launch intent, inspect before retry (shell receipt is not model acceptance)".into());
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
         {
             let _identity_lock = multplx_core::locks::DirectoryLock::acquire_wait(
@@ -5004,13 +5188,16 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
         Err(error_value) => {
             let mut endpoint_absent = created_target.is_none();
-            if let Some((session, pane)) = projected_endpoint.as_ref() {
+            if !launch_submission_attempted
+                && let Some((session, pane)) = projected_endpoint.as_ref()
+            {
                 endpoint_absent = herdr_backend()
                     .close_pane_focus_preserving(session, pane, None)
                     .is_ok();
             }
             drop(presentation_lock);
-            if projected_endpoint.is_none()
+            if !launch_submission_attempted
+                && projected_endpoint.is_none()
                 && let Some(target) = created_target.as_ref()
             {
                 match target.backend() {
@@ -5068,13 +5255,17 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     );
                 }
             }
-            if let Some(record) = request.single_checkout_record.as_deref() {
+            if !launch_submission_attempted
+                && let Some(record) = request.single_checkout_record.as_deref()
+            {
                 let _ = fs::remove_file(record);
             }
-            if let (Some(store), Some(request_id)) = (
-                single_checkout_store.as_ref(),
-                single_checkout_request.as_deref(),
-            ) {
+            if (!launch_submission_attempted || endpoint_absent)
+                && let (Some(store), Some(request_id)) = (
+                    single_checkout_store.as_ref(),
+                    single_checkout_request.as_deref(),
+                )
+            {
                 let _ = store.result(
                     request_id,
                     false,
@@ -6247,6 +6438,35 @@ fn run_cmux(args: &[OsString]) -> i32 {
 }
 
 fn run_harness(args: &[OsString]) -> i32 {
+    if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h" | "help")) {
+        println!(
+            "Usage: mx harness [subagent|actor|standing-agent|persistent-subagent|daemon|standing-agent-model|persistent-subagent-model|daemon-model|standing-agent-effort|persistent-subagent-effort|daemon-effort]\nWithout arguments, detect the current harness. Selectors read configured dispatch defaults."
+        );
+        return 0;
+    }
+    if args.len() > 1
+        || args.first().is_some_and(|arg| {
+            !matches!(
+                arg.to_str(),
+                Some(
+                    "subagent"
+                        | "actor"
+                        | "standing-agent"
+                        | "persistent-subagent"
+                        | "daemon"
+                        | "standing-agent-model"
+                        | "persistent-subagent-model"
+                        | "daemon-model"
+                        | "standing-agent-effort"
+                        | "persistent-subagent-effort"
+                        | "daemon-effort"
+                )
+            )
+        })
+    {
+        eprintln!("error: unknown harness arguments; use mx harness --help");
+        return 2;
+    }
     let root = std::env::var_os("MX_ROOT_OVERRIDE")
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
@@ -8349,6 +8569,157 @@ mod tests {
     }
 
     #[test]
+    fn terminal_harness_identity_handles_owned_wrappers_and_spaced_scripts() {
+        use multplx_core::process::AncestryRow;
+        let row = |command: &str, arguments: &str| AncestryRow {
+            parent_pid: 1,
+            command: command.into(),
+            arguments: arguments.into(),
+        };
+        assert!(harness_process_row_matches(
+            &row(
+                "/usr/bin/node",
+                "/opt/cursor/agent --use-system-ca /opt/cursor/index.js --model x"
+            ),
+            "cursor",
+            None
+        ));
+        assert!(harness_process_row_matches(
+            &row(
+                "/opt/cursor/agent",
+                "/opt/cursor/agent --use-system-ca /opt/cursor/index.js"
+            ),
+            "cursor",
+            None
+        ));
+        assert!(!harness_process_row_matches(
+            &row("/usr/bin/node", "node /other/index.js --provider codex"),
+            "codex",
+            None
+        ));
+        assert!(!harness_process_row_matches(
+            &row("/bin/sh", "sh /tmp/codex"),
+            "codex",
+            None
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let spaced = dir.path().join("runtime with spaces");
+        fs::create_dir(&spaced).unwrap();
+        let codex = spaced.join("codex");
+        fs::write(&codex, "fixture").unwrap();
+        assert!(harness_process_row_matches(
+            &row(
+                "Python",
+                &format!("python3 {} --model fixture", codex.display())
+            ),
+            "codex",
+            Some(&codex)
+        ));
+        let cli = spaced.join("cli.js");
+        fs::write(&cli, "fixture").unwrap();
+        let pi = dir.path().join("pi");
+        std::os::unix::fs::symlink(&cli, &pi).unwrap();
+        assert!(harness_process_row_matches(
+            &row(
+                "/usr/bin/node",
+                &format!("node {} --thinking medium", cli.display())
+            ),
+            "pi",
+            Some(&pi)
+        ));
+        assert!(!harness_process_row_matches(
+            &row(
+                "/usr/bin/node",
+                &format!("node /foreign/cli.js --prompt {}", cli.display())
+            ),
+            "pi",
+            Some(&pi)
+        ));
+    }
+
+    #[test]
+    fn terminal_start_receipt_requires_same_live_harness_process() {
+        use std::process::{Command, Stdio};
+        let dir = tempfile::tempdir().unwrap();
+        let harness = dir.path().join("codex");
+        fs::write(&harness, "import time\ntime.sleep(2)\n").unwrap();
+        let launch = format!("python3 {}", launch_path_word(&harness).unwrap());
+        let _script =
+            write_verified_launch_script(dir.path(), &launch, "exact-attempt-endpoint").unwrap();
+        let delayed = fs::read_to_string(dir.path().join("launch.sh"))
+            .unwrap()
+            .replace("exec env ", "sleep 0.15\nexec env ");
+        fs::write(dir.path().join("launch.sh"), delayed).unwrap();
+        let mut child = Command::new("sh")
+            .arg(dir.path().join("launch.sh"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(40));
+        assert!(!launch_process_started(
+            dir.path(),
+            "exact-attempt-endpoint",
+            "codex"
+        ));
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !launch_process_started(dir.path(), "exact-attempt-endpoint", "codex")
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(launch_process_started(
+            dir.path(),
+            "exact-attempt-endpoint",
+            "codex"
+        ));
+        assert!(!launch_process_started(dir.path(), "old-attempt", "codex"));
+        assert!(!launch_process_started(
+            dir.path(),
+            "exact-attempt-endpoint",
+            "claude"
+        ));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(!launch_process_started(
+            dir.path(),
+            "exact-attempt-endpoint",
+            "codex"
+        ));
+        let _script =
+            write_verified_launch_script(dir.path(), "/missing-harness", "failed-exec").unwrap();
+        assert!(
+            !Command::new("sh")
+                .arg(dir.path().join("launch.sh"))
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(!launch_process_started(dir.path(), "failed-exec", "codex"));
+        fs::write(&harness, "import sys\nsys.exit(0)\n").unwrap();
+        write_verified_launch_script(dir.path(), &launch, "quick-exit").unwrap();
+        assert!(
+            Command::new("sh")
+                .arg(dir.path().join("launch.sh"))
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(!launch_process_started(dir.path(), "quick-exit", "codex"));
+        let _script =
+            write_verified_launch_script(dir.path(), "sh -c 'sleep 1'", "shell-only").unwrap();
+        let mut child = Command::new("sh")
+            .arg(dir.path().join("launch.sh"))
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!launch_process_started(dir.path(), "shell-only", "codex"));
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
     fn launch_transport_quotes_every_data_word_and_rejects_non_utf8_paths() {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         use std::os::unix::fs::PermissionsExt;
@@ -8399,7 +8770,7 @@ mod tests {
 
         let task_tmp = tempfile::tempdir().expect("task temp");
         let long_launch = format!("env PAYLOAD='{}' command", "x".repeat(8192));
-        let submitted = write_tmux_launch_script(task_tmp.path(), &long_launch)
+        let submitted = write_terminal_launch_script(task_tmp.path(), &long_launch)
             .expect("persist long tmux launch");
         assert_eq!(
             submitted,

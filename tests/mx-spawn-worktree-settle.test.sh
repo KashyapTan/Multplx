@@ -46,6 +46,13 @@ case "${1:-}" in
     printf '@1\n'; exit 0 ;;
   has-session|new-session|kill-window) exit 0 ;;
   send-keys)
+    previous=
+    for argument in "$@"; do
+      if [ "$previous" = "-l" ]; then
+        bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"
+      fi
+      previous=$argument
+    done
     if [ -n "${MX_FAKE_SEND_LOG:-}" ]; then printf '%s\n' "$*" >> "$MX_FAKE_SEND_LOG"; fi
     exit 0 ;;
 esac
@@ -107,7 +114,7 @@ EOF
 run_settle_spawn() {
   local id=$1
   shift
-  MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
+  MX_TEST_REPO_ROOT="$ROOT" MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
     MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
     MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
     MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
@@ -321,7 +328,7 @@ test_queued_head_drift_never_retargets_the_accepted_base() {
   # Model the allocator choosing latest HEAD instead of the frozen queue base.
   # Both mutations affect only this synthetic repository and its test worktree.
   git -C "$WT_DIR" reset --hard "$changed" >/dev/null
-  out=$(MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
+  out=$(MX_TEST_REPO_ROOT="$ROOT" MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
     MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
     MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
     MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \

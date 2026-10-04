@@ -143,6 +143,13 @@ Submission records intake; it does not claim an agent has already started.
 Worktrees begin at committed revisions, so uncommitted source files are not silently included.
 Ask the orchestrator to change scope, stop or resume assigned work using its exact task ID; changing the selected project never retargets existing tasks.
 
+| Command | Purpose |
+| --- | --- |
+| `multplx task-session inspect TASK` | Read the exact managed Codex UUID and validated transcript reference for the current task attempt. |
+| `multplx task-session history TASK` | Read retained per-attempt identities without asserting live execution or resumability. |
+
+See [exact managed Codex session inspection](configuration.md#exact-managed-codex-session-inspection) for provider readiness, owner selection and transcript limits.
+
 ## Coordinate a project or research domain
 
 A scoped coordinator can own related work and delegate its own workers while reporting to the main orchestrator.

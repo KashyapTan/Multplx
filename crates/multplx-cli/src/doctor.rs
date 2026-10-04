@@ -9,6 +9,7 @@ use serde::Serialize;
 
 pub(crate) struct Paths {
     pub root: PathBuf,
+    pub home: PathBuf,
     pub state: PathBuf,
     pub data: PathBuf,
 }
@@ -40,6 +41,13 @@ const CHECKS: &[(&str, &str)] = &[
     ("compat-symlinks", "tools & environment"),
     ("home-migration", "tools & environment"),
 ];
+
+fn migration_inspect(paths: &Paths) -> String {
+    format!(
+        "mx migrate inspect --home '{}'",
+        paths.home.to_string_lossy().replace('\'', "'\\''")
+    )
+}
 
 fn finding(
     name: &'static str,
@@ -315,13 +323,22 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                                 .and_then(|value| value.as_u64())
                                 == Some(2) =>
                     {
-                        finding(name, "OK", "operational home schema is current", None, false)
+                        finding(
+                            name,
+                            "OK",
+                            "operational home schema is current",
+                            None,
+                            false,
+                        )
                     }
                     _ => finding(
                         name,
                         "FAIL",
                         "operational home migration marker is incompatible or corrupt",
-                        Some("run `mx migrate inspect` with the matching runtime; do not start an older writer".into()),
+                        Some(format!(
+                            "run `{}` with the matching runtime; do not start an older writer",
+                            migration_inspect(paths)
+                        )),
                         false,
                     ),
                 },
@@ -330,19 +347,23 @@ fn check(name: &'static str, paths: &Paths, fix: bool, fixes: &mut Vec<String>) 
                 {
                     let has_legacy_state = metas(paths).into_iter().next().is_some()
                         || paths.data.join("projects.md").is_file()
-                        || [
-                            "actor-harness",
-                            "daemon-harness",
-                            "actor-dispatch.json",
-                        ]
-                        .iter()
-                        .any(|name| paths.state.parent().is_some_and(|home| home.join("config").join(name).is_file()));
+                        || ["actor-harness", "daemon-harness", "actor-dispatch.json"]
+                            .iter()
+                            .any(|name| {
+                                paths
+                                    .state
+                                    .parent()
+                                    .is_some_and(|home| home.join("config").join(name).is_file())
+                            });
                     if has_legacy_state {
                         finding(
                             name,
                             "WARN",
                             "operational home is unversioned",
-                            Some("run `mx migrate inspect`, then apply only after its blockers are resolved".into()),
+                            Some(format!(
+                                "run `{}`, then apply only after its blockers are resolved",
+                                migration_inspect(paths)
+                            )),
                             false,
                         )
                     } else {

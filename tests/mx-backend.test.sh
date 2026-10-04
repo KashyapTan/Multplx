@@ -21,6 +21,7 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+export MX_TEST_REPO_ROOT="$ROOT"
 mx_git_identity fmtest fmtest@example.invalid
 
 # shellcheck source=/dev/null
@@ -656,6 +657,15 @@ make_spawn_fakebin() {  # <dir> <fake-worktree-path> -> echoes fakebin dir
 set -u
 { printf 'tmux'; for a in "\$@"; do printf '\\x1f%s' "\$a"; done; printf '\\n'; } >> "\${MX_TMUX_LOG:?}"
 case "\${1:-}" in
+  send-keys)
+    previous=
+    for argument in "\$@"; do
+      if [ "\$previous" = -l ]; then
+        bash "\$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "\$argument"
+      fi
+      previous=\$argument
+    done
+    exit 0 ;;
   new-window) printf '@1\n'; exit 0 ;;
   display-message)
     for a in "\$@"; do case "\$a" in *pane_current_path*) printf '%s\\n' "$wt"; exit 0 ;; esac; done
@@ -709,6 +719,15 @@ make_spawn_symlink_fakebin() {  # <dir> <initial-project-path> <worktree-path> -
 set -u
 { printf 'tmux'; for a in "\$@"; do printf '\\x1f%s' "\$a"; done; printf '\\n'; } >> "\${MX_TMUX_LOG:?}"
 case "\${1:-}" in
+  send-keys)
+    previous=
+    for argument in "\$@"; do
+      if [ "\$previous" = -l ]; then
+        bash "\$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "\$argument"
+      fi
+      previous=\$argument
+    done
+    exit 0 ;;
   new-window) printf '@1\n'; exit 0 ;;
   display-message)
     for a in "\$@"; do case "\$a" in *pane_current_path*)

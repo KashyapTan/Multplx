@@ -48,6 +48,7 @@ The discoverable [operational skills](../.agents/skills/) include task dispatch,
 - [Guard verification](verification/guards.md) holds current cross-harness empirical proof for those safety mechanisms.
 - [Orchestrator contract verification](verification/orchestrator-contract.md) records instruction discovery, delivery packaging and bounded behavioral trial evidence.
 - [Supervision verification](verification/supervision.md) and [runtime backend verification](verification/runtime-backends.md) hold the other active version-scoped evidence.
+- [Transcript audit follow-ups](verification/transcript-audit-followups.md) record publication, startup and delivery usability repairs and their validation limits.
 - [Launcher verification](verification/launcher.md) records global path, shell, lock, harness, and performance evidence.
 - [Rust port final cutover](verification/rust-port-final-cutover.md) records the Portion 13 full-suite, isolation, fresh-session, dependency, and performance closeout evidence.
 - [Cursor CLI verification](verification/cursor-cli.md) records the pinned live adapter matrix and explicit unsupported boundaries.

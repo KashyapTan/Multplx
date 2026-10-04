@@ -269,6 +269,27 @@ test_invalid_input_and_no_clobber() {
   pass 'invalid or ambiguous requests refuse and existing briefs remain byte-identical'
 }
 
+test_delivery_helper_from_external_checkout_and_spaced_runtime() {
+  local runtime="$TMP_ROOT/runtime's install" external="$TMP_ROOT/external project" home="$TMP_ROOT/delivery-home"
+  local command output
+  mkdir -p "$runtime/bin" "$external" "$home/data"
+  cp "$ROOT/bin/mx-brief.sh" "$ROOT/bin/mx-deliver.sh" "$ROOT/bin/mx-pr-check.sh" "$runtime/bin/"
+  (
+    cd "$external" || exit 1
+    MX_HOME="$home" MX_ROOT_OVERRIDE="$runtime" "$runtime/bin/mx-brief.sh" external-worker "$external"
+  ) >/dev/null || fail "external-project brief failed"
+  command=$(python3 - "$home/data/external-worker/brief.md" <<'PYCODE'
+import re, sys
+body = open(sys.argv[1]).read()
+print(next(command for command in re.findall(r'`([^`]+)`', body) if 'mx-deliver.sh' in command and command.endswith(' --help')))
+PYCODE
+  ) || fail "brief did not supply an executable delivery help command"
+  output=$(cd "$external" && sh -c "$command") || fail "generated absolute delivery helper failed from external checkout"
+  assert_contains "$output" 'mx-deliver.sh' "real delivery helper did not return its help"
+  assert_absent "$external/bin" "external project unexpectedly acquired runtime helpers"
+  pass "generated delivery helper executes from external checkout with spaced and quoted runtime path"
+}
+
 test_script_parses
 test_help_includes_entire_header
 test_herdr_lab_contract_is_explicit_and_complete
@@ -280,3 +301,5 @@ test_lean_assignments
 test_modes_do_not_request_review_or_merge
 test_handoff_context_and_three_repositories
 test_invalid_input_and_no_clobber
+
+test_delivery_helper_from_external_checkout_and_spaced_runtime

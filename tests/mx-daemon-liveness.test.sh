@@ -223,6 +223,7 @@ make_liveness_tmux() {
   fakebin=$(mx_fakebin "$dir")
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+bash "$(dirname "$0")/inert-terminal-tmux.sh" "$@"
 set -u
 mode=${MX_TEST_PANE_CMD:-zsh}
 case "${1:-}" in
@@ -261,6 +262,8 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cp "$ROOT/tests/inert-terminal-start.sh" "${fakebin}/inert-terminal-start.sh"
+  cp "$ROOT/tests/inert-terminal-tmux.sh" "${fakebin}/inert-terminal-tmux.sh"
   chmod +x "$fakebin/tmux"
   printf '%s\n' "$fakebin"
 }

@@ -22,6 +22,7 @@ use multplx_domain::review_delivery::{
 use sha2::{Digest, Sha256};
 
 const ENTRIES: &[&str] = &[
+    "metadata-pr",
     "mx-check-register.sh",
     "mx-deep-review.sh",
     "mx-deliver.sh",
@@ -41,6 +42,7 @@ pub fn run(entry: &str, args: &[OsString]) -> i32 {
         return 2;
     }
     match entry {
+        "metadata-pr" => metadata_pr_adapter(args),
         "mx-check-register.sh" => check_register(args),
         "mx-deep-review.sh" => crate::deep_review::run(args),
         "mx-deliver.sh" => deliver(args),
@@ -55,6 +57,23 @@ pub fn run(entry: &str, args: &[OsString]) -> i32 {
         _ => {
             eprintln!("error: unhandled review or delivery entry point: {entry}");
             2
+        }
+    }
+}
+
+fn metadata_pr_adapter(args: &[OsString]) -> i32 {
+    let [path] = args else {
+        eprintln!("usage: mx review metadata-pr <task-metadata-file>");
+        return 2;
+    };
+    match multplx_domain::review_delivery::metadata_pr_file(Path::new(path)) {
+        Ok(identity) => {
+            print!("{}", identity.render_sidecar());
+            0
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            1
         }
     }
 }
@@ -397,9 +416,26 @@ fn review_diff(args: &[OsString]) -> i32 {
         );
         return 1;
     }
-    let Some(default) = default_branch(&project) else {
+    let selected_base = if text
+        .lines()
+        .any(|line| line.starts_with("canonical_model="))
+    {
+        match multplx_domain::lifecycle::subagent_model::read_meta(id, &text).and_then(|task| {
+            task.current_publication_base()
+                .map(|base| base.map(str::to_owned))
+        }) {
+            Ok(base) => base,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    let Some(default) = selected_base.or_else(|| default_branch(&project)) else {
         eprintln!(
-            "error: cannot determine default branch for {}; expected origin/HEAD, main, or master",
+            "error: cannot determine publication base for {}",
             project.display()
         );
         return 1;
@@ -650,11 +686,21 @@ fn pr_check(args: &[OsString]) -> i32 {
         eprintln!("error: invalid PR check request");
         return 2;
     };
-    let [id, raw_url] = values.as_slice() else {
-        eprintln!("error: invalid PR check request");
-        return 2;
+    if matches!(values.as_slice(), ["-h" | "--help"]) {
+        print!(
+            "Register or refresh a task-bound pull request and its read-only merge poll.\n\nUsage: mx-pr-check.sh <task-id> <canonical-PR-url> [--base <branch>]\n\nThe repository, head branch, exact HEAD and publication base must match the task. An explicit base is frozen for the accepted brief revision; revise the assignment before changing it. Without --base the recorded base, or the repository default for an unbound task, is used. Use mx-pr-check-migrate.sh --help for historical poll recovery. PR merging remains human-only.\n"
+        );
+        return 0;
+    }
+    let (id, raw_url, requested_base) = match values.as_slice() {
+        [id, raw_url] => (*id, *raw_url, None),
+        [id, raw_url, "--base", base] if ref_valid(base) => (*id, *raw_url, Some(*base)),
+        _ => {
+            eprintln!("error: invalid PR check request");
+            return 2;
+        }
     };
-    let Ok(task) = OperationalTaskId::parse(*id) else {
+    let Ok(task) = OperationalTaskId::parse(id) else {
         eprintln!("error: invalid PR check request");
         return 2;
     };
@@ -720,16 +766,39 @@ fn pr_check(args: &[OsString]) -> i32 {
                 return 1;
             }
         };
+    let (base, bound_meta) = if canonical_project.is_some() {
+        match publication_base_metadata(&task, Path::new(&worktree), &meta_text, requested_base) {
+            Ok(binding) => binding,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    } else {
+        if requested_base.is_some() {
+            eprintln!("error: explicit publication base requires a canonical task");
+            return 1;
+        }
+        (String::new(), meta_text.to_string())
+    };
     let pr_head = if canonical_project.is_some() {
         let Some(local_head) = command_line("git", Path::new(&worktree), &["rev-parse", "HEAD"])
         else {
             eprintln!("error: task publication head is unavailable");
             return 1;
         };
-        let Some(base) = default_branch(Path::new(&worktree)) else {
-            eprintln!("error: task publication base is unavailable");
+        let current_task =
+            multplx_domain::lifecycle::subagent_model::read_meta(task.as_str(), &bound_meta)
+                .expect("publication candidate was validated");
+        if current_task
+            .delivery
+            .current_commit
+            .as_deref()
+            .is_some_and(|current| current != local_head)
+        {
+            eprintln!("error: PR commit differs from the current delivery revision");
             return 1;
-        };
+        }
         let credentials = match delivery_credentials() {
             Ok(credentials) => credentials,
             Err(error) => {
@@ -862,7 +931,7 @@ fn pr_check(args: &[OsString]) -> i32 {
         std::thread::sleep(std::time::Duration::from_secs_f64(delay));
     }
 
-    let mut updated = meta_text
+    let mut updated = bound_meta
         .lines()
         .filter(|line| !line.starts_with("pr=") && !line.starts_with("pr_head="))
         .map(str::to_owned)
@@ -872,7 +941,7 @@ fn pr_check(args: &[OsString]) -> i32 {
         updated.push(format!("pr_head={head}"));
     }
     let bytes = format!("{}\n", updated.join("\n"));
-    if publish_private_task_metadata(&meta, bytes.as_bytes()).is_err() {
+    if replace_bound_metadata(&state, &task, &meta_text, &bytes).is_err() {
         eprintln!("error: PR metadata recording failed");
         return 1;
     }
@@ -1912,6 +1981,85 @@ fn private_metadata_text(state: &Path, path: &Path) -> Option<String> {
     String::from_utf8(file.bytes).ok()
 }
 
+/// Resolve a selected base without changing state. Registration persists this
+/// candidate only after the forge has proved all task-bound PR facts.
+fn publication_base_metadata(
+    task: &OperationalTaskId,
+    worktree: &Path,
+    text: &str,
+    requested: Option<&str>,
+) -> Result<(String, String), String> {
+    use multplx_domain::lifecycle::subagent_model::{read_meta, write_meta};
+    let mut model = read_meta(task.as_str(), text)?;
+    let base = requested.map(str::to_owned).or_else(|| {
+        model
+            .current_publication_base()
+            .ok()
+            .flatten()
+            .map(str::to_owned)
+    });
+    if requested.is_none() {
+        model.current_publication_base()?;
+    }
+    let base = base
+        .or_else(|| default_branch(worktree))
+        .ok_or("cannot resolve publication base branch")?;
+    let head_branch = command_line(
+        "git",
+        worktree,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    );
+    if !model.legacy_unknown && head_branch.as_deref() != Some(format!("mx/{task}").as_str()) {
+        return Err("publication worktree branch differs from the task binding".into());
+    }
+    if !ref_valid(&base)
+        || head_branch.as_deref() == Some(base.as_str())
+        || base == format!("mx/{task}")
+        || !command_success("git", worktree, &["check-ref-format", "--branch", &base])
+    {
+        return Err("invalid publication base branch".into());
+    }
+    if model.legacy_unknown {
+        if requested.is_some() {
+            return Err("explicit publication base requires a canonical task".into());
+        }
+        return Ok((base, text.into()));
+    }
+    model.select_publication_base(&base)?;
+    Ok((base, write_meta(text, &model)?))
+}
+
+fn replace_bound_metadata(
+    state: &Path,
+    task: &OperationalTaskId,
+    expected: &str,
+    updated: &str,
+) -> Result<(), String> {
+    let _lock = DirectoryLock::acquire_wait(
+        state.join(format!(".{task}.identity.lock")),
+        &SystemProcessProbe::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    let path = state.join(format!("{task}.meta"));
+    let device = fs::symlink_metadata(state)
+        .map_err(|error| error.to_string())?
+        .dev();
+    let mode = fs::symlink_metadata(&path)
+        .map_err(|error| error.to_string())?
+        .permissions()
+        .mode()
+        & 0o7777;
+    let current = multplx_domain::review_delivery::read_task_metadata_compat(&path, mode, device)?;
+    if current.bytes != expected.as_bytes() {
+        return Err("task metadata changed during publication; retry the current revision".into());
+    }
+    if expected != updated {
+        publish_private_task_metadata(&path, updated.as_bytes())?;
+    }
+    Ok(())
+}
+
 fn task_publication_project(
     state: &Path,
     task: &OperationalTaskId,
@@ -2093,6 +2241,14 @@ fn mark_delivery_stale(
 }
 
 fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String, (bool, String)> {
+    delivery_eligibility_with_metadata(state, record, None)
+}
+
+fn delivery_eligibility_with_metadata(
+    state: &Path,
+    record: &DeliveryRecord,
+    prepared_meta: Option<&str>,
+) -> Result<String, (bool, String)> {
     if record.publication == PublicationAuthority::LegacyPending {
         return Err((
             false,
@@ -2101,7 +2257,10 @@ fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String,
         ));
     }
     let meta = state.join(format!("{}.meta", record.task));
-    let matches_meta = private_metadata_text(state, &meta).is_some_and(|text| {
+    let metadata = prepared_meta
+        .map(str::to_owned)
+        .or_else(|| private_metadata_text(state, &meta));
+    let matches_meta = metadata.as_ref().is_some_and(|text| {
         let values = text
             .lines()
             .filter_map(|line| line.strip_prefix("worktree="))
@@ -2130,11 +2289,24 @@ fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String,
         record.attempt_generation,
         record.brief_revision,
     ) {
-        let Some(text) = private_metadata_text(state, &meta) else {
+        let Some(text) = metadata.as_ref() else {
             return Err((true, "task metadata became unavailable".to_owned()));
         };
         let current =
-            multplx_domain::lifecycle::subagent_model::read_meta(record.task.as_str(), &text).ok();
+            multplx_domain::lifecycle::subagent_model::read_meta(record.task.as_str(), text).ok();
+        if current.as_ref().is_some_and(|task| {
+            task.current_publication_base().is_err()
+                || task
+                    .current_publication_base()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|base| base != record.base)
+        }) {
+            return Err((
+                true,
+                "publication base differs from the current task revision".into(),
+            ));
+        }
         if current
             .as_ref()
             .and_then(|task| task.attempt.as_ref())
@@ -2199,6 +2371,10 @@ fn delivery_eligibility(state: &Path, record: &DeliveryRecord) -> Result<String,
         })
 }
 
+fn publication_revision_advanced(previous: &DeliveryRecord, current: &DeliveryRecord) -> bool {
+    matches!((previous.brief_revision, current.brief_revision), (Some(old), Some(new)) if new > old)
+}
+
 fn preserve_delivery_receipt(
     state: &Path,
     record: &DeliveryRecord,
@@ -2217,7 +2393,7 @@ fn preserve_delivery_receipt(
     if previous.publication == PublicationAuthority::LegacyPending
         || previous.worktree != record.worktree
         || previous.branch != record.branch
-        || previous.base != record.base
+        || (previous.base != record.base && !publication_revision_advanced(&previous, record))
     {
         return Err("prior delivery receipt binding changed".to_owned());
     }
@@ -2617,7 +2793,20 @@ fn record_published_evidence_for_task(
             && evidence.brief_revision == brief_revision
             && evidence.commit == commit
     });
+    let checks = current
+        .as_ref()
+        .map_or_else(Vec::new, |evidence| evidence.checks.clone());
+    let review = current
+        .as_ref()
+        .and_then(|evidence| evidence.review.clone());
+    let limitations = current.map_or_else(Vec::new, |evidence| evidence.limitations);
     let mut hasher = Sha256::new();
+    // A same-commit evidence update is a new publication observation. Hash its
+    // facts, not its evidence ID, so unchanged refresh retries still converge.
+    hasher.update(
+        serde_json::to_vec(&(&checks, &review, &limitations)).map_err(|error| error.to_string())?,
+    );
+    hasher.update([0]);
     for value in [task_id, attempt.id.as_str(), commit, pr_url] {
         hasher.update(value.as_bytes());
         hasher.update([0]);
@@ -2644,13 +2833,9 @@ fn record_published_evidence_for_task(
         attempt_generation: attempt.generation,
         brief_revision,
         commit: commit.to_owned(),
-        checks: current
-            .as_ref()
-            .map_or_else(Vec::new, |evidence| evidence.checks.clone()),
-        review: current
-            .as_ref()
-            .and_then(|evidence| evidence.review.clone()),
-        limitations: current.map_or_else(Vec::new, |evidence| evidence.limitations),
+        checks,
+        review,
+        limitations,
         pr_url: Some(pr_url.to_owned()),
         outcome: DeliveryOutcome::Published,
         observed_at,
@@ -2985,6 +3170,11 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         .env("MX_MULTICALL_EXPLICIT", "1")
         .env("MX_STATE_OVERRIDE", state)
         .env("MX_RUST_SOURCE_ROOT", source_root());
+    if expected_project.is_some() {
+        // Historical prepared records can predate the canonical base field;
+        // registration must honor their frozen base rather than re-derive it.
+        check.args(["--base", &record.base]);
+    }
     if !delivery_status(check).is_ok_and(|success| success) {
         publication_failed(&format!("PR state recording failed for {task}"), Some(&url));
         return 1;
@@ -3063,6 +3253,7 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
     let mut summary = None;
     let mut checks = None;
     let mut limitations = None;
+    let mut requested_base = None;
     let mut index = 2;
     while index < values.len() {
         let target = match values[index] {
@@ -3070,6 +3261,7 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
             "--summary" => &mut summary,
             "--checks" => &mut checks,
             "--limitations" => &mut limitations,
+            "--base" => &mut requested_base,
             _ => return Err("use mx-deliver.sh --help for prepare syntax".to_owned()),
         };
         let Some(value) = values.get(index + 1).copied() else {
@@ -3102,10 +3294,15 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
         Duration::from_secs(5),
     )
     .map_err(|error| error.to_string())?;
+    let existing_ready = match fs::symlink_metadata(&path) {
+        Ok(_) => Some(read_private(&path, 0o600, state_meta.dev())?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
     let meta = private_metadata_text(&state, &state.join(format!("{task}.meta")))
         .ok_or("private task metadata unavailable")?;
     let worktree = PathBuf::from(meta_value(&meta, "worktree", false).ok_or("missing worktree")?);
-    let base = default_branch(&worktree).ok_or("cannot resolve base branch")?;
+    let (base, bound_meta) = publication_base_metadata(&task, &worktree, &meta, requested_base)?;
     let title = command_line("git", &worktree, &["log", "-1", "--format=%s"])
         .ok_or("cannot read commit title")?;
     let model = multplx_domain::lifecycle::subagent_model::read_meta(task.as_str(), &meta).ok();
@@ -3127,11 +3324,11 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
         worktree.display()
     );
     let record = DeliveryRecord::parse(text.as_bytes(), &task, &state)?;
-    delivery_eligibility(&state, &record).map_err(|(_, error)| error)?;
-    if let Ok(metadata) = fs::symlink_metadata(&state)
-        && let Ok(existing) = read_private(&path, 0o600, metadata.dev())
-    {
+    delivery_eligibility_with_metadata(&state, &record, Some(&bound_meta))
+        .map_err(|(_, error)| error)?;
+    if let Some(existing) = existing_ready {
         if existing.bytes == text.as_bytes() {
+            replace_bound_metadata(&state, &task, &meta, &bound_meta)?;
             record_publication_evidence(
                 &state,
                 &record,
@@ -3147,14 +3344,30 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
             PublicationAuthority::LegacyPending | PublicationAuthority::Ordinary
         ) || old.worktree != record.worktree
             || old.branch != record.branch
-            || old.base != record.base
-            || old.approved_sha != record.approved_sha
+            || ((old.base != record.base || old.approved_sha != record.approved_sha)
+                && !publication_revision_advanced(&old, &record))
         {
             return Err(
                 "a different publication request already exists; reconcile it first".to_owned(),
             );
         }
+        if publication_revision_advanced(&old, &record) {
+            let archive = state.join(format!(
+                "{task}.ready-to-push-superseded-{}",
+                old.publication_fingerprint()
+            ));
+            if let Ok(prior) = read_private(&archive, 0o600, state_meta.dev()) {
+                if prior.bytes != existing.bytes {
+                    return Err("superseded publication request conflicts".into());
+                }
+            } else if fs::symlink_metadata(&archive).is_ok() {
+                return Err("superseded publication request is unsafe".into());
+            } else {
+                publish_private(&archive, &existing.bytes)?;
+            }
+        }
     }
+    replace_bound_metadata(&state, &task, &meta, &bound_meta)?;
     publish_private(&path, text.as_bytes())?;
     record_publication_evidence(
         &state,
@@ -3182,7 +3395,7 @@ fn deliver(args: &[OsString]) -> i32 {
     }
     if matches!(values.as_slice(), ["-h" | "--help"]) {
         print!(
-            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>]\n\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base before updating its title and body. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
+            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>] [--base <branch>]\n\nThe optional --base selects a task-bound publication base for stacked PRs. Omission reuses the recorded base or the repository default. A selected base is frozen for the accepted brief; changing it requires a newer accepted revision and explicit --base. Superseded pending requests and earlier receipts remain historical.\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base before updating its title and body. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
         );
         return 0;
     }

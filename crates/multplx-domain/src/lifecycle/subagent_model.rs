@@ -193,6 +193,13 @@ pub struct NativeDelegationObservation {
 }
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
+pub struct PublicationBase {
+    pub branch: String,
+    pub brief_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TaskRecord {
     pub schema_version: u32,
     pub task_id: String,
@@ -225,6 +232,10 @@ pub struct TaskRecord {
     pub assignments: Vec<AssignmentChange>,
     pub schedule: ScheduleFacts,
     pub project: Option<ProjectBinding>,
+    #[serde(default)]
+    pub publication_base: Option<PublicationBase>,
+    #[serde(default)]
+    pub publication_base_history: Vec<PublicationBase>,
     pub allocation: Option<AllocationBinding>,
     pub domain: Option<DomainBinding>,
     pub owning_coordinator: Option<String>,
@@ -309,6 +320,8 @@ impl TaskRecord {
             }],
             schedule: ScheduleFacts::default(),
             project: None,
+            publication_base: None,
+            publication_base_history: vec![],
             allocation: None,
             domain: None,
             owning_coordinator: None,
@@ -317,6 +330,46 @@ impl TaskRecord {
             legacy_unknown: false,
         }
     }
+    /// Selecting a base is explicit and frozen for one accepted brief revision.
+    pub fn select_publication_base(&mut self, branch: &str) -> Result<(), String> {
+        if self.legacy_unknown {
+            return Err("explicit publication base requires a canonical task".into());
+        }
+        let revision = self
+            .accepted_brief_revision
+            .ok_or("task accepted brief missing")?;
+        if !crate::review_delivery::ref_valid(branch) || branch == format!("mx/{}", self.task_id) {
+            return Err("invalid publication base branch".into());
+        }
+        if self
+            .publication_base
+            .as_ref()
+            .is_some_and(|base| base.brief_revision == revision && base.branch != branch)
+        {
+            return Err("publication base is frozen for the accepted brief; revise the assignment before changing it".into());
+        }
+        if let Some(previous) = &self.publication_base
+            && previous.brief_revision != revision
+        {
+            self.publication_base_history.push(previous.clone());
+        }
+        self.publication_base = Some(PublicationBase {
+            branch: branch.into(),
+            brief_revision: revision,
+        });
+        Ok(())
+    }
+
+    pub fn current_publication_base(&self) -> Result<Option<&str>, String> {
+        match &self.publication_base {
+            Some(base) if Some(base.brief_revision) != self.accepted_brief_revision => {
+                Err("publication base belongs to a prior brief; explicitly select --base for the current revision".into())
+            }
+            Some(base) => Ok(Some(&base.branch)),
+            None => Ok(None),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != SCHEMA_VERSION {
             return Err("unsupported task writer schema; migrate the home before writing".into());
@@ -371,6 +424,32 @@ impl TaskRecord {
                 && self.accepted_brief_revision != self.briefs.last().map(|b| b.revision))
         {
             return Err("invalid accepted brief history".into());
+        }
+        if self.publication_base_history.iter().any(|previous| {
+            self.publication_base
+                .as_ref()
+                .is_none_or(|current| previous.brief_revision >= current.brief_revision)
+        }) || self
+            .publication_base_history
+            .windows(2)
+            .any(|pair| pair[0].brief_revision >= pair[1].brief_revision)
+        {
+            return Err("invalid publication base history".into());
+        }
+        let mut base_revisions = BTreeSet::new();
+        if self
+            .publication_base
+            .iter()
+            .chain(&self.publication_base_history)
+            .any(|base| {
+                self.legacy_unknown
+                    || !base_revisions.insert(base.brief_revision)
+                    || !revisions.contains(&base.brief_revision)
+                    || !crate::review_delivery::ref_valid(&base.branch)
+                    || base.branch == format!("mx/{}", self.task_id)
+            })
+        {
+            return Err("invalid revision-bound publication base".into());
         }
         let mut generations = BTreeSet::new();
         if self.assignments.iter().any(|a| {
@@ -599,7 +678,7 @@ pub struct ResumeProof {
     pub reconciled: bool,
 }
 
-fn fields(text: &str) -> Result<BTreeMap<&str, &str>, String> {
+pub(crate) fn fields(text: &str) -> Result<BTreeMap<&str, &str>, String> {
     let mut fields = BTreeMap::new();
     for line in text.lines().filter(|line| !line.is_empty()) {
         let (key, value) = line.split_once('=').ok_or("malformed task metadata")?;
@@ -709,9 +788,44 @@ pub fn read_meta(task_id: &str, text: &str) -> Result<TaskRecord, String> {
     record.validate()?;
     Ok(record)
 }
+/// Known extensions may follow PR identity in historical and canonical records.
+/// Unknown suffix fields remain rejected by both the writer and publication reader.
+/// Historical revision writers also appended kind; the canonical model must
+/// validate that compatibility value before a publication reader accepts it.
+pub(crate) fn publication_suffix_field(key: &str) -> bool {
+    matches!(
+        key,
+        "pr_head"
+            | "schema_version"
+            | "canonical_model"
+            | "x_request"
+            | "x_request_ts"
+            | "x_followups"
+            | "x_platform"
+            | "x_reply_max_chars"
+    )
+}
+
+pub fn validate_publication_metadata_order(text: &str) -> Result<(), String> {
+    let mut after_pr = false;
+    let canonical = text
+        .lines()
+        .any(|line| line.starts_with("canonical_model="));
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        let (key, _) = line.split_once('=').ok_or("malformed task metadata")?;
+        if key == "pr" {
+            after_pr = true;
+        } else if after_pr && !(publication_suffix_field(key) || (canonical && key == "kind")) {
+            return Err("metadata contains fields after PR identity".into());
+        }
+    }
+    Ok(())
+}
+
 pub fn write_meta(text: &str, record: &TaskRecord) -> Result<String, String> {
     validate_metadata_size(text.as_bytes())?;
     let old_fields = fields(text)?;
+    validate_publication_metadata_order(text)?;
     if old_fields
         .get("schema_version")
         .is_some_and(|v| !matches!(*v, "1" | "2"))
@@ -980,7 +1094,7 @@ pub fn require_writer_version(state: &Path) -> Result<(), String> {
     }
 }
 
-pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--authority-state <absolute-path>]\n       mx task-model validate\n       mx task-model review-queue\n       mx task-model evidence <task-id> --request-file <json-path> [--authority-state <absolute-path>]\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nReads and revisions use the existing task .meta authority. evidence accepts the closed typed EvidenceRequest JSON contract for evidence-updated check, optional review and limitation facts. It cannot introduce or replace a canonical PR; verified publication and poll owners record publication and human-merge outcomes. review-queue returns current revision-bound PR evidence in dependency order; optional independent review is not a publication gate. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs, attempts, and delivery evidence; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
+pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--authority-state <absolute-path>]\n       mx task-model validate\n       mx task-model review-queue\n       mx task-model evidence <task-id> --request-file <json-path> [--authority-state <absolute-path>]\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nReads and revisions use the existing task .meta authority. evidence accepts the closed typed EvidenceRequest JSON contract for evidence-updated check, optional review and limitation facts. checks[].name is a short label of 1-200 UTF-8 bytes; checks[].summary is a single line of 1-20000 bytes for exact commands/results, with longer detail in a linked artifact. It cannot introduce or replace a canonical PR; verified publication and poll owners record publication and human-merge outcomes. review-queue returns current revision-bound PR evidence in dependency order; optional independent review is not a publication gate. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs, attempts, and delivery evidence; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
 
 fn record_state(record: &TaskRecord) -> Result<std::path::PathBuf, String> {
     let path = record
@@ -1303,7 +1417,7 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
     } else {
         "delivery"
     };
-    compatibility.push_str(&format!("kind={kind}\n"));
+    compatibility.insert_str(0, &format!("kind={kind}\n"));
     let after = write_meta(&compatibility, &record)?.into_bytes();
     let mut writes = vec![];
     // Brief content is retained by revision before the canonical metadata commit.
@@ -1344,6 +1458,60 @@ mod tests {
             "/main".into(),
         )
     }
+    #[test]
+    fn publication_base_is_frozen_and_revised_explicitly() {
+        let mut record = task("task-a");
+        assert_eq!(record.current_publication_base().unwrap(), None);
+        for branch in ["mx/task-a", "a..b", ".hidden", "a.lock", "a/part.lock"] {
+            assert!(record.select_publication_base(branch).is_err());
+        }
+        record.select_publication_base("mx/predecessor").unwrap();
+        record.select_publication_base("mx/predecessor").unwrap();
+        assert!(
+            record
+                .select_publication_base("main")
+                .unwrap_err()
+                .contains("frozen")
+        );
+        record
+            .revise_assignment(
+                1,
+                AssignmentRole::Implementer,
+                "retarget stack".into(),
+                vec![],
+                vec![],
+                "parent revised base".into(),
+            )
+            .unwrap();
+        record.validate().unwrap();
+        assert!(record.current_publication_base().is_err());
+        record.select_publication_base("main").unwrap();
+        assert_eq!(record.current_publication_base().unwrap(), Some("main"));
+        assert_eq!(record.publication_base.as_ref().unwrap().brief_revision, 2);
+        assert_eq!(
+            record.publication_base_history,
+            vec![PublicationBase {
+                branch: "mx/predecessor".into(),
+                brief_revision: 1
+            }]
+        );
+        let serialized = serde_json::to_value(&record).unwrap();
+        let mut historical = serialized.clone();
+        historical
+            .as_object_mut()
+            .unwrap()
+            .remove("publication_base");
+        historical
+            .as_object_mut()
+            .unwrap()
+            .remove("publication_base_history");
+        let historical: TaskRecord = serde_json::from_value(historical).unwrap();
+        assert!(historical.publication_base.is_none());
+        let mut unknown = serialized;
+        unknown["publication_base"]["unknown"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<TaskRecord>(unknown).is_err());
+    }
+
     fn envelope(record: &TaskRecord) -> MessageEnvelope {
         MessageEnvelope {
             schema_version: 2,

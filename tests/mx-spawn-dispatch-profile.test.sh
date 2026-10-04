@@ -38,6 +38,13 @@ case "${1:-}" in
 
   has-session|new-session|kill-window) exit 0 ;;
   send-keys)
+    previous=
+    for argument in "$@"; do
+      if [ "$previous" = "-l" ]; then
+        bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"
+      fi
+      previous=$argument
+    done
     case "$*" in *Enter*)
       if [ -n "${MX_FAKE_DROP_AFTER_SEND:-}" ] && [ -e "$MX_FAKE_DROP_AFTER_SEND.armed" ]; then
         : >"$MX_FAKE_DROP_AFTER_SEND"
@@ -113,7 +120,7 @@ run_spawn() {
   local home=$1 wt=$2 fakebin=$3 launchlog=$4
   shift 4
   : > "$launchlog"
-  MX_ROOT_OVERRIDE='' MX_HOME="$home" \
+  MX_TEST_REPO_ROOT="$ROOT" MX_ROOT_OVERRIDE='' MX_HOME="$home" \
     MX_STATE_OVERRIDE="$home/state" MX_DATA_OVERRIDE="$home/data" \
     MX_PROJECTS_OVERRIDE="$home/projects" MX_CONFIG_OVERRIDE="$home/config" \
     MX_SPAWN_NO_GUARD=1 MX_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
