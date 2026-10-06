@@ -92,6 +92,20 @@ Direct `mx project resolve/list` results matched the public `multplx projects` r
 Hashes for the operational home record, project registry, and backlog remained unchanged across the validation.
 No live model session or operational startup digest was run.
 
+## CI follow-up for packaged runtime and workspace launch tests
+
+Validation date: 2026-10-06.
+
+The original packaged-runtime report concerned filtered child environments losing launcher path bindings; it was reproduced with those variables explicitly removed and fixed by a package-local runtime binary plus a validated install binding.
+The hosted Rust coverage failure was separately confirmed as the PTY upgrade child missing the helper's existing 20-second prompt deadline plus five-second exit wait after confirmation.
+With identical Rust instrumentation, package fixtures, and 63 MB binaries, reusing the verified `bin/multplx` digest only after byte equality against `bin/mx` and `runtime/target/release/mx` reduced the local PTY upgrade from 16.868 seconds to 12.204 seconds, moving the prompt from 7.19 seconds to 2.55 seconds.
+The optimized binary emitted a 2.4 MB profile that `llvm-profdata merge` and `llvm-cov report` accepted; hosted validation after this change remains pending.
+
+The separate Ubuntu behavior failure was `mx-viz.test.sh` observing a third snapshot reader while expecting exactly two.
+Its fixture used a 0.2-second refresh cooldown with a 0.5-second command timeout, allowing a later stale caller to start another reader after the first timed out.
+The fixture now uses a 1.2-second refresh interval and observes cache age at 1200 ms, while retaining the 0.5-second reader/client bounds, exact reader count, and recovery retry assertions.
+Four complete focused `mx-viz.test.sh` runs passed with that aligned interval.
+
 ## Phase 11 workspace entry
 
 [Phase 11 implementation evidence](../../plans/lean_redesign/phase11-implementation.md) owns the current workspace, discovery, intake, package and connection validation ledger.

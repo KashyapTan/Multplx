@@ -1770,28 +1770,72 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
     {
         return Err("release package is missing required runtime assets".to_owned());
     }
-    let mut binary = None;
+    let artifact_path = Path::new("bin/multplx");
+    let (artifact_hash, artifact_executable) = expected
+        .get(artifact_path)
+        .ok_or("release package binary is missing")?;
+    if !artifact_executable {
+        return Err("release package binary is not marked executable".to_owned());
+    }
+    let artifact_bytes = fs::read(root.join(artifact_path)).map_err(|error_value| {
+        format!(
+            "cannot read package file {}: {error_value}",
+            artifact_path.display()
+        )
+    })?;
+    let artifact_hash_actual = format!("{:x}", Sha256::digest(&artifact_bytes));
+    if &artifact_hash_actual != artifact_hash {
+        return Err(format!(
+            "release package checksum mismatch: {}",
+            artifact_path.display()
+        ));
+    }
+    let binary = Some(VerifiedArtifact {
+        bytes: artifact_bytes.clone(),
+        hash: artifact_hash_actual.clone(),
+    });
     let mut runtime = Vec::new();
     for (relative, (expected_hash, executable)) in expected {
+        if relative == artifact_path {
+            continue;
+        }
         let bytes = fs::read(root.join(&relative)).map_err(|error_value| {
             format!(
                 "cannot read package file {}: {error_value}",
                 relative.display()
             )
         })?;
-        let hash = format!("{:x}", Sha256::digest(&bytes));
-        if hash != expected_hash {
-            return Err(format!(
-                "release package checksum mismatch: {}",
-                relative.display()
-            ));
-        }
-        if relative == Path::new("bin/multplx") {
-            if !executable {
-                return Err("release package binary is not marked executable".to_owned());
+        let artifact_copy =
+            relative == Path::new("bin/mx") || relative == Path::new("runtime/target/release/mx");
+        if artifact_copy {
+            if bytes != artifact_bytes {
+                return Err(format!(
+                    "release package file {} does not match bin/multplx",
+                    relative.display()
+                ));
             }
-            binary = Some(VerifiedArtifact { bytes, hash });
-        } else if let Ok(asset) = relative.strip_prefix("runtime") {
+            if expected_hash != artifact_hash_actual {
+                return Err(format!(
+                    "release package checksum mismatch: {}",
+                    relative.display()
+                ));
+            }
+        } else {
+            let hash = format!("{:x}", Sha256::digest(&bytes));
+            if hash != expected_hash {
+                return Err(format!(
+                    "release package checksum mismatch: {}",
+                    relative.display()
+                ));
+            }
+        }
+        if relative == Path::new("bin/mx") && !executable {
+            return Err("release package binary alias is not marked executable".to_owned());
+        }
+        if relative == Path::new("runtime/target/release/mx") && !executable {
+            return Err("release package runtime binary is not marked executable".to_owned());
+        }
+        if let Ok(asset) = relative.strip_prefix("runtime") {
             runtime.push(PackagedFile {
                 relative: asset.to_path_buf(),
                 bytes,
@@ -1827,7 +1871,7 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
         .find(|file| file.relative == Path::new("target/release/mx"))
         .ok_or("release package runtime binary is missing")?;
     if embedded_runtime.bytes != artifact.bytes || embedded_runtime.mode != 0o755 {
-        return Err("release package runtime binary does not match bin/mx".to_owned());
+        return Err("release package runtime binary does not match bin/multplx".to_owned());
     }
     runtime.push(PackagedFile {
         relative: PathBuf::from(".multplx-release"),
