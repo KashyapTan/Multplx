@@ -7393,17 +7393,28 @@ fn run_actor_state(id: &str) -> i32 {
     }
 }
 
-fn environment_path(primary: &str, fallback: &str) -> PathBuf {
-    std::env::var_os(primary)
-        .or_else(|| std::env::var_os(fallback))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-}
-
 fn active_paths() -> (PathBuf, PathBuf, PathBuf) {
-    let root = environment_path("MX_ROOT_OVERRIDE", "MX_RUST_SOURCE_ROOT");
+    let installed = if std::env::var_os("MX_ROOT_OVERRIDE").is_some()
+        && std::env::var_os("MX_HOME").is_some()
+    {
+        None
+    } else {
+        match launcher::installed_runtime_paths() {
+            Ok(paths) => paths,
+            Err(message) => {
+                eprintln!("mx: refusing invalid installed runtime binding: {message}");
+                std::process::exit(2);
+            }
+        }
+    };
+    let root = std::env::var_os("MX_ROOT_OVERRIDE")
+        .or_else(|| std::env::var_os("MX_RUST_SOURCE_ROOT"))
+        .map(PathBuf::from)
+        .or_else(|| installed.as_ref().map(|(root, _)| root.clone()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let home = std::env::var_os("MX_HOME")
         .map(PathBuf::from)
+        .or_else(|| installed.map(|(_, home)| home))
         .unwrap_or_else(|| root.clone());
     let data = std::env::var_os("MX_DATA_OVERRIDE")
         .map(PathBuf::from)

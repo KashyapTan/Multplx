@@ -29,7 +29,7 @@ fn section(output: &mut String, title: &str) {
     output.push_str(&format!("\n{RULE}\n{title}\n{RULE}\n"));
 }
 
-fn command_output(path: &Path, environment: &[(&str, &str)]) -> (i32, String) {
+fn command_output(paths: &Paths, path: &Path, environment: &[(&str, &str)]) -> (i32, String) {
     let Ok(mut combined) = tempfile::tempfile() else {
         return (
             1,
@@ -47,6 +47,13 @@ fn command_output(path: &Path, environment: &[(&str, &str)]) -> (i32, String) {
         combined.try_clone().expect("clone temporary output"),
     ));
     command.stderr(Stdio::from(stderr));
+    command
+        .env("MX_ROOT_OVERRIDE", &paths.root)
+        .env("MX_RUST_SOURCE_ROOT", &paths.source_root)
+        .env("MX_HOME", &paths.home)
+        .env("MX_DATA_OVERRIDE", &paths.data)
+        .env("MX_STATE_OVERRIDE", &paths.state)
+        .env("MX_CONFIG_OVERRIDE", &paths.config);
     for (name, value) in environment {
         command.env(name, value);
     }
@@ -334,7 +341,7 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
         &format!("SESSION START - {}", paths.home.display()),
     );
     subsection(&mut output, "LOCK");
-    let (lock_status, lock_output) = command_output(&bin.join("mx-lock.sh"), &[]);
+    let (lock_status, lock_output) = command_output(paths, &bin.join("mx-lock.sh"), &[]);
     output.push_str(&lock_output);
     if !lock_output.ends_with('\n') {
         output.push('\n');
@@ -348,13 +355,14 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
     let mut boot = String::new();
     if read_only {
         boot = command_output(
+            paths,
             &bin.join("mx-bootstrap.sh"),
             &[("MX_BOOTSTRAP_DETECT_ONLY", "1")],
         )
         .1;
     } else {
-        boot.push_str(&command_output(&bin.join("mx-herdr-session-cleanup.sh"), &[]).1);
-        boot.push_str(&command_output(&bin.join("mx-bootstrap.sh"), &[]).1);
+        boot.push_str(&command_output(paths, &bin.join("mx-herdr-session-cleanup.sh"), &[]).1);
+        boot.push_str(&command_output(paths, &bin.join("mx-bootstrap.sh"), &[]).1);
     }
     if boot.is_empty() {
         output.push_str("(silent - all good)\n");
@@ -374,10 +382,16 @@ pub(crate) fn run(paths: &Paths, harness: &str) -> String {
                 .observe_unnotified_count()
                 .unwrap_or(0);
         output.push_str(&format!("skipped (read-only session) - {queued} unfinished wake item(s) and {unnotified} accepted request(s) awaiting wake publication remain visible because this session lacks verified system-lock ownership.\n"));
-        output
-            .push_str(&command_output(&bin.join("mx-guard.sh"), &[("MX_GUARD_READ_ONLY", "1")]).1);
+        output.push_str(
+            &command_output(
+                paths,
+                &bin.join("mx-guard.sh"),
+                &[("MX_GUARD_READ_ONLY", "1")],
+            )
+            .1,
+        );
     } else {
-        let drained = command_output(&bin.join("mx-wake-drain.sh"), &[]).1;
+        let drained = command_output(paths, &bin.join("mx-wake-drain.sh"), &[]).1;
         let pending = multplx_core::wake::WakeQueue::new(&paths.state)
             .observe_unfinished_count()
             .unwrap_or(0);

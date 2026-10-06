@@ -402,7 +402,7 @@ test_single_flight_stale_service_and_bounded_refresh() {
   make_readers "$readers"
   write_snapshot_fixture "$home/snapshot.json" alpha "$home/data"
   test_port=$((PORT_BASE + 20))
-  url=$(start_viz "$home" "$test_port" 60 0.2 "$readers" 500) \
+  url=$(start_viz "$home" "$test_port" 60 1.2 "$readers" 500) \
     || fail "single-flight dashboard did not start"
   pid=$(record_value "$home/state/.viz/server.run" pid)
   track_pid "$pid"
@@ -415,7 +415,7 @@ test_single_flight_stale_service_and_bounded_refresh() {
   # Arm the slow reader before cache expiry so a refresh cannot slip between
   # detecting expiry and installing the delay.
   printf '%s\n' 1 >"$home/snapshot.delay"
-  mx_test_wait_until 1500 "snapshot cache expiry" snapshot_expired "${url}api/meta" 200 \
+  mx_test_wait_until 2000 "snapshot cache expiry" snapshot_expired "${url}api/meta" 1200 \
     || fail "snapshot cache did not expire"
   for i in $(seq 1 12); do
     header="$home/stale-$i.headers"

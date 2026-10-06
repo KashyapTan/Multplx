@@ -106,6 +106,118 @@ fn session_start_dispatch_is_native_and_rejects_legacy_probe_arguments() {
 }
 
 #[test]
+fn installed_runtime_binding_reaches_session_lock_and_explicit_paths_win() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().join("runtime with spaces");
+    let home = temp.path().join("configured home");
+    let config = temp.path().join("launcher config");
+    let binary = root.join("target/release/mx");
+    fs::create_dir_all(binary.parent().expect("binary parent")).expect("binary directory");
+    fs::create_dir_all(root.join("bin")).expect("runtime bin");
+    fs::create_dir_all(&home).expect("home");
+    fs::create_dir_all(&config).expect("config");
+    fs::copy(env!("CARGO_BIN_EXE_mx"), &binary).expect("copy packaged binary");
+    fs::write(
+        root.join(".multplx-release"),
+        format!("{}\n", env!("CARGO_PKG_VERSION")),
+    )
+    .expect("version record");
+    fs::write(
+        root.join(".multplx-config"),
+        format!("{}\n", config.display()),
+    )
+    .expect("runtime binding");
+    fs::write(config.join("root"), format!("{}\n", root.display())).expect("root record");
+    fs::write(config.join("home"), format!("{}\n", home.display())).expect("home record");
+    let log = temp.path().join("lock-paths.log");
+    executable(
+        &root.join("bin/mx-lock.sh"),
+        "#!/bin/sh\nprintf '%s|%s|%s\\n' \"$MX_ROOT_OVERRIDE\" \"$MX_HOME\" \"$MX_STATE_OVERRIDE\" >>\"$PROBE_LOG\"\nprintf 'fixture lock unavailable\\n'\nexit 1\n",
+    );
+    executable(
+        &root.join("bin/mx-bootstrap.sh"),
+        "#!/bin/sh\nprintf 'fixture bootstrap\\n'\n",
+    );
+    executable(&root.join("bin/mx-guard.sh"), "#!/bin/sh\nexit 0\n");
+
+    let output = run(mx_with_path(&binary)
+        .env_remove("MX_ROOT_OVERRIDE")
+        .env_remove("MX_RUST_SOURCE_ROOT")
+        .env_remove("MX_HOME")
+        .env_remove("MX_STATE_OVERRIDE")
+        .env("PROBE_LOG", &log)
+        .args(["session", "mx-session-start.sh"]));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&log).expect("default lock paths").trim(),
+        format!(
+            "{}|{}|{}",
+            root.canonicalize().expect("canonical root").display(),
+            home.canonicalize().expect("canonical home").display(),
+            home.canonicalize()
+                .expect("canonical home")
+                .join("state")
+                .display()
+        )
+    );
+
+    fs::write(config.join("home"), "relative-home\n").expect("invalid home record");
+    let invalid = run(mx_with_path(&binary).args(["backlog", "add", "must-not-write", "Unsafe"]));
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid installed runtime binding"));
+    assert!(!temp.path().join("data/backlog.md").exists());
+
+    let explicit_root = temp.path().join("worker runtime");
+    let explicit_home = temp.path().join("worker home");
+    let explicit_state = temp.path().join("worker state");
+    executable(
+        &explicit_root.join("bin/mx-lock.sh"),
+        "#!/bin/sh\nprintf '%s|%s|%s\\n' \"$MX_ROOT_OVERRIDE\" \"$MX_HOME\" \"$MX_STATE_OVERRIDE\" >>\"$PROBE_LOG\"\nprintf 'fixture lock unavailable\\n'\nexit 1\n",
+    );
+    executable(
+        &explicit_root.join("bin/mx-bootstrap.sh"),
+        "#!/bin/sh\nprintf 'fixture bootstrap\\n'\n",
+    );
+    executable(
+        &explicit_root.join("bin/mx-guard.sh"),
+        "#!/bin/sh\nexit 0\n",
+    );
+    let output = run(mx_with_path(&binary)
+        .env_remove("MX_RUST_SOURCE_ROOT")
+        .env("MX_ROOT_OVERRIDE", &explicit_root)
+        .env("MX_HOME", &explicit_home)
+        .env("MX_STATE_OVERRIDE", &explicit_state)
+        .env("PROBE_LOG", &log)
+        .args(["session", "mx-session-start.sh"]));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = fs::read_to_string(&log).expect("override lock paths");
+    assert_eq!(
+        lines.lines().nth(1),
+        Some(
+            format!(
+                "{}|{}|{}",
+                explicit_root.display(),
+                explicit_home.display(),
+                explicit_state.display()
+            )
+            .as_str()
+        )
+    );
+}
+
+fn mx_with_path(path: &Path) -> Command {
+    Command::new(path)
+}
+
+#[test]
 fn bootstrap_dispatch_is_native_before_any_legacy_script_can_run() {
     let temp = tempfile::tempdir().expect("tempdir");
     executable(

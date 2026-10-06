@@ -48,6 +48,7 @@ The public curl URL requires these new scripts to be published; local-only valid
 On macOS, actual `./install.sh` and `./install.sh --upgrade` runs with explicit temporary bin/config/data directories both succeed.
 The installed command reports version `0.1.0`, a runtime under `data/runtime` and a separate home under `data/home`.
 The installed runtime includes `docs/commands.md`.
+
 The new source-install test covers help, deterministic missing-Cargo refusal and a local Git bootstrap fixture with argument forwarding and temporary-clone cleanup; its bootstrap target is a test script, not a live public download.
 The source-install and existing release-package behavior suites pass without failures or gates.
 Strict Clippy, formatting, shell syntax, documentation links/classification and the complete 134-script coverage inventory pass.
@@ -57,6 +58,53 @@ The workflow, deep-review, timeline, headroom, backlog, system-view and system-s
 A package regression invokes their help commands against the installed binary with that marker deliberately absent in the caller.
 A rebuilt isolated installation passes those checks plus Viz/vplan help, while normal global help, project help and path resolution still work.
 No replacement was installed in the user's default global directories during these tests.
+
+## Packaged runtime with filtered child environments
+
+Validation date: 2026-10-05, macOS.
+
+The recorded failure showed `mx-session-start.sh` unable to find `runtime/target/release/mx`, while later project commands used a runtime-only registry instead of the configured home.
+The transcript does not establish which process boundary removed the launch variables.
+Release packages now include the exact installer binary at that adapter fallback, and the transaction writes a runtime companion pointer to the existing config directory.
+Direct installed `mx` reads the same root and home records as the public launcher when no explicit path override is present.
+The native session-start owner forwards its resolved root, home, data, config, and state paths to shell-owned lock and guard helpers.
+Malformed or conflicting installed bindings fail closed; source-checkout binaries without an installed binding keep their existing environment and working-directory behavior.
+
+Focused validation on this worktree:
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo test -p multplx-cli launcher::tests --lib`: 4 passed.
+- `cargo test -p multplx-cli --test session_runtime installed_runtime_binding_reaches_session_lock_and_explicit_paths_win`: passed.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`: passed.
+- `cargo build --release --workspace --locked`: passed.
+- `bash tests/mx-release-package.test.sh`: passed, including filtered-environment package adapters, direct global project registration/listing, custom home paths containing spaces, session-start path forwarding, and transactional pointer rollback/removal.
+
+These fixture checks do not prove that a particular provider or Codex subprocess strips environment variables, and they do not exercise a live model session.
+During these focused checks, no installed user runtime, private provider configuration, operational home, or project registry was modified.
+
+The subsequent repository validation also passed `cargo test --locked --workspace` with 837 tests and no failures.
+The full behavior runner reported 134 scripts, 0 failures, 8 gated skips, and 452111 ms elapsed; its inventory matched all 134 scripts.
+The shadow check reported ready, shell syntax and `git diff --check` passed, and the documentation check reported 102 surfaces and 592 local links.
+
+The guarded `./install.sh --upgrade` then succeeded on the user's macOS installation with the configured runtime and home paths, without stale-reservation cleanup or force recovery.
+Read-only probes from an unrelated directory with all `MX_*` variables removed confirmed the installed package and global binaries match the tested release binary, the runtime fallback is selected, and `mx-report --list-states` plus `mx-codex-idle.sh --help` work.
+Direct `mx project resolve/list` results matched the public `multplx projects` route, including the registered NBA-Terminal alias.
+Hashes for the operational home record, project registry, and backlog remained unchanged across the validation.
+No live model session or operational startup digest was run.
+
+## CI follow-up for packaged runtime and workspace launch tests
+
+Validation date: 2026-10-06.
+
+The original packaged-runtime report concerned filtered child environments losing launcher path bindings; it was reproduced with those variables explicitly removed and fixed by a package-local runtime binary plus a validated install binding.
+The hosted Rust coverage failure was separately confirmed as the PTY upgrade child missing the helper's existing 20-second prompt deadline plus five-second exit wait after confirmation.
+With identical Rust instrumentation, package fixtures, and 63 MB binaries, reusing the verified `bin/multplx` digest only after byte equality against `bin/mx` and `runtime/target/release/mx` reduced the local PTY upgrade from 16.868 seconds to 12.204 seconds, moving the prompt from 7.19 seconds to 2.55 seconds.
+The optimized binary emitted a 2.4 MB profile that `llvm-profdata merge` and `llvm-cov report` accepted; hosted validation after this change remains pending.
+
+The separate Ubuntu behavior failure was `mx-viz.test.sh` observing a third snapshot reader while expecting exactly two.
+Its fixture used a 0.2-second refresh cooldown with a 0.5-second command timeout, allowing a later stale caller to start another reader after the first timed out.
+The fixture now uses a 1.2-second refresh interval and observes cache age at 1200 ms, while retaining the 0.5-second reader/client bounds, exact reader count, and recovery retry assertions.
+Four complete focused `mx-viz.test.sh` runs passed with that aligned interval.
 
 ## Phase 11 workspace entry
 

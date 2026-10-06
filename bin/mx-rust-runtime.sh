@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Shared Rust runtime selection for ported entry points.
 
+# Internal Rust dispatch must not depend on whether a shell caller was started
+# as mx or multplx.
+export MX_MULTICALL_EXPLICIT=1
+
 mx_rust_runtime_bin() {
   local script_dir root candidate actual_abi
   script_dir=${BASH_SOURCE[0]%/*}
