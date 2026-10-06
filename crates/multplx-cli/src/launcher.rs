@@ -51,7 +51,40 @@ fn read_path_file(path: &Path) -> Result<PathBuf, String> {
             path.display()
         ));
     }
-    let bytes = fs::read(path).map_err(|_| format!("cannot read path file: {}", path.display()))?;
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(format!(
+            "path file is not owned by the current user: {}",
+            path.display()
+        ));
+    }
+    if metadata.len() > 16 * 1024 {
+        return Err(format!("path file is too large: {}", path.display()));
+    }
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(OFlags::NOFOLLOW.bits() as i32);
+    let mut file = options.open(path).map_err(|_| {
+        format!(
+            "cannot read path file without following links: {}",
+            path.display()
+        )
+    })?;
+    let opened = file
+        .metadata()
+        .map_err(|_| format!("cannot inspect path file: {}", path.display()))?;
+    if !opened.is_file()
+        || opened.uid() != rustix::process::geteuid().as_raw()
+        || opened.len() > 16 * 1024
+    {
+        return Err(format!(
+            "path file changed or is not owned by the current user: {}",
+            path.display()
+        ));
+    }
+    let mut bytes = Vec::with_capacity(opened.len() as usize);
+    file.read_to_end(&mut bytes)
+        .map_err(|_| format!("cannot read path file: {}", path.display()))?;
     if bytes.is_empty() || bytes.last() != Some(&b'\n') || bytes[..bytes.len() - 1].contains(&b'\n')
     {
         return Err(format!(
@@ -73,6 +106,118 @@ fn read_path_file(path: &Path) -> Result<PathBuf, String> {
         return Err(format!("path is not absolute in {}", path.display()));
     }
     Ok(parsed)
+}
+
+fn require_matching_config_pointer(path: &Path, config_dir: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => Err(format!(
+            "runtime config pointer is linked or not regular: {}",
+            path.display()
+        )),
+        Ok(_) if read_path_file(path)? != config_dir => Err(format!(
+            "refusing to replace conflicting runtime config pointer: {}",
+            path.display()
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "cannot inspect runtime config pointer {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+/// Resolve the managed installation binding for an installed binary. Packaged
+/// adapter binaries live under runtime/target/release and use a pointer at the
+/// runtime root; global binaries use their existing sibling pointer.
+pub(crate) fn installed_runtime_paths() -> Result<Option<(PathBuf, PathBuf)>, String> {
+    let Ok(executable) = env::current_exe() else {
+        return Ok(None);
+    };
+    let Some(parent) = executable.parent() else {
+        return Ok(None);
+    };
+    let packaged_root = if parent.file_name().is_some_and(|name| name == "release")
+        && parent
+            .parent()
+            .is_some_and(|target| target.file_name().is_some_and(|name| name == "target"))
+    {
+        let root = parent
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .ok_or_else(|| {
+                "cannot resolve packaged runtime root from the running binary".to_owned()
+            })?;
+        let pointer = root.join(".multplx-config");
+        match fs::symlink_metadata(&pointer) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect installed config pointer {}: {error}",
+                    pointer.display()
+                ));
+            }
+            Ok(_) => {}
+        }
+        let marker = root.join(".multplx-release");
+        let metadata = fs::symlink_metadata(&marker).map_err(|error| {
+            format!(
+                "cannot inspect packaged runtime version record {}: {error}",
+                marker.display()
+            )
+        })?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() > 4096
+            || fs::read_to_string(&marker)
+                .map_err(|error| {
+                    format!(
+                        "cannot read packaged runtime version record {}: {error}",
+                        marker.display()
+                    )
+                })?
+                .trim()
+                != env!("CARGO_PKG_VERSION")
+        {
+            return Err(format!(
+                "packaged runtime version record is invalid: {}",
+                marker.display()
+            ));
+        }
+        Some(root)
+    } else {
+        None
+    };
+    let pointer = packaged_root.as_ref().map_or_else(
+        || parent.join(".multplx-config"),
+        |root| root.join(".multplx-config"),
+    );
+    match fs::symlink_metadata(&pointer) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect installed config pointer {}: {error}",
+                pointer.display()
+            ));
+        }
+        Ok(_) => {}
+    }
+    let config = read_path_file(&pointer)?;
+    let root = canonical_dir(
+        &read_path_file(&config.join("root"))?,
+        "installed code root",
+    )?;
+    let home = canonical_dir(&read_path_file(&config.join("home"))?, "installed home")?;
+    if let Some(expected) = packaged_root
+        && root != canonical_dir(&expected, "packaged runtime")?
+    {
+        return Err(format!(
+            "packaged runtime binding points at a different code root: {}",
+            root.display()
+        ));
+    }
+    Ok(Some((root, home)))
 }
 
 fn command_output(program: &str, args: &[&OsStr]) -> Result<String, String> {
@@ -1609,6 +1754,7 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
     let required = [
         "bin/mx",
         "bin/multplx",
+        "runtime/target/release/mx",
         "runtime/AGENTS.md",
         "runtime/bin/mx-launcher.sh",
         "runtime/share/shell/multplx.bash",
@@ -1675,13 +1821,21 @@ fn verify_package(path: &Path) -> Result<VerifiedPackage, String> {
             mode: 0o644,
         });
     }
+    let artifact = binary.ok_or("release package binary is missing")?;
+    let embedded_runtime = runtime
+        .iter()
+        .find(|file| file.relative == Path::new("target/release/mx"))
+        .ok_or("release package runtime binary is missing")?;
+    if embedded_runtime.bytes != artifact.bytes || embedded_runtime.mode != 0o755 {
+        return Err("release package runtime binary does not match bin/mx".to_owned());
+    }
     runtime.push(PackagedFile {
         relative: PathBuf::from(".multplx-release"),
         bytes: format!("{}\n", env!("CARGO_PKG_VERSION")).into_bytes(),
         mode: 0o644,
     });
     Ok(VerifiedPackage {
-        artifact: binary.ok_or("release package binary is missing")?,
+        artifact,
         runtime,
         manifest,
     })
@@ -2254,6 +2408,17 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 require_packaged_runtime_quiescent_mode(&recorded_home, options.upgrade, None)
                     .map_err(|message| (2, message))?;
                 packaged_home = Some(recorded_home.clone());
+                require_matching_config_pointer(
+                    &recorded_root.join(".multplx-config"),
+                    &config_dir,
+                )
+                .map_err(|message| (2, message))?;
+                generation.push(GenerationFile {
+                    key: "runtime-config".to_owned(),
+                    path: recorded_root.join(".multplx-config"),
+                    mode: 0o600,
+                    desired: None,
+                });
                 let expected_root = data_dir.join("runtime");
                 if recorded_root != expected_root {
                     return Err((
@@ -2666,6 +2831,14 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             },
         ];
         if let Some(package) = verified_package.as_ref() {
+            require_matching_config_pointer(&root.join(".multplx-config"), &config_dir)
+                .map_err(|message| (2, message))?;
+            generation.push(GenerationFile {
+                key: "runtime-config".to_owned(),
+                path: root.join(".multplx-config"),
+                mode: 0o600,
+                desired: Some(format!("{}\n", config_dir.display()).into_bytes()),
+            });
             let asset_record = config_dir.join("package-assets");
             let mut old_assets = std::collections::BTreeSet::new();
             match fs::read_to_string(&asset_record) {

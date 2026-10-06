@@ -209,4 +209,6 @@ Do not delete your source checkout or operational home to uninstall the command.
 
 If a release distributor supplies a platform archive and matching checksum, verify and extract that archive, then run its bundled `bin/mx launcher-install --package /path/to/extracted-package`.
 The normal source installation above does this packaging automatically.
+The package includes its matching Rust executable inside the runtime assets so helper scripts can run even when a child process receives a filtered environment.
+Installed `mx` commands read the installer's root and home records when no explicit `MX_*` path is supplied, including custom homes.
 Do not guess archive names or assume a public prebuilt release exists.

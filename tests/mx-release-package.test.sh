@@ -68,6 +68,9 @@ assert_contains "$package_help" 'live persistent sub-agent homes' \
   'packaged help retained an active daemon-role label for config propagation'
 [ ! -e "$package/.git" ] && [ ! -e "$package/runtime/.git" ] \
   || fail 'package contains source Git state'
+[ -x "$package/runtime/target/release/mx" ] \
+  && cmp -s "$package/bin/mx" "$package/runtime/target/release/mx" \
+  || fail 'package runtime fallback is not the exact release binary'
 [ ! -e "$package/runtime/docs/calm-mode-feasibility.md" ] \
   && ! find "$package/runtime/docs" -maxdepth 1 -name 'mx-test-*.json' -print -quit | grep -q . \
   || fail 'package included development evidence instead of runtime documentation'
@@ -197,8 +200,22 @@ run(package / 'bin/mx', ['launcher-install', '--package', str(package),
 mx = case / 'bin/mx'
 home = case / 'data/home'
 backlog = home / 'data/backlog.md'
-assert not (case / 'data/runtime/target/release/mx').exists()
+assert (case / 'data/runtime/target/release/mx').is_file()
+assert (case / 'data/runtime/.multplx-config').read_text().strip() == str(case / 'config')
 assert not backlog.exists(), 'fixture is not a fresh installed home'
+# Direct installed `mx` commands bind project registration to the configured
+# home even when the child receives no MX_* variables.
+project = temporary / 'registered checkout'
+project.mkdir()
+subprocess.run(['git', 'init', '-q', str(project)], check=True)
+subprocess.run(['git', '-C', str(project), '-c', 'user.name=Fixture',
+    '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'],
+    check=True)
+run(mx, ['project', 'register', str(project), '--alias', 'bound-project'])
+catalog = run(mx, ['project', 'list'])
+assert 'bound-project' in catalog, catalog
+assert (home / 'data/projects.json').is_file()
+assert not (case / 'data/runtime/data/projects.json').exists()
 # Operator commands run with the operational home selected, as in a launched session.
 operator = {'MX_HOME': str(home)}
 run(mx, ['backlog', 'add', 'bad/id', 'Bad'], operator, success=False)
@@ -235,9 +252,28 @@ try:
         assert meta['refresh']['error'] is None, meta
 finally:
     run(mx, ['viz', 'stop'])
+
+# Packaged adapters retain their exact binary and configured home when
+# subprocess launch environments omit every MX_* variable.
+runtime_mx = case / 'data/runtime/target/release/mx'
+run(runtime_mx, ['backlog', 'add', 'filtered-home-task', 'Filtered environment'])
+assert 'filtered-home-task' in backlog.read_text(), backlog.read_text()
+reported = run(case / 'data/runtime/bin/mx-report', ['--list-states'])
+assert 'done' in reported, reported
+
+custom = temporary / 'custom install with spaces'
+custom_home = temporary / 'custom operator home'
+custom_home.mkdir()
+run(package / 'bin/mx', ['launcher-install', '--package', str(package),
+    '--bin-dir', str(custom / 'bin'), '--config-dir', str(custom / 'config'),
+    '--data-dir', str(custom / 'data'), '--home', str(custom_home)])
+run(custom / 'data/runtime/target/release/mx',
+    ['backlog', 'add', 'custom-home-task', 'Custom home'])
+assert 'custom-home-task' in (custom_home / 'data/backlog.md').read_text()
 PY_INSTALLED
 [ "$?" -eq 0 ] || fail 'fresh installed backlog and real Viz readers failed'
 pass 'fresh package backlog initializes atomically and Viz uses actual installed reader wrappers'
+pass 'filtered-environment adapters and direct mx use the validated custom install binding'
 
 launcher_help=$(env -u MX_MULTICALL_EXPLICIT "$install/bin/multplx" --help) \
   || fail 'installed multplx --help failed without explicit multicall mode'
@@ -831,11 +867,15 @@ if MX_LAUNCHER_INSTALL_FAIL_AFTER=asset-0000 \
 fi
 [ -x "$install/bin/multplx" ] && [ -f "$install/data/runtime/AGENTS.md" ] \
   || fail 'failed package uninstall did not restore the application generation'
+[ "$(cat "$install/data/runtime/.multplx-config")" = "$install/config" ] \
+  || fail 'failed package uninstall did not restore the runtime binding'
 "$package/bin/mx" launcher-install --uninstall \
   --bin-dir "$install/bin" --config-dir "$install/config" \
   --data-dir "$install/data" >/dev/null
 [ ! -e "$install/bin/multplx" ] && [ ! -e "$install/data/runtime/AGENTS.md" ] \
   || fail 'package uninstall retained owned application files'
+[ ! -e "$install/data/runtime/.multplx-config" ] \
+  || fail 'package uninstall retained the runtime binding'
 [ "$(cat "$install/data/home/data/private-state")" = 'state sentinel' ] \
   || fail 'package uninstall changed operational state'
 [ "$(cat "$project/untracked-sentinel")" = 'borrowed sentinel' ] \
