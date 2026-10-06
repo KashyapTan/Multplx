@@ -30,7 +30,27 @@ while process.poll() is None and time.monotonic() < deadline:
     if not sent and b'[y/N]' in output:
         os.write(master, b'\x04' if answer == 'EOF' else (answer + '\n').encode())
         sent = True
-process.wait(timeout=5)
+try:
+    process.wait(timeout=5)
+except subprocess.TimeoutExpired as exc:
+    while select.select([master], [], [], 0)[0]:
+        try:
+            chunk = os.read(master, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        output.extend(chunk)
+    sys.stderr.write(f'installer did not exit within the existing five-second wait: {exc}\n')
+    sys.stderr.buffer.write(output)
+    process.terminate()
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=1)
+    os.close(master)
+    sys.exit(124)
 os.close(master)
 sys.stdout.buffer.write(output)
 if not sent:
@@ -559,9 +579,13 @@ assert_contains "$output" 'recorded task user' \
 cmp -s "$TMP_ROOT/stale-launch.before" "$install/data/home/state/workspace-launch.json" \
   || fail 'blocked upgrade removed the approved stale launch reservation'
 rm "$install/data/home/state/recovery-blocker.meta"
-output=$(run_tty_confirmation y "$package/bin/mx" launcher-install --upgrade --package "$package" \
-  --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1) \
-  || fail 'explicit stale launch recovery did not complete'
+if output=$(run_tty_confirmation y "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then
+  :
+else
+  status=$?
+  fail "explicit stale launch recovery did not complete (status $status): $output"
+fi
 assert_contains "$output" 'workspace launch' 'positive confirmation prompt was not shown'
 [ ! -e "$install/data/home/state/workspace-launch.json" ] \
   || fail 'explicit stale launch recovery retained the reservation'
