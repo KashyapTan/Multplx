@@ -176,7 +176,19 @@ Use the same custom path options if you selected non-default installation direct
 Upgrade preserves operational data and repositories; live or uncertain runtime users can prevent it.
 If it finds a verified stale workspace launch reservation for a previous process lifetime, it asks before removing that reservation.
 A live or uncertain launch owner remains refused, and recovery never stops a process.
-For a noninteractive upgrade, pass `--recover-stale-launch` with `--upgrade` to confirm this exact recovery.
+Stopped standing workers require confirmation after the installer verifies their canonical ownership, exact endpoint absence and leased private home, including recorded child routes.
+One default-No prompt covers all eligible workers and any verified stale launcher reservation.
+Upgrade preserves every task record, pending task, private home and worktree; it does not retire agents or mark work complete.
+Exact retired-home receipts and unsubmitted successor reservations can be retained as stopped historical ownership only when their predecessor, route, lease and fresh endpoint checks agree.
+Malformed or unmatched intents and orphan launch receipts require explicit owner reconciliation; upgrade never deletes these records.
+Live endpoints, uncertain inventory, malformed or foreign ownership, coordinator assignments and retained unknown executions remain refused with inspection guidance.
+Use `MX_HOME=/exact/owner/home multplx task-model inspect TASK_ID` to inspect a refused record, then reconcile through that home's lifecycle owner.
+For a noninteractive upgrade, pass `--recover-stale-launch` and/or `--allow-stopped-agents` with `--upgrade` to confirm the corresponding verified cases.
+These flags never override a live or uncertain owner.
+Finish spawn/replacement commands before upgrade and do not start new ones until it completes, particularly commands using an older installed binary.
+The installer holds the existing lifecycle locks for recorded tasks, and current spawn rechecks the installed binary and asset generation under its task lock.
+Uninstall still requires explicit retirement and refuses retained task records, including stopped workers.
+`./install.sh` runs the newly built package's installer, so an older installed binary does not determine these upgrade checks.
 For package-mode installs created by this installer, use this upgrade command rather than `multplx update`, which owns legacy source-mode updates.
 For an old installation that points directly at a source checkout, uninstall its registered application first and make a fresh full installation.
 Before reusing a legacy operational home, follow [home migration](state-migration.md); a new default home does not import old task state automatically.

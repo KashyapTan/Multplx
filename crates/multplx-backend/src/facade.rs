@@ -570,10 +570,41 @@ pub fn observe_endpoint(
     let name = BackendName::parse(name)?;
     let target = BackendTarget::new(name, endpoint, expected_label)?;
     let mut backend = system_backend(name);
-    match backend.observe_target(&target) {
+    observe_with_backend(&mut *backend, &target, agent)
+}
+
+/// Inspect an endpoint using canonical runtime/home scope rather than ambient cwd.
+pub fn observe_endpoint_for_home(
+    name: &str,
+    endpoint: &str,
+    expected_label: Option<String>,
+    root: &Path,
+    home: &Path,
+) -> Result<EndpointObservation, BackendError> {
+    let name = BackendName::parse(name)?;
+    let target = BackendTarget::new(name, endpoint, expected_label)?;
+    let mut backend = match name {
+        BackendName::Cmux => Box::new(crate::cmux::CmuxBackend::system_for_home(
+            root.to_owned(),
+            home.to_owned(),
+            home.join("config"),
+        )) as Box<dyn RuntimeBackend>,
+        _ => system_backend(name),
+    };
+    observe_with_backend(&mut *backend, &target, false)
+}
+
+fn observe_with_backend(
+    backend: &mut dyn RuntimeBackend,
+    target: &BackendTarget,
+    agent: bool,
+) -> Result<EndpointObservation, BackendError> {
+    let name = target.backend();
+    let endpoint = target.endpoint();
+    match backend.observe_target(target) {
         Ok(()) => {
             let (agent_state, detail) = if agent {
-                match backend.observe_agent(&target) {
+                match backend.observe_agent(target) {
                     Ok(state) => {
                         let detail = match state {
                             AgentState::Ambiguous

@@ -13,6 +13,9 @@ assert_contains "$install_help" "--upgrade" \
 assert_contains "$install_help" "--data-dir PATH" \
   "source installer help should list custom installation paths"
 
+assert_contains "$install_help" "--allow-stopped-agents" \
+  "source installer help should describe stopped standing-agent consent"
+
 bootstrap_help=$("$ROOT/install-from-github.sh" --help)
 assert_contains "$bootstrap_help" "raw.githubusercontent.com/KashyapTan/Multplx/main/install-from-github.sh" \
   "bootstrap help should show the public source command"
@@ -34,8 +37,8 @@ git -C "$repository" -c user.name='Multplx Tests' \
 git -C "$repository" branch -M main
 TMPDIR="$tmp" MULTPLX_REPOSITORY="$repository" \
   MX_BOOTSTRAP_TEST_ARGS="$tmp/forwarded.args" \
-  "$ROOT/install-from-github.sh" --home "$tmp/home with spaces" --upgrade
-printf '%s\n' --home "$tmp/home with spaces" --upgrade >"$tmp/expected.args"
+  "$ROOT/install-from-github.sh" --home "$tmp/home with spaces" --upgrade --allow-stopped-agents
+printf '%s\n' --home "$tmp/home with spaces" --upgrade --allow-stopped-agents >"$tmp/expected.args"
 cmp -s "$tmp/expected.args" "$tmp/forwarded.args" \
   || fail "GitHub bootstrap did not forward installer options unchanged"
 for leftover in "$tmp"/multplx-bootstrap.*; do
@@ -46,7 +49,7 @@ no_cargo_path="$tmp/no-cargo-path"
 mkdir -p "$no_cargo_path"
 ln -s "$(command -v bash)" "$no_cargo_path/bash"
 ln -s "$(command -v dirname)" "$no_cargo_path/dirname"
-if PATH="$no_cargo_path" "$ROOT/install.sh" --bin-dir "$tmp/bin" \
+if PATH="$no_cargo_path" "$ROOT/install.sh" --upgrade --allow-stopped-agents --bin-dir "$tmp/bin" \
     --config-dir "$tmp/config" --data-dir "$tmp/data" >"$tmp/no-cargo.out" 2>&1; then
   status=0
 else
