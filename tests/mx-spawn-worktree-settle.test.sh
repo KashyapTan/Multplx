@@ -27,6 +27,21 @@ settle_failure_diagnostics() {
 }
 trap 'settle_failure_diagnostics "$?"' EXIT
 
+# Hook consent fingerprints the actual selected executable. Exercise the same
+# instrumented code in its deployed shape so debug bytes do not dominate the
+# existing allocation timing bound. Every wrapper and direct owner call uses
+# this one suite-owned copy; stripping must succeed and is never a fallback.
+settle_source_binary=${MX_RUST_BIN:?selected Rust runtime is required}
+settle_runtime_binary="$TMP_ROOT/runtime/mx"
+mkdir -p "$TMP_ROOT/runtime" || fail 'cannot create settlement runtime directory'
+cp "$settle_source_binary" "$settle_runtime_binary" || fail 'cannot copy selected settlement runtime'
+strip -S "$settle_runtime_binary" || fail 'cannot strip settlement runtime debug sections'
+export MX_RUST_BIN=$settle_runtime_binary
+export MX_TEST_BINARY=$settle_runtime_binary
+printf '# settlement runtime: source=%s source_bytes=%s selected=%s selected_bytes=%s\n' \
+  "$settle_source_binary" "$(wc -c < "$settle_source_binary")" \
+  "$MX_RUST_BIN" "$(wc -c < "$MX_RUST_BIN")"
+
 # make_settle_fakebin <dir> builds a fake tmux whose `#{pane_current_path}`
 # query returns MX_FAKE_PANE_STALE for the first MX_FAKE_PANE_STALE_READS
 # calls, then MX_FAKE_PANE_PATH forever after - reproducing a pane that
