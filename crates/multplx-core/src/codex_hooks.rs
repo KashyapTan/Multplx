@@ -249,7 +249,6 @@ mod tests {
     }
     #[test]
     fn shared_and_owned_project_handlers_execute_exactly_once_in_primary_and_worker() {
-        use std::io::Write;
         use std::process::{Command, Stdio};
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
@@ -259,7 +258,7 @@ mod tests {
             let path = root.join(script);
             fs::write(
                 &path,
-                "#!/bin/sh\nprintf 'called\\n' >> \"$MX_TEST_CALLS\"\n",
+                "#!/bin/sh\n[ \"$(cat)\" = '{}' ] || exit 1\nprintf 'called\\n' >> \"$MX_TEST_CALLS\"\n",
             )
             .unwrap();
             use std::os::unix::fs::PermissionsExt;
@@ -268,6 +267,10 @@ mod tests {
         let binary = root.join("mx");
         fs::write(&binary, "fixture executable").unwrap();
         let marker = root.join("calls");
+        // Guarded no-op hooks may exit without reading stdin. Populate input
+        // before launch so their early exit cannot race a parent pipe write.
+        let input = root.join("hook-input.json");
+        fs::write(&input, b"{}").unwrap();
         let project: serde_json::Value =
             serde_json::from_str(include_str!("../../../.codex/hooks.json")).unwrap();
         for definition in arguments(root, &binary).unwrap().iter().skip(1).step_by(2) {
@@ -307,12 +310,11 @@ mod tests {
                         .env("MX_TEST_CALLS", &marker)
                         .env("MX_CODEX_SHARED_WORKER_HOOKS", "1")
                         .env_remove("MX_TASK_ID")
-                        .stdin(Stdio::piped());
+                        .stdin(Stdio::from(fs::File::open(&input).unwrap()));
                     if worker {
                         process.env("MX_TASK_ID", "owned-fixture-worker");
                     }
                     let mut child = process.spawn().unwrap();
-                    child.stdin.take().unwrap().write_all(b"{}").unwrap();
                     assert!(child.wait().unwrap().success());
                 }
                 assert_eq!(
@@ -329,10 +331,9 @@ mod tests {
                 .env_remove("MX_CODEX_SHARED_WORKER_HOOKS")
                 .env("MX_RUST_SOURCE_ROOT", root)
                 .env("MX_TEST_CALLS", &marker)
-                .stdin(Stdio::piped())
+                .stdin(Stdio::from(fs::File::open(&input).unwrap()))
                 .spawn()
                 .unwrap();
-            child.stdin.take().unwrap().write_all(b"{}").unwrap();
             assert!(child.wait().unwrap().success());
             assert_eq!(fs::read_to_string(&marker).unwrap(), "called\n");
             fs::remove_file(&marker).unwrap();
