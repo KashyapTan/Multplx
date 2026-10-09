@@ -249,6 +249,18 @@ mx_test_tmproot_into() {
 
 # --- timing, bounded waits, and leak diagnostics -----------------------------
 
+# Exact current watcher marker, including subsecond changes on every platform.
+# Avoid floating-point mtimes, which can round away a same-size rewrite.
+mx_test_signal_signature() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+metadata = os.stat(sys.argv[1])
+seconds, nanos = divmod(metadata.st_mtime_ns, 1_000_000_000)
+print(f"{metadata.st_size}:{seconds}.{nanos:09d}")
+PY
+}
+
 mx_test_now_ms() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import time; print(int(time.monotonic() * 1000))'
