@@ -38,10 +38,7 @@ fn signal_signature(path: &Path) -> Option<String> {
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return None;
     }
-    #[cfg(target_os = "macos")]
     let modified = format!("{}.{:09}", metadata.mtime(), metadata.mtime_nsec());
-    #[cfg(not(target_os = "macos"))]
-    let modified = metadata.mtime().to_string();
     Some(format!("{}:{modified}", metadata.len()))
 }
 
@@ -5627,9 +5624,20 @@ mod tests {
         let rewritten = scan_signals(temp.path());
         assert!(rewritten[0].maintainer_relevant);
         assert!(!rewritten[0].routine_progress);
+        let same_second = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         fs::write(&status, "working: a\n").unwrap();
+        fs::File::open(&status)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(same_second))
+            .unwrap();
         publish_signal_markers(&scan_signals(temp.path())).unwrap();
         fs::write(&status, "blocked: a\n").unwrap();
+        fs::File::open(&status)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(same_second + Duration::from_nanos(1_000_000)),
+            )
+            .unwrap();
         let same_size = scan_signals(temp.path());
         assert!(same_size[0].maintainer_relevant);
         assert!(!same_size[0].routine_progress);
