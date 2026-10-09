@@ -163,6 +163,43 @@ pub fn publish_message_wake(
     Ok(format!("wake-{:020}", record.sequence))
 }
 
+/// Persist every report envelope, publishing a wake only when the frozen
+/// acceptance policy calls for one. This creates no synthetic queue receipt.
+pub fn publish_report_notification(
+    state: &Path,
+    envelope: &MessageEnvelope,
+    payload: &str,
+    now: SystemTime,
+    processes: &impl multplx_core::process::ProcessProbe,
+) -> Result<Option<String>, String> {
+    persist_message_envelope(state, envelope)?;
+    // Old revisions remain durable history. Repair must not turn an unpublished
+    // historical report into a fresh automatic parent notification.
+    let owner_state = envelope
+        .task_home
+        .as_ref()
+        .map(|home| Path::new(home).join("state"));
+    let metadata = owner_state
+        .as_deref()
+        .unwrap_or(state)
+        .join(format!("{}.meta", envelope.task_id));
+    if let Ok(bytes) = read_bounded_regular(
+        metadata,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    ) && let Ok(text) = std::str::from_utf8(&bytes)
+        && let Ok(record) = crate::lifecycle::subagent_model::read_meta(&envelope.task_id, text)
+        && !record.legacy_unknown
+        && (envelope.attempt != record.attempt
+            || envelope.brief_revision != record.accepted_brief_revision)
+    {
+        return Ok(None);
+    }
+    if envelope.kind == "working" && envelope.automatic_wake == Some(false) {
+        return Ok(None);
+    }
+    publish_message_wake(state, envelope, payload, now, processes).map(Some)
+}
+
 /// Advance delivery/response acknowledgement without changing route identity.
 pub fn advance_message_envelope(
     state: &Path,
@@ -746,6 +783,7 @@ impl RequestStore {
                 summary: request.scope.to_owned(),
                 artifact: request.context_artifact.map(str::to_owned),
                 acknowledgement: Acknowledgement::Delivered,
+                automatic_wake: None,
             },
         };
         recorded.validate()?;
@@ -1855,6 +1893,7 @@ mod tests {
             summary: "please inspect".into(),
             artifact: None,
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         };
         assert_eq!(
             persist_message_envelope(&state, &envelope).expect("persist"),

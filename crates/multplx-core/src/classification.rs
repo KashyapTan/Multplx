@@ -281,6 +281,24 @@ pub fn render_open_statuses(open: &[OpenStatus]) -> String {
         .collect()
 }
 
+/// Whether an accepted report merits an automatic parent notification.
+/// Unknown status vocabulary is conservative; routine progress is the only
+/// suppressible report, and explicit identity/lifecycle changes override it.
+#[must_use]
+pub fn report_requires_notification(
+    kind: &str,
+    first_current_report: bool,
+    requested_reply: bool,
+    lifecycle_changed: bool,
+    has_artifact: bool,
+) -> bool {
+    kind != "working"
+        || first_current_report
+        || requested_reply
+        || lifecycle_changed
+        || has_artifact
+}
+
 /// Return whether a line is maintainer relevant under the legacy verb-aware rule.
 pub fn is_maintainer_relevant(
     line: &str,
@@ -335,6 +353,37 @@ mod tests {
         Heuristic, NativeState, RunStep, is_maintainer_relevant, last_status_line, open_activities,
         open_decisions, render_open_statuses, resolve_signal, status_line_note, status_line_verb,
     };
+
+    #[test]
+    fn report_notification_semantics_only_suppress_routine_progress() {
+        assert!(!super::report_requires_notification(
+            "working", false, false, false, false
+        ));
+        for flags in [
+            (true, false, false, false),
+            (false, true, false, false),
+            (false, false, true, false),
+            (false, false, false, true),
+        ] {
+            assert!(super::report_requires_notification(
+                "working", flags.0, flags.1, flags.2, flags.3
+            ));
+        }
+        for kind in [
+            "done",
+            "blocked",
+            "needs-decision",
+            "failed",
+            "paused",
+            "resolved",
+            "evidence-changed",
+            "unknown",
+        ] {
+            assert!(super::report_requires_notification(
+                kind, false, false, false, false
+            ));
+        }
+    }
 
     #[test]
     fn signal_precedence_is_exhaustive() {

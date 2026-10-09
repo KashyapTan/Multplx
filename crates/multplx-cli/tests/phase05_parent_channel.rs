@@ -815,6 +815,7 @@ fn idle_watcher_checkpoints_relay_a_nested_outcome_without_model_turns() {
         summary: "critical nested outcome".into(),
         artifact: Some("failure.txt".into()),
         acknowledgement: Acknowledgement::Pending,
+        automatic_wake: None,
     };
     multplx_domain::lifecycle::parent_channel::record_outcome(&worker_home.join("state"), &event)
         .unwrap();
@@ -1642,4 +1643,105 @@ fn nested_parent_outcome_uses_recorded_authority_and_runtime_home() {
     assert_eq!(receipt["actor"], "coordinator");
     assert_eq!(receipt["completion_proven"], false);
     assert!(!root.join("state/child.status").exists());
+}
+
+#[test]
+fn canonical_progress_burst_is_durable_quiet_and_retry_stable() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let home = temp.path().join("home");
+    let record = canonical_task(&home, "quiet-worker");
+    let attempt = record.attempt.as_ref().expect("attempt");
+    let report = |id: &str, state: &str, correlation: Option<&str>| {
+        let mut command = mx(&home);
+        command
+            .env("MX_TASK_ID", "quiet-worker")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .args([
+                "supervision",
+                "mx-report",
+                "--state",
+                state,
+                "--message",
+                "same summary",
+                "--message-id",
+                id,
+            ]);
+        if let Some(correlation) = correlation {
+            command.args(["--correlation-id", correlation]);
+        }
+        let result = run(&mut command);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    let notifications = || {
+        fs::read_to_string(home.join("state/.wake-queue"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+    report("start", "working", None);
+    assert_eq!(notifications(), 1);
+    for index in 0..24 {
+        report(&format!("progress-{index}"), "working", None);
+    }
+    assert_eq!(notifications(), 1);
+    assert_eq!(
+        fs::read_to_string(home.join("state/quiet-worker.status"))
+            .unwrap()
+            .lines()
+            .count(),
+        25
+    );
+    for index in 0..24 {
+        let id = format!("progress-{index}");
+        let evidence: serde_json::Value = serde_json::from_slice(
+            &fs::read(home.join(format!("state/evidence/quiet-worker-{id}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(evidence["accepted"], true);
+        assert_eq!(evidence["envelope"]["automatic_wake"], false);
+        assert!(
+            home.join(format!("state/message-outbox/{id}.json"))
+                .is_file()
+        );
+    }
+    report("progress-0", "working", None);
+    assert_eq!(notifications(), 1);
+    for _ in 0..3 {
+        let result = watcher_checkpoint(&home);
+        assert!(
+            matches!(result.status.code(), Some(0 | 124)),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            notifications(),
+            1,
+            "status scan/restart reintroduced routine progress"
+        );
+    }
+    report("answer", "working", Some("requested-answer"));
+    assert_eq!(notifications(), 2);
+    report("complete", "done", None);
+    assert_eq!(notifications(), 3);
+    report("complete", "done", None);
+    assert_eq!(notifications(), 3);
+    for _ in 0..2 {
+        let relay = run(mx(&home).args(["parent-channel", "relay", "--limit", "64"]));
+        assert!(
+            relay.status.success(),
+            "{}",
+            String::from_utf8_lossy(&relay.stderr)
+        );
+    }
+    assert_eq!(
+        notifications(),
+        3,
+        "nested/root relay duplicated canonical notifications"
+    );
 }

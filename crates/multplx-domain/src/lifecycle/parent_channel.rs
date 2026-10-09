@@ -820,7 +820,8 @@ pub fn prepare_report(
     if matches!(
         event.kind.as_str(),
         "blocked" | "needs-decision" | "done" | "failed" | "resolved"
-    ) {
+    ) || (event.kind == "working" && event.automatic_wake == Some(true))
+    {
         prepare_outcome(state, event).map(Some)
     } else {
         Ok(None)
@@ -899,7 +900,7 @@ fn promote_inbox_record(state: &Path, path: &Path) -> Result<bool, String> {
                 incoming.event.summary
             )
         };
-        crate::operational_input::publish_message_wake(
+        crate::operational_input::publish_report_notification(
             state,
             &incoming.event,
             &payload,
@@ -1413,6 +1414,7 @@ mod tests {
             summary: "accepted outcome".into(),
             artifact: Some("result.md".into()),
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         }
     }
 

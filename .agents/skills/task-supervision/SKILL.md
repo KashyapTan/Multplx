@@ -12,7 +12,10 @@ After verified delivery, stop automatic contact, polling, nudging and work routi
 Preserve task and accepted-revision evidence when scope changes.
 
 Keep the coordinator available for user discussion and new requests while workers execute asynchronously.
-Use bounded current-state reads and the emitted harness supervision protocol; an old status line is a notification, not current task truth.
+Follow the emitted harness protocol to end the turn and wait while supervision is healthy.
+Do not run repeating task/Git/capture/checkpoint inspections or timed sleeps as the normal idle workflow.
+Inspect bounded current state when the user asks, an actionable event arrives or concrete recovery requires it; an old status line is a notification, not current task truth.
+Background programs own continuous monitoring without a model turn.
 Read `mx task-model inspect TASK_ID --compact` for current owner/child-state routes, attempt/revision, endpoint/allocation, pending request IDs and expected delivery commit, and `bin/mx-actor-state.sh TASK_ID` for recorded execution state.
 Use `--full` when the accepted scope or retained history itself needs inspection; avoid repeating full embedded briefs for ordinary progress checks.
 `bin/mx-status-snapshot.sh --help` describes the bounded portfolio projection and freshness limits.
