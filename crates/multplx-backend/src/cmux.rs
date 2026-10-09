@@ -312,6 +312,31 @@ impl<R: CommandRunner> CmuxBackend<R> {
             .map(str::to_owned))
     }
 
+    /// Refuse closing a workspace containing any unapproved additional surface.
+    pub fn single_surface_execution(
+        &mut self,
+        target: &BackendTarget,
+    ) -> Result<bool, BackendError> {
+        let (workspace, surface) = self.ensure_target(target)?;
+        let value = self.json([
+            "list-panes",
+            "--workspace",
+            &workspace,
+            "--json",
+            "--id-format",
+            "uuids",
+        ])?;
+        let panes = value
+            .get("panes")
+            .and_then(Value::as_array)
+            .ok_or_else(|| BackendError::Malformed("cmux panes unavailable".into()))?;
+        Ok(panes.len() == 1
+            && panes[0]
+                .get("surface_ids")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| ids.len() == 1 && ids[0].as_str() == Some(&surface)))
+    }
+
     pub fn surface_id_for_workspace(
         &mut self,
         workspace: &str,

@@ -16,3 +16,6 @@ pub mod tmux;
 
 /// Identifies the current implementation boundary in diagnostics and tests.
 pub const SHADOW_BOUNDARY: &str = "backend-dispatch-rust";
+
+/// Verified, non-retiring endpoint stops for runtime replacement.
+pub mod upgrade_stop;

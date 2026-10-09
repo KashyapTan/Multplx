@@ -2,6 +2,7 @@
 # Package-only install, upgrade, recovery, persistent-home and uninstall checks.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+upgrade_real_tmux=$(command -v tmux) || fail 'tmux is required for isolated upgrade stop acceptance'
 mx_test_tmproot_into TMP_ROOT mx-release-package
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 
@@ -28,6 +29,8 @@ while process.poll() is None and time.monotonic() < deadline:
         break
     output.extend(chunk)
     if not sent and b'[y/N]' in output:
+        if os.environ.get('MX_TEST_CONFIRM_HOOK'):
+            subprocess.run([os.environ['MX_TEST_CONFIRM_HOOK']], check=True)
         os.write(master, b'\x04' if answer == 'EOF' else (answer + '\n').encode())
         sent = True
 try:
@@ -1036,6 +1039,10 @@ if "$package/bin/mx" launcher-install --uninstall --bin-dir "$install/bin" \
     --config-dir "$install/config" --data-dir "$install/data" >/dev/null 2>&1; then
   fail 'uninstall accepted retained standing records'
 fi
+. "$ROOT/tests/fixtures/upgrade-owned-stop-helpers.sh"
+run_upgrade_owned_stop_checks
+run_upgrade_herdr_shape_check
+run_upgrade_primary_stop_check
 pass 'standing upgrades confirm once, preserve unfinished records and dirty work, and refuse uncertain owned child routes'
 # Retired ownership is historical evidence. Keep the original launch receipt,
 # require fresh endpoint absence, and never recreate or discard its retired home.
@@ -1049,6 +1056,7 @@ upgrade_standing --allow-stopped-agents >/dev/null || fail 'matched retired laun
 cmp -s "$TMP_ROOT/retired-action.before" "$install/data/home/state/.spawn-actions/$standing.json" \
   || fail 'historical upgrade changed retired launch receipt'
 [ "$(cat "$retired_home/data/retained-private")" = 'private pending work' ] || fail 'historical upgrade changed retired home'
+run_upgrade_retired_stop_check
 jq '.binding.lease_id="foreign-lease"' "$install/data/home/data/.home-allocation-$standing.json" \
   >"$TMP_ROOT/retired-lease.bad"
 cp "$TMP_ROOT/retired-lease.bad" "$install/data/home/data/.home-allocation-$standing.json"

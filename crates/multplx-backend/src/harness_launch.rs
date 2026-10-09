@@ -703,6 +703,145 @@ fn reservation_state(home: &Path, processes: &impl ProcessProbe) -> ReservationS
     }
 }
 
+/// Immutable proof for stopping a registered primary or exact launcher owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedUpgradePrimary {
+    pub pid: u32,
+    pub home: PathBuf,
+    pub launcher_pid: Option<u32>,
+    identity: ProcessIdentity,
+    connection: Option<Vec<u8>>,
+    reservation: Option<Vec<u8>>,
+    launcher: Option<ProcessIdentity>,
+}
+/// Inspect only exact owned home records; a plain lock PID is not stop authority.
+pub fn inspect_upgrade_primary(home: &Path) -> Result<Option<VerifiedUpgradePrimary>, String> {
+    let probe = SystemProcessProbe::default();
+    let held = match status(home.join("state/.lock"), &probe, &harness_regex()) {
+        SessionLockStatus::Held(pid) => Some(pid),
+        SessionLockStatus::Unreadable => {
+            return Err("primary session lock is unreadable; retained".into());
+        }
+        _ => None,
+    };
+    let launch = inspect_launch_reservation(home)?;
+    let live_launch = match launch {
+        LaunchReservationInspection::Live { pid } => Some(pid),
+        _ => None,
+    };
+    if held.is_none() && live_launch.is_none() {
+        return Ok(None);
+    }
+    let pid = held.or(live_launch).expect("live owner");
+    if held.is_some()
+        && primary_observation(home, &home.join("state"))
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            != Some("live")
+    {
+        return Err(
+            "live primary has no verified exact home/registration/lifetime binding; retained"
+                .into(),
+        );
+    }
+    // A different launcher process may still be supervising this primary.
+    // Preserve it until a separate exact-owner proof is available.
+    if let Some(launch) = live_launch.filter(|launch| *launch != pid) {
+        let mut child = pid;
+        let mut matched = false;
+        for _ in 0..64 {
+            if child == launch {
+                matched = true;
+                break;
+            }
+            let row = probe.ancestry_row(child).map_err(|e| e.to_string())?;
+            if row.parent_pid == child || row.parent_pid == 0 {
+                break;
+            }
+            child = row.parent_pid;
+        }
+        if !matched {
+            return Err(
+                "live launcher does not own the registered primary process; retained".into(),
+            );
+        }
+    }
+    let read = |path: &Path| -> Result<Vec<u8>, String> {
+        let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+        if meta.uid() != rustix::process::geteuid().as_raw() {
+            return Err("primary record is foreign-owned".into());
+        }
+        read_bounded_regular(path, 16 * 1024).map_err(|e| e.to_string())
+    };
+    Ok(Some(VerifiedUpgradePrimary {
+        pid,
+        home: home.into(),
+        launcher_pid: live_launch.filter(|launch| *launch != pid),
+        identity: probe.identity(pid).map_err(|e| e.to_string())?,
+        connection: if held.is_some() {
+            Some(read(&connection_path(home))?)
+        } else {
+            None
+        },
+        reservation: if live_launch.is_some() {
+            Some(read(&reservation_path(home))?)
+        } else {
+            None
+        },
+        launcher: live_launch
+            .filter(|launch| *launch != pid)
+            .map(|launch| probe.identity(launch).map_err(|e| e.to_string()))
+            .transpose()?,
+    }))
+}
+/// Stop a consented lifetime through the process owner, retaining session records.
+/// Callers hold the home launch lock and installation launch barrier.
+pub fn stop_upgrade_primary(approved: &VerifiedUpgradePrimary) -> Result<(), String> {
+    use multplx_core::process::{ProcessTerminator, SystemProcessTerminator};
+    if inspect_upgrade_primary(&approved.home)?.as_ref() != Some(approved) {
+        return Err("primary owner changed after upgrade consent; retained".into());
+    }
+    if approved.pid == std::process::id() || approved.launcher_pid == Some(std::process::id()) {
+        return Err("upgrade cannot stop its own process; use a separate terminal".into());
+    }
+    let mut terminator = SystemProcessTerminator::default();
+    terminator
+        .terminate(&approved.identity)
+        .map_err(|e| e.to_string())?;
+    if !terminator.wait_gone(&approved.identity, Duration::from_secs(5)) {
+        return Err("primary did not stop; runtime was not replaced; retry after inspecting the exact primary PID".into());
+    }
+    if let Some(launcher) = &approved.launcher {
+        let probe = SystemProcessProbe::default();
+        if probe.is_alive(launcher.pid)
+            && probe.identity(launcher.pid).ok().as_ref() == Some(launcher)
+        {
+            terminator.terminate(launcher).map_err(|e| e.to_string())?;
+            if !terminator.wait_gone(launcher, Duration::from_secs(5)) {
+                return Err("workspace launcher did not stop; runtime was not replaced".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reconcile only the exact launch reservation approved with a stopped primary.
+/// The caller still holds the home launch lock; a replacement record is retained.
+pub fn reconcile_stopped_upgrade_launch(approved: &VerifiedUpgradePrimary) -> Result<(), String> {
+    let Some(bytes) = &approved.reservation else {
+        return Ok(());
+    };
+    match inspect_launch_reservation(&approved.home)? {
+        LaunchReservationInspection::Missing => Ok(()),
+        LaunchReservationInspection::Stale(stale) if &stale.record == bytes => {
+            remove_verified_stale_launch_reservation(&approved.home, &stale)
+        }
+        _ => Err(
+            "workspace launch changed during primary stop; replacement reservation retained".into(),
+        ),
+    }
+}
+
 /// Privacy-preserving primary observation from the launcher's exact-home record.
 /// Callers must bound the host probes (the canonical collector uses a child deadline).
 pub fn primary_observation(home: &Path, state: &Path) -> serde_json::Value {
