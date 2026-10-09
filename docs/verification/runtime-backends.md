@@ -85,6 +85,23 @@ The cmux fixture replaces the recorded surface and requires actor-state, doctor,
 
 ## tmux
 
+### Confirmed upgrade stopping
+
+Upgrade stopping was verified on 2026-10-09 with tmux 3.7c and Rust 1.97.1 on macOS arm64.
+
+```sh
+target/release/mx test-run tests/mx-release-package.test.sh tests/mx-source-install.test.sh
+```
+
+The acceptance fixture uses a private tmux socket, empty configuration and inert processes, without operational homes or user sessions.
+It verifies one aggregated confirmation, No and EOF preservation, exact window stopping, recycled-label identity refusal, failed-stop refusal, child stale-launch reconciliation and receipt-only retired executions.
+Original metadata, launch history, home leases, dirty files and an unrelated sentinel window survive.
+Real process probes also verify registered-primary stopping and exact launch-reservation reconciliation while retaining connection history.
+The tmux proof uses printable field separators because `LC_ALL=C` converts control separators to underscores.
+
+The same installer suite separately uses a response-shaped Herdr mock to verify stable terminal identity, `pane process-info` shell ownership, private execution-home scope and allocation-null research records.
+Those deterministic checks do not claim a live Herdr stop; the [upgrade guide](../getting-started.md#upgrade) documents the compare-and-close limitation.
+
 ### Rust Portion 04 shadow-period evidence
 
 The Rust shadow adapter was verified on 2026-08-11 with tmux 3.7b on macOS 26.5.2 arm64.

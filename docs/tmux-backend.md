@@ -48,6 +48,10 @@ The installed `mx` binary owns the production tmux implementation.
 Compatibility command names reach that implementation through exec-only adapters, with no mixed-engine fallback after an operation starts.
 Command output and runtime are bounded, timeouts kill and reap the owned subprocess group, and recovery decisions use exact live-window inventory rather than substring matches.
 
+Packaged [upgrades](getting-started.md#upgrade) can offer to stop verified managed executions in one default-No confirmation.
+The upgrade owner binds each single-pane task window to its recorded allocation, immutable window and pane identities, and server and pane process lifetimes before stopping the exact window ID.
+Changed identities, extra panes and uncertain ownership refuse replacement, while task records, private homes and dirty work remain intact.
+
 A target-existence check proves only that the pane exists.
 The deeper tmux agent-liveness probe first verifies exact window membership, then reads `#{pane_current_command}` to distinguish a running harness process from a bare idle shell.
 It classifies recognized Claude and Codex process names as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.

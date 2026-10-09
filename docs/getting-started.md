@@ -175,16 +175,27 @@ curl -fsSL https://raw.githubusercontent.com/KashyapTan/Multplx/main/install-fro
 Use the same custom path options if you selected non-default installation directories.
 Upgrade preserves operational data and repositories; live or uncertain runtime users can prevent it.
 If it finds a verified stale workspace launch reservation for a previous process lifetime, it asks before removing that reservation.
-A live or uncertain launch owner remains refused, and recovery never stops a process.
+Stale-launch recovery alone never authorizes stopping a live process.
+An uncertain launch owner remains refused.
 Stopped standing workers require confirmation after the installer verifies their canonical ownership, exact endpoint absence and leased private home, including recorded child routes.
-One default-No prompt covers all eligible workers and any verified stale launcher reservation.
+One default-No prompt previews exact owned task endpoints, primary sessions, stopped records and any verified stale launcher reservation.
+The preview warns that stopping live sessions interrupts active work.
+Yes stops only the verified approved executions through their owners, checks quiescence again, then replaces the runtime.
+No or EOF leaves live sessions and durable task state untouched.
 Upgrade preserves every task record, pending task, private home and worktree; it does not retire agents or mark work complete.
 Exact retired-home receipts and unsubmitted successor reservations can be retained as stopped historical ownership only when their predecessor, route, lease and fresh endpoint checks agree.
 Malformed or unmatched intents and orphan launch receipts require explicit owner reconciliation; upgrade never deletes these records.
-Live endpoints, uncertain inventory, malformed or foreign ownership, coordinator assignments and retained unknown executions remain refused with inspection guidance.
+Uncertain inventory, malformed or foreign ownership, transferred authority and unknown native executions remain refused with exact inspection guidance.
+Switch away from an active Herdr projected task tab before retrying, so its presentation owner can preserve focus while closing the exact task pane.
+Extra tmux panes, a changed execution directory, or missing stable backend ownership evidence also remain refused.
 Use `MX_HOME=/exact/owner/home multplx task-model inspect TASK_ID` to inspect a refused record, then reconcile through that home's lifecycle owner.
 For a noninteractive upgrade, pass `--recover-stale-launch` and/or `--allow-stopped-agents` with `--upgrade` to confirm the corresponding verified cases.
-These flags never override a live or uncertain owner.
+These flags never authorize stopping live sessions.
+Add `--stop-managed-sessions` to explicitly authorize verified live stops in noninteractive use.
+Each flag confirms only its named case; none overrides uncertain or foreign ownership.
+A partial or uncertain stop leaves the runtime unchanged and retains task records and stop receipts; rerun the same upgrade to review remaining users.
+Keep the listed terminal windows unchanged until upgrade finishes; backend UI replacement cannot be serialized by Multplx lifecycle locks.
+The installer rechecks immutable terminal identities and process lifetimes immediately before stopping each endpoint, but Herdr exposes no atomic compare-and-close API.
 Finish spawn/replacement commands before upgrade and do not start new ones until it completes, particularly commands using an older installed binary.
 The installer holds the existing lifecycle locks for recorded tasks, and current spawn rechecks the installed binary and asset generation under its task lock.
 Uninstall still requires explicit retirement and refuses retained task records, including stopped workers.

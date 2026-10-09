@@ -10,7 +10,7 @@ usage() {
 Build and install Multplx from this checkout.
 
 Usage:
-  ./install.sh [--upgrade] [--recover-stale-launch] [--allow-stopped-agents] [--home PATH] [--bin-dir PATH]
+  ./install.sh [--upgrade] [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [--home PATH] [--bin-dir PATH]
                [--config-dir PATH] [--data-dir PATH]
 
 This builds the locked Rust workspace, packages the matching runtime assets,
@@ -18,10 +18,14 @@ and installs the package through Multplx's transactional global installer.
 The default operational home is separate from the installed runtime.
 Pass --upgrade to replace an existing installation. If upgrade finds a
 verified stale workspace launch reservation for a previous process lifetime, it asks before clearing it.
-Stopped standing agents with verified owned homes also require confirmation;
-upgrade preserves their records, homes and worktrees. Live or uncertain owners
-are refused with inspection guidance. Use --recover-stale-launch and/or
---allow-stopped-agents to confirm the corresponding verified cases without a prompt. The supported forwarded options are --home, --bin-dir, --config-dir
+One default-No confirmation previews exact owned live task endpoints and primary
+sessions, warns that stopping them interrupts active work, and also covers stopped
+standing agents and verified stale launch reservations. On yes, the owner stops
+only the approved executions, verifies quiescence, then upgrades while preserving
+task records, private homes, transcripts and worktrees. No or EOF leaves sessions
+untouched. Unknown or foreign ownership remains refused. For noninteractive use,
+--stop-managed-sessions explicitly authorizes verified live stops; the separate
+--recover-stale-launch and --allow-stopped-agents flags cover only their named cases. The supported forwarded options are --home, --bin-dir, --config-dir
 and --data-dir. This script does not install Rust or system tools.
 
 After installation, ensure the binary directory is on PATH, then run:
@@ -44,7 +48,7 @@ while [ "$index" -lt "${#install_args[@]}" ]; do
     --upgrade)
       index=$((index + 1))
       ;;
-    --recover-stale-launch|--allow-stopped-agents)
+    --recover-stale-launch|--allow-stopped-agents|--stop-managed-sessions)
       index=$((index + 1))
       ;;
     --home|--bin-dir|--config-dir|--data-dir)

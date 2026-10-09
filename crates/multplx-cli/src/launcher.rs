@@ -22,7 +22,7 @@ const VIZ_PUBLIC_HELP: &str = "Open the read-only dashboard for the configured o
 
 const LAUNCHER_HELP: &str = "Open one globally configured Multplx workspace and conversation.\n\nUsage:\n  multplx [--plain]\n  multplx PATH|ALIAS\n  multplx chat [claude|codex|cursor|pi] [args...]\n  multplx project|projects [args...]\n  multplx task --project SELECTOR [args...] TEXT\n  multplx domain [args...]\n  multplx spawn [args...]\n  multplx launcher-install [--upgrade|--uninstall] [args...]\n  multplx [--backend auto|tmux|herdr|cmux] claude|codex|cursor|pi [args...]\n  multplx [--backend auto|tmux|herdr|cmux] shell\n  multplx doctor [args...]\n  multplx task-session inspect TASK\n  multplx update\n  multplx viz [--no-open|serve|status|stop]\n  multplx paths\n  multplx --help\n  multplx --version\n\nA bare launch opens the terminal workspace. Use Tab to change views, arrows/j/k or the mouse wheel to move, / to filter, t to enter a task, c to chat, v for Viz, and q to quit. PATH or ALIAS selects a registered checkout; an explicit path is registered if needed. Chat reconnects to the one live conversation or starts the remembered harness. Shell mode is explicit. The caller directory supplies request context but is never scanned or registered implicitly.\n";
 
-const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [--allow-stopped-agents] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --allow-stopped-agents  confirm upgrade with verified stopped standing agents; preserve records, homes and work\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
+const INSTALL_HELP: &str = "Install the global `multplx` and `mx` binaries and register one runtime and home.\n\nUsage:\n  mx launcher-install --package PATH [--home PATH]\n  mx launcher-install [--root PATH] [--home PATH] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --managed [--source GIT-URL] [--binary PATH] [--checksum SHA256]\n  mx launcher-install --upgrade [--recover-stale-launch] [--allow-stopped-agents] [--stop-managed-sessions] [install options]\n  mx launcher-install --uninstall [shared options]\n\nInstall options:\n  --package PATH       verified extracted platform package (binary plus matching assets)\n  --root PATH          explicit source checkout runtime\n  --home PATH          operational state home; package default is DATA_DIR/home\n  --binary PATH        verified prebuilt binary or explicit local release build\n  --checksum SHA256    required checksum for an external --binary artifact\n  --managed            clone a clean managed source runtime under DATA_DIR/runtime\n  --source GIT-URL     source for --managed only\n\nShared options:\n  --bin-dir PATH       default ${XDG_BIN_HOME:-$HOME/.local/bin}\n  --config-dir PATH    default ${XDG_CONFIG_HOME:-$HOME/.config}/multplx\n  --data-dir PATH      default ${XDG_DATA_HOME:-$HOME/.local/share}/multplx\n  --upgrade            atomically replace the owned binary and matching runtime assets\n  --recover-stale-launch  confirm removal of a verified stale workspace launch reservation during upgrade\n  --allow-stopped-agents  confirm upgrade with verified stopped standing agents; preserve records, homes and work\n  --stop-managed-sessions  explicitly consent to stopping verified owned live executions during upgrade\n  --uninstall          remove owned application files and records; preserve state and repositories\n  -h, --help\n\nPackage, source runtime and operational home are independent of the current directory.\nLegacy migration requires unchanged generated shim bytes and matching root/home records; foreign files are refused.\n";
 
 fn error(message: impl AsRef<str>) {
     eprintln!("multplx: {}", message.as_ref());
@@ -1326,6 +1326,7 @@ struct InstallOptions {
     upgrade: bool,
     recover_stale_launch: bool,
     allow_stopped_agents: bool,
+    stop_managed_sessions: bool,
     uninstall: bool,
     root: Option<PathBuf>,
     home: Option<PathBuf>,
@@ -1355,6 +1356,7 @@ fn parse_installer(args: &[OsString]) -> Result<Option<InstallOptions>, String> 
             "--upgrade" => options.upgrade = true,
             "--recover-stale-launch" => options.recover_stale_launch = true,
             "--allow-stopped-agents" => options.allow_stopped_agents = true,
+            "--stop-managed-sessions" => options.stop_managed_sessions = true,
             "--uninstall" => options.uninstall = true,
             "--root" => options.root = Some(take(&mut index, "--root")?.into()),
             "--home" => options.home = Some(take(&mut index, "--home")?.into()),
@@ -1517,12 +1519,195 @@ fn require_packaged_runtime_quiescent_mode(
     Ok(())
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug, Eq, PartialEq)]
 struct RetainedUsers {
+    preview: bool,
+    stale_launches:
+        BTreeMap<PathBuf, multplx_backend::harness_launch::VerifiedStaleLaunchReservation>,
+    snapshots: BTreeMap<PathBuf, Vec<u8>>,
+    stops: Vec<multplx_backend::upgrade_stop::VerifiedEndpoint>,
+    primaries: BTreeMap<PathBuf, multplx_backend::harness_launch::VerifiedUpgradePrimary>,
     standing: BTreeMap<PathBuf, String>,
     homes: BTreeSet<PathBuf>,
+    home_identities: BTreeMap<PathBuf, (u64, u64)>,
     records: usize,
     tasks: BTreeSet<PathBuf>,
+}
+
+fn approved_execution_source<'a>(
+    approved: &'a RetainedUsers,
+    target: &multplx_backend::upgrade_stop::VerifiedEndpoint,
+) -> Result<(&'a PathBuf, &'a Vec<u8>), String> {
+    // Prefer current metadata over an old action whose named endpoint was
+    // reused by the successor; admission release must follow the actual attempt.
+    let metas = approved
+        .snapshots
+        .iter()
+        .filter(|(path, _)| path.extension() == Some(OsStr::new("meta")));
+    let actions = approved.snapshots.iter().filter(|(path, _)| {
+        path.parent() == Some(target.home.join("state/.spawn-actions").as_path())
+    });
+    metas
+        .chain(actions)
+        .find(|(path, bytes)| {
+            if path.extension() == Some(OsStr::new("meta")) {
+                path.file_stem().and_then(OsStr::to_str) == Some(&target.task)
+                    && path.parent() == Some(target.home.join("state").as_path())
+                    && std::str::from_utf8(bytes)
+                        .ok()
+                        .and_then(|raw| {
+                            multplx_domain::lifecycle::subagent_model::read_meta(&target.task, raw)
+                                .ok()
+                        })
+                        .is_some_and(|r| {
+                            (r.runtime.provider == target.backend
+                                && r.runtime.endpoint.as_deref() == Some(&target.endpoint))
+                                || r.retained_executions.iter().any(|e| {
+                                    e.runtime.provider == target.backend
+                                        && e.runtime.endpoint.as_deref() == Some(&target.endpoint)
+                                })
+                        })
+            } else {
+                serde_json::from_slice::<multplx_domain::lifecycle::spawn::LaunchAction>(bytes)
+                    .ok()
+                    .is_some_and(|a| {
+                        a.task_id == target.task
+                            && a.backend == target.backend
+                            && a.endpoint.as_deref() == Some(&target.endpoint)
+                    })
+            }
+        })
+        .ok_or_else(|| "approved endpoint source disappeared".into())
+}
+
+fn release_upgrade_execution(
+    source: (&PathBuf, &Vec<u8>),
+    target: &multplx_backend::upgrade_stop::VerifiedEndpoint,
+) -> Result<(), String> {
+    let record = if source.0.extension() == Some(OsStr::new("meta")) {
+        multplx_domain::lifecycle::subagent_model::read_meta(
+            &target.task,
+            std::str::from_utf8(source.1).map_err(|e| e.to_string())?,
+        )?
+    } else {
+        serde_json::from_slice::<multplx_domain::lifecycle::spawn::LaunchAction>(source.1)
+            .map_err(|e| e.to_string())?
+            .binding
+    };
+    let attempt = if record.runtime.provider == target.backend
+        && record.runtime.endpoint.as_deref() == Some(&target.endpoint)
+    {
+        record.attempt.as_ref()
+    } else {
+        record
+            .retained_executions
+            .iter()
+            .find(|e| {
+                e.runtime.provider == target.backend
+                    && e.runtime.endpoint.as_deref() == Some(&target.endpoint)
+            })
+            .map(|e| &e.attempt)
+            .or(record.attempt.as_ref())
+    };
+    if let (Some(attempt), Some(state)) = (attempt, &record.owner_state) {
+        let context = multplx_domain::lifecycle::spawn::admission_context(&record)?;
+        multplx_backend::headroom::admission_release_execution(
+            &multplx_backend::headroom::HeadroomPaths::for_root(&context.root_home),
+            &record.task_id,
+            Path::new(state),
+            &attempt.id,
+            &target.endpoint,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inspect_execution(
+    runtime_root: &Path,
+    home: &Path,
+    task: &str,
+    backend: &str,
+    endpoint: &str,
+    cwd: Option<&Path>,
+    backend_home: Option<&Path>,
+    inspection: &mut RetainedUsers,
+) -> Result<(), String> {
+    let observed = multplx_backend::facade::observe_endpoint_for_home(
+        backend,
+        endpoint,
+        Some(format!("mx-{task}")),
+        runtime_root,
+        backend_home.unwrap_or(home),
+    )
+    .map_err(|e| {
+        format!("cannot verify recorded task endpoint {backend} {endpoint} for task {task}: {e}")
+    })?;
+    if !observed.exists {
+        return Ok(());
+    }
+    if !inspection.preview {
+        return Err(format!(
+            "recorded task user {task} has a live {backend} endpoint {endpoint}; rerun the interactive upgrade to review stopping owned sessions, or pass --stop-managed-sessions"
+        ));
+    }
+    let cwd = cwd.ok_or("live task execution has no recorded working directory; retained")?;
+    let verified = multplx_backend::upgrade_stop::inspect(
+        runtime_root,
+        home,
+        backend_home.unwrap_or(home),
+        task,
+        backend,
+        endpoint,
+        cwd,
+    )
+    .map_err(|e| {
+        format!("recorded task user {task} has a live {backend} endpoint {endpoint}: {e}")
+    })?;
+    if !inspection.stops.contains(&verified) {
+        inspection.stops.push(verified);
+    }
+    Ok(())
+}
+
+fn inspect_home_users(home: &Path, inspection: &mut RetainedUsers) -> Result<(), String> {
+    let lock = session_lock_status(
+        home.join("state/.lock"),
+        &SystemProcessProbe::default(),
+        &harness_regex(),
+    );
+    if let SessionLockStatus::Held(pid) = lock
+        && inspection.preview
+        && inspection
+            .stops
+            .iter()
+            .any(|target| multplx_backend::upgrade_stop::owns_process(target, pid))
+    {
+        match multplx_backend::harness_launch::inspect_launch_reservation(home)? {
+            multplx_backend::harness_launch::LaunchReservationInspection::Missing => {
+                return Ok(());
+            }
+            _ => {
+                return Err(format!(
+                    "worker home {} also has an independent workspace launch; inspect its exact owner before upgrade",
+                    home.display()
+                ));
+            }
+        }
+    }
+    let primary = multplx_backend::harness_launch::inspect_upgrade_primary(home)?;
+    if let Some(primary) = primary {
+        if !inspection.preview {
+            return Err(format!(
+                "home {} has live primary/launch pid {}; review stopping it in the interactive upgrade",
+                home.display(),
+                primary.pid
+            ));
+        }
+        inspection.primaries.insert(home.into(), primary);
+    }
+    Ok(())
 }
 
 fn inspect_retained_users(
@@ -1540,6 +1725,10 @@ fn inspect_retained_users(
         ));
     }
     require_existing_owned_dir(home, "recorded task home")?;
+    let home_metadata = fs::symlink_metadata(home).map_err(|e| e.to_string())?;
+    inspection
+        .home_identities
+        .insert(home.into(), (home_metadata.dev(), home_metadata.ino()));
     require_existing_owned_dir(&home.join("state"), "recorded task state")?;
     require_existing_owned_dir(&home.join("data"), "recorded task allocation data")?;
     if parent.is_some() {
@@ -1552,24 +1741,21 @@ fn inspect_retained_users(
             }
             require_existing_owned_dir(&home.join(part), "recorded task home directory")?;
         }
-        match session_lock_status(
-            home.join("state/.lock"),
-            &SystemProcessProbe::default(),
-            &harness_regex(),
-        ) {
-            SessionLockStatus::Free | SessionLockStatus::Stale(_) => {}
-            _ => {
-                return Err(format!(
-                    "recorded task home {} has a live or unreadable harness lock; stop or inspect its owner before upgrade",
-                    home.display()
-                ));
-            }
-        }
+    }
+    inspect_home_users(home, inspection)?;
+    if parent.is_some() {
         match multplx_backend::harness_launch::inspect_launch_reservation(home) {
             Ok(multplx_backend::harness_launch::LaunchReservationInspection::Missing) => {}
+            Ok(multplx_backend::harness_launch::LaunchReservationInspection::Stale(stale))
+                if inspection.preview =>
+            {
+                inspection.stale_launches.insert(home.into(), stale);
+            }
+            Ok(multplx_backend::harness_launch::LaunchReservationInspection::Live { .. })
+                if inspection.preview => {}
             _ => {
                 return Err(format!(
-                    "recorded task home {} has a live, stale or uncertain workspace launch; reconcile it in that home before upgrade",
+                    "recorded task home {} has a stale or uncertain workspace launch; reconcile it before upgrade",
                     home.display()
                 ));
             }
@@ -1629,17 +1815,19 @@ fn inspect_retained_users(
         use multplx_domain::lifecycle::spawn::{LaunchStage, inspect_retired_launch, read_action};
         let actions = home.join("state/.spawn-actions");
         require_existing_owned_dir(&actions, "recorded spawn receipts")?;
-        for (index, entry) in fs::read_dir(&actions)
+        let mut entries = fs::read_dir(&actions)
             .map_err(|e| e.to_string())?
-            .enumerate()
-        {
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for (index, entry) in entries.into_iter().enumerate() {
             if index >= 1024 {
                 return Err(format!(
                     "spawn receipts in {} exceed 1024 entries; reconcile them before upgrade",
                     actions.display()
                 ));
             }
-            let path = entry.map_err(|e| e.to_string())?.path();
+            let path = entry.path();
             if path.extension() != Some(OsStr::new("json")) {
                 return Err(format!(
                     "unrecognized spawn receipt {}; inspect its owner before upgrade",
@@ -1661,12 +1849,7 @@ fn inspect_retained_users(
             if action.stage != LaunchStage::Running
                 || action.backend != action.binding.runtime.provider
                 || action.binding.legacy_unknown
-                || action.binding.artifact
-                    == multplx_domain::lifecycle::subagent_model::ArtifactKind::Coordination
-                || action.binding.role
-                    == multplx_domain::lifecycle::subagent_model::AssignmentRole::SubOrchestrator
                 || action.binding.owning_coordinator.is_some()
-                || !action.binding.retained_executions.is_empty()
                 || !action.binding.native_observations.is_empty()
                 || action.binding.parent_id.as_deref()
                     != parent.or(action.binding.root_id.as_deref())
@@ -1687,25 +1870,39 @@ fn inspect_retained_users(
                 .as_deref()
                 .filter(|s| !s.is_empty())
                 .ok_or("retired launch has no verified endpoint")?;
-            let observed = multplx_backend::facade::observe_endpoint_for_home(
-                &action.backend,
-                endpoint,
-                Some(format!("mx-{}", action.task_id)),
+            inspection.snapshots.insert(
+                path.clone(),
+                multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+                    .map_err(|e| e.to_string())?,
+            );
+            let canonical_cwd = action
+                .binding
+                .allocation
+                .as_ref()
+                .map(|allocation| Path::new(&allocation.path))
+                .or_else(|| action.binding.persistent_home.as_deref().map(Path::new))
+                .or_else(|| {
+                    action
+                        .binding
+                        .project
+                        .as_ref()
+                        .map(|project| project.canonical_path.as_path())
+                });
+            let action_cwd = action
+                .worktree
+                .as_deref()
+                .filter(|path| Some(*path) == canonical_cwd);
+            inspect_execution(
                 runtime_root,
                 home,
+                &action.task_id,
+                &action.backend,
+                endpoint,
+                action_cwd,
+                action.binding.persistent_home.as_deref().map(Path::new),
+                inspection,
             )
-            .map_err(|e| {
-                format!(
-                    "cannot verify recorded task endpoint from launch receipt {}: {e}",
-                    path.display()
-                )
-            })?;
-            if observed.exists {
-                return Err(format!(
-                    "recorded task user launch receipt {} still has a live endpoint; reconcile it before upgrade",
-                    path.display()
-                ));
-            }
+            .map_err(|e| format!("launch receipt {}: {e}", path.display()))?;
             if !task_path.is_file() {
                 if !allow_stopped
                     || !inspect_retired_launch(&context, &action).map_err(|e| {
@@ -1720,6 +1917,14 @@ fn inspect_retained_users(
                         path.display()
                     ));
                 }
+                let lease_path = home
+                    .join("data")
+                    .join(format!(".home-allocation-{}.json", action.task_id));
+                inspection.snapshots.insert(
+                    lease_path.clone(),
+                    multplx_core::filesystem::read_bounded_regular(&lease_path, 1024 * 1024)
+                        .map_err(|e| e.to_string())?,
+                );
                 let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
                     .map_err(|e| e.to_string())?;
                 inspection
@@ -1737,9 +1942,15 @@ fn inspect_retained_users(
                 .and_then(|name| name.strip_suffix(".intent"))
                 .ok_or("invalid spawn intent identity")?;
             let meta = home.join("state").join(format!("{id}.meta"));
-            let (current, _) =
-                retained_worker_is_quiescent(&meta, runtime_root, home, root_home, parent)
-                    .map_err(|e| format!("spawn intent {} is uncertain: {e}", path.display()))?;
+            let (current, _) = retained_worker_is_quiescent(
+                &meta,
+                runtime_root,
+                home,
+                root_home,
+                parent,
+                inspection,
+            )
+            .map_err(|e| format!("spawn intent {} is uncertain: {e}", path.display()))?;
             if !current.private_home || !current.persistent {
                 return Err(format!(
                     "spawn intent {} is not an owned standing successor; reconcile it before upgrade",
@@ -1753,6 +1964,7 @@ fn inspect_retained_users(
             )
             .map_err(|e| format!("spawn intent {} is unfinished: {e}", path.display()))?
             .ok_or("spawn intent disappeared")?;
+            inspection.snapshots.insert(path.clone(), bytes.clone());
             inspection
                 .standing
                 .insert(path.clone(), format!("{:x}", Sha256::digest(&bytes)));
@@ -1776,7 +1988,7 @@ fn inspect_retained_users(
             ));
         }
         let (record, digest) =
-            retained_worker_is_quiescent(&path, runtime_root, home, root_home, parent)?;
+            retained_worker_is_quiescent(&path, runtime_root, home, root_home, parent, inspection)?;
         if record.persistent || record.private_home {
             use multplx_domain::lifecycle::home_seed::{read_home_allocation, verify_active_home};
             let binding = record.home_allocation.as_ref().ok_or_else(|| format!("recorded task user at {} lacks an owned home allocation; inspect task-model and reconcile ownership before upgrade", path.display()))?;
@@ -1789,6 +2001,14 @@ fn inspect_retained_users(
                     path.display()
                 ));
             }
+            let lease_path = home
+                .join("data")
+                .join(format!(".home-allocation-{}.json", record.task_id));
+            inspection.snapshots.insert(
+                lease_path.clone(),
+                multplx_core::filesystem::read_bounded_regular(&lease_path, 1024 * 1024)
+                    .map_err(|e| e.to_string())?,
+            );
             verify_active_home(&allocation).map_err(|e| format!("recorded task user at {} has an uncertain owned home: {e}; inspect task-model before upgrade", path.display()))?;
             inspection.standing.insert(path.clone(), digest);
             inspect_retained_users(
@@ -1804,29 +2024,13 @@ fn inspect_retained_users(
     Ok(())
 }
 
-fn verified_stale_launch(
-    home: &Path,
-) -> Result<Option<multplx_backend::harness_launch::VerifiedStaleLaunchReservation>, String> {
-    use multplx_backend::harness_launch::{
-        LaunchReservationInspection, inspect_launch_reservation,
-    };
-    match inspect_launch_reservation(home).map_err(|message| {
-        format!("packaged runtime workspace launch cannot be verified: {message}")
-    })? {
-        LaunchReservationInspection::Missing => Ok(None),
-        LaunchReservationInspection::Live { pid } => Err(format!(
-            "packaged runtime has a live workspace launch (pid {pid}); stop it before upgrade"
-        )),
-        LaunchReservationInspection::Stale(owner) => Ok(Some(owner)),
-    }
-}
-
 fn retained_worker_is_quiescent(
     path: &Path,
     runtime_root: &Path,
     inspected_home: &Path,
     root_home: &Path,
     parent: Option<&str>,
+    inspection: &mut RetainedUsers,
 ) -> Result<
     (
         multplx_domain::lifecycle::subagent_model::TaskRecord,
@@ -1834,8 +2038,8 @@ fn retained_worker_is_quiescent(
     ),
     String,
 > {
-    use multplx_backend::facade::{BackendName, observe_endpoint_for_home};
-    use multplx_domain::lifecycle::subagent_model::{ArtifactKind, AssignmentRole, read_meta};
+    use multplx_backend::facade::BackendName;
+    use multplx_domain::lifecycle::subagent_model::read_meta;
     let id = path
         .file_stem()
         .and_then(OsStr::to_str)
@@ -1869,17 +2073,13 @@ fn retained_worker_is_quiescent(
     let record = read_meta(id, raw)
         .map_err(|e| format!("recorded task user at {} is uncertain: {e}", path.display()))?;
     if record.legacy_unknown
-        || record.artifact == ArtifactKind::Coordination
-        || record.role == AssignmentRole::SubOrchestrator
         || record.owning_coordinator.is_some()
-        || !record.retained_executions.is_empty()
         || !record.native_observations.is_empty()
         || record.parent_id.as_deref() != parent.or(record.root_id.as_deref())
         || record.root_id.as_deref() != Some(format!("root-home:{}", root_home.display()).as_str())
         || record.owner_home.as_deref() != inspected_home.to_str()
         || record.owner_state.as_deref()
             != Some(inspected_home.join("state").to_string_lossy().as_ref())
-        || record.runtime.endpoint.as_deref().is_none_or(str::is_empty)
         || record.runtime.provider.is_empty()
     {
         return Err(format!(
@@ -1896,18 +2096,14 @@ fn retained_worker_is_quiescent(
             .next_back()
             .map(str::to_owned)
     };
-    let endpoint = record
-        .runtime
-        .endpoint
-        .as_deref()
-        .expect("checked endpoint");
+    let endpoint = record.runtime.endpoint.as_deref();
     let backend = BackendName::parse(&record.runtime.provider).map_err(|_| {
         format!(
             "recorded task user at {} has an invalid backend",
             path.display()
         )
     })?;
-    if field("window").as_deref() != Some(endpoint)
+    if field("window").filter(|s| !s.is_empty()).as_deref() != endpoint
         || field("backend").is_some_and(|value| value != backend.to_string())
     {
         return Err(format!(
@@ -1916,26 +2112,36 @@ fn retained_worker_is_quiescent(
             inspected_home.display()
         ));
     }
-    let observed = observe_endpoint_for_home(
-        &backend.to_string(),
-        endpoint,
-        Some(format!("mx-{id}")),
-        runtime_root,
-        inspected_home,
-    )
-    .map_err(|e| {
-        format!(
-            "cannot verify recorded task endpoint {}: {e}",
-            path.display()
-        )
-    })?;
-    if observed.exists {
-        return Err(format!(
-            "packaged runtime has a recorded task user at {} with a live {} endpoint {}; stop it through its lifecycle owner before upgrade",
-            path.display(),
-            backend,
-            endpoint
-        ));
+    inspection.snapshots.insert(path.into(), bytes.clone());
+    if let Some(endpoint) = endpoint {
+        inspect_execution(
+            runtime_root,
+            inspected_home,
+            id,
+            &backend.to_string(),
+            endpoint,
+            record
+                .allocation
+                .as_ref()
+                .map(|a| Path::new(&a.path))
+                .or_else(|| record.persistent_home.as_deref().map(Path::new)),
+            record.persistent_home.as_deref().map(Path::new),
+            inspection,
+        )?;
+    }
+    for retained in &record.retained_executions {
+        if let Some(endpoint) = &retained.runtime.endpoint {
+            inspect_execution(
+                runtime_root,
+                inspected_home,
+                id,
+                &retained.runtime.provider,
+                endpoint,
+                retained.allocation.as_ref().map(|a| Path::new(&a.path)),
+                record.persistent_home.as_deref().map(Path::new),
+                inspection,
+            )?;
+        }
     }
     Ok((record, format!("{:x}", Sha256::digest(&bytes))))
 }
@@ -2352,6 +2558,7 @@ fn apply_generation(
     allow_stopped_workers: bool,
     approved_stale_launch: Option<&multplx_backend::harness_launch::VerifiedStaleLaunchReservation>,
     approved_standing: Option<&BTreeMap<PathBuf, String>>,
+    approved_users: Option<&RetainedUsers>,
 ) -> Result<(), String> {
     let transaction = transaction_path(config_dir);
     fs::create_dir(&transaction)
@@ -2379,7 +2586,10 @@ fn apply_generation(
         match lock {
             Ok(lock) => {
                 if allow_stopped_workers {
-                    let mut retained = RetainedUsers::default();
+                    let mut retained = RetainedUsers {
+                        preview: approved_users.is_some(),
+                        ..Default::default()
+                    };
                     if let Err(message) = inspect_retained_users(
                         &read_path_file(&config_dir.join("root"))?,
                         home,
@@ -2431,6 +2641,51 @@ fn apply_generation(
                                 ));
                             }
                         }
+                    }
+                }
+                if let Some(approved) = approved_users {
+                    let result = (|| -> Result<(), String> {
+                        let root = read_path_file(&config_dir.join("root"))?;
+                        let mut current = RetainedUsers {
+                            preview: true,
+                            ..Default::default()
+                        };
+                        inspect_retained_users(&root, home, home, None, true, &mut current)?;
+                        if &current != approved {
+                            return Err("runtime users changed after upgrade consent; rerun upgrade to review the current exact users; nothing was stopped".into());
+                        }
+                        for primary in approved.primaries.values() {
+                            multplx_backend::harness_launch::stop_upgrade_primary(primary)?;
+                            multplx_backend::harness_launch::reconcile_stopped_upgrade_launch(
+                                primary,
+                            )?;
+                        }
+                        for target in &approved.stops {
+                            let source = approved_execution_source(approved, target)?;
+                            multplx_domain::lifecycle::teardown::stop_for_upgrade(
+                                &target.home.join("state"),
+                                &target.task,
+                                source.0,
+                                source.1,
+                                &target.endpoint,
+                                &multplx_backend::upgrade_stop::execution_fingerprint(target)?,
+                                || {
+                                    multplx_backend::upgrade_stop::stop(target)?;
+                                    release_upgrade_execution(source, target)?;
+                                    Ok(())
+                                },
+                            )?;
+                        }
+                        for (child, stale) in &approved.stale_launches {
+                            multplx_backend::harness_launch::remove_verified_stale_launch_reservation(child,stale)?;
+                        }
+                        Ok(())
+                    })();
+                    if let Err(message) = result {
+                        remove_transaction(&transaction)?;
+                        return Err(format!(
+                            "upgrade stop/reconciliation failed: {message}; task records and already stopped executions are retained; rerun upgrade to inspect remaining users"
+                        ));
                     }
                 }
                 if let Err(message) = require_packaged_runtime_quiescent_mode(
@@ -2654,6 +2909,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             || options.upgrade
             || options.recover_stale_launch
             || options.allow_stopped_agents
+            || options.stop_managed_sessions
             || options.root.is_some()
             || options.home.is_some()
             || options.source.is_some()
@@ -2662,6 +2918,10 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             || options.checksum.is_some())
     {
         error("--uninstall cannot be combined with install or upgrade options");
+        return 2;
+    }
+    if options.stop_managed_sessions && !options.upgrade {
+        error("--stop-managed-sessions requires --upgrade");
         return 2;
     }
     if options.allow_stopped_agents && !options.upgrade {
@@ -2725,6 +2985,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
     let result = (|| -> Result<(), (i32, String)> {
         let mut approved_stale_launch = None;
         let mut approved_standing = None;
+        let mut approved_users = None;
         let target = bin_dir.join("multplx");
         let mx_target = bin_dir.join("mx");
         let config_pointer = bin_dir.join(".multplx-config");
@@ -2957,6 +3218,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     &generation,
                     packaged_home.as_deref(),
                     false,
+                    None,
                     None,
                     None,
                 )
@@ -3206,8 +3468,24 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                 read_path_file(&config_dir.join("home")).map_err(|message| (2, message))?;
             if options.upgrade {
                 approved_stale_launch =
-                    verified_stale_launch(&recorded_home).map_err(|message| (2, message))?;
-                let mut retained = RetainedUsers::default();
+                    match multplx_backend::harness_launch::inspect_launch_reservation(
+                        &recorded_home,
+                    )
+                    .map_err(|e| {
+                        (
+                            2,
+                            format!("packaged runtime workspace launch cannot be verified: {e}"),
+                        )
+                    })? {
+                        multplx_backend::harness_launch::LaunchReservationInspection::Stale(
+                            stale,
+                        ) => Some(stale),
+                        _ => None,
+                    };
+                let mut retained = RetainedUsers {
+                    preview: true,
+                    ..Default::default()
+                };
                 inspect_retained_users(
                     &root,
                     &recorded_home,
@@ -3217,23 +3495,67 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                     &mut retained,
                 )
                 .map_err(|message| (2, message))?;
-                // Inspect every guard before presenting one aggregated consent.
-                require_packaged_runtime_quiescent_mode(
-                    &root,
-                    &recorded_home,
-                    true,
-                    approved_stale_launch.as_ref(),
-                    Some(&retained.standing),
-                )
-                .map_err(|message| (2, message))?;
-                let needs_launch = approved_stale_launch.is_some() && !options.recover_stale_launch;
+                let live = !retained.stops.is_empty() || !retained.primaries.is_empty();
+                let needs_launch = (approved_stale_launch.is_some()
+                    || !retained.stale_launches.is_empty())
+                    && !options.recover_stale_launch;
                 let needs_agents = !retained.standing.is_empty() && !options.allow_stopped_agents;
-                if needs_launch || needs_agents {
+                let needs_stop = live && !options.stop_managed_sessions;
+                eprintln!(
+                    "Verified runtime users for home {}:",
+                    recorded_home.display()
+                );
+                if let Some(owner) = &approved_stale_launch {
+                    eprintln!(
+                        "  stale workspace launch (previous owner pid {})",
+                        owner.pid
+                    );
+                }
+                for (child, stale) in &retained.stale_launches {
+                    eprintln!(
+                        "  stale workspace launch in home {} (previous owner pid {})",
+                        child.display(),
+                        stale.pid
+                    );
+                }
+                for path in retained.standing.keys() {
+                    eprintln!(
+                        "  {} retained task/launch: {}",
+                        if live { "owned" } else { "stopped" },
+                        path.display()
+                    );
+                }
+                for target in &retained.stops {
+                    eprintln!(
+                        "  STOP task {}: {} endpoint {} (owner home {}, execution home {})",
+                        target.task,
+                        target.backend,
+                        target.endpoint,
+                        target.home.display(),
+                        target.backend_home.display()
+                    );
+                }
+                for primary in retained.primaries.values() {
+                    eprintln!(
+                        "  STOP primary/workspace launch pid {} in home {}",
+                        primary.pid,
+                        primary.home.display()
+                    );
+                    if let Some(pid) = primary.launcher_pid {
+                        eprintln!("  STOP owning workspace launcher pid {pid}");
+                    }
+                }
+                if live {
+                    eprintln!(
+                        "WARNING: continuing will interrupt active work in the exact owned sessions listed above. Leave these terminal windows untouched until upgrade finishes."
+                    );
+                }
+                if needs_launch || needs_agents || needs_stop {
                     if !std::io::stdin().is_terminal() {
                         return Err((
                             2,
                             format!(
-                                "upgrade requires confirmation for home {}; rerun the same interactive upgrade{}{}, keeping custom path options; all task records and work are preserved",
+                                "upgrade requires confirmation for home {}; rerun the same interactive upgrade{}{}, keeping custom path options; live endpoints require --stop-managed-sessions; all task records and work are preserved",
                                 recorded_home.display(),
                                 if needs_launch {
                                     " or pass --recover-stale-launch"
@@ -3248,21 +3570,8 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                             ),
                         ));
                     }
-                    eprintln!(
-                        "Verified stopped runtime users for home {}:",
-                        recorded_home.display()
-                    );
-                    if let Some(owner) = &approved_stale_launch {
-                        eprintln!(
-                            "  stale workspace launch (previous owner pid {})",
-                            owner.pid
-                        );
-                    }
-                    for path in retained.standing.keys() {
-                        eprintln!("  stopped retained task/launch: {}", path.display());
-                    }
                     eprint!(
-                        "Continue upgrade, preserving all task records, private homes and worktrees{}? [y/N] ",
+                        "Continue upgrade (stop listed live sessions), preserving all task records, private homes and worktrees{}? [y/N] ",
                         if approved_stale_launch.is_some() {
                             " and removing only the verified stale workspace launch reservation"
                         } else {
@@ -3278,16 +3587,21 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
                         return Err((2, "upgrade cancelled; task records and stale workspace launch reservation were preserved".into()));
                     }
                 }
-                approved_standing = Some(retained.standing);
+                approved_standing = Some(retained.standing.clone());
+                if live || !retained.stale_launches.is_empty() {
+                    approved_users = Some(retained);
+                }
             }
-            require_packaged_runtime_quiescent_mode(
-                &root,
-                &recorded_home,
-                options.upgrade,
-                approved_stale_launch.as_ref(),
-                approved_standing.as_ref(),
-            )
-            .map_err(|message| (2, message))?;
+            if approved_users.is_none() {
+                require_packaged_runtime_quiescent_mode(
+                    &root,
+                    &recorded_home,
+                    options.upgrade,
+                    approved_stale_launch.as_ref(),
+                    approved_standing.as_ref(),
+                )
+                .map_err(|message| (2, message))?;
+            }
             Some(recorded_home)
         } else {
             None
@@ -3516,6 +3830,7 @@ pub(crate) fn run_installer(args: &[OsString]) -> i32 {
             options.upgrade,
             approved_stale_launch.as_ref(),
             approved_standing.as_ref(),
+            approved_users.as_ref(),
         )
         .map_err(|message| (1, message))?;
         println!("multplx: installed {}", target.display());

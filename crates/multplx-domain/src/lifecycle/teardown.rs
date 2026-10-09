@@ -1428,6 +1428,58 @@ fn publish(path: &Path, journal: &Journal) -> Result<(), String> {
     atomic_replace(path, &bytes, 0o600).map_err(|error_value| error_value.to_string())
 }
 
+/// Retain durable upgrade-stop evidence without retiring a task, home or outcome.
+/// The installer holds the task and launch locks and supplies a backend ownership
+/// proof. Snapshot equality is checked again before the irreversible stop callback.
+pub fn stop_for_upgrade<F>(
+    state: &Path,
+    task: &str,
+    source: &Path,
+    expected: &[u8],
+    endpoint: &str,
+    execution_fingerprint: &str,
+    stop: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    TaskId::parse(task).map_err(|_| "invalid upgrade task identity")?;
+    if execution_fingerprint.len() != 64
+        || !execution_fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("invalid upgrade execution fingerprint".into());
+    }
+    if read_regular(source, "upgrade execution source")? != expected {
+        return Err("task launch evidence changed after upgrade consent; retained".into());
+    }
+    let key = format!(
+        "{:x}",
+        Sha256::digest(
+            [
+                expected,
+                endpoint.as_bytes(),
+                execution_fingerprint.as_bytes()
+            ]
+            .concat()
+        )
+    );
+    let receipt = state.join(format!(".upgrade-stop.{task}.{}.json", &key[..16]));
+    let publish = |stage: &str, reason: Option<&str>| -> Result<(), String> {
+        let bytes=serde_json::to_vec(&serde_json::json!({"schema":"mx-upgrade-stop.v1","task":task,"source":source,"source_sha256":format!("{:x}",Sha256::digest(expected)),"endpoint":endpoint,"execution_fingerprint":execution_fingerprint,"stage":stage,"reason":reason})).map_err(|e|e.to_string())?;
+        atomic_replace(&receipt, &bytes, 0o600).map_err(|e| e.to_string())
+    };
+    publish("prepared", None)?;
+    match stop() {
+        Ok(()) => publish("stopped", None),
+        Err(error) => {
+            publish("uncertain", Some(&error))?;
+            Err(error)
+        }
+    }
+}
+
 fn publish_control(path: &Path, receipt: &ControlReceipt) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(receipt).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
@@ -4142,5 +4194,71 @@ esac
         });
         assert_eq!(foreign.status, 1);
         assert!(foreign.stderr.contains("owned by another state directory"));
+    }
+
+    #[test]
+    fn upgrade_stop_retains_sources_and_records_each_physical_execution() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("worker.meta");
+        let original = b"retained task history\n";
+        fs::write(&source, original).unwrap();
+        let identity_a = "a".repeat(64);
+        let identity_b = "b".repeat(64);
+        super::stop_for_upgrade(
+            temp.path(),
+            "worker",
+            &source,
+            original,
+            "broker:mx-worker",
+            &identity_a,
+            || Ok(()),
+        )
+        .unwrap();
+        super::stop_for_upgrade(
+            temp.path(),
+            "worker",
+            &source,
+            original,
+            "broker:mx-worker",
+            &identity_b,
+            || Err("stop uncertain".into()),
+        )
+        .unwrap_err();
+        let receipts: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                (path.extension().and_then(|s| s.to_str()) == Some("json")).then(|| {
+                    serde_json::from_slice::<serde_json::Value>(&fs::read(path).unwrap()).unwrap()
+                })
+            })
+            .collect();
+        assert_eq!(receipts.len(), 2);
+        assert!(
+            receipts
+                .iter()
+                .any(|r| r["stage"] == "stopped" && r["execution_fingerprint"] == identity_a)
+        );
+        assert!(
+            receipts
+                .iter()
+                .any(|r| r["stage"] == "uncertain" && r["execution_fingerprint"] == identity_b)
+        );
+        assert_eq!(fs::read(&source).unwrap(), original);
+        fs::write(&source, b"new task evidence\n").unwrap();
+        let refused = super::stop_for_upgrade(
+            temp.path(),
+            "worker",
+            &source,
+            original,
+            "broker:mx-worker",
+            &identity_a,
+            || panic!("changed source must not stop any execution"),
+        );
+        assert!(
+            refused
+                .unwrap_err()
+                .contains("changed after upgrade consent")
+        );
     }
 }
