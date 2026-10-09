@@ -39,3 +39,15 @@ Integration runs Rust formatting, clippy, workspace tests and a release build be
 Raw logs and JSON artifacts remain outside Git under canonical /private/tmp paths.
 The task branch is published as one PR; CI failures are fixed without weakening thresholds, adding retries or skipping required checks.
 Only the human merges.
+
+## Local acceptance evidence
+
+The integrated source passed independent review, formatting, strict clippy, 878 workspace tests, the release build, shell syntax, documentation audiences, the 134-script inventory and shadow diagnostics.
+The full local behavior run selected all 134 scripts: 125 passed, eight existing optional gates skipped and one installed Herdr 0.9.3 negative-control fixture failed.
+That fixture requires reproducing an older external focus-steal bug; its eight preceding positive checks and final exact-focus check passed, native close preserved focus, and later assertions did not execute.
+The unchanged CI Herdr lane pins supported 0.7.4 and remains required.
+
+The first unchanged 93 percent coverage gate completed its tests at 92.99 percent.
+Meaningful native CLI readiness and retained-failure regressions were added; the final coverage tests passed, but LLVM rejected one truncated instrumented-runtime profile during merging.
+The bad profile and complete logs remain outside Git; no profile, assertion or coverage requirement was discarded or weakened.
+The unchanged CI 93 percent guard remains required before delivery.
