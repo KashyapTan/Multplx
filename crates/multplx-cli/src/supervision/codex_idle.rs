@@ -326,13 +326,73 @@ pub(crate) fn entry(
 ) -> i32 {
     if args.iter().any(|value| value == "--help" || value == "-h") {
         println!(
-            "Usage: mx-codex-idle.sh [--register|--retry|--end|--run]\nStop hook owns detached exact-thread Codex queue supervision. Manual --retry and --end require CODEX_THREAD_ID matching this live owned session. --retry explicitly permits possible duplicate input after uncertain queue acceptance; durable wakes remain unacknowledged. --end stops only this thread's owned bridge. --register captures native SessionStart readiness; --register and --run are internal lifecycle handlers, not model supervision commands. Unsupported queue support requires an explicit foreground checkpoint fallback."
+            "Usage: mx-codex-idle.sh [--status|--register|--retry|--end|--run]\n--status is read-only and reports exact-session readiness, queue capability and degraded reasons. Stop hook owns detached exact-thread Codex queue supervision. Manual --retry and --end require CODEX_THREAD_ID matching this live owned session. --retry explicitly permits possible duplicate input after uncertain queue acceptance; durable wakes remain unacknowledged. --end stops only this thread's owned bridge. --register captures native SessionStart readiness; --register and --run are internal lifecycle handlers, not model supervision commands. Unsupported queue support requires an explicit foreground checkpoint fallback."
         );
         return 0;
     }
     let state = std::env::var_os("MX_STATE_OVERRIDE")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("state"));
+    if args == [std::ffi::OsString::from("--status")] {
+        let active = std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1");
+        let ready = multplx_domain::session::codex_hook_ready(&state);
+        let probe = SystemProcessProbe::default();
+        let target = read_json::<Target>(&state.join(READY)).ok();
+        let reason = if !active {
+            Some(
+                "CLI activation absent; direct launches require explicit MX_CODEX_IDLE_CLI=1 opt-in",
+            )
+        } else if !ready {
+            Some(
+                "native SessionStart receipt does not match this exact thread, CODEX_HOME and live lock owner; review enabled hooks in provider UI",
+            )
+        } else if state.join(UNCERTAIN).exists() {
+            Some("queue delivery is uncertain; reconcile before explicit retry")
+        } else if state.join(FAILURE).exists() {
+            Some(
+                "retained delivery or watcher failure; inspect state/.codex-idle-failure before recovery",
+            )
+        } else if !target
+            .as_ref()
+            .is_some_and(|target| queue_supported(&target.executable))
+        {
+            Some(
+                "installed queue command lacks --thread and --message support; bounded checkpoint recovery required",
+            )
+        } else {
+            None
+        };
+        let bridge_live = read_json::<ProcessIdentity>(&state.join(".codex-idle-process.json"))
+            .is_ok_and(|identity| {
+                probe
+                    .identity(identity.pid)
+                    .is_ok_and(|current| current == identity)
+            });
+        let bound_target = read_json::<Target>(&state.join(TARGET)).ok();
+        let bridge_live = bridge_live && target.is_some() && bound_target == target;
+        let watcher_fresh =
+            multplx_core::supervision::inspect(&state, grace(), SystemTime::now()).watcher_fresh;
+        let needed = autoarm_needed(&state);
+        let away = state.join(".afk").exists();
+        let mode = if away {
+            "away"
+        } else if reason.is_some() {
+            "degraded-checkpoint"
+        } else if !needed {
+            "idle-no-work"
+        } else if bridge_live && watcher_fresh {
+            "healthy-idle"
+        } else if bridge_live {
+            "starting-or-degraded-watcher"
+        } else {
+            "ready-for-turn-end"
+        };
+        println!(
+            "{}",
+            serde_json::json!({"mode":mode,"reason":reason,"needed":needed,"bridge_live":bridge_live,"watcher_fresh":watcher_fresh,"native_hook_ready":ready,"activation":active,"away":away})
+        );
+        return 0;
+    }
     if args == [std::ffi::OsString::from("--run")] {
         return match run_bridge(root, home, source_root, &state) {
             Ok(()) => 0,

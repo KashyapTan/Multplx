@@ -2,7 +2,8 @@ Mode: Claude Stop-hook-owned supervision.
 The named `bin/` commands below select the Rust supervision runtime by default.
 
 When this session owns supervision and away mode is not active:
-1. Drain first with `bin/mx-wake-drain.sh`.
+1. End the handling turn when no immediate work remains; the Stop hook owns quiet waiting.
+   Drain first with `bin/mx-wake-drain.sh`.
 2. Routine watcher arm and re-arm are owned by the Stop `asyncRewake` hook (`bin/mx-claude-stop-autoarm.sh`), never by you.
    Every turn end while supervision is needed launches or attaches one home-scoped watcher cycle with no model command and no model tokens.
    An actionable close wakes you through the hook's exit-2 rewake, delivered as a `Stop hook feedback` message.

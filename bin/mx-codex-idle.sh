@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: mx-codex-idle.sh [--register|--retry|--end|--run]
+# Usage: mx-codex-idle.sh [--status|--register|--retry|--end|--run]
 # Stop-owned exact-thread Codex queue bridge; manual recovery needs CODEX_THREAD_ID.
 # --retry permits duplicate input after uncertain acceptance.
 # --register captures native SessionStart readiness; --register and --run are internal.

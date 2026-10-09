@@ -26,6 +26,8 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/bin/mx-operational-input.sh" "$repo/bin/mx-operational-input.sh"
   cp "$ROOT/bin/mx-rust-runtime.sh" "$repo/bin/mx-rust-runtime.sh"
   chmod +x "$repo/bin/mx-operational-input.sh"
+  cp "$ROOT/bin/mx-supervision-instructions.sh" "$repo/bin/mx-supervision-instructions.sh"
+  chmod +x "$repo/bin/mx-supervision-instructions.sh"
   cat > "$repo/node_modules/@earendil-works/pi-coding-agent/package.json" <<'JSON'
 {"name":"@earendil-works/pi-coding-agent","type":"module","exports":"./index.js"}
 JSON
@@ -90,7 +92,7 @@ test_tracked_extension_present_and_self_hashing() {
   assert_contains "$text" "exec \\\"\$MX_WATCH_ARM_SCRIPT\\\" --restart" "tracked extension does not restart into a Pi-owned watcher child"
   assert_contains "$text" 'label: "Arm orchestrator watcher"' "tracked extension tool is missing its human-readable label"
   assert_not_contains "$text" "Always use this tool" "tracked extension kept broad tool-selection guidance"
-  assert_contains "$text" "only for the first required cycle or after a notification says the cycle is missing, failed, or unhealthy" "tracked extension tool metadata is missing the Pi first-cycle or explicit-repair rule"
+  assert_contains "$text" "only for the first required cycle after automatic startup fails or after a notification says the cycle is missing, failed, or unhealthy" "tracked extension tool metadata is missing the Pi first-cycle or explicit-repair rule"
   assert_contains "$text" "Do not call it after ordinary work, turn completion, or ordinary signal, stale, check, or heartbeat handling" "tracked extension prompt guidance does not prevent redundant ordinary-notification calls"
   assert_contains "$text" 'parameters: Type.Object({})' "tracked extension tool is not using Pi's canonical TypeBox schema"
   assert_contains "$text" 'content: [{ type: "text", text: result.message }]' "tracked extension tool is missing Pi text content"
@@ -1074,13 +1076,16 @@ const pi = {
 writeFileSync(`${process.env.MX_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
-await tool.execute("initial-fixture-arm", {}, undefined, undefined, {});
+writeFileSync(`${process.env.MX_HOME}/state/.pi-watch-failure`, "Pi follow-up delivery failed: retained fixture\n");
+await handlers.get("agent_end")?.({}, {});
 await waitFor(() => rows().length === 1);
+if (!existsSync(`${process.env.MX_HOME}/state/.pi-watch-failure`)) throw new Error("readiness erased transport failure");
 await pause(300);
 if (wakes.length || rows().length !== 1) throw new Error("unsolicited idle wake or arm");
 for (let cycle = 1; cycle <= 2; cycle += 1) {
   writeFileSync(`${process.env.MX_HOME}/state/event-${cycle}`, "event\n");
   await waitFor(() => wakes.length === cycle);
+  if (existsSync(`${process.env.MX_HOME}/state/.pi-watch-failure`)) throw new Error("successful delivery retained old transport failure");
   const wake = wakes[cycle - 1];
   if (rows().length !== cycle + 1 || wake.arms !== cycle + 1) {
     throw new Error("successor was not established before delivery");
@@ -1092,15 +1097,57 @@ for (let cycle = 1; cycle <= 2; cycle += 1) {
   if (wakes.length !== cycle || rows().length !== cycle + 1) throw new Error("idle successor loop");
 }
 await handlers.get("session_shutdown")?.({}, {});
-console.log("PASS single initial tool call, two extension-owned successors, shutdown");
+console.log("PASS native initial turn end, two extension-owned successors, shutdown");
 JS
   )
   status=$?
   expect_code 0 "$status" "Pi two event cycles must preserve idle silence and host-owned continuation"
-  assert_contains "$out" "PASS single initial tool call" "Pi model arm was replayed"
+  assert_contains "$out" "PASS native initial turn end" "Pi model arm was replayed"
   pass "Pi two event cycles preserve idle silence and extension-owned successors"
 }
 
+test_pi_native_startup_timeout_can_repair() {
+  local repo="$TMP_ROOT/pi-native-timeout-root" home="$TMP_ROOT/pi-native-timeout-home" out status
+  install_pi_watch_extension_fixture "$repo"
+  mkdir -p "$home/state" "$home/config"
+  : > "$home/state/task.meta"
+  printf '1\t1\tsignal\tretained\tdone\n' > "$home/state/.wake-queue"
+  cat > "$repo/bin/mx-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+if [ ! -f "$MX_HOME/state/first" ]; then
+  : > "$MX_HOME/state/first"
+  while :; do sleep .02; done
+fi
+printf 'watcher: started pid=%s\n' "$$"
+while :; do sleep .02; done
+SH
+  chmod +x "$repo/bin/mx-watch-arm.sh"
+  out=$(MX_RUST_BIN="${MX_RUST_BIN:-$ROOT/target/release/mx}" PLUGIN="$repo/.pi/extensions/mx-primary-pi-watch.ts" MX_HOME="$home" MX_ROOT_OVERRIDE="$repo" MX_PI_ARM_READY_TIMEOUT_MS=100 NODE_NO_WARNINGS=1 node --input-type=module <<'JS'
+import { existsSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+let tool;
+const handlers = new Map(), wakes = [];
+const pi = { on(event, handler) { handlers.set(event, handler); }, registerCommand() {},
+  registerTool(candidate) { tool = candidate; }, async sendUserMessage(message) { wakes.push(message); } };
+writeFileSync(`${process.env.MX_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href); mod.default(pi);
+await handlers.get("agent_end")({}, {});
+if (!wakes.some(message => message.includes("did not establish a ready watcher"))) throw new Error("startup failure hidden");
+const repair = await tool.execute();
+if (!repair.details.message.includes("started Pi extension arm child 2")) throw new Error(`repair retained unready child: ${repair.details.message}`);
+if (!existsSync(`${process.env.MX_HOME}/state/.wake-queue`)) throw new Error("pending event lost");
+await handlers.get("session_shutdown")({}, {});
+console.log("PASS native startup timeout retires owned child and permits repair");
+JS
+  )
+  status=$?
+  expect_code 0 "$status" "native first-cycle readiness timeout must permit explicit repair"
+  assert_contains "$out" "PASS native startup timeout" "native startup repair result missing"
+  pass "Pi native startup timeout retains events and permits repair"
+}
+
+test_pi_native_startup_timeout_can_repair
 test_pi_two_event_cycles_preserve_idle_silence
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder

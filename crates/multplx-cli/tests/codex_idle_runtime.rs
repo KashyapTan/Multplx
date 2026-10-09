@@ -76,6 +76,8 @@ def append(n):
     with (state/'.wake-queue').open('a') as f: f.write(f'1\t{n}\tsignal\tchild-{n}\tdone\n')
 atexit.register(lambda: call(['--end'], extra={'CODEX_THREAD_ID':thread}))
 append(1)
+status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
+assert status['mode']=='degraded-checkpoint' and not status['native_hook_ready']
 assert 'readiness is missing' in call()
 assert len(sends())==0
 (state/'.lock').unlink()
@@ -89,6 +91,8 @@ assert (state/'.lock').read_text()=='99999999', 'registration mutated stale lock
 assert call(['--register']).strip()==''
 assert (state/'.lock').read_text()=='malformed'
 (state/'.lock').write_text(str(os.getpid()))
+status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
+assert status['native_hook_ready'] and status['mode']=='degraded-checkpoint' and not status['bridge_live']
 # Registration restores the missing-readiness diagnostic, not queue failures.
 call(['--retry'],extra={'CODEX_THREAD_ID':thread})
 first_output = call(); assert first_output.strip() == '{}', first_output
@@ -112,7 +116,10 @@ assert 'already bound' in call(['--end'],extra={'CODEX_THREAD_ID':'123e4567-e89b
 assert call(['--end'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'
 wait(lambda:not (state/'.codex-idle.lock').exists())
 assert call(['--end'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'
-transport('unsupported'); assert 'does not support' in call()
+transport('unsupported')
+status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
+assert status['mode']=='degraded-checkpoint' and 'lacks' in status['reason']
+assert 'does not support' in call()
 assert (state/'.codex-idle-failure').exists(); assert len(sends())==2
 transport(); assert call(['--retry'],extra={'CODEX_THREAD_ID':thread}).strip() == '{}'
 time.sleep(.15); assert len(sends())==2
@@ -120,6 +127,9 @@ call(['--end'],extra={'CODEX_THREAD_ID':thread})
 transport('failed'); append(3); call()
 wait(lambda:(state/'.codex-idle-failure').exists() and not (state/'.codex-idle.lock').exists())
 assert 'uncertain' in call(); assert len(sends())==2
+status=json.loads(call(['--status'],extra={'CODEX_THREAD_ID':thread}))
+assert status['mode']=='degraded-checkpoint' and 'uncertain' in status['reason']
+assert (state/'.wake-queue').exists()
 transport(); call(['--retry'],extra={'CODEX_THREAD_ID':thread}); wait(lambda:len(sends())==3)
 call(['--end'],extra={'CODEX_THREAD_ID':thread})
 # A crash after receipt publication but before failure publication is visible.

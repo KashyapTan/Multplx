@@ -195,6 +195,23 @@ test_pi_snippet_uses_effective_extension_path() {
   pass "pi supervision snippet renders the effective extension path"
 }
 
+test_status_is_read_only() {
+  local out
+  out=$("$RENDER" --harness pi --status)
+  assert_contains "$out" '"needed":false' "empty home incorrectly needs supervision"
+  assert_contains "$out" 'watcher freshness alone is insufficient' "freshness claimed native delivery"
+  printf '%s\n' 'delivery rejected' > "$MX_STATE_OVERRIDE/.pi-watch-failure"
+  out=$("$RENDER" --harness pi --status)
+  assert_contains "$out" 'delivery rejected' "Pi retained delivery failure hidden"
+  rm "$MX_STATE_OVERRIDE/.pi-watch-failure"
+  printf '%s\n' 'delivery rejected' > "$MX_STATE_OVERRIDE/.codex-idle-failure"
+  out=$(MX_CODEX_IDLE_CLI=1 "$RENDER" --harness codex)
+  assert_contains "$out" 'Mode: Codex bounded foreground fallback' "retained failure claimed active queue bridge"
+  rm "$MX_STATE_OVERRIDE/.codex-idle-failure"
+  pass "read-only status separates need and freshness from delivery and exposes retained failures"
+}
+
+test_status_is_read_only
 test_selected_harness_block_only
 test_unknown_fallback
 test_conditional_stanzas

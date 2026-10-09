@@ -10,6 +10,10 @@ The tracked SessionStart `--register` handshake writes `state/.codex-idle-hook-r
 The renderer also requires the provider's current `CODEX_THREAD_ID` to match that receipt exactly; a missing identity retains the bounded fallback.
 Without that matched receipt, follow `codex-inactive.md` and its bounded foreground waits instead of assuming queue delivery.
 
+`bin/mx-codex-idle.sh --status` reports read-only readiness, exact-session capability and retained failures.
+A matched receipt is ready for turn end; healthy idle additionally requires the bound live bridge and a fresh watcher.
+Use this status for diagnosis, not recurring model polling.
+
 When this session owns supervision and away mode is not active:
 1. Claim queued wakes with `bin/mx-wake-drain.sh`, reconcile current task state, record each durable disposition and acknowledge only after handling.
 2. End the handling turn when no immediate work remains.

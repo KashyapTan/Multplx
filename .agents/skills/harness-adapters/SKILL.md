@@ -32,7 +32,7 @@ Spawn supplies `MX_TASK_ID` and `MX_REPORT_STATE_OVERRIDE`; the latter keeps a p
 Use `report_status` when exposed or the absolute `bin/mx-report` fallback in the brief.
 Never append raw status-file lines.
 [Supervision protocols](../../../docs/supervision-protocols/) and [turn-end guards](../../../docs/turnend-guard.md) own the harness-specific wait and repair paths.
-Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` and a matched native SessionStart readiness receipt are present and `codex queue` is available, and Pi uses its tracked watcher extension.
+Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` and a matched native SessionStart readiness receipt are present and `codex queue` is available, and Pi uses its tracked watcher extension with automatic first-cycle startup at native turn end.
 Managed Multplx Codex CLI launches set the activation flag automatically; direct terminal CLI launches require explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in.
 Inactive sessions retain bounded foreground checkpoints; Codex Desktop event delivery is unverified.
 If native hook review was skipped or hooks are disabled, retain that fallback until the provider's native hook trust review and SessionStart registration establish readiness.
@@ -45,6 +45,9 @@ A created endpoint proves neither assignment acceptance nor model execution; ins
 Model flags require provider IDs, not display labels; `GPT-6 Luna` is rejected before allocation with canonical Codex ID guidance.
 Unknown custom single-token IDs are preserved without claiming account access.
 
+Use `bin/mx-codex-idle.sh --status` for a read-only exact-session readiness and capability diagnosis; readiness is separate from an identity-matched live bridge and fresh watcher.
+Use `bin/mx-supervision-instructions.sh --harness pi --status` to inspect supervision need and any retained Pi delivery failure.
+Healthy native supervision ends the handling turn without model polling or manual re-arm.
 Unsupported Codex queue versions emit a visible warning and retain the explicit foreground checkpoint fallback.
 Use one home-scoped monitoring owner; retain queue entries and reconcile current state after notifications.
 

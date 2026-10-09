@@ -3,9 +3,11 @@ The named `bin/` commands below select the Rust supervision runtime by default.
 
 When this session owns supervision and away mode is not active:
 1. Drain first with `bin/mx-wake-drain.sh`.
-2. Confirm the Pi primary auto-loaded both project extensions (plain `pi`, after approving project trust once per clone); if not, restart with `-e __MX_PI_TURNEND_EXT__ -e __MX_PI_EXT__` as a trust-free fallback.
-3. First cycle only: make the one required `mx_watch_arm_pi` call.
-   Use `/mx-watch-arm-pi` only as a human-entered fallback.
+2. Confirm the Pi primary auto-loaded both project extensions (plain `pi`, after approving project trust once per clone); if not, explicitly load them with `-e __MX_PI_TURNEND_EXT__ -e __MX_PI_EXT__` and complete any provider trust review.
+3. End the handling turn when no immediate work remains.
+   The native `agent_end` callback inspects supervision need through the read-only status owner, starts the first cycle automatically and waits within a bounded readiness budget before the turn-end guard.
+   No initial model arm call is required.
+   Use `mx_watch_arm_pi` or the human-entered `/mx-watch-arm-pi` only to repair an explicitly missing or failed cycle.
    Never run `bin/mx-watch-arm.sh` through Pi's bash tool because that foreground arm can wedge the agent and bypasses extension-owned cleanup.
 4. If the extension says no live session holds the lock, run `bin/mx-session-start.sh` to reclaim the session lock, then call `mx_watch_arm_pi` again.
 5. The extension starts `bin/mx-watch-arm.sh --restart`, keeps the child attached to the live Pi process, and owns every later successor launch.
@@ -19,4 +21,6 @@ When this session owns supervision and away mode is not active:
 
 The turn-end guard extension lives at `__MX_PI_TURNEND_EXT__`.
 The watcher extension lives at `__MX_PI_EXT__`.
+A retained `state/.pi-watch-failure` names failed startup or follow-up delivery; durable wakes remain unfinished and `bin/mx-supervision-instructions.sh --harness pi --status` exposes the failure.
+Loaded markers prove extension registration, not an armed watcher or successful follow-up delivery.
 Both are tracked, project-local `.pi/extensions/*.ts` files that Pi auto-discovers once the project is trusted; `bin/mx-session-start.sh` reports when the running Pi session has not loaded both required extensions.

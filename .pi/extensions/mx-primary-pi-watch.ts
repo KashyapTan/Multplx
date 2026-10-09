@@ -1,7 +1,7 @@
 // Multplx primary watcher bridge for Pi.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
@@ -64,6 +64,8 @@ const fmRoot = process.env.MX_ROOT_OVERRIDE || root;
 const state = process.env.MX_STATE_OVERRIDE || `${fmHome}/state`;
 const config = process.env.MX_CONFIG_OVERRIDE || `${fmHome}/config`;
 const armScript = `${fmRoot}/bin/mx-watch-arm.sh`;
+const failureMarker = `${state}/.pi-watch-failure`;
+const statusScript = `${fmRoot}/bin/mx-supervision-instructions.sh`;
 const marker = `${state}/.pi-watch-extension-loaded`;
 const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(extensionFile)).digest("hex")}`;
 const retryBaseMs = positiveInteger("MX_WATCH_REARM_RETRY_BASE_MS", 250);
@@ -79,6 +81,7 @@ let retryFailures = 0;
 let stopping = false;
 let seq = 0;
 let restoring = false;
+let automaticStarted = false;
 const armReadiness = new WeakMap<ChildProcess, Promise<boolean>>();
 const armClose = new WeakMap<ChildProcess, Promise<void>>();
 
@@ -179,6 +182,8 @@ export default function (pi: ExtensionAPI) {
     !calmPresentation.stockExportRendering &&
     !calmTranscriptClassIsVisible(itemClass);
 
+  let notifyFailure: (message: string) => void = () => {};
+
   function stopArm(): void {
     stopping = true;
     if (retryTimer) clearTimeout(retryTimer);
@@ -198,11 +203,22 @@ export default function (pi: ExtensionAPI) {
       `MULTPLX WATCHER WAKE: ${message}\n\nRun bin/mx-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.`,
     );
     await pi.sendUserMessage(content, { deliverAs: "followUp" });
+    try {
+      if (readFileSync(failureMarker, "utf8").includes("delivery failed")) unlinkSync(failureMarker);
+    } catch {}
+  }
+
+  function retainFailure(message: string): void {
+    mkdirSync(state, { recursive: true });
+    writeFileSync(failureMarker, `${message}\n`);
   }
 
   function surfaceFailure(message: string): void {
-    void sendWake(message).catch(() => {
-      // Pi owns delivery errors; continuity restoration never waits on prompting.
+    retainFailure(message);
+    void sendWake(message).catch((error) => {
+      const failure = `${message}\nPi follow-up delivery failed: ${String(error)}`;
+      retainFailure(failure);
+      notifyFailure(failure);
     });
   }
 
@@ -352,6 +368,9 @@ export default function (pi: ExtensionAPI) {
     const observeEstablishedArm = (): void => {
       if (/^watcher: (?:started|attached)\b/m.test(`${stdout}\n${stderr}`)) {
         settleReadiness(true);
+        try {
+          if (!readFileSync(failureMarker, "utf8").includes("delivery failed")) unlinkSync(failureMarker);
+        } catch {}
       }
     };
     const releaseChild = (): void => {
@@ -383,7 +402,10 @@ export default function (pi: ExtensionAPI) {
           if (stopping) return;
           const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
           await sendWake(message);
-        })().catch(() => {
+        })().catch((error) => {
+          const failure = `Pi follow-up delivery failed: ${String(error)}; durable wakes remain unfinished`;
+          retainFailure(failure);
+          notifyFailure(failure);
         });
         return;
       }
@@ -406,7 +428,37 @@ export default function (pi: ExtensionAPI) {
     };
   }
 
-  pi.on?.("session_start", () => {
+  // Pi awaits agent_end handlers before agent_settled and its turn-end guard.
+  // The native lifecycle, rather than a model tool call, starts the first cycle.
+  pi.on?.("agent_end", async (_event, ctx) => {
+    notifyFailure = (message) => ctx?.ui?.notify?.(message, "warning");
+    if (automaticStarted || stopping || child || retryTimer || lockOwnership() !== "owned") return;
+    const status = spawnSync(statusScript, ["--harness", "pi", "--status"], {
+      encoding: "utf8", timeout: 3000, env: process.env,
+    });
+    let projection: { needed?: boolean; away?: boolean };
+    try {
+      if (status.status !== 0) throw new Error(status.stderr || "status owner unavailable");
+      projection = JSON.parse(status.stdout);
+    } catch (error) {
+      automaticStarted = true;
+      surfaceFailure(`watcher: FAILED - Pi automatic startup could not inspect supervision need: ${String(error)}`);
+      return;
+    }
+    if (!projection.needed || projection.away) return;
+    automaticStarted = true;
+    const result = startArm();
+    const started = child;
+    if (!result.ok || !started || !(await waitForReadiness(started))) {
+      restoring = true;
+      const retired = await retireArm(started);
+      restoring = false;
+      surfaceFailure(`watcher: FAILED - Pi automatic startup did not establish a ready watcher; ${result.message}${retired ? "" : "; unready child could not retire within the bounded cleanup budget"}`);
+    }
+  });
+
+  pi.on?.("session_start", (_event, ctx) => {
+    notifyFailure = (message) => ctx?.ui?.notify?.(message, "warning");
     markLoaded();
   });
   pi.on?.("session_shutdown", () => {
@@ -425,10 +477,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool?.({
     name: "mx_watch_arm_pi",
     label: "Arm orchestrator watcher",
-    description: "Start the first required Pi watcher cycle, or repair one only after a notification says the cycle is missing, failed, or unhealthy. Do not call after ordinary work or ordinary notifications; the Pi extension re-arms automatically. Never run bin/mx-watch-arm.sh through bash.",
-    promptSnippet: "Start the first required Pi watcher cycle or repair a cycle reported missing, failed, or unhealthy; ordinary re-arming is automatic.",
+    description: "Repair the first required Pi watcher cycle if native automatic startup fails, or repair one only after a notification says the cycle is missing, failed, or unhealthy. Do not call after ordinary work or ordinary notifications; the Pi extension re-arms automatically. Never run bin/mx-watch-arm.sh through bash.",
+    promptSnippet: "Native turn end starts the first cycle automatically. Repair a cycle reported missing, failed, or unhealthy; ordinary re-arming is automatic.",
     promptGuidelines: [
-      "Call mx_watch_arm_pi only for the first required cycle or after a notification says the cycle is missing, failed, or unhealthy. Do not call it after ordinary work, turn completion, or ordinary signal, stale, check, or heartbeat handling because the Pi extension owns re-arming. Never run bin/mx-watch-arm.sh through bash.",
+      "Call mx_watch_arm_pi only for the first required cycle after automatic startup fails or after a notification says the cycle is missing, failed, or unhealthy. Do not call it after ordinary work, turn completion, or ordinary signal, stale, check, or heartbeat handling because the Pi extension owns re-arming. Never run bin/mx-watch-arm.sh through bash.",
     ],
     parameters: Type.Object({}),
     renderShell: "self",
