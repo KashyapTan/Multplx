@@ -73,6 +73,9 @@ fn harness_launch_rejects_invalid_boundaries_and_runs_a_short_lived_child() {
     std::fs::create_dir_all(runtime.join("bin")).unwrap();
     std::fs::create_dir_all(home.join("state")).unwrap();
     std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        std::fs::write(runtime.join("bin").join(script), "#!/bin/sh\nexit 0\n").unwrap();
+    }
     std::fs::write(runtime.join("bin/mx-lock.sh"), "#!/bin/sh\n").unwrap();
     let mut permissions = std::fs::metadata(runtime.join("bin/mx-lock.sh"))
         .unwrap()
@@ -154,6 +157,9 @@ fn managed_launch_enables_idle_bridge_only_for_codex() {
         std::fs::create_dir_all(path).unwrap();
     }
     std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        std::fs::write(runtime.join("bin").join(script), "#!/bin/sh\nexit 0\n").unwrap();
+    }
     let lock = runtime.join("bin/mx-lock.sh");
     std::fs::write(&lock, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -180,6 +186,23 @@ fn managed_launch_enables_idle_bridge_only_for_codex() {
         assert_eq!(
             std::fs::read_to_string(home.join("flag")).unwrap(),
             expected
+        );
+    }
+}
+
+#[test]
+fn primary_model_labels_and_custom_hook_collisions_fail_before_launch_state() {
+    for args in [
+        vec!["codex", "--model", "GPT-6 Luna"],
+        vec!["codex", "-c", "hooks.SessionStart=[]"],
+        vec!["claude", "--model=Claude Sonnet"],
+    ] {
+        let output = launch_harness(&args, &[]);
+        assert_code(&output, 2);
+        let diagnostic = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            diagnostic.contains("model selection") || diagnostic.contains("conflicts with"),
+            "{diagnostic}"
         );
     }
 }

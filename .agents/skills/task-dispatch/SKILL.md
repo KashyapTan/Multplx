@@ -37,7 +37,12 @@ Acceptance, capacity admission, endpoint launch and actual execution are separat
 
 Inspect an existing task with `mx task-model inspect TASK_ID` before revising or replacing it.
 Use `mx task-model revise --help` to record changed scope, role, criteria and artifact pointers against its current revision, then send the accepted revision to its recorded endpoint through `mx send --help`.
+Include the exact binding instructions printed by `revise` in the parent change message and require the worker to inspect/read the changed brief before accepting it.
+After accepting within the same attempt, the worker explicitly applies `export MX_BRIEF_REVISION=N` for subsequent shell reports and nested spawns.
+Existing MCP processes keep their original environment; use the exact `attempt_id`, `generation` and `brief_revision` together on later `report_status` calls.
 Do not infer that a delivered pointer proves the worker read it.
+For a pre-execution recovery observation, use the parent-authored `mx task-model outcome --help` path with current identity and retained evidence, rather than fabricating a worker `MX_TASK_ID`.
+That operation supports only failed, blocked and paused observations; it neither completes work nor stops an endpoint.
 Replacement uses the spawn owner's current-attempt checks after existing mutable ownership is reconciled.
 Preserve authority routes when working with transferred tasks; do not copy canonical records into another home.
 

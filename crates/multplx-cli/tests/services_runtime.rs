@@ -182,18 +182,41 @@ fn process_alive(pid: u32) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+fn claim_port_block(claimed: &mut BTreeSet<u16>, port: u16) -> bool {
+    let Some(last_port) = port.checked_add(19) else {
+        return false;
+    };
+    let block = port..=last_port;
+    if block.clone().any(|candidate| claimed.contains(&candidate)) {
+        return false;
+    }
+    claimed.extend(block);
+    true
+}
+
+#[test]
+fn service_port_claims_preserve_twenty_ports_at_the_upper_boundary() {
+    let mut claimed = BTreeSet::new();
+    assert!(claim_port_block(&mut claimed, 65_516));
+    assert_eq!(claimed.len(), 20);
+    assert!(claimed.contains(&65_535));
+    let original = claimed.clone();
+    assert!(!claim_port_block(&mut claimed, 65_517));
+    assert!(!claim_port_block(&mut claimed, 65_515));
+    assert_eq!(claimed, original);
+    assert!(claim_port_block(&mut claimed, 65_496));
+    assert_eq!(claimed.len(), 40);
+}
+
 fn free_port() -> u16 {
     static CLAIMED_PORTS: OnceLock<Mutex<BTreeSet<u16>>> = OnceLock::new();
     let claimed = CLAIMED_PORTS.get_or_init(|| Mutex::new(BTreeSet::new()));
     loop {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("ephemeral listener");
         let port = listener.local_addr().expect("address").port();
-        if port <= 65_516 {
-            let mut claimed = claimed.lock().expect("claimed ports");
-            if (port..port + 20).all(|candidate| !claimed.contains(&candidate)) {
-                claimed.extend(port..port + 20);
-                return port;
-            }
+        let mut claimed = claimed.lock().expect("claimed ports");
+        if claim_port_block(&mut claimed, port) {
+            return port;
         }
     }
 }

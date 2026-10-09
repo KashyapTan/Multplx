@@ -97,6 +97,61 @@ fn state_root() -> PathBuf {
         })
 }
 
+// Only the explicitly named, environment-bound own task may use parent authority.
+fn delivery_state(task: Option<&str>) -> Result<PathBuf, String> {
+    let local = state_root();
+    let Some(task) = task.filter(|task| std::env::var("MX_TASK_ID").as_deref() == Ok(*task)) else {
+        return Ok(local);
+    };
+    let Some(authority) = std::env::var_os("MX_REPORT_STATE_OVERRIDE").map(PathBuf::from) else {
+        return Ok(local);
+    };
+    let text = private_metadata_text(&authority, &authority.join(format!("{task}.meta")))
+        .ok_or("private own-task authority metadata unavailable")?;
+    let record = multplx_domain::lifecycle::subagent_model::read_meta(task, &text)?;
+    let attempt = record
+        .attempt
+        .as_ref()
+        .ok_or("own-task publication requires a canonical attempt")?;
+    if record.legacy_unknown
+        || std::env::var("MX_ATTEMPT_ID").as_deref() != Ok(attempt.id.as_str())
+        || std::env::var("MX_ATTEMPT_GENERATION")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            != Some(attempt.generation)
+        || std::env::var("MX_BRIEF_REVISION")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            != Some(attempt.brief_revision)
+        || record.accepted_brief_revision != Some(attempt.brief_revision)
+    {
+        return Err("own-task publication has stale or missing attempt/brief binding".into());
+    }
+    let home = std::env::var_os("MX_HOME")
+        .map(PathBuf::from)
+        .and_then(|p| fs::canonicalize(p).ok());
+    let owner_home = record
+        .persistent_home
+        .as_deref()
+        .or(record.owner_home.as_deref())
+        .and_then(|p| fs::canonicalize(p).ok());
+    let owner_state = record
+        .owner_state
+        .as_deref()
+        .map(PathBuf::from)
+        .or_else(|| {
+            record
+                .owner_home
+                .as_deref()
+                .map(|p| Path::new(p).join("state"))
+        })
+        .and_then(|p| fs::canonicalize(p).ok());
+    if home.is_none() || home != owner_home || owner_state != fs::canonicalize(&authority).ok() {
+        return Err("own-task publication home or authority state mismatch".into());
+    }
+    Ok(authority)
+}
+
 fn text_args(args: &[OsString]) -> Option<Vec<&str>> {
     args.iter().map(|value| value.to_str()).collect()
 }
@@ -708,7 +763,13 @@ fn pr_check(args: &[OsString]) -> i32 {
         eprintln!("error: invalid PR check request");
         return 2;
     };
-    let state = state_root();
+    let state = match delivery_state(Some(id)) {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("delivery: {error}");
+            return 1;
+        }
+    };
     let Ok(state_meta) = fs::symlink_metadata(&state) else {
         eprintln!("error: task metadata is unavailable");
         return 1;
@@ -2051,6 +2112,9 @@ fn replace_bound_metadata(
         .mode()
         & 0o7777;
     let current = multplx_domain::review_delivery::read_task_metadata_compat(&path, mode, device)?;
+    // Revalidate the environment's exact own-task binding under the identity lock.
+    // A revision accepted after initial route selection cannot authorize a newer prepare.
+    delivery_state(Some(task.as_str()))?;
     if current.bytes != expected.as_bytes() {
         return Err("task metadata changed during publication; retry the current revision".into());
     }
@@ -3127,23 +3191,8 @@ fn deliver_one(id: &str, state: &Path, credentials: &DeliveryCredentials) -> i32
         );
         return 1;
     };
-    let mut edit = delivery_command("gh", credentials);
-    edit.current_dir(&record.worktree).args([
-        "pr",
-        "edit",
-        &identity.url,
-        "--title",
-        &record.title,
-        "--body",
-        &body,
-    ]);
-    if !delivery_status(edit).is_ok_and(|success| success) {
-        publication_failed(
-            &format!("existing PR content update failed for {task}"),
-            operation.pr_url.as_deref(),
-        );
-        return 1;
-    }
+    // Existing PR presentation belongs to its author. Refreshing exact code/evidence
+    // does not authorize replacing a manually curated title or body.
     let url = identity.url;
     operation = match advance_publication_operation(
         state,
@@ -3268,7 +3317,11 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
             return Err("publication option is missing its value".to_owned());
         };
         if target.replace(value).is_some() {
-            return Err("publication option was repeated".to_owned());
+            return Err(if values[index] == "--checks" {
+                "--checks accepts one scalar value; combine one-line results or use task-model evidence with a checks array".to_owned()
+            } else {
+                "publication option was repeated".to_owned()
+            });
         }
         index += 2;
     }
@@ -3279,10 +3332,7 @@ fn prepare_or_approve(values: &[&str]) -> Result<(), String> {
     if !head_valid(sha) {
         return Err("a full exact commit SHA is required".to_owned());
     }
-    if std::env::var("MX_TASK_ID").is_ok_and(|id| id != task.as_str()) {
-        return Err("prepare belongs to the initiating task".to_owned());
-    }
-    let state = state_root();
+    let state = delivery_state(Some(task.as_str()))?;
     let state_meta = fs::symlink_metadata(&state).map_err(|error| error.to_string())?;
     if !state_meta.is_dir() || state_meta.file_type().is_symlink() {
         return Err("delivery state directory is unavailable".to_owned());
@@ -3395,7 +3445,7 @@ fn deliver(args: &[OsString]) -> i32 {
     }
     if matches!(values.as_slice(), ["-h" | "--help"]) {
         print!(
-            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>] [--base <branch>]\n\nThe optional --base selects a task-bound publication base for stacked PRs. Omission reuses the recorded base or the repository default. A selected base is frozen for the accepted brief; changing it requires a newer accepted revision and explicit --base. Superseded pending requests and earlier receipts remain historical.\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base before updating its title and body. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
+            "Publish one or all prepared local branches with the caller's ordinary Git and forge authentication.\n\nUsage: mx-deliver.sh [<task-id>]\n       mx-deliver.sh prepare <task-id> --sha <full-SHA> --summary <one-line-summary> [--checks <passed|failed|not-run|unknown>:<one-line-results>] [--limitations <one-line-limitations>] [--base <branch>]\n\nThe optional --base selects a task-bound publication base for stacked PRs. Omission reuses the recorded base or the repository default. A selected base is frozen for the accepted brief; changing it requires a newer accepted revision and explicit --base. Superseded pending requests and earlier receipts remain historical.\nAn explicitly named bound own task uses MX_REPORT_STATE_OVERRIDE after exact task/attempt/brief/home validation; child task names and no-argument scans keep the worker state. prepare updates the current delivery commit pointer; use that inspected pointer as expected_current_commit when recording additional typed evidence.\nprepare records an exact revision-bound publication request and is safe for the assigned agent to run. No Multplx approval step is required. Running the command with a task id reconciles the remote branch and canonical PR, then registers the PR through the existing poll owner. An exact task-id rerun after completion revalidates the current revision, remote branch and canonical PR without publishing again. A no-argument scan never promotes legacy pending handoffs; rerun prepare explicitly to replace a matching legacy handoff.\nExisting open PR revisions verify the canonical PR, branch, and base and preserve their title and body. To explicitly replace presentation, use ordinary gh pr edit with --title and/or --body-file after publication. Ordinary historical receipts stay byte-for-byte available at state/<id>.delivered-<SHA>-<fingerprint>; legacy receipts use state/<id>.delivered-<SHA>. Pull-request merge, auto-merge, merge queue submission, and target-branch bypass remain human actions.\nMX_DELIVERY_GH_TOKEN or MX_DELIVERY_GH_CONFIG_DIR may explicitly override ambient forge authentication; otherwise ordinary caller credentials are inherited. Publication commands are bounded by MX_DELIVERY_COMMAND_TIMEOUT_SECONDS (default 120).\n"
         );
         return 0;
     }
@@ -3407,7 +3457,13 @@ fn deliver(args: &[OsString]) -> i32 {
         eprintln!("error: invalid delivery request");
         return 2;
     }
-    let state = state_root();
+    let state = match delivery_state(values.first().copied()) {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("delivery: {error}");
+            return 1;
+        }
+    };
     let Ok(metadata) = fs::symlink_metadata(&state) else {
         eprintln!("error: delivery state directory is unavailable");
         return 1;

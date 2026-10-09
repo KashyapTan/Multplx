@@ -2816,16 +2816,7 @@ fn launch_path_word(path: &Path) -> Result<String, String> {
 }
 
 fn worker_runtime_binary() -> Result<PathBuf, String> {
-    let binary = std::env::var_os("MX_RUST_BIN")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("MX_LAUNCH_BIN_PATH").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .map_or_else(std::env::current_exe, Ok)
-        .map_err(|error| format!("cannot resolve worker runtime binary: {error}"))?;
-    if !binary.is_absolute() {
-        return Err("worker runtime binary is not absolute".to_owned());
-    }
-    Ok(binary)
+    multplx_core::codex_hooks::runtime_binary()
 }
 
 fn worker_harness_word(harness: &str) -> Result<String, String> {
@@ -3415,7 +3406,23 @@ fn run_spawn(args: &[OsString]) -> i32 {
         return 1;
     }
     if !parse_args.iter().any(|value| value == "--backend") {
-        let (backend, notice) = resolve_spawn_backend(&config);
+        let recorded_backend = if replacement_attempt.is_some() {
+            parse_args
+                .first()
+                .and_then(|id| id.to_str())
+                .and_then(|id| {
+                    fs::read_to_string(context.state.join(format!("{id}.meta")))
+                        .ok()
+                        .and_then(|raw| {
+                            multplx_domain::lifecycle::subagent_model::read_meta(id, &raw).ok()
+                        })
+                        .map(|record| record.runtime.provider)
+                })
+        } else {
+            None
+        };
+        let (backend, notice) = recorded_backend
+            .map_or_else(|| resolve_spawn_backend(&config), |backend| (backend, None));
         parse_args.push(OsString::from("--backend"));
         parse_args.push(OsString::from(backend));
         if let Some(notice) = notice {
@@ -3447,6 +3454,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
         if !matches!(harness.as_str(), "codex" | "claude" | "pi" | "cursor") {
             eprintln!("error: no launch template for harness '{harness}'");
+            return 1;
+        }
+        let selected_model = option_value("--model")
+            .or_else(|| settings.daemon_model())
+            .unwrap_or_else(|| "default".into());
+        if let Err(error) = multplx_core::model_selection::validate(&harness, &selected_model) {
+            eprintln!("error: {error}");
             return 1;
         }
         let backend_preflight = match backend.as_str() {
@@ -3560,12 +3574,16 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     };
+    let mut loaded_queued_binding = false;
     match multplx_backend::headroom::queued_model(&queued_paths, &queued_request_id) {
         Ok(Some(model)) => match multplx_domain::lifecycle::subagent_model::read_meta(
             &request.id,
             &format!("schema_version=2\ncanonical_model={model}\n"),
         ) {
-            Ok(binding) => request.binding = Some(binding),
+            Ok(binding) => {
+                loaded_queued_binding = true;
+                request.binding = Some(binding);
+            }
             Err(error) => {
                 eprintln!("error: {error}");
                 return 1;
@@ -3849,6 +3867,111 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: {error}");
         return 1;
     }
+    // A completed launch may have lost the process between deleting its intent
+    // and deleting its advisory operation receipt. Retire that orphan only from
+    // the exact committed action and canonical successor, under the launch lock.
+    let retire_completed_operation = (|| -> Result<(), String> {
+        let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+            context.state.join(format!(".spawn-{}.lock", request.id)),
+            &SystemProcessProbe::default(),
+            Duration::from_secs(5),
+        )
+        .map_err(|error| error.to_string())?;
+        let operation_path = context
+            .state
+            .join(format!(".spawn-{}.operation", request.id));
+        if context
+            .state
+            .join(format!(".spawn-{}.intent", request.id))
+            .exists()
+            || !operation_path.exists()
+        {
+            return Ok(());
+        }
+        let bytes = multplx_core::filesystem::read_bounded_regular(&operation_path, 1024 * 1024)
+            .map_err(|error| error.to_string())?;
+        let operation: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        let canonical = fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+            .map_err(|error| error.to_string())?;
+        let current =
+            multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &canonical)?;
+        if let Some(queued) = operation.get("queued_binding") {
+            let queued: multplx_domain::lifecycle::subagent_model::TaskRecord =
+                serde_json::from_value(queued.clone()).map_err(|error| error.to_string())?;
+            if queued != current {
+                return Err(
+                    "completed queue operation conflicts with canonical binding; retained".into(),
+                );
+            }
+            return fs::remove_file(operation_path).map_err(|error| error.to_string());
+        }
+        // Omitted request IDs are derived from the exact canonical successor,
+        // not from the original attempt at the start of the replacement.
+        let derived = admission_record(&request, None, &additional_resources)?
+            .1
+            .request_id;
+        let action_id = operation["request_id"].as_str().unwrap_or(&derived);
+        let action = multplx_domain::lifecycle::spawn::read_action(&context, action_id)?
+            .ok_or("orphan replacement operation has no committed action; retained")?;
+        if action.stage != multplx_domain::lifecycle::spawn::LaunchStage::Running
+            || action.task_id != request.id
+            || action.binding.attempt != current.attempt
+            || action.binding.accepted_brief_revision != current.accepted_brief_revision
+            || operation["backend"].as_str() != Some(action.backend.as_str())
+            || current
+                .prior_attempts
+                .last()
+                .map(|attempt| attempt.id.as_str())
+                != operation["expected_attempt"].as_str()
+        {
+            return Err("orphan replacement operation is not proven completed; retained".into());
+        }
+        fs::remove_file(operation_path).map_err(|error| error.to_string())
+    })();
+    if let Err(error) = retire_completed_operation {
+        eprintln!("error: {error}");
+        return 1;
+    }
+    // Automatic recovery may restore only the exact original attempt frozen
+    // by this owner, never an attempt inferred from ambient process absence.
+    let automatic_recovery = (request.private_home
+        && std::env::var("MX_SPAWN_RECOVERY").as_deref() == Ok("1"))
+        || (request.backend == "herdr"
+            && !request.private_home
+            && config.join("herdr-presentation-spaces").is_file()
+            && multplx_backend::herdr_presentation::journal_path(&context.state, &request.id)
+                .exists());
+    let replacement_original_attempt = replacement_attempt.clone().or_else(|| {
+        if !automatic_recovery {
+            return None;
+        }
+        multplx_core::filesystem::read_bounded_regular(
+            context
+                .state
+                .join(format!(".spawn-{}.operation", request.id)),
+            1024 * 1024,
+        )
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|operation| operation["expected_attempt"].as_str().map(str::to_owned))
+    });
+    let replacement_recovery = if let Some(expected) = replacement_original_attempt.as_deref() {
+        match multplx_domain::lifecycle::spawn::recover_replacement_intent(
+            &context,
+            &mut request,
+            expected,
+        ) {
+            Ok(recovered) => recovered,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    let replacement_advanced = replacement_recovery == Some(true);
     let inherited_admission_request = std::env::var("MX_ADMISSION_REQUEST_ID").ok();
     let selected_admission_request = admission_request_id
         .as_deref()
@@ -3875,7 +3998,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         recovering_daemon || recovering_projection || replacement_attempt.is_some();
     let mut recovered_preallocation = false;
     let mut recovered_failed_action = false;
-    if !starts_new_attempt {
+    if !starts_new_attempt || replacement_advanced {
         let mut prior_action = match multplx_domain::lifecycle::spawn::read_action(
             &context,
             &admission_record.request_id,
@@ -3927,6 +4050,20 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 }
             };
         }
+        if replacement_advanced
+            && prior_action.as_ref().is_some_and(|action| {
+                !matches!(
+                    action.stage,
+                    multplx_domain::lifecycle::spawn::LaunchStage::Reserved
+                        | multplx_domain::lifecycle::spawn::LaunchStage::Failed
+                )
+            })
+        {
+            eprintln!(
+                "error: replacement launch endpoint or submission is retained; inspect the exact spawn action before retrying"
+            );
+            return 1;
+        }
         if prior_action.as_ref().is_some_and(|action| {
             action.stage == multplx_domain::lifecycle::spawn::LaunchStage::Failed
         }) {
@@ -3967,7 +4104,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
                     return 1;
                 }
             };
-        } else if prior_action.is_none() {
+        } else if prior_action.is_none() && !replacement_advanced {
             match multplx_domain::lifecycle::spawn::recover_preallocation_intent(
                 &context,
                 &admission_record.request_id,
@@ -3996,18 +4133,49 @@ fn run_spawn(args: &[OsString]) -> i32 {
     }
     let recovering_request = std::env::var("MX_SPAWN_RECOVERY_REQUEST").as_deref()
         == Ok(admission_record.request_id.as_str());
-    let resuming_request = recovering_request || recovered_preallocation || recovered_failed_action;
+    let resuming_request = recovering_request
+        || recovered_preallocation
+        || recovered_failed_action
+        || replacement_recovery.is_some();
     let retiring_admission = starts_new_attempt.then(|| {
-        let binding = request.binding.as_ref().expect("prepared binding");
+        let original = fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+            .ok()
+            .and_then(|raw| {
+                multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &raw).ok()
+            });
+        let binding = original
+            .as_ref()
+            .unwrap_or_else(|| request.binding.as_ref().expect("prepared binding"));
         (
             binding.task_id.clone(),
             PathBuf::from(binding.owner_state.as_deref().unwrap_or_default()),
-            binding
-                .attempt
-                .as_ref()
-                .map(|attempt| attempt.id.clone())
-                .unwrap_or_default(),
-            binding.runtime.endpoint.clone(),
+            if replacement_advanced {
+                request
+                    .binding
+                    .as_ref()
+                    .expect("reserved replacement")
+                    .retained_executions
+                    .last()
+                    .map(|execution| execution.attempt.id.clone())
+                    .unwrap_or_default()
+            } else {
+                binding
+                    .attempt
+                    .as_ref()
+                    .map(|attempt| attempt.id.clone())
+                    .unwrap_or_default()
+            },
+            if replacement_advanced {
+                request
+                    .binding
+                    .as_ref()
+                    .expect("reserved replacement")
+                    .retained_executions
+                    .last()
+                    .and_then(|execution| execution.runtime.endpoint.clone())
+            } else {
+                binding.runtime.endpoint.clone()
+            },
         )
     });
     if !starts_new_attempt {
@@ -4106,6 +4274,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         return 1;
     }
     if let Some(expected) = &replacement_attempt
+        && !replacement_advanced
         && request
             .binding
             .as_ref()
@@ -4125,10 +4294,98 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         };
         if request.binding.as_ref().is_none_or(|binding| {
-            binding.attempt != current.attempt
+            ((!replacement_advanced && binding.attempt != current.attempt)
+                || (replacement_advanced
+                    && current.attempt != binding.attempt
+                    && current.attempt.as_ref() != binding.prior_attempts.last()))
                 || binding.accepted_brief_revision != current.accepted_brief_revision
         }) {
             eprintln!("error: task binding changed before reservation");
+            return 1;
+        }
+    }
+    if starts_new_attempt && !replacement_advanced {
+        let binding = request.binding.as_ref().expect("prepared binding");
+        if binding
+            .attempt
+            .as_ref()
+            .is_none_or(|attempt| attempt.generation.checked_add(1).is_none())
+        {
+            eprintln!(
+                "error: replacement preflight refused exhausted or missing attempt generation before endpoint isolation"
+            );
+            return 1;
+        }
+        if let Some(token) = binding.allocation.as_ref() {
+            let eligibility = binding
+                .project
+                .as_ref()
+                .ok_or_else(|| "replacement project missing".to_owned())
+                .and_then(multplx_domain::lifecycle::worktree::Store::new)
+                .and_then(|store| {
+                    store.preflight_same_task_handoff(token, &context.home, &request.id)
+                });
+            if let Err(error) = eligibility {
+                eprintln!(
+                    "error: replacement preflight refused before endpoint isolation: {error}"
+                );
+                return 1;
+            }
+        }
+    }
+    if starts_new_attempt {
+        // Freeze immutable invocation identity independently of owner-advanced fields.
+        let operation_path = context
+            .state
+            .join(format!(".spawn-{}.operation", request.id));
+        let operation = serde_json::to_vec(&serde_json::json!({
+            "expected_attempt": replacement_original_attempt.as_deref().or_else(|| request.binding.as_ref().and_then(|binding| binding.attempt.as_ref()).map(|attempt| attempt.id.as_str())), "request_id": selected_admission_request,
+            "backend":request.backend, "harness":request.harness, "model":request.model,
+            "effort":request.effort, "resources":additional_resources,
+            "retry_command":format!("mx spawn {}{}", args.iter().map(|arg| launch_shell_word(&arg.to_string_lossy())).collect::<Vec<_>>().join(" "),
+                if replacement_attempt.is_none() {
+                    let original = replacement_original_attempt.as_deref().or_else(|| request.binding.as_ref().and_then(|binding| binding.attempt.as_ref()).map(|attempt| attempt.id.as_str())).unwrap_or_default();
+                    format!(" --replace-attempt {}", launch_shell_word(original))
+                } else { String::new() }),
+
+        }))
+        .expect("operation identity");
+        if operation_path.exists() {
+            let same = (|| -> Result<bool, String> {
+                let bytes =
+                    multplx_core::filesystem::read_bounded_regular(&operation_path, 1024 * 1024)
+                        .map_err(|error| error.to_string())?;
+                let mut recorded: serde_json::Value =
+                    serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+                let mut expected: serde_json::Value =
+                    serde_json::from_slice(&operation).map_err(|error| error.to_string())?;
+                // Rendering is advisory; immutable semantic invocation fields
+                // decide retries, so equivalent option ordering stays valid.
+                recorded
+                    .as_object_mut()
+                    .ok_or("corrupt replacement operation")?
+                    .remove("retry_command");
+                recorded
+                    .as_object_mut()
+                    .expect("operation object")
+                    .remove("queued_binding");
+                expected
+                    .as_object_mut()
+                    .expect("operation object")
+                    .remove("retry_command");
+                Ok(recorded == expected)
+            })();
+            if !same.is_ok_and(|same| same) {
+                eprintln!(
+                    "error: replacement invocation conflicts with retained operation identity; inspect .spawn-{}.operation",
+                    request.id
+                );
+                return 1;
+            }
+        } else if let Err(error) =
+            multplx_core::filesystem::atomic_replace(operation_path, &operation, 0o600)
+        {
+            eprintln!("error: cannot reserve replacement operation: {error}");
             return 1;
         }
     }
@@ -4143,7 +4400,7 @@ fn run_spawn(args: &[OsString]) -> i32 {
         eprintln!("error: injected interruption after durable launch intent");
         return 1;
     }
-    if recovering_daemon || recovering_projection || replacement_attempt.is_some() {
+    if starts_new_attempt && !replacement_advanced {
         // This path starts a new process. Reconcile and stop the former endpoint
         // before assigning a replacement generation to the same persistent home.
         if request
@@ -4158,6 +4415,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
             eprintln!("error: cannot isolate prior execution: {error}");
             return 1;
         }
+        if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-isolation") {
+            eprintln!(
+                "error: injected interruption after endpoint isolation; launch intent retained"
+            );
+            return 1;
+        }
         if let Some(binding) = &mut request.binding {
             let prior = binding
                 .attempt
@@ -4165,13 +4428,20 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 .expect("validated attempt")
                 .id
                 .clone();
+            if let Ok(raw) = fs::read_to_string(context.state.join(format!("{}.meta", request.id)))
+                && let Ok(original) =
+                    multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &raw)
+            {
+                binding.runtime = original.runtime;
+            }
             if let Err(error) = binding.replace_attempt(&prior, true) {
                 eprintln!("error: {error}");
                 return 1;
             }
+            binding.runtime.provider = request.backend.clone();
         }
     }
-    if recovering_daemon || recovering_projection || replacement_attempt.is_some() {
+    if starts_new_attempt && !replacement_advanced {
         let _lock = match multplx_core::locks::DirectoryLock::acquire_wait(
             context.state.join(format!(".spawn-{}.lock", request.id)),
             &SystemProcessProbe::default(),
@@ -4195,6 +4465,12 @@ fn run_spawn(args: &[OsString]) -> i32 {
             eprintln!("error: {error}");
             return 1;
         }
+    }
+    if starts_new_attempt
+        && std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-replacement-intent")
+    {
+        eprintln!("error: injected interruption after replacement intent; retained");
+        return 1;
     }
     if starts_new_attempt {
         if let Some((task_id, owner_state, attempt_id, Some(endpoint))) = retiring_admission
@@ -4228,19 +4504,84 @@ fn run_spawn(args: &[OsString]) -> i32 {
             false,
         ) {
             Ok(Some(output)) => {
-                let meta_path = context.state.join(format!("{}.meta", request.id));
-                if let Ok(raw) = fs::read_to_string(&meta_path)
-                    && let Some(binding) = request.binding.as_ref()
-                    && let Ok(updated) =
-                        multplx_domain::lifecycle::subagent_model::write_meta(&raw, binding)
-                {
-                    let _ = multplx_core::filesystem::atomic_replace(
-                        &meta_path,
-                        updated.as_bytes(),
-                        0o600,
-                    );
+                // Canonical queue publication must succeed before its completion marker.
+                // The metadata identity lock fences reports and accepted brief changes.
+                let cleanup = (|| -> Result<(), String> {
+                    let _lock = multplx_core::locks::DirectoryLock::acquire_wait(
+                        context.state.join(format!(".spawn-{}.lock", request.id)),
+                        &SystemProcessProbe::default(),
+                        Duration::from_secs(5),
+                    )
+                    .map_err(|error| error.to_string())?;
+                    let _identity = multplx_core::locks::DirectoryLock::acquire_wait(
+                        context.state.join(format!(".{}.identity.lock", request.id)),
+                        &SystemProcessProbe::default(),
+                        Duration::from_secs(5),
+                    )
+                    .map_err(|error| error.to_string())?;
+                    let meta_path = context.state.join(format!("{}.meta", request.id));
+                    let raw = fs::read_to_string(&meta_path).map_err(|error| error.to_string())?;
+                    let binding = request.binding.as_ref().expect("queued binding");
+                    let current =
+                        multplx_domain::lifecycle::subagent_model::read_meta(&request.id, &raw)?;
+                    if (current.attempt != binding.attempt
+                        && current.attempt.as_ref() != binding.prior_attempts.last())
+                        || current.accepted_brief_revision != binding.accepted_brief_revision
+                        || current.accepted_brief_digest != binding.accepted_brief_digest
+                    {
+                        return Err("queued task identity changed; retained".into());
+                    }
+                    // A queued successor has no endpoint yet. Do not retain the old
+                    // legacy endpoint beside its canonical empty runtime reference.
+                    let raw = raw
+                        .lines()
+                        .filter(|line| !line.starts_with("window="))
+                        .map(|line| format!("{line}\n"))
+                        .collect::<String>();
+                    let updated =
+                        multplx_domain::lifecycle::subagent_model::write_meta(&raw, binding)?;
+                    if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("before-queued-metadata") {
+                        return Err(
+                            "injected interruption before queued metadata publication".into()
+                        );
+                    }
+                    multplx_core::filesystem::atomic_replace(&meta_path, updated.as_bytes(), 0o600)
+                        .map_err(|error| error.to_string())?;
+                    let operation = context
+                        .state
+                        .join(format!(".spawn-{}.operation", request.id));
+                    if operation.exists() {
+                        let bytes =
+                            multplx_core::filesystem::read_bounded_regular(&operation, 1024 * 1024)
+                                .map_err(|error| error.to_string())?;
+                        let mut receipt: serde_json::Value =
+                            serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+                        receipt["queued_binding"] =
+                            serde_json::to_value(request.binding.as_ref().expect("queued binding"))
+                                .map_err(|error| error.to_string())?;
+                        multplx_core::filesystem::atomic_replace(
+                            &operation,
+                            &serde_json::to_vec(&receipt).map_err(|error| error.to_string())?,
+                            0o600,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    }
+                    if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-queued-marker") {
+                        return Err("injected interruption after queued completion marker".into());
+                    }
+                    fs::remove_file(&intent_path).map_err(|error| error.to_string())?;
+                    if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-queued-intent") {
+                        return Err("injected interruption after queued intent cleanup".into());
+                    }
+                    if operation.exists() {
+                        fs::remove_file(operation).map_err(|error| error.to_string())?;
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = cleanup {
+                    eprintln!("error: queued launch cleanup retained: {error}");
+                    return 1;
                 }
-                let _ = fs::remove_file(&intent_path);
                 print!("{output}");
                 return 0;
             }
@@ -4372,7 +4713,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 .as_ref()
                 .ok_or("allocation requires attempt")?;
             let store = Store::new(project)?;
-            let previous = if replacement_attempt.is_some() || recovering_projection {
+            let queued_replacement = loaded_queued_binding
+                && recovering_request
+                && binding.retained_executions.last().is_some_and(|execution| {
+                    binding.prior_attempts.last() == Some(&execution.attempt)
+                        && execution.attempt.generation.checked_add(1) == Some(attempt.generation)
+                });
+            let previous = if starts_new_attempt || queued_replacement {
                 binding
                     .retained_executions
                     .last()
@@ -4380,13 +4727,29 @@ fn run_spawn(args: &[OsString]) -> i32 {
             } else {
                 None
             };
-            let allocation = if let Some(previous) = previous {
+            let allocation = if let Some(current) = binding.allocation.as_ref() {
+                store.verify_launch_allocation(current, &context.home)?;
+                let owned = store.inspect(&current.allocation_id)?;
+                if owned.binding != *current
+                    || owned.owner_home
+                        != multplx_domain::lifecycle::home_seed::resolved(&context.home)
+                {
+                    return Err("reserved allocation ownership changed; retained".into());
+                }
+                owned
+            } else if let Some(previous) = previous {
                 if store.inspect(&previous.allocation_id)?.owner_home
                     != multplx_domain::lifecycle::home_seed::resolved(&context.home)
                 {
                     return Err("replacement allocation belongs to another home".into());
                 }
-                store.rebind(previous, &attempt.id, &request.id, &attempt.id)?
+                store.rebind_same_task(
+                    previous,
+                    &context.home,
+                    &attempt.id,
+                    &request.id,
+                    &attempt.id,
+                )?
             } else {
                 store.acquire(
                     &Acquire {
@@ -4430,6 +4793,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         }
     };
+    if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-allocation") {
+        eprintln!("error: injected interruption after allocation; launch intent retained");
+        return 1;
+    }
     if (!request.private_home || request.output == "implementation")
         && let Err(error) = verify_launch_worktree(&context, &request, &actor_worktree)
     {
@@ -4465,6 +4832,10 @@ fn run_spawn(args: &[OsString]) -> i32 {
         );
         return 1;
     }
+    if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-action-reservation") {
+        eprintln!("error: injected interruption after action reservation; retained");
+        return 1;
+    }
     if request.domain.is_some()
         && let Err(error) =
             multplx_domain::lifecycle::spawn::publish_prelaunch_coordinator(&context, &request)
@@ -4485,6 +4856,14 @@ fn run_spawn(args: &[OsString]) -> i32 {
         }
         eprintln!("error: canonical coordinator binding could not be published: {error}");
         return 1;
+    }
+    if matches!(request.harness.as_str(), "claude" | "pi") {
+        eprintln!(
+            "{} native project/extension trust may be required at {}; owned runtime is {}. Review provider consent there; endpoint creation alone does not prove assignment acceptance or hook readiness.",
+            request.harness,
+            actor_worktree.display(),
+            source_root.display()
+        );
     }
     let mut created_target = None;
     let mut launch_submission_attempted = false;
@@ -4642,6 +5021,9 @@ fn run_spawn(args: &[OsString]) -> i32 {
             Some(&named_endpoint),
             None,
         )?;
+        if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-metadata") {
+            return Err("injected failure after canonical metadata commit".into());
+        }
         if let Some((session, workspace, tab, pane)) = herdr_endpoint.as_ref() {
             let meta_path = context.state.join(format!("{}.meta", request.id));
             let mut meta = fs::read_to_string(&meta_path)
@@ -4855,33 +5237,24 @@ fn run_spawn(args: &[OsString]) -> i32 {
                 .map_err(|error| error.to_string())?
         );
         let codex_mcp = format!("-c {} ", launch_shell_word(&codex_mcp_value));
-        let codex_observer = |event_name: &str, event: &str| -> Result<String, String> {
-            let command = format!(
-                "{} --provider codex --event {} || true",
-                native_observer_word, event
-            );
-            let value = format!(
-                "hooks.{event_name}=[{{hooks=[{{type=\"command\",command={},timeout=5}}]}}]",
-                serde_json::to_string(&command).map_err(|error| error.to_string())?
-            );
-            Ok(format!("-c {} ", launch_shell_word(&value)))
+        let codex_native_hooks = if request.harness == "codex" {
+            multplx_core::codex_hooks::arguments(&source_root, &runtime_binary)?
+                .iter()
+                .map(|argument| {
+                    argument
+                        .to_str()
+                        .map(launch_shell_word)
+                        .ok_or("Codex hook argument is not UTF-8")
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" ")
+                + " "
+        } else {
+            String::new()
         };
-        let codex_merge_guard = format!(
-            "-c {} ",
-            launch_shell_word(&format!(
-                "hooks.PreToolUse=[{{matcher=\"Bash\",hooks=[{{type=\"command\",command={},timeout=10}}]}}]",
-                serde_json::to_string(&merge_guard_word).map_err(|error| error.to_string())?
-            ))
-        );
-        let codex_native_hooks = format!(
-            "{}{}{}{codex_merge_guard}",
-            codex_observer("SessionStart", "reconcile")?,
-            codex_observer("SubagentStart", "start")?,
-            codex_observer("SubagentStop", "result")?
-        );
         let launch = match request.harness.as_str() {
             "codex" => format!(
-                "{common_environment} MX_CODEX_IDLE_CLI=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
+                "{common_environment} MX_CODEX_IDLE_CLI=1 MX_CODEX_SHARED_WORKER_HOOKS=1 {harness_word} {codex_mcp}{codex_native_hooks}{model}{codex_effort}--dangerously-bypass-approvals-and-sandbox {brief_command}"
             ),
             "claude" => format!(
                 "{common_environment} CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false {harness_word} --dangerously-skip-permissions --mcp-config {} --settings {} {model}{effort}{brief_command}",
@@ -4950,6 +5323,11 @@ fn run_spawn(args: &[OsString]) -> i32 {
             None,
         )?;
         launch_submission_attempted = true;
+        if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-submission-intent") {
+            return Err(
+                "injected interruption after submission intent; execution uncertain".into(),
+            );
+        }
         match target.backend() {
             BackendName::Tmux => {
                 let mut backend = multplx_backend::tmux::TmuxBackend::system();
@@ -4971,6 +5349,9 @@ fn run_spawn(args: &[OsString]) -> i32 {
             }
         }
         .map_err(|error_value| error_value.to_string())?;
+        if std::env::var("MX_SPAWN_FAULT").as_deref() == Ok("after-submission") {
+            return Err("injected interruption after submission; execution uncertain".into());
+        }
         for _ in 0..2 {
             std::thread::sleep(Duration::from_millis(150));
             match target.backend() {
@@ -5090,6 +5471,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
             .map_err(|error| error.to_string())?;
         if fs::read(&intent_path).ok().as_deref() != Some(expected.as_slice()) {
             return Err("launch reservation ownership changed".into());
+        }
+        // Running action fences any retry if interrupted between these removals.
+        let operation = context
+            .state
+            .join(format!(".spawn-{}.operation", request.id));
+        if operation.exists() {
+            fs::remove_file(operation).map_err(|error| error.to_string())?;
         }
         fs::remove_file(&intent_path).map_err(|error| error.to_string())?;
         Ok(named_endpoint)

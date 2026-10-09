@@ -242,6 +242,9 @@ fn headroom_discovers_linux_signals_and_preserves_failed_queue_records() {
     ));
     let root = temp.path().join("spawn-root");
     fs::create_dir_all(root.join("bin")).expect("bin");
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
+    }
     executable(&root.join("bin/mx-spawn.sh"), "#!/bin/sh\nexit 0\n");
     let mut default_spawn = environment.to_vec();
     default_spawn.push(("MX_ROOT_OVERRIDE", root.as_path()));
@@ -470,6 +473,9 @@ fn launcher_validation_and_retired_installer_refusal_are_observable() {
 
     let root = temp.path().join("root");
     fs::create_dir_all(root.join("bin")).expect("bin");
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
+    }
     fs::create_dir_all(root.join(".agents/skills")).expect("skills");
     fs::create_dir_all(root.join("share/shell/shims")).expect("shims");
     fs::write(root.join("AGENTS.md"), "fixture\n").expect("agents");
@@ -614,6 +620,9 @@ fn launcher_rejects_incomplete_roots_homes_reals_and_recursive_shims() {
         Some(2)
     );
     fs::create_dir_all(root.join("bin")).expect("bin");
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
+    }
     fs::create_dir_all(root.join(".agents/skills")).expect("skills");
     assert_eq!(
         run(&home, &["launch-harness", "codex"], &root_env)
@@ -991,6 +1000,9 @@ fn harness_headroom_queue_and_launcher_commands_cover_public_outcomes() {
     let root = temp.path().join("root");
     let launch_home = temp.path().join("launch-home");
     fs::create_dir_all(root.join("bin")).expect("bin");
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        executable(&root.join("bin").join(script), "#!/bin/sh\nexit 0\n");
+    }
     fs::create_dir_all(root.join(".agents/skills")).expect("skills");
     fs::create_dir_all(root.join("share/shell/shims")).expect("shims");
     for part in ["config", "data", "projects", "state"] {
@@ -1111,6 +1123,10 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
                 "MX_TEST_REPO_ROOT",
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
+            .env(
+                "MX_RUST_SOURCE_ROOT",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+            )
             .env("MX_HOME", &child_home)
             .env("MX_TASK_ID", "parent")
             .env("MX_REPORT_STATE_OVERRIDE", &root_state)
@@ -1164,6 +1180,10 @@ fn nested_headroom_commands_service_the_validated_root_queue() {
         .args(["headroom", "--queue-drain"])
         .env(
             "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
+        .env(
+            "MX_RUST_SOURCE_ROOT",
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
         )
         .env("MX_HOME", &child_home)
@@ -1225,6 +1245,10 @@ esac
         ])
         .env(
             "MX_TEST_REPO_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
+        .env(
+            "MX_RUST_SOURCE_ROOT",
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
         )
         .env("MX_HOME", &child_home)

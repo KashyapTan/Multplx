@@ -159,10 +159,13 @@ pub fn resolve_signal(
     "none".to_owned()
 }
 
-/// Parse the leading verb, excluding an optional `[key=...]` token.
+/// Parse the leading verb, excluding optional key and informational reply tokens.
 #[must_use]
 pub fn status_line_verb(line: &str) -> &str {
     let prefix = line.split_once(':').map_or(line, |(prefix, _)| prefix);
+    let prefix = prefix
+        .split_once("[reply=")
+        .map_or(prefix, |(verb, _)| verb);
     prefix
         .split_once("[key=")
         .map_or(prefix, |(verb, _)| verb)
@@ -461,6 +464,15 @@ mod tests {
             status_line_verb("needs-decision [key=one]: why"),
             "needs-decision"
         );
+        assert_eq!(
+            status_line_verb("working [reply=answer]: response"),
+            "working"
+        );
+        assert_eq!(
+            status_line_verb("working [key=info] [reply=answer]: response"),
+            "working"
+        );
+        assert_eq!(status_line_verb("done: example [reply=answer]"), "done");
         assert_eq!(status_line_note("blocked"), "blocked");
         let decisions = open_decisions(
             "needs-decision [key=bad/key]: ignored\nneeds-decision: default\n",

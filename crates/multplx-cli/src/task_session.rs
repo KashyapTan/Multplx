@@ -10,7 +10,9 @@ use std::{
     time::Duration,
 };
 
-const HELP: &str = "Usage: multplx task-session inspect TASK\n       multplx task-session history TASK\nRead the exact current managed Codex SessionStart receipt. UUID is hook verified; transcript is available only when the hook supplied a validated path. This does not prove assignment acceptance or authorize resume. Other harnesses and old launches may have no receipt. The multplx command selects the configured operational home from any cwd. Low-level mx task-session uses MX_STATE_OVERRIDE, MX_HOME, then the current home. History lists retained identities without asserting live execution.\n";
+const HELP: &str = "Usage: multplx task-session inspect TASK\n       multplx task-session history TASK\nRead the exact current managed Codex SessionStart receipt. UUID is hook verified; transcript is available only when the hook supplied a validated path. This does not prove assignment acceptance or authorize resume. Other harnesses and old launches may have no receipt. The multplx command selects the configured operational home from any cwd. Low-level mx task-session uses MX_STATE_OVERRIDE, MX_HOME, then the current home. History lists retained identities without asserting live execution and reports invalid individual receipts with retained paths. Receipts preserve full process identity under a shared 1 MiB writer/read bound.\n";
+// Full process markers can include provider argv and must remain exact.
+const MAX_RECEIPT_BYTES: usize = 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 struct Receipt {
     task_id: String,
@@ -21,6 +23,15 @@ struct Receipt {
     provider_owner: multplx_core::process::ProcessIdentity,
     session_id: String,
     transcript_path: Option<PathBuf>,
+}
+fn receipt_bytes(receipt: &Receipt) -> Result<Vec<u8>, String> {
+    let bytes = serde_json::to_vec(receipt).map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_RECEIPT_BYTES {
+        return Err(format!(
+            "provider receipt exceeds {MAX_RECEIPT_BYTES} bytes; exact process identity retained, receipt not written"
+        ));
+    }
+    Ok(bytes)
 }
 fn record(state: &Path, id: &str) -> Result<TaskRecord, String> {
     multplx_core::identifiers::TaskId::parse(id).map_err(|e| e.to_string())?;
@@ -189,7 +200,7 @@ fn register(
     };
     let destination = receipt_path(state, id, attempt);
     if destination.exists() {
-        let bytes = multplx_core::filesystem::read_bounded_regular(&destination, 16 * 1024)
+        let bytes = multplx_core::filesystem::read_bounded_regular(&destination, MAX_RECEIPT_BYTES)
             .map_err(|e| e.to_string())?;
         let old: Receipt = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
         if old.task_id != receipt.task_id
@@ -213,12 +224,8 @@ fn register(
             receipt.transcript_path = Some(previous);
         }
     }
-    multplx_core::filesystem::atomic_replace(
-        destination,
-        &serde_json::to_vec(&receipt).map_err(|e| e.to_string())?,
-        0o600,
-    )
-    .map_err(|e| e.to_string())
+    multplx_core::filesystem::atomic_replace(destination, &receipt_bytes(&receipt)?, 0o600)
+        .map_err(|e| e.to_string())
 }
 /// Called only by the existing managed native SessionStart observer.
 pub(super) fn observe(args: &[String], payload: &str) -> Result<(), String> {
@@ -293,6 +300,50 @@ pub(super) fn observe(args: &[String], payload: &str) -> Result<(), String> {
         pid,
     )
 }
+fn history(state: &Path, id: &str) -> Result<serde_json::Value, String> {
+    let current = record(state, id).ok();
+    let owner = fs::canonicalize(state).map_err(|e| e.to_string())?;
+    let mut receipts = Vec::new();
+    let mut errors = Vec::new();
+    for entry in fs::read_dir(state).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&format!("{id}.provider-session-")) || !name.ends_with(".json") {
+            continue;
+        }
+        let loaded = (|| -> Result<Receipt, String> {
+            let bytes = multplx_core::filesystem::read_bounded_regular(&path, MAX_RECEIPT_BYTES)
+                .map_err(|e| e.to_string())?;
+            let receipt: Receipt = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+            if receipt.task_id != id
+                || receipt.owner_state != owner
+                || receipt_path(state, id, &receipt.attempt) != path
+            {
+                return Err("historical provider receipt has conflicting identity".into());
+            }
+            Ok(receipt)
+        })();
+        let receipt = match loaded {
+            Ok(receipt) => receipt,
+            Err(reason) => {
+                errors.push(serde_json::json!({"retained_path":path,"reason":reason}));
+                continue;
+            }
+        };
+        let bound = current.as_ref().is_some_and(|task| {
+            task.attempt.as_ref() == Some(&receipt.attempt)
+                && task.runtime.endpoint.is_some()
+                && task.runtime.provider == receipt.backend
+        });
+        receipts.push(serde_json::json!({"provider_session":receipt,"current_attempt_bound":bound,"binding":if bound {"current-task-attempt"} else {"retained-historical-or-retired"},"live_execution_proven":false,"resumability_proven":false}));
+    }
+    receipts.sort_by_key(|value| value["provider_session"]["attempt"]["generation"].as_u64());
+    Ok(
+        serde_json::json!({"task_id":id,"retained_sessions":receipts,"complete":errors.is_empty(),"invalid_retained_sessions":errors}),
+    )
+}
 pub(super) fn run(args: &[OsString], state: &Path) -> i32 {
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h" | "help")) {
         print!("{HELP}");
@@ -302,37 +353,7 @@ pub(super) fn run(args: &[OsString], state: &Path) -> i32 {
         if args.len() == 2 && args[0] == "history" {
             let id = args[1].to_str().ok_or("task id is not UTF-8")?;
             multplx_core::identifiers::TaskId::parse(id).map_err(|e| e.to_string())?;
-            let current = record(state, id).ok();
-            let owner = fs::canonicalize(state).map_err(|e| e.to_string())?;
-            let mut receipts = Vec::new();
-            for entry in fs::read_dir(state).map_err(|e| e.to_string())? {
-                let path = entry.map_err(|e| e.to_string())?.path();
-                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                    continue;
-                };
-                if !name.starts_with(&format!("{id}.provider-session-")) || !name.ends_with(".json")
-                {
-                    continue;
-                }
-                let bytes = multplx_core::filesystem::read_bounded_regular(&path, 16 * 1024)
-                    .map_err(|e| e.to_string())?;
-                let receipt: Receipt = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-                if receipt.task_id != id
-                    || receipt.owner_state != owner
-                    || receipt_path(state, id, &receipt.attempt) != path
-                {
-                    return Err("historical provider receipt has conflicting identity".into());
-                }
-                let bound = current.as_ref().is_some_and(|task| {
-                    task.attempt.as_ref() == Some(&receipt.attempt)
-                        && task.runtime.endpoint.is_some()
-                        && task.runtime.provider == receipt.backend
-                });
-                receipts.push(serde_json::json!({"provider_session":receipt,"current_attempt_bound":bound,"binding":if bound {"current-task-attempt"} else {"retained-historical-or-retired"},"live_execution_proven":false,"resumability_proven":false}));
-            }
-            receipts
-                .sort_by_key(|value| value["provider_session"]["attempt"]["generation"].as_u64());
-            return Ok(serde_json::json!({"task_id":id,"retained_sessions":receipts}));
+            return history(state, id);
         }
         if args.len() != 2 || args[0] != "inspect" {
             return Err(HELP.into());
@@ -348,7 +369,7 @@ pub(super) fn run(args: &[OsString], state: &Path) -> i32 {
                 serde_json::json!({"task_id":id,"provider_session":null,"reason":"no exact managed SessionStart receipt"}),
             );
         }
-        let bytes = multplx_core::filesystem::read_bounded_regular(&path, 16 * 1024)
+        let bytes = multplx_core::filesystem::read_bounded_regular(&path, MAX_RECEIPT_BYTES)
             .map_err(|e| e.to_string())?;
         let receipt: Receipt = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
         if receipt.task_id != id
@@ -406,6 +427,113 @@ mod tests {
         fs::write(state.join("worker.meta"), meta).unwrap();
         (root, state, task)
     }
+    #[test]
+    fn task_session_registers_actual_large_process_command_identity() {
+        let (root, state, task) = fixture();
+        let ready = root.path().join("process-ready");
+        let mut command = std::process::Command::new("python3");
+        command.args([
+            "-c",
+            "import pathlib, sys, time; pathlib.Path(sys.argv[2]).touch(); time.sleep(60)",
+            &"provider-argv".repeat(2000),
+            ready.to_str().unwrap(),
+        ]);
+        let child = multplx_core::process::OwnedChild::spawn(&mut command).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !ready.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(ready.exists());
+        let identity = SystemProcessProbe::default().identity(child.id()).unwrap();
+        assert!(identity.marker.len() > 16 * 1024);
+        let attempt = task.attempt.as_ref().unwrap();
+        register(
+            &state,
+            "worker",
+            &serde_json::json!({"cwd":root.path(),"session_id":SESSION}),
+            (&attempt.id, attempt.generation, attempt.brief_revision),
+            child.id(),
+        )
+        .unwrap();
+        let path = receipt_path(&state, "worker", attempt);
+        let bytes =
+            multplx_core::filesystem::read_bounded_regular(&path, MAX_RECEIPT_BYTES).unwrap();
+        assert!(bytes.len() > 16 * 1024);
+        let receipt: Receipt = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(receipt.provider_owner, identity);
+        assert_eq!(history(&state, "worker").unwrap()["complete"], true);
+        // OwnedChild reaps only this synthetic process, including on failures.
+    }
+
+    #[test]
+    fn task_session_large_markers_share_write_read_bound_and_history_retains_invalid_paths() {
+        let (root, state, task) = fixture();
+        let attempt = task.attempt.as_ref().unwrap();
+        register(
+            &state,
+            "worker",
+            &serde_json::json!({"cwd":root.path(),"session_id":SESSION}),
+            (&attempt.id, attempt.generation, attempt.brief_revision),
+            std::process::id(),
+        )
+        .unwrap();
+        let path = receipt_path(&state, "worker", attempt);
+        let mut receipt: Receipt = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        receipt.provider_owner.marker =
+            format!("exact-start-time: codex {}", "a".repeat(32 * 1024));
+        let bytes = receipt_bytes(&receipt).unwrap();
+        assert!(bytes.len() > 16 * 1024);
+        fs::write(&path, &bytes).unwrap();
+        let read =
+            multplx_core::filesystem::read_bounded_regular(&path, MAX_RECEIPT_BYTES).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Receipt>(&read)
+                .unwrap()
+                .provider_owner,
+            receipt.provider_owner
+        );
+        let valid = history(&state, "worker").unwrap();
+        assert_eq!(valid["complete"], true);
+        assert_eq!(valid["retained_sessions"].as_array().unwrap().len(), 1);
+        let malformed = state.join("worker.provider-session-malformed.json");
+        fs::write(&malformed, b"broken").unwrap();
+        let partial = history(&state, "worker").unwrap();
+        assert_eq!(partial["complete"], false);
+        assert_eq!(partial["retained_sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            partial["invalid_retained_sessions"][0]["retained_path"],
+            serde_json::to_value(&malformed).unwrap()
+        );
+        receipt.provider_owner.marker.clear();
+        let overhead = receipt_bytes(&receipt).unwrap().len();
+        receipt.provider_owner.marker = "x".repeat(MAX_RECEIPT_BYTES - overhead);
+        let boundary = receipt_bytes(&receipt).unwrap();
+        assert_eq!(boundary.len(), MAX_RECEIPT_BYTES);
+        let boundary_path = state.join("boundary.json");
+        fs::write(&boundary_path, &boundary).unwrap();
+        assert_eq!(
+            multplx_core::filesystem::read_bounded_regular(&boundary_path, MAX_RECEIPT_BYTES)
+                .unwrap()
+                .len(),
+            MAX_RECEIPT_BYTES
+        );
+        receipt.provider_owner.marker.push('x');
+        assert!(receipt_bytes(&receipt).is_err());
+        receipt.provider_owner.marker = "x".repeat(MAX_RECEIPT_BYTES);
+        assert!(receipt_bytes(&receipt).unwrap_err().contains("exceeds"));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        receipt.provider_owner.marker = "owner-marker".into();
+        receipt.owner_state = root.path().join("foreign");
+        fs::write(&path, receipt_bytes(&receipt).unwrap()).unwrap();
+        assert_eq!(
+            history(&state, "worker").unwrap()["retained_sessions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
     #[test]
     fn task_session_registration_rejects_stale_attempt_and_preserves_historical_uuid() {
         let (root, state, mut task) = fixture();

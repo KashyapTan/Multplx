@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. A current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -106,6 +106,7 @@ struct ReportOptions {
     message_id: Option<String>,
     correlation_id: Option<String>,
     artifact: Option<String>,
+    reply_disposition: Option<String>,
     list: bool,
 }
 
@@ -142,6 +143,9 @@ fn parse_report(args: &[String]) -> Result<ReportOptions, CommandResult> {
                 parsed.correlation_id = Some(value("--correlation-id", &mut index)?)
             }
             "--message-id" => parsed.message_id = Some(value("--message-id", &mut index)?),
+            "--reply-disposition" => {
+                parsed.reply_disposition = Some(value("--reply-disposition", &mut index)?)
+            }
             "--artifact" => parsed.artifact = Some(value("--artifact", &mut index)?),
             "--key" => parsed.key = Some(value("--key", &mut index)?),
             "--workflow-revision" => {
@@ -425,10 +429,20 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             || parsed.message_id.is_some()
             || parsed.correlation_id.is_some()
             || parsed.artifact.is_some()
+            || parsed.reply_disposition.is_some()
         {
             return usage_error("--list-states cannot be combined with write arguments");
         }
         return CommandResult::success(format!("{}\n", REPORT_STATES.join("\n")));
+    }
+    if let Some(disposition) = parsed.reply_disposition.as_deref()
+        && (!matches!(disposition, "acknowledged" | "answered")
+            || parsed.correlation_id.is_none()
+            || parsed.state.as_deref() != Some("working"))
+    {
+        return usage_error(
+            "--reply-disposition acknowledged|answered requires --state working and --correlation-id",
+        );
     }
     let Some(raw_id) = parsed.id.or_else(|| env::var("MX_TASK_ID").ok()) else {
         return usage_error("--id is required");
@@ -493,7 +507,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             state.display()
         ));
     }
-    let line = parsed.key.as_ref().map_or_else(
+    let mut line = parsed.key.as_ref().map_or_else(
         || format!("{state_name}: {message}"),
         |key| format!("{state_name} [key={key}]: {message}"),
     );
@@ -534,6 +548,13 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             Err(error) => return binding_error(&error),
         }
     };
+    if parsed.reply_disposition.is_some()
+        && canonical
+            .as_ref()
+            .is_none_or(|record| record.legacy_unknown)
+    {
+        return binding_error("request disposition requires canonical task identity");
+    }
     if let Some(mut record) = canonical.filter(|record| !record.legacy_unknown) {
         use crate::lifecycle::subagent_model::{
             Acknowledgement, Attempt, MessageEnvelope, SCHEMA_VERSION, new_identity,
@@ -559,6 +580,10 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         let message_id = parsed.message_id.unwrap_or_else(|| new_identity("report"));
         if TaskId::parse(&message_id).is_err() {
             return usage_error("invalid --message-id");
+        }
+        if parsed.reply_disposition.is_some() {
+            let (prefix, _) = line.split_once(':').expect("report line");
+            line = format!("{prefix} [reply={message_id}]: {message}");
         }
         let recipient = record.parent_id.clone().unwrap_or_default();
         let mut envelope = MessageEnvelope {
@@ -611,6 +636,22 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 ));
             }
         }
+        if validation.is_ok()
+            && parsed.reply_disposition.is_some()
+            && !crate::lifecycle::pending_reply::reusable(
+                &state,
+                &envelope.correlation_id,
+                task.as_str(),
+            )
+            && !state
+                .join("evidence")
+                .join(format!("{}-{message_id}.json", task.as_str()))
+                .is_file()
+        {
+            return binding_error(
+                "reply disposition requires a current pending request correlation",
+            );
+        }
         // A completion report can close the implementation dependency gate
         // only when a separately typed, current implementation or report
         // artifact proves the result. The status message alone remains status
@@ -652,6 +693,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         if validation.is_ok()
             && record.schedule.state == crate::lifecycle::subagent_model::WorkState::Completed
             && !completion_evidence
+            && parsed.reply_disposition.is_none()
         {
             use crate::lifecycle::subagent_model::WorkState;
             match state_name.as_str() {
@@ -669,11 +711,13 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 }
             }
         } else if validation.is_ok()
+            && parsed.reply_disposition.is_none()
             && matches!(state_name.as_str(), "working" | "resolved")
             && record.schedule.state == crate::lifecycle::subagent_model::WorkState::WaitingExternal
             && matches!(
                 record.schedule.waiting_condition.as_deref(),
-                Some("paused" | "blocked" | "failed")
+                Some(wait) if matches!(wait, "paused" | "blocked" | "failed")
+                    || wait.starts_with("parent-paused:") || wait.starts_with("parent-blocked:") || wait.starts_with("parent-failed:")
             )
         {
             // Clear only waits created by reports; coordinator lifecycle waits
@@ -709,6 +753,10 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             None
         };
         let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision,"completion_proven":completion_evidence});
+        if let Some(disposition) = &parsed.reply_disposition {
+            evidence["reply_disposition"] = json!(disposition);
+            evidence["status_line"] = json!(line);
+        }
         if let Some(outcome) = &prepared_outcome {
             evidence["parent_outcome"] =
                 serde_json::to_value(outcome).expect("parent outcome JSON");
@@ -739,6 +787,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             }
             if comparable["envelope"] != old["envelope"]
                 || comparable["decision"] != old["decision"]
+                || comparable["reply_disposition"] != old["reply_disposition"]
             {
                 return binding_error("message identity reused with different evidence");
             }

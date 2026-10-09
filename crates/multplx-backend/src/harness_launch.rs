@@ -22,9 +22,13 @@ fn error(message: impl std::fmt::Display) {
 
 fn idle_cli_scope(command: &mut Command, harness: &str) {
     if harness == "codex" {
-        command.env("MX_CODEX_IDLE_CLI", "1");
+        command
+            .env("MX_CODEX_IDLE_CLI", "1")
+            .env("MX_CODEX_SHARED_WORKER_HOOKS", "1");
     } else {
-        command.env_remove("MX_CODEX_IDLE_CLI");
+        command
+            .env_remove("MX_CODEX_IDLE_CLI")
+            .env_remove("MX_CODEX_SHARED_WORKER_HOOKS");
     }
 }
 
@@ -943,6 +947,16 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
         error("harness must be claude, codex, cursor, or pi");
         return 2;
     }
+    if let Err(message) = multplx_core::model_selection::validate_cli(harness, args) {
+        error(message);
+        return 2;
+    }
+    if harness == "codex"
+        && let Err(message) = multplx_core::codex_hooks::validate_cli_overrides(args)
+    {
+        error(message);
+        return 2;
+    }
     let Some(root_value) = std::env::var_os("MX_ROOT_OVERRIDE").filter(|value| !value.is_empty())
     else {
         error("harness launch requires MX_ROOT_OVERRIDE and MX_HOME from the launcher");
@@ -1059,6 +1073,39 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
         error("Cursor launch refuses force, sandbox-disabled, and Cursor-owned worktree modes");
         return 2;
     }
+    let codex_runtime = if harness == "codex" {
+        match multplx_core::codex_hooks::runtime_binary() {
+            Ok(binary) => Some(binary),
+            Err(message) => {
+                error(message);
+                return 2;
+            }
+        }
+    } else {
+        None
+    };
+    let codex_bundle = if let Some(binary) = codex_runtime.as_ref() {
+        match multplx_core::codex_hooks::arguments(&root, binary) {
+            Ok(args) => args,
+            Err(message) => {
+                error(message);
+                return 2;
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    match harness {
+        "codex" => error(
+            "native hook review includes the Multplx primary hooks and shared worker bundle; unchanged standing/nested workers reuse that bundle's approval. Runtime updates require review again; project/user hooks keep separate native review and disabled choices are preserved.",
+        ),
+        "claude" | "pi" => error(format_args!(
+            "{harness} may require native project/extension trust at runtime {} and worker home {}; review it in the provider UI. An endpoint alone does not prove assignment execution; retain foreground readiness checks until native hooks run.",
+            root.display(),
+            home.display()
+        )),
+        _ => {}
+    }
     if let Err(message) = remember_harness(&home, harness) {
         error(format_args!(
             "could not remember the workspace harness: {message}"
@@ -1098,10 +1145,17 @@ pub fn run(harness: &str, args: &[OsString]) -> i32 {
         .current_dir(&root)
         .env("MX_ROOT_OVERRIDE", &root)
         .env("MX_HOME", &home);
+    if let Some(binary) = codex_runtime {
+        command
+            .env("MX_RUST_BIN", &binary)
+            .env("MX_LAUNCH_BIN_PATH", &binary)
+            .env("MX_RUST_SOURCE_ROOT", &root);
+    }
     idle_cli_scope(&mut command, harness);
     if harness == "cursor" {
         command.args([OsString::from("--sandbox"), OsString::from("enabled")]);
     }
+    command.args(&codex_bundle);
     command.args(args);
     let mut child = match command.spawn() {
         Ok(child) => child,

@@ -22,6 +22,9 @@ Work in the assigned isolated worktree and use its recorded project, starting re
 Verify the actual commit and report the exact checks and results, limitations and original evidence pointers.
 The convenience entry `bin/mx-deliver.sh` publishes an explicit task revision and reconciles its canonical PR on retry.
 Its `--help` owns the current arguments and receipt locations.
+An explicitly named own task uses `MX_REPORT_STATE_OVERRIDE` only after exact task, attempt, accepted revision and runtime-home validation.
+Child task names and no-argument scans keep the worker's local state, even when an own-task ID also exists there.
+Use `MX_STATE_OVERRIDE=ABSOLUTE_WORKER_STATE` for child task inspection; an own-task report override must not retarget child operations.
 Check summaries use an explicit `passed:`, `failed:`, `not-run:` or `unknown:` prefix; omission never implies passing checks.
 For a clean task commit, prepare and publish with actual evidence:
 
@@ -47,6 +50,11 @@ To change it, record a newer assignment revision through `mx task-model revise`,
 Pending requests superseded by a newer revision and previous delivery receipts retain their original bytes as history.
 Retarget an existing PR through ordinary forge commands before registration or publication can validate its revised base.
 Retries, PR refresh and merge polling retain the canonical PR identity, while push protection includes the selected base after publication.
+
+New PRs receive the prepared title and generated evidence body.
+Refreshing an existing canonical PR preserves its author's title and body while validating repository, branch, base and commit.
+Replace presentation explicitly with ordinary `gh pr edit PR_URL --title 'Title' --body-file /absolute/path/body.md` when requested.
+Use a real file for multiline prose so shell substitutions cannot alter the body.
 
 Registration keeps the validated PR identity, read-only merge poll and later cleanup connected to the task.
 Publication uses the task-bound repository, not a globally selected project.
@@ -94,10 +102,30 @@ It does not turn failed or unrun checks into passing checks, create a PR, or rec
 A report or coordination assignment can instead attach its existing result file through the reporter's structured `--artifact` option.
 A plain `done` message remains valid status evidence, but reports a diagnostic and does not release dependent work without the required result evidence.
 After completion, a current `failed`, `blocked` or `paused` report withdraws completion and records an external wait; a keyed `needs-decision` report records a human wait.
-Other current activity reports, or a new `done` report that cannot prove completion, reopen the task instead of preserving an old completed state.
+Ordinary current activity reports, or a new `done` report that cannot prove completion, reopen the task instead of preserving an old completed state.
 Dependent work remains queued until a fresh valid completion report; unrelated tasks can continue.
 A current `working` or `resolved` report clears a failure, block or pause wait created by a prior report without restoring completion; human and lifecycle-owned waits retain their own resolution paths.
 Rejected stale-attempt or stale-brief reports and retries of an already committed report do not change the current completion state.
+
+Request answers have a separate explicit disposition.
+For an informational request, use `--state working --correlation-id TOKEN --reply-disposition answered`, or `state: "working"`, `correlation_id` and `reply_disposition: "answered"` in `report_status`.
+`acknowledged` confirms receipt and keeps the request outstanding; omitting the disposition preserves ordinary status behavior.
+These explicit working replies preserve task completion and existing waits, including unresolved human decisions, and cannot prove implementation completion.
+Each request is answered separately, with the current attempt/revision; wrong correlations and stale bindings are rejected.
+Reuse an exact `--message-id` and payload after an uncertain report result.
+Keep MCP summaries within 300 characters and attach longer result evidence with `artifact`.
+
+After a scope revision, inspect and read the new accepted brief before updating the shell with the exact `export MX_BRIEF_REVISION=N` printed by `mx task-model revise`.
+The same shell then uses that revision for reports and nested child launches.
+Existing MCP processes retain their original environment; pass the explicit current `attempt_id`, `generation` and `brief_revision` together on each report after accepting the change.
+This per-call override does not upgrade historical evidence, change the MCP process binding, or accept a later revision automatically.
+
+A parent recovering a pre-execution failure uses `mx task-model outcome TASK --outcome-id STABLE_ID --attempt-id ATTEMPT --generation N --expected-revision N --state failed --message 'Observed failure' --artifact /absolute/path/evidence.txt` from its recorded home and state.
+Only `failed`, `blocked` and `paused` are supported; the owner records the parent's actor identity, exact attempt/revision and evidence digest atomically with the scheduling observation.
+This retains worker evidence, unresolved human questions, pending correlations and endpoint ownership; it does not claim the endpoint stopped or that implementation completed.
+Repeat the same outcome ID and payload after an uncertain write; a foreign parent, stale revision or changed retry is rejected.
+An unbound parent must not set `MX_TASK_ID` to impersonate a worker report.
+Final integration and completion stay with the assigned worker, using current typed evidence and a proven `done` report.
 
 From the assigned worker's activated environment, inspect the task and submit a JSON evidence file:
 
@@ -108,6 +136,8 @@ mx task-model evidence TASK_ID --request-file /absolute/path/evidence.json
 
 Use the actual task attempt, brief revision, current full commit SHA and observed check results in the closed request format below.
 The placeholder strings are not literal values to submit.
+`prepare` may already advance the current delivery commit pointer; inspect it and use that exact value for `expected_current_commit` rather than assuming `null`.
+The publication helper accepts one scalar `--checks 'passed:command one; command two'`; use the typed evidence JSON `checks` array for separate structured checks, rather than repeating the scalar flag.
 Use `null` for `expected_current_commit` only when the inspected task has no current delivery commit; otherwise use that existing commit as the concurrency token.
 Keep the same evidence ID and identical JSON when retrying an uncertain submission.
 Use a short check label in `checks[].name` (nonempty, at most 200 bytes); put the exact command and observed result in `checks[].summary` (nonempty, at most 20,000 bytes), or keep full details in the linked `artifact`.

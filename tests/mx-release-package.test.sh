@@ -361,7 +361,11 @@ SH
 chmod +x "$fakebin/gh"
 cat >"$fakebin/codex" <<'SH'
 #!/bin/sh
-if [ "${1-}" = --dispatch-smoke ]; then
+smoke=
+for argument do
+  case "$argument" in --dispatch-smoke|--package-hook-smoke) smoke=$argument ;; esac
+done
+if [ "$smoke" = --dispatch-smoke ]; then
   [ -x "${MX_RUST_BIN:-}" ] || exit 91
   command -v multplx >/dev/null || exit 92
   multplx task --help >/dev/null || exit 93
@@ -370,7 +374,7 @@ if [ "${1-}" = --dispatch-smoke ]; then
   printf 'public-dispatch-ok\n'
   exit 0
 fi
-if [ "${1-}" = --package-hook-smoke ]; then
+if [ "$smoke" = --package-hook-smoke ]; then
   [ -x "${MX_RUST_BIN:-}" ] || exit 81
   command -v mx >/dev/null || exit 84
   mx --help >/dev/null || exit 85

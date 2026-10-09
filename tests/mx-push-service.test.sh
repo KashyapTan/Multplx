@@ -717,8 +717,8 @@ test_existing_pr_revision_preserves_receipt_and_refuses_unsafe_history() {
       assert_grep "approved_sha=$new_sha" "$case_dir/state/task-x1.delivered" 'new receipt does not bind new SHA'
       assert_grep "$new_sha:refs/heads/mx/task-x1" "$case_dir/push.log" 'update push did not pin exact SHA'
       [ "$(grep -c '^pr create ' "$case_dir/gh.log")" -eq 1 ] || fail 'revision created another PR'
-      assert_grep 'pr edit https://github.com/example/repo/pull/42 ' "$case_dir/gh.log" 'recorded PR was not updated'
-      assert_grep 'CI correction validated' "$case_dir/gh.log.body" 'PR content retained stale validation summary'
+      assert_no_grep '^pr edit ' "$case_dir/gh.log" 'refresh overwrote existing PR presentation'
+      assert_no_grep 'CI correction validated' "$case_dir/gh.log.body" 'refresh replaced the existing body'
       assert_absent "$case_dir/state/task-x1.ready-to-push" 'successful update left ready record'
     else
       if MX_TEST_EXISTING_PR_URL="https://github.com/example/repo/pull/99" MX_DELIVERY_GH_TOKEN=service-only run_delivery "$case_dir" task-x1 >"$case_dir/refused-out" 2>"$case_dir/refused-err"; then fail "unsafe $kind update passed"; fi
@@ -871,3 +871,77 @@ test_historical_prepared_base_stays_frozen() {
   pass 'historical prepared publication honors its frozen base when the repository default changes'
 }
 test_historical_prepared_base_stays_frozen
+
+# A persistent worker's own publication belongs to its parent authority, while
+# child task commands and scans remain local to the worker home.
+test_worker_own_publication_uses_exact_parent_authority() {
+  local case_dir worker head model wrong
+  case_dir=$(make_case worker-own-authority)
+  canonicalize_task "$case_dir"
+  worker="$case_dir/worker-home"
+  mkdir -p "$worker/state"
+  model=$(MX_HOME="$case_dir" MX_STATE_OVERRIDE="$case_dir/state" "$MX_RUST_BIN" task-model inspect task-x1) || fail 'inspect parent authority'
+  model=$(printf '%s' "$model" | jq -c --arg home "$worker" '.persistent_home=$home')
+  printf 'worktree=%s\nproject=%s\nkind=delivery\nschema_version=2\ncanonical_model=%s\n' \
+    "$case_dir/wt" "$case_dir/project" "$model" > "$case_dir/state/task-x1.meta"
+  chmod 600 "$case_dir/state/task-x1.meta"
+  local collision_model
+  collision_model=$(printf '%s' "$model" | jq -c --arg home "$worker" --arg state "$worker/state" '.owner_home=$home | .owner_state=$state | .persistent_home=null | .attempt.id="collision-attempt" | .allocation.attempt_id="collision-attempt"')
+  printf 'kind=delivery\nworktree=%s\nproject=%s\nschema_version=2\ncanonical_model=%s\n' "$case_dir/wt" "$case_dir/project" "$collision_model" > "$worker/state/task-x1.meta"
+  chmod 600 "$worker/state/task-x1.meta"
+  head=$("$REAL_GIT" -C "$case_dir/wt" rev-parse HEAD)
+  own_delivery() {
+    env MX_HOME="$worker" MX_STATE_OVERRIDE="$worker/state" MX_REPORT_STATE_OVERRIDE="$case_dir/state" \
+      MX_TASK_ID=task-x1 MX_ATTEMPT_ID=attempt-task-x1 MX_ATTEMPT_GENERATION=1 MX_BRIEF_REVISION="${OWN_REVISION:-1}" \
+      MX_TEST_PUSH_LOG="$case_dir/push.log" MX_TEST_PUSH_ENV_LOG="$case_dir/push-env.log" \
+      MX_TEST_GH_LOG="$case_dir/gh.log" MX_TEST_GH_ENV_LOG="$case_dir/gh-env.log" \
+      MX_TEST_PR_EXISTS="$case_dir/pr-exists" MX_TEST_WORKTREE="$case_dir/wt" PATH="$case_dir/fakebin:$PATH" \
+      "$MX_RUST_BIN" review "$@"
+  }
+  own_delivery mx-deliver.sh prepare task-x1 --sha "$head" --summary 'worker publication' \
+    >"$case_dir/out" 2>"$case_dir/err" || fail "own prepare failed: $(cat "$case_dir/err")"
+  assert_present "$case_dir/state/task-x1.ready-to-push" 'own prepare missed parent state'
+  assert_absent "$worker/state/task-x1.ready-to-push" 'own prepare wrote child state'
+  assert_grep 'collision-attempt' "$worker/state/task-x1.meta" 'own prepare touched collision'
+  if OWN_REVISION=2 own_delivery mx-deliver.sh prepare task-x1 --sha "$head" --summary stale >"$case_dir/out" 2>"$case_dir/err"; then
+    fail 'stale own publication accepted'
+  fi
+  assert_grep 'stale or missing attempt/brief' "$case_dir/err" 'stale binding diagnostic missing'
+  # The no-argument scan must not consume the parent's prepared request.
+  own_delivery mx-deliver.sh >"$case_dir/out" 2>"$case_dir/err" || fail 'worker local scan failed'
+  assert_present "$case_dir/state/task-x1.ready-to-push" 'scan consumed parent publication'
+  # A child task name resolves locally even with the parent's report override.
+  cp "$case_dir/state/task-x1.meta" "$case_dir/state/child-task.meta"
+  if own_delivery mx-deliver.sh prepare child-task --sha "$head" --summary child >"$case_dir/out" 2>"$case_dir/err"; then fail 'missing child accepted'; fi
+  assert_grep 'private task metadata unavailable' "$case_dir/err" 'child routed into parent authority'
+  "$REAL_GIT" -C "$case_dir/project" worktree add -q -b mx/child-task "$case_dir/child-wt" main
+  "$REAL_GIT" -C "$case_dir/child-wt" commit -q --allow-empty -m 'child result'
+  local child_sha
+  child_sha=$("$REAL_GIT" -C "$case_dir/child-wt" rev-parse HEAD)
+  local child_model
+  child_model=$(printf '%s' "$model" | jq -c --arg home "$worker" --arg state "$worker/state" --arg wt "$case_dir/child-wt" '
+    .task_id="child-task" | .owner_home=$home | .owner_state=$state | .persistent_home=null |
+    .parent_id="task-x1" | .attempt.id="attempt-child-task" |
+    .allocation.path=$wt | .allocation.task_id="child-task" | .allocation.attempt_id="attempt-child-task" |
+    .delivery={current_commit:null,history:[]} | .publication_base=null')
+  printf 'worktree=%s\nproject=%s\nkind=delivery\nschema_version=2\ncanonical_model=%s\n' "$case_dir/child-wt" "$case_dir/project" "$child_model" > "$worker/state/child-task.meta"
+  chmod 600 "$worker/state/child-task.meta"
+  own_delivery mx-deliver.sh prepare child-task --sha "$child_sha" --summary 'child result' >"$case_dir/out" 2>"$case_dir/err" \
+    || fail "local child prepare failed: $(cat "$case_dir/err")"
+  assert_present "$worker/state/child-task.ready-to-push" 'child prepare missed local worker state'
+  assert_absent "$case_dir/state/child-task.ready-to-push" 'child prepare wrote parent state'
+  own_delivery mx-deliver.sh task-x1 >"$case_dir/out" 2>"$case_dir/err" || fail "own publication failed: $(cat "$case_dir/err")"
+  own_delivery mx-pr-check.sh task-x1 https://github.com/example/repo/pull/42 >"$case_dir/out" 2>"$case_dir/err" \
+    || fail "own direct registration failed: $(cat "$case_dir/err")"
+  assert_grep 'pr=https://github.com/example/repo/pull/42' "$case_dir/state/task-x1.meta" 'own registration missed parent state'
+  wrong="$case_dir/foreign-state"
+  mkdir -p "$wrong"
+  cp "$case_dir/state/task-x1.meta" "$wrong/task-x1.meta"
+  if env MX_HOME="$worker" MX_STATE_OVERRIDE="$worker/state" MX_REPORT_STATE_OVERRIDE="$wrong" \
+    MX_TASK_ID=task-x1 MX_ATTEMPT_ID=attempt-task-x1 MX_ATTEMPT_GENERATION=1 MX_BRIEF_REVISION=1 \
+    "$MX_RUST_BIN" review mx-deliver.sh task-x1 >"$case_dir/out" 2>"$case_dir/err"; then fail 'foreign authority accepted'; fi
+  assert_grep 'home or authority state mismatch' "$case_dir/err" 'foreign authority diagnostic missing'
+  unset -f own_delivery
+  pass 'own-task delivery and registration route exact parent authority; stale/foreign/child/scan stay fenced'
+}
+test_worker_own_publication_uses_exact_parent_authority

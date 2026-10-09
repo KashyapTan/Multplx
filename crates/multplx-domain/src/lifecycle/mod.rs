@@ -15,3 +15,5 @@ pub mod system_sync;
 pub mod teardown;
 pub mod upstream_diff;
 pub mod worktree;
+
+pub mod task_outcome;

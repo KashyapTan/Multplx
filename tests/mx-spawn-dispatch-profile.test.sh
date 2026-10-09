@@ -383,7 +383,7 @@ test_launch_fields_remain_literal_shell_data() {
   read_case_record "$rec"
   sentinel="$CASE_DIR/injected"
   argv_log="$CASE_DIR/codex.argv"
-  model="gpt'; touch '$sentinel'; \$(printf BAD); \`printf BAD\`; # λ"
+  model="gpt';touch\${IFS}\"\${MX_QUOTE_SENTINEL}\";\$(printf\${IFS}BAD);\`printf\${IFS}BAD\`;#λ"
 
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" --model "$model" --effort "x'high")
@@ -395,13 +395,43 @@ test_launch_fields_remain_literal_shell_data() {
 printf '%s\n' "$@" >"${MX_CAPTURE_ARGV:?}"
 SH
   chmod +x "$FAKEBIN_DIR/codex"
-  MX_CAPTURE_ARGV="$argv_log" PATH="$FAKEBIN_DIR:$PATH" /bin/bash -c "$launch"
+  MX_QUOTE_SENTINEL="$sentinel" MX_CAPTURE_ARGV="$argv_log" PATH="$FAKEBIN_DIR:$PATH" /bin/bash -c "$launch"
   assert_absent "$sentinel" "shell syntax embedded in a model value executed during launch"
   grep -Fqx -- "$model" "$argv_log" \
     || fail "model bytes changed across the interactive shell boundary"
   grep -Fq -- "x'high" "$argv_log" \
     || fail "effort bytes changed across the interactive shell boundary"
   pass "apostrophes and shell metacharacters remain literal launch data"
+}
+
+test_model_labels_refuse_before_allocation_or_backend() {
+  local rec id out status before sentinel model
+  id=profile-model-label-z20
+  rec=$(make_spawn_case profile-model-label codex "$id")
+  read_case_record "$rec"
+  before=$(git -C "$PROJ_DIR" worktree list --porcelain)
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --model 'GPT-6 Luna')
+  status=$?
+  expect_code 1 "$status" 'display-label model must fail before launch'
+  assert_contains "$out" 'gpt-6-luna' 'model diagnostic omitted canonical ID guidance'
+  assert_absent "$HOME_DIR/state/$id.meta" 'display label published task metadata'
+  [ ! -s "$LAUNCH_LOG" ] || fail 'display label reached backend launch'
+  [ "$(git -C "$PROJ_DIR" worktree list --porcelain)" = "$before" ] \
+    || fail 'display label allocated a worktree'
+  sentinel="$CASE_DIR/injected"
+  model="gpt'; touch '$sentinel'; \$(printf BAD); \`printf BAD\`; # λ"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --model "$model")
+  status=$?
+  expect_code 1 "$status" 'whitespace-bearing hostile model must fail before launch'
+  assert_contains "$out" 'model selection' 'hostile whitespace model bypassed model preflight'
+  assert_absent "$sentinel" 'hostile model input executed before preflight'
+  assert_absent "$HOME_DIR/state/$id.meta" 'hostile model published task metadata'
+  [ ! -s "$LAUNCH_LOG" ] || fail 'hostile whitespace model reached backend launch'
+  [ "$(git -C "$PROJ_DIR" worktree list --porcelain)" = "$before" ] \
+    || fail 'hostile whitespace model allocated a worktree'
+  pass 'display labels and whitespace-bearing shell payloads refuse before allocation or backend'
 }
 
 test_spawn_refuses_endpoint_loss_after_submission() {
@@ -577,6 +607,7 @@ test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
 test_launch_fields_remain_literal_shell_data
+test_model_labels_refuse_before_allocation_or_backend
 test_spawn_refuses_endpoint_loss_after_submission
 test_pi_threads_model_and_max_effort
 test_cursor_private_plugin_and_effort_model

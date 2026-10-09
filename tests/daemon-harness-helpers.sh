@@ -752,6 +752,7 @@ test_worker_launch_binds_real_harness_and_runtime() {
   adapter_log="$w/adapter.log"
   mkdir -p "$w/home/config" "${real_codex%/*}" "$shim_dir" "${installed_binary%/*}"
   cp "$MX_RUST_BIN" "$installed_binary"
+  installed_binary="$(cd "${installed_binary%/*}" && pwd -P)/multplx"
   cat >"$real_codex" <<'SH'
 #!/bin/sh
 [ "${MX_MULTICALL_EXPLICIT:-}" = 1 ] || exit 90

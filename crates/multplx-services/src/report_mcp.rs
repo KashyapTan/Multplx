@@ -27,6 +27,10 @@ fn tool_schema() -> Value {
                 "workflow_revision":{"type":"string","minLength":1,"maxLength":256,"description":"Optional workflow revision for a needs-decision question."},
                 "correlation_id":{"type":"string","minLength":1,"maxLength":256,"description":"Exact request correlation token; required for terminal replies to pending parent requests."},
                 "message_id":{"type":"string","minLength":1,"maxLength":256,"description":"Stable retry identity; reuse with identical report payload."},
+                "reply_disposition":{"type":"string","enum":["acknowledged","answered"],"description":"With working and correlation_id: acknowledge receipt or answer a current request without changing task completion or waits."},
+                "attempt_id":{"type":"string","minLength":1,"description":"Explicit current attempt binding; supply with generation and brief_revision after reading the revised brief."},
+                "generation":{"type":"integer","minimum":1},
+                "brief_revision":{"type":"integer","minimum":1,"description":"Explicit accepted revision; does not rebind this MCP process or promote old evidence."},
                 "artifact":{"type":"string","minLength":1,"description":"Existing regular result file for report or coordination completion."}
             },
             "required":["state","message"],
@@ -43,6 +47,10 @@ struct ReportArguments<'a> {
     correlation_id: Option<&'a str>,
     message_id: Option<&'a str>,
     artifact: Option<&'a str>,
+    reply_disposition: Option<&'a str>,
+    attempt_id: Option<&'a str>,
+    generation: Option<u64>,
+    brief_revision: Option<u64>,
 }
 
 fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
@@ -57,6 +65,10 @@ fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
                 | "correlation_id"
                 | "message_id"
                 | "artifact"
+                | "reply_disposition"
+                | "attempt_id"
+                | "generation"
+                | "brief_revision"
         )
     }) {
         return Err("arguments contain an unsupported property");
@@ -121,6 +133,37 @@ fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
     let correlation_id = optional_text("correlation_id")?;
     let message_id = optional_text("message_id")?;
     let artifact = optional_text("artifact")?;
+    let reply_disposition = optional_text("reply_disposition")?;
+    if reply_disposition.is_some_and(|value| !matches!(value, "acknowledged" | "answered"))
+        || (reply_disposition.is_some() && (state != "working" || correlation_id.is_none()))
+    {
+        return Err("reply_disposition acknowledged|answered requires working and correlation_id");
+    }
+    let attempt_id = optional_text("attempt_id")?;
+    let number = |name: &str| {
+        object
+            .get(name)
+            .map(|value| {
+                value
+                    .as_u64()
+                    .filter(|n| *n > 0)
+                    .ok_or("binding numbers must be positive integers")
+            })
+            .transpose()
+    };
+    let generation = number("generation")?;
+    let brief_revision = number("brief_revision")?;
+    if [
+        attempt_id.is_some(),
+        generation.is_some(),
+        brief_revision.is_some(),
+    ]
+    .into_iter()
+    .any(|v| v)
+        && !(attempt_id.is_some() && generation.is_some() && brief_revision.is_some())
+    {
+        return Err("attempt_id, generation and brief_revision must be supplied together");
+    }
     if [correlation_id, message_id]
         .into_iter()
         .flatten()
@@ -136,6 +179,10 @@ fn validate(arguments: &Value) -> Result<ReportArguments<'_>, &'static str> {
         correlation_id,
         message_id,
         artifact,
+        reply_disposition,
+        attempt_id,
+        generation,
+        brief_revision,
     })
 }
 
@@ -175,6 +222,10 @@ fn handle(message: &Value, root: &Path) -> Option<Value> {
                 correlation_id,
                 message_id,
                 artifact,
+                reply_disposition,
+                attempt_id,
+                generation,
+                brief_revision,
             } = arguments;
             let task = match std::env::var("MX_TASK_ID") {
                 Ok(task) if !task.is_empty() => task,
@@ -203,10 +254,18 @@ fn handle(message: &Value, root: &Path) -> Option<Value> {
                 ("--correlation-id", correlation_id),
                 ("--message-id", message_id),
                 ("--artifact", artifact),
+                ("--reply-disposition", reply_disposition),
+                ("--attempt-id", attempt_id),
             ] {
                 if let Some(value) = value {
                     args.extend([flag.to_owned(), value.to_owned()]);
                 }
+            }
+            if let Some(value) = generation {
+                args.extend(["--generation".into(), value.to_string()]);
+            }
+            if let Some(value) = brief_revision {
+                args.extend(["--brief-revision".into(), value.to_string()]);
             }
             let result = report(&args, root);
             if result.status == 0 {
@@ -286,6 +345,19 @@ mod tests {
         assert!(
             validate(&json!({"state":"done","message":"ok","workflow_revision":"flow-2"})).is_err()
         );
+    }
+
+    #[test]
+    fn explicit_binding_and_request_disposition_are_validated() {
+        assert!(validate(&json!({"state":"working","message":"answer","correlation_id":"request","reply_disposition":"answered","attempt_id":"attempt","generation":1,"brief_revision":2})).is_ok());
+        for args in [
+            json!({"state":"working","message":"answer","reply_disposition":"answered"}),
+            json!({"state":"done","message":"answer","correlation_id":"request","reply_disposition":"answered"}),
+            json!({"state":"working","message":"answer","attempt_id":"attempt"}),
+            json!({"state":"working","message":"answer","attempt_id":"attempt","generation":0,"brief_revision":2}),
+        ] {
+            assert!(validate(&args).is_err());
+        }
     }
 
     #[test]

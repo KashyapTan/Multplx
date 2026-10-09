@@ -8,6 +8,25 @@ set -u
 SPAWN="$ROOT/bin/mx-spawn.sh"
 TMP_ROOT=$(mx_test_tmproot mx-spawn-worktree-settle)
 
+# Retain bounded failure diagnostics before the test runner removes its worker
+# sandbox. Child tracing uses shell builtins so command deadlines and subprocess
+# startup semantics remain the same as the normal fixture.
+settle_failure_diagnostics() {
+  local status=$1
+  if [ "$status" -ne 0 ]; then
+    printf '# settlement diagnostics: home=%s fakebin=%s\n' "${HOME_DIR:-unset}" "${FAKEBIN_DIR:-unset}"
+    printf '# runtime: MX_RUST_BIN=%s LLVM_PROFILE_FILE=%s RUSTC_WRAPPER=%s CARGO_TARGET_DIR=%s CARGO_LLVM_COV_TARGET_DIR=%s CARGO_LLVM_COV_BUILD_DIR=%s\n' \
+      "${MX_RUST_BIN:-}" "${LLVM_PROFILE_FILE:-}" "${RUSTC_WRAPPER:-}" "${CARGO_TARGET_DIR:-}" "${CARGO_LLVM_COV_TARGET_DIR:-}" "${CARGO_LLVM_COV_BUILD_DIR:-}"
+    printf '# shell: BASH_ENV=%s SHELLOPTS=%s BASHOPTS=%s PATH=%s\n' \
+      "${BASH_ENV:-}" "$SHELLOPTS" "${BASHOPTS:-}" "$PATH"
+    if [ -n "${HOME_DIR:-}" ] && [ -f "$HOME_DIR/send.log.commands" ]; then
+      tail -n 20 "$HOME_DIR/send.log.commands"
+    fi
+  fi
+  mx_test_cleanup
+}
+trap 'settle_failure_diagnostics "$?"' EXIT
+
 # make_settle_fakebin <dir> builds a fake tmux whose `#{pane_current_path}`
 # query returns MX_FAKE_PANE_STALE for the first MX_FAKE_PANE_STALE_READS
 # calls, then MX_FAKE_PANE_PATH forever after - reproducing a pane that
@@ -15,9 +34,17 @@ TMP_ROOT=$(mx_test_tmproot mx-spawn-worktree-settle)
 make_settle_fakebin() {
   local dir=$1 fakebin
   fakebin=$(mx_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
+  # Use the interpreter already running this fixture. An env/PATH handoff
+  # stalled before the first mock builtin in the isolated coverage worker.
+  printf '#!%s\n' "$BASH" > "$fakebin/tmux"
+  cat >> "$fakebin/tmux" <<'SH'
 set -u
+trace_settle_command() {
+  if [ -n "${MX_FAKE_SEND_LOG:-}" ]; then
+    printf '%s\t%s\t%s\t%s\n' "$$" "$SECONDS" "$1" "$*" >> "$MX_FAKE_SEND_LOG.commands"
+  fi
+}
+trace_settle_command entry "$@"
 case "$*" in
   *"#{pane_current_path}"*)
     countfile="${MX_FAKE_PANE_COUNTFILE:?MX_FAKE_PANE_COUNTFILE unset}"
@@ -30,38 +57,45 @@ case "$*" in
     else
       printf '%s\n' "${MX_FAKE_PANE_PATH:-}"
     fi
-    exit 0
+    trace_settle_command done; exit 0
     ;;
 esac
 case "${1:-}" in
-  display-message) printf 'broker\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  display-message) printf 'broker\n'; trace_settle_command done; exit 0 ;;
+  list-windows) trace_settle_command done; exit 0 ;;
   new-window)
     printf '%s\n' "$*" >> "${MX_FAKE_SEND_LOG:?}"
     while [ $# -gt 0 ]; do
       if [ "$1" = -c ]; then shift; cwd=$1; break; fi
       shift
     done
+    trace_settle_command git-begin "$cwd"
     [ -n "${cwd:-}" ] && git -C "$cwd" rev-parse --git-common-dir >/dev/null || exit 91
-    printf '@1\n'; exit 0 ;;
-  has-session|new-session|kill-window) exit 0 ;;
+    trace_settle_command git-end "$cwd"
+    printf '@1\n'; trace_settle_command done; exit 0 ;;
+  has-session|new-session|kill-window) trace_settle_command done; exit 0 ;;
   send-keys)
     previous=
     for argument in "$@"; do
       if [ "$previous" = "-l" ]; then
+        trace_settle_command inert-begin "$argument"
         bash "$MX_TEST_REPO_ROOT/tests/inert-terminal-start.sh" "$argument"
+        trace_settle_command inert-end "$argument"
       fi
       previous=$argument
     done
     if [ -n "${MX_FAKE_SEND_LOG:-}" ]; then printf '%s\n' "$*" >> "$MX_FAKE_SEND_LOG"; fi
-    exit 0 ;;
+    trace_settle_command done; exit 0 ;;
 esac
-exit 0
+trace_settle_command done; exit 0
 SH
   local real_git
   real_git=$(command -v git)
-  printf '#!/usr/bin/env bash\nreal=%q\n' "$real_git" > "$fakebin/git"
+  printf '#!%s\nreal=%q\n' "$BASH" "$real_git" > "$fakebin/git"
   cat >> "$fakebin/git" <<'SH'
+if [ -n "${MX_FAKE_SEND_LOG:-}" ]; then
+  printf '%s\t%s\tgit-exec\t%s %s\n' "$$" "$SECONDS" "$real" "$*" >> "$MX_FAKE_SEND_LOG.commands"
+fi
 if [[ "$*" == *"worktree add --detach --"* ]] && [ -n "${MX_TEST_ALLOCATION_TAMPER:-}" ]; then
   "$real" "$@" || exit $?
   args=("$@")
@@ -222,7 +256,6 @@ test_stale_pane_never_selects_allocation
 test_allocation_needs_no_pane_poll
 test_exact_single_checkout_mode_serializes_and_releases
 
-echo "# all mx-spawn-worktree-settle tests passed"
 
 test_registry_maps_to_canonical_publication_without_implicit_review() {
   local mode yolo id record output expected_mode expected_destination
@@ -365,7 +398,8 @@ test_explicit_replacement_retains_its_recorded_worktree_commits() {
   git -C "$WT_DIR" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'task progress before replacement'
   retained=$(git -C "$WT_DIR" rev-parse HEAD)
 
-  out=$(run_settle_spawn "$id" --replace-attempt "$first" --harness codex --backend tmux)
+  printf 'herdr\n' > "$HOME_DIR/config/backend"
+  out=$(MX_BACKEND=herdr HERDR_ENV=1 run_settle_spawn "$id" --replace-attempt "$first" --harness codex)
   status=$?
   expect_code 0 "$status" "proven replacement refused retained commits: $out"
   assert_contains "$out" "spawned $id" 'replacement did not launch'
@@ -488,3 +522,212 @@ test_single_checkout_endpoint_failure_records_consumed_grant_without_deleting_so
 }
 
 test_single_checkout_endpoint_failure_records_consumed_grant_without_deleting_source
+
+# Real owned Git allocations and temporary private homes; terminal/provider
+# submission remains mocked by the fixture above.
+run_settle_owner() {
+  MX_TEST_REPO_ROOT="$ROOT" MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
+    MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
+    MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    MX_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$PATH" "$MX_RUST_BIN" "$@"
+}
+
+test_replacement_fault_replay_preserves_one_attempt_and_exact_owned_progress() {
+  local lifecycle fault id rec out first second original_project worker_home base initial_args changed_args replacement_args recovery_mode request_args sends count
+  for lifecycle in ordinary persistent; do
+    for fault in after-intent after-isolation after-replacement-intent after-allocation after-action-reservation after-endpoint after-metadata; do
+      id="replay-$lifecycle-$fault"
+      rec=$(make_settle_case "$id" "$id" 0)
+      read_settle_record "$rec"
+      original_project=$PROJ_DIR
+      initial_args=(--harness codex --backend tmux)
+      if [ "$lifecycle" = persistent ]; then
+        worker_home="$(dirname "$HOME_DIR")/worker-home"
+        run_settle_owner project register "$original_project" --alias product >/dev/null || fail 'persistent project registration failed'
+        printf '# Task\nContinue the exact owned progress.\n# Charter\nContinue the exact owned progress.\n# Routing scope\nOnly this fixture assignment.\n<!-- mx-assignment role=implementer persistent=true output=implementation -->\n' > "$HOME_DIR/data/$id/brief.md"
+        run_settle_owner home-seed "$id" "$worker_home" product >/dev/null || fail 'persistent fixture seed failed'
+        base=$(git -C "$original_project" rev-parse HEAD)
+        PROJ_DIR=$worker_home
+        initial_args+=(--persistent --role implementer --output implementation --project "$original_project" --base "$base")
+      fi
+      out=$(run_settle_spawn "$id" "${initial_args[@]}") || fail "initial $lifecycle launch failed: $out"
+      WT_DIR=$(sed -n 's/^worktree=//p' "$HOME_DIR/state/$id.meta")
+      first=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+      printf 'retained unfinished progress\n' > "$WT_DIR/task-progress"
+      replacement_args=(--replace-attempt "$first")
+      recovery_mode=0
+      request_args=(--request-id "$id-replacement")
+      if [ "$lifecycle" = ordinary ] && [ "$fault" = after-action-reservation ]; then
+        request_args=()
+      fi
+      if [ "$lifecycle" = persistent ] && [ "$fault" = after-replacement-intent ]; then
+        # Supported automatic recovery reads the original attempt from its own
+        # immutable operation receipt, without guessing from process absence.
+        replacement_args=()
+        recovery_mode=1
+      fi
+      out=$(MX_SPAWN_RECOVERY="$recovery_mode" MX_SPAWN_FAULT="$fault" run_settle_spawn "$id" "${initial_args[@]}" ${replacement_args[@]+"${replacement_args[@]}"} ${request_args[@]+"${request_args[@]}"})
+      expect_code 1 "$?" "replacement fault did not interrupt at $fault"
+      assert_present "$HOME_DIR/state/.spawn-$id.intent" 'fault lost launch reservation'
+      if [ "$lifecycle" = ordinary ] && [ "$fault" = after-action-reservation ]; then
+        cp "$HOME_DIR/state/.spawn-$id.operation" "$HOME_DIR/saved-operation"
+        cp "$HOME_DIR/state/.spawn-$id.intent" "$HOME_DIR/saved-intent"
+      fi
+      sends=$(cat "$HOME_DIR/send.log")
+      out=$(MX_SPAWN_RECOVERY="$recovery_mode" run_settle_spawn "$id" "${initial_args[@]}" ${replacement_args[@]+"${replacement_args[@]}"} ${request_args[@]+"${request_args[@]}"} --model other-model)
+      expect_code 1 "$?" 'changed model stole the reserved replacement'
+      [ "$(cat "$HOME_DIR/send.log")" = "$sends" ] || fail 'changed immutable operation reached terminal transport'
+      changed_args=("${initial_args[@]}")
+      changed_args[3]=herdr
+      out=$(MX_SPAWN_RECOVERY="$recovery_mode" run_settle_spawn "$id" "${changed_args[@]}" ${replacement_args[@]+"${replacement_args[@]}"} ${request_args[@]+"${request_args[@]}"})
+      expect_code 1 "$?" 'changed backend stole the reserved replacement'
+      [ "$(cat "$HOME_DIR/send.log")" = "$sends" ] || fail 'changed backend reached terminal transport'
+      out=$(MX_SPAWN_RECOVERY="$recovery_mode" run_settle_spawn "$id" "${initial_args[@]}" ${replacement_args[@]+"${replacement_args[@]}"} ${request_args[@]+"${request_args[@]}"}) || fail "$lifecycle replay failed at $fault: $out"
+      second=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+      [ "$first" != "$second" ] || fail 'replacement failed to advance attempt'
+      sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -e --arg first "$first" \
+        '.attempt.generation == 2 and .prior_attempts[-1].id == $first and .allocation.attempt_id == .attempt.id and .allocation.generation == 2' >/dev/null || fail 'retry consumed another generation or allocation'
+      assert_grep "worktree=$WT_DIR" "$HOME_DIR/state/$id.meta" 'retry changed allocation path'
+      assert_grep 'retained unfinished progress' "$WT_DIR/task-progress" 'retry lost dirty progress'
+      assert_absent "$HOME_DIR/state/.spawn-$id.intent" 'successful retry retained active intent'
+      assert_absent "$HOME_DIR/state/.spawn-$id.operation" 'successful retry retained operation sidecar'
+      count=$(grep -c '^new-window ' "$HOME_DIR/send.log")
+      case "$fault" in after-endpoint|after-metadata) [ "$count" = 3 ] ;; *) [ "$count" = 2 ] ;; esac || fail "replacement replay created extra endpoints: $count"
+      if [ "$lifecycle" = ordinary ] && [ "$fault" = after-action-reservation ]; then
+        # Inverse finalization interruption: Running action fences immutable
+        # changes even after operation removal but before intent removal.
+        cp "$HOME_DIR/saved-intent" "$HOME_DIR/state/.spawn-$id.intent"
+        sends=$(cat "$HOME_DIR/send.log")
+        out=$(run_settle_spawn "$id" "${initial_args[@]}" --replace-attempt "$first" --model other-model)
+        expect_code 1 "$?" 'completed action permitted changed-model retry'
+        [ "$(cat "$HOME_DIR/send.log")" = "$sends" ] || fail 'completed action replay reached transport'
+        rm "$HOME_DIR/state/.spawn-$id.intent"
+        # Historical intent-first interruption: exact completed default-ID
+        # action proves this stale sidecar safe to retire before next work.
+        cp "$HOME_DIR/saved-operation" "$HOME_DIR/state/.spawn-$id.operation"
+        out=$(run_settle_spawn "$id" "${initial_args[@]}" --replace-attempt "$second") || fail "completed orphan operation stranded replacement: $out"
+        sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -e '.attempt.generation == 3 and .allocation.generation == 3' >/dev/null || fail 'orphan cleanup lost exact generation'
+        assert_grep 'retained unfinished progress' "$WT_DIR/task-progress" 'orphan cleanup lost progress'
+      fi
+    done
+  done
+  pass 'ordinary and persistent dirty replacements converge at seven interruption boundaries with exact owner and immutable invocation'
+}
+
+test_replacement_fault_replay_preserves_one_attempt_and_exact_owned_progress
+
+test_replacement_submission_uncertainty_retains_one_precise_blocker() {
+  local fault id rec out first sends model
+  for fault in after-submission-intent after-submission; do
+    id="uncertain-$fault"
+    rec=$(make_settle_case "$id" "$id" 0)
+    read_settle_record "$rec"
+    out=$(run_settle_spawn "$id" --harness codex --backend tmux) || fail "initial uncertainty launch failed: $out"
+    first=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+    out=$(MX_SPAWN_FAULT="$fault" run_settle_spawn "$id" --harness codex --backend tmux --replace-attempt "$first" --request-id "$id-replacement")
+    expect_code 1 "$?" "submission fault did not interrupt at $fault"
+    sends=$(cat "$HOME_DIR/send.log")
+    model=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta")
+    out=$(run_settle_spawn "$id" --harness codex --backend tmux --replace-attempt "$first" --request-id "$id-replacement")
+    expect_code 1 "$?" 'uncertain execution was launched twice'
+    assert_contains "$out" 'submission is retained' 'uncertain retry lost its concrete retained blocker'
+    [ "$(cat "$HOME_DIR/send.log")" = "$sends" ] || fail 'uncertain retry reached terminal transport'
+    [ "$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta")" = "$model" ] || fail 'uncertain retry rewrote task evidence'
+    assert_present "$HOME_DIR/state/.spawn-$id.intent" 'uncertain retry lost intent'
+    assert_present "$HOME_DIR/state/.spawn-$id.operation" 'uncertain retry lost immutable invocation'
+  done
+  pass 'replacement uncertainty before and after submission retains exact execution and blocks duplicate launch'
+}
+
+test_replacement_preflight_refuses_stale_ownership_before_transport() {
+  local id rec out first sends before
+  id=preflight-stale-lease
+  rec=$(make_settle_case "$id" "$id" 0)
+  read_settle_record "$rec"
+  out=$(run_settle_spawn "$id" --harness codex --backend tmux) || fail "initial preflight fixture launch failed: $out"
+  first=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+  # Corrupt only this temporary task's copied token, retaining the actual owner
+  # record unchanged so deterministic preflight must reject before isolation.
+  python3 - "$HOME_DIR/state/$id.meta" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+rows = path.read_text().splitlines()
+for index, row in enumerate(rows):
+    if row.startswith('canonical_model='):
+        model = json.loads(row.split('=', 1)[1])
+        model['allocation']['generation'] += 1
+        rows[index] = 'canonical_model=' + json.dumps(model, separators=(',', ':'))
+path.write_text('\n'.join(rows) + '\n')
+PY
+  sends=$(cat "$HOME_DIR/send.log")
+  before=$(cat "$HOME_DIR/state/$id.meta")
+  out=$(run_settle_spawn "$id" --harness codex --backend tmux --replace-attempt "$first")
+  expect_code 1 "$?" 'stale allocation token passed preflight'
+  assert_contains "$out" 'preflight refused before endpoint isolation' 'stale preflight lost isolation ordering reason'
+  [ "$(cat "$HOME_DIR/send.log")" = "$sends" ] || fail 'preflight refusal reached terminal transport'
+  [ "$(cat "$HOME_DIR/state/$id.meta")" = "$before" ] || fail 'preflight refusal rewrote task metadata'
+  assert_absent "$HOME_DIR/state/.spawn-$id.intent" 'refused deterministic preflight reserved an intent'
+  pass 'stale token preflight preserves prior endpoint and task metadata before isolation'
+}
+
+test_replacement_submission_uncertainty_retains_one_precise_blocker
+test_replacement_preflight_refuses_stale_ownership_before_transport
+
+run_settle_drain() {
+  MX_TEST_REPO_ROOT="$ROOT" MX_ROOT_OVERRIDE='' MX_HOME="$HOME_DIR" \
+    MX_STATE_OVERRIDE="$HOME_DIR/state" MX_DATA_OVERRIDE="$HOME_DIR/data" \
+    MX_PROJECTS_OVERRIDE="$HOME_DIR/projects" MX_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    MX_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
+    MX_HEADROOM_CPU_COUNT=8 MX_HEADROOM_LOAD1=0 MX_HEADROOM_MEM_AVAILABLE_BYTES=17179869184 \
+    MX_HEADROOM_IN_USE=0 MX_HEADROOM_API_CAPACITY=4 MX_HEADROOM_SPAWN_BIN="$SPAWN" \
+    MX_FAKE_SEND_LOG="$HOME_DIR/send.log" MX_FAKE_PANE_PATH="$WT_DIR" \
+    MX_FAKE_PANE_STALE="$STALE_DIR" MX_FAKE_PANE_STALE_READS=0 MX_FAKE_PANE_COUNTFILE="$COUNTFILE" \
+    PATH="$FAKEBIN_DIR:$PATH" "$ROOT/bin/mx-headroom.sh" --queue-drain 2>&1
+}
+
+test_queued_replacement_retains_dirty_allocation() {
+  local id rec out first allocation queued second fault status before
+  for fault in none before-queued-metadata after-queued-marker after-queued-intent; do
+  id="queued-dirty-$fault"
+  rec=$(make_settle_case "$id" "$id" 0)
+  read_settle_record "$rec"
+  out=$(run_settle_spawn "$id" --harness codex --backend tmux) || fail "initial queue fixture failed: $out"
+  WT_DIR=$(sed -n 's/^worktree=//p' "$HOME_DIR/state/$id.meta")
+  first=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.attempt.id')
+  allocation=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -r '.allocation.allocation_id')
+  printf 'queued unfinished progress\n' > "$WT_DIR/queued-progress"
+  before=$(cat "$HOME_DIR/state/$id.meta")
+  out=$(MX_SPAWN_FAULT="$fault" MX_HEADROOM_SKIP_QUEUE=0 MX_HEADROOM_API_CAPACITY=0 run_settle_spawn "$id" --harness codex --backend tmux --replace-attempt "$first" --request-id "$id-replacement")
+  status=$?
+  if [ "$fault" = none ]; then
+    expect_code 0 "$status" "replacement queue failed: $out"
+    assert_contains "$out" "queued: $id parked" 'replacement did not park'
+  else
+    expect_code 1 "$status" "queued interruption did not fire: $out"
+    assert_present "$HOME_DIR/state/.spawn-$id.operation" 'queued interruption lost receipt'
+    if [ "$fault" = before-queued-metadata ]; then
+      [ "$(cat "$HOME_DIR/state/$id.meta")" = "$before" ] || fail 'failed publication changed metadata'
+      ! jq -e 'has("queued_binding")' "$HOME_DIR/state/.spawn-$id.operation" >/dev/null || fail 'unpublished queue received completion marker'
+      assert_present "$HOME_DIR/state/.spawn-$id.intent" 'failed publication lost intent'
+      out=$(MX_HEADROOM_SKIP_QUEUE=0 MX_HEADROOM_API_CAPACITY=0 run_settle_spawn "$id" --harness codex --backend tmux --replace-attempt "$first" --request-id "$id-replacement")
+      expect_code 0 "$?" "exact queue publication retry failed: $out"
+    fi
+  fi
+  queued=$(sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta")
+  second=$(printf '%s' "$queued" | jq -r '.attempt.id')
+  printf '%s' "$queued" | jq -e --arg old "$first" '.attempt.generation == 2 and .prior_attempts[-1].id == $old and .allocation == null' >/dev/null || fail 'queue did not commit exact successor'
+  out=$(run_settle_drain)
+  expect_code 0 "$?" "replacement drain failed: $out"
+  assert_absent "$HOME_DIR/state/.dispatch-queue/$id-replacement.request" 'successful replacement remained queued'
+  sed -n 's/^canonical_model=//p' "$HOME_DIR/state/$id.meta" | jq -e --arg old "$allocation" --arg next "$second" '.attempt.id == $next and .allocation.allocation_id == $old and .allocation.generation == 2 and .allocation.attempt_id == $next' >/dev/null || fail 'queue drain abandoned prior allocation or changed successor'
+  assert_grep "worktree=$WT_DIR" "$HOME_DIR/state/$id.meta" 'queue drain changed dirty worktree'
+  assert_grep 'queued unfinished progress' "$WT_DIR/queued-progress" 'queue drain lost dirty progress'
+  assert_absent "$HOME_DIR/state/.spawn-$id.intent" 'completed queue drain left intent'
+  assert_absent "$HOME_DIR/state/.spawn-$id.operation" 'completed queue drain left receipt'
+  done
+  pass 'queued replacement faults retain exact successor and dirty lease without completing unpublished metadata'
+}
+
+test_queued_replacement_retains_dirty_allocation
+
+echo "# all mx-spawn-worktree-settle tests passed"

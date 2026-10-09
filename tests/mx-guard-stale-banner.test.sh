@@ -76,13 +76,12 @@ test_repeated_same_episode_prints_reminder_only() {
     || fail "first stale call did not print the full banner: $out1"
   [ "$(count_text "$out2" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 0 ] \
     || fail "second stale call repeated the full banner: $out2"
-  assert_contains "$out2" "full banner already printed this episode" \
-    "second stale call did not print the concise reminder"
+  [ -z "$out2" ] || fail "unchanged stale episode repeated a warning: $out2"
   marker="$(case_home "$dir")/state/.guard-watcher-stale-banner"
   assert_present "$marker" "stale banner marker was not written under the owning home"
   lines=$(awk 'END { print NR + 0 }' "$marker")
   [ "$lines" -le 1 ] || fail "stale banner marker must stay bounded to one line, got $lines"
-  pass "mx-guard stale banner: repeated same-episode calls print a concise reminder only"
+  pass "mx-guard stale banner: repeated same-episode calls stay quiet"
 }
 
 test_healthy_recovery_rearms_next_stale_episode() {
@@ -127,7 +126,7 @@ test_concurrent_same_episode_prints_one_full_banner() {
   full=$(count_text "$all" "WATCHER DOWN - SUPERVISION IS OFF")
   reminders=$(count_text "$all" "full banner already printed this episode")
   [ "$full" -eq 1 ] || fail "concurrent same-episode calls printed $full full banners"$'\n'"$all"
-  [ "$reminders" -eq 29 ] || fail "concurrent same-episode calls printed $reminders reminders, expected 29"$'\n'"$all"
+  [ "$reminders" -eq 0 ] || fail "concurrent same-episode calls printed $reminders reminders, expected 0"$'\n'"$all"
   pass "mx-guard stale banner: concurrent same-episode calls claim exactly one full banner"
 }
 
@@ -142,8 +141,7 @@ test_home_isolation() {
     || fail "home A first stale call did not print a full banner: $out_a1"
   [ "$(count_text "$out_b1" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "home B first stale call was suppressed by home A: $out_b1"
-  assert_contains "$out_a2" "full banner already printed this episode" \
-    "home A repeated stale call did not remember its own episode"
+  [ -z "$out_a2" ] || fail "home A repeated its own episode: $out_a2"
   pass "mx-guard stale banner: deduplication is isolated per MX_HOME"
 }
 
@@ -156,8 +154,7 @@ test_queued_wake_warning_stays_independent() {
     || fail "first stale call did not print the full banner before queued wake case: $out1"
   printf 'signal: %s/state/task.status\n' "$home" > "$home/state/.wake-queue"
   out2=$(run_guard_case "$dir")
-  assert_contains "$out2" "full banner already printed this episode" \
-    "same-episode stale call should still print its concise reminder"
+  [ "$(count_text "$out2" "full banner already printed this episode")" -eq 0 ] || fail "same episode printed reminder"
   assert_contains "$out2" "unfinished wakes pending" \
     "queued wake warning must not be suppressed by stale-banner deduplication"
   pass "mx-guard stale banner: queued-wake warning remains independent"
@@ -193,8 +190,7 @@ test_read_only_during_episode_observes_without_mutating_marker() {
   before=$(cat "$marker")
   out_ro=$(run_guard_case_read_only "$dir")
   after=$(cat "$marker")
-  assert_contains "$out_ro" "full banner already printed this episode" \
-    "read-only stale call during a claimed episode should print the concise reminder"
+  [ -z "$out_ro" ] || fail "read-only repeated an already claimed episode: $out_ro"
   [ "$after" = "$before" ] || fail "read-only stale call must not update an existing marker"
   pass "mx-guard stale banner: read-only during episode observes without mutating marker"
 }

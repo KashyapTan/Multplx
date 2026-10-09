@@ -17,7 +17,7 @@ use regex::Regex;
 use time::OffsetDateTime;
 
 const SECTIONS: [&str; 3] = ["In flight", "Queued", "Done"];
-const SCAFFOLD: &str = "## In flight\n\n## Queued\n\n## Done\n";
+pub(crate) const SCAFFOLD: &str = "## In flight\n\n## Queued\n\n## Done\n";
 
 pub struct AddRequest<'a> {
     pub id: &'a str,
@@ -1177,7 +1177,7 @@ pub fn move_items(source: &Path, destination: &Path, ids: &[String]) -> Result<(
 }
 
 /// Stable help text from the legacy operator entry point.
-pub const USAGE: &str = "Usage:\n  mx-backlog.sh list [--file <path>] [--limit <n>]\n  mx-backlog.sh show <id> [--file <path>] [--full]\n  mx-backlog.sh add <id> <title> [--file <path>] [options]\n  mx-backlog.sh done <id> [--file <path>] [--report p | --note s | --pr url]\n  mx-backlog.sh ready [--file <path>]\n  mx-backlog.sh hold <id> [--file <path>] --reason <text> --kind <kind>\n  mx-backlog.sh update <id> [--file <path>] (--body <text> | --body-file <path>) [--archive-body]\n  mx-backlog.sh block <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh unblock <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh mv <id>... --file <source> --to <destination>\n  mx-backlog.sh validate [--file <path>]\n\nA successful add creates a missing backlog with the canonical sections.\nExisting files must pass validation; reads never create or repair them.\n";
+pub const USAGE: &str = "Usage:\n  mx-backlog.sh list [--file <path>] [--limit <n>]\n  mx-backlog.sh show <id> [--file <path>] [--full]\n  mx-backlog.sh add <id> <title> [--file <path>] [options]\n  mx-backlog.sh done <id> [--file <path>] [--report p | --note s | --pr url]\n  mx-backlog.sh ready [--file <path>]\n  mx-backlog.sh hold <id> [--file <path>] --reason <text> --kind <kind>\n  mx-backlog.sh update <id> [--file <path>] (--body <text> | --body-file <path>) [--archive-body]\n  mx-backlog.sh block <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh unblock <id> [--file <path>] --by <blocker-id>\n  mx-backlog.sh mv <id>... --file <source> --to <destination>\n  mx-backlog.sh validate [--file <path>]\n\nA successful add creates a missing backlog with the canonical sections.\nExisting files must pass validation; reads never create or repair them.\nBacklog rows and task execution are separate records: add defaults to queued, repo=workspace, kind=delivery. For an already launched task use add TASK TITLE --repo PROJECT --start; use hold TASK --reason TEXT --kind KIND to retain a superseded failed task explicitly. Spawn does not infer or rewrite these choices.\n";
 
 fn usage_failure() -> CliFailure {
     CliFailure {
@@ -1222,6 +1222,9 @@ pub fn run_cli(args: &[OsString], default_file: PathBuf) -> Result<String, CliFa
             | "validate"
     ) {
         return Err(usage_failure());
+    }
+    if values.len() == 2 && matches!(values[1].as_str(), "--help" | "-h") {
+        return Ok(USAGE.to_owned());
     }
     let mut file = default_file;
     let mut destination = None;
@@ -1335,7 +1338,7 @@ pub fn run_cli(args: &[OsString], default_file: PathBuf) -> Result<String, CliFa
             store.add(&AddRequest {
                 id: &positionals[0],
                 title: &positionals[1],
-                repo: if repo.is_empty() { "broker" } else { &repo },
+                repo: if repo.is_empty() { "workspace" } else { &repo },
                 kind: if kind.is_empty() { "delivery" } else { &kind },
                 body: &body,
                 start: flags.contains("start"),
@@ -1754,6 +1757,43 @@ mod tests {
         assert!(store.block("missing", "valid").is_err());
         assert!(store.update("missing", "body", false).is_err());
         assert!(store.done("missing", None, 10).is_err());
+    }
+
+    #[test]
+    fn nested_help_never_mutates_and_intake_defaults_are_explicit() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("backlog.md");
+        let call = |args: &[&str]| {
+            run_cli(
+                &args.iter().map(OsString::from).collect::<Vec<_>>(),
+                path.clone(),
+            )
+        };
+        for command in [
+            "add", "hold", "list", "show", "done", "ready", "update", "block", "unblock", "mv",
+            "validate",
+        ] {
+            assert!(call(&[command, "--help"]).unwrap().contains("Usage:"));
+            assert!(!path.exists());
+        }
+        assert!(call(&["unknown", "--help"]).is_err());
+        assert!(call(&["add"]).is_err());
+        call(&["add", "queued", "Queued title"]).unwrap();
+        call(&[
+            "add",
+            "active",
+            "Already launched",
+            "--repo",
+            "product",
+            "--start",
+        ])
+        .unwrap();
+        let listed = call(&["list"]).unwrap();
+        assert!(listed.contains("queued,queued,delivery,workspace"));
+        assert!(listed.contains("active,in_flight,delivery,product"));
+        let before = fs::read(&path).unwrap();
+        call(&["hold", "--help"]).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
     }
 
     #[test]

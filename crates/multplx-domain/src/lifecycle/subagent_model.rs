@@ -1094,9 +1094,9 @@ pub fn require_writer_version(state: &Path) -> Result<(), String> {
     }
 }
 
-pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--authority-state <absolute-path>]\n       mx task-model validate\n       mx task-model review-queue\n       mx task-model evidence <task-id> --request-file <json-path> [--authority-state <absolute-path>]\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nReads and revisions use the existing task .meta authority. evidence accepts the closed typed EvidenceRequest JSON contract for evidence-updated check, optional review and limitation facts. checks[].name is a short label of 1-200 UTF-8 bytes; checks[].summary is a single line of 1-20000 bytes for exact commands/results, with longer detail in a linked artifact. It cannot introduce or replace a canonical PR; verified publication and poll owners record publication and human-merge outcomes. review-queue returns current revision-bound PR evidence in dependency order; optional independent review is not a publication gate. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs, attempts, and delivery evidence; running workers must receive the new revision before current evidence is accepted. Replacement/resume are reconciled by the spawn owner.\n";
+pub const TASK_MODEL_USAGE: &str = "Usage: mx task-model inspect <task-id> [--compact|--full] [--authority-state <absolute-path>]\n       mx task-model outcome <task-id> --outcome-id ID --attempt-id ID --generation N --expected-revision N --state blocked|failed|paused --message TEXT --artifact PATH\n       mx task-model validate\n       mx task-model review-queue\n       mx task-model evidence <task-id> --request-file <json-path> [--authority-state <absolute-path>]\n       mx task-model revise <task-id> --expected-revision <n> --scope <text> --reason <text> [--role researcher|implementer|reviewer|sub-orchestrator] [--artifact report|implementation|coordination] [--acceptance <text>]... [--source <path>]... [--brief-file <path>] [--authority-state <absolute-path>]\n\nInspect --compact returns identity, current attempt/revision, owner/child-state pointers, pending correlations and current evidence commit without embedded briefs/history. Default and --full retain the complete forensic record.\nReads and revisions use the existing task .meta authority. evidence accepts the closed typed EvidenceRequest JSON contract for evidence-updated check, optional review and limitation facts. checks[].name is a short label of 1-200 UTF-8 bytes; checks[].summary is a single line of 1-20000 bytes for exact commands/results, with longer detail in a linked artifact. It cannot introduce or replace a canonical PR; verified publication and poll owners record publication and human-merge outcomes. review-queue returns current revision-bound PR evidence in dependency order; optional independent review is not a publication gate. A successor coordinator supplies --authority-state to route through a transferred task's retained canonical record. Revisions preserve historical briefs, attempts, and delivery evidence; running workers must receive the new revision before current evidence is accepted. Revisions print exact binding instructions for CLI/nested execution and existing MCP processes; read the changed brief before applying them. outcome records a parent-authored recovery observation with current identity and existing evidence; it cannot complete work, stop an endpoint or settle human decisions/requests. Replacement/resume are reconciled by the spawn owner.\n";
 
-fn record_state(record: &TaskRecord) -> Result<std::path::PathBuf, String> {
+pub(super) fn record_state(record: &TaskRecord) -> Result<std::path::PathBuf, String> {
     let path = record
         .owner_state
         .as_ref()
@@ -1184,6 +1184,9 @@ fn load_ancestors(records: &mut Vec<TaskRecord>, local_state: &Path) -> Result<(
 pub fn command(args: &[String], state: &Path) -> Result<String, String> {
     if args.is_empty() || args.iter().any(|a| matches!(a.as_str(), "-h" | "--help")) {
         return Ok(TASK_MODEL_USAGE.into());
+    }
+    if args.first().map(String::as_str) == Some("outcome") {
+        return super::task_outcome::command(args, state);
     }
     let load_records = || -> Result<Vec<TaskRecord>, String> {
         let mut records = vec![];
@@ -1274,7 +1277,55 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let text = String::from_utf8(before.clone()).map_err(|e| e.to_string())?;
     let mut record = read_meta(id, &text)?;
-    if args[0] == "inspect" && args.len() == 2 {
+    if args[0] == "inspect"
+        && (args.len() == 2
+            || (args.len() == 3 && matches!(args[2].as_str(), "--compact" | "--full")))
+    {
+        if args.get(2).is_some_and(|argument| argument == "--compact") {
+            let pending = super::pending_reply::pending_correlations_readonly(state, id)?;
+            let pending_count = pending.len();
+            let brief = record
+                .briefs
+                .iter()
+                .find(|brief| Some(brief.revision) == record.accepted_brief_revision);
+            let operation_path = state.join(format!(".spawn-{id}.operation"));
+            let operation =
+                multplx_core::filesystem::read_bounded_regular(&operation_path, 64 * 1024)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            let value = serde_json::json!({
+                "task_id":record.task_id, "role":record.role, "artifact":record.artifact,
+                "persistent":record.persistent, "legacy_unknown":record.legacy_unknown,
+                "handle":{"task_id":record.task_id,"owner_state":record.owner_state,"attempt":record.attempt},
+                "parent_id":record.parent_id,"parent_state":record.parent_state,"parent_home":record.parent_home,
+                "owner_home":record.owner_home,"owner_state":record.owner_state,
+                "child_state":record.persistent_home.as_ref().map(|home| Path::new(home).join("state")),
+                "accepted_brief_revision":record.accepted_brief_revision,
+                "brief":{"path":record.accepted_brief_path,"digest":record.accepted_brief_digest,
+                    "source_artifacts":brief.map(|brief| brief.source_artifacts.iter().take(32).collect::<Vec<_>>())},
+                "runtime":record.runtime,"allocation":record.allocation,"home_allocation":record.home_allocation,
+                "project":record.project,"schedule":{
+                    "state":record.schedule.state,"waiting_condition":record.schedule.waiting_condition,
+                    "dependencies":record.schedule.dependencies.iter().take(64).collect::<Vec<_>>(),
+                    "dependencies_total":record.schedule.dependencies.len(),
+                    "decisions":record.schedule.decisions.iter().take(32).collect::<Vec<_>>(),
+                    "decisions_total":record.schedule.decisions.len(),
+                },
+                "launch_reservation":{"intent_path":state.join(format!(".spawn-{id}.intent")),"present":state.join(format!(".spawn-{id}.intent")).exists(),"operation_path":operation_path,"retry_command":operation.as_ref().and_then(|operation| operation.get("retry_command"))},
+                "pending_correlations":pending.into_iter().take(64).collect::<Vec<_>>(),
+                "pending_correlations_total":pending_count,"pending_correlations_truncated":pending_count>64,
+                "expected_current_commit":record.delivery.current_commit,
+                "current_delivery_evidence":record.current_delivery_evidence().map(|evidence| serde_json::json!({
+                    "evidence_id":evidence.evidence_id,"commit":evidence.commit,"attempt_id":evidence.attempt_id,
+                    "brief_revision":evidence.brief_revision,"outcome":evidence.outcome,"pr_url":evidence.pr_url,
+                    "observed_at":evidence.observed_at,"checks_total":evidence.checks.len(),
+                    "checks":evidence.checks.iter().take(32).map(|check| serde_json::json!({"name":check.name,"outcome":check.outcome,"artifact":check.artifact})).collect::<Vec<_>>(),
+                })),
+            });
+            return serde_json::to_string_pretty(&value)
+                .map(|value| format!("{value}\n"))
+                .map_err(|error| error.to_string());
+        }
         return serde_json::to_string_pretty(&record)
             .map(|s| format!("{s}\n"))
             .map_err(|e| e.to_string());
@@ -1395,7 +1446,7 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
         }
         multplx_core::filesystem::recover_transition(state, &operation)
             .map_err(|e| e.to_string())?;
-        return Ok(format!("{id}: accepted brief revision {}\n", expected + 1));
+        return Ok(revision_notice(&planned));
     }
     use sha2::{Digest, Sha256};
     record.accepted_brief_digest = Some(format!("{:x}", Sha256::digest(&brief_bytes)));
@@ -1438,10 +1489,16 @@ pub fn command(args: &[String], state: &Path) -> Result<String, String> {
     });
     multplx_core::filesystem::recoverable_transition(state, &operation, &writes, None)
         .map_err(|e| e.to_string())?;
-    Ok(format!(
-        "{id}: accepted brief revision {}\n",
-        record.accepted_brief_revision.expect("revision")
-    ))
+    Ok(revision_notice(&record))
+}
+
+fn revision_notice(record: &TaskRecord) -> String {
+    let revision = record.accepted_brief_revision.expect("revision");
+    let mut notice = format!("{}: accepted brief revision {revision}\n", record.task_id);
+    if let Some(attempt) = &record.attempt {
+        notice.push_str(&format!("Send the revised brief to the worker and require it to inspect/read before accepting. After acceptance in the same attempt, run: export MX_BRIEF_REVISION={revision}\nThis updates subsequent CLI reports and nested spawn binding in that shell. Existing MCP processes keep their original environment; report_status must explicitly supply attempt_id={}, generation={}, brief_revision={revision}. Old evidence remains historical.\n", attempt.id, attempt.generation));
+    }
+    notice
 }
 
 #[cfg(test)]
@@ -1838,6 +1895,39 @@ mod tests {
         assert!(require_writer_version(legacy.path()).is_err());
         assert!(!legacy.path().join(".task-writer-version").exists());
     }
+    #[test]
+    fn compact_inspect_preserves_exact_handle_and_commit_without_embedded_briefs() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut record = task("task");
+        record.owner_state = Some(temp.path().to_string_lossy().into_owned());
+        record.persistent_home = Some("/worker".into());
+        record.briefs[0].scope = "large accepted scope ".repeat(2000);
+        record.delivery.current_commit = Some("a".repeat(40));
+        std::fs::write(
+            temp.path().join("task.meta"),
+            write_meta("kind=delivery\n", &record).unwrap(),
+        )
+        .unwrap();
+        let args = ["inspect", "task", "--compact"].map(String::from);
+        let output = command(&args, temp.path()).unwrap();
+        let compact: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(
+            compact["handle"]["attempt"]["id"],
+            record.attempt.as_ref().unwrap().id
+        );
+        assert_eq!(compact["expected_current_commit"], "a".repeat(40));
+        assert_eq!(compact["child_state"], "/worker/state");
+        assert!(compact.get("briefs").is_none());
+        assert!(!output.contains("large accepted scope"));
+        let full = command(
+            &["inspect".into(), "task".into(), "--full".into()],
+            temp.path(),
+        )
+        .unwrap();
+        assert!(full.contains("large accepted scope"));
+        assert!(output.len() < full.len());
+    }
+
     #[test]
     fn cli_revision_is_owned_and_retains_accepted_brief_and_history() {
         let temp = tempfile::tempdir().unwrap();

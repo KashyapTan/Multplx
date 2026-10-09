@@ -408,6 +408,7 @@ pub fn validate_for_launch(request: &Request) -> Result<(), String> {
     {
         return Err("invalid spawn delivery authority".to_owned());
     }
+    multplx_core::model_selection::validate(&request.harness, &request.model)?;
     path_record_value("home", &request.home)?;
     path_record_value("project", &request.project)?;
     Ok(())
@@ -607,6 +608,7 @@ pub fn parse(
         }
         index += 1;
     }
+    multplx_core::model_selection::validate(harness.as_deref().unwrap_or(default_harness), &model)?;
     let candidate_id = positional.first().ok_or("invalid spawn request")?;
     TaskId::parse(candidate_id).map_err(|_| "invalid spawn request")?;
     if role.is_none()
@@ -1657,6 +1659,109 @@ fn same_launch_identity(
         && same_project
 }
 
+/// Restore an interrupted same-task replacement from its owner reservation.
+/// Only the exact original attempt or its single reserved successor qualifies;
+/// advanced owner fields are validated separately from immutable scope identity.
+pub fn recover_replacement_intent(
+    context: &Context,
+    request: &mut Request,
+    expected_attempt: &str,
+) -> Result<Option<bool>, String> {
+    use super::subagent_model::{TaskRecord, read_meta};
+    let path = context.state.join(format!(".spawn-{}.intent", request.id));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+        .map_err(|error| format!("replacement intent unreadable; retained: {error}"))?;
+    let reserved: TaskRecord = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("replacement intent corrupt; retained: {error}"))?;
+    reserved.validate()?;
+    let raw = multplx_core::filesystem::read_bounded_regular(
+        context.state.join(format!("{}.meta", request.id)),
+        super::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .map_err(|error| {
+        format!("interrupted launch intent has no original replacement task; retained: {error}")
+    })?;
+    let current = read_meta(
+        &request.id,
+        std::str::from_utf8(&raw).map_err(|e| e.to_string())?,
+    )?;
+    let prepared = request
+        .binding
+        .as_ref()
+        .ok_or("replacement binding missing")?;
+    if !same_launch_identity(prepared, &reserved) || reserved.runtime.provider != request.backend {
+        return Err(
+            "replacement intent conflicts with immutable retry identity or backend; retained"
+                .into(),
+        );
+    }
+    if current
+        .attempt
+        .as_ref()
+        .is_some_and(|attempt| attempt.id == expected_attempt)
+    {
+        if reserved == *prepared {
+            return Ok(Some(false));
+        }
+        let mut next = current.clone();
+        next.replace_attempt(expected_attempt, true)?;
+        // These are owner-advanced values; everything else must match exactly.
+        let attempt = reserved
+            .attempt
+            .as_ref()
+            .ok_or("replacement intent attempt missing")?;
+        if next.attempt.as_ref().is_none_or(|expected| {
+            expected.generation != attempt.generation
+                || expected.brief_revision != attempt.brief_revision
+        }) || attempt.id == expected_attempt
+        {
+            return Err(
+                "replacement intent generation conflicts with original attempt; retained".into(),
+            );
+        }
+        next.attempt = reserved.attempt.clone();
+        next.allocation = reserved.allocation.clone();
+        next.runtime.provider = request.backend.clone();
+        if next != reserved {
+            return Err(
+                "replacement intent is not the exact original task successor; retained".into(),
+            );
+        }
+    } else if current.attempt == reserved.attempt
+        && reserved
+            .prior_attempts
+            .last()
+            .is_some_and(|attempt| attempt.id == expected_attempt)
+        && same_launch_identity(&current, &reserved)
+    {
+        // Canonical metadata may already have been published. The action owner
+        // independently gates endpoint existence and any uncertain submission.
+    } else {
+        return Err("replacement intent original attempt was superseded; retained".into());
+    }
+    if let Some(allocation) = &reserved.allocation {
+        let project = reserved
+            .project
+            .as_ref()
+            .ok_or("replacement project missing")?;
+        let store = super::worktree::Store::new(project)?;
+        let owned = store.inspect(&allocation.allocation_id)?;
+        if owned.binding != *allocation || owned.owner_home != resolved(&context.home) {
+            return Err(
+                "replacement reservation allocation changed owner or generation; retained".into(),
+            );
+        }
+        if allocation.attempt_id != reserved.attempt.as_ref().ok_or("attempt missing")?.id {
+            return Err("replacement reservation allocation has a stale attempt; retained".into());
+        }
+    }
+    request.binding = Some(reserved);
+    Ok(Some(true))
+}
+
 /// Restore the exact attempt and allocation frozen before an interrupted
 /// launch. Only a receipt already marked failed after verified endpoint
 /// absence may replace the newly prepared, otherwise equivalent binding.
@@ -2558,6 +2663,65 @@ mod tests {
             single_checkout_base_head: None,
             single_checkout_base_branch: None,
         }
+    }
+
+    #[test]
+    fn replacement_intent_recovers_original_and_exact_successor_without_advancing_twice() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = context(temp.path());
+        let mut original_request = bound_request(&context);
+        original_request.binding.as_mut().unwrap().runtime.provider =
+            original_request.backend.clone();
+        let original = original_request.binding.as_ref().unwrap();
+        let expected = original.attempt.as_ref().unwrap().id.clone();
+        let meta =
+            crate::lifecycle::subagent_model::write_meta("kind=delivery\n", original).unwrap();
+        fs::write(context.state.join("task.meta"), &meta).unwrap();
+        let intent = context.state.join(".spawn-task.intent");
+        fs::write(&intent, serde_json::to_vec(original).unwrap()).unwrap();
+        let mut retry = original_request.clone();
+        assert_eq!(
+            recover_replacement_intent(&context, &mut retry, &expected).unwrap(),
+            Some(false)
+        );
+        let mut successor = original.clone();
+        successor.replace_attempt(&expected, true).unwrap();
+        fs::write(&intent, serde_json::to_vec(&successor).unwrap()).unwrap();
+        assert_eq!(
+            recover_replacement_intent(&context, &mut retry, &expected).unwrap(),
+            Some(true)
+        );
+        assert_eq!(retry.binding.as_ref().unwrap(), &successor);
+        retry = original_request.clone();
+        assert_eq!(
+            recover_replacement_intent(&context, &mut retry, &expected).unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            retry
+                .binding
+                .as_ref()
+                .unwrap()
+                .attempt
+                .as_ref()
+                .unwrap()
+                .generation,
+            2
+        );
+        assert!(recover_replacement_intent(&context, &mut retry, "stale").is_err());
+        let mut foreign = original_request.clone();
+        foreign.binding.as_mut().unwrap().owner_home = Some("/foreign".into());
+        assert!(recover_replacement_intent(&context, &mut foreign, &expected).is_err());
+        let mut corrupted = successor.clone();
+        corrupted.schedule.waiting_condition = Some("unrecorded transition".into());
+        fs::write(&intent, serde_json::to_vec(&corrupted).unwrap()).unwrap();
+        assert!(
+            recover_replacement_intent(&context, &mut original_request.clone(), &expected).is_err()
+        );
+        assert_eq!(
+            fs::read_to_string(context.state.join("task.meta")).unwrap(),
+            meta
+        );
     }
 
     #[test]
