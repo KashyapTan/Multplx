@@ -3356,6 +3356,13 @@ fn run_spawn(args: &[OsString]) -> i32 {
         index += 1;
     }
     let (root, home, data) = active_paths();
+    let spawn_generation = match launcher::spawn_generation(&runtime_root(&root)) {
+        Ok(generation) => generation,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    };
     let logical_home = home.clone();
     let routed_owner_home = match authority_state.as_ref() {
         Some(authority) => {
@@ -3561,6 +3568,19 @@ fn run_spawn(args: &[OsString]) -> i32 {
             return 1;
         }
     };
+    match launcher::spawn_generation(&source_root) {
+        Ok(current) if current == spawn_generation => {}
+        Ok(_) => {
+            eprintln!(
+                "error: installed runtime generation changed before spawn; rerun spawn with the current runtime"
+            );
+            return 1;
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            return 1;
+        }
+    }
     let inherited_queue_request = std::env::var("MX_ADMISSION_REQUEST_ID").ok();
     let queued_request_id = admission_request_id
         .as_deref()

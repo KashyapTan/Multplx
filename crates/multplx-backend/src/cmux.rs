@@ -73,6 +73,12 @@ impl CmuxBackend<SystemCommandRunner> {
         let config = std::env::var_os("MX_CONFIG_OVERRIDE")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join("config"));
+        Self::system_for_home(root, home, config)
+    }
+
+    /// Use an already verified owner scope for read-only endpoint inspection.
+    #[must_use]
+    pub fn system_for_home(root: PathBuf, home: PathBuf, config: PathBuf) -> Self {
         let resolved = std::env::var_os("MX_BACKEND_CMUX_BIN")
             .filter(|value| is_executable(Path::new(value)))
             .or_else(resolve_system_executable);

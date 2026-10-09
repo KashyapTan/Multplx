@@ -574,7 +574,7 @@ cmp -s "$TMP_ROOT/stale-launch.before" "$install/data/home/state/workspace-launc
   || fail 'EOF changed the stale launch reservation'
 
 printf 'kind=actor\nbackend=tmux\n' >"$install/data/home/state/recovery-blocker.meta"
-if output=$(run_tty_confirmation y "$package/bin/mx" launcher-install --upgrade --package "$package" \
+if output=$("$package/bin/mx" launcher-install --upgrade --recover-stale-launch --package "$package" \
     --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then
   fail 'package upgrade ignored a recorded task user after stale launch approval'
 fi
@@ -641,6 +641,20 @@ case "$1" in
   version) echo 'cmux 0.64.17 (97) [abcdef1]' ;;
   ping) echo PONG ;;
   workspace)
+    if [ -f "$MX_CMUX_FIXTURE/require-lifecycle-lock" ]; then
+      lock=$(cat "$MX_CMUX_FIXTURE/require-lifecycle-lock")
+      if [ -e "$MX_CMUX_FIXTURE/transaction-path" ] && [ -d "$(cat "$MX_CMUX_FIXTURE/transaction-path")" ] && [ -L "$lock" ]; then
+        : >"$MX_CMUX_FIXTURE/verified-lifecycle-lock"
+        if [ -f "$MX_CMUX_FIXTURE/live-at-barrier" ]; then
+          printf '{"workspaces":[{"id":"11111111-1111-4111-8111-111111111111","title":"%s"}]}' "$(cat "$MX_CMUX_FIXTURE/expected-title")"
+          exit 0
+        fi
+      fi
+    fi
+    if [ -f "$MX_CMUX_FIXTURE/live-at-barrier" ]; then
+      echo '{"workspaces":[]}'
+      exit 0
+    fi
     [ ! -f "$MX_CMUX_FIXTURE/fail-inventory" ] || exit 99
     if [ -f "$MX_CMUX_FIXTURE/live-at-probe" ]; then
       count=0
@@ -733,9 +747,11 @@ fi
 assert_grep 'cannot verify recorded task endpoint' "$TMP_ROOT/unknown-worker-upgrade.err" \
   'unknown inventory refusal did not report an inconclusive endpoint probe'
 rm "$MX_CMUX_FIXTURE/fail-inventory"
-# Become live only at the transaction-barrier probe, after both ordinary
-# installer preflights already observed authoritative absence.
-printf '3' >"$MX_CMUX_FIXTURE/live-at-probe"
+# Become live only at the transaction-barrier probe, after the ordinary
+# installer preflights and child-lock discovery observed authoritative absence.
+printf '%s' "$install/data/home/state/.teardown.upgrade-worker.lock" >"$MX_CMUX_FIXTURE/require-lifecycle-lock"
+printf '%s' "$install/config/.launcher-install.transaction" >"$MX_CMUX_FIXTURE/transaction-path"
+: >"$MX_CMUX_FIXTURE/live-at-barrier"
 rm -f "$MX_CMUX_FIXTURE/probe-count"
 before_asset_generation=$(cat "$install/config/package-SHA256SUMS")
 if "$package/bin/mx" launcher-install --upgrade --package "$package" \
@@ -745,11 +761,10 @@ if "$package/bin/mx" launcher-install --upgrade --package "$package" \
 fi
 assert_grep 'recorded task user' "$TMP_ROOT/race-worker-upgrade.err" \
   "transaction-time live endpoint refusal did not identify retained runtime use: $(cat "$TMP_ROOT/race-worker-upgrade.err")"
-[ "$(cat "$MX_CMUX_FIXTURE/probe-count")" = 3 ] \
-  || fail 'endpoint did not change at the transaction-time quiescence probe'
 [ "$(cat "$install/config/package-SHA256SUMS")" = "$before_asset_generation" ] \
   || fail 'transaction-time live endpoint changed installed assets'
-rm "$MX_CMUX_FIXTURE/live-at-probe" "$MX_CMUX_FIXTURE/probe-count"
+[ -f "$MX_CMUX_FIXTURE/verified-lifecycle-lock" ] || fail 'transaction probe did not hold the actual spawn lifecycle lock'
+rm "$MX_CMUX_FIXTURE/live-at-barrier" "$MX_CMUX_FIXTURE/require-lifecycle-lock" "$MX_CMUX_FIXTURE/transaction-path" "$MX_CMUX_FIXTURE/verified-lifecycle-lock"
 "$cmux" close-workspace
 
 # Canonical variants retain all task bindings while exercising ownership refusals.
@@ -834,6 +849,13 @@ else
   status=$?
 fi
 expect_code 97 "$status" 'interrupted package upgrade'
+if MX_MULTICALL_EXPLICIT=1 "$install/bin/multplx" spawn pending-upgrade-child "$worker_project" \
+    --backend cmux --harness codex >"$TMP_ROOT/pending-spawn.out" 2>"$TMP_ROOT/pending-spawn.err"; then
+  fail 'direct multicall spawn ignored pending package generation'
+fi
+assert_grep 'installation transaction is pending' "$TMP_ROOT/pending-spawn.err" 'direct spawn omitted generation refusal'
+[ ! -e "$install/data/home/state/pending-upgrade-child.meta" ] || fail 'pending-generation spawn published child metadata'
+
 if "$install/bin/multplx" paths >"$TMP_ROOT/pending-launch.out" \
     2>"$TMP_ROOT/pending-launch.err"; then
   fail 'launcher entered a runtime with a pending package generation'
@@ -886,6 +908,156 @@ assert_grep 'recorded task user' "$TMP_ROOT/stopped-worker-uninstall.err" \
 git -C "$worker_project" worktree remove --force "$worker_worktree"
 git -C "$worker_project" worktree prune
 rm -f "$worker_meta" "$worker_report" "$install/data/home/state/.spawn-actions/upgrade-worker.json"
+
+# A standing implementer uses a real seeded lease and canonical spawn record.
+# Its incomplete work and private child routes survive upgrade without retirement.
+standing=standing-upgrade
+. "$ROOT/tests/daemon-helpers.sh"
+standing_tmux_bin=$(make_fake_tmux "$TMP_ROOT/standing-tmux")
+export MX_FAKE_TMUX_LOG="$TMP_ROOT/standing-tmux/tmux.log" MX_FAKE_TMUX_CAPTURE="$TMP_ROOT/standing-tmux/pane.txt"
+export MX_TEST_INERT_PID_LOG="$TMP_ROOT/standing-tmux/inert-pids"
+export PATH="$standing_tmux_bin:$PATH"
+python3 - "$standing_tmux_bin/tmux" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text().replace('  list-windows)\n', '''  list-windows)
+    [ ! -f "$MX_CMUX_FIXTURE/fail-inventory" ] || exit 99
+    if [ -f "$MX_CMUX_FIXTURE/standing-live" ]; then
+      printf '%s\\n' 'mx-standing-upgrade'
+      exit 0
+    fi
+''')
+p.write_text(s)
+PY
+mkdir -p "$install/data/home/data/$standing"
+printf 'Retain this standing upgrade fixture and its unfinished work.\n' >"$install/data/home/data/$standing/brief.md"
+MX_MULTICALL_EXPLICIT=1 MX_DAEMON_CHARTER='Standing upgrade fixture' MX_DAEMON_SCOPE='Retain the isolated upgrade fixture' "$install/bin/multplx" home-seed "$standing" - "$worker_project" \
+  >"$TMP_ROOT/standing-seed.out" || fail 'standing home seed failed'
+"$install/bin/multplx" spawn "$standing" --persistent --role implementer --output implementation \
+  --project "$worker_project" --base "$worker_commit" --backend tmux --harness codex \
+  >"$TMP_ROOT/standing-spawn.out" || fail 'canonical standing implementer spawn failed'
+standing_meta="$install/data/home/state/$standing.meta"
+standing_home=$(sed -n 's/^canonical_model=//p' "$standing_meta" | jq -r '.persistent_home')
+standing_worktree=$(sed -n 's/^canonical_model=//p' "$standing_meta" | jq -r '.allocation.path')
+printf 'dirty standing work\n' >"$standing_worktree/retained-untracked"
+cp "$standing_meta" "$TMP_ROOT/standing-meta.before"
+cp "$install/data/home/data/.home-allocation-$standing.json" "$TMP_ROOT/standing-lease.before"
+printf 'private pending work\n' >"$standing_home/data/retained-private"
+
+upgrade_standing() {
+  env -u MX_HOME -u MX_ROOT_OVERRIDE -u MX_STATE_OVERRIDE -u MX_CONFIG_OVERRIDE \
+    -u MX_DATA_OVERRIDE -u MX_PROJECTS_OVERRIDE "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" "$@"
+}
+# Consent flags cannot override an active standing endpoint.
+: >"$MX_CMUX_FIXTURE/standing-live"
+if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-live.out" 2>"$TMP_ROOT/standing-live.err"; then
+  fail 'standing consent overrode a live endpoint'
+fi
+grep -q 'live.*endpoint' "$TMP_ROOT/standing-live.err" \
+  || fail "standing live refusal was not actionable: $(cat "$TMP_ROOT/standing-live.err")"
+rm "$MX_CMUX_FIXTURE/standing-live"
+# The fixture harness intentionally stays alive for two seconds. Finish that
+# exact startup before testing other stopped-home blockers.
+while IFS= read -r inert_pid; do
+  for tick in $(seq 1 50); do
+    if ! kill -0 "$inert_pid" 2>/dev/null; then break; fi
+    sleep 0.1
+  done
+  if kill -0 "$inert_pid" 2>/dev/null; then fail 'standing inert fixture did not stop'; fi
+done <"$MX_TEST_INERT_PID_LOG"
+# An in-flight spawn for a new child ID has a lifecycle owner before metadata.
+mkdir "$standing_home/state/.teardown.new-child.lock"
+printf '%s\n' "$$" >"$standing_home/state/.teardown.new-child.lock/pid"
+if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-inflight.out" 2>"$TMP_ROOT/standing-inflight.err"; then
+  fail 'standing consent ignored in-flight new child spawn'
+fi
+grep -q 'lifecycle lock.*new-child' "$TMP_ROOT/standing-inflight.err" \
+  || fail "in-flight child refusal omitted exact lock: $(cat "$TMP_ROOT/standing-inflight.err")"
+rm "$standing_home/state/.teardown.new-child.lock/pid"
+rmdir "$standing_home/state/.teardown.new-child.lock"
+if upgrade_standing </dev/null >"$TMP_ROOT/standing-noninteractive.out" 2>"$TMP_ROOT/standing-noninteractive.err"; then
+  fail 'noninteractive standing upgrade omitted explicit consent'
+fi
+assert_grep 'allow-stopped-agents' "$TMP_ROOT/standing-noninteractive.err" 'standing refusal omitted consent guidance'
+for answer in n EOF; do
+  if output=$(run_tty_confirmation "$answer" "$package/bin/mx" launcher-install --upgrade --package "$package" \
+      --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then
+    fail "standing upgrade accepted default-No answer $answer"
+  fi
+  assert_contains "$output" 'upgrade cancelled' 'standing negative response did not cancel'
+  cmp -s "$TMP_ROOT/standing-meta.before" "$standing_meta" || fail 'refusal changed standing history'
+done
+# Follow only canonical child routes; even an unreadable child record blocks.
+printf 'uncertain child\n' >"$standing_home/state/uncertain-child.meta"
+if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-child.out" 2>"$TMP_ROOT/standing-child.err"; then
+  fail 'standing consent ignored uncertain recorded child'
+fi
+assert_grep 'uncertain-child.meta' "$TMP_ROOT/standing-child.err" 'child refusal omitted exact artifact'
+rm "$standing_home/state/uncertain-child.meta"
+# An orphan launch receipt can retain an independent endpoint without metadata.
+mkdir -p "$standing_home/state/.spawn-actions"
+printf '{}\n' >"$standing_home/state/.spawn-actions/orphan.json"
+if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-orphan.out" 2>"$TMP_ROOT/standing-orphan.err"; then
+  fail 'standing consent ignored uncertain orphan launch receipt'
+fi
+grep -q 'orphan.json.*reconcile this exact launch' "$TMP_ROOT/standing-orphan.err" \
+  || fail "orphan launch refusal omitted its receipt: $(cat "$TMP_ROOT/standing-orphan.err")"
+rm "$standing_home/state/.spawn-actions/orphan.json"
+# Unknown inventory and changed lease remain fail-closed after consent.
+: >"$MX_CMUX_FIXTURE/fail-inventory"
+if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-unknown.out" 2>"$TMP_ROOT/standing-unknown.err"; then
+  fail 'standing consent overrode uncertain inventory'
+fi
+rm "$MX_CMUX_FIXTURE/fail-inventory"
+jq '.binding.generation += 1' "$TMP_ROOT/standing-lease.before" >"$install/data/home/data/.home-allocation-$standing.json"
+if upgrade_standing --allow-stopped-agents >"$TMP_ROOT/standing-lease.out" 2>"$TMP_ROOT/standing-lease.err"; then
+  fail 'standing consent accepted changed owned home lease'
+fi
+cp "$TMP_ROOT/standing-lease.before" "$install/data/home/data/.home-allocation-$standing.json"
+# Aggregate a stale launcher and stopped standing worker into one prompt.
+printf '{"schema":"mx-workspace-launch.v1","owner":{"pid":%s,"started":"retired-lifetime"}}\n' \
+  "$$" >"$install/data/home/state/workspace-launch.json"
+if output=$(run_tty_confirmation y env -u MX_HOME -u MX_ROOT_OVERRIDE -u MX_STATE_OVERRIDE -u MX_CONFIG_OVERRIDE "$package/bin/mx" launcher-install --upgrade --package "$package" \
+    --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then :
+else fail "standing interactive upgrade failed: $output"; fi
+assert_contains "$output" 'stopped retained task/launch' 'standing confirmation omitted its identity'
+[ "$(printf '%s' "$output" | python3 -c 'import sys; print(sys.stdin.read().count("[y/N]"))')" = 1 ] \
+  || fail "standing plus stale launch did not contain exactly one confirmation: $output"
+[ ! -e "$install/data/home/state/workspace-launch.json" ] || fail 'standing upgrade retained approved stale launch'
+upgrade_standing --allow-stopped-agents >/dev/null || fail 'repeat standing upgrade failed'
+cmp -s "$TMP_ROOT/standing-meta.before" "$standing_meta" || fail 'standing upgrade changed task history'
+cmp -s "$TMP_ROOT/standing-lease.before" "$install/data/home/data/.home-allocation-$standing.json" \
+  || fail 'standing upgrade changed home lease'
+[ "$(cat "$standing_home/data/retained-private")" = 'private pending work' ] || fail 'standing upgrade lost private work'
+[ "$(cat "$standing_worktree/retained-untracked")" = 'dirty standing work' ] || fail 'standing upgrade lost dirty worktree'
+if "$package/bin/mx" launcher-install --uninstall --bin-dir "$install/bin" \
+    --config-dir "$install/config" --data-dir "$install/data" >/dev/null 2>&1; then
+  fail 'uninstall accepted retained standing records'
+fi
+pass 'standing upgrades confirm once, preserve unfinished records and dirty work, and refuse uncertain owned child routes'
+# Retired ownership is historical evidence. Keep the original launch receipt,
+# require fresh endpoint absence, and never recreate or discard its retired home.
+retired_home="$TMP_ROOT/retired-standing-home"
+mv "$standing_home" "$retired_home"
+jq --arg archive "$retired_home" '.state="retired" | .retained_path=$archive' \
+  "$TMP_ROOT/standing-lease.before" >"$install/data/home/data/.home-allocation-$standing.json"
+rm "$standing_meta"
+cp "$install/data/home/state/.spawn-actions/$standing.json" "$TMP_ROOT/retired-action.before"
+upgrade_standing --allow-stopped-agents >/dev/null || fail 'matched retired launch history blocked upgrade'
+cmp -s "$TMP_ROOT/retired-action.before" "$install/data/home/state/.spawn-actions/$standing.json" \
+  || fail 'historical upgrade changed retired launch receipt'
+[ "$(cat "$retired_home/data/retained-private")" = 'private pending work' ] || fail 'historical upgrade changed retired home'
+jq '.binding.lease_id="foreign-lease"' "$install/data/home/data/.home-allocation-$standing.json" \
+  >"$TMP_ROOT/retired-lease.bad"
+cp "$TMP_ROOT/retired-lease.bad" "$install/data/home/data/.home-allocation-$standing.json"
+if upgrade_standing --allow-stopped-agents >/dev/null 2>&1; then fail 'retired history accepted foreign lease'; fi
+pass 'matched retired launch history survives upgrade; changed retirement lease remains refused'
+
+# Fixture cleanup only: production upgrade never removes task/home/allocation records.
+git -C "$worker_project" worktree remove --force "$standing_worktree"
+rm "$install/data/home/state/.spawn-actions/$standing.json"
 
 if MX_LAUNCHER_INSTALL_FAIL_AFTER=asset-0000 \
     "$package/bin/mx" launcher-install --uninstall \

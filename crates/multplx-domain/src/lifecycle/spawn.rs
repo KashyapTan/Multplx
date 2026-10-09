@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use multplx_core::filesystem::atomic_replace;
@@ -1622,6 +1623,139 @@ pub fn reserve_action(
     Ok(expected)
 }
 
+/// Read-only proof for an unsubmitted replacement reservation. This recognizes
+/// only a single successor of the exact still-current Running action; the
+/// caller must hold its lifecycle lock and freshly prove endpoint absence.
+/// No reservation, receipt, attempt or completion state is changed.
+pub fn inspect_unsubmitted_replacement_intent(
+    context: &Context,
+    current: &super::subagent_model::TaskRecord,
+    actions: &[LaunchAction],
+) -> Result<Option<Vec<u8>>, String> {
+    use super::subagent_model::TaskRecord;
+    let path = context
+        .state
+        .join(format!(".spawn-{}.intent", current.task_id));
+    match fs::symlink_metadata(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+        Ok(metadata) if metadata.uid() != rustix::process::geteuid().as_raw() => {
+            return Err("replacement intent is foreign-owned; retained".into());
+        }
+        Ok(_) => {}
+    }
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+        .map_err(|e| format!("replacement intent unreadable; retained: {e}"))?;
+    let reserved: TaskRecord = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("replacement intent corrupt; retained: {e}"))?;
+    current.validate()?;
+    reserved.validate()?;
+    let current_attempt = current.attempt.as_ref().ok_or("current attempt missing")?;
+    let successor = reserved
+        .attempt
+        .as_ref()
+        .ok_or("reserved successor missing")?;
+    let predecessor = actions
+        .iter()
+        .find(|action| {
+            action.stage == LaunchStage::Running
+                && action.task_id == current.task_id
+                && action.binding.attempt.as_ref().is_some_and(|attempt| {
+                    attempt.id == current_attempt.id
+                        && attempt.generation == current_attempt.generation
+                })
+                && action.endpoint == current.runtime.endpoint
+                && action.backend == current.runtime.provider
+        })
+        .ok_or("unsubmitted replacement lacks its exact current Running predecessor receipt")?;
+    let original = &predecessor.binding;
+    let previous = original
+        .attempt
+        .as_ref()
+        .ok_or("predecessor attempt missing")?;
+    let mut normalized_current = current.clone();
+    let mut normalized_reserved = reserved.clone();
+    for record in [&mut normalized_current, &mut normalized_reserved] {
+        record.accepted_brief_digest = original.accepted_brief_digest.clone();
+        record.accepted_brief_path = original.accepted_brief_path.clone();
+        record.accepted_brief_revision = original.accepted_brief_revision;
+        record.briefs = original.briefs.clone();
+        record.assignments = original.assignments.clone();
+    }
+    let retained = reserved.retained_executions.last();
+    if successor.id == previous.id
+        || successor.generation
+            != previous
+                .generation
+                .checked_add(1)
+                .ok_or("attempt generation overflow")?
+        || successor.brief_revision
+            != reserved
+                .accepted_brief_revision
+                .ok_or("reserved brief missing")?
+        || reserved.allocation.is_some()
+        || reserved.runtime.endpoint.is_some()
+        || reserved.runtime.session_id.is_some()
+        || reserved.prior_attempts.len() != current.prior_attempts.len() + 1
+        || !reserved.prior_attempts.starts_with(&current.prior_attempts)
+        || reserved.prior_attempts.last() != Some(previous)
+        || !current.retained_executions.is_empty()
+        || reserved.retained_executions.len() != 1
+        || retained.is_none_or(|retained| {
+            retained.attempt != *previous
+                || retained.runtime.endpoint != predecessor.endpoint
+                || retained.runtime.session_id != current.runtime.session_id
+                || retained.allocation != current.allocation
+        })
+        || actions.iter().any(|action| {
+            action.binding.attempt.as_ref().is_some_and(|attempt| {
+                attempt.id == successor.id && attempt.generation == successor.generation
+            })
+        })
+        || !reserved.native_observations.is_empty()
+        || current.allocation != original.allocation
+        || !current.briefs.starts_with(&original.briefs)
+        || reserved.briefs != original.briefs
+        || reserved.accepted_brief_digest != original.accepted_brief_digest
+        || reserved.accepted_brief_path != original.accepted_brief_path
+        || reserved.accepted_brief_revision != original.accepted_brief_revision
+        || current.accepted_brief_revision < original.accepted_brief_revision
+        || !current.assignments.starts_with(&original.assignments)
+        || !reserved.assignments.starts_with(&original.assignments)
+        || !same_launch_identity(&normalized_current, original)
+        || !same_launch_identity(&normalized_reserved, original)
+    {
+        return Err("replacement intent is not a proven unsubmitted successor; reconcile its exact attempt and launch receipt".into());
+    }
+    Ok(Some(bytes))
+}
+
+/// A matched retired home receipt is historical ownership, never authority to
+/// remove an orphan launch action. Endpoint absence is still the caller's duty.
+pub fn inspect_retired_launch(context: &Context, action: &LaunchAction) -> Result<bool, String> {
+    let Some(binding) = &action.binding.home_allocation else {
+        return Ok(false);
+    };
+    let receipt = context
+        .data
+        .join(format!(".home-allocation-{}.json", action.task_id));
+    if fs::symlink_metadata(&receipt)
+        .is_ok_and(|metadata| metadata.uid() != rustix::process::geteuid().as_raw())
+    {
+        return Err("retired home receipt is foreign-owned".into());
+    }
+    let Some(allocation) = super::home_seed::read_home_allocation(&context.data, &action.task_id)?
+    else {
+        return Ok(false);
+    };
+    Ok(action.stage == LaunchStage::Running
+        && allocation.state == "retired"
+        && allocation.binding == *binding
+        && allocation.runtime_root == context.root
+        && binding.owner_home == context.home
+        && !binding.path.exists())
+}
+
 fn same_launch_identity(
     left: &super::subagent_model::TaskRecord,
     right: &super::subagent_model::TaskRecord,
@@ -2662,6 +2796,166 @@ mod tests {
             single_checkout_record: None,
             single_checkout_base_head: None,
             single_checkout_base_branch: None,
+        }
+    }
+
+    #[test]
+    fn upgrade_retired_receipt_requires_exact_owned_lease_and_absent_home() {
+        use crate::lifecycle::home_seed::{HomeAllocation, HomeBinding};
+        let temp = tempfile::tempdir().unwrap();
+        let context = context(temp.path());
+        let mut record = bound_request(&context).binding.unwrap();
+        let binding = HomeBinding {
+            id: "task".into(),
+            owner_home: context.home.clone(),
+            path: temp.path().join("retired-home"),
+            lease_id: "owned-lease".into(),
+            generation: 1,
+        };
+        record.home_allocation = Some(binding.clone());
+        let action = LaunchAction {
+            version: 1,
+            request_id: "historical".into(),
+            task_id: "task".into(),
+            backend: record.runtime.provider.clone(),
+            binding: record,
+            worktree: None,
+            endpoint: Some("broker:mx-task".into()),
+            stage: LaunchStage::Running,
+            detail: None,
+        };
+        let allocation = HomeAllocation {
+            version: 1,
+            binding: binding.clone(),
+            runtime_root: context.root.clone(),
+            state: "retired".into(),
+            retained_path: Some(temp.path().join("archive")),
+            directory_identity: None,
+            git_allocation: None,
+        };
+        let path = context.data.join(".home-allocation-task.json");
+        assert!(!inspect_retired_launch(&context, &action).unwrap());
+        let bytes = serde_json::to_vec(&allocation).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        assert!(inspect_retired_launch(&context, &action).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        for change in ["lease", "root", "owner", "state", "home"] {
+            let mut candidate = allocation.clone();
+            match change {
+                "lease" => candidate.binding.lease_id = "foreign".into(),
+                "root" => candidate.runtime_root = temp.path().join("foreign-root"),
+                "owner" => candidate.binding.owner_home = temp.path().join("foreign-owner"),
+                "state" => candidate.state = "active".into(),
+                "home" => fs::create_dir(&binding.path).unwrap(),
+                _ => unreachable!(),
+            }
+            fs::write(&path, serde_json::to_vec(&candidate).unwrap()).unwrap();
+            assert!(
+                !inspect_retired_launch(&context, &action).unwrap(),
+                "{change}"
+            );
+        }
+        fs::write(&path, b"{}").unwrap();
+        assert!(inspect_retired_launch(&context, &action).is_err());
+    }
+
+    #[test]
+    fn upgrade_successor_proof_preserves_reservation_and_refuses_conflicting_launches() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = context(temp.path());
+        let mut current = bound_request(&context).binding.unwrap();
+        current.runtime.provider = "tmux".into();
+        let original = current.clone();
+        current.runtime.endpoint = Some("broker:mx-task".into());
+        let action = LaunchAction {
+            version: 1,
+            request_id: "original".into(),
+            task_id: "task".into(),
+            binding: original,
+            backend: "tmux".into(),
+            worktree: None,
+            endpoint: current.runtime.endpoint.clone(),
+            stage: LaunchStage::Running,
+            detail: None,
+        };
+        let mut successor = current.clone();
+        successor
+            .replace_attempt(&current.attempt.as_ref().unwrap().id, true)
+            .unwrap();
+        // A backend switch reservation cannot override the trusted predecessor transport.
+        successor.runtime.provider = "herdr".into();
+        let path = context.state.join(".spawn-task.intent");
+        let bytes = serde_json::to_vec(&successor).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        assert_eq!(
+            inspect_unsubmitted_replacement_intent(
+                &context,
+                &current,
+                std::slice::from_ref(&action)
+            )
+            .unwrap(),
+            Some(bytes.clone())
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        let mut later_brief = current.clone();
+        later_brief
+            .revise_assignment(
+                1,
+                later_brief.role,
+                "later accepted scope".into(),
+                vec![],
+                vec![],
+                "human follow-up".into(),
+            )
+            .unwrap();
+        assert!(
+            inspect_unsubmitted_replacement_intent(
+                &context,
+                &later_brief,
+                std::slice::from_ref(&action)
+            )
+            .is_ok()
+        );
+
+        for change in [
+            "route",
+            "prior",
+            "allocation",
+            "submitted",
+            "submitted-later-brief",
+        ] {
+            let mut candidate = successor.clone();
+            let mut actions = vec![action.clone()];
+            match change {
+                "route" => candidate.owner_home = Some("/foreign".into()),
+                "prior" => candidate.prior_attempts[0].id = "unmatched".into(),
+                "allocation" => candidate.runtime.endpoint = Some("created-endpoint".into()),
+                "submitted" | "submitted-later-brief" => {
+                    let mut launched = action.clone();
+                    launched.binding = successor.clone();
+                    launched.stage = LaunchStage::Submitted;
+                    if change == "submitted-later-brief" {
+                        launched
+                            .binding
+                            .revise_assignment(
+                                1,
+                                launched.binding.role,
+                                "later launch".into(),
+                                vec![],
+                                vec![],
+                                "later".into(),
+                            )
+                            .unwrap();
+                    }
+                    actions.push(launched);
+                }
+                _ => unreachable!(),
+            }
+            fs::write(&path, serde_json::to_vec(&candidate).unwrap()).unwrap();
+            assert!(
+                inspect_unsubmitted_replacement_intent(&context, &current, &actions).is_err(),
+                "{change}"
+            );
         }
     }
 
