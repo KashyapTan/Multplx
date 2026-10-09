@@ -35,7 +35,7 @@ while [ ! -e "$MX_FAKE_RECORD.stop" ]; do sleep .05; done
 SH
 chmod +x "$FAKE"
 
-run_env=(env MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$HOME_DIR" MX_REAL_CODEX="$FAKE" MX_FAKE_RECORD="$TMP_ROOT/harness")
+run_env=(env MX_ROOT_OVERRIDE="$RUNTIME" MX_HOME="$HOME_DIR" MX_RUST_BIN="$BINARY" MX_REAL_CODEX="$FAKE" MX_FAKE_RECORD="$TMP_ROOT/harness")
 "${run_env[@]}" "$BINARY" project register "$RUNTIME" >/dev/null
 socket=mx-connection-$$
 cleanup() {
@@ -45,9 +45,17 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 printf -v launch_command '%q ' "${run_env[@]}" "$BINARY" launch-harness codex
+printf -v launch_stderr '%q' "$TMP_ROOT/tmux-launch.stderr"
+launch_command+=" 2>$launch_stderr"
 tmux -L "$socket" new-session -d -s primary "$launch_command"
 for _ in $(seq 1 100); do [ -s "$HOME_DIR/state/.lock" ] && break; sleep .05; done
-[ -s "$HOME_DIR/state/.lock" ] || fail 'synthetic tmux harness did not publish its lock'
+if [ ! -s "$HOME_DIR/state/.lock" ]; then
+  # Keep the bounded lock assertion, but retain the launcher's actual diagnostic.
+  # Otherwise an exited preflight and a live slow startup look identical in CI.
+  cat "$TMP_ROOT/tmux-launch.stderr" >&2 2>/dev/null || true
+  tmux -L "$socket" capture-pane -p -t primary >&2 2>/dev/null || true
+  fail 'synthetic tmux harness did not publish its lock'
+fi
 for _ in $(seq 1 100); do [ -s "$HOME_DIR/state/workspace-connection.json" ] && break; sleep .02; done
 [ -s "$HOME_DIR/state/workspace-connection.json" ] || fail 'launcher did not publish tmux connection record'
 

@@ -49,10 +49,22 @@ fn isolated_tmux_attach_and_crash_reservation_keep_one_owner() {
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Native hook consent fingerprints the actual executable bytes. Use the
+    // deployed shape of this same binary so debug sections do not consume the
+    // fixture's existing bounded startup and crash-reservation waits.
+    let executable_dir = tempfile::tempdir().expect("isolated terminal executable");
+    let executable = executable_dir.path().join("mx");
+    std::fs::copy(env!("CARGO_BIN_EXE_mx"), &executable).expect("copy terminal executable");
+    let stripped = Command::new("strip")
+        .arg("-S")
+        .arg(&executable)
+        .output()
+        .expect("strip debug sections from isolated terminal executable");
+    assert_code(&stripped, 0);
     let output = Command::new("bash")
         .arg(root.join("tests/mx-launcher-connection.test.sh"))
-        .env("MX_TEST_BINARY", env!("CARGO_BIN_EXE_mx"))
-        .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+        .env("MX_TEST_BINARY", &executable)
+        .env("MX_RUST_BIN", &executable)
         .env("MX_RUST_SOURCE_ROOT", &root)
         .current_dir(&root)
         .output()
