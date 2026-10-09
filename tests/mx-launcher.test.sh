@@ -16,7 +16,8 @@ make_runtime() {
   for source_file in \
     mx-launcher.sh mx-launcher-install.sh \
     mx-launch-harness.sh mx-rust-runtime.sh mx-lock.sh mx-session-lock-lib.sh \
-    mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh; do
+    mx-maintainer-override-lib.sh mx-override-bindings.sh mx-wake-lib.sh \
+    mx-native-observe.sh mx-subagent-pretool-check.sh; do
     cp "$ROOT/bin/$source_file" "$target/bin/$source_file"
   done
   cp "$runtime_binary" "$target/target/release/mx"
@@ -323,17 +324,25 @@ test_harness_cwd_arguments_environment_and_backend() {
     || fail "primary harness launch changed the Git credential helper key"
   [ "$(cat "$record/git-config-value-0")" = sentinel-helper ] \
     || fail "primary harness launch changed the Git credential helper value"
-  [ "$(cat "$record/argc")" = 3 ] || fail "argument count changed"
-  [ "$(cat "$record/arg.0")" = 'space arg' ] || fail "space argument changed"
-  [ "$(cat "$record/arg.1")" = '*?[glob]' ] || fail "glob argument changed"
-  [ "$(cat "$record/arg.2")" = $'line one\nline two' ] || fail "newline argument changed"
+  [ "$(cat "$record/argc")" = 11 ] || fail "shared hook bundle or user argument count changed"
+  local hook_index=0 hook_event
+  for hook_event in SessionStart SubagentStart SubagentStop PreToolUse; do
+    [ "$(cat "$record/arg.$hook_index")" = -c ] || fail "shared hook configuration flag missing"
+    hook_index=$((hook_index + 1))
+    assert_grep "hooks.$hook_event=" "$record/arg.$hook_index" "shared hook event missing"
+    assert_grep 'MX_CODEX_HOOK_BUNDLE=' "$record/arg.$hook_index" "shared hook fingerprint missing"
+    hook_index=$((hook_index + 1))
+  done
+  [ "$(cat "$record/arg.8")" = 'space arg' ] || fail "space argument changed"
+  [ "$(cat "$record/arg.9")" = '*?[glob]' ] || fail "glob argument changed"
+  [ "$(cat "$record/arg.10")" = $'line one\nline two' ] || fail "newline argument changed"
 
   rm -rf "$record"
   (cd "$caller" && PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \
     "$case_dir/bin/multplx" chat >/dev/null) \
     || fail "remembered chat launch failed"
   [ "$(cat "$record/caller")" = "$caller" ] || fail "remembered chat lost caller context"
-  [ "$(cat "$record/argc")" = 0 ] || fail "remembered chat changed arguments"
+  [ "$(cat "$record/argc")" = 8 ] || fail "remembered chat lost the shared hook bundle or added user arguments"
 
   rm -rf "$record"
   PATH="$fakebin:/usr/bin:/bin" MX_FAKE_HARNESS_RECORD="$record" \

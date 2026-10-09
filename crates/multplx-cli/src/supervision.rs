@@ -428,13 +428,10 @@ fn window_key(window: &str) -> String {
 }
 
 fn status_line(state: &Path, task: &str) -> String {
-    multplx_core::classification::last_status_line(
-        state.join(format!("{task}.status")),
-        multplx_core::classification::STATUS_READ_LIMIT,
-    )
-    .ok()
-    .flatten()
-    .unwrap_or_default()
+    multplx_core::identifiers::TaskId::parse(task)
+        .ok()
+        .and_then(|task| multplx_backend::actor_state::last_lifecycle_report(state, &task))
+        .unwrap_or_default()
 }
 
 fn status_paused_or_held(line: &str) -> bool {
@@ -506,12 +503,49 @@ fn handle_paused_stale(
     let key = window_key(&window.endpoint);
     let stale = state.join(format!(".stale-{key}"));
     let paused = state.join(format!(".paused-{key}"));
-    if !store_marker(&stale, hash) || !store_marker(&paused, "") {
+    let status_path = state.join(format!("{}.status", window.task));
+    let raw = multplx_core::classification::last_status_line(
+        &status_path,
+        multplx_core::classification::STATUS_READ_LIMIT,
+    )
+    .ok()
+    .flatten()
+    .unwrap_or_default();
+    let lifecycle = status_line(state, &window.task);
+    let informational_tail = !lifecycle.is_empty() && raw != lifecycle;
+    // Position distinguishes repeated ordinary pause reports with identical
+    // prose, including a fresh pause followed by an answer before observation.
+    let lifecycle_identity = multplx_core::filesystem::read_bounded_regular(
+        &status_path,
+        multplx_core::classification::STATUS_READ_LIMIT,
+    )
+    .ok()
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .and_then(|text| {
+        text.lines()
+            .enumerate()
+            .filter(|(_, line)| *line == lifecycle)
+            .last()
+            .map(|(position, line)| format!("{position}:{line}"))
+    });
+    let same_pause = lifecycle_identity
+        .as_ref()
+        .is_some_and(|identity| fs::read_to_string(&paused).is_ok_and(|prior| prior == *identity));
+    if !store_marker(&stale, hash)
+        || ((!informational_tail || !same_pause)
+            && !store_marker(&paused, lifecycle_identity.as_deref().unwrap_or_default()))
+    {
         return Some(format!("stale: {}", window.endpoint));
     }
     let _ = fs::remove_file(state.join(format!(".stale-since-{key}")));
     let _ = fs::remove_file(state.join(format!(".wedge-escalations-{key}")));
-    let status_age = file_age(&state.join(format!("{}.status", window.task)));
+    // Only a verified informational tail preserves the observed pause cadence.
+    // An ordinary lifecycle update retains its existing status-age semantics.
+    let status_age = if informational_tail {
+        file_age(&status_path).max(file_age(&paused))
+    } else {
+        file_age(&status_path)
+    };
     let resurfaced = state.join(format!(".paused-resurfaced-{key}"));
     if status_age >= resurface && file_age(&resurfaced) >= resurface {
         let reason = format!(
@@ -4488,12 +4522,6 @@ pub(crate) fn guard(root: &Path, home: &Path, source_root: &Path, detected_harne
             stderr.push_str(&format!(
                 "●{rule}\n●  WATCHER DOWN - SUPERVISION IS OFF\n●  {} task(s) in flight, but no watcher has a fresh beacon (last beat: {}, grace {}s).\n{ownership}●  {continuation}\n●  {fix}\n●{rule}\n",
                 status.in_flight,
-                status.beacon_description,
-                grace().as_secs(),
-            ));
-        } else {
-            stderr.push_str(&format!(
-                "WARNING: watcher still down (same stale episode; last beat: {}, grace {}s) - full banner already printed this episode.\n",
                 status.beacon_description,
                 grace().as_secs(),
             ));

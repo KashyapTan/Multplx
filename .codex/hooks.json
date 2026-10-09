@@ -15,7 +15,7 @@
           },
           {
             "type": "command",
-            "command": "bash -lc 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event reconcile'",
+            "command": "bash -lc '[ -z \"${MX_TASK_ID:-}\" ] || [ \"${MX_CODEX_SHARED_WORKER_HOOKS:-}\" != 1 ] || exit 0; root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event reconcile'",
             "timeout": 5
           }
         ]
@@ -37,7 +37,7 @@
           },
           {
             "type": "command",
-            "command": "bash -lc 'payload=$(cat 2>/dev/null || true); [ -n \"$payload\" ] || exit 0; root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -x \"$root/bin/mx-subagent-pretool-check.sh\" ] || exit 0; printf \"%s\" \"$payload\" | \"$root/bin/mx-subagent-pretool-check.sh\"'",
+            "command": "bash -lc '[ -z \"${MX_TASK_ID:-}\" ] || [ \"${MX_CODEX_SHARED_WORKER_HOOKS:-}\" != 1 ] || exit 0; payload=$(cat 2>/dev/null || true); [ -n \"$payload\" ] || exit 0; root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -x \"$root/bin/mx-subagent-pretool-check.sh\" ] || exit 0; printf \"%s\" \"$payload\" | \"$root/bin/mx-subagent-pretool-check.sh\"'",
             "timeout": 10
           }
         ]
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event start'",
+            "command": "bash -lc '[ -z \"${MX_TASK_ID:-}\" ] || [ \"${MX_CODEX_SHARED_WORKER_HOOKS:-}\" != 1 ] || exit 0; root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event start'",
             "timeout": 5
           }
         ]
@@ -59,7 +59,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event result'",
+            "command": "bash -lc '[ -z \"${MX_TASK_ID:-}\" ] || [ \"${MX_CODEX_SHARED_WORKER_HOOKS:-}\" != 1 ] || exit 0; root=${MX_RUST_SOURCE_ROOT:-$(pwd -P)}; [ -f \"$root/AGENTS.md\" ] || exit 0; [ -x \"$root/bin/mx-native-observe.sh\" ] || exit 0; exec \"$root/bin/mx-native-observe.sh\" --provider codex --event result'",
             "timeout": 5
           }
         ]

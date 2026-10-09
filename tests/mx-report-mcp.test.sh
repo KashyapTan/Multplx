@@ -42,6 +42,10 @@ test_schema_matches_wrapper() {
           workflow_revision:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.workflow_revision.description)},
           correlation_id:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.correlation_id.description)},
           message_id:{type:"string",minLength:1,maxLength:256,description:(.result.tools[0].inputSchema.properties.message_id.description)},
+          reply_disposition:{type:"string",enum:["acknowledged","answered"],description:(.result.tools[0].inputSchema.properties.reply_disposition.description)},
+          attempt_id:{type:"string",minLength:1,description:(.result.tools[0].inputSchema.properties.attempt_id.description)},
+          generation:{type:"integer",minimum:1},
+          brief_revision:{type:"integer",minimum:1,description:(.result.tools[0].inputSchema.properties.brief_revision.description)},
           artifact:{type:"string",minLength:1,description:(.result.tools[0].inputSchema.properties.artifact.description)}
         },
         required:["state","message"],

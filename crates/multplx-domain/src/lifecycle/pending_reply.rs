@@ -172,7 +172,7 @@ pub fn reusable(state: &Path, correlation: &str, task_id: &str) -> bool {
         && binding_is_current(state, &record)
 }
 
-/// Current, delivered requests still requiring a terminal response from this task.
+/// Current, delivered requests still requiring an answer or terminal response from this task.
 /// Resolves only exact validated envelopes; never infers authority from prose.
 pub fn outstanding(state: &Path, task_id: &str) -> Result<Vec<String>, String> {
     let entries = match fs::read_dir(directory(state)) {
@@ -199,6 +199,32 @@ pub fn outstanding(state: &Path, task_id: &str) -> Result<Vec<String>, String> {
     Ok(correlations)
 }
 
+/// Read the recorded current pending correlations without resolving replies or writing cursors.
+pub fn pending_correlations_readonly(state: &Path, task_id: &str) -> Result<Vec<String>, String> {
+    let entries = match fs::read_dir(directory(state)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_file()
+        {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().into_owned();
+        if reusable(state, &id, task_id) {
+            ids.push(id);
+        }
+    }
+    ids.sort();
+    Ok(ids)
+}
+
 #[must_use]
 pub fn embed(message: &str, correlation: &str) -> String {
     let marked = crate::operational_input::mark_from_parent(message);
@@ -206,7 +232,7 @@ pub fn embed(message: &str, correlation: &str) -> String {
     let prefix = Regex::new(r"^corr=[A-Fa-f0-9]{16}[ \t]*").expect("static prefix regex");
     let body = prefix.replace(body, "");
     let instruction = format!(
-        "Reply binding: use --correlation-id {correlation} with mx-report, or correlation_id={correlation} with report_status; corr= in message prose is not a binding."
+        "Reply binding: use --correlation-id {correlation} with mx-report, or correlation_id={correlation} with report_status; corr= in message prose is not a binding. For an information answer while continuing work, add --reply-disposition answered (MCP reply_disposition=answered); acknowledged only confirms receipt."
     );
     if body.starts_with(&instruction) {
         format!("{FROM_PARENT_MARK}corr={correlation} {body}")
@@ -492,8 +518,31 @@ fn canonical_response(
                 | "human-merge"
                 | "final-disposition"
         );
+        // Request disposition is separate from transport acknowledgement and task status.
+        // Only the exact accepted report evidence may settle a working reply.
+        let answered = (|| {
+            let bytes = multplx_core::filesystem::read_bounded_regular(
+                state
+                    .join("evidence")
+                    .join(format!("{}-{}.json", envelope.task_id, envelope.message_id)),
+                1024 * 1024,
+            )
+            .ok()?;
+            let evidence: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+            let mut original: crate::lifecycle::subagent_model::MessageEnvelope =
+                serde_json::from_value(evidence["envelope"].clone()).ok()?;
+            let mut actual = envelope.clone();
+            original.acknowledgement = crate::lifecycle::subagent_model::Acknowledgement::Pending;
+            actual.acknowledgement = crate::lifecycle::subagent_model::Acknowledgement::Pending;
+            Some(
+                evidence["accepted"] == true
+                    && evidence["reply_disposition"] == "answered"
+                    && original == actual,
+            )
+        })()
+        .unwrap_or(false);
         if envelope.schema_version == crate::lifecycle::subagent_model::SCHEMA_VERSION
-            && response_kind
+            && (response_kind || (envelope.kind == "working" && answered))
             && envelope.correlation_id == correlation
             && envelope.task_id == expected_task
             && same_home(envelope.task_home.as_deref(), &expected_task_home)

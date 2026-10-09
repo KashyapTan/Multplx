@@ -543,6 +543,10 @@
     {
       "path": "docs/verification/transcript-audit-followups.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "NBA_ORCHESTRATION_AUDIT.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

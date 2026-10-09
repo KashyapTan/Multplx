@@ -34,14 +34,21 @@ Use the inspected existing delivery commit as the concurrency token, or `null` o
 Then use `report_status` when exposed, or the brief's absolute `bin/mx-report` fallback, bound to the assigned task and current attempt/generation/brief.
 Report and coordination assignments attach their existing regular-file result with the tool's `artifact` field or CLI `--artifact` when reporting `done`.
 Reply to each marked parent request with the exact structured `correlation_id` field or `--correlation-id TOKEN`; prose `corr=TOKEN` does not bind the report.
+Use `reply_disposition: "answered"` with a correlated `working` report when an information request is fully answered while work continues; `acknowledged` only confirms receipt.
+Explicit request dispositions preserve completion and waits; ordinary working status still means renewed work.
+Keep MCP summaries within 300 characters and attach longer evidence with `artifact`.
 Inspect the acceptance receipt for correlation, outstanding requests and current completion; an accepted retry does not reapply a historical done event.
 A plain status message does not release dependencies.
 A done report submitted before evidence needs a new message ID after evidence is recorded; replaying its old event does not reinterpret history.
-Current failure, block, pause or renewed work withdraws completion; stale attempts and superseded briefs cannot establish readiness.
+Ordinary current failure, block, pause or renewed work withdraws completion; stale attempts and superseded briefs cannot establish readiness.
 
 Workers may commit, push their task branch, open/update PRs and make ordinary scoped fixes without an extra Multplx publication approval.
 Use the shell-quoted absolute `mx-deliver.sh` and `mx-pr-check.sh` helper paths provided by the generated brief; they are rooted in the runtime installation and work from the assigned project checkout.
 Append `--help` to that delivery helper for preparation and repeat-safe publication; register a directly opened PR by passing `TASK_ID PR_URL` to that PR-check helper.
+An explicitly named bound own task uses its report owner state after exact identity validation; child task names and no-argument publication scans remain in the worker home.
+Prepared publication advances the delivery commit pointer; inspect it before supplying `expected_current_commit` to a further evidence request.
+Pass one `--checks` scalar, or use the typed evidence JSON `checks` array for separate checks.
+Existing PR refresh preserves curated title/body; use ordinary `gh pr edit --title ... --body-file ...` for an explicit presentation change.
 If an older brief lacks these paths, resolve the actual runtime installation before using its `bin/` helpers.
 Reconcile uncertain forge outcomes by canonical repository, branch and base identity before another publication attempt.
 Task-bound publication never uses a newly selected global project.

@@ -121,7 +121,7 @@ fn constraints() -> &'static str {
 
 fn herdr_section(root: &Path, id: &str, enabled: bool) -> String {
     if !enabled {
-        return "# Herdr lifecycle declaration - NOT ENABLED\n**HARD SAFETY GATE:** this scaffold cannot inspect the task text that replaces `{TASK}` later.\nIf the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.\nDo not add Herdr lifecycle commands to this unguarded brief by hand.".to_owned();
+        return "# Herdr lifecycle declaration - NOT ENABLED\n**HARD SAFETY GATE:** this scaffold cannot inspect the assignment text filled in later.\nIf the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.\nDo not add Herdr lifecycle commands to this unguarded brief by hand.".to_owned();
     }
     let helper = shell_quote(&root.join("bin/mx-herdr-lab.sh"));
     format!(
@@ -231,7 +231,7 @@ fn delivery(
         )
     };
     format!(
-        "You are {article} {role} sub-agent.\n{}\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nUse task branch `mx/{id}` and the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
+        "You are {article} {role} sub-agent.\n{}\n\n# Task\n{{TASK}}\n\n# Setup\nProject/checkout reference: `{repo}`.\nVerify `pwd -P` and `git rev-parse --show-toplevel` identify the assigned isolated worktree, not the primary checkout, before editing or committing.\nIf isolation or the recorded starting revision cannot be established, retain the work and report blocked.\nThe owned allocation starts detached. Establish task branch `mx/{id}` before committing, and follow the selected repository's applicable instructions.\n\n{}\n\n# Coordination\n{}\n{}\n\n# Definition of done\n{destination}\nMeet the accepted criteria and report the actual commit, exact checks and results, limitations, original artifact pointers and PR reference where applicable.\nDistinguish implementation complete, checks passing, PR ready and human merged.\n",
         assignment_contract(role),
         herdr_section(root, id, herdr),
         status_contract(root, state, id),

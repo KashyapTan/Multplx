@@ -242,6 +242,18 @@ A direct terminal CLI launch requires explicit `MX_CODEX_IDLE_CLI=1 codex` opt-i
 Codex Desktop event delivery is unverified and is not automatically activated by this CLI integration.
 Queue activation also requires the tracked native SessionStart `--register` handshake to publish a readiness receipt matching the exact thread, `CODEX_HOME` and live session-lock owner.
 Complete the provider's native one-time hook trust review when prompted; skipped review or disabled hooks retain bounded foreground supervision, and the integration does not override disabled hooks or change private trust state.
+Managed primary and worker Codex launches use one canonical CLI worker-hook bundle, guarded by `MX_TASK_ID` so an unbound primary does not run worker handlers twice.
+The first primary native review includes that bundle alongside the tracked primary project hooks; standing and nested workers using the same installed runtime reuse its native session-flag identity across working directories.
+The bundle hashes the actual observer script, merge-check script and executed Rust binary bytes into every command definition, so owned runtime changes require native review again.
+Byte-identical public launcher and packaged runtime copies select the same stable package executable for hook identity; genuinely different explicit executable overrides keep separate identities.
+Tracked Multplx observer and merge hooks skip their duplicate worker call only when both task identity and the shared bundle activation flag are present; direct Codex launches retain their original project handlers.
+Native disabled choices remain authoritative; Multplx never writes the provider trust store, bypasses hook trust or supplies managed policy.
+Custom CLI overrides of the same hook event arrays fail with a setup diagnostic rather than being silently overwritten; project and user hook files retain native review independently.
+A historical worker home with `.codex` files or a fresh Multplx development worktree containing tracked `.codex/hooks.json` can still require project-source review; the shared CLI bundle does not transfer that separate approval.
+Claude and Pi require their native project/extension trust where applicable; the launch diagnostic names the runtime and home, and no account-wide trust setting is changed.
+Cursor primary launches retain native workspace consent; worker `--trust` is its existing broader workspace permission and is not expanded to primary launches.
+A shell endpoint or successful transport does not establish assignment acceptance, a model response or hook readiness.
+
 An unsupported Codex queue CLI produces a visible compatibility warning and retains the explicit bounded foreground checkpoint fallback.
 `config/subagent-harness` is a local, gitignored file containing one adapter name for ordinary sub-agent launches; `config/actor-harness` remains its legacy alias.
 When it is absent or contains `default`, sub-agents mirror their parent's harness.
@@ -254,6 +266,11 @@ When the persistent harness token is absent or `default`, launch falls back thro
 Conflicting canonical and legacy files refuse launch instead of silently choosing one.
 An explicit harness argument to `mx-spawn.sh` still overrides either config file for that spawn only.
 An explicit `--model` or `--effort` overrides the matching persistent default; an explicit verified harness starts with clean model and effort defaults unless those flags are also passed.
+Model selection is validated before worker allocation, coordinator home provisioning and provider endpoint launch.
+Supply the provider's canonical single-token model ID (for example `gpt-6-luna` for Codex), rather than a human display label such as `GPT-6 Luna`.
+Unknown custom single-token IDs pass through unchanged; local syntax validation does not establish provider or account availability.
+Changing a model requires a replacement provider process; sending a retry message to the original endpoint does not change its model argument.
+
 When `config/subagent-dispatch.json` or its legacy alias exists, ordinary launches require an explicit resolved harness.
 The inherited-local-material contract is owned by [inherited configuration](configuration.md#persistent-home-inheritance); child homes receive the shared sub-agent defaults and profiles.
 Those inherited values are defaults and rules only; `mx-spawn` still permits a consciously chosen explicit verified harness outside the config.

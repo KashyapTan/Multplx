@@ -636,6 +636,7 @@ fn validate_leaf_files(home: &Path) -> Result<(), String> {
     for relative in [
         "data/projects.md",
         "data/charter.md",
+        "data/backlog.md",
         MARKER,
         multplx_core::agent_home::LEGACY_MARKER,
     ] {
@@ -1099,6 +1100,7 @@ fn recover(context: &Context) -> Result<(), String> {
             home.join("data/projects.md"),
             home.join("data/projects.json"),
             home.join("data/charter.md"),
+            home.join("data/backlog.md"),
             home.join(multplx_core::agent_home::MARKER),
             home.join(multplx_core::agent_home::LEGACY_MARKER),
         ]
@@ -1115,6 +1117,7 @@ fn recover(context: &Context) -> Result<(), String> {
                             | "backup-sub-registry"
                             | "backup-project-catalog"
                             | "backup-charter"
+                            | "backup-backlog"
                             | "backup-marker"
                     )
                 })
@@ -1569,6 +1572,7 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
             ("sub-registry", home.join("data/projects.md")),
             ("project-catalog", home.join("data/projects.json")),
             ("charter", home.join("data/charter.md")),
+            ("backlog", home.join("data/backlog.md")),
             (
                 "marker",
                 multplx_core::agent_home::marker_path(&home).map_err(|error| error.to_string())?,
@@ -1659,6 +1663,11 @@ fn seed(args: &[OsString], context: &Context) -> Result<String, String> {
         };
         atomic_replace(&sub_registry, sub_text.as_bytes(), 0o600)
             .map_err(|error_value| error_value.to_string())?;
+        let child_backlog = home.join("data/backlog.md");
+        if !child_backlog.exists() {
+            atomic_replace(&child_backlog, crate::backlog::SCAFFOLD.as_bytes(), 0o600)
+                .map_err(|error| error.to_string())?;
+        }
         let charter = fs::read(&parent_brief).map_err(|error_value| error_value.to_string())?;
         atomic_replace(home.join("data/charter.md"), &charter, 0o600)
             .map_err(|error_value| error_value.to_string())?;
@@ -1863,6 +1872,10 @@ mod tests {
             "--no-projects".into(),
         ];
         seed(&args, &context).unwrap();
+        assert_eq!(
+            fs::read_to_string(path.join("data/backlog.md")).unwrap(),
+            crate::backlog::SCAFFOLD
+        );
         let first = read_home_allocation(&context.data, "durable")
             .unwrap()
             .unwrap();
@@ -2034,6 +2047,42 @@ mod tests {
             super::super::worktree::State::Retained
         );
         assert!(store.release(&git.binding).is_err());
+    }
+
+    #[test]
+    fn standard_filled_worker_brief_has_no_incidental_unfilled_task_token() {
+        let temp = tempfile::tempdir().unwrap();
+        let context = test_context(temp.path());
+        fs::create_dir_all(&context.data).unwrap();
+        super::super::brief::run(
+            &[
+                "worker".into(),
+                "product".into(),
+                "--persistent".into(),
+                "--role".into(),
+                "researcher".into(),
+                "--output".into(),
+                "report".into(),
+            ],
+            &context.root,
+            &context.home,
+            &context.data,
+            &context.state,
+        )
+        .unwrap();
+        let path = context.data.join("worker/brief.md");
+        let scaffold = fs::read_to_string(&path).unwrap();
+        assert!(
+            charter_fields(&path)
+                .unwrap_err()
+                .contains("still contains")
+        );
+        fs::write(
+            &path,
+            scaffold.replace("{TASK}", "Research bounded findings"),
+        )
+        .unwrap();
+        assert!(charter_fields(&path).is_ok());
     }
 
     #[test]

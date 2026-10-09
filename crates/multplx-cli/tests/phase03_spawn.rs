@@ -538,6 +538,10 @@ fn routed_dependencies_wait_for_current_completion_and_preserve_the_accepted_sta
     let launched = run(Command::new(env!("CARGO_BIN_EXE_mx"))
         .env("MX_HOME", &f.home)
         .env("MX_ROOT_OVERRIDE", &f.home)
+        .env(
+            "MX_RUST_SOURCE_ROOT",
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .env("MX_STATE_OVERRIDE", &state)
         .env("MX_HEADROOM_CPU_COUNT", "8")
         .env("MX_HEADROOM_LOAD1", "0")
@@ -1050,4 +1054,129 @@ esac
     assert_eq!(final_action["stage"], "running");
     assert_eq!(final_action["binding"]["allocation"], allocation);
     assert_eq!(final_action["binding"]["attempt"], attempt);
+}
+
+#[test]
+fn display_model_labels_fail_before_allocations_or_endpoint_calls() {
+    let f = Fixture::new();
+    for harness in ["codex", "claude", "cursor", "pi"] {
+        f.refused(
+            run(&mut f.spawn(&["--harness", harness, "--model", "GPT-6 Luna"])),
+            "model selection",
+        );
+        assert!(!f.home.join("state/launch-actions").exists());
+    }
+}
+
+#[test]
+fn primary_public_launcher_and_worker_package_fallback_share_exact_hook_arguments() {
+    let f = Fixture::new();
+    let runtime = f.home.join("runtime");
+    fs::create_dir_all(runtime.join("bin")).unwrap();
+    fs::create_dir_all(runtime.join("target/release")).unwrap();
+    fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
+    for script in [
+        "mx-lock.sh",
+        "mx-native-observe.sh",
+        "mx-subagent-pretool-check.sh",
+    ] {
+        let path = runtime.join("bin").join(script);
+        fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let public = f.home.join("multplx");
+    let packaged = runtime.join("target/release/mx");
+    fs::hard_link(env!("CARGO_BIN_EXE_mx"), &public).unwrap();
+    fs::hard_link(env!("CARGO_BIN_EXE_mx"), &packaged).unwrap();
+    let fake_provider = f.fake.join("provider");
+    fs::write(
+        &fake_provider,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MX_HOME/primary-args\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&fake_provider, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut primary = Command::new(&public);
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("MX_") {
+            primary.env_remove(key);
+        }
+    }
+    success(
+        primary
+            .args(["launch-harness", "codex"])
+            .env("MX_ROOT_OVERRIDE", &runtime)
+            .env("MX_HOME", &f.home)
+            .env("MX_LAUNCH_VALIDATED", "1")
+            .env("MX_MULTICALL_EXPLICIT", "1")
+            .env("MX_REAL_CODEX", &fake_provider),
+    );
+    let primary_args = fs::read_to_string(f.home.join("primary-args")).unwrap();
+    let cmux = install_fake_cmux(&f);
+    let template = f.spawn(&["--backend", "cmux", "--model", "custom-provider-model"]);
+    let mut worker = Command::new(&packaged);
+    worker
+        .args(template.get_args())
+        .current_dir(template.get_current_dir().unwrap());
+    for (key, value) in template.get_envs() {
+        if let Some(value) = value {
+            worker.env(key, value);
+        } else {
+            worker.env_remove(key);
+        }
+    }
+    success(
+        worker
+            .env("MX_RUST_SOURCE_ROOT", &runtime)
+            .env("MX_CMUX_FIXTURE", &f.fake)
+            .env("MX_CMUX_BIN", &cmux),
+    );
+    let launch = fs::read_to_string(f.fake.join("launch-script")).unwrap();
+    let definitions = primary_args
+        .lines()
+        .filter(|value| value.starts_with("hooks."))
+        .collect::<Vec<_>>();
+    assert_eq!(definitions.len(), 4);
+    for definition in definitions {
+        let quoted = format!("'{}'", definition.replace('\'', "'\\''"));
+        assert!(
+            launch.contains(&quoted),
+            "worker does not reuse primary definition: {definition}"
+        );
+    }
+    let metadata = fs::read_to_string(f.home.join("state/task.meta")).unwrap();
+    assert!(metadata.contains("model=custom-provider-model\n"));
+    assert!(launch.contains("--model 'custom-provider-model'"));
+}
+
+#[test]
+fn coordinator_display_model_fails_before_home_provisioning() {
+    let f = Fixture::new();
+    let template = f.spawn(&[]);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_mx"));
+    command.current_dir(&f.home);
+    for (key, value) in template.get_envs() {
+        if let Some(value) = value {
+            command.env(key, value);
+        } else {
+            command.env_remove(key);
+        }
+    }
+    f.refused(
+        run(command.args([
+            "spawn",
+            "task",
+            "--sub-orchestrator",
+            "--idea",
+            "bounded-idea",
+            "--scope",
+            "bounded research",
+            "--harness",
+            "codex",
+            "--model",
+            "GPT-6 Luna",
+        ])),
+        "model selection",
+    );
+    assert!(!f.home.join("data/agents.md").exists());
+    assert!(!f.home.join("state/.spawn-task.intent").exists());
 }

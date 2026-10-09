@@ -187,7 +187,7 @@ mx brief fix-login my-app --persistent --role implementer --output implementatio
 mx home-seed fix-login - my-app
 mx spawn fix-login --persistent --role implementer --output implementation \
   --project my-app --base FULL_ACCEPTED_COMMIT --request-id fix-login-initial
-mx task-model inspect fix-login
+mx task-model inspect fix-login --compact
 ```
 
 `--project` must resolve to a checkout already referenced in the seeded home, and `--base` must be the full accepted starting commit, not a moving branch name.
@@ -241,6 +241,7 @@ Run the commands below in that shell; `exit` returns to your original shell.
 | `bin/mx-headroom.sh --queue-priority REQUEST_ID PRIORITY` | Reprioritize a queued request. |
 | `bin/mx-headroom.sh --queue-drain` | Attempt dispatch and reconcile released capacity. |
 | `bin/mx-backlog.sh --help` | Manage the durable backlog through its command owner. |
+| `mx task-model inspect TASK --compact` | Read exact owner/attempt, child-state route, revision, endpoint, allocation, pending request IDs and evidence commit without embedded briefs. |
 
 MX Viz's Agents view shows the main orchestrator, nested coordinators and workers, with search, branch controls and task-detail links.
 Tasks shows workflow, decisions, delivery, artifacts and freshness.
@@ -295,3 +296,11 @@ Otherwise agents can commit, push task branches and create/update PRs using ordi
 Only the human merges PRs.
 An outcome should include the exact commit, checks, limitations and PR or local artifact.
 You remain responsible for provider credentials, product decisions and reviewing the final result.
+
+Backlog rows and task execution have separate owners.
+New backlog rows default to queued work in `workspace`; pass `--repo PROJECT --start` when recording work that has already launched.
+The intake owner does not infer completion, replacement or project identity from a same-named task.
+For a failed task retained while a fresh identity proceeds, record its protective hold explicitly with `mx backlog hold TASK --reason TEXT --kind KIND`.
+Root and nested supported backlog help forms, such as `mx backlog add --help`, are read-only.
+Use `mx task-model inspect TASK --compact` for subsequent bounded observations, and `--full` to inspect retained brief/history evidence.
+A child task's owner state and its worker home's child-state directory are separate routes; use the recorded owner pointer for its own assignment.

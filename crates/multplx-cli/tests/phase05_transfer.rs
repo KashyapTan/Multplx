@@ -292,6 +292,10 @@ esac
                 "MX_TEST_REPO_ROOT",
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
+            .env(
+                "MX_RUST_SOURCE_ROOT",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+            )
             .env("MX_HOME", caller)
             .env("MX_ROOT_OVERRIDE", &root)
             .env_remove("MX_TASK_ID")

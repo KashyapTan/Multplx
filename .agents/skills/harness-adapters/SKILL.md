@@ -37,6 +37,14 @@ Managed Multplx Codex CLI launches set the activation flag automatically; direct
 Inactive sessions retain bounded foreground checkpoints; Codex Desktop event delivery is unverified.
 If native hook review was skipped or hooks are disabled, retain that fallback until the provider's native hook trust review and SessionStart registration establish readiness.
 The integration does not override disabled hooks or change private trust state.
+Primary and worker Codex launches share the same canonical worker-hook CLI bundle, including a fingerprint of the actual owned scripts and runtime executable.
+Complete its first native review at primary startup; unchanged standing/nested workers reuse that definition across homes, while owned bundle changes require review again.
+Tracked project hooks, historical home hook files and unrelated user hooks keep separate native review; CLI hook-array overrides that collide with the bundle receive a setup error.
+Claude/Pi native project or extension trust and Cursor primary workspace consent remain provider-owned; do not infer trust from ordinary permission flags.
+A created endpoint proves neither assignment acceptance nor model execution; inspect native readiness or the first actual worker response.
+Model flags require provider IDs, not display labels; `GPT-6 Luna` is rejected before allocation with canonical Codex ID guidance.
+Unknown custom single-token IDs are preserved without claiming account access.
+
 Unsupported Codex queue versions emit a visible warning and retain the explicit foreground checkpoint fallback.
 Use one home-scoped monitoring owner; retain queue entries and reconcile current state after notifications.
 

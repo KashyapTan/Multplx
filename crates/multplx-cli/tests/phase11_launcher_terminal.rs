@@ -49,10 +49,22 @@ fn isolated_tmux_attach_and_crash_reservation_keep_one_owner() {
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    // Native hook consent fingerprints the actual executable bytes. Use the
+    // deployed shape of this same binary so debug sections do not consume the
+    // fixture's existing bounded startup and crash-reservation waits.
+    let executable_dir = tempfile::tempdir().expect("isolated terminal executable");
+    let executable = executable_dir.path().join("mx");
+    std::fs::copy(env!("CARGO_BIN_EXE_mx"), &executable).expect("copy terminal executable");
+    let stripped = Command::new("strip")
+        .arg("-S")
+        .arg(&executable)
+        .output()
+        .expect("strip debug sections from isolated terminal executable");
+    assert_code(&stripped, 0);
     let output = Command::new("bash")
         .arg(root.join("tests/mx-launcher-connection.test.sh"))
-        .env("MX_TEST_BINARY", env!("CARGO_BIN_EXE_mx"))
-        .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+        .env("MX_TEST_BINARY", &executable)
+        .env("MX_RUST_BIN", &executable)
         .env("MX_RUST_SOURCE_ROOT", &root)
         .current_dir(&root)
         .output()
@@ -73,6 +85,9 @@ fn harness_launch_rejects_invalid_boundaries_and_runs_a_short_lived_child() {
     std::fs::create_dir_all(runtime.join("bin")).unwrap();
     std::fs::create_dir_all(home.join("state")).unwrap();
     std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        std::fs::write(runtime.join("bin").join(script), "#!/bin/sh\nexit 0\n").unwrap();
+    }
     std::fs::write(runtime.join("bin/mx-lock.sh"), "#!/bin/sh\n").unwrap();
     let mut permissions = std::fs::metadata(runtime.join("bin/mx-lock.sh"))
         .unwrap()
@@ -154,6 +169,9 @@ fn managed_launch_enables_idle_bridge_only_for_codex() {
         std::fs::create_dir_all(path).unwrap();
     }
     std::fs::write(runtime.join("AGENTS.md"), "fixture\n").unwrap();
+    for script in ["mx-native-observe.sh", "mx-subagent-pretool-check.sh"] {
+        std::fs::write(runtime.join("bin").join(script), "#!/bin/sh\nexit 0\n").unwrap();
+    }
     let lock = runtime.join("bin/mx-lock.sh");
     std::fs::write(&lock, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -180,6 +198,23 @@ fn managed_launch_enables_idle_bridge_only_for_codex() {
         assert_eq!(
             std::fs::read_to_string(home.join("flag")).unwrap(),
             expected
+        );
+    }
+}
+
+#[test]
+fn primary_model_labels_and_custom_hook_collisions_fail_before_launch_state() {
+    for args in [
+        vec!["codex", "--model", "GPT-6 Luna"],
+        vec!["codex", "-c", "hooks.SessionStart=[]"],
+        vec!["claude", "--model=Claude Sonnet"],
+    ] {
+        let output = launch_harness(&args, &[]);
+        assert_code(&output, 2);
+        let diagnostic = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            diagnostic.contains("model selection") || diagnostic.contains("conflicts with"),
+            "{diagnostic}"
         );
     }
 }

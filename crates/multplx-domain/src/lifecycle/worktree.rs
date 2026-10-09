@@ -939,6 +939,64 @@ impl Store {
         Ok(allocation)
     }
 
+    /// Deterministic handoff eligibility, before isolating the prior endpoint.
+    /// Occupants are checked again by the mutating handoff after isolation.
+    pub fn preflight_same_task_handoff(
+        &self,
+        token: &AllocationBinding,
+        owner_home: &Path,
+        task_id: &str,
+    ) -> Result<()> {
+        let current = self.token(token)?;
+        if current.owner_home != super::home_seed::resolved(owner_home)
+            || token.task_id != task_id
+            || !matches!(current.state, State::Active | State::Retained)
+        {
+            return Err(
+                "handoff requires the exact owner home and active or retained same-task allocation"
+                    .into(),
+            );
+        }
+        token
+            .generation
+            .checked_add(1)
+            .ok_or("allocation generation exhausted")?;
+        self.verify_worktree(&current, false)
+    }
+
+    /// A replay may reuse its current allocation only with the exact token,
+    /// worktree directory identity, owning home and no remaining occupants.
+    pub fn verify_launch_allocation(
+        &self,
+        token: &AllocationBinding,
+        owner_home: &Path,
+    ) -> Result<()> {
+        let current = self.token(token)?;
+        if current.owner_home != super::home_seed::resolved(owner_home)
+            || current.state != State::Active
+        {
+            return Err(
+                "reserved launch allocation has foreign ownership or inactive state; retained"
+                    .into(),
+            );
+        }
+        self.verify_worktree(&current, false)?;
+        occupants(Path::new(&token.path))
+    }
+
+    /// Explicit same-task implementation handoff. Persistence still forbids
+    /// release/prune; it does not prevent retaining owned project progress.
+    pub fn rebind_same_task(
+        &self,
+        token: &AllocationBinding,
+        owner_home: &Path,
+        request_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+    ) -> Result<Allocation> {
+        self.rebind_owned(token, request_id, task_id, attempt_id, Some(owner_home))
+    }
+
     /// Transfer the same retained progress to the next attempt. The previous
     /// full token is retained only as a receipt for idempotent handoff retries;
     /// it never authorizes release, prune, retain or another handoff.
@@ -949,11 +1007,27 @@ impl Store {
         task_id: &str,
         attempt_id: &str,
     ) -> Result<Allocation> {
+        self.rebind_owned(token, request_id, task_id, attempt_id, None)
+    }
+
+    fn rebind_owned(
+        &self,
+        token: &AllocationBinding,
+        request_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        owner_home: Option<&Path>,
+    ) -> Result<Allocation> {
         if request_id.is_empty() || task_id.is_empty() || attempt_id.is_empty() {
             return Err("request, task and attempt identity are required".into());
         }
         let _operation = self.operation()?;
         let mut current = self.inspect(&token.allocation_id)?;
+        if let Some(owner) = owner_home
+            && current.owner_home != super::home_seed::resolved(owner)
+        {
+            return Err("handoff allocation belongs to another home; retained".into());
+        }
         if current.rebind_from.as_ref() == Some(token)
             && current.request_id == request_id
             && current.binding.task_id == task_id
@@ -961,12 +1035,15 @@ impl Store {
             && current.state == State::Active
         {
             self.verify_worktree(&current, false)?;
+            occupants(Path::new(&token.path))?;
             return Ok(current);
         }
         if current.binding != *token {
             return Err("stale allocation handoff token; retained".into());
         }
-        if token.persistent || !matches!(current.state, State::Active | State::Retained) {
+        if (token.persistent && owner_home.is_none())
+            || !matches!(current.state, State::Active | State::Retained)
+        {
             return Err("handoff requires an active or retained ordinary allocation".into());
         }
         if task_id != token.task_id
@@ -1495,6 +1572,137 @@ mod tests {
         );
         assert!(validate_capability_help("worktree", None, "--detach", &["--detach"]).is_err());
         assert!(capability().unwrap().contains("NUL-delimited"));
+    }
+
+    #[test]
+    fn persistent_handoff_preflight_preserves_live_occupants_but_transfer_refuses_them() {
+        let (_temp, home, project) = fixture();
+        let store = Store::new(&project).unwrap();
+        let allocation = store
+            .acquire(
+                &Acquire {
+                    persistent: true,
+                    ..request(&home, &project, "occupied-persistent")
+                },
+                None,
+            )
+            .unwrap();
+        let mut command = Command::new("sleep");
+        command.arg("60").current_dir(&allocation.binding.path);
+        let child = multplx_core::process::OwnedChild::spawn(&mut command).unwrap();
+        store
+            .preflight_same_task_handoff(&allocation.binding, &home, "task")
+            .unwrap();
+        assert!(
+            store
+                .rebind_same_task(&allocation.binding, &home, "next", "task", "next")
+                .unwrap_err()
+                .contains("occupants")
+        );
+        assert!(
+            store
+                .verify_launch_allocation(&allocation.binding, &home)
+                .unwrap_err()
+                .contains("occupants")
+        );
+        assert!(multplx_core::process::ProcessProbe::is_alive(
+            &multplx_core::process::SystemProcessProbe::default(),
+            child.id()
+        ));
+        assert_eq!(
+            store
+                .inspect(&allocation.binding.allocation_id)
+                .unwrap()
+                .binding,
+            allocation.binding
+        );
+    }
+
+    #[test]
+    fn persistent_same_task_handoff_preserves_clean_and_dirty_progress_and_retirement_gates() {
+        for dirty in [false, true] {
+            let (_temp, home, project) = fixture();
+            let store = Store::new(&project).unwrap();
+            let allocation = store
+                .acquire(
+                    &Acquire {
+                        persistent: true,
+                        ..request(&home, &project, "original")
+                    },
+                    None,
+                )
+                .unwrap();
+            let path = Path::new(&allocation.binding.path);
+            if dirty {
+                fs::write(path.join("unfinished"), "retained progress").unwrap();
+            }
+            store
+                .preflight_same_task_handoff(&allocation.binding, &home, "task")
+                .unwrap();
+            assert!(
+                store
+                    .preflight_same_task_handoff(&allocation.binding, &home.join("foreign"), "task")
+                    .is_err()
+            );
+            assert!(
+                store
+                    .rebind(&allocation.binding, "next", "task", "next")
+                    .is_err()
+            );
+            assert!(
+                store
+                    .rebind_same_task(
+                        &allocation.binding,
+                        &home.join("foreign"),
+                        "next",
+                        "task",
+                        "next"
+                    )
+                    .is_err()
+            );
+            let next = store
+                .rebind_same_task(&allocation.binding, &home, "next", "task", "next")
+                .unwrap();
+            assert_eq!(next.binding.path, allocation.binding.path);
+            assert!(next.binding.persistent);
+            assert_eq!(next.binding.generation, allocation.binding.generation + 1);
+            assert_eq!(
+                store
+                    .rebind_same_task(&allocation.binding, &home, "next", "task", "next")
+                    .unwrap(),
+                next
+            );
+            assert!(
+                store
+                    .preflight_same_task_handoff(&allocation.binding, &home, "task")
+                    .is_err()
+            );
+            let mut drift = next.binding.clone();
+            drift.generation += 1;
+            assert!(
+                store
+                    .rebind_same_task(&drift, &home, "drift", "task", "drift")
+                    .is_err()
+            );
+            assert!(
+                store
+                    .rebind_same_task(&next.binding, &home, "foreign-task", "other", "foreign")
+                    .is_err()
+            );
+            assert!(
+                store
+                    .release(&next.binding)
+                    .unwrap_err()
+                    .contains("retirement")
+            );
+            assert!(store.prune(&next.binding, true, None).is_err());
+            if dirty {
+                assert_eq!(
+                    fs::read_to_string(path.join("unfinished")).unwrap(),
+                    "retained progress"
+                );
+            }
+        }
     }
 
     #[test]

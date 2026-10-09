@@ -924,7 +924,33 @@ fn daemon_home_summary(paths: &Paths, generated: &str, backlog: &Value, tasks: &
             .cmp(&a["completion"]["date"].as_str())
             .then(b["id"].as_str().cmp(&a["id"].as_str()))
     });
-    let invalidity = if backlog["present"] != true {
+    // Old seeded workers may have no delegated child portfolio yet. An owned
+    // marker plus an empty, complete task inventory makes that absence valid;
+    // a coordinator with children or any malformed backlog remains invalid.
+    let empty_worker_portfolio = backlog["present"] == false
+        && fs::symlink_metadata(paths.data.join("backlog.md"))
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        && task_rows.is_empty()
+        && fs::read_dir(&paths.state).is_ok_and(|entries| {
+            entries.into_iter().all(|entry| {
+                entry.is_ok_and(|entry| !entry.file_name().to_string_lossy().ends_with(".meta"))
+            })
+        })
+        && multplx_core::agent_home::marker_path(home).is_ok_and(|path| path.is_file())
+        && multplx_core::filesystem::read_bounded_regular(
+            paths.data.join("charter.md"),
+            1024 * 1024,
+        )
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .is_some_and(|text| {
+            ["implementer", "researcher", "reviewer"]
+                .iter()
+                .any(|role| {
+                    text.contains(&format!("<!-- mx-assignment role={role} persistent=true "))
+                })
+        });
+    let invalidity = if backlog["present"] != true && !empty_worker_portfolio {
         json!({"kind":"missing_backlog","ids":[]})
     } else if unstructured > 0 {
         json!({"kind":"unstructured_current","ids":[]})
@@ -2510,7 +2536,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             } else {
                 "parent-event-fallback"
             };
-            records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":"unknown","reason":reason},"valid":false,"reason":reason,"invalidity":Value::Null,"provenance":{"selected":selected,"structured_home":home,"parent_event_role":"fallback-only-not-current"},"freshness":{"status":if raw.is_empty(){"unknown"}else{"historical-event"},"observed_at":generated,"age_seconds":parent_event["age_seconds"]},"portfolio":Value::Null,"tasks":[],"workflow_runs":[],"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":empty_summary["counts"],"omitted":[],"parent_event":parent_event,"terminal_evidence":terminal_capture(&route.parent,&note,generated,false),"contradiction":false}));
+            records.push(json!({"id":route.id,"home":home,"registered":route.registered,"assignment":{"task_id":route.parent["id"],"owner_state":route.parent["coordination"]["owner_state"],"attempt":route.parent["coordination"]["attempt"],"role":route.parent["coordination"]["role"],"brief_revision":route.parent["coordination"]["accepted_brief_revision"],"meta":route.parent["paths"]["meta"],"endpoint":route.parent["endpoint"],"current_state":route.parent["current_state"]},"current":{"state":"unknown","reason":reason},"valid":false,"reason":reason,"invalidity":Value::Null,"provenance":{"selected":selected,"structured_home":home,"parent_event_role":"fallback-only-not-current"},"freshness":{"status":if raw.is_empty(){"unknown"}else{"historical-event"},"observed_at":generated,"age_seconds":parent_event["age_seconds"]},"portfolio":Value::Null,"tasks":[],"workflow_runs":[],"active_children":[],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"domains":[],"counts":empty_summary["counts"],"omitted":[],"parent_event":parent_event,"terminal_evidence":terminal_capture(&route.parent,&note,generated,false),"contradiction":false}));
             continue;
         }
         let summary_valid = summary["valid"] == true;
@@ -2525,7 +2551,7 @@ fn daemon_current(paths: &Paths, generated: &str, tasks: &Value) -> Value {
             .iter()
             .any(|row| row["verdict"] == "contradicts" && row["summary"] == note);
         let terminal = terminal_capture(&route.parent, &note, generated, compare_terminal);
-        records.push(json!({"id":route.id,"home":home,"registered":route.registered,"current":{"state":summary["state"],"reason":current_reason},"valid":summary_valid,"reason":summary["reason"],"invalidity":summary["invalidity"],"provenance":{"selected":"structured-home","structured_home":home,"summary_valid":summary_valid,"trust":if summary_valid{"complete"}else{"partial-structured"},"parent_event_role":"historical-only"},"freshness":{"status":"fresh","observed_at":generated,"age_seconds":0},"portfolio":summary["portfolio"],"tasks":summary["tasks"],"workflow_runs":summary["workflow_runs"],"active_children":summary["active_children"],"decisions_open":summary["decisions_open"],"holds":summary["holds"],"queued":summary["queued"],"landed":summary["landed"],"endpoints":summary["endpoints"],"domains":summary["domains"],"counts":summary["counts"],"omitted":summary["omitted"],"parent_event":parent_event,"terminal_evidence":terminal,"contradiction":contradiction||terminal["contradiction"]==true}));
+        records.push(json!({"id":route.id,"home":home,"registered":route.registered,"assignment":{"task_id":route.parent["id"],"owner_state":route.parent["coordination"]["owner_state"],"attempt":route.parent["coordination"]["attempt"],"role":route.parent["coordination"]["role"],"brief_revision":route.parent["coordination"]["accepted_brief_revision"],"meta":route.parent["paths"]["meta"],"endpoint":route.parent["endpoint"],"current_state":route.parent["current_state"]},"current":{"state":summary["state"],"reason":current_reason},"valid":summary_valid,"reason":summary["reason"],"invalidity":summary["invalidity"],"provenance":{"selected":"structured-home","structured_home":home,"summary_valid":summary_valid,"trust":if summary_valid{"complete"}else{"partial-structured"},"parent_event_role":"historical-only"},"freshness":{"status":"fresh","observed_at":generated,"age_seconds":0},"portfolio":summary["portfolio"],"tasks":summary["tasks"],"workflow_runs":summary["workflow_runs"],"active_children":summary["active_children"],"decisions_open":summary["decisions_open"],"holds":summary["holds"],"queued":summary["queued"],"landed":summary["landed"],"endpoints":summary["endpoints"],"domains":summary["domains"],"counts":summary["counts"],"omitted":summary["omitted"],"parent_event":parent_event,"terminal_evidence":terminal,"contradiction":contradiction||terminal["contradiction"]==true}));
     }
     let shown = records.len();
     json!({"registry":registry,"records":records,"total_registered":total_registered,"total":total,"shown":shown,"truncated":total-shown})
@@ -3008,6 +3034,77 @@ mod tests {
         assert_eq!(super::portfolio_task_title(&task), "repair");
         task["coordination"] = serde_json::Value::Null;
         assert_eq!(super::portfolio_task_title(&task), "repair");
+    }
+
+    #[test]
+    fn old_empty_worker_portfolios_are_valid_without_inventing_parent_execution() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let paths = super::Paths {
+            root: temp.path().into(),
+            home: home.clone(),
+            state: home.join("state"),
+            data: home.join("data"),
+            config: home.join("config"),
+            projects: home.join("projects"),
+            source_root: temp.path().into(),
+        };
+        fs::create_dir_all(&paths.state).unwrap();
+        fs::create_dir_all(&paths.data).unwrap();
+        fs::write(home.join(".mx-agent-home"), "worker\n").unwrap();
+        for role in ["implementer", "researcher"] {
+            fs::write(paths.data.join("charter.md"), format!("accepted scope\n<!-- mx-assignment role={role} persistent=true output=report -->\n")).unwrap();
+            let summary = super::daemon_home_summary(
+                &paths,
+                "now",
+                &super::backlog(&paths.data.join("backlog.md")),
+                &json!([]),
+            );
+            assert_eq!(summary["valid"], true);
+            assert_eq!(summary["counts"]["tasks_total"], 0);
+            assert_ne!(summary["state"], "working");
+        }
+        fs::write(paths.state.join("unobserved.meta"), "unreadable task").unwrap();
+        assert_eq!(
+            super::daemon_home_summary(
+                &paths,
+                "now",
+                &super::backlog(&paths.data.join("backlog.md")),
+                &json!([])
+            )["valid"],
+            false
+        );
+        fs::remove_file(paths.state.join("unobserved.meta")).unwrap();
+        fs::write(
+            paths.data.join("backlog.md"),
+            "## In flight\n- **invalid** - legacy row\n## Queued\n## Done\n",
+        )
+        .unwrap();
+        assert_eq!(
+            super::daemon_home_summary(
+                &paths,
+                "now",
+                &super::backlog(&paths.data.join("backlog.md")),
+                &json!([])
+            )["valid"],
+            false
+        );
+        fs::remove_file(paths.data.join("backlog.md")).unwrap();
+        fs::write(
+            paths.data.join("charter.md"),
+            "<!-- mx-assignment role=sub-orchestrator persistent=true output=coordination -->",
+        )
+        .unwrap();
+        assert_eq!(
+            super::daemon_home_summary(
+                &paths,
+                "now",
+                &super::backlog(&paths.data.join("backlog.md")),
+                &json!([])
+            )["valid"],
+            false
+        );
+        assert!(!paths.data.join("backlog.md").exists());
     }
 
     #[test]

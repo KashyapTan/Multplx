@@ -56,9 +56,17 @@ Bootstrap and doctor probe actual Git worktree and merge-tree capabilities witho
 | `removed` | Git inventory and path removal have been reconciled. |
 
 Acquisition currently chooses a fresh path; it does not maintain a warm pool or reset disposed worktrees for another task.
+New allocations intentionally start detached; the implementer establishes its task branch before committing.
+Check the recorded launch action and provider execution evidence before diagnosing a detached allocation as a worker branch mistake.
 The same request returns its existing active allocation, while a request with conflicting identity is refused.
 An explicitly reconciled replacement attempt continues its existing worktree through an owner-controlled transfer that issues a new lease and generation.
+Same-task persistent implementation replacement uses the same owned project worktree and retains dirty or committed progress.
+The owner checks deterministic token/home/project/worktree eligibility before stopping the prior endpoint and checks occupants after isolation before transferring the lease.
 The prior token remains historical evidence and cannot release the replacement.
+A replacement preserves its recorded backend unless `--backend` explicitly selects another; ambient `MX_BACKEND`, saved configuration and terminal discovery apply to new tasks.
+Interrupted replacement reservations freeze immutable invocation fields separately from the successor attempt/allocation.
+Retry the original command shown by `mx task-model inspect TASK --compact`; the owner restores the exact reserved successor instead of consuming another generation.
+A submitted action or an endpoint whose absence cannot be proven remains retained with a specific blocker.
 Herdr projection recovery quiesces its exact restored shell through a recorded holding pane in the owning home before the allocation owner checks occupants and transfers the worker lease.
 The session owner then replaces that holding pane at the exact worker path; uncertain intermediate topology retains both receipts for recovery.
 Projected teardown holds the same session presentation lock as spawn and recovery through endpoint proof, pane close, focus restoration and journal retirement.

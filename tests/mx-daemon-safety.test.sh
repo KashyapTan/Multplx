@@ -1199,7 +1199,7 @@ test_home_seed_refuses_symlinked_leaf_files() {
     fi
     if [ "$leaf" = ".mx-agent-home" ]; then
       grep -F 'open no-follow file' "$err" >/dev/null \
-        && grep -F "$subhome/.mx-agent-home" "$err" >/dev/null \
+        && grep -F "$(cd "$subhome" && pwd -P)/.mx-agent-home" "$err" >/dev/null \
         || fail "seed did not identify the no-follow marker refusal for $leaf"
     else
       grep -F 'agent leaf file must not be a symlink:' "$err" >/dev/null \

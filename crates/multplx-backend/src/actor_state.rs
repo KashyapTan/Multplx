@@ -127,14 +127,85 @@ enum GateObservation {
     Invalid,
 }
 
-fn last_nonblank(path: &Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
-    if bytes.len() > STATUS_LIMIT {
+fn read_json(path: &Path, limit: usize) -> Option<Value> {
+    let bytes = multplx_core::filesystem::read_bounded_regular(path, limit).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+// Informational replies remain visible events and durable wakes. Only their
+// exact accepted identity may be excluded from the lifecycle projection.
+fn informational_reply(request: &ActorStateRequest, meta: &Path, line: &str) -> Option<()> {
+    if status_line_verb(line) != "working" {
         return None;
     }
+    let prefix = line.split_once(':')?.0;
+    let message_id = prefix.split_once(" [reply=")?.1.strip_suffix(']')?;
+    TaskId::parse(message_id).ok()?;
+    let task = request.task.as_str();
+    let evidence = read_json(
+        &request
+            .state
+            .join("evidence")
+            .join(format!("{task}-{message_id}.json")),
+        STATUS_LIMIT,
+    )?;
+    let record: Value = serde_json::from_str(&meta_get(meta, "canonical_model").ok()??).ok()?;
+    let envelope = &evidence["envelope"];
+    if evidence["accepted"] != true
+        || evidence["status_line"].as_str() != Some(line)
+        || !matches!(
+            evidence["reply_disposition"].as_str(),
+            Some("acknowledged" | "answered")
+        )
+        || record["schema_version"] != 2
+        || record["legacy_unknown"] != false
+        || record["task_id"] != task
+        || envelope["schema_version"] != 2
+        || envelope["task_id"] != task
+        || envelope["sender"] != task
+        || envelope["message_id"] != message_id
+        || envelope["kind"] != "working"
+        || envelope["summary"].as_str() != line.split_once(':')?.1.strip_prefix(' ')
+        || envelope["correlation_id"]
+            .as_str()
+            .is_none_or(str::is_empty)
+        || !record["attempt"].is_object()
+        || envelope["attempt"] != record["attempt"]
+        || !record["accepted_brief_revision"].is_u64()
+        || envelope["brief_revision"] != record["accepted_brief_revision"]
+        || envelope["task_home"] != record["owner_home"]
+        || envelope["parent_home"] != record["parent_home"]
+        || envelope["parent_id"] != record["parent_id"]
+        || envelope["recipient"] != record["parent_id"]
+    {
+        return None;
+    }
+    let operation = format!("report-{task}-{message_id}");
+    let receipt = read_json(
+        &request
+            .state
+            .join(".transitions")
+            .join(format!("{operation}.json")),
+        16 * STATUS_LIMIT,
+    )?;
+    (receipt["version"] == 1 && receipt["operation"] == operation && receipt["committed"] == true)
+        .then_some(())
+}
+
+/// Read the latest lifecycle report, retaining ordinary/legacy status semantics
+/// and excluding only exact, accepted informational replies from this attempt.
+#[must_use]
+pub fn last_lifecycle_report(state: &Path, task: &TaskId) -> Option<String> {
+    let request = ActorStateRequest::from_environment(state.to_owned(), task.clone());
+    let meta = state.join(format!("{task}.meta"));
+    let path = state.join(format!("{task}.status"));
+    let bytes = multplx_core::filesystem::read_bounded_regular(&path, STATUS_LIMIT).ok()?;
     String::from_utf8_lossy(&bytes)
         .lines()
-        .rfind(|line| !line.trim().is_empty())
+        .rev()
+        .find(|line| {
+            !line.trim().is_empty() && informational_reply(&request, &meta, line).is_none()
+        })
         .map(str::to_owned)
 }
 
@@ -433,7 +504,6 @@ pub fn reconcile(
 ) -> Result<ActorStateOutput, BackendError> {
     let id = request.task.as_str();
     let meta = request.state.join(format!("{id}.meta"));
-    let status_path = request.state.join(format!("{id}.status"));
     let gate_path = request.state.join(format!("{id}.gate/run.json"));
     if !meta.is_file() {
         return Ok(ActorStateOutput::plain(
@@ -462,7 +532,7 @@ pub fn reconcile(
     let kind = meta_get(&meta, "kind")?
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "delivery".to_owned());
-    let log_line = last_nonblank(&status_path).unwrap_or_default();
+    let log_line = last_lifecycle_report(&request.state, &request.task).unwrap_or_default();
     let log_verb = status_line_verb(&log_line).to_owned();
     let task_backend = backend_of_meta(&meta)?;
     if backend.name() != task_backend {
