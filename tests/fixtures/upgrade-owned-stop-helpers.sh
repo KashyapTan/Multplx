@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated upgrade acceptance: real tmux sessions belong only to this fixture.
 setup_upgrade_real_tmux() {
-  trap 'if [ -n "${MX_UPGRADE_TMUX_SOCKET:-}" ]; then "$MX_UPGRADE_REAL_TMUX" -S "$MX_UPGRADE_TMUX_SOCKET" kill-session -t "$MX_UPGRADE_TMUX_SESSION" 2>/dev/null || true; fi; if [ -n "${MX_UPGRADE_TMUX_DIR:-}" ]; then rm -rf "$MX_UPGRADE_TMUX_DIR"; fi; if [ -n "${MX_UPGRADE_PRIMARY_PID:-}" ]; then kill "$MX_UPGRADE_PRIMARY_PID" 2>/dev/null || true; wait "$MX_UPGRADE_PRIMARY_PID" 2>/dev/null || true; fi; mx_test_cleanup' EXIT
+  trap 'if [ -n "${MX_UPGRADE_TMUX_SOCKET:-}" ]; then "$MX_UPGRADE_REAL_TMUX" -S "$MX_UPGRADE_TMUX_SOCKET" kill-session -t "$MX_UPGRADE_TMUX_SESSION" 2>/dev/null || true; fi; if [ -n "${MX_UPGRADE_TMUX_DIR:-}" ]; then rm -rf "$MX_UPGRADE_TMUX_DIR"; fi; if [ -n "${MX_UPGRADE_PRESENTATION_LOCK:-}" ]; then rm -f "$MX_UPGRADE_PRESENTATION_LOCK/pid"; rmdir "$MX_UPGRADE_PRESENTATION_LOCK" 2>/dev/null || true; fi; if [ -n "${MX_UPGRADE_PRIMARY_PID:-}" ]; then kill "$MX_UPGRADE_PRIMARY_PID" 2>/dev/null || true; wait "$MX_UPGRADE_PRIMARY_PID" 2>/dev/null || true; fi; mx_test_cleanup' EXIT
   export MX_UPGRADE_TMUX_DIR="$(mktemp -d /tmp/mx-upstop.XXXXXX)"
   export MX_UPGRADE_TMUX_SOCKET="$MX_UPGRADE_TMUX_DIR/socket"
   export MX_UPGRADE_TMUX_SESSION="$(jq -r .endpoint "$install/data/home/state/.spawn-actions/$standing.json" | cut -d: -f1)"
@@ -119,14 +119,30 @@ fixture=pathlib.Path(os.environ['MX_UPGRADE_HERDR_FIXTURE'])
 args=sys.argv[1:]
 cmd=tuple(args[:2])
 pane={'pane_id':'w-test:p1','tab_id':'w-test:t1','workspace_id':'w-test','terminal_id':'term_fixture_stable','foreground_cwd':os.environ['MX_UPGRADE_TEST_CWD'],'cwd':os.environ['MX_UPGRADE_TEST_CWD'],'agent_status':'unknown','revision':6}
+projected=(fixture/'projection').exists()
+active=(fixture/'active').exists()
+moved=(fixture/'focus-moved').exists()
 if cmd==('pane','get'):
-    result={'error':{'code':'pane_not_found'}} if (fixture/'gone').exists() else {'result':{'pane':pane}}
+    result={'error':{'code':'pane_not_found'}} if (fixture/'gone').exists() or args[2]!='w-test:p1' else {'result':{'pane':pane}}
 elif cmd==('pane','process-info'):
     result={'result':{'process_info':{'pane_id':'w-test:p1','shell_pid':int(os.environ['MX_UPGRADE_NATIVE_PID'])}}}
 elif cmd==('workspace','list'):
-    result={'result':{'workspaces':[{'workspace_id':'w-test','label':'agent-standing-upgrade'}]}}
+    spaces=[{'workspace_id':'w-test','label':'agent-standing-upgrade'}]
+    if projected:
+        spaces=[{'workspace_id':'parent','label':'agent-standing-upgrade','focused':not active and not moved,'active_tab_id':'parent:t1'}, {'workspace_id':'w-test','label':'└ standing-upgrade · p:abcdefghijklmnopqrstuv','focused':active,'active_tab_id':'w-test:t1'}, {'workspace_id':'other','label':'unrelated','focused':moved,'active_tab_id':'other:t1'}]
+    result={'result':{'workspaces':spaces}}
 elif cmd==('tab','list'):
-    result={'result':{'tabs':[{'tab_id':'w-test:t1','label':'mx-standing-upgrade'}]}}
+    workspace=args[args.index('--workspace')+1] if '--workspace' in args else 'w-test'
+    result={'result':{'tabs':[{'tab_id':workspace+':t1','label':'mx-standing-upgrade' if workspace=='w-test' else 'unrelated','focused':active if workspace=='w-test' else (moved if workspace=='other' else not active and not moved)}]}}
+elif cmd==('tab','get'):
+    result={'result':{'tab':{'tab_id':'parent:t1','workspace_id':'parent'}}}
+elif cmd==('tab','focus'):
+    if args[2]!='parent:t1':sys.exit(98)
+    (fixture/'focus-moved').unlink(missing_ok=True)
+    (fixture/'focus-restored').write_text('parent:t1')
+    result={'result':{}}
+elif cmd==('session','list'):
+    result={'sessions':[{'name':'default','running':True,'socket_path':str(fixture/'default.sock')}]}
 elif cmd==('pane','list'):
     result={'result':{'panes':[] if (fixture/'gone').exists() else [pane]}}
 elif cmd==('agent','get'):
@@ -134,6 +150,7 @@ elif cmd==('agent','get'):
 elif cmd==('pane','close'):
     (fixture/'close.log').write_text(' '.join(args))
     (fixture/'gone').touch()
+    if projected:(fixture/'focus-moved').touch()
     result={'result':{}}
 else:
     print(json.dumps({'error':{'code':'unsupported_fixture_call'}}))
@@ -165,12 +182,108 @@ PY
       --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then fail 'Herdr stop accepted default No'; fi
   assert_contains "$output" 'STOP task standing-upgrade: herdr endpoint default:w-test:p1' 'actual Herdr response shape/private-home route was not eligible'
   [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/close.log" ] || fail 'Herdr No sent close'
+  run_upgrade_herdr_lock_checks
   upgrade_standing --stop-managed-sessions --allow-stopped-agents >/dev/null || fail 'actual Herdr shape with no pane-get shell_pid blocked safe stop'
   [ -e "$MX_UPGRADE_HERDR_FIXTURE/gone" ] || fail 'Herdr exact pane stop was not observed'
+  run_upgrade_herdr_projection_checks
   cp "$TMP_ROOT/herdr-action.before" "$action"
   cp "$TMP_ROOT/herdr-meta.before" "$standing_meta"
   unset MX_HERDR_BIN MX_UPGRADE_HERDR_FIXTURE MX_UPGRADE_TEST_CWD MX_UPGRADE_NATIVE_PID
   pass 'Herdr terminal/process-info proof follows private execution homes and allocation-null records'
+}
+upgrade_runtime_identity() {
+  python3 - "$install/data/runtime/AGENTS.md" "$install/bin/multplx" <<'PY'
+import pathlib,sys
+for name in sys.argv[1:]:
+ s=pathlib.Path(name).stat();print(s.st_dev,s.st_ino,s.st_mtime_ns,s.st_size)
+PY
+}
+run_upgrade_herdr_lock_checks() {
+  local output before native_pid
+  before=$(upgrade_runtime_identity)
+  cat >"$TMP_ROOT/upgrade-herdr-codex" <<'NATIVE'
+#!/usr/bin/env bash
+sleep 300 &
+owned_child=$!
+trap 'kill "$owned_child" 2>/dev/null || true; wait "$owned_child" 2>/dev/null || true; exit 0' TERM
+wait "$owned_child"
+NATIVE
+  chmod +x "$TMP_ROOT/upgrade-herdr-codex"
+  "$TMP_ROOT/upgrade-herdr-codex" &
+  native_pid=$!
+  export MX_UPGRADE_PRIMARY_PID="$native_pid" MX_UPGRADE_NATIVE_PID="$native_pid"
+  if [ -e "$standing_home/state/.lock" ]; then cp "$standing_home/state/.lock" "$TMP_ROOT/herdr-home-lock.before"; fi
+  printf '%s\n' "$native_pid" >"$standing_home/state/.lock"
+  if output=$(run_tty_confirmation n env -u MX_HOME -u MX_ROOT_OVERRIDE -u MX_STATE_OVERRIDE -u MX_CONFIG_OVERRIDE "$package/bin/mx" launcher-install --upgrade --package "$package" \
+      --bin-dir "$install/bin" --config-dir "$install/config" --data-dir "$install/data" 2>&1); then fail 'owned native home lock accepted No'; fi
+  assert_contains "$output" 'STOP task standing-upgrade' 'exact task process did not account for owned home lock'
+  [ "$(cat "$standing_home/state/.lock")" = "$native_pid" ] || fail 'No changed owned home lock'
+  kill -0 "$native_pid" || fail 'No stopped owned native fixture'
+  python3 - "$standing_home/state/workspace-launch.json" "$$" <<'PY'
+import json,pathlib,subprocess,sys
+p=pathlib.Path(sys.argv[1]);pid=int(sys.argv[2]);stat=pathlib.Path(f'/proc/{pid}/stat')
+started='linux-starttime='+stat.read_text().rsplit(')',1)[1].split()[19] if stat.exists() else ' '.join(subprocess.check_output(['ps','-p',str(pid),'-o','lstart='],env={'LC_ALL':'C','PATH':'/bin:/usr/bin'}).decode().split())
+p.write_text(json.dumps({'schema':'mx-workspace-launch.v1','owner':{'pid':pid,'started':started}})+'\n')
+PY
+  cp "$standing_home/state/workspace-launch.json" "$TMP_ROOT/independent-launch.before"
+  if upgrade_standing --stop-managed-sessions --allow-stopped-agents >"$TMP_ROOT/herdr-independent.out" 2>"$TMP_ROOT/herdr-independent.err"; then fail 'owned task lock hid an independent workspace launch'; fi
+  assert_grep 'independent workspace launch' "$TMP_ROOT/herdr-independent.err" 'independent home launcher refusal omitted ownership route'
+  cmp -s "$TMP_ROOT/independent-launch.before" "$standing_home/state/workspace-launch.json" || fail 'refusal changed independent launch receipt'
+  [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/close.log" ] || fail 'independent launch refusal sent close'
+  [ "$(upgrade_runtime_identity)" = "$before" ] || fail 'home lock refusal replaced runtime'
+  rm "$standing_home/state/workspace-launch.json" "$standing_home/state/.lock"
+  if [ -e "$TMP_ROOT/herdr-home-lock.before" ]; then cp "$TMP_ROOT/herdr-home-lock.before" "$standing_home/state/.lock"; fi
+  kill "$native_pid"
+  wait "$native_pid" || true
+  unset MX_UPGRADE_PRIMARY_PID
+  export MX_UPGRADE_NATIVE_PID="$$"
+  pass 'exact native task accounts for its home lock, while independent workspace launch refuses without mutation'
+}
+run_upgrade_herdr_projection_checks() {
+  local journal="$install/data/home/state/$standing.herdr-presentation" lock_path before
+  rm "$MX_UPGRADE_HERDR_FIXTURE/gone" "$MX_UPGRADE_HERDR_FIXTURE/close.log"
+  : >"$MX_UPGRADE_HERDR_FIXTURE/projection"
+  python3 - "$journal" "$standing_home" <<'PY'
+import pathlib,sys
+p,home=map(pathlib.Path,sys.argv[1:])
+p.write_text('version=2\ntask_id=standing-upgrade\nprojection_id=abcdefghijklmnopqrstuv\nhome='+str(home)+'\nsession=default\nworkspace_id=w-test\ntab_id=w-test:t1\npane_id=w-test:p1\nparent_workspace_id=parent\nparent_label=agent-standing-upgrade\nworkspace_label=└ standing-upgrade · p:abcdefghijklmnopqrstuv\ntask_label=mx-standing-upgrade\n')
+PY
+  cp "$journal" "$TMP_ROOT/projected-journal.before"
+  before=$(upgrade_runtime_identity)
+  : >"$MX_UPGRADE_HERDR_FIXTURE/active"
+  if upgrade_standing --stop-managed-sessions --allow-stopped-agents >"$TMP_ROOT/projected-active.out" 2>"$TMP_ROOT/projected-active.err"; then fail 'active projected task was stopped'; fi
+  assert_grep 'active tab' "$TMP_ROOT/projected-active.err" 'active projected refusal omitted focus guidance'
+  [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/close.log" ] || fail 'active projected refusal closed a pane'
+  rm "$MX_UPGRADE_HERDR_FIXTURE/active"
+  lock_path=$(python3 - "$MX_UPGRADE_HERDR_FIXTURE" <<'PY'
+import hashlib,pathlib,sys
+socket=pathlib.Path(sys.argv[1]).resolve()/'default.sock'
+print('/tmp/broker-herdr-presentation/order-'+hashlib.sha256(b'default\0'+str(socket).encode()).hexdigest()[:32]+'.lock')
+PY
+)
+  if [ ! -d /tmp/broker-herdr-presentation ]; then mkdir -m 700 /tmp/broker-herdr-presentation; fi
+  mkdir "$lock_path"
+  export MX_UPGRADE_PRESENTATION_LOCK="$lock_path"
+  printf '%s\n' "$$" >"$lock_path/pid"
+  if upgrade_standing --stop-managed-sessions --allow-stopped-agents >"$TMP_ROOT/projected-busy.out" 2>"$TMP_ROOT/projected-busy.err"; then fail 'busy projected session allowed stop'; fi
+  rm "$lock_path/pid"
+  rmdir "$lock_path"
+  unset MX_UPGRADE_PRESENTATION_LOCK
+  assert_grep 'presentation session is busy' "$TMP_ROOT/projected-busy.err" 'projected stop bypassed its shared session owner'
+  [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/close.log" ] || fail 'busy projected refusal closed a pane'
+  [ "$(upgrade_runtime_identity)" = "$before" ] || fail 'projected refusal replaced runtime'
+  upgrade_standing --stop-managed-sessions --allow-stopped-agents >/dev/null || fail 'verified projected stop failed'
+  cmp -s "$TMP_ROOT/projected-journal.before" "$journal" || fail 'projected stop deleted or rewrote presentation history'
+  [ "$(cat "$MX_UPGRADE_HERDR_FIXTURE/focus-restored")" = parent:t1 ] || fail 'projected stop did not restore exact unrelated focus'
+  [ ! -e "$MX_UPGRADE_HERDR_FIXTURE/focus-moved" ] || fail 'projected stop left unrelated focus changed'
+  # A successor journal cannot hide an independently owned old flat receipt.
+  rm "$MX_UPGRADE_HERDR_FIXTURE/projection" "$MX_UPGRADE_HERDR_FIXTURE/gone" "$MX_UPGRADE_HERDR_FIXTURE/close.log"
+  sed 's/pane_id=w-test:p1/pane_id=w-successor:p1/' "$TMP_ROOT/projected-journal.before" >"$journal"
+  cp "$journal" "$TMP_ROOT/successor-journal.before"
+  upgrade_standing --stop-managed-sessions --allow-stopped-agents >/dev/null || fail 'successor journal hid historical flat execution'
+  cmp -s "$TMP_ROOT/successor-journal.before" "$journal" || fail 'historical flat stop changed successor journal'
+  rm "$journal"
+  pass 'projected Herdr stops honor active focus and shared locks; exact close restores focus and retains original/successor journals'
 }
 run_upgrade_primary_stop_check() {
   local pid output

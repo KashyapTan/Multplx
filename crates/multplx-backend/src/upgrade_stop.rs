@@ -452,3 +452,55 @@ pub fn owns_process(target: &VerifiedEndpoint, pid: u32) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_lock_requires_exact_live_execution_ancestry() {
+        let probe = SystemProcessProbe::default();
+        let identity = probe.identity(std::process::id()).unwrap();
+        let mut command = std::process::Command::new("/bin/sleep");
+        command.arg("30");
+        let child = multplx_core::process::OwnedChild::spawn(&mut command).unwrap();
+        let mut target = VerifiedEndpoint {
+            task: "owned-lock".into(),
+            home: "/unused-unit-home".into(),
+            backend_home: "/unused-unit-home".into(),
+            endpoint: "primary:mx-owned-lock".into(),
+            backend: "tmux".into(),
+            root: "/unused-unit-root".into(),
+            cwd: "/unused-unit-cwd".into(),
+            proof: Proof::Tmux {
+                window: "@unit".into(),
+                pane: "%unit".into(),
+                server: identity.clone(),
+                process: identity.clone(),
+            },
+        };
+        assert!(owns_process(&target, identity.pid));
+        assert!(owns_process(&target, child.id()));
+        assert!(!owns_process(&target, 1));
+        let mut stale = identity.clone();
+        stale.marker.push_str("-different-lifetime");
+        if let Proof::Tmux { process, .. } = &mut target.proof {
+            *process = stale;
+        }
+        assert!(!owns_process(&target, child.id()));
+        target.proof = Proof::HerdrFlat(HerdrTerminal {
+            terminal: "owned-terminal".into(),
+            pane: "owned-pane".into(),
+            tab: "owned-tab".into(),
+            workspace: "owned-workspace".into(),
+            process: Some(identity),
+        });
+        assert!(owns_process(&target, child.id()));
+        if let Proof::HerdrFlat(terminal) = &mut target.proof {
+            terminal.process = None;
+        }
+        assert!(!owns_process(&target, child.id()));
+        target.proof = Proof::Scoped;
+        assert!(!owns_process(&target, child.id()));
+    }
+}
