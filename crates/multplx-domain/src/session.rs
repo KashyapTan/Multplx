@@ -264,7 +264,7 @@ fn ordinary_wake_line(harness: &str, codex_active: bool) -> &'static str {
             "- Ordinary wake: the Stop-owned Codex exact-thread queue bridge owns watcher continuity; claim the wake, record its durable disposition, acknowledge it, then end the handling turn. Foreground checkpoints are only the explicit fallback when queue support is unavailable. See `mx wake --help`."
         }
         "codex" => {
-            "- Ordinary wake: the Codex queue bridge is inactive or native hooks are not ready here; claim the wake, record its durable disposition, acknowledge it, then take the next bounded foreground bin/mx-watch-checkpoint.sh checkpoint. Complete the provider's native hook trust review when required. Desktop event delivery is unverified. See `mx wake --help`."
+            "- Ordinary wake: the Codex queue bridge is inactive or native hooks are not ready here; claim the wake, record its durable disposition, acknowledge it, then diagnose the degraded readiness reason. Use bin/mx-watch-checkpoint.sh only for one explicit bounded recovery wait; if delivery remains unavailable, retain unfinished wakes and name the blocker and next human message or repaired startup as the resumption trigger. Complete the provider's native hook trust review when required. Desktop event delivery is unverified. See `mx wake --help`."
         }
         "pi" => {
             "- Ordinary wake: the Pi extension already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle. See `mx wake --help`."
