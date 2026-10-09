@@ -298,7 +298,7 @@ The generic `bin/mx-supervision-instructions.sh --harness pi --status` projectio
 Healthy native protocols end the handling turn without recurring model checkpoints or manual re-arm.
 
 The installed `codex-cli 0.162.0` was exercised through the retained synthetic Responses probe in a fresh temporary `CODEX_HOME`.
-Its evidence is `/tmp/mx-codex-hook-research.9YNWXf/evidence.json`.
+Its evidence is `/private/tmp/mx-codex-hook-research.9YNWXf/evidence.json`.
 The idle queued wake began after 9,731 ms, the human prompt after 33 ms, the busy queued item began after the current turn completed, and the unrelated thread received zero turns.
 This is actual CLI hook and queue evidence against a synthetic model, with no authenticated provider or Desktop claim.
 

@@ -224,17 +224,23 @@ pub fn publish_report_notification(
     now: SystemTime,
     processes: &impl multplx_core::process::ProcessProbe,
 ) -> Result<Option<String>, String> {
+    publish_report_notification_from(state, state, envelope, payload, now, processes)
+}
+
+/// Route-aware publication uses the frozen sender state, including custom
+/// owner-state bindings, rather than guessing a home/state projection.
+pub fn publish_report_notification_from(
+    state: &Path,
+    report_state: &Path,
+    envelope: &MessageEnvelope,
+    payload: &str,
+    now: SystemTime,
+    processes: &impl multplx_core::process::ProcessProbe,
+) -> Result<Option<String>, String> {
     persist_message_envelope(state, envelope)?;
     // Old revisions remain durable history. Repair must not turn an unpublished
     // historical report into a fresh automatic parent notification.
-    let owner_state = envelope
-        .task_home
-        .as_ref()
-        .map(|home| Path::new(home).join("state"));
-    let metadata = owner_state
-        .as_deref()
-        .unwrap_or(state)
-        .join(format!("{}.meta", envelope.task_id));
+    let metadata = report_state.join(format!("{}.meta", envelope.task_id));
     if let Ok(bytes) = read_bounded_regular(
         metadata,
         crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
@@ -2053,6 +2059,106 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn report_notifications_use_exact_sender_state_for_historical_identity() {
+        use crate::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let sender_home = temp.path().join("sender");
+        let sender_state = temp.path().join("custom-owner-state");
+        let recipient = temp.path().join("recipient-state");
+        fs::create_dir_all(&sender_home).unwrap();
+        fs::create_dir_all(&sender_state).unwrap();
+        fs::create_dir_all(&recipient).unwrap();
+        let mut record = TaskRecord::new(
+            "custom-worker".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "root".into(),
+            "root".into(),
+            sender_home.to_string_lossy().into_owned(),
+        );
+        record.owner_state = Some(sender_state.to_string_lossy().into_owned());
+        fs::write(
+            sender_state.join("custom-worker.meta"),
+            write_meta("", &record).unwrap(),
+        )
+        .unwrap();
+        let mut event = MessageEnvelope {
+            schema_version: SCHEMA_VERSION,
+            message_id: "current-custom".into(),
+            task_id: record.task_id.clone(),
+            task_home: record.owner_home.clone(),
+            parent_home: record.parent_home.clone(),
+            attempt: record.attempt.clone(),
+            parent_id: record.parent_id.clone(),
+            sender: record.task_id.clone(),
+            recipient: "root".into(),
+            brief_revision: record.accepted_brief_revision,
+            kind: "done".into(),
+            correlation_id: "current-custom".into(),
+            created_at: "2026-09-15T12:00:00Z".into(),
+            summary: "accepted current result".into(),
+            artifact: None,
+            acknowledgement: Acknowledgement::Pending,
+            automatic_wake: Some(true),
+        };
+        let processes = multplx_core::process::SystemProcessProbe::default();
+        assert!(
+            publish_report_notification_from(
+                &recipient,
+                &sender_state,
+                &event,
+                "current",
+                SystemTime::now(),
+                &processes
+            )
+            .unwrap()
+            .is_some()
+        );
+        event.message_id = "historical-custom".into();
+        event.attempt.as_mut().unwrap().id = "old-attempt".into();
+        assert!(
+            publish_report_notification_from(
+                &recipient,
+                &sender_state,
+                &event,
+                "historical",
+                SystemTime::now(),
+                &processes
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            recipient
+                .join("message-outbox/historical-custom.json")
+                .is_file()
+        );
+        assert_eq!(
+            fs::read_to_string(recipient.join(".wake-queue"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        event.message_id = "historical-local".into();
+        assert!(
+            publish_report_notification(
+                &sender_state,
+                &event,
+                "historical",
+                SystemTime::now(),
+                &processes
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(!sender_state.join(".wake-queue").exists());
     }
 
     #[test]
