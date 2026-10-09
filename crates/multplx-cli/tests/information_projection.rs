@@ -272,16 +272,53 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
     let pause_marker = state.join(".paused-broker_mx-worker");
     let recheck_marker = state.join(".paused-rechecked-broker_mx-worker");
     let resurface_marker = state.join(".paused-resurfaced-broker_mx-worker");
+    let mut pause_observations = Vec::new();
     for _ in 0..4 {
-        checkpoint();
+        let output = checkpoint();
+        pause_observations.push(format!(
+            "status={:?}, stdout={:?}, stderr={:?}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
         if fs::read_to_string(&pause_marker).is_ok_and(|identity| !identity.trim().is_empty()) {
             break;
         }
     }
     let initial_pause_identity = fs::read_to_string(&pause_marker).unwrap_or_default();
+    // Diagnose the actual default child transport only after the unchanged
+    // observation budget fails. Do not replace it with a fixture override.
+    let actor_diagnostics = if initial_pause_identity.trim().is_empty() {
+        let script = source.join("bin/mx-actor-state.sh");
+        let environment = mx();
+        let mut query = Command::new(&script);
+        for (key, value) in environment.get_envs() {
+            if let Some(value) = value {
+                query.env(key, value);
+            } else {
+                query.env_remove(key);
+            }
+        }
+        let adapter = query
+            .env("MX_JOURNAL_CLASSIFY", "1")
+            .env("MX_JOURNAL_SOURCE", "mx-watch")
+            .arg("worker")
+            .output();
+        let direct = mx()
+            .env("MX_JOURNAL_CLASSIFY", "1")
+            .env("MX_JOURNAL_SOURCE", "mx-watch")
+            .args(["actor-state", "worker"])
+            .output();
+        format!(
+            "script={script:?}, metadata={:?}, adapter={adapter:?}, direct={direct:?}, checkpoints={pause_observations:?}",
+            fs::metadata(&script)
+        )
+    } else {
+        String::new()
+    };
     assert!(
         !initial_pause_identity.trim().is_empty(),
-        "watcher must verify the pause identity before its established cadence is aged"
+        "watcher must verify the pause identity before its established cadence is aged: {actor_diagnostics}"
     );
     let old_pause = std::time::SystemTime::now() - std::time::Duration::from_secs(30);
     for marker in [&pause_marker, &recheck_marker, &resurface_marker] {
