@@ -87,60 +87,58 @@ fn scan_signals(state: &Path) -> Vec<SignalObservation> {
             )
             .unwrap_or(true);
             let mut routine_progress = false;
-            if path.extension().and_then(|value| value.to_str()) == Some("status") {
-                if let Some(task) = path.file_stem().and_then(|value| value.to_str()) {
-                    maintainer_relevant = true; // Unavailable unseen-range evidence is unknown, never provably routine.
-                    let canonical =
-                        multplx_domain::supervision::status_report_notifications(state, task);
-                    // Inspect all unseen lines: a completion followed by progress
-                    // in one burst must not erase the completion notification.
-                    let mut previous_end = fs::read_to_string(&marker)
-                        .ok()
-                        .and_then(|signature| {
-                            signature
-                                .split_once(':')
-                                .and_then(|(size, _)| size.parse::<u64>().ok())
-                        })
-                        .unwrap_or(0);
-                    if let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
-                        &path,
-                        multplx_core::classification::STATUS_READ_LIMIT,
-                    ) {
-                        if let Ok(text) = std::str::from_utf8(&bytes) {
-                            if previous_end >= bytes.len() as u64 {
-                                previous_end = 0;
-                            }
-                            let mut end = 0_u64;
-                            routine_progress = true;
-                            maintainer_relevant = false;
-                            for line in text.split_inclusive('\n') {
-                                end += line.len() as u64;
-                                if end <= previous_end || line.trim().is_empty() {
-                                    continue;
-                                }
-                                let line = line.trim_end_matches('\n');
-                                // Canonical publication owns its exact wake ID;
-                                // repair runs before this scan, so no reinjection.
-                                if canonical.contains_key(&(end, line.to_owned())) {
-                                    continue;
-                                }
-                                let actionable =
-                                    multplx_core::classification::report_requires_notification(
-                                        multplx_core::classification::status_line_verb(line),
-                                        false,
-                                        line.split_once(':')
-                                            .is_some_and(|(prefix, _)| prefix.contains("[reply=")),
-                                        false,
-                                        false,
-                                    );
-                                // Legacy status has no frozen publication identity.
-                                // Routine working is quiet when actor health proves
-                                // progress; unavailable/idle actor health remains
-                                // conservative through the ordinary triage path.
-                                routine_progress = false;
-                                maintainer_relevant |= actionable;
-                            }
+            if path.extension().and_then(|value| value.to_str()) == Some("status")
+                && let Some(task) = path.file_stem().and_then(|value| value.to_str())
+            {
+                maintainer_relevant = true; // Unavailable unseen-range evidence is unknown, never provably routine.
+                let canonical =
+                    multplx_domain::supervision::status_report_notifications(state, task);
+                // Inspect all unseen lines: a completion followed by progress
+                // in one burst must not erase the completion notification.
+                let mut previous_end = fs::read_to_string(&marker)
+                    .ok()
+                    .and_then(|signature| {
+                        signature
+                            .split_once(':')
+                            .and_then(|(size, _)| size.parse::<u64>().ok())
+                    })
+                    .unwrap_or(0);
+                if let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+                    &path,
+                    multplx_core::classification::STATUS_READ_LIMIT,
+                ) && let Ok(text) = std::str::from_utf8(&bytes)
+                {
+                    if previous_end >= bytes.len() as u64 {
+                        previous_end = 0;
+                    }
+                    let mut end = 0_u64;
+                    routine_progress = true;
+                    maintainer_relevant = false;
+                    for line in text.split_inclusive('\n') {
+                        end += line.len() as u64;
+                        if end <= previous_end || line.trim().is_empty() {
+                            continue;
                         }
+                        let line = line.trim_end_matches('\n');
+                        // Canonical publication owns its exact wake ID;
+                        // repair runs before this scan, so no reinjection.
+                        if canonical.contains_key(&(end, line.to_owned())) {
+                            continue;
+                        }
+                        let actionable = multplx_core::classification::report_requires_notification(
+                            multplx_core::classification::status_line_verb(line),
+                            false,
+                            line.split_once(':')
+                                .is_some_and(|(prefix, _)| prefix.contains("[reply=")),
+                            false,
+                            false,
+                        );
+                        // Legacy status has no frozen publication identity.
+                        // Routine working is quiet when actor health proves
+                        // progress; unavailable/idle actor health remains
+                        // conservative through the ordinary triage path.
+                        routine_progress = false;
+                        maintainer_relevant |= actionable;
                     }
                 }
             }

@@ -4015,6 +4015,7 @@ esac
                 summary: "unfinished delivery".into(),
                 artifact: None,
                 acknowledgement: super::super::subagent_model::Acknowledgement::Pending,
+                automatic_wake: None,
             },
             route: super::super::parent_channel::RouteBinding {
                 sender_id: "coord".into(),
