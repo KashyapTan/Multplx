@@ -648,6 +648,32 @@ fn pane_hash(capture: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn status_line_endpoint(state: &Path, task: &str, line: &str) -> Option<u64> {
+    let bytes = multplx_core::filesystem::read_bounded_regular(
+        state.join(format!("{task}.status")),
+        multplx_core::classification::STATUS_READ_LIMIT,
+    )
+    .ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    text.split_inclusive('\n')
+        .scan(0_u64, |end, row| {
+            *end += row.len() as u64;
+            Some((*end, row.trim_end_matches('\n')))
+        })
+        .filter_map(|(end, row)| (row == line).then_some(end))
+        .last()
+}
+
+fn reported_terminal_expected_idle(actor: &str, busy: bool, alive: bool) -> bool {
+    !busy
+        && alive
+        && !actor.contains("run-step still")
+        && actor
+            .strip_prefix("state: ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .is_some_and(|state| matches!(state, "done" | "failed" | "blocked" | "needs-decision"))
+}
+
 fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
     let afk = state.join(".afk").exists();
     let escalate = Duration::from_secs(environment_u64("MX_STALE_ESCALATE_SECS", 240));
@@ -656,6 +682,18 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
     let override_regex = std::env::var("MX_MAINTAINER_RE").ok();
     for window in recorded_windows(state) {
         let last = status_line(state, &window.task);
+        // A canonical terminal/decision report already owns a durable wake.
+        // Its expected idle pane is not a new health transition or wedge.
+        let reported_terminal =
+            matches!(
+                multplx_core::classification::status_line_verb(&last),
+                "done" | "failed" | "blocked" | "needs-decision"
+            ) && status_line_endpoint(state, &window.task, &last).is_some_and(|end| {
+                multplx_domain::supervision::status_report_notifications(state, &window.task)
+                    .get(&(end, last.clone()))
+                    .copied()
+                    .unwrap_or(false)
+            });
         let key = window_key(&window.endpoint);
         if !status_paused_or_held(&last) && state.join(format!(".paused-{key}")).exists() {
             clear_pause_tracking(state, &key);
@@ -671,6 +709,13 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
         let Some((capture, busy)) = backend_capture(&window) else {
             continue;
         };
+        if reported_terminal
+            && actor_state_line(source_root, state, &window.task).is_some_and(|actor| {
+                reported_terminal_expected_idle(&actor, busy, backend_agent_alive(&window))
+            })
+        {
+            continue;
+        }
         let Some(hash) = pane_hash(&capture) else {
             continue;
         };
@@ -3898,6 +3943,9 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
         if publish_signal_markers(&absorbed).is_err() {
             return 1;
         }
+        for observation in &absorbed {
+            mark_status_surfaced(&state, &observation.path);
+        }
         signals.retain(|signal| !signal.routine_progress);
         if !signals.is_empty() {
             let files = signals
@@ -5585,6 +5633,53 @@ mod tests {
         let same_size = scan_signals(temp.path());
         assert!(same_size[0].maintainer_relevant);
         assert!(!same_size[0].routine_progress);
+    }
+
+    #[test]
+    fn informational_reply_tail_keeps_original_lifecycle_endpoint() {
+        let temp = tempfile::tempdir().unwrap();
+        let completed = "done: completed";
+        fs::write(
+            temp.path().join("info.status"),
+            format!("{completed}\nworking [reply=answer]: informational answer\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            super::status_line_endpoint(temp.path(), "info", completed),
+            Some(completed.len() as u64 + 1)
+        );
+        assert!(super::reported_terminal_expected_idle(
+            "state: done · source: status-log",
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn old_terminal_reports_cannot_hide_resumed_run_or_unknown_health() {
+        assert!(super::reported_terminal_expected_idle(
+            "state: done · source: status-log · done: delivered",
+            false,
+            true
+        ));
+        for actor in [
+            "state: working · source: run-step · validating",
+            "state: done · source: native-event · runtime done · run-step still validating",
+            "state: resolved · source: status-log · resolved: resume",
+            "state: unknown · source: none",
+        ] {
+            assert!(!super::reported_terminal_expected_idle(actor, false, true));
+        }
+        assert!(!super::reported_terminal_expected_idle(
+            "state: done · source: status-log",
+            true,
+            true
+        ));
+        assert!(!super::reported_terminal_expected_idle(
+            "state: done · source: status-log",
+            false,
+            false
+        ));
     }
 
     #[test]

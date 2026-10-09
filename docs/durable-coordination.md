@@ -140,3 +140,7 @@ The watcher consumes canonical status lines by their exact accepted byte endpoin
 Legacy ingestion examines every unseen status line so a terminal event followed by progress in one burst remains actionable.
 Unreadable or over-limit streams remain conservative rather than becoming proven healthy.
 Notification repair failures create a durable health event once per changed failure episode, and successful repair resets that health condition.
+Missing envelope projections are reconstructed from exact committed message and acknowledgement history under one message-writer lock.
+A missing projection combined with an unfinished overlapping acknowledgement intent remains a visible retained repair failure; automatic notification repair does not invent acknowledgement completion.
+Expected idle terminal reports suppress redundant stale-pane wakes only after current identity and actor reconciliation prove no resumed run, busy pane or unknown/dead transport.
+Resolved reports remain eligible for subsequent genuine run-health supervision.

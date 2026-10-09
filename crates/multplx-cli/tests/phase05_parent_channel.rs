@@ -1744,4 +1744,25 @@ fn canonical_progress_burst_is_durable_quiet_and_retry_stable() {
         3,
         "nested/root relay duplicated canonical notifications"
     );
+    for _ in 0..3 {
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let result = run(mx(&home)
+            .env("MX_RUST_SOURCE_ROOT", source_root)
+            .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+            .env("MX_POLL", "0.05")
+            .env("MX_SIGNAL_GRACE", "0")
+            .env("MX_HEARTBEAT", "0")
+            .env("MX_HEARTBEAT_MAX", "0")
+            .args(["supervision", "mx-watch-checkpoint.sh", "--seconds", "1"]));
+        assert!(
+            matches!(result.status.code(), Some(0 | 124)),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            notifications(),
+            3,
+            "heartbeat regenerated a canonical terminal notification"
+        );
+    }
 }

@@ -99,6 +99,12 @@ pub fn persist_message_envelope(
 ) -> Result<MessageEnvelope, String> {
     let relative = message_receipt_path(&envelope.message_id)?;
     let path = state.join(&relative);
+    let _receipt_lock = DirectoryLock::acquire_wait(
+        state.join(format!(".message-{}-receipt.lock", envelope.message_id)),
+        &multplx_core::process::SystemProcessProbe::default(),
+        TRANSITION_LOCK_TIMEOUT,
+    )
+    .map_err(|error| error.to_string())?;
     fs::create_dir_all(state.join("message-outbox")).map_err(|error| error.to_string())?;
     if path.is_file() {
         let existing: MessageEnvelope = serde_json::from_slice(
@@ -126,6 +132,52 @@ pub fn persist_message_envelope(
         }],
         None,
     )?;
+    // The committed transition verifies exact immutable identity but is not
+    // re-applied after loss of its projection. Reconstruct the receipt from
+    // that accepted intent under the same message-writer lock.
+    if !path.exists() {
+        let mut restored = envelope.clone();
+        for rank in 1..=4 {
+            let operation = format!("message-state-{}-{rank}", envelope.message_id);
+            if !state
+                .join(".transitions")
+                .join(format!("{operation}.json"))
+                .exists()
+            {
+                continue;
+            }
+            let writes =
+                read_transition_writes(state, &operation).map_err(|error| error.to_string())?;
+            let write = writes
+                .first()
+                .filter(|write| {
+                    writes.len() == 1
+                        && write.path
+                            == message_receipt_path(&envelope.message_id)
+                                .expect("validated identity")
+                })
+                .ok_or("message acknowledgement history has invalid write identity")?;
+            let advanced: MessageEnvelope =
+                serde_json::from_slice(&write.after).map_err(|error| error.to_string())?;
+            let mut original = envelope.clone();
+            let mut comparable = advanced.clone();
+            original.acknowledgement = Acknowledgement::Pending;
+            comparable.acknowledgement = Acknowledgement::Pending;
+            if original != comparable || acknowledgement_rank(&advanced.acknowledgement) != rank {
+                return Err(
+                    "message acknowledgement history conflicts with accepted identity".into(),
+                );
+            }
+            restored = advanced;
+        }
+        multplx_core::filesystem::atomic_replace(
+            &path,
+            &serde_json::to_vec_pretty(&restored).map_err(|error| error.to_string())?,
+            0o600,
+        )
+        .map_err(|error| error.to_string())?;
+        return Ok(restored);
+    }
     Ok(envelope.clone())
 }
 
@@ -207,6 +259,12 @@ pub fn advance_message_envelope(
     acknowledgement: Acknowledgement,
 ) -> Result<MessageEnvelope, String> {
     let relative = message_receipt_path(message_id)?;
+    let _receipt_lock = DirectoryLock::acquire_wait(
+        state.join(format!(".message-{message_id}-receipt.lock")),
+        &multplx_core::process::SystemProcessProbe::default(),
+        TRANSITION_LOCK_TIMEOUT,
+    )
+    .map_err(|error| error.to_string())?;
     let before = read_bounded_regular(state.join(&relative), MAX_MESSAGE_BYTES)
         .map_err(|error| error.to_string())?;
     let mut envelope: MessageEnvelope =
@@ -1922,6 +1980,49 @@ mod tests {
             "please inspect"
         );
         assert!(read_message_envelope(&state, "missing").is_err());
+        fs::remove_file(state.join("message-outbox/message-1.json"))
+            .expect("lost receipt projection");
+        assert_eq!(
+            persist_message_envelope(&state, &envelope)
+                .expect("repair projection")
+                .acknowledgement,
+            Acknowledgement::Delivered
+        );
+        assert_eq!(
+            read_message_envelope(&state, "message-1")
+                .expect("restored receipt")
+                .acknowledgement,
+            Acknowledgement::Delivered
+        );
+        let mut unfinished = envelope.clone();
+        unfinished.message_id = "message-pending-ack".into();
+        persist_message_envelope(&state, &unfinished).expect("unfinished message");
+        let path = state.join("message-outbox/message-pending-ack.json");
+        let before = fs::read(&path).expect("pending projection");
+        let mut delivered = unfinished.clone();
+        delivered.acknowledgement = Acknowledgement::Delivered;
+        assert!(
+            recoverable_transition(
+                &state,
+                "message-state-message-pending-ack-1",
+                &[TransitionWrite {
+                    path: "message-outbox/message-pending-ack.json".into(),
+                    before: Some(before),
+                    after: serde_json::to_vec_pretty(&delivered).unwrap(),
+                }],
+                Some(TransitionFault::AfterIntent)
+            )
+            .is_err()
+        );
+        let intent = state.join(".transitions/message-state-message-pending-ack-1.json");
+        let retained = fs::read(&intent).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(persist_message_envelope(&state, &unfinished).is_err());
+        assert_eq!(fs::read(&intent).unwrap(), retained);
+        assert!(
+            !path.exists(),
+            "unfinished acknowledgement was falsely projected as completed"
+        );
         let processes = multplx_core::process::SystemProcessProbe::default();
         let wake = publish_message_wake(
             &state,

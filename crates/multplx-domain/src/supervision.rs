@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate. First current starts, requested replies, lifecycle changes and artifacts notify the parent; repeated unrequested working progress stays durable without an automatic wake.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -325,12 +325,21 @@ fn publish_report_wake(
 
 /// Index retained canonical status endpoints once for each watcher status scan.
 /// Canonical publication owns the notification identity for these exact lines.
+/// Values distinguish current identity from retained historical publication.
 #[must_use]
 pub fn status_report_notifications(
     state: &Path,
     task: &str,
 ) -> std::collections::BTreeMap<(u64, String), bool> {
     let mut notifications = std::collections::BTreeMap::new();
+    let current = multplx_core::filesystem::read_bounded_regular(
+        state.join(format!("{task}.meta")),
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .ok()
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .and_then(|text| crate::lifecycle::subagent_model::read_meta(task, &text).ok())
+    .filter(|record| !record.legacy_unknown);
     let Ok(entries) = fs::read_dir(state.join("evidence")) else {
         return notifications;
     };
@@ -356,9 +365,13 @@ pub fn status_report_notifications(
         {
             notifications.insert(
                 (end, line.to_owned()),
-                value["envelope"]["automatic_wake"]
-                    .as_bool()
-                    .unwrap_or(true),
+                current.as_ref().is_some_and(|record| {
+                    value["envelope"]["attempt"]
+                        == serde_json::to_value(&record.attempt).expect("attempt JSON")
+                        && value["envelope"]["brief_revision"]
+                            == serde_json::to_value(record.accepted_brief_revision)
+                                .expect("revision JSON")
+                }),
             );
         }
     }
