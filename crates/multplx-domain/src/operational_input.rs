@@ -99,6 +99,12 @@ pub fn persist_message_envelope(
 ) -> Result<MessageEnvelope, String> {
     let relative = message_receipt_path(&envelope.message_id)?;
     let path = state.join(&relative);
+    let _receipt_lock = DirectoryLock::acquire_wait(
+        state.join(format!(".message-{}-receipt.lock", envelope.message_id)),
+        &multplx_core::process::SystemProcessProbe::default(),
+        TRANSITION_LOCK_TIMEOUT,
+    )
+    .map_err(|error| error.to_string())?;
     fs::create_dir_all(state.join("message-outbox")).map_err(|error| error.to_string())?;
     if path.is_file() {
         let existing: MessageEnvelope = serde_json::from_slice(
@@ -126,6 +132,52 @@ pub fn persist_message_envelope(
         }],
         None,
     )?;
+    // The committed transition verifies exact immutable identity but is not
+    // re-applied after loss of its projection. Reconstruct the receipt from
+    // that accepted intent under the same message-writer lock.
+    if !path.exists() {
+        let mut restored = envelope.clone();
+        for rank in 1..=4 {
+            let operation = format!("message-state-{}-{rank}", envelope.message_id);
+            if !state
+                .join(".transitions")
+                .join(format!("{operation}.json"))
+                .exists()
+            {
+                continue;
+            }
+            let writes =
+                read_transition_writes(state, &operation).map_err(|error| error.to_string())?;
+            let write = writes
+                .first()
+                .filter(|write| {
+                    writes.len() == 1
+                        && write.path
+                            == message_receipt_path(&envelope.message_id)
+                                .expect("validated identity")
+                })
+                .ok_or("message acknowledgement history has invalid write identity")?;
+            let advanced: MessageEnvelope =
+                serde_json::from_slice(&write.after).map_err(|error| error.to_string())?;
+            let mut original = envelope.clone();
+            let mut comparable = advanced.clone();
+            original.acknowledgement = Acknowledgement::Pending;
+            comparable.acknowledgement = Acknowledgement::Pending;
+            if original != comparable || acknowledgement_rank(&advanced.acknowledgement) != rank {
+                return Err(
+                    "message acknowledgement history conflicts with accepted identity".into(),
+                );
+            }
+            restored = advanced;
+        }
+        multplx_core::filesystem::atomic_replace(
+            &path,
+            &serde_json::to_vec_pretty(&restored).map_err(|error| error.to_string())?,
+            0o600,
+        )
+        .map_err(|error| error.to_string())?;
+        return Ok(restored);
+    }
     Ok(envelope.clone())
 }
 
@@ -163,6 +215,49 @@ pub fn publish_message_wake(
     Ok(format!("wake-{:020}", record.sequence))
 }
 
+/// Persist every report envelope, publishing a wake only when the frozen
+/// acceptance policy calls for one. This creates no synthetic queue receipt.
+pub fn publish_report_notification(
+    state: &Path,
+    envelope: &MessageEnvelope,
+    payload: &str,
+    now: SystemTime,
+    processes: &impl multplx_core::process::ProcessProbe,
+) -> Result<Option<String>, String> {
+    publish_report_notification_from(state, state, envelope, payload, now, processes)
+}
+
+/// Route-aware publication uses the frozen sender state, including custom
+/// owner-state bindings, rather than guessing a home/state projection.
+pub fn publish_report_notification_from(
+    state: &Path,
+    report_state: &Path,
+    envelope: &MessageEnvelope,
+    payload: &str,
+    now: SystemTime,
+    processes: &impl multplx_core::process::ProcessProbe,
+) -> Result<Option<String>, String> {
+    persist_message_envelope(state, envelope)?;
+    // Old revisions remain durable history. Repair must not turn an unpublished
+    // historical report into a fresh automatic parent notification.
+    let metadata = report_state.join(format!("{}.meta", envelope.task_id));
+    if let Ok(bytes) = read_bounded_regular(
+        metadata,
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    ) && let Ok(text) = std::str::from_utf8(&bytes)
+        && let Ok(record) = crate::lifecycle::subagent_model::read_meta(&envelope.task_id, text)
+        && !record.legacy_unknown
+        && (envelope.attempt != record.attempt
+            || envelope.brief_revision != record.accepted_brief_revision)
+    {
+        return Ok(None);
+    }
+    if envelope.kind == "working" && envelope.automatic_wake == Some(false) {
+        return Ok(None);
+    }
+    publish_message_wake(state, envelope, payload, now, processes).map(Some)
+}
+
 /// Advance delivery/response acknowledgement without changing route identity.
 pub fn advance_message_envelope(
     state: &Path,
@@ -170,6 +265,12 @@ pub fn advance_message_envelope(
     acknowledgement: Acknowledgement,
 ) -> Result<MessageEnvelope, String> {
     let relative = message_receipt_path(message_id)?;
+    let _receipt_lock = DirectoryLock::acquire_wait(
+        state.join(format!(".message-{message_id}-receipt.lock")),
+        &multplx_core::process::SystemProcessProbe::default(),
+        TRANSITION_LOCK_TIMEOUT,
+    )
+    .map_err(|error| error.to_string())?;
     let before = read_bounded_regular(state.join(&relative), MAX_MESSAGE_BYTES)
         .map_err(|error| error.to_string())?;
     let mut envelope: MessageEnvelope =
@@ -746,6 +847,7 @@ impl RequestStore {
                 summary: request.scope.to_owned(),
                 artifact: request.context_artifact.map(str::to_owned),
                 acknowledgement: Acknowledgement::Delivered,
+                automatic_wake: None,
             },
         };
         recorded.validate()?;
@@ -1855,6 +1957,7 @@ mod tests {
             summary: "please inspect".into(),
             artifact: None,
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         };
         assert_eq!(
             persist_message_envelope(&state, &envelope).expect("persist"),
@@ -1883,6 +1986,49 @@ mod tests {
             "please inspect"
         );
         assert!(read_message_envelope(&state, "missing").is_err());
+        fs::remove_file(state.join("message-outbox/message-1.json"))
+            .expect("lost receipt projection");
+        assert_eq!(
+            persist_message_envelope(&state, &envelope)
+                .expect("repair projection")
+                .acknowledgement,
+            Acknowledgement::Delivered
+        );
+        assert_eq!(
+            read_message_envelope(&state, "message-1")
+                .expect("restored receipt")
+                .acknowledgement,
+            Acknowledgement::Delivered
+        );
+        let mut unfinished = envelope.clone();
+        unfinished.message_id = "message-pending-ack".into();
+        persist_message_envelope(&state, &unfinished).expect("unfinished message");
+        let path = state.join("message-outbox/message-pending-ack.json");
+        let before = fs::read(&path).expect("pending projection");
+        let mut delivered = unfinished.clone();
+        delivered.acknowledgement = Acknowledgement::Delivered;
+        assert!(
+            recoverable_transition(
+                &state,
+                "message-state-message-pending-ack-1",
+                &[TransitionWrite {
+                    path: "message-outbox/message-pending-ack.json".into(),
+                    before: Some(before),
+                    after: serde_json::to_vec_pretty(&delivered).unwrap(),
+                }],
+                Some(TransitionFault::AfterIntent)
+            )
+            .is_err()
+        );
+        let intent = state.join(".transitions/message-state-message-pending-ack-1.json");
+        let retained = fs::read(&intent).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(persist_message_envelope(&state, &unfinished).is_err());
+        assert_eq!(fs::read(&intent).unwrap(), retained);
+        assert!(
+            !path.exists(),
+            "unfinished acknowledgement was falsely projected as completed"
+        );
         let processes = multplx_core::process::SystemProcessProbe::default();
         let wake = publish_message_wake(
             &state,
@@ -1913,6 +2059,106 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn report_notifications_use_exact_sender_state_for_historical_identity() {
+        use crate::lifecycle::subagent_model::{
+            ArtifactKind, AssignmentRole, TaskRecord, write_meta,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let sender_home = temp.path().join("sender");
+        let sender_state = temp.path().join("custom-owner-state");
+        let recipient = temp.path().join("recipient-state");
+        fs::create_dir_all(&sender_home).unwrap();
+        fs::create_dir_all(&sender_state).unwrap();
+        fs::create_dir_all(&recipient).unwrap();
+        let mut record = TaskRecord::new(
+            "custom-worker".into(),
+            AssignmentRole::Implementer,
+            ArtifactKind::Implementation,
+            false,
+            "root".into(),
+            "root".into(),
+            sender_home.to_string_lossy().into_owned(),
+        );
+        record.owner_state = Some(sender_state.to_string_lossy().into_owned());
+        fs::write(
+            sender_state.join("custom-worker.meta"),
+            write_meta("", &record).unwrap(),
+        )
+        .unwrap();
+        let mut event = MessageEnvelope {
+            schema_version: SCHEMA_VERSION,
+            message_id: "current-custom".into(),
+            task_id: record.task_id.clone(),
+            task_home: record.owner_home.clone(),
+            parent_home: record.parent_home.clone(),
+            attempt: record.attempt.clone(),
+            parent_id: record.parent_id.clone(),
+            sender: record.task_id.clone(),
+            recipient: "root".into(),
+            brief_revision: record.accepted_brief_revision,
+            kind: "done".into(),
+            correlation_id: "current-custom".into(),
+            created_at: "2026-09-15T12:00:00Z".into(),
+            summary: "accepted current result".into(),
+            artifact: None,
+            acknowledgement: Acknowledgement::Pending,
+            automatic_wake: Some(true),
+        };
+        let processes = multplx_core::process::SystemProcessProbe::default();
+        assert!(
+            publish_report_notification_from(
+                &recipient,
+                &sender_state,
+                &event,
+                "current",
+                SystemTime::now(),
+                &processes
+            )
+            .unwrap()
+            .is_some()
+        );
+        event.message_id = "historical-custom".into();
+        event.attempt.as_mut().unwrap().id = "old-attempt".into();
+        assert!(
+            publish_report_notification_from(
+                &recipient,
+                &sender_state,
+                &event,
+                "historical",
+                SystemTime::now(),
+                &processes
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            recipient
+                .join("message-outbox/historical-custom.json")
+                .is_file()
+        );
+        assert_eq!(
+            fs::read_to_string(recipient.join(".wake-queue"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        event.message_id = "historical-local".into();
+        assert!(
+            publish_report_notification(
+                &sender_state,
+                &event,
+                "historical",
+                SystemTime::now(),
+                &processes
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(!sender_state.join(".wake-queue").exists());
     }
 
     #[test]

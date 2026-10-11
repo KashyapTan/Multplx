@@ -2030,6 +2030,7 @@ fn run_send_in_home(args: &[OsString], home: PathBuf, state: PathBuf) -> i32 {
                     artifact: None,
                     acknowledgement:
                         multplx_domain::lifecycle::subagent_model::Acknowledgement::Pending,
+                    automatic_wake: None,
                 };
                 if envelope
                     .validate_current(record, &envelope.sender, &record.task_id)
@@ -10240,6 +10241,7 @@ mod tests {
             summary: "continue work".into(),
             artifact: None,
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         };
         persist_message_envelope(&state, &envelope("local-message", &home)).expect("local receipt");
         assert!(durable_follow_up_exists(&home, &state, "local-message"));

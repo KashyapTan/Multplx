@@ -829,8 +829,8 @@ fn concurrent_report_and_native_events_wait_for_brief_state_contention() {
             AssignmentRole::Implementer,
             ArtifactKind::Implementation,
             false,
-            "parent".into(),
-            "root".into(),
+            format!("root-home:{}", temp.path().display()),
+            format!("root-home:{}", temp.path().display()),
             temp.path().to_string_lossy().into_owned(),
         )
     };

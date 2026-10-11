@@ -167,6 +167,17 @@ Expected matrix: pending plus busy is accepted as queued; pending plus idle rema
 
 ## Herdr
 
+### Explicit unknown registration compatibility (2026-10-09)
+
+Isolated real-Herdr diagnostics on installed `herdr 0.9.3` returned a successful `agent_info` response for an inert Codex fixture with `agent_status: "unknown"`, a nonempty agent name and the exact requested `pane_id`.
+The corresponding pane response remained valid; the registered fixture had not produced activity that Herdr could classify as idle or working.
+The baseline adapter rejected that registration as an unreadable endpoint during command-submission checks, reproducing the presentation and workspace-per-home fixture failures before this compatibility correction.
+The adapter now accepts only that exact successful registration shape as present while retaining unknown activity and an ambiguous agent-liveness projection; mismatched identity, absent registration fields, unexpected status values and malformed responses remain unreadable.
+The separate spawn process-start proof remains required and unchanged.
+This diagnostic used an isolated named lab, an inert provider executable and the default-session safety tripwire; it does not qualify authenticated Codex execution.
+Deterministic regression coverage verifies endpoint readiness, registered-agent presence, unknown native activity and rejection of mismatched or malformed registration.
+
+
 The compatibility floor is protocol 14.
 The latest active verification uses Herdr 0.7.5 protocol 16 on macOS aarch64, with earlier 0.7.4, protocol-14, and 0.7.3 evidence retained where they define current behavior or fallbacks.
 

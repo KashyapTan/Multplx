@@ -1218,6 +1218,7 @@ mod tests {
                     summary: "must not settle".into(),
                     artifact: None,
                     acknowledgement: crate::lifecycle::subagent_model::Acknowledgement::Pending,
+                    automatic_wake: None,
                 },
             )
             .expect("non-settling envelope");
@@ -1247,6 +1248,7 @@ mod tests {
                 summary: "needs input".into(),
                 artifact: None,
                 acknowledgement: crate::lifecycle::subagent_model::Acknowledgement::Pending,
+                automatic_wake: None,
             },
         )
         .expect("response envelope");

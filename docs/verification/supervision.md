@@ -288,3 +288,30 @@ Final formatting, strict all-target/all-feature Clippy, documentation audience/l
 [Cursor evidence](cursor-cli.md#event-driven-stop-park-recheck-2026-10-03), the Claude/Pi recheck above and the Codex queue recheck above retain their provider-specific limits.
 These results do not claim a fresh Linux run, hosted CI, authenticated Claude/Pi run or Codex Desktop delivery.
 The user's existing runtime, operational homes and private configuration were unchanged.
+
+## Native idle readiness recheck (2026-10-09)
+
+The read-only `bin/mx-codex-idle.sh --status` projection distinguishes matched native readiness, readiness for turn end, a bound live bridge with a fresh watcher, retained delivery uncertainty, and explicit degraded checkpoint recovery.
+Hook registration or queue capability alone does not prove healthy idle.
+The session renderer retains degraded instructions when failure or uncertain delivery remains.
+The generic `bin/mx-supervision-instructions.sh --harness pi --status` projection reports supervision need and retained Pi delivery failures; watcher freshness alone does not establish native transport readiness.
+Healthy native protocols end the handling turn without recurring model checkpoints or manual re-arm.
+
+The installed `codex-cli 0.162.0` was exercised through the retained synthetic Responses probe in a fresh temporary `CODEX_HOME`.
+Its evidence is `/private/tmp/mx-codex-hook-research.9YNWXf/evidence.json`.
+The idle queued wake began after 9,731 ms, the human prompt after 33 ms, the busy queued item began after the current turn completed, and the unrelated thread received zero turns.
+This is actual CLI hook and queue evidence against a synthetic model, with no authenticated provider or Desktop claim.
+
+Pi `1.1.0` was downloaded and installed only under `/private/tmp/mx-pi-native-idle-inspect/runtime` using the public npm package and isolated dependencies.
+Its actual native RPC runtime loaded the changed watcher extension with a local synthetic OpenAI-compatible model and an isolated synthetic watcher executable.
+The native `agent_end` callback started the first watcher without a model arm tool call; two quiet intervals produced no extra model requests.
+A watcher event established one successor and delivered one native `followUp`, and a later human prompt ran without duplicating that successor.
+The retained probe is `/private/tmp/mx-pi-native-idle-inspect/probe.mjs`; raw events and requests are `/private/tmp/mx-pi-native-idle.Kb2Tat/evidence.json`.
+This verifies native Pi extension loading, awaited lifecycle callbacks, follow-up delivery and human input through RPC, rather than a full credentialed interactive provider trial or native project-trust UI.
+The credentialed live Pi gate remains separate.
+
+Focused deterministic fixtures verify first-cycle readiness timeout retirement and subsequent explicit repair, retained unfinished wakes, delivery-failure retention across watcher readiness, two successor cycles without model re-arm, stale ownership refusal, bounded retries and cleanup.
+Codex instrumented runtime fixtures verify exact-session status, unsupported queue capability, uncertainty retention, identity changes and bridge cleanup.
+Claude was unavailable on this host; its unchanged Stop mechanism retains the earlier evidence and current protocol contract checks without a new live qualification.
+Cursor `2026.10.01-e373342` was available; its unchanged interactive stop park and print-mode limit retain the earlier evidence without a new authenticated interactive trial.
+Private operational homes, installed global providers, hook trust settings and user configuration were unchanged.

@@ -820,7 +820,8 @@ pub fn prepare_report(
     if matches!(
         event.kind.as_str(),
         "blocked" | "needs-decision" | "done" | "failed" | "resolved"
-    ) {
+    ) || (event.kind == "working" && event.automatic_wake == Some(true))
+    {
         prepare_outcome(state, event).map(Some)
     } else {
         Ok(None)
@@ -899,8 +900,19 @@ fn promote_inbox_record(state: &Path, path: &Path) -> Result<bool, String> {
                 incoming.event.summary
             )
         };
-        crate::operational_input::publish_message_wake(
+        // Relaying replaces the route with each coordinator's route. The
+        // first receipt retains the original reporting task's authoritative state.
+        let (sender_id, sender_state) = incoming
+            .hops
+            .first()
+            .map(|hop| (&hop.sender_id, &hop.sender_state))
+            .unwrap_or((&incoming.route.sender_id, &incoming.route.sender_state));
+        if sender_id != &incoming.event.task_id {
+            return Err("parent outcome original sender conflicts with reporting task".into());
+        }
+        crate::operational_input::publish_report_notification_from(
             state,
+            Path::new(sender_state),
             &incoming.event,
             &payload,
             SystemTime::now(),
@@ -1413,6 +1425,7 @@ mod tests {
             summary: "accepted outcome".into(),
             artifact: Some("result.md".into()),
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         }
     }
 
@@ -1803,6 +1816,69 @@ mod tests {
                 .into_iter()
                 .all(|path| { read_outcome(&path).unwrap().delivery == DeliveryState::Delivered })
         );
+    }
+
+    #[test]
+    fn nested_custom_state_historical_report_is_retained_without_fresh_wake() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let coordinator_home = temp.path().join("coordinator");
+        let child_home = temp.path().join("child");
+        let child_state = child_home.join("custom-state");
+        let root_state = root.join("state");
+        let coordinator_state = coordinator_home.join("state");
+        for state in [&root_state, &coordinator_state, &child_state] {
+            fs::create_dir_all(state).unwrap();
+        }
+        let coordinator = task(
+            "coordinator",
+            &coordinator_home,
+            &root_id(&root),
+            &root,
+            &root_state,
+            &root,
+        );
+        write_task(&coordinator_state, &coordinator);
+        let mut worker = task(
+            "worker",
+            &child_home,
+            "coordinator",
+            &coordinator_home,
+            &coordinator_state,
+            &root,
+        );
+        worker.owner_state = Some(child_state.to_string_lossy().into_owned());
+        write_task(&child_state, &worker);
+        let old_event = envelope(&worker, "nested-historical", "done");
+        record_outcome(&child_state, &old_event).unwrap();
+        relay(&child_state, 8).unwrap();
+        relay(&coordinator_state, 8).unwrap();
+        worker.prior_attempts.push(worker.attempt.take().unwrap());
+        worker.attempt = Some(crate::lifecycle::subagent_model::Attempt {
+            id: "replacement-attempt".into(),
+            generation: 2,
+            brief_revision: 1,
+        });
+        write_task(&child_state, &worker);
+        relay(&coordinator_state, 8).unwrap();
+        relay(&root_state, 8).unwrap();
+        assert_eq!(
+            crate::operational_input::read_message_envelope(&root_state, "nested-historical")
+                .unwrap(),
+            old_event,
+        );
+        assert!(!root_state.join(".wake-queue").exists());
+        let current_event = envelope(&worker, "nested-current", "done");
+        record_outcome(&child_state, &current_event).unwrap();
+        relay(&child_state, 8).unwrap();
+        relay(&coordinator_state, 8).unwrap();
+        relay(&coordinator_state, 8).unwrap();
+        relay(&root_state, 8).unwrap();
+        let wakes = fs::read_to_string(root_state.join(".wake-queue")).unwrap();
+        assert!(wakes.contains("nested-current"));
+        assert!(!wakes.contains("nested-historical"));
+        assert_eq!(pending_outcomes(&coordinator_state).unwrap(), 0);
+        assert_eq!(pending_outcomes(&root_state).unwrap(), 0);
     }
 
     #[test]

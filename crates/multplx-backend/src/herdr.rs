@@ -49,7 +49,7 @@ pub enum PaneAgentState {
     Dead,
     /// Pane exists but no agent is registered.
     NoAgent,
-    /// A supported native agent state is registered.
+    /// A supported native agent is registered; its activity may be unknown.
     Live,
     /// Response was contradictory or unreadable.
     Unknown,
@@ -489,9 +489,18 @@ impl<R: CommandRunner> HerdrBackend<R> {
         session: &str,
         pane: &str,
     ) -> Result<PaneAgentState, BackendError> {
+        self.observe_pane_registration(session, pane)
+            .map(|(state, _)| state)
+    }
+
+    fn observe_pane_registration(
+        &mut self,
+        session: &str,
+        pane: &str,
+    ) -> Result<(PaneAgentState, bool), BackendError> {
         match self.observe_pane(session, pane) {
             Ok(()) => {}
-            Err(BackendError::Missing(_)) => return Ok(PaneAgentState::Dead),
+            Err(BackendError::Missing(_)) => return Ok((PaneAgentState::Dead, false)),
             Err(error) => return Err(error),
         }
         let output = self.run_scoped(session, ["agent", "get", pane])?;
@@ -508,10 +517,24 @@ impl<R: CommandRunner> HerdrBackend<R> {
             }
         })?;
         if string_at(&agent, "/error/code") == Some("agent_not_found") {
-            return Ok(PaneAgentState::NoAgent);
+            return Ok((PaneAgentState::NoAgent, false));
         }
         match string_at(&agent, "/result/agent/agent_status") {
-            Some("working" | "idle" | "done" | "blocked") => Ok(PaneAgentState::Live),
+            Some("working" | "idle" | "done" | "blocked") => Ok((PaneAgentState::Live, false)),
+            // Herdr 0.9.3 recognizes a newly started provider before it can
+            // classify activity. Exact registration is separate from idle or
+            // working telemetry, and spawn still verifies process startup.
+            Some("unknown")
+                if output.status.success()
+                    && agent.get("error").is_none_or(Value::is_null)
+                    && string_at(&agent, "/result/type") == Some("agent_info")
+                    && string_at(&agent, "/result/agent/pane_id") == Some(pane)
+                    && string_at(&agent, "/result/agent/agent")
+                        .is_some_and(|name| !name.trim().is_empty()) =>
+            {
+                Ok((PaneAgentState::Live, true))
+            }
+
             _ => Err(BackendError::Malformed(format!(
                 "Herdr agent for '{session}:{pane}' is unreadable: {agent}"
             ))),
@@ -981,9 +1004,11 @@ impl<R: CommandRunner> RuntimeBackend for HerdrBackend<R> {
 
     fn observe_agent(&mut self, target: &BackendTarget) -> Result<AgentState, BackendError> {
         let (session, pane) = self.ensure_target(target)?;
-        Ok(match self.observe_pane_agent(session, pane)? {
+        let (registration, activity_unknown) = self.observe_pane_registration(session, pane)?;
+        Ok(match registration {
             PaneAgentState::Dead => AgentState::Missing,
             PaneAgentState::NoAgent => AgentState::Dead,
+            PaneAgentState::Live if activity_unknown => AgentState::Ambiguous,
             PaneAgentState::Live => AgentState::Alive,
             PaneAgentState::Unknown => AgentState::Unreadable,
         })
@@ -1640,6 +1665,60 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn exact_unknown_registration_is_ready_without_inventing_activity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = herdr_target("named:w:p");
+        let pane = br#"{"result":{"pane":{"pane_id":"w:p"}}}"#;
+        let agent = br#"{"result":{"type":"agent_info","agent":{"agent":"codex","agent_status":"unknown","pane_id":"w:p"}}}"#;
+        let mut backend = HerdrBackend::new(
+            SequenceRunner::new([
+                success(br#"{"server":{"running":true}}"#),
+                success(pane),
+                success(agent),
+                success(pane),
+                success(agent),
+                success(agent),
+            ]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        backend
+            .target_ready(&target)
+            .expect("exact live registration");
+        assert_eq!(backend.agent_state(&target), AgentState::Ambiguous);
+        assert!(
+            backend.native_state(&target).is_err(),
+            "unknown activity became idle or working"
+        );
+        let mut failed = success(agent);
+        failed.status = std::process::ExitStatus::from_raw(256);
+        let mut backend = HerdrBackend::new(
+            SequenceRunner::new([success(pane), failed]),
+            "herdr",
+            "named",
+            temp.path().to_owned(),
+        );
+        assert_eq!(
+            backend.pane_agent_state("named", "w:p"),
+            PaneAgentState::Unknown
+        );
+        for agent in [
+            br#"{"result":{"type":"agent_info","agent":{"agent":"codex","agent_status":"unknown","pane_id":"other"}}}"#.as_slice(),
+            br#"{"result":{"type":"agent_info","agent":{"agent_status":"unknown","pane_id":"w:p"}}}"#.as_slice(),
+            br#"{"result":{"agent":{"agent":"codex","agent_status":"unknown","pane_id":"w:p"}}}"#.as_slice(),
+            br#"{"result":{"type":"agent_info","agent":{"agent":"codex","agent_status":"mystery","pane_id":"w:p"}}}"#.as_slice(),
+            br#"{"error":{"code":"unavailable"},"result":{"type":"agent_info","agent":{"agent":"codex","agent_status":"unknown","pane_id":"w:p"}}}"#.as_slice(),
+        ] {
+            let mut backend = HerdrBackend::new(
+                SequenceRunner::new([success(pane), success(agent)]),
+                "herdr", "named", temp.path().to_owned(),
+            );
+            assert_eq!(backend.pane_agent_state("named", "w:p"), PaneAgentState::Unknown);
+        }
     }
 
     #[test]

@@ -23,6 +23,7 @@ struct SignalObservation {
     marker: std::path::PathBuf,
     signature: String,
     maintainer_relevant: bool,
+    routine_progress: bool,
 }
 
 fn now_epoch() -> u64 {
@@ -37,10 +38,7 @@ fn signal_signature(path: &Path) -> Option<String> {
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return None;
     }
-    #[cfg(target_os = "macos")]
     let modified = format!("{}.{:09}", metadata.mtime(), metadata.mtime_nsec());
-    #[cfg(not(target_os = "macos"))]
-    let modified = metadata.mtime().to_string();
     Some(format!("{}:{modified}", metadata.len()))
 }
 
@@ -79,17 +77,74 @@ fn scan_signals(state: &Path) -> Vec<SignalObservation> {
             .ok()
             .flatten()
             .unwrap_or_default();
-            let maintainer_relevant = multplx_core::classification::is_maintainer_relevant(
+            let mut maintainer_relevant = multplx_core::classification::is_maintainer_relevant(
                 &last,
                 override_regex.as_deref(),
                 "paused",
             )
             .unwrap_or(true);
+            let mut routine_progress = false;
+            if path.extension().and_then(|value| value.to_str()) == Some("status")
+                && let Some(task) = path.file_stem().and_then(|value| value.to_str())
+            {
+                maintainer_relevant = true; // Unavailable unseen-range evidence is unknown, never provably routine.
+                let canonical =
+                    multplx_domain::supervision::status_report_notifications(state, task);
+                // Inspect all unseen lines: a completion followed by progress
+                // in one burst must not erase the completion notification.
+                let mut previous_end = fs::read_to_string(&marker)
+                    .ok()
+                    .and_then(|signature| {
+                        signature
+                            .split_once(':')
+                            .and_then(|(size, _)| size.parse::<u64>().ok())
+                    })
+                    .unwrap_or(0);
+                if let Ok(bytes) = multplx_core::filesystem::read_bounded_regular(
+                    &path,
+                    multplx_core::classification::STATUS_READ_LIMIT,
+                ) && let Ok(text) = std::str::from_utf8(&bytes)
+                {
+                    if previous_end >= bytes.len() as u64 {
+                        previous_end = 0;
+                    }
+                    let mut end = 0_u64;
+                    routine_progress = true;
+                    maintainer_relevant = false;
+                    for line in text.split_inclusive('\n') {
+                        end += line.len() as u64;
+                        if end <= previous_end || line.trim().is_empty() {
+                            continue;
+                        }
+                        let line = line.trim_end_matches('\n');
+                        // Canonical publication owns its exact wake ID;
+                        // repair runs before this scan, so no reinjection.
+                        if canonical.contains_key(&(end, line.to_owned())) {
+                            continue;
+                        }
+                        let actionable = multplx_core::classification::report_requires_notification(
+                            multplx_core::classification::status_line_verb(line),
+                            false,
+                            line.split_once(':')
+                                .is_some_and(|(prefix, _)| prefix.contains("[reply=")),
+                            false,
+                            false,
+                        );
+                        // Legacy status has no frozen publication identity.
+                        // Routine working is quiet when actor health proves
+                        // progress; unavailable/idle actor health remains
+                        // conservative through the ordinary triage path.
+                        routine_progress = false;
+                        maintainer_relevant |= actionable;
+                    }
+                }
+            }
             Some(SignalObservation {
                 path,
                 marker,
                 signature,
                 maintainer_relevant,
+                routine_progress,
             })
         })
         .collect::<Vec<_>>();
@@ -590,6 +645,32 @@ fn pane_hash(capture: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn status_line_endpoint(state: &Path, task: &str, line: &str) -> Option<u64> {
+    let bytes = multplx_core::filesystem::read_bounded_regular(
+        state.join(format!("{task}.status")),
+        multplx_core::classification::STATUS_READ_LIMIT,
+    )
+    .ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    text.split_inclusive('\n')
+        .scan(0_u64, |end, row| {
+            *end += row.len() as u64;
+            Some((*end, row.trim_end_matches('\n')))
+        })
+        .filter_map(|(end, row)| (row == line).then_some(end))
+        .last()
+}
+
+fn reported_terminal_expected_idle(actor: &str, busy: bool, alive: bool) -> bool {
+    !busy
+        && alive
+        && !actor.contains("run-step still")
+        && actor
+            .strip_prefix("state: ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .is_some_and(|state| matches!(state, "done" | "failed" | "blocked" | "needs-decision"))
+}
+
 fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
     let afk = state.join(".afk").exists();
     let escalate = Duration::from_secs(environment_u64("MX_STALE_ESCALATE_SECS", 240));
@@ -598,6 +679,18 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
     let override_regex = std::env::var("MX_MAINTAINER_RE").ok();
     for window in recorded_windows(state) {
         let last = status_line(state, &window.task);
+        // A canonical terminal/decision report already owns a durable wake.
+        // Its expected idle pane is not a new health transition or wedge.
+        let reported_terminal =
+            matches!(
+                multplx_core::classification::status_line_verb(&last),
+                "done" | "failed" | "blocked" | "needs-decision"
+            ) && status_line_endpoint(state, &window.task, &last).is_some_and(|end| {
+                multplx_domain::supervision::status_report_notifications(state, &window.task)
+                    .get(&(end, last.clone()))
+                    .copied()
+                    .unwrap_or(false)
+            });
         let key = window_key(&window.endpoint);
         if !status_paused_or_held(&last) && state.join(format!(".paused-{key}")).exists() {
             clear_pause_tracking(state, &key);
@@ -613,6 +706,13 @@ fn stale_scan(source_root: &Path, state: &Path) -> Option<String> {
         let Some((capture, busy)) = backend_capture(&window) else {
             continue;
         };
+        if reported_terminal
+            && actor_state_line(source_root, state, &window.task).is_some_and(|actor| {
+                reported_terminal_expected_idle(&actor, busy, backend_agent_alive(&window))
+            })
+        {
+            continue;
+        }
         let Some(hash) = pane_hash(&capture) else {
             continue;
         };
@@ -3094,6 +3194,54 @@ fn append_wake(state: &Path, kind: multplx_core::wake::WakeKind, key: &str, reas
         .is_ok()
 }
 
+fn reconcile_report_notification_health(state: &Path) -> Result<Option<String>, String> {
+    let path = state.join(".report-notification-health.json");
+    let previous: serde_json::Value = fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let generation = previous["generation"].as_u64().unwrap_or(0);
+    match multplx_domain::supervision::reconcile_report_wakes(state) {
+        Ok(_) => {
+            if previous["error"].is_string() {
+                multplx_core::filesystem::atomic_replace(
+                    &path,
+                    &serde_json::to_vec(&serde_json::json!({"generation":generation,"error":null}))
+                        .expect("health JSON"),
+                    0o600,
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            Ok(None)
+        }
+        Err(error) => {
+            let generation = if previous["error"].as_str() == Some(&error) {
+                generation
+            } else {
+                generation.saturating_add(1)
+            };
+            multplx_core::filesystem::atomic_replace(
+                &path,
+                &serde_json::to_vec(&serde_json::json!({"generation":generation,"error":error}))
+                    .expect("health JSON"),
+                0o600,
+            )
+            .map_err(|error| error.to_string())?;
+            let reason = format!("check: accepted report notification repair failed: {error}");
+            let (_, created) = multplx_core::wake::WakeQueue::new(state)
+                .append_once(
+                    multplx_core::wake::WakeKind::Check,
+                    &format!("report-notification-health-{generation}"),
+                    &reason,
+                    SystemTime::now(),
+                    &SystemProcessProbe::default(),
+                )
+                .map_err(|error| error.to_string())?;
+            Ok(created.then_some(reason))
+        }
+    }
+}
+
 fn watcher_lock_pid(state: &Path) -> Option<u32> {
     fs::read_to_string(state.join(".watch.lock/pid"))
         .ok()
@@ -3524,8 +3672,16 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
     if !state.join(".last-heartbeat").exists() {
         let _ = fs::write(state.join(".last-heartbeat"), b"");
     }
-    if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
-        eprintln!("watcher: cannot reconcile accepted report notifications: {error}");
+    match reconcile_report_notification_health(&state) {
+        Ok(Some(reason)) => {
+            println!("{reason}");
+            return 0;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("watcher: report notification health publication failed: {error}");
+            return 1;
+        }
     }
     let parent_channel_limit = usize::try_from(environment_u64("MX_PARENT_CHANNEL_BATCH", 64))
         .unwrap_or(64)
@@ -3535,8 +3691,16 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
     {
         eprintln!("watcher: cannot reconcile this home's parent channel: {error}");
     }
-    if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
-        eprintln!("watcher: accepted report notifications remain pending: {error}");
+    match reconcile_report_notification_health(&state) {
+        Ok(Some(reason)) => {
+            println!("{reason}");
+            return 0;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("watcher: report notification health publication failed: {error}");
+            return 1;
+        }
     }
     let rejected_retirements = recover_pr_poll_retirements(&state);
     if !rejected_retirements.is_empty() {
@@ -3636,8 +3800,16 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                 return 1;
             }
         }
-        if let Err(error) = multplx_domain::supervision::reconcile_report_wakes(&state) {
-            eprintln!("watcher: accepted report notifications remain pending: {error}");
+        match reconcile_report_notification_health(&state) {
+            Ok(Some(reason)) => {
+                println!("{reason}");
+                return 0;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("watcher: report notification health publication failed: {error}");
+                return 1;
+            }
         }
         if file_age(&state.join(".last-check")) >= check_interval {
             let checks = authenticated_checks(&state, source_root);
@@ -3759,7 +3931,19 @@ pub(crate) fn watch(_root: &Path, home: &Path, source_root: &Path) -> i32 {
                 let _ = fs::write(state.join(".last-check"), b"");
             }
         }
-        let signals = coalesce_signals(&state, signal_grace);
+        let mut signals = coalesce_signals(&state, signal_grace);
+        let absorbed = signals
+            .iter()
+            .filter(|signal| signal.routine_progress)
+            .cloned()
+            .collect::<Vec<_>>();
+        if publish_signal_markers(&absorbed).is_err() {
+            return 1;
+        }
+        for observation in &absorbed {
+            mark_status_surfaced(&state, &observation.path);
+        }
+        signals.retain(|signal| !signal.routine_progress);
         if !signals.is_empty() {
             let files = signals
                 .iter()
@@ -5421,6 +5605,153 @@ mod tests {
         assert!(coalesced[0].maintainer_relevant);
         publish_signal_markers(&coalesced).expect("publish markers");
         assert!(scan_signals(temp.path()).is_empty());
+    }
+
+    #[test]
+    fn unseen_legacy_terminal_burst_and_rewritten_stream_remain_actionable() {
+        let temp = tempfile::tempdir().unwrap();
+        let status = temp.path().join("burst.status");
+        fs::write(&status, "working: first\n").unwrap();
+        let working = scan_signals(temp.path());
+        assert!(!working[0].maintainer_relevant);
+        publish_signal_markers(&working).unwrap();
+        fs::write(&status, "working: first\ndone: ready\nworking: cleanup\n").unwrap();
+        let burst = scan_signals(temp.path());
+        assert!(burst[0].maintainer_relevant);
+        assert!(!burst[0].routine_progress);
+        publish_signal_markers(&burst).unwrap();
+        fs::write(&status, "done: rewritten\n").unwrap();
+        let rewritten = scan_signals(temp.path());
+        assert!(rewritten[0].maintainer_relevant);
+        assert!(!rewritten[0].routine_progress);
+        let same_second = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        fs::write(&status, "working: a\n").unwrap();
+        fs::File::open(&status)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(same_second))
+            .unwrap();
+        publish_signal_markers(&scan_signals(temp.path())).unwrap();
+        fs::write(&status, "blocked: a\n").unwrap();
+        fs::File::open(&status)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(same_second + Duration::from_nanos(1_000_000)),
+            )
+            .unwrap();
+        let same_size = scan_signals(temp.path());
+        assert!(same_size[0].maintainer_relevant);
+        assert!(!same_size[0].routine_progress);
+    }
+
+    #[test]
+    fn informational_reply_tail_keeps_original_lifecycle_endpoint() {
+        let temp = tempfile::tempdir().unwrap();
+        let completed = "done: completed";
+        fs::write(
+            temp.path().join("info.status"),
+            format!("{completed}\nworking [reply=answer]: informational answer\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            super::status_line_endpoint(temp.path(), "info", completed),
+            Some(completed.len() as u64 + 1)
+        );
+        assert!(super::reported_terminal_expected_idle(
+            "state: done · source: status-log",
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn old_terminal_reports_cannot_hide_resumed_run_or_unknown_health() {
+        assert!(super::reported_terminal_expected_idle(
+            "state: done · source: status-log · done: delivered",
+            false,
+            true
+        ));
+        for actor in [
+            "state: working · source: run-step · validating",
+            "state: done · source: native-event · runtime done · run-step still validating",
+            "state: resolved · source: status-log · resolved: resume",
+            "state: unknown · source: none",
+        ] {
+            assert!(!super::reported_terminal_expected_idle(actor, false, true));
+        }
+        assert!(!super::reported_terminal_expected_idle(
+            "state: done · source: status-log",
+            true,
+            true
+        ));
+        assert!(!super::reported_terminal_expected_idle(
+            "state: done · source: status-log",
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn unavailable_status_range_is_conservatively_actionable() {
+        let temp = tempfile::tempdir().unwrap();
+        let status = temp.path().join("unknown.status");
+        fs::write(&status, [0xff]).unwrap();
+        let invalid = scan_signals(temp.path());
+        assert!(invalid[0].maintainer_relevant);
+        assert!(!invalid[0].routine_progress);
+        fs::write(
+            &status,
+            vec![b'x'; multplx_core::classification::STATUS_READ_LIMIT + 1],
+        )
+        .unwrap();
+        let oversized = scan_signals(temp.path());
+        assert!(oversized[0].maintainer_relevant);
+        assert!(!oversized[0].routine_progress);
+    }
+
+    #[test]
+    fn report_repair_health_notifies_changed_episodes_without_repeat_noise() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("evidence")).unwrap();
+        let malformed = temp.path().join("evidence/bad.json");
+        fs::write(&malformed, br#"{"accepted":true,"envelope":{"bad":true}}"#).unwrap();
+        assert!(
+            super::reconcile_report_notification_health(temp.path())
+                .unwrap()
+                .is_some()
+        );
+        for _ in 0..4 {
+            assert!(
+                super::reconcile_report_notification_health(temp.path())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(temp.path().join(".wake-queue"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        fs::remove_file(&malformed).unwrap();
+        assert!(
+            super::reconcile_report_notification_health(temp.path())
+                .unwrap()
+                .is_none()
+        );
+        fs::write(&malformed, br#"{"accepted":true,"envelope":{"bad":true}}"#).unwrap();
+        assert!(
+            super::reconcile_report_notification_health(temp.path())
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            fs::read_to_string(temp.path().join(".wake-queue"))
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
     }
 
     #[test]

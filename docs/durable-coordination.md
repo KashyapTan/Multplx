@@ -123,3 +123,24 @@ Repeating a marked delivery with its existing correlation reuses that identity; 
 These receipts prove local acceptance and backend delivery state.
 They do not grant merge authority, prove that the recipient acted, or invent an endpoint for a native provider that records none.
 Use the response and completion facts from the authoritative task report path for those later states.
+
+## Automatic report notifications
+
+The core report classifier suppresses only unrequested routine `working` progress.
+The first accepted report for an attempt and brief, requested replies, resumed work, report artifacts, terminal outcomes, blockers, questions and unknown kinds remain actionable.
+Existing delivery outcome kinds carry readiness and milestone evidence; working reports attach an artifact or bind a requested correlation when they require parent attention.
+An optional `automatic_wake` field freezes this policy in the accepted envelope before status publication.
+Historical envelopes without that field remain conservative, and superseded attempt/revision reports remain history during notification repair.
+Identical retries retain the original policy and exact wake identity.
+
+All report status lines, envelopes, evidence and route receipts remain durable when notification is suppressed.
+A pending envelope acknowledgement describes message transport, not an unhandled wake; suppressed progress creates no queue receipt or disposition obligation.
+Informational answers preserve task completion and report-owned waits while still notifying their requested parent through the nested route.
+The watcher consumes canonical status lines by their exact accepted byte endpoint, because canonical publication owns their notification identity.
+Legacy ingestion examines every unseen status line so a terminal event followed by progress in one burst remains actionable.
+Unreadable or over-limit streams remain conservative rather than becoming proven healthy.
+Notification repair failures create a durable health event once per changed failure episode, and successful repair resets that health condition.
+Missing envelope projections are reconstructed from exact committed message and acknowledgement history under one message-writer lock.
+A missing projection combined with an unfinished overlapping acknowledgement intent remains a visible retained repair failure; automatic notification repair does not invent acknowledgement completion.
+Expected idle terminal reports suppress redundant stale-pane wakes only after current identity and actor reconciliation prove no resumed run, busy pane or unknown/dead transport.
+Resolved reports remain eligible for subsequent genuine run-health supervision.

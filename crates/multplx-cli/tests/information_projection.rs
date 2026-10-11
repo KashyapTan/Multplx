@@ -272,14 +272,54 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
     let pause_marker = state.join(".paused-broker_mx-worker");
     let recheck_marker = state.join(".paused-rechecked-broker_mx-worker");
     let resurface_marker = state.join(".paused-resurfaced-broker_mx-worker");
+    let mut pause_observations = Vec::new();
     for _ in 0..4 {
-        checkpoint();
-        if pause_marker.exists() {
+        let output = checkpoint();
+        pause_observations.push(format!(
+            "status={:?}, stdout={:?}, stderr={:?}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+        if fs::read_to_string(&pause_marker).is_ok_and(|identity| !identity.trim().is_empty()) {
             break;
         }
     }
-    assert!(pause_marker.exists(), "watcher observes the initial pause");
-    let initial_pause_identity = fs::read_to_string(&pause_marker).unwrap();
+    let initial_pause_identity = fs::read_to_string(&pause_marker).unwrap_or_default();
+    // Diagnose the actual default child transport only after the unchanged
+    // observation budget fails. Do not replace it with a fixture override.
+    let actor_diagnostics = if initial_pause_identity.trim().is_empty() {
+        let script = source.join("bin/mx-actor-state.sh");
+        let environment = mx();
+        let mut query = Command::new(&script);
+        for (key, value) in environment.get_envs() {
+            if let Some(value) = value {
+                query.env(key, value);
+            } else {
+                query.env_remove(key);
+            }
+        }
+        let adapter = query
+            .env("MX_JOURNAL_CLASSIFY", "1")
+            .env("MX_JOURNAL_SOURCE", "mx-watch")
+            .arg("worker")
+            .output();
+        let direct = mx()
+            .env("MX_JOURNAL_CLASSIFY", "1")
+            .env("MX_JOURNAL_SOURCE", "mx-watch")
+            .args(["actor-state", "worker"])
+            .output();
+        format!(
+            "script={script:?}, metadata={:?}, adapter={adapter:?}, direct={direct:?}, checkpoints={pause_observations:?}",
+            fs::metadata(&script)
+        )
+    } else {
+        String::new()
+    };
+    assert!(
+        !initial_pause_identity.trim().is_empty(),
+        "watcher must verify the pause identity before its established cadence is aged: {actor_diagnostics}"
+    );
     let old_pause = std::time::SystemTime::now() - std::time::Duration::from_secs(30);
     for marker in [&pause_marker, &recheck_marker, &resurface_marker] {
         if *marker != pause_marker {
@@ -384,4 +424,184 @@ fn accepted_information_preserves_actor_and_viz_state_without_hiding_real_work()
     );
     assert!(!recheck_marker.exists());
     assert!(!resurface_marker.exists());
+}
+
+#[test]
+fn unavailable_actor_query_does_not_establish_a_verified_pause_cadence() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let state = home.join("state");
+    let fakebin = temp.path().join("fakebin");
+    fs::create_dir_all(&state).unwrap();
+    fs::create_dir_all(&fakebin).unwrap();
+    let tmux = fakebin.join("tmux");
+    fs::write(&tmux, "#!/bin/sh\ncase \"$1\" in\nlist-windows) printf 'mx-worker\\n';;\ndisplay-message) printf '%%1\\n';;\ncapture-pane) printf 'idle prompt\\n';;\nesac\n").unwrap();
+    fs::set_permissions(&tmux, fs::Permissions::from_mode(0o755)).unwrap();
+    // Model an unavailable query only until the real watcher records its
+    // conservative fallback. Recovery executes the actual actor-state owner.
+    let actor = temp.path().join("actor-query.sh");
+    fs::write(
+        &actor,
+        "#!/bin/sh\nif [ ! -e \"$MX_STATE_OVERRIDE/.paused-broker_mx-worker\" ]; then\n  printf 'unavailable\\n' >> \"$MX_STATE_OVERRIDE/query-audit\"\n  exit 1\nfi\nprintf 'native\\n' >> \"$MX_STATE_OVERRIDE/query-audit\"\nexec \"$MX_RUST_BIN\" actor-state \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&actor, fs::Permissions::from_mode(0o755)).unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mx = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_mx"));
+        command
+            .env(
+                "PATH",
+                format!("{}:{}", fakebin.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("MX_HOME", &home)
+            .env("MX_ROOT_OVERRIDE", &home)
+            .env("MX_STATE_OVERRIDE", &state)
+            .env("MX_REPORT_STATE_OVERRIDE", &state)
+            .env("MX_RUST_SOURCE_ROOT", &source)
+            .env("MX_RUST_BIN", env!("CARGO_BIN_EXE_mx"))
+            .env("MX_NUDGE", "0");
+        command
+    };
+    let mut record = TaskRecord::new(
+        "worker".into(),
+        AssignmentRole::Researcher,
+        ArtifactKind::Report,
+        false,
+        "root".into(),
+        "root".into(),
+        home.to_string_lossy().into_owned(),
+    );
+    record.runtime.endpoint = Some("broker:mx-worker".into());
+    fs::write(
+        state.join("worker.meta"),
+        write_meta(
+            &format!(
+                "kind=scout\nwindow=broker:mx-worker\nworktree={}\n",
+                home.display()
+            ),
+            &record,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let attempt = record.attempt.as_ref().unwrap();
+    let report = |args: &[&str]| {
+        run(mx()
+            .env("MX_TASK_ID", "worker")
+            .env("MX_ATTEMPT_ID", &attempt.id)
+            .env("MX_ATTEMPT_GENERATION", attempt.generation.to_string())
+            .env("MX_BRIEF_REVISION", attempt.brief_revision.to_string())
+            .args(["supervision", "mx-report"])
+            .args(args))
+    };
+    let checkpoint = || {
+        let output = mx()
+            .env("MX_ACTOR_STATE_BIN", &actor)
+            .env("MX_POLL", "0.05")
+            .env("MX_SIGNAL_GRACE", "0")
+            .env("MX_CHECK_INTERVAL", "999999")
+            .env("MX_HEARTBEAT", "999999")
+            .env("MX_PAUSE_RESURFACE_SECS", "10")
+            .args(["supervision", "mx-watch-checkpoint.sh", "--seconds", "1"])
+            .output()
+            .unwrap();
+        assert!(
+            matches!(output.status.code(), Some(0 | 124)),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    };
+    report(&["--state", "paused", "--message", "waiting for release"]);
+    let pause_marker = state.join(".paused-broker_mx-worker");
+    for _ in 0..4 {
+        checkpoint();
+        if pause_marker.exists() {
+            break;
+        }
+    }
+    assert_eq!(fs::read_to_string(&pause_marker).unwrap(), "");
+    assert!(
+        fs::read_to_string(state.join("query-audit"))
+            .unwrap()
+            .contains("unavailable")
+    );
+    let old_pause = std::time::SystemTime::now() - std::time::Duration::from_secs(30);
+    for name in [
+        ".paused-broker_mx-worker",
+        ".paused-rechecked-broker_mx-worker",
+        ".paused-resurfaced-broker_mx-worker",
+    ] {
+        fs::File::open(state.join(name))
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(old_pause))
+            .unwrap();
+    }
+    let correlation = pending_reply::create_bound(
+        &home,
+        &state,
+        "worker",
+        "question",
+        &ReplyBinding {
+            message_id: Some("while-unverified"),
+            parent_task_id: Some("root"),
+            recipient_task_id: Some("worker"),
+            recipient_home: Some(&home),
+            attempt_id: Some(&attempt.id),
+            attempt_generation: Some(attempt.generation),
+            brief_revision: Some(attempt.brief_revision),
+        },
+    )
+    .unwrap();
+    pending_reply::confirm_delivery(&state, &correlation).unwrap();
+    report(&[
+        "--state",
+        "working",
+        "--message",
+        "response",
+        "--correlation-id",
+        &correlation,
+        "--reply-disposition",
+        "answered",
+        "--message-id",
+        "unverified-answer",
+        "--key",
+        "info",
+    ]);
+    let observed = run(mx().args(["actor-state", "worker"]));
+    assert!(
+        String::from_utf8_lossy(&observed.stdout).starts_with("state: paused · source: status-log"),
+        "{}",
+        String::from_utf8_lossy(&observed.stdout)
+    );
+    for _ in 0..4 {
+        let output = checkpoint();
+        assert!(
+            !String::from_utf8_lossy(&output.stdout)
+                .contains("declared pause, rechecked on a long cadence"),
+            "an unverified fallback must not be adopted as an established pause cadence"
+        );
+        if fs::read_to_string(&pause_marker).is_ok_and(|identity| !identity.trim().is_empty()) {
+            break;
+        }
+    }
+    assert!(!fs::read_to_string(&pause_marker).unwrap().trim().is_empty());
+    assert!(fs::metadata(&pause_marker).unwrap().modified().unwrap() > old_pause);
+    assert_eq!(
+        fs::metadata(state.join(".paused-resurfaced-broker_mx-worker"))
+            .unwrap()
+            .modified()
+            .unwrap(),
+        old_pause
+    );
+    assert!(
+        fs::read_to_string(state.join("query-audit"))
+            .unwrap()
+            .contains("native")
+    );
+    let observed = run(mx().args(["actor-state", "worker"]));
+    assert!(
+        String::from_utf8_lossy(&observed.stdout).starts_with("state: paused · source: status-log")
+    );
 }

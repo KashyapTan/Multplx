@@ -91,7 +91,7 @@ impl CommandResult {
     }
 }
 
-const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
+const REPORT_USAGE: &str = "Append one validated, task-bound status event.\n\nUsage:\n  mx-report [--id <task-id>] --state <state> --message <one-line-message> [--key <slug>] [--workflow-revision <id>]\n  mx-report --list-states [--id <task-id>]\n\nThe closed sub-agent-writable state vocabulary lives in the Rust report command. Canonical needs-decision reports require --key and record the message as a revision-bound human question.\nA write is accepted only when the caller is bound to the same task. Canonical tasks require --attempt-id, --generation and --brief-revision (or MX_ATTEMPT_ID, MX_ATTEMPT_GENERATION and MX_BRIEF_REVISION). --id defaults to MX_TASK_ID. Success prints a JSON acceptance receipt; completion_proven is separate from status acceptance. Reply to each marked parent request with its explicit --correlation-id TOKEN (MCP correlation_id); corr= in --message is not a binding. Multiple outstanding requests require separate reports. Explicit --reply-disposition acknowledged|answered with --state working and --correlation-id records a request acknowledgement or answer without changing task completion or waits; acknowledgement does not settle the request. Omission retains ordinary lifecycle behavior. Keep the one-line summary within 300 characters for MCP and attach longer result evidence. Optional --message-id preserves retry identity; --correlation-id binds a request/reply chain; --artifact binds result evidence. Stale evidence is retained and rejected. A done status is implementation completion only when current typed delivery evidence matches the bound checkout HEAD, or a report/coordination assignment supplies an existing regular-file --artifact. An ordinary current non-done report or unproven done withdraws prior completion and closes dependency gates. Status prose alone does not release dependencies; checks, review, PR readiness and human merge remain separate. First current starts, requested replies, lifecycle changes and artifacts notify the parent; repeated unrequested working progress stays durable without an automatic wake.\nState directory precedence is MX_REPORT_STATE_OVERRIDE, MX_STATE_OVERRIDE, MX_HOME/state, then repo/state.\n";
 
 #[derive(Default)]
 struct ReportOptions {
@@ -313,7 +313,7 @@ fn publish_report_wake(
     state: &Path,
     envelope: &crate::lifecycle::subagent_model::MessageEnvelope,
 ) -> Result<(), String> {
-    crate::operational_input::publish_message_wake(
+    crate::operational_input::publish_report_notification(
         state,
         envelope,
         &report_wake_payload(envelope),
@@ -321,6 +321,84 @@ fn publish_report_wake(
         &SystemProcessProbe::default(),
     )
     .map(|_| ())
+}
+
+/// Index retained canonical status endpoints once for each watcher status scan.
+/// Canonical publication owns the notification identity for these exact lines.
+/// Values distinguish current identity from retained historical publication.
+#[must_use]
+pub fn status_report_notifications(
+    state: &Path,
+    task: &str,
+) -> std::collections::BTreeMap<(u64, String), bool> {
+    let mut notifications = std::collections::BTreeMap::new();
+    let current = multplx_core::filesystem::read_bounded_regular(
+        state.join(format!("{task}.meta")),
+        crate::lifecycle::subagent_model::MAX_TASK_METADATA_BYTES,
+    )
+    .ok()
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .and_then(|text| crate::lifecycle::subagent_model::read_meta(task, &text).ok())
+    .filter(|record| !record.legacy_unknown);
+    let Ok(entries) = fs::read_dir(state.join("evidence")) else {
+        return notifications;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| name.starts_with(&format!("{task}-")) && name.ends_with(".json"))
+        {
+            continue;
+        }
+        let Some(value): Option<serde_json::Value> =
+            multplx_core::filesystem::read_bounded_regular(&path, 1024 * 1024)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        else {
+            continue;
+        };
+        if value["accepted"] == true
+            && let Some(line) = value["status_line"].as_str()
+            && let Some(end) = value["status_end"].as_u64()
+        {
+            notifications.insert(
+                (end, line.to_owned()),
+                current.as_ref().is_some_and(|record| {
+                    value["envelope"]["attempt"]
+                        == serde_json::to_value(&record.attempt).expect("attempt JSON")
+                        && value["envelope"]["brief_revision"]
+                            == serde_json::to_value(record.accepted_brief_revision)
+                                .expect("revision JSON")
+                }),
+            );
+        }
+    }
+    notifications
+}
+
+fn first_current_report(
+    state: &Path,
+    envelope: &crate::lifecycle::subagent_model::MessageEnvelope,
+) -> bool {
+    let Ok(entries) = fs::read_dir(state.join("evidence")) else {
+        return true;
+    };
+    !entries.flatten().any(|entry| {
+        let value: Option<serde_json::Value> =
+            multplx_core::filesystem::read_bounded_regular(entry.path(), 1024 * 1024)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        value.is_some_and(|value| {
+            value["accepted"] == true
+                && value["envelope"]["task_id"] == envelope.task_id
+                && value["envelope"]["attempt"]
+                    == serde_json::to_value(&envelope.attempt).expect("attempt JSON")
+                && value["envelope"]["brief_revision"]
+                    == serde_json::to_value(envelope.brief_revision).expect("revision JSON")
+        })
+    })
 }
 
 /// Repair the report-commit to wake-publication window from retained accepted
@@ -606,6 +684,7 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
             summary: message.clone(),
             artifact: parsed.artifact.clone(),
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         };
         let validation = validate_report_home(&record, &state)
             .and_then(|()| envelope.validate_current(&record, bound.as_str(), &recipient));
@@ -652,6 +731,42 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 "reply disposition requires a current pending request correlation",
             );
         }
+        let retained_policy = state
+            .join("evidence")
+            .join(format!("{}-{message_id}.json", task.as_str()));
+        envelope.automatic_wake = if retained_policy.is_file() {
+            let old: serde_json::Value =
+                match multplx_core::filesystem::read_bounded_regular(&retained_policy, 1024 * 1024)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                {
+                    Some(value) => value,
+                    None => return binding_error("corrupt retained evidence"),
+                };
+            old["envelope"]["automatic_wake"].as_bool()
+        } else {
+            use crate::lifecycle::subagent_model::WorkState;
+            let lifecycle_changed = parsed.reply_disposition.is_none()
+                && (matches!(
+                    record.schedule.state,
+                    WorkState::Completed | WorkState::WaitingExternal | WorkState::WaitingHuman
+                ) || multplx_core::classification::last_status_line(
+                    state.join(format!("{}.status", task.as_str())),
+                    multplx_core::classification::STATUS_READ_LIMIT,
+                )
+                .ok()
+                .flatten()
+                .is_some_and(|line| {
+                    multplx_core::classification::status_line_verb(&line) != "working"
+                }));
+            Some(multplx_core::classification::report_requires_notification(
+                &envelope.kind,
+                first_current_report(&state, &envelope),
+                parsed.correlation_id.is_some(),
+                lifecycle_changed,
+                envelope.artifact.is_some(),
+            ))
+        };
         // A completion report can close the implementation dependency gate
         // only when a separately typed, current implementation or report
         // artifact proves the result. The status message alone remains status
@@ -752,7 +867,8 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
         } else {
             None
         };
-        let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision,"completion_proven":completion_evidence});
+        let mut evidence = json!({"envelope":envelope,"accepted":validation.is_ok(),"rejection":validation.as_ref().err(),"decision":decision,"completion_proven":completion_evidence,"status_line":line,
+            "status_end":fs::metadata(state.join(format!("{}.status", task.as_str()))).map(|m| m.len()).unwrap_or(0) + line.len() as u64 + 1});
         if let Some(disposition) = &parsed.reply_disposition {
             evidence["reply_disposition"] = json!(disposition);
             evidence["status_line"] = json!(line);
@@ -778,6 +894,19 @@ pub fn report(args: &[String], root: &Path) -> CommandResult {
                 Err(_) => return binding_error("corrupt retained evidence"),
             };
             let mut comparable = evidence.clone();
+            comparable["status_end"] = old["status_end"].clone();
+            if old.get("status_end").is_none() {
+                comparable
+                    .as_object_mut()
+                    .expect("evidence object")
+                    .remove("status_end");
+            }
+            if old.get("status_line").is_none() {
+                comparable
+                    .as_object_mut()
+                    .expect("evidence object")
+                    .remove("status_line");
+            }
             comparable["envelope"]["created_at"] = old["envelope"]["created_at"].clone();
             if old.get("parent_outcome").is_none() {
                 comparable
@@ -1936,6 +2065,7 @@ mod tests {
             summary: "retained accepted outcome".into(),
             artifact: Some("failure.txt".into()),
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         };
         let outcome = prepare_outcome(&state, &event).unwrap();
         atomic_replace(

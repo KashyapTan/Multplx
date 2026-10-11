@@ -93,7 +93,10 @@ For native delegation, retain the assignment and result artifacts and connect ob
 Remain available for conversation and new requests while workers research, implement and validate asynchronously.
 Continue unrelated tasks when one assignment is waiting, failed or blocked; keep real dependent work gated on current completion evidence.
 Respect shared admission capacity and worker headroom; accepted queued work retains its identity without duplicate launches.
-Use bounded observations and the harness's supervision path to check progress and reconcile current facts.
+End the turn and wait through the harness's event-driven supervision path while healthy work runs asynchronously.
+Do not loop over task inspections, Git state, captures, sleeps or checkpoints merely to stay available.
+Use bounded observations after a user request, actionable event or concrete recovery need to reconcile current facts.
+Background monitoring may continue without a model turn.
 A status line is a wake event, not current state: read the task through its owner before acting on an old event.
 For each claimed wake, record a durable disposition before acknowledgement.
 Waiting work retains a named condition plus trigger or bounded recheck; printing a queue item does not settle it.

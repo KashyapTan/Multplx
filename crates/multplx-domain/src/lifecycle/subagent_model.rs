@@ -992,6 +992,10 @@ pub struct MessageEnvelope {
     pub summary: String,
     pub artifact: Option<String>,
     pub acknowledgement: Acknowledgement,
+    /// Frozen acceptance-time notification policy. Missing historical policy
+    /// is conservative; false is valid only for unrequested working progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automatic_wake: Option<bool>,
 }
 impl MessageEnvelope {
     pub fn validate_current(
@@ -1587,6 +1591,7 @@ mod tests {
             summary: "done".into(),
             artifact: Some("result.md".into()),
             acknowledgement: Acknowledgement::Pending,
+            automatic_wake: None,
         }
     }
     #[test]

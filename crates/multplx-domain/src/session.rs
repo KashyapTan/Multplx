@@ -64,7 +64,7 @@ fn lock_is_in_ancestry(state: &Path, processes: &impl ProcessProbe) -> bool {
     false
 }
 
-const SUPERVISION_USAGE: &str = "Usage: mx-supervision-instructions.sh [--harness <name>] [--read-only 0|1] [--afk 0|1] [--repair-line] [--queue-pending 0|1]\n\nPrint the current primary harness's supervision operating instructions.\nWith --repair-line, print one concise repair instruction for guard and hook messages.\n";
+const SUPERVISION_USAGE: &str = "Usage: mx-supervision-instructions.sh [--harness <name>] [--read-only 0|1] [--afk 0|1] [--repair-line] [--queue-pending 0|1] [--status]\n\nPrint the current primary harness's supervision operating instructions.\nWith --repair-line, print one concise repair instruction for guard and hook messages.\nWith --status, print a read-only JSON projection of supervision need and watcher freshness; freshness alone does not prove native delivery readiness.\n";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct SupervisionOptions {
@@ -73,6 +73,7 @@ struct SupervisionOptions {
     afk: bool,
     repair_line: bool,
     queue_pending: bool,
+    status: bool,
 }
 
 fn bool_value(value: &str) -> bool {
@@ -117,6 +118,10 @@ fn parse_supervision(args: &[String]) -> Result<SupervisionOptions, CommandResul
                     _ => unreachable!(),
                 }
                 index += 2;
+            }
+            "--status" => {
+                options.status = true;
+                index += 1;
             }
             "--repair-line" => {
                 options.repair_line = true;
@@ -244,7 +249,10 @@ fn codex_idle_activated(root: &Path) -> bool {
                 .unwrap_or_else(|| root.to_owned())
                 .join("state")
         });
-    std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1") && codex_hook_ready(&state)
+    std::env::var("MX_CODEX_IDLE_CLI").as_deref() == Ok("1")
+        && codex_hook_ready(&state)
+        && !state.join(".codex-idle-failure").exists()
+        && !state.join(".codex-idle-uncertain.json").exists()
 }
 
 fn ordinary_wake_line(harness: &str, codex_active: bool) -> &'static str {
@@ -256,7 +264,7 @@ fn ordinary_wake_line(harness: &str, codex_active: bool) -> &'static str {
             "- Ordinary wake: the Stop-owned Codex exact-thread queue bridge owns watcher continuity; claim the wake, record its durable disposition, acknowledge it, then end the handling turn. Foreground checkpoints are only the explicit fallback when queue support is unavailable. See `mx wake --help`."
         }
         "codex" => {
-            "- Ordinary wake: the Codex queue bridge is inactive or native hooks are not ready here; claim the wake, record its durable disposition, acknowledge it, then take the next bounded foreground bin/mx-watch-checkpoint.sh checkpoint. Complete the provider's native hook trust review when required. Desktop event delivery is unverified. See `mx wake --help`."
+            "- Ordinary wake: the Codex queue bridge is inactive or native hooks are not ready here; claim the wake, record its durable disposition, acknowledge it, then diagnose the degraded readiness reason. Use bin/mx-watch-checkpoint.sh only for one explicit bounded recovery wait; if delivery remains unavailable, retain unfinished wakes and name the blocker and next human message or repaired startup as the resumption trigger. Complete the provider's native hook trust review when required. Desktop event delivery is unverified. See `mx wake --help`."
         }
         "pi" => {
             "- Ordinary wake: the Pi extension already owns watcher continuity; claim the wake, record its disposition, then acknowledge it. Do not arm another cycle. See `mx wake --help`."
@@ -337,6 +345,42 @@ pub fn supervision_instructions(
         _ => "unknown",
     };
     let codex_active = harness == "codex" && codex_idle_activated(logical_root);
+    if options.status {
+        let state = std::env::var_os("MX_STATE_OVERRIDE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::var_os("MX_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| logical_root.to_owned())
+                    .join("state")
+            });
+        let status = multplx_core::supervision::inspect(
+            &state,
+            std::time::Duration::from_secs(
+                std::env::var("MX_GUARD_GRACE")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(300),
+            ),
+            std::time::SystemTime::now(),
+        );
+        return CommandResult {
+            status: 0,
+            stdout: format!(
+                "{}\n",
+                serde_json::json!({
+                    "harness": harness, "needed": status.needed,
+                    "watcher_fresh": status.watcher_fresh,
+                    "queue_pending": status.queue_pending,
+                    "away": state.join(".afk").exists(),
+                    "failure": if harness == "pi" { fs::read_to_string(state.join(".pi-watch-failure")).ok() } else { None },
+                    "native_delivery": "requires provider hook or extension readiness; watcher freshness alone is insufficient"
+                })
+            ),
+            stderr: String::new(),
+        };
+    }
+
     if options.repair_line {
         return CommandResult {
             status: 0,

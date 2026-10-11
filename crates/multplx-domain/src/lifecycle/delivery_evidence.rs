@@ -639,6 +639,7 @@ pub fn outcome_envelope(
             .map(|state| Path::new(state).join(format!("{}.meta", task.task_id)))
             .map(|path| path.to_string_lossy().into_owned()),
         acknowledgement: Acknowledgement::Pending,
+        automatic_wake: None,
     })
 }
 

@@ -81,9 +81,9 @@ file_mtime() {
 }
 
 # Signature a primed .seen-* marker must hold so the per-poll signal scan does not
-# fire on a pre-existing status (mirrors mx-watch.sh's stat_sig exactly).
+# fire on a pre-existing status (mirrors the native watcher exactly).
 seen_sig() {
-  if [ "$(uname)" = Darwin ]; then stat -f '%z:%Fm' "$1" 2>/dev/null; else stat -c '%s:%Y' "$1" 2>/dev/null; fi
+  mx_test_signal_signature "$1"
 }
 
 reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }

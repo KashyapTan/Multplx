@@ -176,7 +176,15 @@ fn reports_accept_current_identity_retry_once_and_retain_stale_evidence() {
     success(fixture.report("current-two").output().unwrap());
     let queue = fs::read_to_string(fixture.home.join("state/.wake-queue")).unwrap();
     assert!(queue.contains("message-current"));
-    assert!(queue.contains("message-current-two"));
+    assert!(!queue.contains("message-current-two"));
+    assert_eq!(
+        fixture.evidence("current")["envelope"]["automatic_wake"],
+        true
+    );
+    assert_eq!(
+        fixture.evidence("current-two")["envelope"]["automatic_wake"],
+        false
+    );
     assert!(
         fixture
             .home
@@ -198,7 +206,20 @@ fn reports_accept_current_identity_retry_once_and_retain_stale_evidence() {
     );
     let repaired = fs::read_to_string(fixture.home.join("state/.wake-queue")).unwrap();
     assert!(repaired.contains("message-current"));
-    assert!(repaired.contains("message-current-two"));
+    assert!(!repaired.contains("message-current-two"));
+    assert!(
+        fixture
+            .home
+            .join("state/message-outbox/current-two.json")
+            .is_file()
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.home.join("state/task.status"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
 }
 
 #[test]

@@ -32,10 +32,13 @@ Spawn supplies `MX_TASK_ID` and `MX_REPORT_STATE_OVERRIDE`; the latter keeps a p
 Use `report_status` when exposed or the absolute `bin/mx-report` fallback in the brief.
 Never append raw status-file lines.
 [Supervision protocols](../../../docs/supervision-protocols/) and [turn-end guards](../../../docs/turnend-guard.md) own the harness-specific wait and repair paths.
-Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` and a matched native SessionStart readiness receipt are present and `codex queue` is available, and Pi uses its tracked watcher extension.
+Claude uses Stop-owned auto-arm, Cursor uses its tracked stop-hook park, Codex uses its Stop-owned exact-thread queue bridge when `MX_CODEX_IDLE_CLI=1` and a matched native SessionStart readiness receipt are present and `codex queue` is available, and Pi uses its tracked watcher extension with automatic first-cycle startup at native turn end.
 Managed Multplx Codex CLI launches set the activation flag automatically; direct terminal CLI launches require explicit `MX_CODEX_IDLE_CLI=1 codex` opt-in.
-Inactive sessions retain bounded foreground checkpoints; Codex Desktop event delivery is unverified.
-If native hook review was skipped or hooks are disabled, retain that fallback until the provider's native hook trust review and SessionStart registration establish readiness.
+Inactive sessions are visibly degraded; use one bounded foreground checkpoint only for explicit recovery.
+If native delivery remains unavailable, retain unfinished wakes, name the concrete blocker and use the next human message or repaired native startup as the resumption trigger.
+Codex Desktop event delivery is unverified.
+If native hook review was skipped or hooks are disabled, retain the readiness blocker until the provider's native hook trust review and SessionStart registration establish readiness.
+Do not repeat quiet checkpoints, sleeps or manual re-arm commands while waiting for that repair.
 The integration does not override disabled hooks or change private trust state.
 Primary and worker Codex launches share the same canonical worker-hook CLI bundle, including a fingerprint of the actual owned scripts and runtime executable.
 Complete its first native review at primary startup; unchanged standing/nested workers reuse that definition across homes, while owned bundle changes require review again.
@@ -45,7 +48,11 @@ A created endpoint proves neither assignment acceptance nor model execution; ins
 Model flags require provider IDs, not display labels; `GPT-6 Luna` is rejected before allocation with canonical Codex ID guidance.
 Unknown custom single-token IDs are preserved without claiming account access.
 
-Unsupported Codex queue versions emit a visible warning and retain the explicit foreground checkpoint fallback.
+Use `bin/mx-codex-idle.sh --status` for a read-only exact-session readiness and capability diagnosis; readiness is separate from an identity-matched live bridge and fresh watcher.
+Use `bin/mx-supervision-instructions.sh --harness pi --status` to inspect supervision need and any retained Pi delivery failure.
+Healthy native supervision ends the handling turn without model polling or manual re-arm.
+Unsupported Codex queue versions emit a visible warning and permit one bounded foreground checkpoint for explicit recovery.
+Persistent incompatibility remains a named blocker with unfinished wakes retained until the next human message or a repaired native startup.
 Use one home-scoped monitoring owner; retain queue entries and reconcile current state after notifications.
 
 All delegation, including nested delegation, uses Multplx-managed agents by default.

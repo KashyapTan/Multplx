@@ -270,6 +270,180 @@ fn unknown_and_missing_session_entries_fail_before_execution() {
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown session entry point"));
 }
 
+fn supervision_status_command(home: &Path, harness: &str) -> Command {
+    let mut command = mx();
+    command
+        .env(
+            "MX_RUST_SOURCE_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
+        .env("MX_ROOT_OVERRIDE", home)
+        .env("MX_HOME", home)
+        .env("MX_STATE_OVERRIDE", home.join("state"))
+        .env_remove("MX_CODEX_IDLE_CLI")
+        .env_remove("MX_GUARD_GRACE")
+        .args([
+            "session",
+            "mx-supervision-instructions.sh",
+            "--harness",
+            harness,
+            "--status",
+        ]);
+    command
+}
+
+fn status_fixture_bytes(state: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fs::read_dir(state)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                PathBuf::from(entry.file_name()),
+                fs::read(entry.path()).expect("fixture state remains regular files"),
+            )
+        })
+        .collect()
+}
+
+fn read_supervision_status(command: &mut Command) -> serde_json::Value {
+    let output = run(command);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty(), "status is a read-only projection");
+    serde_json::from_slice(&output.stdout).expect("status JSON")
+}
+
+#[test]
+fn native_status_retains_pending_work_without_arming_or_consuming_it() {
+    let home = tempfile::tempdir().expect("home");
+    let state = home.path().join("state");
+    fs::create_dir(&state).unwrap();
+    let empty = read_supervision_status(&mut supervision_status_command(home.path(), "pi"));
+    assert_eq!(
+        empty["needed"], false,
+        "an available idle home has no invented work"
+    );
+    assert_eq!(empty["watcher_fresh"], false);
+    assert_eq!(empty["queue_pending"], false);
+    assert!(empty["failure"].is_null());
+    assert_eq!(
+        fs::read_dir(&state).unwrap().count(),
+        0,
+        "status started or registered supervision"
+    );
+
+    // A real pending record must remain visible without a healthy watcher.
+    let wake = "1\t1\tsignal\tworker\tdone\n";
+    fs::write(state.join(".wake-queue"), wake).unwrap();
+    fs::write(state.join(".lock"), std::process::id().to_string()).unwrap();
+    let unchanged = status_fixture_bytes(&state);
+    let pending = read_supervision_status(&mut supervision_status_command(home.path(), "pi"));
+    assert_eq!(pending["needed"], true);
+    assert_eq!(pending["queue_pending"], true);
+    assert_eq!(pending["watcher_fresh"], false);
+    assert_eq!(status_fixture_bytes(&state), unchanged);
+    assert_eq!(fs::read_to_string(state.join(".wake-queue")).unwrap(), wake);
+    assert_eq!(
+        fs::read_dir(&state).unwrap().count(),
+        2,
+        "read-only status created claims or watcher state"
+    );
+
+    // Corrupt retained wake bytes require reconciliation, rather than a quiet
+    // or healthy projection, and must not be rewritten by this inspector.
+    fs::write(state.join(".wake-queue"), "unparseable retained wake\n").unwrap();
+    let unchanged = status_fixture_bytes(&state);
+    let malformed = read_supervision_status(&mut supervision_status_command(home.path(), "pi"));
+    assert_eq!(malformed["needed"], true);
+    assert_eq!(malformed["queue_pending"], true);
+    assert_eq!(malformed["watcher_fresh"], false);
+    assert_eq!(status_fixture_bytes(&state), unchanged);
+    assert_eq!(
+        fs::read_to_string(state.join(".wake-queue")).unwrap(),
+        "unparseable retained wake\n"
+    );
+}
+
+#[test]
+fn native_status_separates_watcher_freshness_from_delivery_failure() {
+    let home = tempfile::tempdir().expect("home");
+    let state = home.path().join("state");
+    fs::create_dir(&state).unwrap();
+    fs::write(state.join("actor.meta"), "id=actor\n").unwrap();
+    fs::write(state.join(".last-watcher-beat"), "fixture heartbeat\n").unwrap();
+    let beacon = fs::File::options()
+        .write(true)
+        .open(state.join(".last-watcher-beat"))
+        .unwrap();
+    beacon
+        .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
+        .unwrap();
+    let unchanged = status_fixture_bytes(&state);
+    let stale = read_supervision_status(&mut supervision_status_command(home.path(), "pi"));
+    assert_eq!(stale["needed"], true);
+    assert_eq!(status_fixture_bytes(&state), unchanged);
+    assert_eq!(
+        stale["watcher_fresh"], false,
+        "retained stale beacon was called fresh"
+    );
+
+    fs::write(
+        state.join(".last-watcher-beat"),
+        "fresh fixture heartbeat\n",
+    )
+    .unwrap();
+    let failure = "Pi follow-up delivery failed: fixture transport rejected notification\n";
+    fs::write(state.join(".pi-watch-failure"), failure).unwrap();
+    let mut command = supervision_status_command(home.path(), "pi");
+    command
+        .env_remove("MX_STATE_OVERRIDE")
+        .env("MX_GUARD_GRACE", "invalid");
+    let unchanged = status_fixture_bytes(&state);
+    let fresh = read_supervision_status(&mut command);
+    assert_eq!(status_fixture_bytes(&state), unchanged);
+    assert_eq!(
+        fresh["watcher_fresh"], true,
+        "invalid grace lost the documented default"
+    );
+    assert_eq!(
+        fresh["failure"], failure,
+        "ready watcher hid retained transport failure"
+    );
+    assert!(
+        fresh["native_delivery"]
+            .as_str()
+            .unwrap()
+            .contains("watcher freshness alone is insufficient")
+    );
+    assert_eq!(
+        fs::read_to_string(state.join(".pi-watch-failure")).unwrap(),
+        failure
+    );
+
+    let claude = read_supervision_status(&mut supervision_status_command(home.path(), "claude"));
+    assert!(
+        claude["failure"].is_null(),
+        "Pi's failure was attributed to another provider"
+    );
+    assert_eq!(claude["watcher_fresh"], true);
+    fs::write(state.join(".afk"), "fixture away owner\n").unwrap();
+    let mut command = supervision_status_command(home.path(), "unverified-provider");
+    command.env("MX_GUARD_GRACE", "0");
+    let unchanged = status_fixture_bytes(&state);
+    let away = read_supervision_status(&mut command);
+    assert_eq!(status_fixture_bytes(&state), unchanged);
+    assert_eq!(away["harness"], "unknown");
+    assert_eq!(away["away"], true);
+    assert_eq!(
+        away["watcher_fresh"], false,
+        "explicit zero grace was ignored"
+    );
+    assert!(away["failure"].is_null());
+}
+
 #[test]
 fn native_nudge_and_supervision_cover_scope_lock_and_usage_edges() {
     let temp = tempfile::tempdir().expect("tempdir");

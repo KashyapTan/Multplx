@@ -49,7 +49,9 @@ No PreToolUse hook denies system commands based on watcher status.
 The model no longer re-arms after ordinary wakes.
 Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains defense in depth for the manual recovery path.
 Cursor uses the same next-turn-end re-arm ordering as Claude, with a separate bounded failure-feedback budget and automatic follow-up ceiling.
-Codex uses bounded foreground checkpoints when CLI bridge activation is absent, or as an explicit compatibility fallback when queue capability is unavailable and the Stop hook has emitted a visible warning.
+When Codex CLI bridge activation is absent or queue capability is unavailable, supervision is visibly degraded and one bounded foreground checkpoint is permitted only for explicit recovery.
+If native delivery remains unavailable, retain unfinished wakes, name the concrete readiness or compatibility blocker and use the next human message or repaired native startup as the resumption trigger.
+Do not repeat quiet model-authored checkpoints, sleeps or manual re-arm commands.
 No adapter starts a replacement with shell `&`.
 
 The turn-end guard remains the final backstop rather than the normal continuity mechanism and cooperates with the auto-arm in its `--claude` mode.

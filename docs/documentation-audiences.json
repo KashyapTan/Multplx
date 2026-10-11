@@ -547,6 +547,10 @@
     {
       "path": "NBA_ORCHESTRATION_AUDIT.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "plans/actionable-wake-supervision.md",
+      "audience": "maintainer-architecture"
     }
   ]
 }
