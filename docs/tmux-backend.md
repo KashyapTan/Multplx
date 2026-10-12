@@ -55,7 +55,11 @@ Changed identities, extra panes and uncertain ownership refuse replacement, whil
 A target-existence check proves only that the pane exists.
 The deeper tmux agent-liveness probe first verifies exact window membership, then reads `#{pane_current_command}` to distinguish a running harness process from a bare idle shell.
 It classifies recognized Claude and Codex process names as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.
-Only `dead` and `missing` authorize recovery because a false dead result could launch a duplicate agent.
+Only `dead` and `missing` authorize recovery of an unfinished standing assignment because a false dead result could launch a duplicate agent.
+Startup retains canonically completed assignments without probing, killing, relaunching or sending automatic runtime instruction nudges to their endpoints; explicit user-directed spawn or resume remains available through the lifecycle owner.
+Unfinished or unknown child records in a completed assignment’s verified home remain separate reconciliation diagnostics and are never stopped or marked complete by that retention.
+Invalid canonical assignment metadata prevents automatic recovery.
+Spawn failures report a bounded concrete error and exit status rather than replacing the failure with a benign backend notice.
 
 Pi runs through a generic `node` process name and cannot be attributed confidently from the tmux foreground-process field.
 An existing Pi pane is therefore reported as ambiguous rather than auto-healed, while an authoritatively missing Pi window can be relaunched safely.
