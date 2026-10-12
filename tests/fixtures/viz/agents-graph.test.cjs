@@ -170,3 +170,22 @@ for (const status of ["live", "unregistered", "stale", "unavailable"]) {
   fixture.primary.identity_verified = false;
   if (status === "live") assert.equal(normalize(fixture).root.state, "unknown");
 }
+
+{
+  const parent = task("standing-worker");
+  const childHome = "/mx/standing-worker";
+  const nestedHome = "/mx/standing-worker/nested";
+  const child = task("child", childHome, `root-home:${childHome}`);
+  const nested = task("nested-child", nestedHome, "root");
+  const fixture = snapshot([parent, child, nested]);
+  fixture.descendants = { complete: true, records: [
+    { parent_home: home, parent_task_key: parent.key, home: childHome, validated_home: childHome, valid: true },
+    { parent_home: childHome, parent_task_key: child.key, home: nestedHome, validated_home: nestedHome, valid: true },
+  ] };
+  const graph = normalize(fixture);
+  assert.equal(graph.unresolved.length, 0);
+  assert.equal(graph.root.children[0].children[0].key, child.key);
+  assert.equal(graph.root.children[0].children[0].children[0].key, nested.key);
+  fixture.descendants.records[1].validated_home = "/different";
+  assert.equal(normalize(fixture).unresolved.length, 1, "unvalidated descendant route is not inferred");
+}

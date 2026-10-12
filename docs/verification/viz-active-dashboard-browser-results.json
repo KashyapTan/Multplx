@@ -1,0 +1,24 @@
+{
+  "desktop": {
+    "active": 7,
+    "history": 2,
+    "uncertain": 2,
+    "nested_context": true,
+    "filters": true,
+    "disclosures": true,
+    "forge_refresh": true,
+    "status_separation": true,
+    "overflow": false
+  },
+  "mobile": {
+    "active": 7,
+    "history": 2,
+    "uncertain": 2,
+    "nested_context": true,
+    "filters": true,
+    "disclosures": true,
+    "forge_refresh": true,
+    "status_separation": true,
+    "overflow": false
+  }
+}

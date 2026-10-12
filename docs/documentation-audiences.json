@@ -551,6 +551,10 @@
     {
       "path": "plans/actionable-wake-supervision.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/verification/viz-active-dashboard.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

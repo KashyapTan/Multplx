@@ -32,8 +32,8 @@ const extract = (name) => {
 };
 const context = vm.createContext({ document, URLSearchParams, URL });
 vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("const connectionNote =")) +
-  "\nlet portfolio; let attentionItemCount=0; let agentsViewActive=false;\n" +
-  ["titleCase", "projectRecord", "normalizedTasks", "statusTone", "chip", "taskKey", "hashForTask", "stableFocusKey", "restoreFocus", "deliveryStatus", "displayTaskTitle", "readyPrUrl", "renderAttention", "detailSection", "taskDetails"].map(extract).join("\n"), context);
+  "\nlet currentPayload=null; let portfolio; let attentionItemCount=0; let agentsViewActive=false;\n" +
+  ["titleCase", "projectRecord", "normalizedTasks", "statusTone", "chip", "taskKey", "hashForTask", "stableFocusKey", "restoreFocus", "forgeMatchesRevision", "forgeObservation", "deliveryStatus", "displayTaskTitle", "readyPrUrl", "renderAttention", "detailSection", "taskDetails", "factGrid", "openQuestions", "taskIsHistory", "taskIsReconciliation", "stateName", "taskRole", "primaryTaskStatus"].map(extract).join("\n"), context);
 const snapshot = JSON.parse(execFileSync(process.execPath, [path.join(__dirname, "attention.mjs")], { encoding: "utf8" }));
 context.input = snapshot.portfolio;
 vm.runInContext("portfolio=input; renderAttention();", context);
@@ -61,17 +61,17 @@ assert.equal(cards[0].children[0].children[1].textContent, "Repair attention car
 assert.equal(cards[0].children[0].href, "https://example.invalid/pull/42", "ready PR links to the recorded PR");
 assert.equal(cards[0].children[0].target, "_blank");
 assert.equal(cards[0].children[0].rel, "noreferrer");
-assert.equal(cards[0].children[0].children[2].textContent, "Review and merge if satisfied.");
+assert.equal(cards[0].children[0].children[2].textContent, "Review the linked pull request.");
 assert.ok(cards[0].children[1].textContent.includes(snapshot.portfolio.tasks[0].title), "complete original scaffold remains accessible");
 assert.equal(cards[1].children[0].children[0].textContent, "Answer needed");
 assert.equal(cards[1].children[0].children[1].textContent, "Should the rollout include archived projects?");
-assert.equal(cards[1].children[0].children[2].textContent, "Reply in main orchestrator chat.");
+assert.equal(cards[1].children[0].children[2].textContent, "Answer this question in the main orchestrator chat.");
 context.task = snapshot.portfolio.tasks[3];
 assert.equal(vm.runInContext("displayTaskTitle(task)", context), "Repair attention cards", "flattened scaffold produces meaningful label");
 context.task = snapshot.portfolio.tasks[1];
 assert.equal(vm.runInContext("displayTaskTitle(task)", context), "Implement task 2", "unbroken title falls back to recorded brief outcome");
 context.task = { id: "fallback", title: "You are a worker. " + "x".repeat(200) };
-assert.equal(vm.runInContext("displayTaskTitle(task)", context), "fallback", "instruction blob falls back to task identity");
+assert.equal(vm.runInContext("displayTaskTitle(task)", context), "Fallback", "instruction blob falls back to task identity");
 context.renderExecution = () => new Node("section");
 context.renderWorkflow = () => new Node("section");
 context.renderDecisions = () => null;
@@ -111,7 +111,7 @@ assert.equal(refreshed.children[1].scrollTop, 144, "full-text scroll survives up
 assert.equal(document.activeElement, refreshed.children[1], "keyboard focus survives updates");
 assert.equal(nodes.get("#attention-list").children.filter((card) => card.children[1].open).length, 1, "only the matching disclosure remains open");
 vm.runInContext("agentsViewActive=true; renderAttention();", context);
-assert.equal(nodes.get("#attention-panel").hidden, true);
+assert.equal(nodes.get("#attention-panel").hidden, false, "human actions remain visible on Agents");
 vm.runInContext('agentsViewActive=false; portfolio={schema:"mx-portfolio.v1",tasks:[]}; renderAttention();', context);
 assert.equal(nodes.get("#attention-panel").hidden, true);
 assert.equal(nodes.get("#attention-list").children.length, 0);

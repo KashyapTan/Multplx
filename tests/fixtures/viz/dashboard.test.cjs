@@ -1,0 +1,50 @@
+"use strict";
+// Exercise the actual client selectors without browser or operational dependencies.
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const source = fs.readFileSync(path.resolve(__dirname, "../../../share/viz/app.js"), "utf8");
+const extract = (name) => {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0);
+  return source.slice(start, source.indexOf("\nfunction ", start + 1));
+};
+const context = vm.createContext({ URL, URLSearchParams });
+vm.runInContext(source.slice(source.indexOf("const list ="), source.indexOf("const connectionNote =")) +
+  "\nlet currentPayload=null;\n" + ["titleCase", "stateName", "openQuestions", "taskIsHistory", "taskIsReconciliation", "primaryTaskStatus", "forgeMatchesRevision", "forgeObservation", "deliveryStatus", "displayTaskTitle", "readyPrUrl"].map(extract).join("\n"), context);
+(async () => {
+  const { dashboardFixture } = await import("./dashboard.mjs");
+  context.input = dashboardFixture();
+  vm.runInContext("currentPayload=input;", context);
+  const tasks = context.input.snapshot.portfolio.tasks;
+  const evaluate = (name, task) => { context.task = task; return vm.runInContext(`${name}(task)`, context); };
+  assert.equal(tasks.filter((task) => !evaluate("taskIsHistory", task) && !evaluate("taskIsReconciliation", task)).length, 7);
+  assert.equal(tasks.filter((task) => evaluate("taskIsHistory", task)).length, 2);
+  assert.equal(tasks.filter((task) => evaluate("taskIsReconciliation", task)).length, 2);
+  const named = (id) => tasks.find((task) => task.id === id);
+  assert.equal(evaluate("displayTaskTitle", named("FANTASY_UI_1012")), "Build fantasy rankings and player comparison");
+  assert.equal(evaluate("displayTaskTitle", named("long")), "Restore useful player statistics");
+  assert.equal(evaluate("displayTaskTitle", named("sparse")), "Sparse");
+  assert.equal(evaluate("primaryTaskStatus", named("reported")), "Awaiting parent verification");
+  assert.equal(evaluate("primaryTaskStatus", named("mismatch")), "In progress", "idle agent observation does not complete a running task");
+  assert.equal(evaluate("primaryTaskStatus", named("uncertain")), "Needs reconciliation");
+  assert.equal(evaluate("primaryTaskStatus", named("question")), "Answer needed", "merged work retains unrelated unresolved question");
+  assert.equal(evaluate("primaryTaskStatus", named("blocker")), "Blocked", "terminal schedule does not hide blocking dependency");
+  assert.equal(evaluate("readyPrUrl", named("finished")), null, "observed merge overrides old ready receipt");
+  context.input.forge_observations[1].state = "open";
+  assert.equal(evaluate("taskIsHistory", named("finished")), false, "reopened ready PR becomes active");
+  assert.equal(evaluate("readyPrUrl", named("finished")), "https://example.invalid/pull/2");
+  context.input.forge_observations[1].state = "unknown";
+  assert.equal(evaluate("readyPrUrl", named("finished")), null, "failed forge refresh does not advertise unverified merge action");
+  context.input.forge_observations[1].state = "merged";
+  context.input.forge_observations[1].head = "older-revision";
+  assert.equal(evaluate("taskIsHistory", named("finished")), false, "old merged head does not complete a newer delivery");
+  assert.equal(evaluate("taskIsReconciliation", named("finished")), true);
+  const state = { ...named("finished"), evidence: {}, completion: { kind: "implementation-complete" } };
+  assert.equal(evaluate("primaryTaskStatus", state), "Implementation complete");
+  assert.equal(evaluate("taskIsHistory", state), true);
+  state.decisions = [{ question: "A real unresolved question", state: "open" }];
+  assert.equal(evaluate("taskIsHistory", state), false);
+  console.log("dashboard selectors: active/history, uncertainty, completion evidence, reopened/merged PRs, titles and blockers passed");
+})().catch((error) => { console.error(error); process.exitCode = 1; });

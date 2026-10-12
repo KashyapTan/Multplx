@@ -39,6 +39,7 @@ let lastRenderedAgentSearch = null;
 const collapsedAgentKeys = new Set();
 let attentionItemCount = 0;
 let agentsViewActive = false;
+let rootObservationOpen = false;
 
 function ageText(seconds) {
   if (!Number.isFinite(seconds)) return "unknown";
@@ -82,6 +83,55 @@ function projectRecord(task) {
 function stateName(task) {
   const state = task.state ?? task.current_state;
   return String(typeof state === "object" ? state.state || state.status || "unknown" : state || "unknown").toLowerCase();
+}
+
+function openQuestions(task) {
+  return list(task.decisions).filter((row) => !row.answer && !["resolved", "answered", "cancelled", "superseded"].includes(row.state)
+    && String(row.question || row.summary || "").trim());
+}
+
+function taskIsReconciliation(task) {
+  if (openQuestions(task).length || readyPrUrl(task) || list(task.dependencies).some((row) => row.blocking) || taskIsHistory(task)) return false;
+  const forge = forgeObservation(task);
+  if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown")) return true;
+  if (stateName(task) === "unknown") return true;
+  return ["runnable", "running", "working"].includes(stateName(task))
+    && (["stale", "unknown"].includes(task.freshness?.status) || task.observation?.quality === "unknown");
+}
+
+function taskIsHistory(task) {
+  if (openQuestions(task).length || readyPrUrl(task)) return false;
+  if (list(task.dependencies).some((row) => row.blocking)) return false;
+  const forge = forgeObservation(task);
+  if (forge && (!forgeMatchesRevision(task, forge) || forge.state === "unknown")) return false;
+  const review = deliveryStatus(task);
+  if (["merged", "closed"].includes(review)) return true;
+  if (["needs-checks", "blocked-by-dependencies", "review-findings", "publication-failed", "stale-revision"].includes(review)) return false;
+  if (task.completion?.kind === "worker-reported-done") return false;
+  return ["done", "complete", "completed", "cancelled", "canceled", "retired"].includes(stateName(task));
+}
+
+function taskStatusTone(task) {
+  const label = primaryTaskStatus(task);
+  if (["Answer needed", "Blocked", "Publication failed", "Review findings"].includes(label)) return "red";
+  if (["Needs reconciliation", "Awaiting parent verification", "Status unknown", "Checks needed", "Revision needs review"].includes(label)) return "amber";
+  if (["Merged", "Completed", "Implementation complete", "Review PR"].includes(label)) return "green";
+  return statusTone(stateName(task));
+}
+
+function primaryTaskStatus(task) {
+  if (openQuestions(task).length) return "Answer needed";
+  if (readyPrUrl(task)) return "Review PR";
+  if (list(task.dependencies).some((row) => row.blocking)) return "Blocked";
+  if (["merged", "closed"].includes(deliveryStatus(task)) && forgeMatchesRevision(task, forgeObservation(task))) return titleCase(deliveryStatus(task));
+  if (task.completion?.kind === "worker-reported-done") return "Awaiting parent verification";
+  if (taskIsReconciliation(task)) return "Needs reconciliation";
+  if (task.completion?.kind === "implementation-complete") return "Implementation complete";
+  const delivery = deliveryStatus(task);
+  const deliveryLabels = { "needs-checks": "Checks needed", "blocked-by-dependencies": "Blocked", "review-findings": "Review findings", "publication-failed": "Publication failed", "stale-revision": "Revision needs review" };
+  if (deliveryLabels[delivery]) return deliveryLabels[delivery];
+  const labels = { done: "Completed", complete: "Completed", completed: "Completed", running: "In progress", working: "In progress", runnable: "Ready to start", "queued-request": "Queued", "accepted-request": "Accepted", "waiting-external": "Waiting", unknown: "Status unknown" };
+  return labels[stateName(task)] || titleCase(stateName(task));
 }
 
 function taskRole(task) {
@@ -159,7 +209,7 @@ function currentFilters() {
 
 function taskSearchText(task) {
   const project = projectRecord(task);
-  return [task.id, task.title, task.summary, project.id, project.display, project.path, stateName(task), taskRole(task), taskOwner(task),
+  return [task.id, task.title, task.display_title, task.summary, task.description, task.brief?.scope, task.brief?.outcome, project.id, project.display, project.path, stateName(task), taskRole(task), taskOwner(task),
     ...list(task.dependencies).flatMap((dependency) => [dependency.task_id, dependency.state]),
     ...list(task.sessions).flatMap((session) => [session.provider, session.session_id, session.state]),
   ].filter(Boolean).join(" ").toLowerCase();
@@ -189,10 +239,10 @@ function restoreFocus(key) {
   candidate?.focus({ preventScroll: true });
 }
 
-function updateSelect(select, values, label) {
+function updateSelect(select, values, label, display = titleCase) {
   const selected = select.value;
   const options = [el("option", "", label), ...[...values].filter(Boolean).sort().map((value) => {
-    const option = el("option", "", titleCase(value));
+    const option = el("option", "", display(value));
     option.value = value;
     return option;
   })];
@@ -202,7 +252,12 @@ function updateSelect(select, values, label) {
 }
 
 function updateFilterOptions(tasks) {
-  updateSelect(document.querySelector("#project-filter"), new Set(tasks.map((task) => projectRecord(task).id)), "All projects");
+  const projects = new Map(tasks.map((task) => { const project = projectRecord(task); return [project.id, project]; }));
+  updateSelect(document.querySelector("#project-filter"), new Set(projects.keys()), "All projects", (id) => {
+    const project = projects.get(id);
+    const duplicate = [...projects.values()].filter((row) => row.display === project.display).length > 1;
+    return duplicate ? `${project.display} · ${project.path || id}` : project.display;
+  });
   updateSelect(document.querySelector("#status-filter"), new Set(tasks.map(stateName)), "All states");
   updateSelect(document.querySelector("#role-filter"), new Set(tasks.map(taskRole)), "All roles");
   updateSelect(document.querySelector("#priority-filter"), new Set(tasks.map(priorityName)), "All priorities");
@@ -369,7 +424,7 @@ function renderDecisions(task) {
       ["Target brief", decision.brief_revision], ["Workflow revision", decision.workflow_revision],
       ["Waiting", decision.waiting_since ? `${ageText((Date.now() - Date.parse(decision.waiting_since)) / 1000)} · since ${formatLocalTime(decision.waiting_since)}` : null],
     ]));
-    card.append(el("span", "readonly-note", "Viewer only · respond through the ordinary Multplx workflow"));
+    card.append(el("span", "readonly-note", "Viewer only · Answer this question in the main orchestrator chat."));
     section.append(card);
   }
   return section;
@@ -398,13 +453,26 @@ function renderEvidence(task) {
     ]));
   }
   appendEvidenceLink(section, "Pull request", evidence.pr || task.pr, "pull request");
+  const forge = forgeObservation(task);
+  if (forge) section.append(factGrid([["Observed PR", forge.state], ["Forge observation", forge.freshness],
+    ["Published revision", forgeMatchesRevision(task, forge) ? "Matches recorded delivery" : "Not verified against recorded delivery"],
+    ["Forge error", forge.error]]));
   if (section.children.length === 1) section.append(el("p", "empty-inline", "No current-revision evidence is published."));
   return section;
 }
 
 function taskDetails(task) {
   const body = el("div", "task-details");
-  body.append(renderExecution(task), renderWorkflow(task));
+  const overview = detailSection("Assignment");
+  overview.append(factGrid([["Task status", primaryTaskStatus(task)], ["Recorded state", stateName(task)],
+    ["Observation", task.observation?.quality || task.freshness?.status || "unknown"], ["Agent availability", task.observation?.agent_alive === true ? "Process observed" : task.observation?.agent_alive === false ? "No process observed" : "Unknown"], ["Completion evidence", task.completion?.kind], ["Role", titleCase(taskRole(task))]]));
+  const description = task.description || task.summary || task.brief?.scope;
+  if (description) overview.append(el("p", "task-description", description));
+  body.append(overview);
+  const technical = el("details", "technical-details");
+  technical.append(el("summary", "", "Execution, sessions and technical details"));
+  technical.append(factGrid([["Task ID", task.id], ["Project checkout", projectRecord(task).path]]), renderExecution(task), renderWorkflow(task));
+  body.append(technical);
   if (task.title && displayTaskTitle(task) !== task.title) {
     const original = detailSection("Original task text");
     const details = el("details", "attention-details");
@@ -424,7 +492,7 @@ function taskDetails(task) {
     const children = detailSection("Nested tasks");
     for (const key of task.children) {
       const child = normalizedTasks(portfolio).find((candidate) => taskKey(candidate) === key);
-      const link = el("a", "nested-row", child?.title || key);
+      const link = el("a", "nested-row", child ? displayTaskTitle(child) : key);
       link.href = hashForTask(key, child ? projectRecord(child).id : "");
       children.append(link);
     }
@@ -461,17 +529,11 @@ function taskRow(task) {
   const project = projectRecord(task);
   const left = el("div", "task-main");
   const title = el("div", "task-title-line");
-  title.append(chip(priorityName(task), priorityRank(priorityName(task), task) <= -1 ? "red" : "neutral"), el("strong", "task-title", displayTaskTitle(task)));
-  const identity = el("div", "task-identity", `${task.id || id} · ${project.display}${project.path && project.path !== project.display ? ` · ${project.path}` : ""}`);
+  title.append(el("strong", "task-title", displayTaskTitle(task)));
+  const identity = el("div", "task-identity", `${project.display} · ${titleCase(taskRole(task))}`);
   left.append(title, identity);
-  const stage = task.workflow?.current_stage || task.workflow?.stage;
   const right = el("div", "task-signals");
-  right.append(chip(stateName(task)), chip(taskRole(task), "neutral"));
-  if (stage) right.append(el("span", "signal-text", stage));
-  const openDecisions = list(task.decisions).filter((decision) => !decision.answer && decision.state !== "resolved");
-  if (openDecisions.length) right.append(chip(`${openDecisions.length} decision${openDecisions.length === 1 ? "" : "s"}`, "red"));
-  const freshness = object(task.freshness);
-  right.append(chip(freshness.status || "unknown", freshness.status === "stale" || freshness.status === "partial" ? "amber" : null));
+  right.append(chip(primaryTaskStatus(task), taskStatusTone(task)));
   summary.append(left, right);
   details.append(summary, taskDetails(task));
   details.addEventListener("toggle", () => {
@@ -486,11 +548,7 @@ function taskRow(task) {
   return details;
 }
 
-function renderTasks() {
-  if (!portfolio) return;
-  const focusKey = stableFocusKey();
-  const target = document.querySelector("#task-list");
-  const tasks = filteredTasks();
+function renderTaskGroups(target, tasks) {
   clear(target);
   const grouped = new Map();
   for (const task of tasks) {
@@ -501,39 +559,47 @@ function renderTasks() {
   for (const { project, tasks: rows } of grouped.values()) {
     const group = el("section", "project-group");
     const heading = el("div", "project-heading");
-    const text = el("div");
-    text.append(el("h3", "", project.display), project.path ? el("span", "project-path", project.path) : document.createTextNode(""));
-    const coordinators = rows.filter((task) => taskRole(task) === "sub-orchestrator").length;
-    const useful = rows.length - coordinators;
-    const groupCount = coordinators ? `${useful} task${useful === 1 ? "" : "s"} · ${coordinators} coordinator${coordinators === 1 ? "" : "s"}` : `${useful} task${useful === 1 ? "" : "s"}`;
-    heading.append(text, el("span", "section-meta", groupCount));
+    heading.append(el("h3", "", project.display), el("span", "section-meta", `${rows.length} assignments`));
     group.append(heading, ...rows.map(taskRow));
     target.append(group);
   }
-  if (!tasks.length) {
-    const all = normalizedTasks(portfolio);
+}
+
+function renderTasks() {
+  if (!portfolio) return;
+  const focusKey = stableFocusKey();
+  const tasks = filteredTasks();
+  const active = tasks.filter((task) => !taskIsHistory(task) && !taskIsReconciliation(task));
+  const historical = tasks.filter(taskIsHistory);
+  const target = document.querySelector("#task-list");
+  renderTaskGroups(target, active);
+  renderTaskGroups(document.querySelector("#task-history-list"), historical);
+  const reconciliation = tasks.filter(taskIsReconciliation);
+  renderTaskGroups(document.querySelector("#task-reconciliation-list"), reconciliation);
+  document.querySelector("#task-reconciliation-label").textContent = `Needs reconciliation · ${reconciliation.length} uncertain assignments`;
+  document.querySelector("#task-reconciliation").hidden = reconciliation.length === 0;
+  document.querySelector("#task-history-label").textContent = `History · ${historical.length} completed or closed assignments`;
+  if (!active.length) {
     const state = el("div", "empty-state");
-    state.append(el("strong", "", all.length ? "No tasks match these filters" : "No accepted tasks yet"));
-    state.append(el("p", "", all.length ? "Clear or change a filter to return to the portfolio." : "The shared projection is healthy and currently contains zero tasks."));
+    state.append(el("strong", "", tasks.length ? "No active work matches these filters" : "No active work"));
+    state.append(el("p", "", "Completed work is available in History below."));
     target.append(state);
   }
-  const total = normalizedTasks(portfolio).length;
-  const useful = Number(portfolio.counts?.tasks ?? total);
-  const coordinators = Number(portfolio.counts?.coordinators ?? 0);
-  document.querySelector("#task-summary").textContent = `Showing ${tasks.length} of ${total} records · ${useful} tasks · ${coordinators} coordinators`;
+  const all = normalizedTasks(portfolio);
+  const totalActive = all.filter((task) => !taskIsHistory(task) && !taskIsReconciliation(task)).length;
+  document.querySelector("#task-summary").textContent = `${active.length} active shown · ${totalActive} active assignments · ${all.filter(taskIsHistory).length} in history · ${all.filter(taskIsReconciliation).length} uncertain`;
   restoreFocus(focusKey);
 }
 
 function renderCounts() {
   const counts = object(portfolio.counts);
   const tasks = normalizedTasks(portfolio);
+  const active = tasks.filter((task) => !taskIsHistory(task) && !taskIsReconciliation(task));
   const rows = [
-    ["Tasks", counts.tasks ?? tasks.length],
-    ["Coordinators", counts.coordinators ?? tasks.filter((task) => taskRole(task) === "sub-orchestrator").length],
-    ["Sessions", counts.sessions ?? tasks.reduce((sum, task) => sum + list(task.sessions).length, 0)],
-    ["Attempts", counts.attempts ?? tasks.reduce((sum, task) => sum + (task.attempt ? 1 : 0) + list(task.prior_attempts).length, 0)],
-    ["Projects", counts.projects ?? new Set(tasks.map((task) => projectRecord(task).id)).size],
-    ["Domains", counts.domains ?? list(portfolio.domains).length],
+    ["Active work", active.filter((task) => taskRole(task) !== "sub-orchestrator").length],
+    ["Coordinators", active.filter((task) => taskRole(task) === "sub-orchestrator").length],
+    ["History", tasks.filter(taskIsHistory).length],
+    ["Projects", new Set(active.map((task) => projectRecord(task).id)).size],
   ];
   const target = document.querySelector("#portfolio-counts");
   target.replaceChildren(...rows.flatMap(([label, value]) => [el("div", "count-card", ""),]).map((card, index) => {
@@ -543,27 +609,51 @@ function renderCounts() {
   }));
 }
 
+function forgeObservation(task) {
+  const review = object(task.evidence?.review_queue);
+  const url = review.pr_url || task.evidence?.pr?.url || task.pr?.url;
+  const recorded = list(currentPayload?.forge_observations).find((row) => row.url === url);
+  if (recorded) return recorded;
+  return url && Array.isArray(currentPayload?.forge_observations)
+    ? { url, state: "unknown", freshness: "unknown", error: "PR observation unavailable in this bounded dashboard refresh" } : null;
+}
+
+function forgeMatchesRevision(task, observed) {
+  if (!observed) return true;
+  const commit = task.evidence?.delivery?.commit || task.evidence?.review_queue?.commit;
+  return typeof commit === "string" && commit.length > 0 && observed.head === commit;
+}
+
 function deliveryStatus(task) {
+  const observed = forgeObservation(task);
+  if (observed && ["merged", "closed"].includes(observed.state)) return observed.state;
   const evidence = object(task.evidence);
   const reviewQueue = object(evidence.review_queue);
   return String(reviewQueue.state || "").toLowerCase();
 }
 
 function displayTaskTitle(task) {
-  const usable = (value) => value && value.length <= 180 && !/[\r\n]|\S{90}|^You are\b|current worker assignment|#\s*(Task|Charter|Definition of done)\b/i.test(value);
-  const title = String(task.title || "").trim();
+  const usable = (value) => value && value.length <= 100 && !/[\r\n]|\S{70}|^You are\b|current worker assignment|#\s*(Task|Charter|Definition of done)\b/i.test(value) && !/^[A-Z\d]+(?:_[A-Z\d]+){2,}$/.test(value);
+  const title = String(task.display_title || task.title || "").trim();
   if (usable(title)) return title;
-  for (const source of [title, String(task.brief?.scope || "")]) {
+  for (const source of [title, String(task.brief?.outcome || ""), String(task.brief?.scope || ""), String(task.summary || "")]) {
     if (usable(source.trim())) return source.trim();
     for (const match of source.matchAll(/(?:^|\s)#{1,2}\s+(?:Task|Charter)\s+([\s\S]*?)(?=\s+#{1,2}\s+|$)/g)) {
       const label = match[1].trim().split(/\r?\n/)[0].trim();
       if (usable(label) && label !== "{TASK}") return label;
     }
   }
-  return task.id || "Unknown task";
+  const description = [task.brief?.outcome, task.brief?.scope, task.summary, title].find((value) => typeof value === "string" && value.trim() && !/^You are\b/i.test(value) && !/^[A-Z\d]+(?:_[A-Z\d]+){2,}$/.test(value));
+  if (description) {
+    const sentence = description.replace(/\s+/g, " ").split(/(?<=[.!?])\s/)[0];
+    return sentence.length <= 100 ? sentence : `${sentence.slice(0, 97).replace(/\s+\S*$/, "")}…`;
+  }
+  return titleCase(String(task.id || "Untitled assignment").replace(/[_-]\d{4,}$/, ""));
 }
 
 function readyPrUrl(task) {
+  const observed = forgeObservation(task);
+  if (observed && (observed.state !== "open" || !forgeMatchesRevision(task, observed) || observed.freshness !== "fresh")) return null;
   const review = object(object(task.evidence).review_queue);
   if (review.state !== "ready" || review.pr_ready !== true || typeof review.pr_url !== "string") return null;
   try {
@@ -592,7 +682,7 @@ function renderAttention() {
       item.decision?.brief_revision ?? item.task.brief?.revision ?? null]);
     const card = el("article", "attention-card");
     const title = item.decision ? item.decision.question || item.decision.summary : displayTaskTitle(item.task);
-    const reason = item.decision ? "Reply in main orchestrator chat." : "Review and merge if satisfied.";
+    const reason = item.decision ? "Answer this question in the main orchestrator chat." : "Review the linked pull request.";
     const link = el("a", "attention-item");
     link.href = item.prUrl || hashForTask(taskKey(item.task), projectRecord(item.task).id);
     if (item.prUrl) { link.target = "_blank"; link.rel = "noreferrer"; }
@@ -601,6 +691,14 @@ function renderAttention() {
     link.append(chip(item.decision ? "Answer needed" : "PR ready for review", item.decision ? "red" : "green"));
     link.append(el("strong", "attention-title", title));
     link.append(el("span", "attention-reason", reason));
+    if (item.prUrl) {
+      const url = new URL(item.prUrl);
+      const parts = url.pathname.split("/").filter(Boolean);
+      const prIndex = parts.findIndex((part) => ["pull", "pr"].includes(part));
+      const repository = prIndex > 0 ? parts.slice(0, prIndex).join("/") : url.hostname;
+      const number = prIndex >= 0 ? parts[prIndex + 1] : "";
+      link.append(el("span", "attention-pr-label", `Open ${repository}${number ? ` PR #${number}` : " pull request"} ↗`));
+    }
     const details = el("details", "attention-details");
     details.dataset.attentionKey = key;
     details.open = previous.get(key)?.open || false;
@@ -615,7 +713,7 @@ function renderAttention() {
     full.setAttribute("aria-label", `Full attention details for ${item.task.id}`);
     full.append(el("strong", "", title), el("p", "", reason));
     if (item.task.title && item.task.title !== title) full.append(el("p", "", item.task.title));
-    const taskLink = el("a", "attention-task-link", `Open task ${item.task.id}`);
+    const taskLink = el("a", "attention-task-link", `Open ${displayTaskTitle(item.task)}`);
     taskLink.href = hashForTask(taskKey(item.task), projectRecord(item.task).id);
     taskLink.dataset.focusKey = `attention-task:${key}`;
     full.append(taskLink);
@@ -627,7 +725,7 @@ function renderAttention() {
   }
   panel.hidden = items.length === 0;
   attentionItemCount = items.length;
-  panel.hidden = attentionItemCount === 0 || agentsViewActive;
+  panel.hidden = attentionItemCount === 0;
   document.querySelector("#attention-count").textContent = `${items.length} actionable`;
   restoreFocus(focusKey);
 }
@@ -660,7 +758,7 @@ function renderDomains() {
     const row = el("a", "side-row");
     const observation = object(task.allocation?.observation);
     row.href = hashForTask(taskKey(task), projectRecord(task).id);
-    row.append(el("strong", "", task.title || task.id), el("span", "", observation.recovery_issue || observation.issue || `${observation.state} allocation`));
+    row.append(el("strong", "", displayTaskTitle(task)), el("span", "", observation.recovery_issue || observation.issue || `${observation.state} allocation`));
     target.append(row);
   }
   if (!domains.length && !issues.length) target.append(el("p", "empty-inline", "No domain or allocation exceptions are reported."));
@@ -699,7 +797,7 @@ function renderFreshness() {
   const partial = freshness.partial === true;
   const banner = document.querySelector("#state-banner");
   const ageChip = document.querySelector("#snapshot-age");
-  ageChip.textContent = `observed ${ageText(age)} ago`;
+  ageChip.textContent = `Dashboard updated ${ageText(age)} ago`;
   ageChip.className = `age-chip tone-${statusTone(status)}`;
   banner.className = `state-banner ${status}`;
   if (lastError) banner.textContent = `Refresh failed. Showing the last good snapshot (${ageText(age)} old): ${lastError}`;
@@ -761,24 +859,26 @@ function agentCard(node, isRoot = false) {
   }
   card.append(
     el("span", "agent-card-role", isRoot ? "Main orchestrator" : node.role),
-    el("strong", "agent-card-title", node.title || node.id),
+    el("strong", "agent-card-title", node.task ? displayTaskTitle(node.task) : node.title || node.id),
   );
-  if (!isRoot && node.title && node.title !== node.id) card.append(el("span", "agent-card-scope", node.id));
+
   const facts = el("div", "agent-card-facts");
   if (isRoot) {
-    const cacheFact = chip(`cache ${serviceCache || "unknown"}`, statusTone(serviceCache || "unknown"));
-    cacheFact.dataset.primaryCache = "";
-    facts.append(chip(node.healthLabel, node.state === "live" ? "green" : "neutral"), chip(`snapshot ${node.freshness}`, statusTone(node.freshness)), cacheFact);
-    card.append(facts, el("span", "agent-card-owner", node.home ? `Home · ${agentOwnerLabel(node.home)}` : "Home identity unavailable"));
-    card.title = node.home || "Root home identity unavailable";
-    card.title += `\n${node.sessionDetails}`;
-    card.append(el("span", "agent-card-scope", node.sessionDetails));
+    facts.append(chip(node.state === "live" ? "Session process observed" : "Session status unavailable", node.state === "live" ? "blue" : "neutral"));
+    const details = el("details", "root-observation-details");
+    const summary = el("summary", "", "Session observation details");
+    summary.dataset.focusKey = "root-observation";
+    details.open = rootObservationOpen;
+    details.addEventListener("toggle", () => { rootObservationOpen = details.open; });
+    details.append(summary);
+    details.append(factGrid([["Session evidence", node.sessionDetails], ["Home", node.home],
+      ["Dashboard snapshot", node.freshness], ["Dashboard cache", serviceCache || "unknown"]]));
+    card.append(facts, details);
     return card;
   }
-  facts.append(chip(node.state || "unknown", statusTone(String(node.state || "unknown").toLowerCase())), chip(node.freshness || "freshness unknown", statusTone(String(node.freshness || "unknown").toLowerCase())));
-  facts.append(chip(node.provider || "provider not recorded", "neutral"));
+  facts.append(chip(primaryTaskStatus(node.task), taskStatusTone(node.task)));
   card.title = `${card.title}\nSession details: ${node.sessionDetails || node.session}`;
-  card.append(facts, el("span", "agent-card-owner", `${agentOwnerLabel(node.home)} · Session: ${node.session}`));
+  card.append(facts, el("span", "agent-card-owner", taskIsHistory(node.task) && node.children.length ? "Completed parent · active descendants below" : "Open assignment details"));
   if (node.domain?.coordinator?.runtime_home) {
     const runtime = node.domain.coordinator.runtime_home;
     const validated = node.domain.coordinator.validated_home === runtime;
@@ -874,8 +974,33 @@ function renderAgents(snapshot) {
   const scrollTop = viewport.scrollTop;
   const focusedKey = document.activeElement?.dataset?.agentCardKey || null;
   const focusedCollapseKey = document.activeElement?.dataset?.agentCollapseKey || null;
+  const focusedGeneralKey = stableFocusKey();
   const graph = agentsGraphApi.normalize({ ...object(snapshot), portfolio: portfolio || {} });
   normalizedAgentGraph = graph;
+  const activeKeys = new Set(graph.nodes.filter((node) => !taskIsHistory(node.task) && !taskIsReconciliation(node.task)).map((node) => node.key));
+  const allByKey = new Map(graph.nodes.map((node) => [node.key, node]));
+  for (const key of [...activeKeys]) {
+    let node = allByKey.get(key);
+    const seen = new Set();
+    while (node?.parentKey && node.parentKey !== graph.rootKey && !seen.has(node.parentKey)) {
+      seen.add(node.parentKey);
+      activeKeys.add(node.parentKey);
+      node = allByKey.get(node.parentKey);
+    }
+  }
+  const historicalNodes = graph.nodes.filter((node) => taskIsHistory(node.task));
+  const historyTarget = document.querySelector("#agent-history-list");
+  historyTarget.replaceChildren(...historicalNodes.map((node) => agentCard(node)));
+  const uncertainNodes = graph.nodes.filter((node) => taskIsReconciliation(node.task));
+  document.querySelector("#agent-reconciliation-list").replaceChildren(...uncertainNodes.map((node) => agentCard(node)));
+  document.querySelector("#agent-reconciliation-label").textContent = `Needs reconciliation · ${uncertainNodes.length} uncertain assignments`;
+  document.querySelector("#agent-reconciliation").hidden = uncertainNodes.length === 0;
+  document.querySelector("#agent-history-label").textContent = `History · ${historicalNodes.length} completed assignments and retained sessions`;
+  const prune = (node) => { node.children = node.children.filter((child) => activeKeys.has(child.key)); node.children.forEach(prune); };
+  prune(graph.root);
+  graph.unresolved = graph.unresolved.filter((node) => activeKeys.has(node.key));
+  graph.unresolved.forEach(prune);
+  graph.nodes = graph.nodes.filter((node) => activeKeys.has(node.key));
   const layout = agentsGraphApi.layout(graph);
   const query = document.querySelector("#agent-search").value.trim().toLowerCase();
   const searchChanged = query !== lastRenderedAgentSearch;
@@ -900,9 +1025,9 @@ function renderAgents(snapshot) {
   clear(unresolvedList);
   unresolvedPanel.hidden = graph.unresolved.length === 0;
   for (const node of graph.unresolved) unresolvedList.append(agentBranch(node, graph, matching, ancestors));
-  const coordinators = graph.nodes.filter((node) => node.role === "sub-orchestrator").length;
+  const coordinators = graph.nodes.filter((node) => node.role === "sub-orchestrator" && !taskIsHistory(node.task)).length;
   const searchSummary = query ? ` · ${matching.size} match${matching.size === 1 ? "" : "es"}${matching.size ? "" : " · no matching assignments"}` : "";
-  const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.length} assignments`;
+  const assignmentCount = graph.truncated ? `${graph.nodes.length} of ${graph.total} assignments shown` : `${graph.nodes.filter((node) => !taskIsHistory(node.task)).length} active assignments · ${historicalNodes.length} in history`;
   const summary = `${assignmentCount} · ${coordinators} coordinators · root ${graph.root.healthLabel}${graph.partial ? " · projection partial" : " · projection complete"}${searchSummary}`;
   document.querySelector("#agents-summary").textContent = summary;
   const warning = document.querySelector("#agents-warning");
@@ -919,6 +1044,7 @@ function renderAgents(snapshot) {
   rootButton.disabled = false;
   requestAnimationFrame(() => {
     drawAgentConnectors(graph);
+    restoreFocus(focusedGeneralKey);
     viewport.scrollLeft = scrollLeft;
     viewport.scrollTop = scrollTop;
     if (focusedKey && !document.querySelector("#agents-view").hidden) {
@@ -947,6 +1073,8 @@ function showAgentTask(task) {
   document.querySelector("#search").value = "";
   document.querySelector("#tasks-view-button").click();
   renderTasks();
+  if (taskIsHistory(task)) document.querySelector("#task-history").open = true;
+  if (taskIsReconciliation(task)) document.querySelector("#task-reconciliation").open = true;
   const key = taskKey(task);
   const row = [...document.querySelectorAll(".task-row")].find((candidate) => candidate.dataset.taskId === key);
   if (row) {
@@ -964,6 +1092,7 @@ function centerAgentRoot() {
   if (!rootCard) return;
   const viewportRect = viewport.getBoundingClientRect();
   const cardRect = rootCard.getBoundingClientRect();
+  viewport.scrollTop = 0;
   viewport.scrollLeft += cardRect.left + cardRect.width / 2 - (viewportRect.left + viewport.clientWidth / 2);
 }
 
@@ -976,7 +1105,7 @@ function setAgentsView(agentsVisible) {
   agents.hidden = !agentsVisible;
   tasks.hidden = agentsVisible;
   agentsViewActive = agentsVisible;
-  document.querySelector("#attention-panel").hidden = agentsVisible || attentionItemCount === 0;
+  document.querySelector("#attention-panel").hidden = attentionItemCount === 0;
   agentsButton.classList.toggle("selected", agentsVisible);
   agentsButton.setAttribute("aria-pressed", String(agentsVisible));
   tasksButton.classList.toggle("selected", !agentsVisible);
@@ -990,7 +1119,7 @@ function setAgentsView(agentsVisible) {
   });
 }
 
-function setConnected(message = "Live") {
+function setConnected(message = "Dashboard connected") {
   connectionNote.textContent = message;
   connectionNote.classList.remove("bad");
   liveDot.classList.remove("disconnected");
@@ -1004,7 +1133,7 @@ function readObservationHeaders(response) {
   serviceCache = cache || serviceCache;
   const refresh = response.headers.get("X-Multplx-Refresh");
   lastError = response.headers.get("X-Multplx-Refresh-Error");
-  return [cache, refresh].filter(Boolean).join(" · ");
+  return [cache && `Dashboard cache ${cache}`, refresh && `refresh ${refresh}`].filter(Boolean).join(" · ");
 }
 
 async function poll() {
@@ -1016,14 +1145,14 @@ async function poll() {
     const serviceState = readObservationHeaders(response);
     if (response.status === 304) {
       if (portfolio) renderFreshness();
-      setConnected(serviceState || "Live · unchanged");
+      setConnected(serviceState || "Dashboard connected · unchanged");
       return;
     }
     if (!response.ok) throw new Error(`snapshot request returned ${response.status}`);
     const payload = await response.json();
     meaningfulHash = response.headers.get("ETag") || response.headers.get("X-Multplx-Snapshot-Hash");
     render(payload);
-    setConnected(serviceState || "Live");
+    setConnected(serviceState || "Dashboard connected");
   } catch (error) {
     lastError = error.message;
     connectionNote.textContent = `Connection lost · ${error.message}`;
@@ -1059,6 +1188,9 @@ function applyHash(forceScroll = true) {
   if (!id) { if (project) renderTasks(); return; }
   expanded.add(id);
   if (projectChanged) renderTasks();
+  const matchedTask = normalizedTasks(portfolio).find((task) => taskKey(task) === id);
+  if (matchedTask && taskIsHistory(matchedTask)) document.querySelector("#task-history").open = true;
+  if (matchedTask && taskIsReconciliation(matchedTask)) document.querySelector("#task-reconciliation").open = true;
   const row = [...document.querySelectorAll(".task-row")].find((node) => node.dataset.taskId === id);
   if (row) {
     row.open = true;

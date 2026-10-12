@@ -321,12 +321,12 @@ JS
     || fail "dashboard deep links do not prefer home-qualified task identity"
   grep -F 'ArrowDown' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "dashboard lost keyboard task navigation"
-  grep -F 'Tasks are counted once' "$ROOT/share/viz/index.html" >/dev/null \
-    || fail "dashboard no longer distinguishes tasks from sessions and attempts"
+  grep -F 'Active work and actions that need you.' "$ROOT/share/viz/index.html" >/dev/null \
+    || fail "dashboard lost its active work overview"
   ! grep -REn 'https?://' "$ROOT/share/viz" >/dev/null || fail "dashboard assets contain an external dependency"
   ! grep -REn 'data-approve|btn-approve|Spawn actor|Raise a decision|Pause simulation' "$ROOT/share/viz" >/dev/null \
     || fail "dashboard assets retained demo or decision-write controls"
-  grep -F 'Viewer only · respond through the ordinary Multplx workflow' "$ROOT/share/viz/app.js" >/dev/null \
+  grep -F 'Viewer only · Answer this question in the main orchestrator chat.' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "decision drawer does not state its read-only boundary"
   grep -F 'hour12: true' "$ROOT/share/viz/app.js" >/dev/null \
     || fail "dashboard timestamps no longer force the requested 12-hour clock"
@@ -753,6 +753,7 @@ test_portfolio_scale_fixtures_and_ui_contract() {
   node --check "$ROOT/share/viz/agents-graph.js" || fail "agent graph module has invalid JavaScript syntax"
   node "$ROOT/tests/fixtures/viz/agents-graph.test.cjs" || fail "agent graph normalization/layout fixtures failed"
   node "$ROOT/tests/fixtures/viz/attention.test.cjs" || fail "attention rendering DOM regressions failed"
+  node "$ROOT/tests/fixtures/viz/dashboard.test.cjs" || fail "active/history dashboard selectors failed"
   grep -F 'Agents and assignments' "$ROOT/share/viz/index.html" >/dev/null \
     || fail "dashboard lost its agent hierarchy view"
   ! grep -REn 'data-approve|data-merge|data-spawn|method="post"' "$ROOT/share/viz" >/dev/null \

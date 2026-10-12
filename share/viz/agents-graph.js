@@ -151,6 +151,19 @@
       }
     }
 
+    // Registered standing workers may own children without a coordinator domain.
+    // Use only the backend-validated exact parent route; never infer from folder names.
+    for (const descendant of rows(snapshot?.descendants?.records)) {
+      const runtimeHome = text(descendant?.home);
+      const parentKey = text(descendant?.parent_task_key);
+      const owners = parentKey ? sourceKeys.get(parentKey) : null;
+      if (descendant?.valid === true && runtimeHome && runtimeHome === text(descendant?.validated_home)
+          && owners?.length === 1 && text(descendant?.parent_home) === owners[0].home) {
+        if (!runtimeOwners.has(runtimeHome)) runtimeOwners.set(runtimeHome, []);
+        if (!runtimeOwners.get(runtimeHome).includes(owners[0])) runtimeOwners.get(runtimeHome).push(owners[0]);
+      }
+    }
+
     function parentFor(node) {
       if (!node.home) return { issue: "owner home unavailable" };
       const task = node.task;

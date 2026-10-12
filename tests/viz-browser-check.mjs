@@ -78,7 +78,7 @@ for (const [layout, viewport] of Object.entries({ wide: { width: 1440, height: 9
   const prLink = page.locator(".attention-item").first();
   if (await prLink.getAttribute("href") !== "https://example.invalid/pull/42") throw new Error("ready PR does not link to its actual recorded URL");
   const questionLink = page.locator(".attention-item").nth(1);
-  if (!(await questionLink.textContent()).includes("Should the rollout include archived projects?") || !(await questionLink.textContent()).includes("Reply in main orchestrator chat.")) throw new Error("human question does not explain the required answer and destination");
+  if (!(await questionLink.textContent()).includes("Should the rollout include archived projects?") || !(await questionLink.textContent()).includes("Answer this question in the main orchestrator chat.")) throw new Error("human question does not explain the required answer and destination");
   const taskLink = page.locator(".attention-task-link").first();
   await taskLink.focus();
   await taskLink.press("Enter");
@@ -115,7 +115,7 @@ for (const count of [0, 1, 5, 10, 20]) {
     page.on("console", (message) => { if (message.type() === "error") results.errors.push(`${count}/${layout}: ${message.text()}`); });
     page.on("pageerror", (error) => results.errors.push(`${count}/${layout}: ${error.message}`));
     await page.goto(base, { waitUntil: "domcontentloaded" });
-    await page.locator("#task-summary").filter({ hasText: new RegExp(`· ${count} tasks ·`) }).waitFor();
+    await page.locator("#task-summary").filter({ hasText: "active shown" }).waitFor();
     const measured = await page.evaluate(() => ({
       width: innerWidth,
       horizontal_overflow: document.documentElement.scrollWidth > innerWidth,
@@ -136,7 +136,7 @@ publish(20, "interaction-base");
 await sleep(3200);
 const interaction = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 await interaction.goto(base, { waitUntil: "domcontentloaded" });
-await interaction.locator("#task-summary").filter({ hasText: /· 20 tasks ·/ }).waitFor();
+await interaction.locator("#task-summary").filter({ hasText: "active shown" }).waitFor();
 const first = interaction.locator(".task-row > summary").first();
 await first.click();
 await interaction.locator("#search").fill("Portfolio task 1");
@@ -158,6 +158,7 @@ results.keyboard_next_task = await interaction.evaluate(() => document.activeEle
 const readBindings = () => interaction.evaluate(() => [...document.querySelectorAll(".task-row")].map((row) => ({
   key: row.dataset.taskId,
   identity: row.querySelector(".task-identity")?.textContent || "",
+  checkout: row.querySelector(".technical-details .fact-grid")?.textContent || "",
   evidence: [...row.querySelectorAll(".evidence-row")].map((item) => item.textContent.trim()),
 })));
 const baselineBindings = await readBindings();
@@ -175,7 +176,7 @@ for (const project of canonicalTwenty.portfolio.projects) {
   const visible = await readBindings();
   sameStrings(visible.map((binding) => binding.key), expected.map((task) => task.key), `project ${project.id} task keys`);
   for (const binding of visible) {
-    if (!binding.identity.includes(project.path)) throw new Error(`project ${project.id} lost checkout path for ${binding.key}`);
+    if (!binding.checkout.includes(project.path)) throw new Error(`project ${project.id} lost checkout path for ${binding.key}`);
     if (JSON.stringify(binding.evidence) !== JSON.stringify(baselineByKey.get(binding.key)?.evidence)) {
       throw new Error(`project ${project.id} changed evidence binding for ${binding.key}`);
     }
@@ -243,7 +244,7 @@ await hidden.addInitScript(() => {
   };
 });
 await hidden.goto(base, { waitUntil: "domcontentloaded" });
-await hidden.locator("#task-summary").filter({ hasText: /· 20 tasks ·/ }).waitFor();
+await hidden.locator("#task-summary").filter({ hasText: "active shown" }).waitFor();
 await hidden.evaluate(() => { window.__mxTimeoutDelays.length = 0; window.__mxSetHidden(true); });
 const hiddenDelay = await hidden.evaluate(() => Math.max(...window.__mxTimeoutDelays));
 results.hidden_poll = { method: "injected document.hidden state", scheduled_delay_ms: hiddenDelay };
@@ -312,7 +313,7 @@ for (let sample = 0; sample < 20; sample += 1) {
     if (response.url().endsWith("/api/state")) { await response.finished(); dataFinishedAt = performance.now(); }
   });
   await page.goto(base, { waitUntil: "domcontentloaded" });
-  await page.locator("#task-summary").filter({ hasText: /· 20 tasks ·/ }).waitFor();
+  await page.locator("#task-summary").filter({ hasText: "active shown" }).waitFor();
   if (dataFinishedAt === null) throw new Error(`sample ${sample} lacked a completed state response`);
   results.interaction_samples_ms.push(Number((performance.now() - dataFinishedAt).toFixed(3)));
   await page.close();
